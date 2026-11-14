@@ -146,7 +146,7 @@ describe("a human change ends a claim", () => {
     run(Effect.gen(function* () {
       const { tasks, status, task } = yield* setup
       const { result: claimed } = yield* asAgent(live)(tasks.claim({ commandId: cmd(), key: task.key }))
-      const { result: moved } = yield* asAgent(other)(tasks.move({ commandId: cmd(), id: task.id, statusId: status["In Review"]!.id }))
+      const { result: moved } = yield* asAgent(other)(tasks.move({ commandId: cmd(), id: task.id, statusId: status["Todo"]!.id }))
       expect(moved.assigneeSessionId).toBe(claimed.assigneeSessionId)
     })))
 })

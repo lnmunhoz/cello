@@ -35,6 +35,7 @@ const snapshot = (tasks: Task[], seq = 10): Snapshot => ({
   statuses: [],
   labels: [],
   tasks,
+  reviews: [],
 })
 
 const ev = (seq: number, body: EventBody): CelloEvent =>

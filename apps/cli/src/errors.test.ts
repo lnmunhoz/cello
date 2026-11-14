@@ -1,5 +1,5 @@
 // Errors say what to do next, from one table keyed by error tag.
-import { NotFound, TaskClaimed } from "@cello/contract/errors"
+import { HumanOnly, NotFound, ReviewRequired, TaskClaimed } from "@cello/contract/errors"
 import { describe, expect, it } from "vitest"
 import { explain } from "./errors.ts"
 
@@ -24,6 +24,19 @@ describe("explain", () => {
       "No project is linked to /tmp/elsewhere. Pass --project KEY (`cello init` comes later in M2).",
     )
     expect(explain(new NotFound({ entity: "task", id: "CEL-99" }), where)).toBe("No task CEL-99. Run `cello task list` to see open tasks.")
+  })
+
+  it("moving to In Review without a packet points at `cello task submit`", () => {
+    expect(explain(new ReviewRequired({ key: "CEL-7", status: "In Review" }), where)).toBe(
+      "CEL-7 needs a review packet before it goes to In Review. Submit one instead: " +
+        "`cello task submit CEL-7 --summary \"what changed\" --step \"how to check it\" --attach demo.mp4`. See `cello guide`.",
+    )
+  })
+
+  it("only the human decides reviews", () => {
+    expect(explain(new HumanOnly({ action: "approve a review", human: "Lucas" }), where)).toBe(
+      "Only Lucas can approve a review. Leave the task in In Review; Lucas decides on the Review page.",
+    )
   })
 
   it("an unreachable server says how to start it", () => {

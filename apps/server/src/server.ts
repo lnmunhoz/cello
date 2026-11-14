@@ -1,6 +1,8 @@
 // The whole server as one layer: lock → database → migrations → seed → services → RPC over a
-// WebSocket at /rpc on 127.0.0.1, plus the built web app when given. main.ts and `cello start`
-// launch it; integration tests build it on port 0.
+// WebSocket at /rpc on 127.0.0.1, review evidence at /attachments/<id> (files in <dataDir>/assets),
+// plus the built web app when given. main.ts and `cello start` launch it; integration tests build it
+// on port 0.
+import * as path from "node:path"
 import * as BunHttpServer from "@effect/platform-bun/BunHttpServer"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -14,9 +16,11 @@ import * as Migrations from "./persistence/Migrations.ts"
 import * as Seed from "./persistence/Seed.ts"
 import * as Sqlite from "./persistence/Sqlite.ts"
 import * as AllowedOrigins from "./rpc/AllowedOrigins.ts"
+import * as AssetStore from "./review/AssetStore.ts"
 import * as Handlers from "./rpc/Handlers.ts"
 import * as ServerLock from "./server/ServerLock.ts"
 import * as Services from "./services.ts"
+import * as Attachments from "./web/Attachments.ts"
 import * as WebFiles from "./web/WebFiles.ts"
 
 export interface ServerOptions {
@@ -44,16 +48,16 @@ export const layer = (options: ServerOptions) => {
     Layer.provideMerge(Migrations.layer),
     Layer.provideMerge(database),
   )
-  const app = Services.layer.pipe(Layer.provideMerge(storage))
+  const assets = AssetStore.layer({ dir: path.join(options.dataDir, "assets") })
+  const app = Services.layer.pipe(Layer.provideMerge(storage), Layer.provideMerge(assets))
   const rpc = RpcServer.layer(CelloRpcs).pipe(
     Layer.provide(Handlers.layer),
     Layer.provide(CallerMiddleware.layer),
     Layer.provideMerge(RpcServer.layerProtocolWebsocket({ path: "/rpc" })),
     Layer.provide(RpcSerialization.layerJson),
   )
-  const routes = options.web === undefined
-    ? Layer.mergeAll(rpc, AllowedOrigins.layer)
-    : Layer.mergeAll(rpc, AllowedOrigins.layer, WebFiles.layer(options.web))
+  const api = Layer.mergeAll(rpc, Attachments.layer, AllowedOrigins.layer)
+  const routes = options.web === undefined ? api : Layer.mergeAll(api, WebFiles.layer(options.web))
   return Layer.mergeAll(HttpRouter.serve(routes, { disableLogger: true }), recordPort).pipe(
     Layer.provide(app),
     Layer.provideMerge(BunHttpServer.layer({ hostname: "127.0.0.1", port: options.port })),

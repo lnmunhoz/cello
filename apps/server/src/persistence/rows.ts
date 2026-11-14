@@ -1,6 +1,20 @@
 // Reading rows into contract entities. Every service and the snapshot read through these, so a
 // column maps to a field in exactly one place. Each reader takes a WHERE fragment over its aliases.
-import type { Actor, Comment, Label, Priority, Project, Status, StatusCategory, Task, Workspace } from "@cello/contract/entities"
+import type {
+  Actor,
+  Attachment,
+  AttachmentKind,
+  Comment,
+  Label,
+  Priority,
+  Project,
+  Review,
+  ReviewDecision,
+  Status,
+  StatusCategory,
+  Task,
+  Workspace,
+} from "@cello/contract/entities"
 import { formatTaskKey } from "@cello/shared/taskKey"
 import * as Effect from "effect/Effect"
 import type * as SqlClient from "effect/sql/SqlClient"
@@ -233,3 +247,74 @@ export const selectComments = (sql: Sql, where: Where) =>
         deletedAt: r.deleted_at,
       }))),
   )
+
+interface AttachmentRow {
+  id: string
+  task_id: string
+  review_id: string | null
+  kind: AttachmentKind
+  name: string
+  url: string | null
+  caption: string
+  mime: string | null
+  bytes: number | null
+  poster_path: string | null
+  actor_id: string
+  session_id: string | null
+  created_at: number
+  deleted_at: number | null
+}
+
+const toAttachment = (r: AttachmentRow): Attachment => ({
+  id: r.id,
+  taskId: r.task_id,
+  reviewId: r.review_id,
+  kind: r.kind,
+  name: r.name,
+  url: r.url,
+  caption: r.caption,
+  mime: r.mime,
+  bytes: r.bytes,
+  hasPoster: r.poster_path !== null,
+  actorId: r.actor_id,
+  sessionId: r.session_id,
+  createdAt: r.created_at,
+  deletedAt: r.deleted_at,
+})
+
+interface ReviewRow {
+  id: string
+  task_id: string
+  summary: string
+  steps: string
+  actor_id: string
+  session_id: string | null
+  created_at: number
+  decided_at: number | null
+  decision: ReviewDecision | null
+  decision_note: string | null
+}
+
+/** Aliases: `r` (reviews), `t` (its task) and `p` (the task's project). Each review comes with its attachments that aren't deleted. */
+export const selectReviews = (sql: Sql, where: Where) =>
+  Effect.gen(function* () {
+    const rows = yield* sql<ReviewRow>`
+      SELECT r.* FROM reviews r JOIN tasks t ON t.id = r.task_id JOIN projects p ON p.id = t.project_id
+      WHERE ${where} ORDER BY r.created_at, r.id`
+    const files = rows.length === 0 ? [] : yield* sql<AttachmentRow>`
+      SELECT * FROM attachments WHERE ${sql.in("review_id", rows.map((r) => r.id))} AND deleted_at IS NULL
+      ORDER BY created_at, rowid`
+    return rows.map((r): Review => ({
+      id: r.id,
+      taskId: r.task_id,
+      summary: r.summary,
+      steps: JSON.parse(r.steps) as string[],
+      attachments: files.filter((f) => f.review_id === r.id).map(toAttachment),
+      actorId: r.actor_id,
+      sessionId: r.session_id,
+      createdAt: r.created_at,
+      decidedAt: r.decided_at,
+      decision: r.decision,
+      decisionNote: r.decision_note,
+    }))
+  })

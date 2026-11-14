@@ -4,8 +4,8 @@ import * as Schema from "effect/Schema"
 import * as Rpc from "effect/rpc/Rpc"
 import * as RpcGroup from "effect/rpc/RpcGroup"
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware"
-import { Comment, DueDate, Id, Label, Priority, Project, ProjectRef, Scope, Snapshot, Status, Task, Workspace } from "./entities.ts"
-import { Invalid, KeyTaken, NotFound, SnapshotRequired, TaskClaimed, VersionConflict } from "./errors.ts"
+import { Comment, DueDate, Id, Label, Priority, Project, ProjectRef, Review, Scope, Snapshot, Status, Task, Workspace } from "./entities.ts"
+import { HumanOnly, Invalid, KeyTaken, NotFound, ReviewRequired, SnapshotRequired, TaskClaimed, VersionConflict } from "./errors.ts"
 import { CelloEvent } from "./events.ts"
 import { ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
 
@@ -34,6 +34,12 @@ export const HUMAN_SESSION = "me"
 const commandId = Schema.String
 const write = <S extends Schema.Top>(result: S) => Schema.Struct({ result, seq: Schema.NullOr(Schema.Number) })
 const neighbors = { before: Schema.optionalKey(Schema.NullOr(Id)), after: Schema.optionalKey(Schema.NullOr(Id)) }
+
+/** A file for a review: an absolute path on the server's machine (the CLI runs on the same one). */
+export const EvidenceFile = Schema.Struct({ path: Schema.String, caption: Schema.optionalKey(Schema.String) })
+export type EvidenceFile = typeof EvidenceFile.Type
+export const EvidenceLink = Schema.Struct({ url: Schema.String, caption: Schema.optionalKey(Schema.String) })
+export type EvidenceLink = typeof EvidenceLink.Type
 
 export const CelloRpcs = RpcGroup.make(
   // No scope: the first non-archived workspace by position. Every snapshot lists all non-archived workspaces.
@@ -132,10 +138,11 @@ export const CelloRpcs = RpcGroup.make(
     success: write(Task),
     error: Schema.Union([NotFound, Invalid, VersionConflict]),
   }),
+  // An agent can't move a task into In Review without an open review (ReviewRequired); the human can.
   Rpc.make("task.move", {
     payload: { commandId, id: Id, expectedVersion: Schema.optionalKey(Schema.Number), statusId: Id, ...neighbors },
     success: write(Task),
-    error: Schema.Union([NotFound, Invalid, VersionConflict]),
+    error: Schema.Union([NotFound, Invalid, VersionConflict, ReviewRequired]),
   }),
   Rpc.make("task.setLabels", {
     payload: { commandId, id: Id, add: Schema.Array(Id), remove: Schema.Array(Id) },
@@ -170,6 +177,33 @@ export const CelloRpcs = RpcGroup.make(
     success: write(Task),
     error: Schema.Union([NotFound, Invalid]),
   }),
+
+  // Review packets. `review.submit` copies the files (absolute paths on this machine) into the data
+  // folder and moves the task to In Review, in one command. Only the human approves or sends back.
+  Rpc.make("review.submit", {
+    payload: {
+      commandId,
+      key: Schema.String,
+      summary: Schema.String,
+      steps: Schema.Array(Schema.String),
+      files: Schema.Array(EvidenceFile),
+      links: Schema.Array(EvidenceLink),
+    },
+    success: write(Schema.Struct({ review: Review, task: Task })),
+    error: Schema.Union([NotFound, Invalid]),
+  }),
+  Rpc.make("review.approve", {
+    payload: { commandId, key: Schema.String, note: Schema.optionalKey(Schema.String) },
+    success: write(Task),
+    error: Schema.Union([NotFound, Invalid, HumanOnly]),
+  }),
+  Rpc.make("review.sendBack", {
+    payload: { commandId, key: Schema.String, note: Schema.String },
+    success: write(Task),
+    error: Schema.Union([NotFound, Invalid, HumanOnly]),
+  }),
+  // Every review of a task, open and decided, oldest first.
+  Rpc.make("review.list", { payload: { taskId: Id }, success: Schema.Array(Review), error: NotFound }),
 
   Rpc.make("comment.list", { payload: { taskId: Id }, success: Schema.Array(Comment), error: NotFound }),
   Rpc.make("comment.add", {

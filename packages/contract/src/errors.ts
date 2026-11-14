@@ -36,3 +36,17 @@ export class TaskClaimed extends Schema.TaggedError<TaskClaimed>()("TaskClaimed"
   sessionId: Schema.NullOr(Schema.String),
   lastSeenAt: Schema.NullOr(Schema.Number),
 }) {}
+
+/** Only the human decides a review: approving it or sending it back. */
+export class HumanOnly extends Schema.TaggedError<HumanOnly>()("HumanOnly", {
+  /** What was refused, e.g. "approve a review". */
+  action: Schema.String,
+  /** The human's name. */
+  human: Schema.String,
+}) {}
+
+/** An agent tried to move a task into In Review without an open review packet (`cello task submit`). */
+export class ReviewRequired extends Schema.TaggedError<ReviewRequired>()("ReviewRequired", {
+  key: Schema.String,
+  status: Schema.String,
+}) {}
