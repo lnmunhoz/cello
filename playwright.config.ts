@@ -25,6 +25,9 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
     viewport: { width: 1440, height: 900 },
     video: { mode: "on", size: { width: 1440, height: 900 } },
+    // Videos for a review packet: CELLO_E2E_SLOWMO=400 slows every browser action so each step can be
+    // seen. Off by default; tests never wait on it.
+    launchOptions: { slowMo: Number(process.env.CELLO_E2E_SLOWMO ?? 0) },
   },
   webServer: [
     {
