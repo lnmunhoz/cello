@@ -1,62 +1,11 @@
 // CEL-10: an agent hands in a review packet through the real `cello` CLI (a real MP4 and a real
 // screenshot), and Lucas reviews it in the browser: on the Review page (approve → Done) and in the
 // task panel (send back with a note → In Progress).
-import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
-import * as os from "node:os"
 import * as path from "node:path"
-import type { Browser, Page } from "@playwright/test"
+import type { Browser } from "@playwright/test"
 import { caption, card, column, createProject, expect, test, uniqueKey } from "./fixtures.ts"
-
-const root = path.resolve(import.meta.dirname, "..")
-const SERVER_PORT = Number(process.env.CELLO_E2E_SERVER_PORT ?? 4791)
-const WEB_URL = `http://localhost:${process.env.CELLO_WEB_PORT ?? 5199}`
-const shots = path.join(import.meta.dirname, "videos")
-
-/** Runs the `cello` CLI from source as a Claude Code session, against the e2e server. */
-const cello = (...args: string[]) => {
-  const result = spawnSync("bun", [path.join(root, "apps/cli/src/bin.ts"), ...args], {
-    cwd: root,
-    encoding: "utf8",
-    env: {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      CELLO_PORT: String(SERVER_PORT),
-      CLAUDE_CODE_SESSION_ID: "e2e0review-agent-session",
-      CLAUDE_PID: String(process.pid),
-    },
-  })
-  if (result.status !== 0) throw new Error(`cello ${args.join(" ")} failed: ${result.stderr}`)
-  return result.stdout.trim()
-}
-
-/** An agent's packet for task 1 of `key`: a real MP4 and a real screenshot of the board. */
-async function submitPacket(page: Page, key: string) {
-  cello("task", "create", "Review packets on the board", "--project", key)
-  cello("task", "claim", `${key}-1`)
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-evidence-"))
-  // A real MP4 (a test pattern). VP9 inside: Playwright's Chromium has no H.264.
-  const video = path.join(dir, "board-flow.mp4")
-  const ffmpeg = spawnSync("ffmpeg", [
-    "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=4:size=640x360:rate=25",
-    "-c:v", "libvpx-vp9", "-deadline", "realtime", "-b:v", "0", "-crf", "40", "-pix_fmt", "yuv420p", "-movflags", "+faststart", video,
-  ])
-  if (ffmpeg.status !== 0) throw new Error(`ffmpeg failed: ${ffmpeg.stderr}`)
-  const screenshot = path.join(dir, "board.png")
-  await page.screenshot({ path: screenshot })
-  const out = cello(
-    "task", "submit", `${key}-1`,
-    "--summary", "Adds **review packets**: a summary, steps and evidence on every task in In Review.",
-    "--step", "Open Review in the sidebar",
-    "--step", "Play the video and open the screenshot",
-    "--step", "Approve it; the card lands in Done",
-    "--attach", video, "--caption", "The whole flow",
-    "--attach", screenshot, "--caption", "The board",
-    "--link", "https://github.com/lnmunhoz/cello/pull/10", "--caption", "The PR",
-  )
-  expect(out).toContain(`Submitted ${key}-1 for review  In Progress → In Review`)
-  return { dir }
-}
+import { SHOTS, submitPacket, WEB_URL } from "./packets.ts"
 
 /** The Review page in its own unrecorded tall window, saved to e2e/videos/review-page-<scheme>.png. */
 async function screenshotReviewPage(browser: Browser, key: string, colorScheme: "light" | "dark") {
@@ -67,7 +16,7 @@ async function screenshotReviewPage(browser: Browser, key: string, colorScheme: 
   await expect(item.locator("img[data-evidence=screenshot]")).toHaveJSProperty("naturalWidth", 1440)
   const poster = await item.locator("video").getAttribute("poster")
   await page.evaluate((src) => new Promise((resolve) => Object.assign(new Image(), { onload: resolve, src })), poster!)
-  await page.screenshot({ path: path.join(shots, `review-page-${colorScheme}.png`) })
+  await page.screenshot({ path: path.join(SHOTS, `review-page-${colorScheme}.png`) })
   await context.close()
 }
 
@@ -122,14 +71,14 @@ test("CEL-10: an agent submits a packet with a real MP4 and screenshot through t
   await expect(video).toHaveJSProperty("muted", false)
   await video.evaluate((v: HTMLVideoElement) => v.pause())
 
-  await caption(page, "Open the screenshot large")
+  await caption(page, "Open the screenshot large, in the viewer")
   const thumb = item.locator("img[data-evidence=screenshot]")
   await expect(thumb).toHaveJSProperty("naturalWidth", 1440)
   await item.getByRole("button", { name: "Open The board" }).click()
-  const lightbox = page.getByRole("dialog", { name: "The board" })
-  await expect(lightbox.getByRole("img", { name: "The board" })).toBeVisible()
-  await lightbox.getByRole("button", { name: "Close" }).click()
-  await expect(lightbox).toBeHidden()
+  const viewer = page.getByRole("complementary", { name: "Viewer" })
+  await expect(viewer.getByRole("img", { name: "The board" })).toBeVisible()
+  await viewer.getByRole("button", { name: "Close viewer" }).click()
+  await expect(viewer).toBeHidden()
 
   await caption(page, "In dark mode too")
   await page.getByRole("button", { name: "Use dark theme" }).click()

@@ -1,12 +1,25 @@
-import { attachmentUrl, posterUrl } from "@cello/client/sync/reviews"
+import { attachmentUrl, evidenceTarget, posterUrl } from "@cello/client/sync/reviews"
 import type { Attachment } from "@cello/contract/entities"
-import { ExternalLinkIcon, FileTextIcon } from "lucide-react"
-import { useState } from "react"
-import { ButtonLink } from "../components/ui/Button.tsx"
-import { Dialog, DialogClose, DialogContent, DialogTitle } from "../components/ui/Dialog.tsx"
+import { shortUrl } from "@cello/shared/linkify"
+import { ExternalLinkIcon, FileTextIcon, PanelRightOpenIcon } from "lucide-react"
+import { useRef, type MouseEvent } from "react"
+import { Button, ButtonLink } from "../components/ui/Button.tsx"
+import { openInPanel } from "../lib/desktop.ts"
 import { formatBytes } from "../lib/format.ts"
+import { isPlainClick } from "../viewer/viewer.ts"
 
-/** A packet's evidence: videos to play, screenshots that open large, text files and links to open. */
+/** Opens a piece of evidence beside the board: the viewer, or the desktop app's panel. */
+export const openEvidence = (attachment: Attachment): boolean => {
+  const target = evidenceTarget(attachment)
+  return target !== null && openInPanel(target.url, target.title, target.kind)
+}
+
+/** An evidence link: a plain click opens it beside the board; ⌘-click still opens a new tab. */
+const openOnPlainClick = (attachment: Attachment) => (e: MouseEvent) => {
+  if (isPlainClick(e) && openEvidence(attachment)) e.preventDefault()
+}
+
+/** A packet's evidence: videos to play, screenshots, text files and links, each opening in the viewer. */
 export function Evidence({ attachments }: { attachments: ReadonlyArray<Attachment> }) {
   const videos = attachments.filter((a) => a.kind === "video")
   const images = attachments.filter((a) => a.kind === "image")
@@ -22,14 +35,14 @@ export function Evidence({ attachments }: { attachments: ReadonlyArray<Attachmen
       {files.length + links.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">
           {files.map((f) => (
-            <ButtonLink key={f.id} href={attachmentUrl(f)} variant="secondary" size="md" aria-label={`Open ${f.name}`}>
+            <ButtonLink key={f.id} href={attachmentUrl(f)} onClick={openOnPlainClick(f)} variant="secondary" size="md" aria-label={`Open ${f.name}`}>
               <FileTextIcon aria-hidden className="size-3.5 text-muted" />
               {f.caption || f.name}
               {f.bytes !== null ? <span className="font-normal text-faint">{formatBytes(f.bytes)}</span> : null}
             </ButtonLink>
           ))}
           {links.map((l) => (
-            <ButtonLink key={l.id} href={l.url ?? "#"} variant="secondary" size="md">
+            <ButtonLink key={l.id} href={l.url ?? "#"} onClick={openOnPlainClick(l)} variant="secondary" size="md">
               <ExternalLinkIcon aria-hidden className="size-3.5 text-muted" />
               {l.caption || shortUrl(l.url ?? l.name)}
             </ButtonLink>
@@ -40,16 +53,16 @@ export function Evidence({ attachments }: { attachments: ReadonlyArray<Attachmen
   )
 }
 
-/** "github.com/lnmunhoz/cello/pull/12" */
-const shortUrl = (url: string) => url.replace(/^https?:\/\//, "").replace(/\/$/, "")
-
-/** Inline, with its poster, muted until you press play. */
+/** Inline, with its poster, muted until you press play; "Open in viewer" plays it large beside the board. */
 function Video({ video }: { video: Attachment }) {
+  const ref = useRef<HTMLVideoElement>(null)
+  const name = video.caption || video.name
   return (
     <figure className="flex flex-col gap-1.5">
       <video
+        ref={ref}
         data-evidence="video"
-        aria-label={video.caption || video.name}
+        aria-label={name}
         className="aspect-video w-full rounded-lg border border-line bg-black object-contain"
         src={attachmentUrl(video)}
         poster={posterUrl(video)}
@@ -61,47 +74,43 @@ function Video({ video }: { video: Attachment }) {
           e.currentTarget.muted = false
         }}
       />
-      <figcaption className="flex items-baseline gap-2 text-xs text-muted">
-        {video.caption ? <span className="font-medium text-ink">{video.caption}</span> : null}
-        <span className="text-faint">{video.name}</span>
+      <figcaption className="flex min-w-0 items-center gap-2 text-xs text-muted">
+        {video.caption ? <span className="shrink-0 font-medium text-ink">{video.caption}</span> : null}
+        <span className="min-w-0 flex-1 truncate text-faint">{video.name}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Open ${name} in the viewer`}
+          onClick={() => {
+            ref.current?.pause()
+            openEvidence(video)
+          }}
+        >
+          <PanelRightOpenIcon aria-hidden className="size-3.5" />
+          Open in viewer
+        </Button>
       </figcaption>
     </figure>
   )
 }
 
-/** A grid of thumbnails; one opens at full size. */
+/** A grid of thumbnails; each opens in the viewer. */
 function Screenshots({ images }: { images: ReadonlyArray<Attachment> }) {
-  const [open, setOpen] = useState<Attachment | null>(null)
   return (
-    <>
-      <ul aria-label="Screenshots" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {images.map((image) => (
-          <li key={image.id} className="flex flex-col gap-1">
-            <button
-              type="button"
-              aria-label={`Open ${image.caption || image.name}`}
-              onClick={() => setOpen(image)}
-              className="aspect-[16/10] overflow-hidden rounded-md border border-line bg-sunken outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <img data-evidence="screenshot" src={attachmentUrl(image)} alt="" loading="lazy" className="size-full object-cover object-top" />
-            </button>
-            {image.caption ? <span className="truncate text-xs text-muted">{image.caption}</span> : null}
-          </li>
-        ))}
-      </ul>
-      <Dialog open={open !== null} onOpenChange={(next) => !next && setOpen(null)}>
-        <DialogContent size="lg">
-          {open ? (
-            <>
-              <div className="flex items-center justify-between gap-3">
-                <DialogTitle>{open.caption || open.name}</DialogTitle>
-                <DialogClose>Close</DialogClose>
-              </div>
-              <img src={attachmentUrl(open)} alt={open.caption || open.name} className="max-h-[72vh] w-full rounded-md border border-line object-contain" />
-            </>
-          ) : null}
-        </DialogContent>
-      </Dialog>
-    </>
+    <ul aria-label="Screenshots" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {images.map((image) => (
+        <li key={image.id} className="flex flex-col gap-1">
+          <button
+            type="button"
+            aria-label={`Open ${image.caption || image.name}`}
+            onClick={() => openEvidence(image)}
+            className="aspect-[16/10] cursor-zoom-in overflow-hidden rounded-md border border-line bg-sunken outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <img data-evidence="screenshot" src={attachmentUrl(image)} alt="" loading="lazy" className="size-full object-cover object-top" />
+          </button>
+          {image.caption ? <span className="truncate text-xs text-muted">{image.caption}</span> : null}
+        </li>
+      ))}
+    </ul>
   )
 }

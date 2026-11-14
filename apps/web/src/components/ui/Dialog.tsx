@@ -19,8 +19,6 @@ const content = variants(
     size: {
       sm: "w-[min(420px,calc(100vw-32px))]",
       md: "w-[min(560px,calc(100vw-32px))]",
-      // A screenshot at full size.
-      lg: "w-[min(1200px,calc(100vw-48px))]",
     },
   },
   { size: "md" },

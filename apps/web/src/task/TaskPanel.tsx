@@ -16,6 +16,7 @@ import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "../components/ui/Tabs.tsx"
 import { commands } from "../lib/cello.ts"
 import { EarlierReviews, PinnedReview } from "../review/TaskReviews.tsx"
+import { useViewerItem } from "../viewer/store.ts"
 import { Comments } from "./Comments.tsx"
 import { History } from "./History.tsx"
 
@@ -23,9 +24,12 @@ export function TaskPanel({ board, project, number }: { board: BoardState; proje
   const task = taskByKey(board, project.key, number)
   const parent = task?.parentId ? board.tasks[task.parentId] : undefined
   const navigate = useNavigate()
+  // The viewer takes this panel's place while it's open; the panel stays mounted (scroll, drafts) and comes back as it was.
+  const covered = useViewerItem() !== null
   const close = () => void navigate({ to: "/$projectKey/issues", params: { projectKey: project.key } })
   return (
     <aside
+      hidden={covered}
       aria-label={task ? `${task.key} details` : "Task details"}
       className="flex w-[560px] shrink-0 flex-col border-l border-line bg-surface"
       onKeyDown={(e) => {

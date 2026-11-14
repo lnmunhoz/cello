@@ -6,10 +6,13 @@ import { Overview } from "../project/Overview.tsx"
 import { ProjectLayout } from "../project/ProjectLayout.tsx"
 import { ReviewPage } from "../review/ReviewPage.tsx"
 import { Settings } from "../settings/Settings.tsx"
-import { AppShell } from "./AppShell.tsx"
+import { isEmbedded } from "../viewer/viewer.ts"
+import { AppShell, EmbeddedShell } from "./AppShell.tsx"
 import { Home } from "./Home.tsx"
 
-const root = createRootRoute({ component: AppShell })
+// Inside a panel (the viewer's iframe, the desktop app's native panel), pages show without the sidebar.
+const embedded = isEmbedded({ self: window.self, top: window.top, search: window.location.search })
+const root = createRootRoute({ component: embedded ? EmbeddedShell : AppShell })
 
 const home = createRoute({ getParentRoute: () => root, path: "/", component: Home })
 const settings = createRoute({ getParentRoute: () => root, path: "/settings", component: Settings })

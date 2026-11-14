@@ -55,7 +55,7 @@ export function CardBody({ task, board }: { task: Task; board: BoardState }) {
               {l!.name}
             </Chip>
           ))}
-          <EvidenceBadge task={task} board={board} />
+          <EvidenceBadge task={task} board={board} opens />
         </span>
       ) : null}
       <span className="text-xs text-faint">Created {formatDay(task.createdAt)}</span>
