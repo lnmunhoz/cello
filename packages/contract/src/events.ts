@@ -36,6 +36,8 @@ export const TaskPatch = patch({
 })
 export const CommentPatch = patch({ body: Schema.String })
 const Place = Schema.Struct({ statusId: Id, position: Schema.String })
+/** Who held a claim: an agent session, or the human (sessionId null). */
+export const ClaimHolder = Schema.Struct({ actorId: Id, sessionId: Schema.NullOr(Id) })
 
 export const CelloEvent = Schema.Union([
   event("workspace.created", { workspace: Workspace }),
@@ -53,6 +55,18 @@ export const CelloEvent = Schema.Union([
   event("task.labels_changed", { id: Id, added: Schema.Array(Id), removed: Schema.Array(Id), version: Schema.Number }),
   event("task.archived", { id: Id, version: Schema.Number }),
   event("task.unarchived", { id: Id, version: Schema.Number }),
+  // Claims carry the whole task: a claim sets the assignee and may move it to a started status.
+  event("task.claimed", { id: Id, version: Schema.Number, task: Task }),
+  event("task.claim_taken", {
+    id: Id,
+    version: Schema.Number,
+    task: Task,
+    from: ClaimHolder,
+    reason: Schema.Literals(["holder_exited", "holder_idle", "human"]),
+  }),
+  event("task.released", { id: Id, version: Schema.Number, task: Task }),
+  // A human change ends an agent's claim; it shares the version of the change that ended it.
+  event("task.claim_ended", { id: Id, version: Schema.Number, from: ClaimHolder, reason: Schema.Literals(["human_change"]) }),
   event("comment.added", { comment: Comment }),
   event("comment.edited", { id: Id, before: CommentPatch, after: CommentPatch }),
   event("comment.deleted", { id: Id }),

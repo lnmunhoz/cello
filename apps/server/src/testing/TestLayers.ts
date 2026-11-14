@@ -6,6 +6,7 @@ import * as Migrations from "../persistence/Migrations.ts"
 import * as Seed from "../persistence/Seed.ts"
 import * as Sqlite from "../persistence/Sqlite.ts"
 import * as Services from "../services.ts"
+import * as SessionService from "../session/SessionService.ts"
 
 export const TEST_HUMAN = "Lucas"
 
@@ -22,3 +23,11 @@ export const asHuman = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     const human = yield* Seed.HumanActor
     return yield* Effect.provideService(effect, Caller, { actorId: human.id, sessionId: null })
   })
+
+/** Runs `effect` as the agent session an identity resolves to, the way a CLI request would. */
+export const asAgent = (identity: SessionService.Identity) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.gen(function* () {
+      const caller = yield* (yield* SessionService.SessionService).resolve(identity)
+      return yield* Effect.provideService(effect, Caller, caller)
+    })

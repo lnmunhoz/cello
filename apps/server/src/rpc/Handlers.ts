@@ -3,6 +3,7 @@
 import { CelloRpcs } from "@cello/contract/rpcs"
 import * as Effect from "effect/Effect"
 import * as CommentService from "../comment/CommentService.ts"
+import * as ContextService from "../context/ContextService.ts"
 import * as EventLog from "../events/EventLog.ts"
 import * as LabelService from "../label/LabelService.ts"
 import * as ProjectService from "../project/ProjectService.ts"
@@ -20,6 +21,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
   const labels = yield* LabelService.LabelService
   const tasks = yield* TaskService.TaskService
   const comments = yield* CommentService.CommentService
+  const context = yield* ContextService.ContextService
 
   return CelloRpcs.of({
     "snapshot.get": ({ scope }) => snapshots.get(scope),
@@ -40,6 +42,12 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "task.archive": (input) => tasks.archive(input),
     "task.unarchive": (input) => tasks.unarchive(input),
     "task.history": ({ id }) => tasks.history(id),
+    "whoami": ({ project }) => context.whoami(project),
+    "context": ({ project }) => context.context(project),
+    "task.list": (query) => context.taskList(query),
+    "task.get": ({ key }) => context.taskDetail(key),
+    "task.claim": (input) => tasks.claim(input),
+    "task.release": (input) => tasks.release(input),
     "comment.list": ({ taskId }) => comments.list(taskId),
     "comment.add": (input) => comments.add(input),
     "comment.edit": (input) => comments.edit(input),

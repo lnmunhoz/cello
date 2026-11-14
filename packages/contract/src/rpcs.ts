@@ -4,9 +4,10 @@ import * as Schema from "effect/Schema"
 import * as Rpc from "effect/rpc/Rpc"
 import * as RpcGroup from "effect/rpc/RpcGroup"
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware"
-import { Comment, DueDate, Id, Label, Priority, Project, Scope, Snapshot, Status, Task, Workspace } from "./entities.ts"
-import { Invalid, KeyTaken, NotFound, SnapshotRequired, VersionConflict } from "./errors.ts"
+import { Comment, DueDate, Id, Label, Priority, Project, ProjectRef, Scope, Snapshot, Status, Task, Workspace } from "./entities.ts"
+import { Invalid, KeyTaken, NotFound, SnapshotRequired, TaskClaimed, VersionConflict } from "./errors.ts"
 import { CelloEvent } from "./events.ts"
+import { ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
 
 /** Who is calling, resolved by the server from per-request RPC headers. */
 export class Caller extends Context.Service<Caller, {
@@ -18,12 +19,17 @@ export class CallerMiddleware extends RpcMiddleware.Service<CallerMiddleware, {
   provides: Caller
 }>()("cello/CallerMiddleware", { requiredForClient: true }) {}
 
+/** Sent by the CLI on every request. A session of "me", or none, is the human. */
 export const IDENTITY_HEADERS = {
   session: "x-cello-session",
   client: "x-cello-client",
   cwd: "x-cello-cwd",
   pid: "x-cello-pid",
+  entrypoint: "x-cello-entrypoint",
 } as const
+
+/** The `x-cello-session` value that records the human, whatever agent variables are set. */
+export const HUMAN_SESSION = "me"
 
 const commandId = Schema.String
 const write = <S extends Schema.Top>(result: S) => Schema.Struct({ result, seq: Schema.NullOr(Schema.Number) })
@@ -139,6 +145,31 @@ export const CelloRpcs = RpcGroup.make(
   Rpc.make("task.archive", { payload: { commandId, id: Id }, success: write(Task), error: NotFound }),
   Rpc.make("task.unarchive", { payload: { commandId, id: Id }, success: write(Task), error: NotFound }),
   Rpc.make("task.history", { payload: { id: Id }, success: Schema.Array(CelloEvent), error: NotFound }),
+
+  // For the CLI. Tasks are named by key ("CEL-3"); projects by key or repository folder.
+  Rpc.make("whoami", { payload: { project: ProjectRef }, success: Whoami }),
+  Rpc.make("context", { payload: { project: ProjectRef }, success: ProjectContext, error: Schema.Union([NotFound, Invalid]) }),
+  Rpc.make("task.list", {
+    payload: {
+      project: ProjectRef,
+      status: Schema.optionalKey(Schema.String),
+      label: Schema.optionalKey(Schema.String),
+      mine: Schema.optionalKey(Schema.Boolean),
+    },
+    success: TaskList,
+    error: Schema.Union([NotFound, Invalid]),
+  }),
+  Rpc.make("task.get", { payload: { key: Schema.String }, success: TaskDetail, error: NotFound }),
+  Rpc.make("task.claim", {
+    payload: { commandId, key: Schema.String },
+    success: write(Task),
+    error: Schema.Union([NotFound, TaskClaimed]),
+  }),
+  Rpc.make("task.release", {
+    payload: { commandId, key: Schema.String },
+    success: write(Task),
+    error: Schema.Union([NotFound, Invalid]),
+  }),
 
   Rpc.make("comment.list", { payload: { taskId: Id }, success: Schema.Array(Comment), error: NotFound }),
   Rpc.make("comment.add", {

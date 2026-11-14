@@ -8,3 +8,5 @@ playwright-report/
 .env
 .env.*
 e2e/videos/
+apps/cli/.build/
+.claude/worktrees/

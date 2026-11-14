@@ -80,7 +80,12 @@ const apply = (d: Draft, e: CelloEvent) => {
     case "task.updated":
       return d.update("tasks", e.id, (t) => ({ ...t, ...e.after, version: e.version, updatedAt: e.ts }))
     case "task.moved":
+    case "task.claimed":
+    case "task.claim_taken":
+    case "task.released":
       return d.set("tasks", e.id, e.task)
+    case "task.claim_ended":
+      return d.update("tasks", e.id, (t) => ({ ...t, assigneeActorId: null, assigneeSessionId: null, version: e.version, updatedAt: e.ts }))
     case "task.labels_changed":
       return d.update("tasks", e.id, (t) => ({
         ...t,

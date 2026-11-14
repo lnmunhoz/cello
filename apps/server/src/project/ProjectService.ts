@@ -1,5 +1,5 @@
 // Projects: one product each, with a globally unique task key (`THAI`) and its own task numbers.
-import type { Project } from "@cello/contract/entities"
+import type { Project, ProjectRef } from "@cello/contract/entities"
 import { Invalid, KeyTaken, NotFound } from "@cello/contract/errors"
 import type { Caller } from "@cello/contract/rpcs"
 import { isValidProjectKey } from "@cello/shared/taskKey"
@@ -40,6 +40,8 @@ export class ProjectService extends Context.Service<ProjectService, {
     NotFound,
     Caller
   >
+  /** The non-archived project a CLI call names: by key if given, else by its repository folder. */
+  readonly resolve: (ref: ProjectRef) => Effect.Effect<Project, NotFound | Invalid>
 }>()("cello/ProjectService") {}
 
 const make = Effect.gen(function* () {
@@ -125,7 +127,21 @@ const make = Effect.gen(function* () {
       }))
   })
 
-  return ProjectService.of({ create, update, archive })
+  const resolve = Effect.fn("ProjectService.resolve")(function* (ref: ProjectRef) {
+    const key = ref.key?.trim().toUpperCase()
+    if (key) {
+      const rows = yield* selectProjects(sql, sql`p.key = ${key} AND p.archived_at IS NULL`)
+      return rows[0] ?? (yield* new NotFound({ entity: "project", id: key }))
+    }
+    if (ref.repoPath) {
+      const rows = yield* selectProjects(sql, sql`p.archived_at IS NULL AND p.id IN (
+        SELECT project_id FROM project_repos WHERE path = ${ref.repoPath})`)
+      return rows[0] ?? (yield* new NotFound({ entity: "project", id: ref.repoPath }))
+    }
+    return yield* new Invalid({ field: "project", reason: "name a project by key or by its repository folder" })
+  }, Effect.catchTag("SqlError", Effect.die))
+
+  return ProjectService.of({ create, update, archive, resolve })
 })
 
 export const layer = Layer.effect(ProjectService, make)

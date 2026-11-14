@@ -168,14 +168,28 @@ describe("TaskService.move", () => {
       expect(result.version).toBe(1)
     })))
 
-  it.effect("a stale expectedVersion fails with VersionConflict", () =>
+  // Quick successive edits from one screen carry the version from before the previous edit landed.
+  it.effect("an out-of-date expectedVersion is not a conflict when only the same caller changed it since", () =>
     run(Effect.gen(function* () {
       const { tasks, todo, a, b } = yield* column
       yield* tasks.update({ commandId: cmd(), id: a.id, expectedVersion: 1, title: "A2" })
+      const { result } = yield* tasks.move({ commandId: cmd(), id: a.id, expectedVersion: 1, statusId: todo, before: b.id })
+      expect(result).toMatchObject({ title: "A2", version: 3 })
+    })))
+
+  it.effect("a move with an out-of-date expectedVersion fails when someone else changed the task", () =>
+    run(Effect.gen(function* () {
+      const { tasks, todo, a, b } = yield* column
+      const sql = yield* SqlClient.SqlClient
+      yield* sql`INSERT INTO actors (id, kind, name, client, color, created_at)
+        VALUES ('claude', 'agent', 'Claude', 'Claude Code', '#D97706', 0)`.pipe(Effect.orDie)
+      yield* tasks.update({ commandId: cmd(), id: a.id, expectedVersion: 1, title: "A2" }).pipe(
+        Effect.provideService(Caller, { actorId: "claude", sessionId: null }),
+      )
       const error = yield* Effect.flip(
         tasks.move({ commandId: cmd(), id: a.id, expectedVersion: 1, statusId: todo, before: b.id }),
       )
-      expect(error).toMatchObject({ _tag: "VersionConflict", currentVersion: 2, changedBy: TEST_HUMAN })
+      expect(error).toMatchObject({ _tag: "VersionConflict", currentVersion: 2, changedBy: "Claude" })
     })))
 })
 

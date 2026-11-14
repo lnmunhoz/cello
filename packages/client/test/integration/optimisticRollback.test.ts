@@ -10,7 +10,7 @@ import * as Atom from "effect/reactivity/Atom"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Socket from "effect/socket/Socket"
-import { HUMAN, connect, startServer, tempDataDir } from "../../../../apps/server/test/integration/harness.ts"
+import { AGENT_IDENTITY, connect, startServer, tempDataDir } from "../../../../apps/server/test/integration/harness.ts"
 import { makeCelloAtoms } from "../../src/atoms.ts"
 import { makeClientLayer, newCommandId } from "../../src/client.ts"
 
@@ -30,7 +30,7 @@ describe("optimistic commands against the real server", () => {
   it.live("a move the server refuses with VersionConflict rolls back", () =>
     Effect.gen(function* () {
       const { port } = yield* startServer(yield* tempDataDir)
-      const other = yield* connect(port)
+      const other = yield* connect(port, AGENT_IDENTITY)
 
       const errors: string[] = []
       const runtime = Atom.runtime(makeClientLayer(
@@ -42,7 +42,7 @@ describe("optimistic commands against the real server", () => {
       registry.mount(atoms.boardAtom)
       registry.mount(atoms.commands.moveTask)
 
-      // Someone else creates a task, then edits it: version 2 on the server.
+      // An agent creates a task, then edits it: version 2 on the server.
       const snapshot = yield* other["snapshot.get"]({})
       const done = snapshot.statuses.find((s) => s.name === "Done")!
       const { result: project } = yield* other["project.create"]({ commandId: newCommandId(), workspaceId: snapshot.workspaces[0]!.id, name: "Cello", key: "CEL" })
@@ -65,6 +65,6 @@ describe("optimistic commands against the real server", () => {
       const after = Option.getOrThrow(AsyncResult.value(registry.get(atoms.boardAtom)))
       expect(after.tasks[task.id]).toMatchObject({ statusId: task.statusId, version: 2 }) // rolled back
       expect(registry.get(atoms.pendingAtom)).toEqual([])
-      expect(errors).toEqual([`CEL-1 was changed by ${HUMAN} since you opened it`])
+      expect(errors).toEqual(["CEL-1 was changed by Claude Code since you opened it"])
     }).pipe(Effect.scoped))
 })

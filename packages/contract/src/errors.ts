@@ -26,3 +26,13 @@ export class VersionConflict extends Schema.TaggedError<VersionConflict>()("Vers
 export class SnapshotRequired extends Schema.TaggedError<SnapshotRequired>()("SnapshotRequired", {
   latestSeq: Schema.Number,
 }) {}
+
+/** Another live session (or the human) holds the task's claim. */
+export class TaskClaimed extends Schema.TaggedError<TaskClaimed>()("TaskClaimed", {
+  key: Schema.String,
+  /** The holder's client ("Claude Code"), or the human's name. */
+  holder: Schema.String,
+  /** The holder's host session id (e.g. its CLAUDE_CODE_SESSION_ID); null for the human. */
+  sessionId: Schema.NullOr(Schema.String),
+  lastSeenAt: Schema.NullOr(Schema.Number),
+}) {}

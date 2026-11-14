@@ -78,6 +78,10 @@ export class EventStore extends Context.Service<EventStore, {
   readonly countAfter: (scope: ResolvedScope, afterSeq: number) => Effect.Effect<number>
   /** The highest committed seq, 0 when there are none. */
   readonly latestSeq: Effect.Effect<number>
+  /** A project's latest events on tasks and comments, newest first. */
+  readonly recent: (projectId: string, limit: number) => Effect.Effect<ReadonlyArray<CelloEvent>>
+  /** Claims `sessionId` lost in a project (`task.claim_taken`, `task.claim_ended`), newest first. */
+  readonly claimsLostBy: (sessionId: string, projectId: string, limit: number) => Effect.Effect<ReadonlyArray<CelloEvent>>
 }>()("cello/EventStore") {}
 
 const make = Effect.gen(function* () {
@@ -128,7 +132,22 @@ const make = Effect.gen(function* () {
     Effect.withSpan("EventStore.latestSeq"),
   )
 
-  return EventStore.of({ append, history, resolveScope, readAfter, countAfter, latestSeq })
+  const recent = Effect.fn("EventStore.recent")(function* (projectId: string, limit: number) {
+    const rows = yield* sql<EventRow>`
+      SELECT * FROM events WHERE project_id = ${projectId} AND entity_type IN ('task', 'comment')
+      ORDER BY seq DESC LIMIT ${limit}`
+    return rows.map(decodeRow)
+  }, Effect.orDie)
+
+  const claimsLostBy = Effect.fn("EventStore.claimsLostBy")(function* (sessionId: string, projectId: string, limit: number) {
+    const rows = yield* sql<EventRow>`
+      SELECT * FROM events WHERE project_id = ${projectId} AND type IN ('task.claim_taken', 'task.claim_ended')
+        AND json_extract(payload, '$.from.sessionId') = ${sessionId}
+      ORDER BY seq DESC LIMIT ${limit}`
+    return rows.map(decodeRow)
+  }, Effect.orDie)
+
+  return EventStore.of({ append, history, resolveScope, readAfter, countAfter, latestSeq, recent, claimsLostBy })
 })
 
 export const layer = Layer.effect(EventStore, make)

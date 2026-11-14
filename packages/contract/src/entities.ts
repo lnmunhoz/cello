@@ -22,6 +22,21 @@ export const Actor = Schema.Struct({
 })
 export type Actor = typeof Actor.Type
 
+/** One agent conversation, keyed by its host's session id (`externalId`, e.g. CLAUDE_CODE_SESSION_ID). */
+export const AgentSession = Schema.Struct({
+  id: Id,
+  actorId: Id,
+  externalId: Schema.NullOr(Schema.String),
+  clientName: Schema.String,
+  entrypoint: Schema.NullOr(Schema.String),
+  cwd: Schema.NullOr(Schema.String),
+  pid: Schema.NullOr(Schema.Number),
+  startedAt: Millis,
+  lastSeenAt: Millis,
+  endedAt: Schema.NullOr(Millis),
+})
+export type AgentSession = typeof AgentSession.Type
+
 export const Workspace = Schema.Struct({
   id: Id,
   name: Schema.String,
@@ -106,6 +121,14 @@ export const Comment = Schema.Struct({
   deletedAt: Schema.NullOr(Millis),
 })
 export type Comment = typeof Comment.Type
+
+/** Which project a CLI call is about: by key (`--project CEL`), or by the repository folder it runs in. */
+export const ProjectRef = Schema.Struct({
+  key: Schema.optionalKey(Schema.String),
+  /** The main checkout's folder: the parent of `git rev-parse --git-common-dir`. */
+  repoPath: Schema.optionalKey(Schema.String),
+})
+export type ProjectRef = typeof ProjectRef.Type
 
 /** What a subscription or snapshot covers. */
 export const Scope = Schema.Union([

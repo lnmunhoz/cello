@@ -1,5 +1,6 @@
 // The whole server as one layer: lock → database → migrations → seed → services → RPC over a
-// WebSocket at /rpc on 127.0.0.1. main.ts launches it; integration tests build it on port 0.
+// WebSocket at /rpc on 127.0.0.1, plus the built web app when given. main.ts and `cello start`
+// launch it; integration tests build it on port 0.
 import * as BunHttpServer from "@effect/platform-bun/BunHttpServer"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -16,6 +17,7 @@ import * as AllowedOrigins from "./rpc/AllowedOrigins.ts"
 import * as Handlers from "./rpc/Handlers.ts"
 import * as ServerLock from "./server/ServerLock.ts"
 import * as Services from "./services.ts"
+import * as WebFiles from "./web/WebFiles.ts"
 
 export interface ServerOptions {
   /** Folder for the lock and the database. Never `~/.cello` in dev or tests. */
@@ -24,6 +26,8 @@ export interface ServerOptions {
   readonly port: number
   /** Name for the human actor on first start. */
   readonly humanName: string
+  /** The built web app to serve on the same port. Dev leaves it out: Vite serves the app. */
+  readonly web?: WebFiles.WebFiles | undefined
 }
 
 /** The database is opened only after the lock is held: the layer needs `ServerLock`. */
@@ -47,7 +51,10 @@ export const layer = (options: ServerOptions) => {
     Layer.provideMerge(RpcServer.layerProtocolWebsocket({ path: "/rpc" })),
     Layer.provide(RpcSerialization.layerJson),
   )
-  return Layer.mergeAll(HttpRouter.serve(Layer.mergeAll(rpc, AllowedOrigins.layer), { disableLogger: true }), recordPort).pipe(
+  const routes = options.web === undefined
+    ? Layer.mergeAll(rpc, AllowedOrigins.layer)
+    : Layer.mergeAll(rpc, AllowedOrigins.layer, WebFiles.layer(options.web))
+  return Layer.mergeAll(HttpRouter.serve(routes, { disableLogger: true }), recordPort).pipe(
     Layer.provide(app),
     Layer.provideMerge(BunHttpServer.layer({ hostname: "127.0.0.1", port: options.port })),
     Layer.provideMerge(ServerLock.layer({ dataDir: options.dataDir, port: options.port })),

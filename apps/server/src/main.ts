@@ -5,17 +5,8 @@ import * as BunRuntime from "@effect/platform-bun/BunRuntime"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import { gitUserName } from "./humanName.ts"
 import * as Server from "./server.ts"
-
-/** The human actor's name on first start: `git config user.name`, else "Me". */
-const gitUserName = (): string => {
-  try {
-    const result = Bun.spawnSync(["git", "config", "user.name"], { stdout: "pipe", stderr: "ignore" })
-    return result.stdout.toString().trim() || "Me"
-  } catch {
-    return "Me"
-  }
-}
 
 const dataDir = process.env.CELLO_DATA_DIR
 if (!dataDir) {

@@ -80,3 +80,35 @@ describe("ProjectService", () => {
       expect((yield* projects.archive({ commandId: cmd(), id: project.id })).seq).toBeNull()
     })))
 })
+
+describe("ProjectService.resolve", () => {
+  it.effect("finds a project by key, or by the repository folder linked to it", () =>
+    run(Effect.gen(function* () {
+      const projects = yield* ProjectService.ProjectService
+      const workspaceId = (yield* (yield* SnapshotService.SnapshotService).get()).workspaces[0]!.id
+      const { result: cello } = yield* projects.create({
+        commandId: cmd(),
+        workspaceId,
+        name: "Cello",
+        key: "CEL",
+        repoPath: "/Users/lnmunhoz/projects/cello",
+      })
+      expect(yield* projects.resolve({ key: "cel" })).toEqual(cello)
+      expect(yield* projects.resolve({ repoPath: "/Users/lnmunhoz/projects/cello" })).toEqual(cello)
+      // A key wins over the folder.
+      yield* projects.create({ commandId: cmd(), workspaceId, name: "Other", key: "OTH" })
+      expect((yield* projects.resolve({ key: "OTH", repoPath: "/Users/lnmunhoz/projects/cello" })).key).toBe("OTH")
+    })))
+
+  it.effect("an unknown key or folder is NotFound, and an empty reference is Invalid", () =>
+    run(Effect.gen(function* () {
+      const projects = yield* ProjectService.ProjectService
+      expect(yield* Effect.flip(projects.resolve({ key: "NOPE" }))).toMatchObject({ _tag: "NotFound", entity: "project", id: "NOPE" })
+      expect(yield* Effect.flip(projects.resolve({ repoPath: "/tmp/elsewhere" }))).toMatchObject({
+        _tag: "NotFound",
+        entity: "project",
+        id: "/tmp/elsewhere",
+      })
+      expect(yield* Effect.flip(projects.resolve({}))).toMatchObject({ _tag: "Invalid", field: "project" })
+    })))
+})

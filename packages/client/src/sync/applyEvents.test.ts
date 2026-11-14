@@ -94,3 +94,25 @@ describe("applyEvents", () => {
     expect(back.tasks["t1"]?.archivedAt).toBeNull()
   })
 })
+
+describe("applyEvents: claims", () => {
+  it("claimed, taken and released events replace the task; claim_ended clears the assignee", () => {
+    const state = fromSnapshot(snapshot([task("t1")]))
+    const claimed = task("t1", { assigneeActorId: "a1", assigneeSessionId: "s1", statusId: "doing", version: 2 })
+    const taken = task("t1", { assigneeActorId: "a1", assigneeSessionId: "s2", statusId: "doing", version: 3 })
+    const released = task("t1", { assigneeActorId: null, assigneeSessionId: null, statusId: "doing", version: 4 })
+
+    const afterClaim = applyEvents(state, [ev(11, { type: "task.claimed", id: "t1", version: 2, task: claimed })])
+    expect(afterClaim.tasks["t1"]).toEqual(claimed)
+    const afterTake = applyEvents(afterClaim, [
+      ev(12, { type: "task.claim_taken", id: "t1", version: 3, task: taken, from: { actorId: "a1", sessionId: "s1" }, reason: "holder_exited" }),
+    ])
+    expect(afterTake.tasks["t1"]).toEqual(taken)
+    expect(applyEvents(afterTake, [ev(13, { type: "task.released", id: "t1", version: 4, task: released })]).tasks["t1"]).toEqual(released)
+
+    const ended = applyEvents(afterTake, [
+      ev(13, { type: "task.claim_ended", id: "t1", version: 4, from: { actorId: "a1", sessionId: "s2" }, reason: "human_change" }),
+    ]).tasks["t1"]!
+    expect(ended).toMatchObject({ assigneeActorId: null, assigneeSessionId: null, version: 4 })
+  })
+})

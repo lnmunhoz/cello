@@ -1,5 +1,5 @@
 import type { CelloEvent, EventBody } from "@cello/contract/events"
-import type { BoardState } from "@cello/client/sync/applyEvents"
+import type { BoardState } from "./sync/applyEvents.ts"
 import { describe, expect, it } from "vitest"
 import { describeEvent } from "./history.ts"
 
@@ -33,5 +33,23 @@ describe("describeEvent", () => {
     )
     expect(describeEvent(ev({ type: "task.labels_changed", id: "t", added: ["bug"], removed: [], version: 2 }), state)).toBe("Lucas added Bug")
     expect(describeEvent(ev({ type: "comment.added", comment: {} as never }, "ghost"), state)).toBe("Someone commented")
+  })
+
+  it("describes claims", () => {
+    const from = { actorId: "agent", sessionId: "s1" }
+    expect(describeEvent(ev({ type: "task.claimed", id: "t", version: 2, task: {} as never }), state)).toBe("Lucas claimed it")
+    expect(describeEvent(ev({ type: "task.claim_taken", id: "t", version: 3, task: {} as never, from, reason: "human" }), state)).toBe(
+      "Lucas took over the claim",
+    )
+    expect(describeEvent(ev({ type: "task.claim_taken", id: "t", version: 3, task: {} as never, from, reason: "holder_exited" }), state)).toBe(
+      "Lucas took over the claim (its session had exited)",
+    )
+    expect(describeEvent(ev({ type: "task.claim_taken", id: "t", version: 3, task: {} as never, from, reason: "holder_idle" }), state)).toBe(
+      "Lucas took over the claim (its session was quiet for 2 hours)",
+    )
+    expect(describeEvent(ev({ type: "task.released", id: "t", version: 4, task: {} as never }), state)).toBe("Lucas released it")
+    expect(describeEvent(ev({ type: "task.claim_ended", id: "t", version: 4, from, reason: "human_change" }), state)).toBe(
+      "Lucas's change ended the agent's claim",
+    )
   })
 })

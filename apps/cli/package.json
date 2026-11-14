@@ -1,0 +1,23 @@
+{
+  "name": "@cello/cli",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "bin": {
+    "cello": "./src/bin.ts"
+  },
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "cello": "bun src/bin.ts"
+  },
+  "dependencies": {
+    "@cello/client": "workspace:*",
+    "@cello/contract": "workspace:*",
+    "@cello/server": "workspace:*",
+    "@cello/shared": "workspace:*",
+    "@effect/platform-bun": "4.1.4",
+    "effect": "4.1.4"
+  }
+}

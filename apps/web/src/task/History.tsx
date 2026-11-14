@@ -4,7 +4,7 @@ import { useAtomValue } from "@effect/atom-react"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { historyFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
-import { describeEvent } from "../lib/history.ts"
+import { describeEvent } from "@cello/client/history"
 
 /** A plain list of what happened to the task, from task.history. */
 export function History({ board, task }: { board: BoardState; task: Task }) {

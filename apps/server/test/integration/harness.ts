@@ -1,35 +1,22 @@
 // Real servers on ephemeral ports with temp data folders, and real clients over WebSockets.
-import * as fs from "node:fs"
-import * as os from "node:os"
-import * as path from "node:path"
 import * as BunSocket from "@effect/platform-bun/BunSocket"
 import { CelloClient, makeClientLayer } from "@cello/client/client"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as HttpServer from "effect/http/HttpServer"
 import type * as Scope from "effect/Scope"
-import * as Server from "../../src/server.ts"
 
-export const HUMAN = "Lucas"
+export { HUMAN, startServer, tempDataDir } from "../../src/testing/servers.ts"
 
-/** A temp data folder, removed when the scope closes. */
-export const tempDataDir = Effect.acquireRelease(
-  Effect.sync(() => fs.mkdtempSync(path.join(os.tmpdir(), "cello-test-"))),
-  (dir) => Effect.sync(() => fs.rmSync(dir, { recursive: true, force: true })),
-)
-
-/** Starts a server on a free port; it stops when the scope closes. Returns its port. */
-export const startServer = (dataDir: string) =>
-  Effect.gen(function* () {
-    const context = yield* Layer.build(Server.layer({ dataDir, port: 0, humanName: HUMAN }))
-    const address = Context.get(context, HttpServer.HttpServer).address
-    return { port: "port" in address ? address.port : 0 }
-  })
+/** Identity headers that make a client an agent session (the default client is the human). */
+export const AGENT_IDENTITY = { "x-cello-session": "agent-session-1", "x-cello-client": "Claude Code" } as const
 
 /** A client connected to `port`; it disconnects when the scope closes. */
-export const connect = (port: number): Effect.Effect<CelloClient["Service"], never, Scope.Scope> =>
-  Layer.build(makeClientLayer(BunSocket.layerWebSocket(`ws://127.0.0.1:${port}/rpc`))).pipe(
+export const connect = (
+  port: number,
+  identity: Readonly<Record<string, string>> = {},
+): Effect.Effect<CelloClient["Service"], never, Scope.Scope> =>
+  Layer.build(makeClientLayer(BunSocket.layerWebSocket(`ws://127.0.0.1:${port}/rpc`), identity)).pipe(
     Effect.map((context) => Context.get(context, CelloClient)),
   )
 
