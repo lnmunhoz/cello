@@ -2,8 +2,8 @@ import type { BoardState } from "@cello/client/sync/applyEvents"
 import { boardColumns, placement, statusesOf, taskByKey } from "@cello/client/sync/selectors"
 import type { Priority, Project, Task } from "@cello/contract/entities"
 import { useAtomSet } from "@effect/atom-react"
-import { useNavigate } from "@tanstack/react-router"
-import { MoreHorizontalIcon, XIcon } from "lucide-react"
+import { Link, useNavigate } from "@tanstack/react-router"
+import { ChevronRightIcon, MoreHorizontalIcon, XIcon } from "lucide-react"
 import { useState } from "react"
 import { Centered } from "../app/Home.tsx"
 import { Button } from "../components/ui/Button.tsx"
@@ -20,6 +20,7 @@ import { History } from "./History.tsx"
 
 export function TaskPanel({ board, project, number }: { board: BoardState; project: Project; number: number }) {
   const task = taskByKey(board, project.key, number)
+  const parent = task?.parentId ? board.tasks[task.parentId] : undefined
   const navigate = useNavigate()
   const close = () => void navigate({ to: "/$projectKey/issues", params: { projectKey: project.key } })
   return (
@@ -31,7 +32,22 @@ export function TaskPanel({ board, project, number }: { board: BoardState; proje
       }}
     >
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line px-4">
-        <span className="text-[13px] font-medium text-muted">{task?.key ?? `${project.key}-${number}`}</span>
+        <span className="flex min-w-0 items-center gap-1 text-[13px] font-medium text-muted">
+          {parent ? (
+            <>
+              <Link
+                to="/$projectKey/$number"
+                params={{ projectKey: project.key, number: String(parent.number) }}
+                aria-label={`Parent: ${parent.key} ${parent.title}`}
+                className="min-w-0 truncate rounded-sm outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {parent.key} {parent.title}
+              </Link>
+              <ChevronRightIcon aria-hidden className="size-3.5 shrink-0 text-faint" />
+            </>
+          ) : null}
+          <span className="shrink-0">{task?.key ?? `${project.key}-${number}`}</span>
+        </span>
         <span className="ml-auto flex items-center gap-1">
           {task ? <TaskMenu task={task} onArchived={close} /> : null}
           <Button variant="ghost" size="iconMd" aria-label="Close task" onClick={close}>
