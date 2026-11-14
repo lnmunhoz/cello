@@ -7,6 +7,7 @@ import { recordWindow, screenshotWindow, type Recording } from "./recorder.ts"
 import {
   appPages,
   CELLO_BIN,
+  celloAsAgent,
   cleanup,
   freePort,
   isAlive,
@@ -116,6 +117,60 @@ test("joins a running server: the board loads, openPanel shows a local page, ⌘
   await chrome.getByRole("button", { name: "Close panel" }).click()
   await expect(toolbar).toHaveAttribute("data-panel", "closed")
   expect((await views(app)).page.visible).toBe(false)
+})
+
+test("CEL-12: evidence clicked on the board opens in the native panel, not the web viewer: the card's badge, then a packet link beside the task", async ({}, testInfo) => {
+  const site = await testSite()
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const server = await startCello(dataDir)
+  const app = await launchApp({ CELLO_PORT: String(server.port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-") })
+  const video = record(app, testInfo.title)
+  const { board, chrome, panel } = await appPages(app, server.url)
+  const webViewer = board.getByRole("complementary", { name: "Viewer" })
+
+  await video.caption("Create a project on the board")
+  await board.getByRole("button", { name: "New project" }).first().click()
+  await board.getByLabel("Name").fill("Desktop viewer")
+  await board.getByLabel("Key").fill("DSK")
+  await board.getByRole("button", { name: "Create project" }).click()
+  await board.waitForURL(`${server.url}/DSK/issues`)
+
+  await video.caption("An agent runs cello task submit with a screenshot and a link")
+  const evidence = tempDir("cello-desktop-evidence-")
+  const shot = path.join(evidence, "board.png")
+  await screenshotWindow(app, shot)
+  celloAsAgent(server.port, "task", "create", "Evidence in the native panel", "--project", "DSK")
+  celloAsAgent(server.port, "task", "claim", "DSK-1")
+  celloAsAgent(
+    server.port, "task", "submit", "DSK-1",
+    "--summary", "Evidence opens in the **native panel** in the desktop app.",
+    "--step", "Click the evidence badge on the card",
+    "--attach", shot, "--caption", "The board",
+    "--link", site.url, "--caption", "The local page",
+  )
+  const taskCard = board.locator('[data-task-key="DSK-1"]')
+  const badge = taskCard.locator("[data-evidence-badge]")
+  await expect(badge).toContainText("2")
+
+  await video.caption("Click the card's evidence badge: the screenshot opens in the native panel")
+  await badge.click()
+  await panel.waitForURL(/\/attachments\/[^/]+$/)
+  await expect(chrome.getByLabel("Address")).toHaveValue("The board")
+  expect((await views(app)).page.visible).toBe(true)
+  await expect(webViewer).toHaveCount(0)
+  expect(board.url()).toBe(`${server.url}/DSK/issues`)
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "panel-evidence-badge.png"))
+
+  await video.caption("Open the card: the packet's link opens in the native panel, beside the task")
+  await taskCard.click()
+  const task = board.getByRole("complementary", { name: "DSK-1 details" })
+  await task.getByRole("region", { name: "Review packet" }).getByRole("link", { name: "The local page" }).click()
+  await panel.waitForURL(site.url)
+  await expect(panel.getByRole("heading", { name: "Cello panel test page" })).toBeVisible()
+  await expect(chrome.getByLabel("Address")).toHaveValue("The local page")
+  await expect(task).toBeVisible()
+  await expect(webViewer).toHaveCount(0)
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "panel-evidence-link.png"))
 })
 
 test("starts the bundled cello when no server is running, and stops it on quit", async ({}, testInfo) => {

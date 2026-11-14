@@ -1,6 +1,6 @@
 // Shared steps for the desktop e2e tests: temp folders, free ports, `cello start` servers, a local
 // test site, launching the app, and finding its three views (board, panel toolbar, panel page).
-import { spawn, type ChildProcess } from "node:child_process"
+import { spawn, spawnSync, type ChildProcess } from "node:child_process"
 import * as fs from "node:fs"
 import * as http from "node:http"
 import * as net from "node:net"
@@ -79,6 +79,17 @@ export const startCello = async (dataDir: string): Promise<{ url: string; port: 
     child.once("exit", (code) => reject(new Error(`cello start exited (${code}): ${output}`)))
   })
   return { url, port: Number(new URL(url).port), pid: child.pid! }
+}
+
+/** Runs the compiled `cello` CLI as a Claude Code session against the server on `port`, as an agent would. */
+export const celloAsAgent = (port: number, ...args: string[]): string => {
+  const result = spawnSync(CELLO_BIN, args, {
+    cwd: os.tmpdir(),
+    encoding: "utf8",
+    env: { ...baseEnv(), CELLO_PORT: String(port), CLAUDE_CODE_SESSION_ID: "desktop0e2e-agent-session", CLAUDE_PID: String(process.pid) },
+  })
+  if (result.status !== 0) throw new Error(`cello ${args.join(" ")} failed: ${result.stderr}`)
+  return result.stdout.trim()
 }
 
 /** A local site for the panel: a page with a link that opens a new window, and the page it links to. */

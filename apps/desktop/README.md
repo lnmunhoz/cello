@@ -47,8 +47,10 @@ Electron's Node can't run the Bun server, so the app uses the `cello` binary as 
 ## The panel
 
 - **Open it from the web app:** `window.celloDesktop.openPanel(url, title?)` and `closePanel()`
-  (the preload's bridge, `isDesktop: true`). Use `openInPanel` from `apps/web/src/lib/desktop.ts`,
-  which falls back to a new tab outside the app. Only http(s) URLs open.
+  (the preload's bridge, `isDesktop: true`). Use `openInPanel(url, title?)` from
+  `apps/web/src/lib/desktop.ts`: it's the one entry point for evidence, pages and links, and outside
+  the app it opens them in the web app's own viewer panel (`apps/web/src/viewer`). Only http(s)
+  URLs open; relative ones (`/attachments/<id>`) are made absolute first.
 - Links that open a new window, from the board or from a panel page, open in the panel. Links off
   the board's origin open there too. A scripted popup (`window.open` with features, as sign-in
   flows use) opens as its own window.
