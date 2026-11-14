@@ -1,0 +1,185 @@
+// The desktop app end to end: the built Electron app against real `cello start` servers with temp
+// data folders on free ports. Each test records an MP4 of the whole window (test-results/videos).
+import * as fs from "node:fs"
+import * as path from "node:path"
+import { expect, test } from "@playwright/test"
+import { recordWindow, screenshotWindow, type Recording } from "./recorder.ts"
+import {
+  appPages,
+  CELLO_BIN,
+  cleanup,
+  freePort,
+  isAlive,
+  launchApp,
+  pressKey,
+  readLock,
+  SCREENSHOTS_DIR,
+  secondLaunch,
+  slug,
+  startCello,
+  tempDir,
+  testSite,
+  VIDEOS_DIR,
+  VIEW,
+  views,
+} from "./support.ts"
+
+const ARTIFACT = "https://claude.ai/artifact/RNpQF3GNVbCdMLNVWJqoYh"
+
+let recording: Recording | null = null
+const record = (app: Parameters<typeof recordWindow>[0], title: string) => {
+  recording = recordWindow(app, path.join(VIDEOS_DIR, `${slug(title)}.mp4`))
+  return recording
+}
+
+test.afterEach(async () => {
+  await recording?.stop()
+  recording = null
+  await cleanup()
+})
+
+test("joins a running server: the board loads, openPanel shows a local page, ⌘\\ toggles the panel", async ({}, testInfo) => {
+  const site = await testSite()
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const server = await startCello(dataDir)
+  const app = await launchApp({ CELLO_PORT: String(server.port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-") })
+  const video = record(app, testInfo.title)
+  const { board, chrome, panel } = await appPages(app, server.url)
+
+  await video.caption("The app joins the server already running and loads the board")
+  await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
+  expect(readLock(dataDir)?.pid).toBe(server.pid)
+  expect((await views(app)).page.visible).toBe(false)
+
+  await video.caption("The board calls window.celloDesktop.openPanel(url, title)")
+  await board.evaluate(([url]) => window.celloDesktop!.openPanel(url!, "Local test page"), [site.url])
+  await panel.waitForURL(site.url)
+  await expect(panel.getByRole("heading", { name: "Cello panel test page" })).toBeVisible()
+  await expect(chrome.getByLabel("Address")).toHaveValue("Local test page")
+  await expect(chrome.getByRole("button", { name: "Back" })).toBeDisabled()
+  const open = await views(app)
+  expect(open.page.visible).toBe(true)
+  expect(open.board.bounds.width + open.chrome.bounds.width).toBe(open.chrome.bounds.x + open.chrome.bounds.width)
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "panel-local-page.png"))
+
+  await video.caption("Only http(s) pages: openPanel refuses a file: URL")
+  await board.evaluate(() => window.celloDesktop!.openPanel("file:///etc/passwd"))
+  await expect(chrome.getByLabel("Address")).toHaveValue("Local test page")
+
+  await video.caption("A panel link that opens a new window stays in the panel")
+  await panel.getByRole("link", { name: "Open the second page" }).click()
+  await panel.waitForURL(`${site.url}second`)
+  await expect(chrome.getByLabel("Address")).toHaveValue("Second page")
+
+  await video.caption("The toolbar's Back button returns to the first page")
+  await chrome.getByRole("button", { name: "Back" }).click()
+  await panel.waitForURL(site.url)
+
+  await video.caption("A board link with target=_blank opens in the panel")
+  await board.evaluate((url) => {
+    const link = Object.assign(document.createElement("a"), { href: url, target: "_blank", textContent: "link" })
+    document.body.append(link)
+    link.click()
+    link.remove()
+  }, `${site.url}?from=board`)
+  await panel.waitForURL(`${site.url}?from=board`)
+  expect(app.windows()).toHaveLength(3)
+
+  const toolbar = chrome.locator("html")
+  await expect(toolbar).toHaveAttribute("data-panel", "open")
+
+  await video.caption("⌘\\ in the board closes the panel")
+  await pressKey(app, VIEW.board, "\\", ["meta"])
+  await expect(toolbar).toHaveAttribute("data-panel", "closed")
+  const closed = await views(app)
+  expect(closed.page.visible).toBe(false)
+  expect(closed.board.bounds.width).toBe(open.board.bounds.width + open.chrome.bounds.width)
+
+  await video.caption("⌘\\ opens it again, on the same page")
+  await pressKey(app, VIEW.board, "\\", ["meta"])
+  await expect(toolbar).toHaveAttribute("data-panel", "open")
+  const reopened = await views(app)
+  expect(reopened.page.visible).toBe(true)
+  expect(reopened.page.url).toBe(`${site.url}?from=board`)
+
+  await video.caption("Drag the panel's left edge 122px to the left to make it wider")
+  const before = (await views(app)).chrome.bounds.width
+  // One move: DevTools mouse positions are relative to the view, which moves as the panel widens.
+  await chrome.mouse.move(2, 300)
+  await chrome.mouse.down()
+  await chrome.mouse.move(-120, 300)
+  await chrome.mouse.up()
+  await chrome.waitForFunction((width) => window.innerWidth === width, before + 122)
+  expect((await views(app)).chrome.bounds.width).toBe(before + 122)
+
+  await video.caption("The toolbar's close button closes the panel")
+  await chrome.getByRole("button", { name: "Close panel" }).click()
+  await expect(toolbar).toHaveAttribute("data-panel", "closed")
+  expect((await views(app)).page.visible).toBe(false)
+})
+
+test("starts the bundled cello when no server is running, and stops it on quit", async ({}, testInfo) => {
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const userData = tempDir("cello-desktop-user-")
+  const port = await freePort()
+  const url = `http://127.0.0.1:${port}`
+  const app = await launchApp({ CELLO_PORT: String(port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: userData, CELLO_BIN })
+  const video = record(app, testInfo.title)
+  const { board } = await appPages(app, url)
+
+  await video.caption(`Nothing answered on ${port}: the app started its own cello server`)
+  await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
+  const lock = readLock(dataDir)
+  expect(lock?.port).toBe(port)
+  expect(isAlive(lock!.pid)).toBe(true)
+
+  await video.caption("Move and resize the window, then quit")
+  await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setBounds({ x: 120, y: 80, width: 1100, height: 720 }))
+  await recording!.stop()
+  recording = null
+  await app.close()
+
+  expect(readLock(dataDir)).toBeNull()
+  expect(isAlive(lock!.pid)).toBe(false)
+  const saved = JSON.parse(fs.readFileSync(path.join(userData, "window-state.json"), "utf8"))
+  expect(saved.bounds).toEqual({ x: 120, y: 80, width: 1100, height: 720 })
+})
+
+test("cello:// links from a second launch reach the running app", async ({}, testInfo) => {
+  const site = await testSite()
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const server = await startCello(dataDir)
+  const env = { CELLO_PORT: String(server.port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-") }
+  const app = await launchApp(env)
+  const video = record(app, testInfo.title)
+  const { board, panel } = await appPages(app, server.url)
+  await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
+
+  await video.caption("open cello://open?url=… : the second launch hands it over and quits")
+  const pageUrl = `${site.url}?from=link`
+  expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(pageUrl)}`])).toBe(0)
+  await panel.waitForURL(pageUrl)
+  expect((await views(app)).page.visible).toBe(true)
+
+  await video.caption("open cello://CEL-1 : the board goes to that task")
+  expect(await secondLaunch(env, ["cello://CEL-1"])).toBe(0)
+  await board.waitForURL(`${server.url}/CEL/1`)
+})
+
+test("shows a claude.ai artifact page in the panel, which a browser iframe can't", async ({}, testInfo) => {
+  test.skip(!process.env.CELLO_E2E_ONLINE, "needs the internet: run with CELLO_E2E_ONLINE=1")
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const server = await startCello(dataDir)
+  const app = await launchApp({ CELLO_PORT: String(server.port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-") })
+  const video = record(app, testInfo.title)
+  const { board, panel } = await appPages(app, server.url)
+  await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
+
+  await video.caption("openPanel(claude.ai artifact): loaded top-level, so frame-ancestors doesn't apply")
+  await board.evaluate(([url]) => window.celloDesktop!.openPanel(url!, "Claude artifact"), [ARTIFACT])
+  // claude.ai may send a signed-out visitor to its sign-in page; either way the page renders in the panel.
+  await panel.waitForURL((url) => url.hostname === "claude.ai", { waitUntil: "load" })
+  await expect(panel.locator("body")).not.toBeEmpty()
+  await panel.waitForLoadState("networkidle").catch(() => {})
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "panel-claude-artifact.png"))
+})

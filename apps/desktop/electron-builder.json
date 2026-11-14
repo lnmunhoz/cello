@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "app.cello.desktop",
+  "productName": "Cello",
+  "electronVersion": "44.10.1",
+  "electronDist": "node_modules/electron/dist",
+  "electronLanguages": ["en"],
+  "directories": {
+    "output": "dist",
+    "buildResources": "resources"
+  },
+  "files": ["package.json", "dist-electron/**/*", "resources/icon.png", "!dist-electron/**/*.map"],
+  "extraResources": [{ "from": "../cli/dist/cello", "to": "cello" }],
+  "npmRebuild": false,
+  "publish": null,
+  "protocols": [{ "name": "Cello", "schemes": ["cello"] }],
+  "mac": {
+    "target": [{ "target": "dir", "arch": ["arm64"] }],
+    "category": "public.app-category.developer-tools",
+    "icon": "resources/icon.png",
+    "identity": null,
+    "hardenedRuntime": false
+  }
+}

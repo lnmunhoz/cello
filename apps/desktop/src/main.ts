@@ -1,0 +1,202 @@
+// Cello for macOS. Finds or starts the Cello server (sidecar.ts), shows the board in the main window
+// with a browser panel on its right, and handles `cello://` links. One instance at a time: a second
+// launch hands its link to the running app and quits.
+import * as fs from "node:fs"
+import * as path from "node:path"
+import { app, BaseWindow, dialog, Menu, session, webContents } from "electron"
+import { findCelloLink, parseCelloLink, SCHEME, type CelloLink } from "./links/celloLink.ts"
+import { buildMenu } from "./menu.ts"
+import { PANEL_PARTITION } from "./panel/Panel.ts"
+import { celloCommand, serverConfig } from "./server/plan.ts"
+import { connectServer, type Server } from "./server/sidecar.ts"
+import { MainWindow } from "./window/MainWindow.ts"
+
+// A closed stdout (the app started from a pipe that went away) must not crash the app.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code !== "EPIPE") throw error
+  })
+}
+
+app.setName("Cello")
+// Dev and the packaged app keep separate state; tests point CELLO_DESKTOP_USER_DATA at a temp folder.
+app.setPath(
+  "userData",
+  process.env.CELLO_DESKTOP_USER_DATA || path.join(app.getPath("appData"), app.isPackaged ? "Cello" : "Cello Dev"),
+)
+
+/** The app folder (apps/desktop, or app.asar when packaged); scripts/build.ts bundles into its dist-electron/. */
+const appPath = app.getAppPath()
+const files = {
+  preload: path.join(appPath, "dist-electron/preload.cjs"),
+  chromePreload: path.join(appPath, "dist-electron/chrome-preload.cjs"),
+  chromeHtml: path.join(appPath, "dist-electron/chrome.html"),
+  devIcon: path.join(appPath, "resources/icon.png"),
+  repoRoot: path.resolve(appPath, "../.."),
+}
+
+/** Allowed for the board (our own page) and for panel pages (any site); everything else is denied. */
+const BOARD_PERMISSIONS: ReadonlySet<string> = new Set(["clipboard-sanitized-write", "fullscreen"])
+const PANEL_PERMISSIONS: ReadonlySet<string> = new Set(["clipboard-sanitized-write", "fullscreen", "pointerLock", "loopback-network"])
+
+if (!app.requestSingleInstanceLock()) {
+  // exit, not quit: quit is asynchronous and this instance has nothing to clean up.
+  app.exit(0)
+} else {
+  run()
+}
+
+function run() {
+  let main: MainWindow | null = null
+  let server: Server | null = null
+  let boardLoaded = false
+  /** Links that arrived before the board was up (macOS sends a launch link to open-url early). */
+  const pending: CelloLink[] = []
+
+  /** The main window, unless it was closed (macOS keeps the app running without one). */
+  const live = () => (main && !main.isClosed ? main : null)
+
+  /** Brings the main window forward, opening a new one on the board if it was closed. */
+  const showWindow = (): MainWindow | null => {
+    const current = live()
+    if (current) {
+      current.focus()
+      return current
+    }
+    if (!server || !boardLoaded) return null
+    const window = openWindow()
+    void window.loadBoard(server.url)
+    return window
+  }
+
+  const follow = (raw: string) => {
+    const link = parseCelloLink(raw)
+    if (!link) return
+    const window = boardLoaded ? showWindow() : null
+    if (!window || !server) {
+      pending.push(link)
+      return
+    }
+    if (link.kind === "task") void window.loadBoard(server.url, link.path)
+    else window.panel.open(link.url)
+  }
+
+  app.on("open-url", (event, url) => {
+    event.preventDefault()
+    follow(url)
+  })
+  app.on("second-instance", (_event, argv) => {
+    const link = findCelloLink(argv)
+    if (link) follow(link)
+    else showWindow()
+  })
+  const launchLink = findCelloLink(process.argv)
+  if (launchLink) follow(launchLink)
+  // In dev, registering would point cello:// at the bare Electron binary; the packaged app also
+  // declares the scheme in its Info.plist (electron-builder.json).
+  if (app.isPackaged) app.setAsDefaultProtocolClient(SCHEME)
+
+  const openWindow = () => {
+    main = new MainWindow({
+      statePath: path.join(app.getPath("userData"), "window-state.json"),
+      preload: files.preload,
+      chromePreload: files.chromePreload,
+      chromeHtml: files.chromeHtml,
+      platform: process.platform,
+    })
+    return main
+  }
+
+  const connect = async (window: MainWindow): Promise<Server | null> => {
+    const { port, dataDir } = serverConfig(process.env)
+    const command = celloCommand({
+      env: process.env,
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      repoRoot: files.repoRoot,
+      exists: fs.existsSync,
+    })
+    for (;;) {
+      try {
+        return await connectServer({
+          port,
+          dataDir,
+          command: command ? [command] : null,
+          env: process.env,
+          log: (text) => process.stdout.write(text),
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        window.showMessage(message)
+        const { response } = await dialog.showMessageBox({
+          type: "error",
+          message: "Cello couldn't reach its server",
+          detail: message,
+          buttons: ["Try Again", "Quit"],
+          defaultId: 0,
+          cancelId: 1,
+        })
+        if (response === 1) return null
+      }
+    }
+  }
+
+  app.whenReady().then(async () => {
+    for (const [target, allowed] of [
+      [session.defaultSession, BOARD_PERMISSIONS],
+      [session.fromPartition(PANEL_PARTITION), PANEL_PERMISSIONS],
+    ] as const) {
+      target.setPermissionRequestHandler((_contents, permission, callback) => callback(allowed.has(permission)))
+      target.setPermissionCheckHandler((_contents, permission) => allowed.has(permission))
+    }
+    Menu.setApplicationMenu(
+      buildMenu(app.name, {
+        target: () => live()?.focusedContents(webContents.getFocusedWebContents()) ?? null,
+        togglePanel: () => live()?.panel.toggle(),
+        focusAddress: () => {
+          live()?.panel.show()
+          live()?.panel.focusAddress()
+        },
+        toggleFullScreen: () => {
+          const window = live()?.window
+          window?.setFullScreen(!window.isFullScreen())
+        },
+      }),
+    )
+    if (!app.isPackaged && fs.existsSync(files.devIcon)) app.dock?.setIcon(files.devIcon)
+
+    const window = openWindow()
+    window.showMessage("Starting Cello…")
+    server = await connect(window)
+    if (!server) return app.quit()
+    // A task link that launched the app decides the first page; panel links open once it's up.
+    const task = pending.find((link) => link.kind === "task")
+    if (!window.isClosed) await window.loadBoard(server.url, task?.kind === "task" ? task.path : "/")
+    boardLoaded = true
+    for (const link of pending.splice(0)) if (link.kind === "panel") live()?.panel.open(link.url)
+  })
+
+  // macOS keeps the app running with no window; the dock icon brings the board back.
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit()
+  })
+  app.on("activate", () => {
+    if (BaseWindow.getAllWindows().length === 0) showWindow()
+  })
+
+  // Stop the server on quit, but only one the app started itself; quit again once it has stopped.
+  let stopping: Promise<void> | null = null
+  let stopped = false
+  app.on("before-quit", (event) => {
+    if (stopped || !server?.startedByUs) return
+    event.preventDefault()
+    const running = server
+    // Close the window first: the server finishes shutting down only once the board's
+    // WebSocket is gone. Closing (not destroying) still saves the window's size and position.
+    for (const window of BaseWindow.getAllWindows()) window.close()
+    stopping ??= running.stop().finally(() => {
+      stopped = true
+      app.quit()
+    })
+  })
+}

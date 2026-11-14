@@ -1,0 +1,84 @@
+import { describe, expect, it } from "vitest"
+import {
+  addressToUrl,
+  boardNavigationAction,
+  boardWindowOpenAction,
+  panelNavigationAction,
+  panelTitle,
+  panelUrl,
+  panelWindowOpenAction,
+} from "./urls.ts"
+
+describe("panelUrl", () => {
+  it("allows http and https pages, including claude.ai artifacts and local dev servers", () => {
+    expect(panelUrl("https://claude.ai/artifact/RNpQF3GNVbCdMLNVWJqoYh")).toBe("https://claude.ai/artifact/RNpQF3GNVbCdMLNVWJqoYh")
+    expect(panelUrl("http://localhost:5173")).toBe("http://localhost:5173/")
+    expect(panelUrl("  http://127.0.0.1:4791/x?y=1  ")).toBe("http://127.0.0.1:4791/x?y=1")
+  })
+
+  it("refuses every other scheme and anything that isn't a URL", () => {
+    for (const bad of ["javascript:alert(1)", "file:///etc/passwd", "data:text/html,hi", "cello://CEL-3", "about:blank", "ftp://x.org", "", "not a url"]) {
+      expect(panelUrl(bad), bad).toBeNull()
+    }
+  })
+})
+
+describe("addressToUrl", () => {
+  it("takes what was typed in the address field and makes a URL", () => {
+    expect(addressToUrl("localhost:5173")).toBe("http://localhost:5173/")
+    expect(addressToUrl("127.0.0.1:4791/CEL/3")).toBe("http://127.0.0.1:4791/CEL/3")
+    expect(addressToUrl("claude.ai/artifact/abc")).toBe("https://claude.ai/artifact/abc")
+    expect(addressToUrl("https://example.com")).toBe("https://example.com/")
+  })
+
+  it("refuses words, other schemes and blanks", () => {
+    expect(addressToUrl("hello world")).toBeNull()
+    expect(addressToUrl("javascript:alert(1)")).toBeNull()
+    expect(addressToUrl("   ")).toBeNull()
+  })
+})
+
+describe("new windows and navigation", () => {
+  it("sends the board's new-window links to the panel, mail to the mail app, and refuses the rest", () => {
+    expect(boardWindowOpenAction("https://claude.ai/artifact/x")).toBe("panel")
+    expect(boardWindowOpenAction("mailto:me@example.com")).toBe("external")
+    expect(boardWindowOpenAction("file:///etc/passwd")).toBe("deny")
+  })
+
+  it("keeps the board on its own origin; other pages go to the panel", () => {
+    const board = "http://127.0.0.1:4747"
+    expect(boardNavigationAction("http://127.0.0.1:4747/CEL/3", board)).toBe("allow")
+    expect(boardNavigationAction("https://github.com/x/y", board)).toBe("panel")
+    expect(boardNavigationAction("http://127.0.0.1:5173/", board)).toBe("panel")
+    expect(boardNavigationAction("javascript:alert(1)", board)).toBe("deny")
+  })
+
+  it("keeps links that open new windows inside the panel, but lets sign-in popups open", () => {
+    expect(panelWindowOpenAction({ url: "https://example.com/a", disposition: "foreground-tab" })).toBe("panel")
+    expect(panelWindowOpenAction({ url: "https://example.com/a", disposition: "background-tab" })).toBe("panel")
+    expect(panelWindowOpenAction({ url: "https://accounts.google.com/o/oauth2", disposition: "new-window" })).toBe("popup")
+    expect(panelWindowOpenAction({ url: "mailto:me@example.com", disposition: "foreground-tab" })).toBe("external")
+    expect(panelWindowOpenAction({ url: "file:///etc/passwd", disposition: "new-window" })).toBe("deny")
+  })
+
+  it("lets the panel go to web pages only", () => {
+    expect(panelNavigationAction("https://claude.ai/login")).toBe("allow")
+    expect(panelNavigationAction("about:blank")).toBe("allow")
+    expect(panelNavigationAction("mailto:me@example.com")).toBe("external")
+    expect(panelNavigationAction("file:///etc/passwd")).toBe("deny")
+  })
+})
+
+describe("panelTitle", () => {
+  const opened = { url: "https://claude.ai/artifact/x", title: "Review packet" }
+
+  it("shows the title Cello gave while the panel is still on that page", () => {
+    expect(panelTitle({ url: "https://claude.ai/artifact/x", pageTitle: "Claude", opened })).toBe("Review packet")
+  })
+
+  it("shows the page's own title after navigating away, else the URL", () => {
+    expect(panelTitle({ url: "https://claude.ai/login", pageTitle: "Sign in", opened })).toBe("Sign in")
+    expect(panelTitle({ url: "https://claude.ai/login", pageTitle: "", opened })).toBe("https://claude.ai/login")
+    expect(panelTitle({ url: "", pageTitle: "", opened: null })).toBe("")
+  })
+})
