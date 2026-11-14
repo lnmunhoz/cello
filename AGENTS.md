@@ -28,7 +28,9 @@ Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port
 - hand finished work to Lucas **only with `cello task submit`**: a review packet (summary, how-to-check steps, evidence) that moves the task to **In Review**. `cello task move CEL-n "In Review"` is refused. Lucas approves it (Done) or sends it back with a note, on the Review page.
   - UI work: MP4 video(s) of the flow (the e2e videos) and screenshots, light and dark when it matters
   - CLI or server work: a terminal recording or a test-output file, plus steps he can run
+  - a report you published as a page: `--link <page url>`
   - `cello guide` has the full command
+- publish reports, plans, comparisons and summaries **as pages in Cello** with `cello doc publish report.md --task CEL-n`, not as Claude artifacts. It prints the page's URL; Lucas reads it next to the task. Republishing the same file updates the page (the link stays, old versions are kept); `cello doc get <slug>` reads one back
 
 ## How to work
 
@@ -42,7 +44,7 @@ Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port
 - **Storage failures are defects** (`Effect.orDie` at the service edge). API errors are only the tagged errors in `packages/contract/src/errors.ts`.
 - **Effect style** follows T3 Code (`~/projects/t3code`): `Context.Service` classes, layers, `Effect.fn("Service.method")` for service methods. Effect's own source and tests are in `~/projects/t3code/.repos/effect` when the docs aren't enough.
 - **UI primitives own their look.** `apps/web/src/components/ui` components take a `variant` or `size`; don't restyle them with `className`. No `useMemo`/`useCallback` (React Compiler). Animations only run when an event arrives; an idle board runs none.
-- **Docs:** `docs/internals/` holds decisions and cross-cutting constraints only. Specs and plans with phases are published as artifact pages with a **Phases** list at the top of the sidebar (one page per detailed phase); the kit is `~/.claude/doc-kit/`.
+- **Docs:** `docs/internals/` holds decisions and cross-cutting constraints only. Specs, plans and reports are published into Cello with `cello doc publish` (`--kind spec` for a spec), one page per detailed phase; the page reader follows the doc-kit look (`~/.claude/doc-kit/`).
 
 ## Commands
 

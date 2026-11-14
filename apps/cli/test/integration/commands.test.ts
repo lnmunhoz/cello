@@ -138,7 +138,11 @@ describe("cello commands against a real server", () => {
         server: { actor: { kind: "agent", name: "Claude Code" }, session: { externalId: SESSION }, project: { key: "CEL" } },
       })
       expect(json(yield* me("whoami")).server).toMatchObject({ actor: { kind: "human", name: "Lucas" }, session: null })
-      expect((yield* agent("guide")).out).toContain("cello context")
+      const guide = (yield* agent("guide")).out
+      expect(guide).toContain("cello context")
+      // Reports go into Cello as pages, and a page can travel in a review packet.
+      expect(guide).toContain("cello doc publish report.md --task CEL-3")
+      expect(guide).toContain("--link <page url>")
     }).pipe(Effect.scoped))
 
   it.live("errors say what to do next: unknown folder, unknown task, unknown status, no server", () =>

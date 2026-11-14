@@ -1,9 +1,11 @@
 // The `cello` command tree. Each command parses its arguments, makes one RPC call (two when it must
 // first turn a task key or a status name into an id), and prints short text, or JSON with --json.
+import * as path from "node:path"
 import * as BunSocket from "@effect/platform-bun/BunSocket"
 import { CelloClient, makeClientLayer, newCommandId } from "@cello/client/client"
 import { describeEvent } from "@cello/client/history"
-import type { Actor, AgentSession, Priority, ProjectRef, Review, Status, Task } from "@cello/contract/entities"
+import type { Actor, AgentSession, DocumentKind, Priority, ProjectRef, Review, Status, Task } from "@cello/contract/entities"
+import { pagePath } from "@cello/shared/document"
 import * as Console from "effect/Console"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -16,7 +18,8 @@ import { CliFailure, explain } from "./errors.ts"
 import { evidenceFromArgs } from "./evidence.ts"
 import { ago, columns, sessionName } from "./format.ts"
 import { GUIDE } from "./guide.ts"
-import { IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
+import { type Env, IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
+import { pageFiles } from "./pageFiles.ts"
 import { repoRootFor } from "./repo.ts"
 import { start } from "./start.ts"
 
@@ -255,6 +258,14 @@ const get = Command.make("get", { key, json }, (input) =>
       `Created by ${author(detail, task.createdByActorId, task.createdBySessionId)}, ${ago(task.createdAt, now)}`,
     ]
     if (task.description.trim()) lines.push("", task.description.trim())
+    if (detail.documents.length) {
+      const { env } = yield* CliEnv
+      lines.push("", `Pages (${detail.documents.length})`)
+      for (const d of detail.documents) {
+        const url = d.projectId === detail.project.id ? `  ${pageUrl(env, detail.project.key, d.slug)}` : ""
+        lines.push(`  ${d.title} (${d.kind}, version ${d.version})${url}`)
+      }
+    }
     if (detail.reviews.length) {
       lines.push("", `Reviews (${detail.reviews.length})`)
       for (const r of [...detail.reviews].reverse()) lines.push(...reviewLines(detail, r, now))
@@ -425,6 +436,130 @@ const submit = Command.make("submit", {
     ].join("\n"))
   })).pipe(Command.withDescription("Hand finished work to Lucas: a review packet (summary, steps, evidence) that moves the task to In Review."))
 
+// ── documents ───────────────────────────────────────────────────────────────────────────────────
+
+const KINDS: ReadonlyArray<DocumentKind> = ["page", "doc", "spec"]
+const kindFlag = Flag.String("kind").pipe(Flag.optional, Flag.withDescription("page (the default), doc or spec."))
+
+/** The kind from --kind, or undefined; a failure names the real kinds. */
+const kindOf = (value: Option.Option<string>) => {
+  if (Option.isNone(value)) return Effect.succeed(undefined)
+  const kind = KINDS.find((k) => k === value.value.trim().toLowerCase())
+  return kind ? Effect.succeed(kind) : Effect.fail(new CliFailure({ message: `No kind "${value.value}". Use page, doc or spec.` }))
+}
+
+/** Where the reader shows a document: the web app `cello start` serves on the same port. */
+const pageUrl = (env: Env, projectKey: string, slug: string) => `http://127.0.0.1:${portOf(env)}${pagePath(projectKey, slug)}`
+
+const readFile = (file: string) =>
+  Effect.tryPromise({ try: () => Bun.file(file).text(), catch: () => new CliFailure({ message: `Can't read ${file}.` }) })
+
+const docPublish = Command.make("publish", {
+  file: Argument.String("file").pipe(Argument.withDescription("The markdown file, or - to read it from stdin.")),
+  project,
+  json,
+  title: Flag.String("title").pipe(Flag.optional, Flag.withDescription("Default: the frontmatter title:, the first # heading, or the file name.")),
+  slug: Flag.String("slug").pipe(
+    Flag.optional,
+    Flag.withDescription("The page's slug (its URL); publishing to it again updates it. Default: the page this file went to before, else one from the title."),
+  ),
+  kind: kindFlag,
+  summary: Flag.String("summary").pipe(Flag.optional, Flag.withDescription("Default: the frontmatter summary:, else the first paragraph.")),
+  task: Flag.String("task").pipe(Flag.atLeast(0), Flag.withDescription("Link the page to a task, e.g. CEL-12; repeat it, or separate keys with commas.")),
+  asset: Flag.String("asset").pipe(
+    Flag.atLeast(0),
+    Flag.withDescription("Another file to upload with it (images the markdown links go up by themselves); repeatable."),
+  ),
+}, (input) =>
+  Effect.gen(function* () {
+    const kind = yield* kindOf(input.kind)
+    const { cwd, env, readStdin } = yield* CliEnv
+    const ref = yield* projectRef(input.project)
+    const source = input.file === "-" ? undefined : path.resolve(cwd, input.file)
+    const body = source === undefined ? yield* Effect.promise(readStdin) : yield* readFile(source)
+    const files = pageFiles(body, source === undefined ? cwd : path.dirname(source), input.asset, cwd)
+    const taskKeys = input.task.flatMap((value) => value.split(",")).map((k) => k.trim()).filter((k) => k !== "")
+    const { response, project: found } = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const response = yield* client["document.publish"]({
+          commandId: newCommandId(),
+          project: ref,
+          body,
+          ...(kind === undefined ? {} : { kind }),
+          ...(Option.isSome(input.slug) ? { slug: input.slug.value } : {}),
+          ...(Option.isSome(input.title) ? { title: input.title.value } : {}),
+          ...(Option.isSome(input.summary) ? { summary: input.summary.value } : {}),
+          ...(source === undefined ? {} : { sourcePath: source }),
+          ...(taskKeys.length ? { taskKeys } : {}),
+          ...(files.length ? { files } : {}),
+        })
+        return { response, project: (yield* client["whoami"]({ project: ref })).project }
+      })
+    )
+    const doc = response.result
+    const url = pageUrl(env, found?.key ?? ref.key?.toUpperCase() ?? "", doc.slug)
+    if (input.json) return yield* printJson({ ...response, url })
+    const what = `${doc.kind} "${doc.title}"`
+    if (response.seq === null) return yield* print(`No changes: ${what} is still version ${doc.version}\n${url}`)
+    const fresh = doc.version === 1 && doc.createdAt === doc.updatedAt
+    const details = [
+      ...(doc.tasks.length ? [`linked to ${doc.tasks.map((t) => t.key).join(", ")}`] : []),
+      ...(files.length ? [`with ${plural(files.length, "file")}`] : []),
+    ]
+    const head = fresh ? `Published ${what} (version 1)` : `Updated ${what} to version ${doc.version}`
+    yield* print(`${[head, ...details].join(", ")}\n${url}`)
+  })).pipe(Command.withDescription("Publish a markdown report, plan or summary as a page in Cello and print its URL."))
+
+const docList = Command.make("list", { project, json, kind: kindFlag }, (input) =>
+  Effect.gen(function* () {
+    const kind = yield* kindOf(input.kind)
+    const ref = yield* projectRef(input.project)
+    const result = yield* withClient((client) => client["document.list"]({ project: ref, ...(kind === undefined ? {} : { kind }) }))
+    if (input.json) return yield* printJson(result)
+    if (result.documents.length === 0) {
+      return yield* print(
+        `No ${kind ? `${kind}s` : "documents"} in ${result.project.key} yet. Publish one with \`cello doc publish report.md${kind && kind !== "page" ? ` --kind ${kind}` : ""}\`.`,
+      )
+    }
+    const now = (yield* CliEnv).now()
+    const linked = result.documents.some((d) => d.tasks.length > 0)
+    yield* print(columns(result.documents.map((d) => [
+      d.slug,
+      d.kind,
+      `v${d.version}`,
+      d.title,
+      ...(linked ? [d.tasks.map((t) => t.key).join(",")] : []),
+      ago(d.updatedAt, now),
+    ])).join("\n"))
+  })).pipe(Command.withDescription("The project's docs, specs and pages, newest first."))
+
+const docGet = Command.make("get", {
+  slug: Argument.String("slug").pipe(Argument.withDescription("The page's slug, e.g. billing-audit.")),
+  project,
+  json,
+  version: Flag.Int("version").pipe(Flag.optional, Flag.withDescription("An older version, by number.")),
+}, (input) =>
+  Effect.gen(function* () {
+    const ref = yield* projectRef(input.project)
+    const doc = yield* withClient((client) =>
+      client["document.get"]({ project: ref, slug: input.slug, ...(Option.isSome(input.version) ? { version: input.version.value } : {}) })
+    )
+    yield* input.json ? printJson(doc) : print(doc.body)
+  })).pipe(Command.withDescription("Print a page's markdown, to read it back or continue from it."))
+
+const docArchive = Command.make("archive", { slug: Argument.String("slug"), project, json }, (input) =>
+  Effect.gen(function* () {
+    const ref = yield* projectRef(input.project)
+    const response = yield* withClient((client) => client["document.archive"]({ commandId: newCommandId(), project: ref, slug: input.slug }))
+    if (input.json) return yield* printJson(response)
+    yield* print(`Archived ${response.result.kind} "${response.result.title}"`)
+  })).pipe(Command.withDescription("Hide a page from the Docs tab; its link keeps working, and publishing it again brings it back."))
+
+const doc = Command.make("doc").pipe(
+  Command.withDescription("Pages, docs and specs: publish, list, get, archive."),
+  Command.withSubcommands([docPublish, docList, docGet, docArchive]),
+)
+
 const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(Command.withDescription("How agents work with Cello."))
 
 const task = Command.make("task").pipe(
@@ -438,7 +573,7 @@ const startCommand = Command.make("start", {}, () => start).pipe(
 
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, task, whoami, guide, startCommand]),
+  Command.withSubcommands([context, task, doc, whoami, guide, startCommand]),
 )
 
 /** Runs `cello` with these arguments (without the program name). */

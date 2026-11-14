@@ -29,6 +29,12 @@ export const explain = (error: unknown, where: Where): string => {
           return String(e.id).startsWith("/")
             ? `No project is linked to ${e.id}. Pass --project KEY (\`cello init\` comes later in M2).`
             : `No project with key ${e.id}. Check the key, or run \`cello context\` inside a project's folder.`
+        case "document":
+          return `No document ${e.id}. Run \`cello doc list\` to see the project's documents.`
+        case "document version": {
+          const at = String(e.id).lastIndexOf("@")
+          return `No version ${String(e.id).slice(at + 1)} of ${String(e.id).slice(0, at)}. Run \`cello doc list\` to see the project's documents.`
+        }
         default:
           return `That ${e.entity} (${e.id}) no longer exists. Run \`cello context\` to see the current state.`
       }

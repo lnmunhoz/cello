@@ -203,7 +203,7 @@ const make = Effect.gen(function* () {
     if (document === undefined) return yield* missing(project, input.slug)
     if (input.version === undefined || input.version === document.version) return { ...document, body: yield* bodyOf(document.id) }
     const [row] = yield* versionRows(document.id, input.version)
-    if (row === undefined) return yield* new NotFound({ entity: "document version", id: `${project.key}/${input.slug} version ${input.version}` })
+    if (row === undefined) return yield* new NotFound({ entity: "document version", id: `${project.key}/${input.slug}@${input.version}` })
     return {
       ...document,
       version: row.version,
