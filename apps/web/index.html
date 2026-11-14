@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cello</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#5e6ad2" />
+    <meta name="apple-mobile-web-app-title" content="Cello" />
+    <script>
+      // Set the theme before first paint, so a dark board never flashes light.
+      try {
+        const saved = localStorage.getItem("cello:theme")
+        const dark = saved ? saved === "dark" : matchMedia("(prefers-color-scheme: dark)").matches
+        document.documentElement.classList.toggle("dark", dark)
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
