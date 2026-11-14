@@ -1,0 +1,11 @@
+{
+  "name": "@cello/contract",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "effect": "4.1.4"
+  }
+}

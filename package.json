@@ -1,0 +1,20 @@
+{
+  "name": "cello",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "dev": "bun run --filter @cello/server dev & bun run --filter @cello/web dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "bun run --filter @cello/web build && playwright test",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.1.4",
+    "@playwright/test": "1.65.1",
+    "@types/bun": "^1.4.4",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

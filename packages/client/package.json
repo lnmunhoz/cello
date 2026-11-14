@@ -1,0 +1,13 @@
+{
+  "name": "@cello/client",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@cello/contract": "workspace:*",
+    "@cello/shared": "workspace:*",
+    "effect": "4.1.4"
+  }
+}
