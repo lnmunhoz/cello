@@ -16,6 +16,7 @@ const trigger = variants(
     variant: {
       icon: "size-6 text-muted hover:bg-hover hover:text-ink data-open:bg-hover",
       row: "h-7 w-full justify-start px-2 text-[13px] font-medium text-ink hover:bg-hover data-open:bg-hover",
+      chip: "h-7 rounded-full border border-line bg-raised px-2.5 text-[13px] font-medium text-ink shadow-card hover:bg-hover data-open:bg-hover",
     },
   },
   { variant: "icon" },
