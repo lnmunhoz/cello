@@ -39,6 +39,7 @@ const state: BoardState = {
     other: task("other", "todo", "a1", { projectId: "p2" }),
     orphan: task("orphan", "todo", "a3", { parentId: "missing" }),
   },
+  reviews: {},
 }
 
 describe("listGroups", () => {

@@ -96,6 +96,33 @@ describe("applyEvents", () => {
   })
 })
 
+describe("applyEvents: reviews", () => {
+  const review = (id: string, taskId = "t1") => ({
+    id,
+    taskId,
+    summary: "Ready",
+    steps: ["Look"],
+    attachments: [],
+    actorId: "agent",
+    sessionId: null,
+    createdAt: 1,
+    decidedAt: null,
+    decision: null,
+    decisionNote: null,
+  })
+
+  it("the snapshot's open reviews load by id; a submitted one joins; a decided one leaves", () => {
+    const state = fromSnapshot({ ...snapshot([task("t1")]), reviews: [review("r1")] })
+    expect(Object.keys(state.reviews)).toEqual(["r1"])
+    const next = applyEvents(state, [
+      ev(11, { type: "review.decided", id: "r1", taskId: "t1", decision: "superseded", note: null }),
+      ev(12, { type: "review.submitted", review: review("r2") }),
+    ])
+    expect(Object.keys(next.reviews)).toEqual(["r2"])
+    expect(next.tasks).toBe(state.tasks)
+  })
+})
+
 describe("applyEvents: claims", () => {
   it("claimed, taken and released events replace the task; claim_ended clears the assignee", () => {
     const state = fromSnapshot(snapshot([task("t1")]))
