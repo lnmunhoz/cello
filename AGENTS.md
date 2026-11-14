@@ -14,9 +14,18 @@ A local task board for one developer and their AI coding agents. The design is i
 
 ## Ways to hurt yourself
 
-1. **Touching real data.** `~/.cello/` is Lucas's live board. Dev and tests use `<worktree>/.cello/` or a temp folder. Never start a server against `~/.cello/`.
+1. **Touching real data outside the CLI.** `~/.cello/` is Lucas's live board, served by `cello start` on port 4747. Agents read and change it **only through the `cello` CLI**. Dev servers and tests use `<worktree>/.cello/` (port 4748) or a temp folder, and never open, copy over or delete anything in `~/.cello/`.
 2. **Killing by pattern.** Stop only processes you started, by the PID you captured.
 3. **Logic in a handler.** RPC handlers, CLI commands and (later) MCP tools decode input, call one service method and map errors. Anything else belongs in a service, or it's missing from the other entry points.
+
+## Tracking work in Cello
+
+Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port 4747). Once the `cello` CLI exists (M2 step B2):
+
+- run `cello context` at the start of a session
+- `cello task claim CEL-n` before working on a task, and comment progress with `cello task comment`
+- put the task key in commit messages (`feat(cli): task claim (CEL-3)`)
+- move finished work to **In Review**; Lucas moves it to Done
 
 ## How to work
 
