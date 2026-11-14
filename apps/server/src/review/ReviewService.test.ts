@@ -71,6 +71,7 @@ describe("ReviewService.submit", () => {
         decision: null,
         decidedAt: null,
         sessionId: task.assigneeSessionId,
+        author: { name: "Claude Code", session: "session-review" },
       })
       const [image, text, link] = result.review.attachments
       expect(image).toMatchObject({ kind: "image", name: "board.png", caption: "The board", mime: "image/png", bytes: fs.statSync(png).size, hasPoster: false })

@@ -293,13 +293,20 @@ interface ReviewRow {
   decided_at: number | null
   decision: ReviewDecision | null
   decision_note: string | null
+  author_name: string
+  author_session: string | null
 }
 
-/** Aliases: `r` (reviews), `t` (its task) and `p` (the task's project). Each review comes with its attachments that aren't deleted. */
+/**
+ * Aliases: `r` (reviews), `t` (its task) and `p` (the task's project). Each review comes with its
+ * attachments that aren't deleted, and its author's name and host session id.
+ */
 export const selectReviews = (sql: Sql, where: Where) =>
   Effect.gen(function* () {
     const rows = yield* sql<ReviewRow>`
-      SELECT r.* FROM reviews r JOIN tasks t ON t.id = r.task_id JOIN projects p ON p.id = t.project_id
+      SELECT r.*, a.name AS author_name, s.external_id AS author_session
+      FROM reviews r JOIN tasks t ON t.id = r.task_id JOIN projects p ON p.id = t.project_id
+      JOIN actors a ON a.id = r.actor_id LEFT JOIN agent_sessions s ON s.id = r.session_id
       WHERE ${where} ORDER BY r.created_at, r.id`
     const files = rows.length === 0 ? [] : yield* sql<AttachmentRow>`
       SELECT * FROM attachments WHERE ${sql.in("review_id", rows.map((r) => r.id))} AND deleted_at IS NULL
@@ -312,6 +319,7 @@ export const selectReviews = (sql: Sql, where: Where) =>
       attachments: files.filter((f) => f.review_id === r.id).map(toAttachment),
       actorId: r.actor_id,
       sessionId: r.session_id,
+      author: { name: r.author_name, session: r.author_session },
       createdAt: r.created_at,
       decidedAt: r.decided_at,
       decision: r.decision,

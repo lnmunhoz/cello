@@ -20,7 +20,7 @@ const attachment = (id: string, kind: Attachment["kind"], extra: Partial<Attachm
   actorId: "agent", sessionId: "s1", createdAt: 1, deletedAt: null, ...extra,
 })
 const review = (id: string, taskId: string, createdAt: number, attachments: Attachment[] = []): Review => ({
-  id, taskId, summary: "Done", steps: ["Look"], attachments, actorId: "agent", sessionId: "s1", createdAt,
+  id, taskId, summary: "Done", steps: ["Look"], attachments, actorId: "agent", sessionId: "s1", author: { name: "Claude Code", session: "2fd0505c" }, createdAt,
   decidedAt: null, decision: null, decisionNote: null,
 })
 

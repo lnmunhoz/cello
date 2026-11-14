@@ -156,6 +156,17 @@ export const ReviewDecision = Schema.Literals(["approved", "sent_back", "superse
 export type ReviewDecision = typeof ReviewDecision.Type
 
 /**
+ * Who submitted a review, for display: the actor's name ("Claude Code") and its host session id. A
+ * page may not know the actor yet (agents appear after its snapshot), so the review carries it.
+ */
+export const ReviewAuthor = Schema.Struct({
+  name: Schema.String,
+  /** The host's session id (e.g. CLAUDE_CODE_SESSION_ID); null for the human. */
+  session: Schema.NullOr(Schema.String),
+})
+export type ReviewAuthor = typeof ReviewAuthor.Type
+
+/**
  * A review packet: what an agent hands Lucas when it moves a task to In Review. A review is open
  * until it's decided; a task has at most one open review.
  */
@@ -169,6 +180,7 @@ export const Review = Schema.Struct({
   attachments: Schema.Array(Attachment),
   actorId: Id,
   sessionId: Schema.NullOr(Id),
+  author: ReviewAuthor,
   createdAt: Millis,
   decidedAt: Schema.NullOr(Millis),
   decision: Schema.NullOr(ReviewDecision),

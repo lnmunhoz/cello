@@ -50,6 +50,7 @@ describe("decodeEvent", () => {
       steps: ["Open /review", "Approve"],
       attachments: [attachment],
       actorId: "actor-1",
+      author: { name: "Claude Code", session: "2fd0505c" },
       sessionId: null,
       createdAt: 1,
       decidedAt: null,

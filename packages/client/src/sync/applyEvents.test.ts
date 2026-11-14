@@ -104,6 +104,7 @@ describe("applyEvents: reviews", () => {
     steps: ["Look"],
     attachments: [],
     actorId: "agent",
+    author: { name: "Claude Code", session: null },
     sessionId: null,
     createdAt: 1,
     decidedAt: null,
