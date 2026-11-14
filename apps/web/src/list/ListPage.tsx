@@ -107,7 +107,7 @@ function TaskList({ board, workspaceId, project, openNumber }: { board: BoardSta
             </header>
             {composing === status.id ? (
               <div className="py-1.5 pr-2 pl-8">
-                <InlineCreate project={project} status={status} first={tasks[0] ?? null} onDone={() => setComposing(null)} />
+                <InlineCreate project={project} status={status} tasks={tasks} onDone={() => setComposing(null)} />
               </div>
             ) : null}
             {folded || tasks.length === 0 ? null : (
