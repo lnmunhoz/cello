@@ -1,5 +1,5 @@
 // Pure reducer from events to client state. Shared by the web app and any other client.
-import type { Actor, Label, Project, Review, Snapshot, Status, Task, Workspace } from "@cello/contract/entities"
+import type { Actor, DocumentSummary, Label, Project, Review, Snapshot, Status, Task, Workspace } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
 
 type ById<T> = Readonly<Record<string, T>>
@@ -14,6 +14,8 @@ export interface BoardState {
   readonly tasks: ById<Task>
   /** Open reviews only: a decided one leaves the board (the task panel loads a task's whole list). */
   readonly reviews: ById<Review>
+  /** Documents without their bodies, archived ones included (the reader loads a body). */
+  readonly documents: ById<DocumentSummary>
 }
 
 const byId = <T extends { id: string }>(rows: ReadonlyArray<T>): ById<T> =>
@@ -28,6 +30,7 @@ export const fromSnapshot = (s: Snapshot): BoardState => ({
   labels: byId(s.labels),
   tasks: byId(s.tasks),
   reviews: byId(s.reviews),
+  documents: byId(s.documents),
 })
 
 type Collection = Exclude<keyof BoardState, "seq">
@@ -115,6 +118,12 @@ const apply = (d: Draft, e: CelloEvent) => {
       return d.set("reviews", e.review.id, e.review)
     case "review.decided":
       return d.delete("reviews", e.id)
+    case "document.published":
+      return d.set("documents", e.document.id, e.document)
+    case "document.updated":
+      return d.set("documents", e.id, e.document)
+    case "document.archived":
+      return d.update("documents", e.id, (doc) => ({ ...doc, archivedAt: e.ts }))
   }
 }
 

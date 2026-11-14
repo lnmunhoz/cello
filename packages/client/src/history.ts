@@ -52,6 +52,12 @@ export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | 
       return `${who} submitted a review`
     case "review.decided":
       return `${who} ${DECIDED[e.decision]}`
+    case "document.published":
+      return `${who} published the ${e.document.kind} “${e.document.title}”`
+    case "document.updated":
+      return `${who} updated the ${e.document.kind} “${e.document.title}”`
+    case "document.archived":
+      return `${who} archived a document`
     default:
       return `${who} changed it`
   }

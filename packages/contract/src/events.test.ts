@@ -64,6 +64,32 @@ describe("decodeEvent", () => {
     expect(() => decodeEvent({ ...envelope, schemaVersion: 1, type: "review.decided", id: "r-1", taskId: "t-1", decision: "maybe", note: null })).toThrow()
   })
 
+  it("decodes document events, which carry the document without its body", () => {
+    const document = {
+      id: "d-1",
+      workspaceId: "ws-1",
+      projectId: "p-1",
+      kind: "page",
+      slug: "billing-audit",
+      title: "Billing audit",
+      summary: "What we found",
+      version: 2,
+      tasks: [{ id: "t-1", key: "CEL-12" }],
+      createdByActorId: "actor-1",
+      createdBySessionId: null,
+      updatedByActorId: "actor-1",
+      updatedBySessionId: null,
+      updatedBy: { name: "Claude Code", color: "#7C3AED", session: "2fd0505c" },
+      createdAt: 1,
+      updatedAt: 2,
+      archivedAt: null,
+    }
+    const updated = decodeEvent({ ...envelope, schemaVersion: 1, type: "document.updated", id: "d-1", version: 2, document })
+    expect(updated.type === "document.updated" && updated.document.tasks[0]?.key).toBe("CEL-12")
+    expect(decodeEvent({ ...envelope, schemaVersion: 1, type: "document.archived", id: "d-1" }).type).toBe("document.archived")
+    expect(() => decodeEvent({ ...envelope, schemaVersion: 1, type: "document.published", document: { ...document, kind: "memo" } })).toThrow()
+  })
+
   it("fails loudly on an unknown schema version", () => {
     expect(() => decodeEvent({ ...envelope, schemaVersion: 99, type: "task.archived", id: "t-1", version: 3 })).toThrow(
       UnknownSchemaVersion,

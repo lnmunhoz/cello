@@ -19,6 +19,7 @@ import { EarlierReviews, PinnedReview } from "../review/TaskReviews.tsx"
 import { useViewerItem } from "../viewer/store.ts"
 import { Comments } from "./Comments.tsx"
 import { History } from "./History.tsx"
+import { TaskPages } from "./TaskPages.tsx"
 
 export function TaskPanel({ board, project, number }: { board: BoardState; project: Project; number: number }) {
   const task = taskByKey(board, project.key, number)
@@ -155,6 +156,7 @@ function TaskDetails({ board, project, task }: { board: BoardState; project: Pro
         </Tabs>
       </div>
       <div className="flex flex-col gap-6 border-t border-line px-6 py-5">
+        <TaskPages board={board} task={task} />
         <EarlierReviews task={task} />
         <Comments board={board} task={task} />
         <History board={board} task={task} />

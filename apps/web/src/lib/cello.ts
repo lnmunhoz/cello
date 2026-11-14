@@ -15,4 +15,15 @@ export const cello = makeCelloAtoms(runtime, {
   onError: (message) => toast.error(message),
 })
 
-export const { boardAtom, syncedAtom, currentAtom, workspaceIdAtom, commands, commentsFamily, reviewsFamily, historyFamily } = cello
+export const {
+  boardAtom,
+  syncedAtom,
+  currentAtom,
+  workspaceIdAtom,
+  commands,
+  commentsFamily,
+  reviewsFamily,
+  historyFamily,
+  pageFamily,
+  documentHistoryFamily,
+} = cello

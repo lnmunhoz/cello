@@ -26,6 +26,15 @@ describe("explain", () => {
     expect(explain(new NotFound({ entity: "task", id: "CEL-99" }), where)).toBe("No task CEL-99. Run `cello task list` to see open tasks.")
   })
 
+  it("a missing document or version points at `cello doc list`", () => {
+    expect(explain(new NotFound({ entity: "document", id: "CEL/billing-audit" }), where)).toBe(
+      "No document CEL/billing-audit. Run `cello doc list` to see the project's documents.",
+    )
+    expect(explain(new NotFound({ entity: "document version", id: "CEL/billing-audit@4" }), where)).toBe(
+      "No version 4 of CEL/billing-audit. Run `cello doc list` to see the project's documents.",
+    )
+  })
+
   it("moving to In Review without a packet points at `cello task submit`", () => {
     expect(explain(new ReviewRequired({ key: "CEL-7", status: "In Review" }), where)).toBe(
       "CEL-7 needs a review packet before it goes to In Review. Submit one instead: " +

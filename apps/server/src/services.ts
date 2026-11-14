@@ -1,9 +1,10 @@
 // All domain services over one SqlClient, plus the event log they publish to and agent sessions.
-// Review files need an AssetStore from outside (the data folder, or a temp one in tests).
+// Review and page files need an AssetStore from outside (the data folder, or a temp one in tests).
 import * as Layer from "effect/Layer"
 import * as CommentService from "./comment/CommentService.ts"
 import * as ContextService from "./context/ContextService.ts"
 import * as Commands from "./commands/Commands.ts"
+import * as DocumentService from "./document/DocumentService.ts"
 import * as EventLog from "./events/EventLog.ts"
 import * as EventStore from "./events/EventStore.ts"
 import * as LabelService from "./label/LabelService.ts"
@@ -30,8 +31,8 @@ const domain = Layer.mergeAll(
   Layer.provideMerge(EventStore.layer),
 )
 
-/** Reviews move tasks and add comments, so they sit on the task and comment services. */
-const reviews = ReviewService.layer.pipe(Layer.provideMerge(domain))
+/** Reviews move tasks and add comments; documents link tasks. Both sit on the domain services. */
+const reviews = Layer.mergeAll(ReviewService.layer, DocumentService.layer).pipe(Layer.provideMerge(domain))
 
 /** The CLI's read models sit on top of the domain services. */
 export const layer = ContextService.layer.pipe(Layer.provideMerge(reviews))

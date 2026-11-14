@@ -1,6 +1,6 @@
 import { useAtomSet } from "@effect/atom-react"
 import { projectsOf } from "@cello/client/sync/selectors"
-import { Link, Outlet, useNavigate } from "@tanstack/react-router"
+import { Link, Outlet, useNavigate, useSearch } from "@tanstack/react-router"
 import { reviewQueue } from "@cello/client/sync/reviews"
 import { ChevronDownIcon, ClipboardCheckIcon, MoonIcon, PlusIcon, SettingsIcon, SunIcon } from "lucide-react"
 import { useState } from "react"
@@ -8,6 +8,7 @@ import { Button } from "../components/ui/Button.tsx"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.tsx"
 import { Toaster } from "../components/ui/Toast.tsx"
 import { workspaceIdAtom } from "../lib/cello.ts"
+import { isEmbed } from "../lib/embed.ts"
 import { useBoard, useConnection, useWorkspaceId } from "../lib/hooks.ts"
 import { isDark, toggleTheme } from "../lib/theme.ts"
 import { NewProjectDialog } from "../project/NewProjectDialog.tsx"
@@ -22,6 +23,17 @@ export function AppShell() {
   const [dark, setDark] = useState(isDark)
   const setWorkspace = useAtomSet(workspaceIdAtom)
   const navigate = useNavigate()
+  const embed = isEmbed(useSearch({ strict: false }))
+
+  // In a panel (`?embed=1`): just the page, no sidebar.
+  if (embed) {
+    return (
+      <div className="flex h-full flex-col bg-surface">
+        <Outlet />
+        <Toaster />
+      </div>
+    )
+  }
 
   const workspaces = board ? byPosition(Object.values(board.workspaces).filter((w) => w.archivedAt === null)) : []
   const workspace = workspaceId && board ? board.workspaces[workspaceId] : undefined

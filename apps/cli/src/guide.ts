@@ -24,9 +24,25 @@ Cello is the task board you share with Lucas. Track your work through the \`cell
    - UI work: MP4 video(s) of the flow (Playwright videos from the e2e run) and screenshots.
    - CLI or server work: a terminal recording or a test-output file (\`... > vitest.log\`), plus steps
      he can run.
+   - A report you published as a page (step 6): \`--link <page url> --caption "The report"\`.
    Files are images, videos (MP4, WebM, MOV) or text (txt, log, md, json, cast), up to 50 MB each.
    \`--caption\` describes the \`--attach\` or \`--link\` before it. Use \`--summary-file -\` for a long
    summary from stdin. Submitting again replaces the open packet.
+6. Publish reports, plans, comparisons and summaries as pages in Cello, not as Claude artifacts.
+   Lucas reads them next to the tasks they belong to:
+
+     cello doc publish report.md --task CEL-3
+     # Published page "Billing audit" (version 1), linked to CEL-3, with 1 file
+     # http://127.0.0.1:4747/CEL/pages/billing-audit
+
+   Write markdown: ## and ### headings become the page's section list; tables, code blocks,
+   \`\`\`mermaid diagrams and images all render. The title is the first # heading (or --title), the
+   summary the first paragraph (or --summary). Images the markdown links by a relative path go up
+   with it; --asset uploads other files. Publishing the same file again updates the page and keeps
+   the old version; the link never changes. From stdin (\`cello doc publish - --slug billing-audit\`),
+   pass --slug so the next publish updates the same page. --kind doc or spec for project docs and
+   specs. \`cello doc get billing-audit\` prints the markdown back, so a later session can continue
+   from it; \`cello doc list\` shows the project's pages.
 
 Other commands: \`cello task list\` (--status, --label, --mine), \`cello task get CEL-3\` (shows the
 packets and Lucas's notes), \`cello task create "Title"\` (--description or --body-file -, --status,

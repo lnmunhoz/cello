@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as CommentService from "../comment/CommentService.ts"
+import * as DocumentService from "../document/DocumentService.ts"
 import * as EventStore from "../events/EventStore.ts"
 import { selectActors, selectLabels, selectProjects, selectReviews, selectStatuses, selectTasks } from "../persistence/rows.ts"
 import * as ProjectService from "../project/ProjectService.ts"
@@ -63,6 +64,7 @@ const make = Effect.gen(function* () {
   const comments = yield* CommentService.CommentService
   const sessions = yield* SessionService
   const store = yield* EventStore.EventStore
+  const documents = yield* DocumentService.DocumentService
 
   const actorById = (id: string) =>
     Effect.map(selectActors(sql), (actors) => actors.find((a) => a.id === id)!)
@@ -182,7 +184,7 @@ const make = Effect.gen(function* () {
       ...list.map((c) => c.sessionId),
       ...reviews.map((r) => r.sessionId),
     ])
-    return { ...names, task, comments: list, reviews, history }
+    return { ...names, task, comments: list, reviews, documents: yield* documents.ofTask(task.id), history }
   }, Effect.catchTag("SqlError", Effect.die))
 
   return ContextService.of({ whoami, context, taskList, taskDetail })

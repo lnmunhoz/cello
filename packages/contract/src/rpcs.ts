@@ -4,10 +4,28 @@ import * as Schema from "effect/Schema"
 import * as Rpc from "effect/rpc/Rpc"
 import * as RpcGroup from "effect/rpc/RpcGroup"
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware"
-import { Comment, DueDate, Id, Label, Priority, Project, ProjectRef, Review, Scope, Snapshot, Status, Task, Workspace } from "./entities.ts"
+import {
+  Comment,
+  Document,
+  DocumentKind,
+  DocumentSummary,
+  DocumentVersion,
+  DueDate,
+  Id,
+  Label,
+  Priority,
+  Project,
+  ProjectRef,
+  Review,
+  Scope,
+  Snapshot,
+  Status,
+  Task,
+  Workspace,
+} from "./entities.ts"
 import { HumanOnly, Invalid, KeyTaken, NotFound, ReviewRequired, SnapshotRequired, TaskClaimed, VersionConflict } from "./errors.ts"
 import { CelloEvent } from "./events.ts"
-import { ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
+import { DocumentList, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
 
 /** Who is calling, resolved by the server from per-request RPC headers. */
 export class Caller extends Context.Service<Caller, {
@@ -204,6 +222,51 @@ export const CelloRpcs = RpcGroup.make(
   }),
   // Every review of a task, open and decided, oldest first.
   Rpc.make("review.list", { payload: { taskId: Id }, success: Schema.Array(Review), error: NotFound }),
+
+  // Documents (docs, specs, pages). `document.publish` creates a page or saves a new version of one:
+  // the same slug, else the same source file, updates it. `files` are absolute paths on this machine
+  // (the CLI runs on the same one), copied into the data folder; links in the body that point at them
+  // are rewritten to `/attachments/<id>`. Republishing what's already there changes nothing (seq null).
+  Rpc.make("document.publish", {
+    payload: {
+      commandId,
+      project: ProjectRef,
+      body: Schema.String,
+      /** Default: the document's kind, or "page" for a new one. */
+      kind: Schema.optionalKey(DocumentKind),
+      slug: Schema.optionalKey(Schema.String),
+      /** Default: the frontmatter `title:`, the first `# heading`, or the source file's name. */
+      title: Schema.optionalKey(Schema.String),
+      /** Default: the frontmatter `summary:`, else the first paragraph. */
+      summary: Schema.optionalKey(Schema.String),
+      /** The markdown file's absolute path: republishing it updates the same page; relative links resolve from it. */
+      sourcePath: Schema.optionalKey(Schema.String),
+      /** Tasks to link the document to ("CEL-12"); links are only ever added. */
+      taskKeys: Schema.optionalKey(Schema.Array(Schema.String)),
+      files: Schema.optionalKey(Schema.Array(Schema.String)),
+    },
+    success: write(Document),
+    error: Schema.Union([NotFound, Invalid]),
+  }),
+  // The latest version, or an older one (its kind, title, summary and body, and its number in `version`).
+  Rpc.make("document.get", {
+    payload: { project: ProjectRef, slug: Schema.String, version: Schema.optionalKey(Schema.Number) },
+    success: Document,
+    error: Schema.Union([NotFound, Invalid]),
+  }),
+  // A project's documents that aren't archived, newest first.
+  Rpc.make("document.list", {
+    payload: { project: ProjectRef, kind: Schema.optionalKey(DocumentKind) },
+    success: DocumentList,
+    error: Schema.Union([NotFound, Invalid]),
+  }),
+  // Every version of a document, newest first.
+  Rpc.make("document.history", { payload: { id: Id }, success: Schema.Array(DocumentVersion), error: NotFound }),
+  Rpc.make("document.archive", {
+    payload: { commandId, project: ProjectRef, slug: Schema.String },
+    success: write(DocumentSummary),
+    error: Schema.Union([NotFound, Invalid]),
+  }),
 
   Rpc.make("comment.list", { payload: { taskId: Id }, success: Schema.Array(Comment), error: NotFound }),
   Rpc.make("comment.add", {

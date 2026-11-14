@@ -1,4 +1,5 @@
-// The files reviews carry, under <dataDir>/assets/<taskId>/. Rows store paths relative to that folder.
+// The files reviews and pages carry, under <dataDir>/assets/: a review's in <taskId>/, a page's in
+// documents/<documentId>/. Rows store paths relative to that folder.
 // A failing disk is a defect, like a failing database; a missing ffmpeg only means no poster.
 import * as fs from "node:fs"
 import * as path from "node:path"
@@ -11,8 +12,10 @@ export class AssetStore extends Context.Service<AssetStore, {
   readonly dir: string
   /** Size of a regular file, or null when `file` isn't one (missing, a folder, unreadable). */
   readonly sizeOf: (file: string) => Effect.Effect<number | null>
-  /** Copies `source` to `<taskId>/<attachmentId><ext>` and returns that relative path. */
-  readonly copyIn: (source: string, taskId: string, attachmentId: string) => Effect.Effect<string>
+  /** Copies `source` to `<folder>/<attachmentId><ext>` and returns that relative path. */
+  readonly copyIn: (source: string, folder: string, attachmentId: string) => Effect.Effect<string>
+  /** The SHA-256 of a file, as hex: an unchanged file republished is recognized and stored once. */
+  readonly hashOf: (file: string) => Effect.Effect<string>
   /** Grabs a frame of a stored video as `<…>.poster.jpg`; null when ffmpeg is missing or fails. */
   readonly poster: (video: string) => Effect.Effect<string | null>
   /** Deletes stored files (relative paths); a missing one is fine. */
@@ -48,13 +51,16 @@ export const make = (options: AssetStoreOptions) => {
       }
     })
 
-  const copyIn = (source: string, taskId: string, attachmentId: string) =>
+  const copyIn = (source: string, folder: string, attachmentId: string) =>
     Effect.sync(() => {
-      const relative = path.join(taskId, attachmentId + path.extname(source).toLowerCase())
-      fs.mkdirSync(path.join(dir, taskId), { recursive: true })
+      const relative = path.join(folder, attachmentId + path.extname(source).toLowerCase())
+      fs.mkdirSync(path.join(dir, folder), { recursive: true })
       fs.copyFileSync(source, resolve(relative))
       return relative
     }).pipe(Effect.withSpan("AssetStore.copyIn"))
+
+  const hashOf = (file: string) =>
+    Effect.sync(() => new Bun.CryptoHasher("sha256").update(fs.readFileSync(file)).digest("hex")).pipe(Effect.withSpan("AssetStore.hashOf"))
 
   const nonEmpty = (file: string) => {
     try {
@@ -82,7 +88,7 @@ export const make = (options: AssetStoreOptions) => {
       for (const file of files) fs.rmSync(resolve(file), { force: true })
     })
 
-  return AssetStore.of({ dir, sizeOf, copyIn, poster, remove, resolve })
+  return AssetStore.of({ dir, sizeOf, copyIn, hashOf, poster, remove, resolve })
 }
 
 export const layer = (options: AssetStoreOptions) => Layer.sync(AssetStore, () => make(options))

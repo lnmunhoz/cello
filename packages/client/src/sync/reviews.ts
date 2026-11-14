@@ -2,6 +2,7 @@
 // task's loaded review list kept current from the event stream.
 import type { Attachment, Project, Review, Task } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
+import { attachmentPath } from "@cello/shared/attachment"
 import { shortUrl } from "@cello/shared/linkify"
 import { isReviewStatus } from "@cello/shared/review"
 import type { BoardState } from "./applyEvents.ts"
@@ -45,10 +46,10 @@ export const reviewQueue = (state: BoardState, workspaceId: string): ReviewItem[
   return [...withPacket, ...without]
 }
 
-export const attachmentUrl = (attachment: Pick<Attachment, "id">): string => `/attachments/${attachment.id}`
+export const attachmentUrl = (attachment: Pick<Attachment, "id">): string => attachmentPath(attachment.id)
 
 export const posterUrl = (attachment: Pick<Attachment, "id" | "hasPoster">): string | undefined =>
-  attachment.hasPoster ? `/attachments/${attachment.id}/poster` : undefined
+  attachment.hasPoster ? `${attachmentPath(attachment.id)}/poster` : undefined
 
 /** What a card shows for a packet: the first video's poster, else the first screenshot. */
 export const thumbnailOf = (review: Review): string | null => {

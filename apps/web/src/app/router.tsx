@@ -1,4 +1,7 @@
 import { createRootRoute, createRoute, createRouter, Navigate, retainSearchParams, useParams } from "@tanstack/react-router"
+import { DocsPage } from "../docs/DocsPage.tsx"
+import { PageReader } from "../docs/PageReader.tsx"
+import { parseDocsSearch, parsePageSearch, type PageSearch } from "../docs/search.ts"
 import { IssuesPage } from "../issues/IssuesPage.tsx"
 import { parseIssuesSearch, type IssuesSearch } from "../issues/layout.ts"
 import { ComingSoon } from "../project/ComingSoon.tsx"
@@ -37,12 +40,21 @@ const projectIndex = createRoute({
 })
 const overview = createRoute({ getParentRoute: () => project, path: "overview", component: Overview })
 const issues = createRoute({ getParentRoute: () => project, path: "issues", component: IssuesPage })
-const docs = createRoute({ getParentRoute: () => project, path: "docs", component: () => <ComingSoon what="Docs" when="v1.1" /> })
+const docs = createRoute({ getParentRoute: () => project, path: "docs", component: DocsPage, validateSearch: parseDocsSearch })
+// The reader for every kind of document. `?embed=1` shows it without the app shell, for a panel; its
+// own links (versions) keep that.
+const page = createRoute({
+  getParentRoute: () => project,
+  path: "pages/$slug",
+  component: PageReader,
+  validateSearch: parsePageSearch,
+  search: { middlewares: [retainSearchParams<PageSearch>(["embed"])] },
+})
 const activity = createRoute({ getParentRoute: () => project, path: "activity", component: () => <ComingSoon what="Activity" when="M3" /> })
 // The same component as `issues`, so opening a task keeps the page mounted.
 const task = createRoute({ getParentRoute: () => project, path: "$number", component: IssuesPage })
 
-const routeTree = root.addChildren([home, settings, review, project.addChildren([projectIndex, overview, issues, docs, activity, task])])
+const routeTree = root.addChildren([home, settings, review, project.addChildren([projectIndex, overview, issues, docs, page, activity, task])])
 
 export const router = createRouter({ routeTree, defaultPreload: false })
 

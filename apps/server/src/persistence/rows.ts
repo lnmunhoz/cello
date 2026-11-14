@@ -5,6 +5,8 @@ import type {
   Attachment,
   AttachmentKind,
   Comment,
+  DocumentKind,
+  DocumentSummary,
   Label,
   Priority,
   Project,
@@ -296,6 +298,66 @@ interface ReviewRow {
   author_name: string
   author_session: string | null
 }
+
+interface DocumentRow {
+  id: string
+  workspace_id: string
+  project_id: string
+  kind: DocumentKind
+  slug: string
+  title: string
+  summary: string
+  version: number
+  created_by_actor_id: string
+  created_by_session_id: string | null
+  updated_by_actor_id: string
+  updated_by_session_id: string | null
+  created_at: number
+  updated_at: number
+  archived_at: number | null
+  author_name: string
+  author_color: string
+  author_session: string | null
+}
+
+/**
+ * Aliases: `d` (documents) and `p` (its project). Newest first, without bodies; each comes with the
+ * tasks it links to (oldest link first) and who saved its latest version.
+ */
+export const selectDocuments = (sql: Sql, where: Where) =>
+  Effect.gen(function* () {
+    const rows = yield* sql<DocumentRow>`
+      SELECT d.id, d.workspace_id, d.project_id, d.kind, d.slug, d.title, d.summary, d.version,
+             d.created_by_actor_id, d.created_by_session_id, d.updated_by_actor_id, d.updated_by_session_id,
+             d.created_at, d.updated_at, d.archived_at,
+             a.name AS author_name, a.color AS author_color, s.external_id AS author_session
+      FROM documents d JOIN projects p ON p.id = d.project_id
+      JOIN actors a ON a.id = d.updated_by_actor_id LEFT JOIN agent_sessions s ON s.id = d.updated_by_session_id
+      WHERE ${where} ORDER BY d.updated_at DESC, d.id DESC`
+    const links = rows.length === 0 ? [] : yield* sql<{ document_id: string; task_id: string; project_key: string; number: number }>`
+      SELECT dt.document_id, t.id AS task_id, tp.key AS project_key, t.number
+      FROM document_tasks dt JOIN tasks t ON t.id = dt.task_id JOIN projects tp ON tp.id = t.project_id
+      WHERE ${sql.in("dt.document_id", rows.map((r) => r.id))} ORDER BY dt.created_at, t.number`
+    return rows.map((r): DocumentSummary => ({
+      id: r.id,
+      workspaceId: r.workspace_id,
+      projectId: r.project_id,
+      kind: r.kind,
+      slug: r.slug,
+      title: r.title,
+      summary: r.summary,
+      version: r.version,
+      tasks: links.filter((l) => l.document_id === r.id).map((l) => ({ id: l.task_id, key: formatTaskKey(l.project_key, l.number) })),
+      createdByActorId: r.created_by_actor_id,
+      createdBySessionId: r.created_by_session_id,
+      updatedByActorId: r.updated_by_actor_id,
+      updatedBySessionId: r.updated_by_session_id,
+      updatedBy: { name: r.author_name, color: r.author_color, session: r.author_session },
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      archivedAt: r.archived_at,
+    }))
+  })
 
 /**
  * Aliases: `r` (reviews), `t` (its task) and `p` (the task's project). Each review comes with its

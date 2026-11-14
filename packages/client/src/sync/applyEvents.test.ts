@@ -1,5 +1,5 @@
 import type { CelloEvent, EventBody } from "@cello/contract/events"
-import type { Snapshot, Task } from "@cello/contract/entities"
+import type { DocumentSummary, Snapshot, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import { applyEvents, fromSnapshot } from "./applyEvents.ts"
 
@@ -36,6 +36,7 @@ const snapshot = (tasks: Task[], seq = 10): Snapshot => ({
   labels: [],
   tasks,
   reviews: [],
+  documents: [],
 })
 
 const ev = (seq: number, body: EventBody): CelloEvent =>
@@ -143,5 +144,25 @@ describe("applyEvents: claims", () => {
       ev(13, { type: "task.claim_ended", id: "t1", version: 4, from: { actorId: "a1", sessionId: "s2" }, reason: "human_change" }),
     ]).tasks["t1"]!
     expect(ended).toMatchObject({ assigneeActorId: null, assigneeSessionId: null, version: 4 })
+  })
+})
+
+describe("applyEvents: documents", () => {
+  const doc = (id: string, version: number, extra: Partial<DocumentSummary> = {}): DocumentSummary => ({
+    id, workspaceId: "w1", projectId: "p1", kind: "page", slug: id, title: `Page ${id}`, summary: "", version, tasks: [],
+    createdByActorId: "a1", createdBySessionId: "s1", updatedByActorId: "a1", updatedBySessionId: "s1",
+    updatedBy: { name: "Claude Code", color: "#7C3AED", session: "2fd0505c" }, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
+  })
+
+  it("published and updated documents replace the summary; archived ones keep it with archivedAt", () => {
+    const state = fromSnapshot({ ...snapshot([]), documents: [doc("d0", 1)] })
+    const next = applyEvents(state, [
+      ev(11, { type: "document.published", document: doc("d1", 1) }),
+      ev(12, { type: "document.updated", id: "d1", version: 2, document: doc("d1", 2, { tasks: [{ id: "t1", key: "CEL-1" }] }) }),
+      ev(13, { type: "document.archived", id: "d0" }),
+    ])
+    expect(next.documents["d1"]).toMatchObject({ version: 2, tasks: [{ id: "t1", key: "CEL-1" }] })
+    expect(next.documents["d0"]).toMatchObject({ version: 1, archivedAt: 13 })
+    expect(next.tasks).toBe(state.tasks)
   })
 })

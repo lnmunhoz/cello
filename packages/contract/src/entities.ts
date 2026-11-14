@@ -188,6 +188,71 @@ export const Review = Schema.Struct({
 })
 export type Review = typeof Review.Type
 
+/** Docs, specs and pages share one table and one reader; `kind` says what a document is for. */
+export const DocumentKind = Schema.Literals(["doc", "spec", "page"])
+export type DocumentKind = typeof DocumentKind.Type
+
+/**
+ * Who saved a document's latest version, for display: the actor's name and color, and its host
+ * session id (null for the human). Like reviews, documents carry it because a page may not know an
+ * agent that appeared after its snapshot.
+ */
+export const DocumentAuthor = Schema.Struct({
+  name: Schema.String,
+  color: Schema.String,
+  session: Schema.NullOr(Schema.String),
+})
+export type DocumentAuthor = typeof DocumentAuthor.Type
+
+/** A task a document links to. Keys never change, so the link carries it for clients that don't have the task. */
+export const DocumentTask = Schema.Struct({ id: Id, key: Schema.String })
+export type DocumentTask = typeof DocumentTask.Type
+
+const documentFields = {
+  id: Id,
+  workspaceId: Id,
+  projectId: Id,
+  kind: DocumentKind,
+  /** Unique in its project; the reader's URL is `/<project key>/pages/<slug>` and never changes. */
+  slug: Schema.String,
+  title: Schema.String,
+  /** The frontmatter `summary:`, else the first paragraph as plain text. */
+  summary: Schema.String,
+  /** Bumped by every save that changes something; each one is kept in `document_versions`. */
+  version: Schema.Number,
+  tasks: Schema.Array(DocumentTask),
+  createdByActorId: Id,
+  createdBySessionId: Schema.NullOr(Id),
+  updatedByActorId: Id,
+  updatedBySessionId: Schema.NullOr(Id),
+  updatedBy: DocumentAuthor,
+  createdAt: Millis,
+  updatedAt: Millis,
+  archivedAt: Schema.NullOr(Millis),
+}
+
+/** A document without its body: what board state, the Docs tab and events carry. */
+export const DocumentSummary = Schema.Struct(documentFields)
+export type DocumentSummary = typeof DocumentSummary.Type
+
+/** A document with its markdown body (images point at `/attachments/<id>`). */
+export const Document = Schema.Struct({ ...documentFields, body: Schema.String })
+export type Document = typeof Document.Type
+
+/** One saved version of a document, without its body, for the version history. */
+export const DocumentVersion = Schema.Struct({
+  documentId: Id,
+  version: Schema.Number,
+  kind: DocumentKind,
+  title: Schema.String,
+  summary: Schema.String,
+  actorId: Id,
+  sessionId: Schema.NullOr(Id),
+  author: DocumentAuthor,
+  createdAt: Millis,
+})
+export type DocumentVersion = typeof DocumentVersion.Type
+
 /** Which project a CLI call is about: by key (`--project CEL`), or by the repository folder it runs in. */
 export const ProjectRef = Schema.Struct({
   key: Schema.optionalKey(Schema.String),
@@ -213,5 +278,7 @@ export const Snapshot = Schema.Struct({
   tasks: Schema.Array(Task),
   /** Open reviews of the tasks in scope: everything the Review page and the cards need. */
   reviews: Schema.Array(Review),
+  /** Documents of the projects in scope, archived ones included, without their bodies. */
+  documents: Schema.Array(DocumentSummary),
 })
 export type Snapshot = typeof Snapshot.Type
