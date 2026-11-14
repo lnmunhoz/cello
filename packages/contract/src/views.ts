@@ -1,6 +1,6 @@
 // Read models for the CLI (and later MCP): one RPC returns everything a command prints.
 import * as Schema from "effect/Schema"
-import { Actor, AgentSession, Comment, Label, Project, Status, Task } from "./entities.ts"
+import { Actor, AgentSession, Comment, Label, Project, Review, Status, Task } from "./entities.ts"
 import { CelloEvent } from "./events.ts"
 
 /** Who the server sees: the actor, its agent session (null for the human), and the project if one resolved. */
@@ -44,6 +44,8 @@ export const TaskDetail = Schema.Struct({
   ...projectFields,
   task: Task,
   comments: Schema.Array(Comment),
+  /** Every review packet, oldest first. */
+  reviews: Schema.Array(Review),
   /** Every event about the task, oldest first. */
   history: Schema.Array(CelloEvent),
 })

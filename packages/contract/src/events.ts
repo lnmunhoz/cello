@@ -1,6 +1,6 @@
 // Every change is one of these events. `before`/`after` hold only the fields that changed.
 import * as Schema from "effect/Schema"
-import { Comment, DueDate, Id, Label, Millis, Priority, Project, Status, Task, Workspace } from "./entities.ts"
+import { Comment, DueDate, Id, Label, Millis, Priority, Project, Review, ReviewDecision, Status, Task, Workspace } from "./entities.ts"
 
 export const CURRENT_SCHEMA_VERSION = 1
 
@@ -70,6 +70,10 @@ export const CelloEvent = Schema.Union([
   event("comment.added", { comment: Comment }),
   event("comment.edited", { id: Id, before: CommentPatch, after: CommentPatch }),
   event("comment.deleted", { id: Id }),
+  // A review packet with its attachments. The same command then moves the task (task.moved).
+  event("review.submitted", { review: Review }),
+  // Approved, sent back, or superseded by a newer review. `ts` is when.
+  event("review.decided", { id: Id, taskId: Id, decision: ReviewDecision, note: Schema.NullOr(Schema.String) }),
 ])
 export type CelloEvent = typeof CelloEvent.Type
 export type CelloEventType = CelloEvent["type"]

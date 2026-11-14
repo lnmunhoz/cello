@@ -1,6 +1,6 @@
 // The thin atom layer over the pure sync and command code: one synced atom fed by `follow`,
 // a list of optimistic patches, the view the screens read, and command atoms for writes.
-import type { Comment, Priority, Scope } from "@cello/contract/entities"
+import type { Comment, Priority, Review, Scope } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
@@ -14,6 +14,7 @@ import { describeError } from "./commands/describeError.ts"
 import { begin, confirm, pendingOf, prune, rollback, view, type Patch, type Pending } from "./commands/optimistic.ts"
 import * as patches from "./commands/patches.ts"
 import { applyCommentEvents } from "./sync/comments.ts"
+import { applyReviewEvents } from "./sync/reviews.ts"
 import { follow, followsWorkspace, sourceFromClient, type Synced } from "./sync/follow.ts"
 import type { BoardState } from "./sync/applyEvents.ts"
 
@@ -232,30 +233,48 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     deleteComment: command({
       call: (c, a: { id: string }, commandId) => c["comment.delete"]({ commandId, ...a }),
     }),
+    // No optimistic patch: the review closes and the task moves in one batch of events, a moment later.
+    approveReview: command({
+      call: (c, a: { key: string; note?: string }, commandId) => c["review.approve"]({ commandId, ...a }),
+      subject: (a) => a.key,
+    }),
+    sendBackReview: command({
+      call: (c, a: { key: string; note: string }, commandId) => c["review.sendBack"]({ commandId, ...a }),
+      subject: (a) => a.key,
+    }),
   }
 
-  /** A task's comments: loaded once, then kept current from the event stream. */
-  const commentsFamily = Atom.family((taskId: string) =>
+  /** A list loaded once with `load`, then kept current by `apply` over each batch of events. */
+  const followedList = <T>(
+    load: (client: Client) => Effect.Effect<ReadonlyArray<T>, unknown>,
+    apply: (list: ReadonlyArray<T>, events: ReadonlyArray<CelloEvent>) => ReadonlyArray<T>,
+  ) =>
     runtime.atom((get) =>
       Stream.unwrap(
         Effect.gen(function* () {
-          const client = yield* CelloClient
-          const first = yield* client["comment.list"]({ taskId })
+          const first = yield* load(yield* CelloClient)
           return Stream.concat(
-            Stream.make(first as ReadonlyArray<Comment>),
+            Stream.make(first),
             get.streamResult(syncedAtom, { withoutInitialValue: true }).pipe(
               Stream.mapAccum(
-                () => first as ReadonlyArray<Comment>,
-                (list: ReadonlyArray<Comment>, synced: Synced) => {
-                  const next = applyCommentEvents(list, taskId, synced.batch)
+                () => first,
+                (list: ReadonlyArray<T>, synced: Synced) => {
+                  const next = apply(list, synced.batch)
                   return [next, next === list ? [] : [next]] as const
                 },
               ),
             ),
           )
         }),
-      )),
-  )
+      ))
+
+  /** A task's comments. */
+  const commentsFamily = Atom.family((taskId: string) =>
+    followedList<Comment>((c) => c["comment.list"]({ taskId }), (list, events) => applyCommentEvents(list, taskId, events)))
+
+  /** A task's reviews, open and decided, oldest first. */
+  const reviewsFamily = Atom.family((taskId: string) =>
+    followedList<Review>((c) => c["review.list"]({ taskId }), (list, events) => applyReviewEvents(list, taskId, events)))
 
   /**
    * The server's version of one task. It changes only when that task does, and an optimistic edit
@@ -280,7 +299,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     }),
   )
 
-  return { workspaceIdAtom, syncedAtom, currentAtom, pendingAtom, boardAtom, commands, commentsFamily, historyFamily, command }
+  return { workspaceIdAtom, syncedAtom, currentAtom, pendingAtom, boardAtom, commands, commentsFamily, reviewsFamily, historyFamily, command }
 }
 
 export type CelloAtoms = ReturnType<typeof makeCelloAtoms>

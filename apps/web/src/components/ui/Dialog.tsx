@@ -15,7 +15,14 @@ export const Dialog = BaseDialog
 
 const content = variants(
   "fixed top-[14vh] left-1/2 flex -translate-x-1/2 flex-col gap-4 rounded-xl border border-line bg-surface p-5 text-ink shadow-pop outline-none transition-[opacity,scale] duration-150 data-starting-style:scale-97 data-starting-style:opacity-0 data-ending-style:scale-97 data-ending-style:opacity-0 motion-reduce:transition-none",
-  { size: { sm: "w-[min(420px,calc(100vw-32px))]", md: "w-[min(560px,calc(100vw-32px))]" } },
+  {
+    size: {
+      sm: "w-[min(420px,calc(100vw-32px))]",
+      md: "w-[min(560px,calc(100vw-32px))]",
+      // A screenshot at full size.
+      lg: "w-[min(1200px,calc(100vw-48px))]",
+    },
+  },
   { size: "md" },
 )
 

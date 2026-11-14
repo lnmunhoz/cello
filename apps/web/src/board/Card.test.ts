@@ -25,6 +25,7 @@ const board: BoardState = {
   statuses: { todo: status },
   labels: { bug: label("bug", "Bug"), old: label("old", "Old", { archivedAt: 5 }) },
   tasks: { t1: task("t1", 1, { title: "Plan the release" }) },
+  reviews: {},
 }
 
 /** The card's markup. Tests read it as text: there is no DOM in the unit tests. */

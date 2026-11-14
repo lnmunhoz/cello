@@ -14,6 +14,10 @@ export const describeError = (error: unknown, options: { readonly subject?: stri
       return `That ${String(e.entity)} no longer exists`
     case "Invalid":
       return String(e.reason)
+    case "HumanOnly":
+      return `Only ${String(e.human)} can ${String(e.action)}`
+    case "ReviewRequired":
+      return `${String(e.key)} needs a review packet before ${String(e.status)}`
     case "RpcClientError":
       return "Can't reach the Cello server"
   }

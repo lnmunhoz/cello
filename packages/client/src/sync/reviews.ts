@@ -1,0 +1,75 @@
+// Review packets on the client: the queue the Review page shows, where evidence is served, and a
+// task's loaded review list kept current from the event stream.
+import type { Attachment, Project, Review, Task } from "@cello/contract/entities"
+import type { CelloEvent } from "@cello/contract/events"
+import { isReviewStatus } from "@cello/shared/review"
+import type { BoardState } from "./applyEvents.ts"
+
+export interface ReviewItem {
+  readonly task: Task
+  readonly project: Project
+  /** Null for a task moved to In Review by hand, without a packet. */
+  readonly review: Review | null
+}
+
+/** A task's open review, if it has one. */
+export const openReviewOf = (state: BoardState, taskId: string): Review | undefined =>
+  Object.values(state.reviews).find((r) => r.taskId === taskId)
+
+/**
+ * Everything waiting on Lucas in a workspace: tasks with an open review (oldest packet first), then
+ * tasks sitting in In Review without one. Archived tasks and projects are left out.
+ */
+export const reviewQueue = (state: BoardState, workspaceId: string): ReviewItem[] => {
+  const projectOf = (task: Task) => {
+    const project = state.projects[task.projectId]
+    return project && project.workspaceId === workspaceId && project.archivedAt === null ? project : undefined
+  }
+  const withPacket: ReviewItem[] = []
+  const reviewed = new Set<string>()
+  for (const review of Object.values(state.reviews).sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1))) {
+    const task = state.tasks[review.taskId]
+    const project = task && task.archivedAt === null ? projectOf(task) : undefined
+    if (!task || !project) continue
+    reviewed.add(task.id)
+    withPacket.push({ task, project, review })
+  }
+  const without = Object.values(state.tasks)
+    .filter((t) => t.archivedAt === null && !reviewed.has(t.id) && isReviewStatus(state.statuses[t.statusId]?.name ?? ""))
+    .sort((a, b) => a.updatedAt - b.updatedAt || a.number - b.number)
+    .flatMap((task) => {
+      const project = projectOf(task)
+      return project ? [{ task, project, review: null }] : []
+    })
+  return [...withPacket, ...without]
+}
+
+export const attachmentUrl = (attachment: Pick<Attachment, "id">): string => `/attachments/${attachment.id}`
+
+export const posterUrl = (attachment: Pick<Attachment, "id" | "hasPoster">): string | undefined =>
+  attachment.hasPoster ? `/attachments/${attachment.id}/poster` : undefined
+
+/** What a card shows for a packet: the first video's poster, else the first screenshot. */
+export const thumbnailOf = (review: Review): string | null => {
+  const video = review.attachments.find((a) => a.kind === "video" && a.hasPoster)
+  if (video) return posterUrl(video)!
+  const image = review.attachments.find((a) => a.kind === "image")
+  return image ? attachmentUrl(image) : null
+}
+
+/** A task's reviews (from `review.list`) kept current from the event stream. */
+export const applyReviewEvents = (
+  reviews: ReadonlyArray<Review>,
+  taskId: string,
+  events: ReadonlyArray<CelloEvent>,
+): ReadonlyArray<Review> => {
+  let next = reviews
+  for (const e of events) {
+    if (e.type === "review.submitted" && e.review.taskId === taskId && !next.some((r) => r.id === e.review.id)) {
+      next = [...next, e.review]
+    } else if (e.type === "review.decided" && e.taskId === taskId) {
+      next = next.map((r) => (r.id === e.id ? { ...r, decision: e.decision, decisionNote: e.note, decidedAt: e.ts } : r))
+    }
+  }
+  return next
+}

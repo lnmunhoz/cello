@@ -1,0 +1,33 @@
+// Where review packets move a task: the server applies these, the web app uses the same names to
+// find the In Review column.
+
+interface StatusLike {
+  readonly id: string
+  readonly name: string
+  readonly category: string
+  readonly position: string
+}
+
+export const REVIEW_STATUS_NAME = "In Review"
+
+export const isReviewStatus = (name: string): boolean => name.trim().toLowerCase() === REVIEW_STATUS_NAME.toLowerCase()
+
+const sorted = <S extends StatusLike>(statuses: ReadonlyArray<S>): S[] =>
+  [...statuses].sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
+
+/** Where a submitted review moves the task: the first status named In Review, else the first started status after the current one. */
+export const reviewTarget = <S extends StatusLike>(statuses: ReadonlyArray<S>, currentStatusId: string): S | null => {
+  const ordered = sorted(statuses)
+  const named = ordered.find((s) => isReviewStatus(s.name))
+  if (named) return named
+  const current = ordered.find((s) => s.id === currentStatusId)
+  return ordered.find((s) => s.category === "started" && (current === undefined || s.position > current.position)) ?? null
+}
+
+/** Where an approved task goes: the first completed status. */
+export const approveTarget = <S extends StatusLike>(statuses: ReadonlyArray<S>): S | null =>
+  sorted(statuses).find((s) => s.category === "completed") ?? null
+
+/** Where a task sent back goes: the first started status. */
+export const sendBackTarget = <S extends StatusLike>(statuses: ReadonlyArray<S>): S | null =>
+  sorted(statuses).find((s) => s.category === "started") ?? null

@@ -122,6 +122,72 @@ export const Comment = Schema.Struct({
 })
 export type Comment = typeof Comment.Type
 
+export const AttachmentKind = Schema.Literals(["image", "video", "file", "link"])
+export type AttachmentKind = typeof AttachmentKind.Type
+
+/**
+ * Evidence on a task: a file the server copied into `<dataDir>/assets/` (served at
+ * `/attachments/<id>`), or a link. Files are never edited; a deleted one keeps its row.
+ */
+export const Attachment = Schema.Struct({
+  id: Id,
+  taskId: Id,
+  reviewId: Schema.NullOr(Id),
+  kind: AttachmentKind,
+  /** The original file name; for a link, its URL. */
+  name: Schema.String,
+  /** Links only. */
+  url: Schema.NullOr(Schema.String),
+  caption: Schema.String,
+  /** Files only. */
+  mime: Schema.NullOr(Schema.String),
+  bytes: Schema.NullOr(Schema.Number),
+  /** A video with a poster frame, served at `/attachments/<id>/poster`. */
+  hasPoster: Schema.Boolean,
+  actorId: Id,
+  sessionId: Schema.NullOr(Id),
+  createdAt: Millis,
+  deletedAt: Schema.NullOr(Millis),
+})
+export type Attachment = typeof Attachment.Type
+
+/** `superseded`: a newer review of the same task replaced it before anyone decided. */
+export const ReviewDecision = Schema.Literals(["approved", "sent_back", "superseded"])
+export type ReviewDecision = typeof ReviewDecision.Type
+
+/**
+ * Who submitted a review, for display: the actor's name ("Claude Code") and its host session id. A
+ * page may not know the actor yet (agents appear after its snapshot), so the review carries it.
+ */
+export const ReviewAuthor = Schema.Struct({
+  name: Schema.String,
+  /** The host's session id (e.g. CLAUDE_CODE_SESSION_ID); null for the human. */
+  session: Schema.NullOr(Schema.String),
+})
+export type ReviewAuthor = typeof ReviewAuthor.Type
+
+/**
+ * A review packet: what an agent hands Lucas when it moves a task to In Review. A review is open
+ * until it's decided; a task has at most one open review.
+ */
+export const Review = Schema.Struct({
+  id: Id,
+  taskId: Id,
+  /** Markdown. */
+  summary: Schema.String,
+  /** How to check the work, in order. */
+  steps: Schema.Array(Schema.String),
+  attachments: Schema.Array(Attachment),
+  actorId: Id,
+  sessionId: Schema.NullOr(Id),
+  author: ReviewAuthor,
+  createdAt: Millis,
+  decidedAt: Schema.NullOr(Millis),
+  decision: Schema.NullOr(ReviewDecision),
+  decisionNote: Schema.NullOr(Schema.String),
+})
+export type Review = typeof Review.Type
+
 /** Which project a CLI call is about: by key (`--project CEL`), or by the repository folder it runs in. */
 export const ProjectRef = Schema.Struct({
   key: Schema.optionalKey(Schema.String),
@@ -145,5 +211,7 @@ export const Snapshot = Schema.Struct({
   statuses: Schema.Array(Status),
   labels: Schema.Array(Label),
   tasks: Schema.Array(Task),
+  /** Open reviews of the tasks in scope: everything the Review page and the cards need. */
+  reviews: Schema.Array(Review),
 })
 export type Snapshot = typeof Snapshot.Type

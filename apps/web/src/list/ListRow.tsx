@@ -8,6 +8,7 @@ import { Chip } from "../components/ui/Chip.tsx"
 import { PriorityIcon } from "../components/ui/PriorityIcon.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { formatDay, formatDue } from "../lib/format.ts"
+import { EvidenceBadge } from "../review/EvidenceBadge.tsx"
 
 const MAX_LABELS = 3
 
@@ -82,6 +83,7 @@ function RowBody({ task, board, keyChars }: { task: Task; board: BoardState; key
         ) : null}
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
+        <EvidenceBadge task={task} board={board} />
         {labels.slice(0, MAX_LABELS).map((l) => (
           <Chip key={l.id} color={l.color}>
             {l.name}

@@ -67,13 +67,14 @@ describe("cello commands against a real server", () => {
       expect(json(yield* fromStdin("task", "comment", "CEL-1", "--body-file", "-", "--json")).result.body).toBe("## Notes\n\nFrom a heredoc")
 
       // move
-      expect(yield* agent("task", "move", "CEL-1", "in review")).toEqual({ out: "Moved CEL-1  In Progress → In Review", failure: null })
-      expect(json(yield* agent("task", "move", "CEL-1", "In Review", "--json")).result.key).toBe("CEL-1")
+      // (Moving to In Review takes a review packet: see submit.test.ts.)
+      expect(yield* agent("task", "move", "CEL-1", "todo")).toEqual({ out: "Moved CEL-1  In Progress → Todo", failure: null })
+      expect(json(yield* agent("task", "move", "CEL-1", "In Progress", "--json")).result.key).toBe("CEL-1")
 
       // get
       const detail = (yield* agent("task", "get", "CEL-1")).out
       expect(detail).toContain("CEL-1  Write the CLI")
-      expect(detail).toContain("Status: In Review · Priority: High · Labels: cli")
+      expect(detail).toContain("Status: In Progress · Priority: High · Labels: cli")
       expect(detail).toContain("Claimed by: Claude Code session 2fd0505c")
       expect(detail).toContain("All commands")
       expect(detail).toContain("Halfway there")
@@ -86,10 +87,11 @@ describe("cello commands against a real server", () => {
         ["task.created", true],
         ["task.claimed", true],
         ["task.moved", true],
+        ["task.moved", true],
       ])
 
       // release
-      expect(yield* agent("task", "release", "CEL-1")).toEqual({ out: "Released CEL-1  In Review  Write the CLI", failure: null })
+      expect(yield* agent("task", "release", "CEL-1")).toEqual({ out: "Released CEL-1  In Progress  Write the CLI", failure: null })
       expect(json(yield* agent("task", "claim", "CEL-1", "--json")).result.assigneeSessionId).toBe(sessionId)
       expect(json(yield* agent("task", "release", "CEL-1", "--json")).result.assigneeSessionId).toBeNull()
     }).pipe(Effect.scoped))

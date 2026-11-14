@@ -35,6 +35,15 @@ describe("describeEvent", () => {
     expect(describeEvent(ev({ type: "comment.added", comment: {} as never }, "ghost"), state)).toBe("Someone commented")
   })
 
+  it("describes reviews", () => {
+    expect(describeEvent(ev({ type: "review.submitted", review: {} as never }), state)).toBe("Lucas submitted a review")
+    const decided = (decision: "approved" | "sent_back" | "superseded") =>
+      describeEvent(ev({ type: "review.decided", id: "r", taskId: "t", decision, note: null }), state)
+    expect(decided("approved")).toBe("Lucas approved the review")
+    expect(decided("sent_back")).toBe("Lucas sent it back")
+    expect(decided("superseded")).toBe("Lucas replaced the open review")
+  })
+
   it("describes claims", () => {
     const from = { actorId: "agent", sessionId: "s1" }
     expect(describeEvent(ev({ type: "task.claimed", id: "t", version: 2, task: {} as never }), state)).toBe("Lucas claimed it")

@@ -26,3 +26,10 @@ export type ButtonProps = Omit<ComponentProps<typeof BaseButton>, "className" | 
 export function Button({ variant, size, type = "button", ...props }: ButtonProps) {
   return <BaseButton type={type} {...props} className={button({ variant, size })} />
 }
+
+export type ButtonLinkProps = Omit<ComponentProps<"a">, "className" | "style"> & VariantProps<typeof button>
+
+/** A link that looks like a button: for evidence and other things that open in a new tab. */
+export function ButtonLink({ variant, size, ...props }: ButtonLinkProps) {
+  return <a target="_blank" rel="noreferrer" {...props} className={button({ variant, size })} />
+}

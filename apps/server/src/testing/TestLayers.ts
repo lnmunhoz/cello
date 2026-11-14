@@ -1,12 +1,16 @@
-// Test layers: a real in-memory SQLite, migrated and seeded, with every service on top.
+// Test layers: a real in-memory SQLite, migrated and seeded, with every service on top. Review files
+// go to a temp folder that's removed when the test ends.
+import * as path from "node:path"
 import { Caller } from "@cello/contract/rpcs"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Migrations from "../persistence/Migrations.ts"
 import * as Seed from "../persistence/Seed.ts"
 import * as Sqlite from "../persistence/Sqlite.ts"
+import * as AssetStore from "../review/AssetStore.ts"
 import * as Services from "../services.ts"
 import * as SessionService from "../session/SessionService.ts"
+import { tempDataDir } from "./tempDir.ts"
 
 export const TEST_HUMAN = "Lucas"
 
@@ -14,8 +18,16 @@ export const TEST_HUMAN = "Lucas"
 export const database = () =>
   Seed.layer(TEST_HUMAN).pipe(Layer.provideMerge(Migrations.layer), Layer.provideMerge(Sqlite.layer(":memory:")))
 
-/** Every service over a fresh database. */
-export const services = () => Services.layer.pipe(Layer.provideMerge(database()))
+/** An asset store in a fresh temp folder. `ffmpeg: null` turns posters off. */
+export const tempAssets = (options: { readonly ffmpeg?: string | null } = {}) =>
+  Layer.effect(
+    AssetStore.AssetStore,
+    Effect.map(tempDataDir, (dir) => AssetStore.make({ dir: path.join(dir, "assets"), ...options })),
+  )
+
+/** Every service over a fresh database and a temp asset folder. */
+export const services = (options: { readonly ffmpeg?: string | null } = {}) =>
+  Services.layer.pipe(Layer.provideMerge(database()), Layer.provideMerge(tempAssets(options)))
 
 /** Runs `effect` as the seeded human, the way a browser request would. */
 export const asHuman = <A, E, R>(effect: Effect.Effect<A, E, R>) =>

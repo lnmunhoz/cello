@@ -1,5 +1,5 @@
 // Pure reducer from events to client state. Shared by the web app and any other client.
-import type { Actor, Label, Project, Snapshot, Status, Task, Workspace } from "@cello/contract/entities"
+import type { Actor, Label, Project, Review, Snapshot, Status, Task, Workspace } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
 
 type ById<T> = Readonly<Record<string, T>>
@@ -12,6 +12,8 @@ export interface BoardState {
   readonly statuses: ById<Status>
   readonly labels: ById<Label>
   readonly tasks: ById<Task>
+  /** Open reviews only: a decided one leaves the board (the task panel loads a task's whole list). */
+  readonly reviews: ById<Review>
 }
 
 const byId = <T extends { id: string }>(rows: ReadonlyArray<T>): ById<T> =>
@@ -25,6 +27,7 @@ export const fromSnapshot = (s: Snapshot): BoardState => ({
   statuses: byId(s.statuses),
   labels: byId(s.labels),
   tasks: byId(s.tasks),
+  reviews: byId(s.reviews),
 })
 
 type Collection = Exclude<keyof BoardState, "seq">
@@ -42,6 +45,13 @@ class Draft {
     let copy = this.copies.get(key)
     if (!copy) this.copies.set(key, (copy = { ...this.base[key] }))
     copy[id] = row
+  }
+
+  delete<K extends Collection>(key: K, id: string) {
+    if (!(id in this.get(key))) return
+    let copy = this.copies.get(key)
+    if (!copy) this.copies.set(key, (copy = { ...this.base[key] }))
+    delete copy[id]
   }
 
   update<K extends Collection>(key: K, id: string, change: (row: BoardState[K][string]) => BoardState[K][string]) {
@@ -101,6 +111,10 @@ const apply = (d: Draft, e: CelloEvent) => {
     case "comment.edited":
     case "comment.deleted":
       return // comments load per task, not in board state
+    case "review.submitted":
+      return d.set("reviews", e.review.id, e.review)
+    case "review.decided":
+      return d.delete("reviews", e.id)
   }
 }
 

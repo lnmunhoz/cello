@@ -6,6 +6,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
+import type { SqlError } from "effect/sql/SqlError"
 import * as Commands from "../commands/Commands.ts"
 import { newId } from "../persistence/ids.ts"
 import { selectComments } from "../persistence/rows.ts"
@@ -29,6 +30,11 @@ export class CommentService extends Context.Service<CommentService, {
     NotFound,
     Caller
   >
+  /** For another service's command: adds a comment inside that command's transaction, as its caller. */
+  readonly addWithin: (
+    context: Commands.WriteContext,
+    input: { readonly taskId: string; readonly body: string },
+  ) => Effect.Effect<Comment, NotFound | Invalid | SqlError>
 }>()("cello/CommentService") {}
 
 const make = Effect.gen(function* () {
@@ -61,20 +67,26 @@ const make = Effect.gen(function* () {
     return yield* selectComments(sql, sql`c.task_id = ${taskId} AND c.deleted_at IS NULL`)
   }, Effect.catchTag("SqlError", Effect.die))
 
+  const addWithin = (
+    { now, caller, emit }: Commands.WriteContext,
+    input: { readonly taskId: string; readonly body: string },
+  ) =>
+    Effect.gen(function* () {
+      const body = yield* requireText("body", input.body)
+      const where = yield* placeOfTask(input.taskId)
+      const id = newId(now)
+      yield* sql`INSERT INTO comments (id, task_id, body, actor_id, session_id, created_at, updated_at)
+        VALUES (${id}, ${input.taskId}, ${body}, ${caller.actorId}, ${caller.sessionId}, ${now}, ${now})`
+      const comment = yield* load(id)
+      yield* emit({ type: "comment.added", comment }, where)
+      return comment
+    })
+
   const add = Effect.fn("CommentService.add")(function* (
     input: { readonly commandId: string; readonly taskId: string; readonly body: string },
   ) {
-    const body = yield* requireText("body", input.body)
-    return yield* commands.write({ commandId: input.commandId, rpc: "comment.add" }, ({ now, caller, emit }) =>
-      Effect.gen(function* () {
-        const where = yield* placeOfTask(input.taskId)
-        const id = newId(now)
-        yield* sql`INSERT INTO comments (id, task_id, body, actor_id, session_id, created_at, updated_at)
-          VALUES (${id}, ${input.taskId}, ${body}, ${caller.actorId}, ${caller.sessionId}, ${now}, ${now})`
-        const comment = yield* load(id)
-        yield* emit({ type: "comment.added", comment }, where)
-        return comment
-      }))
+    yield* requireText("body", input.body)
+    return yield* commands.write({ commandId: input.commandId, rpc: "comment.add" }, (context) => addWithin(context, input))
   })
 
   const edit = Effect.fn("CommentService.edit")(function* (
@@ -104,7 +116,7 @@ const make = Effect.gen(function* () {
       }))
   })
 
-  return CommentService.of({ list, add, edit, remove })
+  return CommentService.of({ list, add, edit, remove, addWithin })
 })
 
 export const layer = Layer.effect(CommentService, make)

@@ -37,6 +37,7 @@ const state = (seq: number, tasks: Task[]): BoardState => ({
   statuses: {},
   labels: {},
   tasks: Object.fromEntries(tasks.map((t) => [t.id, t])),
+  reviews: {},
 })
 
 const synced = (seq: number, tasks: Task[], extra: Partial<Synced> = {}): Synced => ({

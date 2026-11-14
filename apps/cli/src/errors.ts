@@ -36,6 +36,11 @@ export const explain = (error: unknown, where: Where): string => {
       return `${capitalize(String(e.reason))}.`
     case "VersionConflict":
       return `It was changed by ${e.changedBy} in the meantime. Run the command again.`
+    case "ReviewRequired":
+      return `${e.key} needs a review packet before it goes to ${e.status}. Submit one instead: ` +
+        `\`cello task submit ${e.key} --summary "what changed" --step "how to check it" --attach demo.mp4\`. See \`cello guide\`.`
+    case "HumanOnly":
+      return `Only ${e.human} can ${e.action}. Leave the task in In Review; ${e.human} decides on the Review page.`
     case "RpcClientError":
       return `Cello isn't running on 127.0.0.1:${where.port}. Start it with \`cello start\`.`
     case "CliFailure":

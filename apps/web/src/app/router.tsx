@@ -4,6 +4,7 @@ import { parseIssuesSearch, type IssuesSearch } from "../issues/layout.ts"
 import { ComingSoon } from "../project/ComingSoon.tsx"
 import { Overview } from "../project/Overview.tsx"
 import { ProjectLayout } from "../project/ProjectLayout.tsx"
+import { ReviewPage } from "../review/ReviewPage.tsx"
 import { Settings } from "../settings/Settings.tsx"
 import { AppShell } from "./AppShell.tsx"
 import { Home } from "./Home.tsx"
@@ -12,6 +13,7 @@ const root = createRootRoute({ component: AppShell })
 
 const home = createRoute({ getParentRoute: () => root, path: "/", component: Home })
 const settings = createRoute({ getParentRoute: () => root, path: "/settings", component: Settings })
+const review = createRoute({ getParentRoute: () => root, path: "/review", component: ReviewPage })
 
 // `?layout=list` picks the Issues layout; every link inside the project keeps it, so opening and closing tasks stays in the list.
 const project = createRoute({
@@ -37,7 +39,7 @@ const activity = createRoute({ getParentRoute: () => project, path: "activity", 
 // The same component as `issues`, so opening a task keeps the page mounted.
 const task = createRoute({ getParentRoute: () => project, path: "$number", component: IssuesPage })
 
-const routeTree = root.addChildren([home, settings, project.addChildren([projectIndex, overview, issues, docs, activity, task])])
+const routeTree = root.addChildren([home, settings, review, project.addChildren([projectIndex, overview, issues, docs, activity, task])])
 
 export const router = createRouter({ routeTree, defaultPreload: false })
 

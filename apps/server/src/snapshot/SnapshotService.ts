@@ -7,7 +7,7 @@ import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import type * as Statement from "effect/sql/Statement"
 import * as EventStore from "../events/EventStore.ts"
-import { selectActors, selectLabels, selectProjects, selectStatuses, selectTasks, selectWorkspaces } from "../persistence/rows.ts"
+import { selectActors, selectLabels, selectProjects, selectReviews, selectStatuses, selectTasks, selectWorkspaces } from "../persistence/rows.ts"
 
 export class SnapshotService extends Context.Service<SnapshotService, {
   /**
@@ -51,6 +51,7 @@ const make = Effect.gen(function* () {
         statuses: yield* selectStatuses(sql, sql`s.workspace_id = ${workspaceId}`),
         labels: yield* selectLabels(sql, sql`l.workspace_id = ${workspaceId}`),
         tasks: yield* selectTasks(sql, projectFilter),
+        reviews: yield* selectReviews(sql, sql`r.decided_at IS NULL AND ${projectFilter}`),
       } satisfies Snapshot
     }))
   }, Effect.catchTag("SqlError", Effect.die))

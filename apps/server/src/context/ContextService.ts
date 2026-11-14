@@ -11,7 +11,7 @@ import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as CommentService from "../comment/CommentService.ts"
 import * as EventStore from "../events/EventStore.ts"
-import { selectActors, selectLabels, selectProjects, selectStatuses, selectTasks } from "../persistence/rows.ts"
+import { selectActors, selectLabels, selectProjects, selectReviews, selectStatuses, selectTasks } from "../persistence/rows.ts"
 import * as ProjectService from "../project/ProjectService.ts"
 import { SessionService } from "../session/SessionService.ts"
 import * as TaskService from "../task/TaskService.ts"
@@ -42,6 +42,10 @@ const taskIdOf = (e: CelloEvent): { readonly taskId: string } | { readonly comme
       return { taskId: e.task.id }
     case "comment.added":
       return { taskId: e.comment.taskId }
+    case "review.submitted":
+      return { taskId: e.review.taskId }
+    case "review.decided":
+      return { taskId: e.taskId }
     case "comment.edited":
     case "comment.deleted":
       return { commentId: e.id }
@@ -172,8 +176,13 @@ const make = Effect.gen(function* () {
     const [project] = yield* selectProjects(sql, sql`p.id = ${task.projectId}`)
     const history = yield* tasks.history(task.id)
     const list = yield* comments.list(task.id)
-    const names = yield* projectNames(project!, [...sessionIdsOf([task], history), ...list.map((c) => c.sessionId)])
-    return { ...names, task, comments: list, history }
+    const reviews = yield* selectReviews(sql, sql`r.task_id = ${task.id}`)
+    const names = yield* projectNames(project!, [
+      ...sessionIdsOf([task], history),
+      ...list.map((c) => c.sessionId),
+      ...reviews.map((r) => r.sessionId),
+    ])
+    return { ...names, task, comments: list, reviews, history }
   }, Effect.catchTag("SqlError", Effect.die))
 
   return ContextService.of({ whoami, context, taskList, taskDetail })

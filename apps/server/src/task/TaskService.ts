@@ -1,13 +1,15 @@
 // Tasks: numbered per project, ordered within (project, status), versioned on every change.
 import type { CelloEvent } from "@cello/contract/events"
 import type { Priority, Task } from "@cello/contract/entities"
-import { Invalid, NotFound, TaskClaimed, VersionConflict } from "@cello/contract/errors"
+import { Invalid, NotFound, ReviewRequired, TaskClaimed, VersionConflict } from "@cello/contract/errors"
 import type { Caller } from "@cello/contract/rpcs"
+import { isReviewStatus } from "@cello/shared/review"
 import { parseTaskKey } from "@cello/shared/taskKey"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
+import type { SqlError } from "effect/sql/SqlError"
 import * as Commands from "../commands/Commands.ts"
 import * as EventStore from "../events/EventStore.ts"
 import { newId } from "../persistence/ids.ts"
@@ -67,7 +69,8 @@ type Write<E> = Effect.Effect<Commands.Written<Task>, E, Caller>
 export class TaskService extends Context.Service<TaskService, {
   readonly create: (input: CreateTask) => Write<NotFound | Invalid>
   readonly update: (input: UpdateTask) => Write<NotFound | Invalid | VersionConflict>
-  readonly move: (input: MoveTask) => Write<NotFound | Invalid | VersionConflict>
+  /** An agent can't move a task into In Review unless it has an open review (`ReviewRequired`). */
+  readonly move: (input: MoveTask) => Write<NotFound | Invalid | VersionConflict | ReviewRequired>
   readonly setLabels: (input: SetTaskLabels) => Write<NotFound | Invalid>
   readonly archive: (input: ById) => Write<NotFound>
   readonly unarchive: (input: ById) => Write<NotFound>
@@ -82,6 +85,14 @@ export class TaskService extends Context.Service<TaskService, {
   readonly claim: (input: ByKey) => Write<NotFound | TaskClaimed>
   /** Gives up the caller's claim; the human can release anyone's. The status stays. */
   readonly release: (input: ByKey) => Write<NotFound | Invalid>
+  /**
+   * For another service's command: moves a task to the top of a status inside that command's
+   * transaction, with the same events as `move`. A human move ends an agent's claim unless `keepClaim`.
+   */
+  readonly moveWithin: (
+    context: Commands.WriteContext,
+    input: { readonly id: string; readonly statusId: string; readonly keepClaim?: boolean },
+  ) => Effect.Effect<Task, NotFound | Invalid | SqlError>
 }>()("cello/TaskService") {}
 
 /** Statuses whose tasks are finished: a claim on them no longer holds. */
@@ -290,41 +301,73 @@ const make = Effect.gen(function* () {
       }))
   })
 
+  /** Moves `current` inside the running command: every move, from any service, goes through here. */
+  const moveIn = (
+    context: Commands.WriteContext,
+    current: Task,
+    to: Neighbors & { readonly statusId: string; readonly keepClaim?: boolean },
+  ) =>
+    Effect.gen(function* () {
+      const workspaceId = yield* workspaceOf(current.projectId)
+      yield* requireStatus(workspaceId, to.statusId)
+      const sameColumn = to.statusId === current.statusId
+      const { position, unchanged } = yield* placed(
+        place(yield* column(current.projectId, to.statusId), {
+          self: sameColumn ? current : undefined,
+          before: to.before,
+          after: to.after,
+        }),
+      )
+      if (sameColumn && unchanged) return current
+      const claim = to.keepClaim ? { columns: {}, after: (_version: number) => Effect.void } : humanEndsClaim(current, workspaceId, context)
+      yield* bump(current, context.now, { status_id: to.statusId, position, ...claim.columns })
+      const task = yield* load(current.id)
+      yield* context.emit(
+        {
+          type: "task.moved",
+          id: task.id,
+          from: { statusId: current.statusId, position: current.position },
+          to: { statusId: task.statusId, position: task.position },
+          version: task.version,
+          task,
+        },
+        { workspaceId, projectId: task.projectId },
+      )
+      yield* claim.after(task.version)
+      return task
+    })
+
+  /** An agent needs an open review packet to put a task in In Review (`cello task submit`). */
+  const checkReviewGate = (current: Task, statusId: string, caller: Caller["Service"]) =>
+    Effect.gen(function* () {
+      if (caller.sessionId === null || statusId === current.statusId) return
+      const [status] = yield* sql<{ name: string }>`SELECT name FROM statuses WHERE id = ${statusId}`
+      if (!status || !isReviewStatus(status.name)) return
+      const open = yield* sql<{ id: string }>`SELECT id FROM reviews WHERE task_id = ${current.id} AND decided_at IS NULL LIMIT 1`
+      if (open.length === 0) return yield* new ReviewRequired({ key: current.key, status: status.name })
+    })
+
   const move = Effect.fn("TaskService.move")(function* (input: MoveTask) {
     return yield* commands.write({ commandId: input.commandId, rpc: "task.move" }, (context) =>
       Effect.gen(function* () {
-        const { now, emit } = context
         const current = yield* load(input.id)
         yield* checkVersion(current, input.expectedVersion, context.caller)
-        const workspaceId = yield* workspaceOf(current.projectId)
-        yield* requireStatus(workspaceId, input.statusId)
-        const sameColumn = input.statusId === current.statusId
-        const { position, unchanged } = yield* placed(
-          place(yield* column(current.projectId, input.statusId), {
-            self: sameColumn ? current : undefined,
-            before: input.before,
-            after: input.after,
-          }),
-        )
-        if (sameColumn && unchanged) return current
-        const claim = humanEndsClaim(current, workspaceId, context)
-        yield* bump(current, now, { status_id: input.statusId, position, ...claim.columns })
-        const task = yield* load(current.id)
-        yield* emit(
-          {
-            type: "task.moved",
-            id: task.id,
-            from: { statusId: current.statusId, position: current.position },
-            to: { statusId: task.statusId, position: task.position },
-            version: task.version,
-            task,
-          },
-          { workspaceId, projectId: task.projectId },
-        )
-        yield* claim.after(task.version)
-        return task
+        yield* checkReviewGate(current, input.statusId, context.caller)
+        return yield* moveIn(context, current, input)
       }))
   })
+
+  const moveWithin = (context: Commands.WriteContext, input: { readonly id: string; readonly statusId: string; readonly keepClaim?: boolean }) =>
+    Effect.gen(function* () {
+      const current = yield* load(input.id)
+      if (current.statusId === input.statusId) return current
+      // The top of the column, where the human looks first.
+      const top = (yield* column(current.projectId, input.statusId)).reduce<{ id: string; position: string } | null>(
+        (min, t) => (min === null || t.position < min.position ? t : min),
+        null,
+      )
+      return yield* moveIn(context, current, { statusId: input.statusId, after: top?.id ?? null, keepClaim: input.keepClaim ?? false })
+    })
 
   const setLabels = Effect.fn("TaskService.setLabels")(function* (input: SetTaskLabels) {
     if (input.add.some((id) => input.remove.includes(id))) {
@@ -467,6 +510,7 @@ const make = Effect.gen(function* () {
     create,
     update,
     move,
+    moveWithin,
     setLabels,
     archive: setArchived("task.archive", true),
     unarchive: setArchived("task.unarchive", false),

@@ -7,6 +7,7 @@ import * as ContextService from "../context/ContextService.ts"
 import * as EventLog from "../events/EventLog.ts"
 import * as LabelService from "../label/LabelService.ts"
 import * as ProjectService from "../project/ProjectService.ts"
+import * as ReviewService from "../review/ReviewService.ts"
 import * as SnapshotService from "../snapshot/SnapshotService.ts"
 import * as StatusService from "../status/StatusService.ts"
 import * as TaskService from "../task/TaskService.ts"
@@ -22,6 +23,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
   const tasks = yield* TaskService.TaskService
   const comments = yield* CommentService.CommentService
   const context = yield* ContextService.ContextService
+  const reviews = yield* ReviewService.ReviewService
 
   return CelloRpcs.of({
     "snapshot.get": ({ scope }) => snapshots.get(scope),
@@ -48,6 +50,10 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "task.get": ({ key }) => context.taskDetail(key),
     "task.claim": (input) => tasks.claim(input),
     "task.release": (input) => tasks.release(input),
+    "review.submit": (input) => reviews.submit(input),
+    "review.approve": (input) => reviews.approve(input),
+    "review.sendBack": (input) => reviews.sendBack(input),
+    "review.list": ({ taskId }) => reviews.list(taskId),
     "comment.list": ({ taskId }) => comments.list(taskId),
     "comment.add": (input) => comments.add(input),
     "comment.edit": (input) => comments.edit(input),

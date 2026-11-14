@@ -6,6 +6,8 @@ const FIELD_NAMES: Record<string, string> = { title: "title", description: "desc
 
 const list = (words: string[]) => (words.length <= 1 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`)
 
+const DECIDED = { approved: "approved the review", sent_back: "sent it back", superseded: "replaced the open review" }
+
 const TAKEN_BECAUSE = { holder_exited: " (its session had exited)", holder_idle: " (its session was quiet for 2 hours)", human: "" }
 
 export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | "statuses" | "labels">): string => {
@@ -46,6 +48,10 @@ export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | 
       return `${who} edited a comment`
     case "comment.deleted":
       return `${who} deleted a comment`
+    case "review.submitted":
+      return `${who} submitted a review`
+    case "review.decided":
+      return `${who} ${DECIDED[e.decision]}`
     default:
       return `${who} changed it`
   }
