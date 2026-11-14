@@ -82,6 +82,9 @@ test("CEL-10: an agent submits a packet with a real MP4 and screenshot through t
   await expect(taskCard.locator("[data-evidence-badge]")).toContainText("3")
   // The badge shows the video's poster frame (ffmpeg scaled it to the video's 640 px).
   await expect(taskCard.locator("[data-evidence-badge] img")).toHaveJSProperty("naturalWidth", 640)
+  await caption(page, "The list layout shows the same badge")
+  await page.goto(`/${key}/issues?layout=list`)
+  await expect(page.locator('[data-layout="list"]').locator(`[data-task-key="${key}-1"] [data-evidence-badge]`)).toContainText("3")
 
   await caption(page, "The sidebar counts it: open Review")
   const reviewLink = page.getByRole("navigation", { name: "Inbox" }).getByRole("link", { name: /^Review/ })
