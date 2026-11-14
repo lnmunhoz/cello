@@ -1,0 +1,23 @@
+{
+  "name": "@cello/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cello for macOS: the board in its own window, with a built-in browser panel.",
+  "author": "Lucas N. Munhoz",
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "productName": "Cello",
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "dev": "bun scripts/dev.ts",
+    "package": "bun scripts/package.ts",
+    "test:e2e": "bun scripts/build.ts && playwright test -c playwright.config.ts"
+  },
+  "devDependencies": {
+    "@cello/server": "workspace:*",
+    "@cello/shared": "workspace:*",
+    "effect": "4.1.4",
+    "electron": "44.10.1",
+    "electron-builder": "26.16.1"
+  }
+}
