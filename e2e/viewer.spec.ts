@@ -1,6 +1,8 @@
 // CEL-12: evidence, Cello pages and links open in the viewer side panel beside the board, from the
 // Review page, the task panel's pinned packet, a card's evidence badge and links in comments.
 import * as fs from "node:fs"
+import * as http from "node:http"
+import type { AddressInfo } from "node:net"
 import * as path from "node:path"
 import type { Browser, Locator, Page } from "@playwright/test"
 import { caption, card, column, createProject, expect, taskPanel, test, uniqueKey } from "./fixtures.ts"
@@ -119,7 +121,7 @@ test("CEL-12: a packet's screenshot, video and PR link open in the viewer beside
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
-test("CEL-12: on the board, the evidence badge and the task panel's packet open the viewer in the panel's place, Esc brings the task back, and links in comments open there too", async ({ page }) => {
+test("CEL-12: on the board, the evidence badge and the task panel's packet open the viewer in the panel's place, Esc brings the task back, and links in comments (a Cello page, a dev server) open there too", async ({ page }) => {
   const key = uniqueKey("VWB")
   await createProject(page, "Viewer board test", key)
   const { dir } = await submitPacket(page, key)
@@ -170,6 +172,31 @@ test("CEL-12: on the board, the evidence badge and the task panel's packet open 
   await viewer.getByRole("button", { name: "Close viewer" }).click()
   await expect(viewer).toHaveCount(0)
   await expect(panel).toBeVisible()
+
+  await caption(page, "A link to another site that allows framing (a dev server): it shows in the viewer, with Open in browser at hand")
+  const site = await framableSite()
+  await panel.getByLabel("New comment").fill(`Preview: ${site.url}`)
+  await panel.getByRole("button", { name: "Comment", exact: true }).click()
+  await panel.locator("[data-comment-id]").getByRole("link", { name: site.url }).click()
+  await expect(viewer.frameLocator("iframe").getByRole("heading", { name: "A dev server page" })).toBeVisible()
+  await expect(viewer.getByText("Blank? Some sites can't be shown inside Cello.")).toBeVisible()
+  await expect(viewer.getByRole("link", { name: "Open in browser" })).toHaveAttribute("href", site.url)
+  await page.keyboard.press("Escape")
+  await expect(viewer).toHaveCount(0)
   await caption(page, "The badge, the packet and comment links all open in the viewer")
+  await site.close()
   fs.rmSync(dir, { recursive: true, force: true })
 })
+
+/** A page on another origin that allows framing, like a local dev server. */
+async function framableSite() {
+  const server = http.createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" })
+    response.end(`<!doctype html><title>Dev server</title><body style="font:16px system-ui;padding:24px"><h1>A dev server page</h1></body>`)
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/`,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  }
+}
