@@ -11,6 +11,8 @@ const trigger = variants(
     variant: {
       swatch: "size-6 justify-center hover:bg-hover",
       property: "h-8 w-full gap-2 px-2 text-[13px] text-ink hover:bg-hover data-open:bg-hover",
+      /** A button in a page's toolbar, like Display. */
+      toolbar: "h-7 gap-1.5 border border-line bg-raised px-2.5 text-[13px] font-medium text-ink shadow-card hover:bg-hover data-open:bg-hover",
     },
   },
   { variant: "property" },
