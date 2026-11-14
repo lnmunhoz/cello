@@ -2,7 +2,7 @@ import type { Attachment, Project, Review, Status, Task } from "@cello/contract/
 import type { CelloEvent, EventBody } from "@cello/contract/events"
 import { describe, expect, it } from "vitest"
 import type { BoardState } from "./applyEvents.ts"
-import { applyReviewEvents, attachmentUrl, openReviewOf, posterUrl, reviewQueue, thumbnailOf } from "./reviews.ts"
+import { applyReviewEvents, attachmentUrl, evidenceInOrder, evidenceTarget, firstEvidence, openReviewOf, posterUrl, reviewQueue, thumbnailOf } from "./reviews.ts"
 
 const status = (id: string, name: string, category: Status["category"], position: string): Status => ({
   id, workspaceId: "w1", name, category, position, color: "#999", hidden: false, createdAt: 1, updatedAt: 1,
@@ -85,6 +85,27 @@ describe("evidence", () => {
     expect(thumbnailOf(review("r", "t", 1, [attachment("l", "link"), shot, video]))).toBe("/attachments/v1/poster")
     expect(thumbnailOf(review("r", "t", 1, [attachment("v0", "video"), shot]))).toBe("/attachments/s1")
     expect(thumbnailOf(review("r", "t", 1, [attachment("f", "file")]))).toBeNull()
+  })
+
+  it("is shown videos first, then screenshots, files and links, each kind in the order it was attached", () => {
+    const list = [attachment("l1", "link"), attachment("f1", "file"), attachment("s1", "image"), attachment("v1", "video"), attachment("s2", "image")]
+    expect(evidenceInOrder(list).map((a) => a.id)).toEqual(["v1", "s1", "s2", "f1", "l1"])
+  })
+
+  it("a card's badge opens the first piece of evidence in that order", () => {
+    expect(firstEvidence(review("r", "t", 1, [attachment("l1", "link"), attachment("s1", "image")]))?.id).toBe("s1")
+    expect(firstEvidence(review("r", "t", 1, []))).toBeUndefined()
+  })
+
+  it("what the viewer opens for each piece: the served file or the link, its caption or name, and whether it's an image or a video", () => {
+    expect(evidenceTarget(attachment("s1", "image", { caption: "The board" }))).toEqual({ url: "/attachments/s1", title: "The board", kind: "image" })
+    expect(evidenceTarget(attachment("v1", "video", { name: "flow.mp4" }))).toEqual({ url: "/attachments/v1", title: "flow.mp4", kind: "video" })
+    expect(evidenceTarget(attachment("f1", "file", { name: "test-output.txt", mime: "text/plain" }))).toEqual({ url: "/attachments/f1", title: "test-output.txt" })
+    expect(evidenceTarget(attachment("f2", "file", { name: "shot.webp", mime: "image/webp" }))).toEqual({ url: "/attachments/f2", title: "shot.webp", kind: "image" })
+    const pr = attachment("l1", "link", { url: "https://github.com/lnmunhoz/cello/pull/10", name: "https://github.com/lnmunhoz/cello/pull/10" })
+    expect(evidenceTarget(pr)).toEqual({ url: "https://github.com/lnmunhoz/cello/pull/10", title: "github.com/lnmunhoz/cello/pull/10" })
+    expect(evidenceTarget({ ...pr, caption: "The PR" })?.title).toBe("The PR")
+    expect(evidenceTarget(attachment("l2", "link"))).toBeNull()
   })
 })
 

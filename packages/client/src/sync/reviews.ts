@@ -2,6 +2,7 @@
 // task's loaded review list kept current from the event stream.
 import type { Attachment, Project, Review, Task } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
+import { shortUrl } from "@cello/shared/linkify"
 import { isReviewStatus } from "@cello/shared/review"
 import type { BoardState } from "./applyEvents.ts"
 
@@ -55,6 +56,39 @@ export const thumbnailOf = (review: Review): string | null => {
   if (video) return posterUrl(video)!
   const image = review.attachments.find((a) => a.kind === "image")
   return image ? attachmentUrl(image) : null
+}
+
+const EVIDENCE_ORDER: ReadonlyArray<Attachment["kind"]> = ["video", "image", "file", "link"]
+
+/** A packet's evidence in the order the packet shows it: videos, then screenshots, files and links. */
+export const evidenceInOrder = (attachments: ReadonlyArray<Attachment>): Attachment[] =>
+  EVIDENCE_ORDER.flatMap((kind) => attachments.filter((a) => a.kind === kind))
+
+/** What a card's evidence badge opens. */
+export const firstEvidence = (review: Review): Attachment | undefined => evidenceInOrder(review.attachments)[0]
+
+/** What the viewer opens for a piece of evidence: the served file or the link, titled by its caption. */
+export interface EvidenceTarget {
+  readonly url: string
+  readonly title: string
+  /** Set when the file is an image or a video; anything else shows as a page. */
+  readonly kind?: "image" | "video"
+}
+
+const mediaKind = (attachment: Attachment): "image" | "video" | undefined => {
+  if (attachment.kind === "image" || attachment.kind === "video") return attachment.kind
+  if (attachment.mime?.startsWith("image/")) return "image"
+  if (attachment.mime?.startsWith("video/")) return "video"
+  return undefined
+}
+
+/** Null for a link without a URL. */
+export const evidenceTarget = (attachment: Attachment): EvidenceTarget | null => {
+  if (attachment.kind === "link") {
+    return attachment.url ? { url: attachment.url, title: attachment.caption || shortUrl(attachment.url) } : null
+  }
+  const kind = mediaKind(attachment)
+  return { url: attachmentUrl(attachment), title: attachment.caption || attachment.name, ...(kind ? { kind } : {}) }
 }
 
 /** A task's reviews (from `review.list`) kept current from the event stream. */
