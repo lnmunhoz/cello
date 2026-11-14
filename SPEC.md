@@ -44,10 +44,10 @@ Three things set it apart from Trello, Linear or GitHub Issues:
 
 **Next (v1.1, decided after two weeks of real use)**
 
-- **Pages first**: `cello doc publish` and the page reader, with task links.
+- **Pages first**: `cello doc publish` and the page reader, with task links. *(Pulled into M2 on 2026-11-14 as CEL-13, see docs/M2.md.)*
 - Then, in an order set by use: table layout, grouping and sorting, saved views, Docs and Specs, version history, Inbox, command menu.
 - Git hook and GitHub links (M5).
-- **Desktop app** (decided 2026-11-14), following T3 Code's `apps/desktop`: an Electron app with a dock icon, tray menu and `cello://THAI-12` links. Electron's Node runtime can't run the Bun server, so the app bundles the compiled `cello` binary as a sidecar, starts it or joins the running one through the server lock, and loads the board from it. Agents' CLI calls work the same whether the app is open or not.
+- **Desktop app** (decided 2026-11-14; moved into M2 as CEL-14 the same day, for its built-in browser panel), following T3 Code's `apps/desktop`: an Electron app with a dock icon, tray menu and `cello://THAI-12` links. Electron's Node runtime can't run the Bun server, so the app bundles the compiled `cello` binary as a sidecar, starts it or joins the running one through the server lock, and loads the board from it. Agents' CLI calls work the same whether the app is open or not.
 
 **Out of scope (v1)**
 
