@@ -7,7 +7,8 @@ import * as HttpServer from "effect/http/HttpServer"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 
-export const DEV_WEB_PORT = 5199
+/** The Vite dev/preview port; worktrees and parallel e2e runs set CELLO_WEB_PORT to avoid clashes. */
+export const DEV_WEB_PORT = Number(process.env.CELLO_WEB_PORT ?? 5199)
 
 const LOCAL_HOSTS = ["127.0.0.1", "localhost"]
 

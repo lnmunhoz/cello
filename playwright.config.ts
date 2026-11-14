@@ -5,7 +5,9 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 
-const SERVER_PORT = 4791
+// Ports come from the environment so parallel runs (worktrees, a running dev app) don't clash.
+const SERVER_PORT = Number(process.env.CELLO_E2E_SERVER_PORT ?? 4791)
+const WEB_PORT = Number(process.env.CELLO_WEB_PORT ?? 5199)
 // Workers load this file too; they inherit the folder the main process made.
 process.env.CELLO_E2E_DATA ??= fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-"))
 
@@ -18,8 +20,8 @@ export default defineConfig({
   reporter: [["list"]],
   globalTeardown: "./e2e/teardown.ts",
   use: {
-    // The server only accepts pages on localhost:5199 (its Vite port).
-    baseURL: "http://localhost:5199",
+    // The server only accepts pages on its own port or CELLO_WEB_PORT (default 5199).
+    baseURL: `http://localhost:${WEB_PORT}`,
     ...devices["Desktop Chrome"],
     viewport: { width: 1440, height: 900 },
     video: { mode: "on", size: { width: 1440, height: 900 } },
@@ -28,7 +30,7 @@ export default defineConfig({
     {
       command: "bun src/main.ts",
       cwd: "apps/server",
-      env: { CELLO_PORT: String(SERVER_PORT), CELLO_DATA_DIR: process.env.CELLO_E2E_DATA },
+      env: { CELLO_PORT: String(SERVER_PORT), CELLO_DATA_DIR: process.env.CELLO_E2E_DATA!, CELLO_WEB_PORT: String(WEB_PORT) },
       url: `http://127.0.0.1:${SERVER_PORT}/rpc`,
       ignoreHTTPSErrors: true,
       reuseExistingServer: false,
@@ -37,8 +39,8 @@ export default defineConfig({
     {
       command: "bunx vite preview",
       cwd: "apps/web",
-      env: { CELLO_SERVER: `127.0.0.1:${SERVER_PORT}` },
-      url: "http://localhost:5199",
+      env: { CELLO_SERVER: `127.0.0.1:${SERVER_PORT}`, CELLO_WEB_PORT: String(WEB_PORT) },
+      url: `http://localhost:${WEB_PORT}`,
       reuseExistingServer: false,
     },
   ],
