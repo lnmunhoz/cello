@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Stream from "effect/Stream"
 import * as Atom from "effect/reactivity/Atom"
+import * as AsyncResult from "effect/reactivity/AsyncResult"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import { makeCelloAtoms } from "./atoms.ts"
 import { CelloClient } from "./client.ts"
@@ -61,5 +62,33 @@ describe("command atoms", () => {
     const after = await Effect.runPromise(AtomRegistry.getResult(registry, atoms.boardAtom))
     expect(after.tasks["t1"]?.statusId).toBe("todo")
     expect(errors).toEqual(["CEL-1 was changed by Claude since you opened it"])
+  })
+
+  it("show no board while a workspace switch loads, so no screen acts on the old workspace's rows", async () => {
+    const side: Workspace = { ...workspace, id: "w2", name: "Side", slug: "side", position: "a1" }
+    const sideReady = Effect.runSync(Deferred.make<void>())
+    const fake = {
+      "snapshot.get": ({ scope }: { scope?: { workspaceId: string } }) =>
+        scope?.workspaceId === "w2"
+          ? Deferred.await(sideReady).pipe(Effect.as({ ...snapshot, seq: 6, workspaces: [workspace, side], statuses: [], tasks: [] }))
+          : Effect.succeed({ ...snapshot, workspaces: [workspace, side] }),
+      "events.subscribe": () => Stream.never,
+    } as unknown as CelloClient["Service"]
+    const atoms = makeCelloAtoms(Atom.runtime(Layer.succeed(CelloClient, fake)))
+    const registry = AtomRegistry.make()
+    registry.mount(atoms.boardAtom)
+    registry.mount(atoms.currentAtom)
+    const before = await Effect.runPromise(AtomRegistry.getResult(registry, atoms.boardAtom))
+    expect(before.tasks["t1"]).toBeDefined()
+
+    registry.set(atoms.workspaceIdAtom, "w2")
+    expect(AsyncResult.isSuccess(registry.get(atoms.boardAtom))).toBe(false)
+    expect(AsyncResult.isSuccess(registry.get(atoms.currentAtom))).toBe(false)
+
+    Effect.runSync(Deferred.succeed(sideReady, undefined))
+    const after = await Effect.runPromise(AtomRegistry.getResult(registry, atoms.boardAtom))
+    expect(after.tasks).toEqual({})
+    const current = await Effect.runPromise(AtomRegistry.getResult(registry, atoms.currentAtom))
+    expect(current.scope).toEqual({ workspaceId: "w2" })
   })
 })

@@ -51,6 +51,10 @@ export const advance = (synced: Synced, events: ReadonlyArray<CelloEvent>): Sync
   return { ...synced, state, seen, batch: events.filter((e) => e.seq > synced.state.seq) }
 }
 
+/** Whether `synced` follows the workspace asked for; `null` asks for the server's default. */
+export const followsWorkspace = (synced: Synced, wanted: string | null): boolean =>
+  wanted === null || ("workspaceId" in synced.scope && synced.scope.workspaceId === wanted)
+
 /** The workspace a scopeless snapshot covers: the first non-archived one by position. */
 export const defaultWorkspaceId = (snapshot: Snapshot): string => {
   const open = snapshot.workspaces.filter((w) => w.archivedAt === null)
