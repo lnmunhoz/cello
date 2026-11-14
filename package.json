@@ -5,8 +5,8 @@
   "workspaces": ["packages/*", "apps/*"],
   "scripts": {
     "dev": "bun run --filter @cello/server dev & bun run --filter @cello/web dev",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "bun --bun vitest run",
+    "test:watch": "bun --bun vitest",
     "test:e2e": "bun run --filter @cello/web build && playwright test",
     "typecheck": "tsc -p ."
   },

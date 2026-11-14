@@ -1,0 +1,20 @@
+{
+  "name": "@cello/server",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "dev": "CELLO_PORT=4748 CELLO_DATA_DIR=../../.cello bun src/main.ts",
+    "start": "CELLO_PORT=${CELLO_PORT:-4747} CELLO_DATA_DIR=${CELLO_DATA_DIR:-$HOME/.cello} bun src/main.ts"
+  },
+  "dependencies": {
+    "@cello/client": "workspace:*",
+    "@cello/contract": "workspace:*",
+    "@cello/shared": "workspace:*",
+    "@effect/platform-bun": "4.1.4",
+    "@effect/sql-sqlite-bun": "4.1.4",
+    "effect": "4.1.4"
+  }
+}

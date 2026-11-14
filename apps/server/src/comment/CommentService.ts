@@ -1,0 +1,110 @@
+// Comments on a task. Deleting sets `deleted_at`; nothing is hard-deleted.
+import type { Comment } from "@cello/contract/entities"
+import { Invalid, NotFound } from "@cello/contract/errors"
+import type { Caller } from "@cello/contract/rpcs"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as SqlClient from "effect/sql/SqlClient"
+import * as Commands from "../commands/Commands.ts"
+import { newId } from "../persistence/ids.ts"
+import { selectComments } from "../persistence/rows.ts"
+import { requireText } from "../validation.ts"
+
+export class CommentService extends Context.Service<CommentService, {
+  /** The task's comments that aren't deleted, oldest first. */
+  readonly list: (taskId: string) => Effect.Effect<ReadonlyArray<Comment>, NotFound>
+  readonly add: (input: { readonly commandId: string; readonly taskId: string; readonly body: string }) => Effect.Effect<
+    Commands.Written<Comment>,
+    NotFound | Invalid,
+    Caller
+  >
+  readonly edit: (input: { readonly commandId: string; readonly id: string; readonly body: string }) => Effect.Effect<
+    Commands.Written<Comment>,
+    NotFound | Invalid,
+    Caller
+  >
+  readonly remove: (input: { readonly commandId: string; readonly id: string }) => Effect.Effect<
+    Commands.Written<Comment>,
+    NotFound,
+    Caller
+  >
+}>()("cello/CommentService") {}
+
+const make = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+  const commands = yield* Commands.Commands
+
+  /** The task's project and workspace, which every comment event carries. */
+  const placeOfTask = (taskId: string) =>
+    sql<{ project_id: string; workspace_id: string }>`
+      SELECT t.project_id, p.workspace_id FROM tasks t JOIN projects p ON p.id = t.project_id WHERE t.id = ${taskId}`.pipe(
+      Effect.flatMap((rows) =>
+        rows[0]
+          ? Effect.succeed({ projectId: rows[0].project_id, workspaceId: rows[0].workspace_id })
+          : Effect.fail(new NotFound({ entity: "task", id: taskId }))
+      ),
+    )
+
+  /** A comment that isn't deleted. */
+  const load = (id: string) =>
+    selectComments(sql, sql`c.id = ${id}`).pipe(
+      Effect.flatMap((rows) =>
+        rows[0] && rows[0].deletedAt === null
+          ? Effect.succeed(rows[0])
+          : Effect.fail(new NotFound({ entity: "comment", id }))
+      ),
+    )
+
+  const list = Effect.fn("CommentService.list")(function* (taskId: string) {
+    yield* placeOfTask(taskId)
+    return yield* selectComments(sql, sql`c.task_id = ${taskId} AND c.deleted_at IS NULL`)
+  }, Effect.catchTag("SqlError", Effect.die))
+
+  const add = Effect.fn("CommentService.add")(function* (
+    input: { readonly commandId: string; readonly taskId: string; readonly body: string },
+  ) {
+    const body = yield* requireText("body", input.body)
+    return yield* commands.write({ commandId: input.commandId, rpc: "comment.add" }, ({ now, caller, emit }) =>
+      Effect.gen(function* () {
+        const where = yield* placeOfTask(input.taskId)
+        const id = newId(now)
+        yield* sql`INSERT INTO comments (id, task_id, body, actor_id, session_id, created_at, updated_at)
+          VALUES (${id}, ${input.taskId}, ${body}, ${caller.actorId}, ${caller.sessionId}, ${now}, ${now})`
+        const comment = yield* load(id)
+        yield* emit({ type: "comment.added", comment }, where)
+        return comment
+      }))
+  })
+
+  const edit = Effect.fn("CommentService.edit")(function* (
+    input: { readonly commandId: string; readonly id: string; readonly body: string },
+  ) {
+    const body = yield* requireText("body", input.body)
+    return yield* commands.write({ commandId: input.commandId, rpc: "comment.edit" }, ({ now, emit }) =>
+      Effect.gen(function* () {
+        const current = yield* load(input.id)
+        if (current.body === body) return current
+        yield* sql`UPDATE comments SET body = ${body}, updated_at = ${now} WHERE id = ${current.id}`
+        yield* emit(
+          { type: "comment.edited", id: current.id, before: { body: current.body }, after: { body } },
+          yield* placeOfTask(current.taskId),
+        )
+        return yield* load(current.id)
+      }))
+  })
+
+  const remove = Effect.fn("CommentService.remove")(function* (input: { readonly commandId: string; readonly id: string }) {
+    return yield* commands.write({ commandId: input.commandId, rpc: "comment.delete" }, ({ now, emit }) =>
+      Effect.gen(function* () {
+        const current = yield* load(input.id)
+        yield* sql`UPDATE comments SET deleted_at = ${now}, updated_at = ${now} WHERE id = ${current.id}`
+        yield* emit({ type: "comment.deleted", id: current.id }, yield* placeOfTask(current.taskId))
+        return { ...current, deletedAt: now, updatedAt: now }
+      }))
+  })
+
+  return CommentService.of({ list, add, edit, remove })
+})
+
+export const layer = Layer.effect(CommentService, make)
