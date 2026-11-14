@@ -19,6 +19,9 @@ import { findMove } from "./moves.ts"
 
 const layoutTransition = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 } as const
 
+/** New cards land at the bottom of their column, so a card you just made (still optimistic) scrolls into view. */
+const reveal = (el: HTMLElement | null) => el?.scrollIntoView({ block: "nearest", inline: "nearest" })
+
 export function BoardPage({ openNumber }: { openNumber?: number }) {
   const { projectKey } = useParams({ from: "/$projectKey" })
   const board = useBoard()
@@ -110,7 +113,7 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
                         <InlineCreate
                           project={project}
                           status={status}
-                          first={tasks[0] ?? null}
+                          tasks={tasks}
                           onDone={() => setComposing(null)}
                         />
                       </div>
@@ -119,6 +122,8 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
                       value={status.id}
                       aria-labelledby={`col-${status.id}`}
                       className="flex min-h-16 flex-col gap-1.5 overflow-y-auto px-2 pb-2"
+                      // The column scrolls, so its cards' layout animations must account for its scroll offset.
+                      render={(props) => <motion.div {...(props as object)} layoutScroll />}
                     >
                       {({ cards }) =>
                         cards.map((id) => {
@@ -130,6 +135,7 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
                               value={id}
                               data-card-id={id}
                               data-task-key={task.key}
+                              ref={task.number === 0 ? reveal : undefined}
                               aria-current={task.number === openNumber ? "true" : undefined}
                               onClick={() => open(task)}
                               onKeyDown={(e) => {

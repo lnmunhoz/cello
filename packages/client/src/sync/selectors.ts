@@ -43,7 +43,19 @@ export const placement = <T extends { readonly id: string; readonly position: st
   }
 }
 
-export const projectsOf = (state: BoardState, workspaceId: string): Project[] =>
+/**
+ * Where a new item lands at the end of a list. It names no neighbor, which the server reads as
+ * "append", so a card still being created (whose id the server doesn't know yet) is never sent.
+ */
+export const placementAtEnd = <T extends { readonly position: string }>(
+  list: ReadonlyArray<T>,
+): { before: null; after: null; position: string } => ({
+  before: null,
+  after: null,
+  position: positionBetween(list.at(-1)?.position ?? null, null),
+})
+
+export const projectsOf =(state: BoardState, workspaceId: string): Project[] =>
   Object.values(state.projects)
     .filter((p) => p.workspaceId === workspaceId && p.archivedAt === null)
     .sort((a, b) => a.name.localeCompare(b.name))

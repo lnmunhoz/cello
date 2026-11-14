@@ -1,7 +1,7 @@
 import type { Project, Status, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import type { BoardState } from "./applyEvents.ts"
-import { boardColumns, byPosition, placement, projectsOf, taskByKey } from "./selectors.ts"
+import { boardColumns, byPosition, placement, placementAtEnd, projectsOf, taskByKey } from "./selectors.ts"
 
 const status = (id: string, position: string, hidden = false): Status => ({
   id, workspaceId: "w1", name: id, category: "unstarted", position, color: "#999", hidden, createdAt: 1, updatedAt: 1,
@@ -53,6 +53,19 @@ describe("selectors", () => {
     const mid = placement(column, 1).position
     expect(mid > "a0" && mid < "a2").toBe(true)
     expect(placement([], 0)).toMatchObject({ before: null, after: null })
+  })
+
+  it("places a new item last, naming no neighbor so the server appends it", () => {
+    const column = byPosition([state.tasks["t1"]!, state.tasks["t2"]!])
+    const end = placementAtEnd(column)
+    expect(end).toMatchObject({ before: null, after: null })
+    expect(end.position > "a2").toBe(true)
+    expect(placementAtEnd([])).toMatchObject({ before: null, after: null })
+    // A card still being created has a temporary id the server doesn't know; the next one still lands after it.
+    const creating = { ...state.tasks["t2"]!, id: "optimistic:c1", position: end.position }
+    const next = placementAtEnd([...column, creating])
+    expect(next).toMatchObject({ before: null, after: null })
+    expect(next.position > end.position).toBe(true)
   })
 
   it("lists a workspace's open projects by name and finds a task by key", () => {

@@ -1,9 +1,9 @@
 import { useAtomValue } from "@effect/atom-react"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import { boardAtom, syncedAtom } from "./cello.ts"
+import { boardAtom, currentAtom, syncedAtom } from "./cello.ts"
 
-/** The board state, or null until the first snapshot arrives. */
+/** The board state, or null until the first snapshot arrives (and while a workspace switch loads). */
 export const useBoard = (): BoardState | null => {
   const result = useAtomValue(boardAtom)
   return AsyncResult.isSuccess(result) ? result.value : null
@@ -11,7 +11,7 @@ export const useBoard = (): BoardState | null => {
 
 /** The workspace the app follows, once known. */
 export const useWorkspaceId = (): string | null => {
-  const result = useAtomValue(syncedAtom)
+  const result = useAtomValue(currentAtom)
   return AsyncResult.isSuccess(result) && "workspaceId" in result.value.scope ? result.value.scope.workspaceId : null
 }
 

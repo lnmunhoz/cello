@@ -1,5 +1,8 @@
 // Shared steps for the e2e tests, plus a visible cursor, click ripples and captions in the videos.
 import { expect, test as base, type Page } from "@playwright/test"
+import type { Label, Project, Status } from "../packages/contract/src/entities.ts"
+import { defaultWorkspaceId } from "../packages/client/src/sync/follow.ts"
+import { newCommandId, openClient, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
 
 /** Draws the pointer, a ripple on each press, and a caption box. Runs in every page. */
 const overlay = () => {
@@ -52,7 +55,13 @@ const slug = (title: string) => {
   return full.length <= 80 ? full : full.slice(0, 80).replace(/-[^-]*$/, "")
 }
 
-export const test = base.extend({
+export const test = base.extend<{ cello: PromiseClient }>({
+  /** An RPC client for seeding data, through the preview server's /rpc proxy like the page itself. */
+  cello: async ({ baseURL }, use) => {
+    const client = await openClient(`${baseURL!.replace(/^http/, "ws")}/rpc`)
+    await use(client)
+    await client.close()
+  },
   context: async ({ context }, use, testInfo) => {
     await context.addInitScript(overlay)
     const videos: Array<ReturnType<Page["video"]>> = []
@@ -72,9 +81,16 @@ export { expect }
 export const column = (page: Page, name: string) => page.locator(`section[data-column="${name}"]`)
 export const card = (page: Page, key: string) => page.locator(`[data-task-key="${key}"]`)
 
-/** Creates a project from the sidebar and lands on its board. */
+export const taskPanel = (page: Page, key: string) => page.getByRole("complementary", { name: `${key} details` })
+
+/** Creates a project from the sidebar and lands on its board. Loads the app first, so it's in the default workspace. */
 export async function createProject(page: Page, name: string, key: string) {
   await page.goto("/")
+  await createProjectHere(page, name, key)
+}
+
+/** Creates a project in the workspace on screen, without reloading (a reload goes back to the default workspace). */
+export async function createProjectHere(page: Page, name: string, key: string) {
   await caption(page, `New project “${name}”`)
   await page.getByRole("button", { name: "New project" }).first().click()
   await page.getByLabel("Name").fill(name)
@@ -84,17 +100,59 @@ export async function createProject(page: Page, name: string, key: string) {
   await expect(page.getByRole("dialog")).toBeHidden()
 }
 
-/** Adds tasks to a column with its `+`, typing each title and pressing Enter. */
+/** Adds tasks to a column with its `+`, typing each title and pressing Enter. Each new card lands at the bottom. */
 export async function addTasks(page: Page, status: string, titles: ReadonlyArray<string>) {
   await page.getByRole("button", { name: `New task in ${status}` }).click()
   const input = page.getByLabel(`New task title in ${status}`)
   for (const title of titles) {
     await input.fill(title)
     await input.press("Enter")
-    await expect(column(page, status).getByText(title, { exact: true })).toBeVisible()
+    await expect(column(page, status).locator("[data-task-key]").last().locator("[data-card-title]")).toHaveText(title)
   }
   await input.press("Escape")
 }
+
+/** Creates a workspace in Settings and switches to it with the sidebar's switcher. */
+export async function openNewWorkspace(page: Page, name: string) {
+  await page.getByRole("link", { name: "Settings" }).click()
+  await caption(page, `Create the workspace “${name}” and switch to it`)
+  await page.getByLabel("New workspace name").fill(name)
+  await page.getByRole("button", { name: "Create workspace" }).click()
+  await switchWorkspace(page, name)
+}
+
+export async function switchWorkspace(page: Page, name: string) {
+  await page.getByRole("button", { name: "Switch workspace" }).click()
+  await page.getByRole("menuitem", { name }).click()
+  await expect(page.getByRole("button", { name: "Switch workspace" })).toContainText(name)
+}
+
+/** The default workspace's id, its statuses by name, and its labels. */
+export async function defaultWorkspace(cello: PromiseClient) {
+  const snapshot = await cello.run((c) => c["snapshot.get"]({}))
+  const workspaceId = defaultWorkspaceId(snapshot)
+  const statuses = Object.fromEntries(snapshot.statuses.filter((s) => s.workspaceId === workspaceId).map((s) => [s.name, s])) as Record<string, Status>
+  return { workspaceId, statuses, labels: snapshot.labels }
+}
+
+/** A project in the default workspace, made through the RPC client. */
+export async function seedProject(cello: PromiseClient, name: string, key: string): Promise<Project> {
+  const { workspaceId } = await defaultWorkspace(cello)
+  return (await cello.run((c) => c["project.create"]({ commandId: newCommandId(), workspaceId, name, key }))).result
+}
+
+/** Labels in the default workspace, reusing any that already exist with the same name. */
+export async function seedLabels(cello: PromiseClient, labels: ReadonlyArray<{ name: string; color: string }>): Promise<Label[]> {
+  const { workspaceId, labels: existing } = await defaultWorkspace(cello)
+  const out: Label[] = []
+  for (const { name, color } of labels) {
+    const found = existing.find((l) => l.name === name && l.archivedAt === null)
+    out.push(found ?? (await cello.run((c) => c["label.create"]({ commandId: newCommandId(), workspaceId, name, color }))).result)
+  }
+  return out
+}
+
+export { newCommandId }
 
 /** Drags a card onto a column with the mouse, in small steps like a person would. */
 export async function dragCard(page: Page, key: string, to: string) {

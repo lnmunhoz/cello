@@ -14,7 +14,7 @@ import { describeError } from "./commands/describeError.ts"
 import { begin, confirm, pendingOf, prune, rollback, view, type Patch, type Pending } from "./commands/optimistic.ts"
 import * as patches from "./commands/patches.ts"
 import { applyCommentEvents } from "./sync/comments.ts"
-import { follow, sourceFromClient, type Synced } from "./sync/follow.ts"
+import { follow, followsWorkspace, sourceFromClient, type Synced } from "./sync/follow.ts"
 import type { BoardState } from "./sync/applyEvents.ts"
 
 type Client = CelloClient["Service"]
@@ -56,8 +56,19 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
 
   const pendingAtom = Atom.make<ReadonlyArray<Pending>>([]).pipe(Atom.keepAlive)
 
+  /**
+   * The synced state of the workspace asked for. While a switch loads, the synced atom still holds
+   * the old workspace's state; this waits instead, so no screen acts on the old workspace's rows.
+   */
+  const currentAtom = Atom.make((get): AsyncResult.AsyncResult<Synced, unknown> => {
+    const synced = get(syncedAtom)
+    const wanted = get(workspaceIdAtom)
+    if (AsyncResult.isSuccess(synced) && !followsWorkspace(synced.value, wanted)) return AsyncResult.initial(true)
+    return synced
+  })
+
   /** What the screens show: synced state plus the live optimistic patches. */
-  const boardAtom = Atom.make((get) => AsyncResult.map(get(syncedAtom), (synced) => view(synced, get(pendingAtom))))
+  const boardAtom = Atom.make((get) => AsyncResult.map(get(currentAtom), (synced) => view(synced, get(pendingAtom))))
 
   const current = (registry: AtomRegistry.AtomRegistry) => {
     const synced = registry.get(syncedAtom)
@@ -246,12 +257,21 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
       )),
   )
 
-  /** A task's history, fetched again whenever the task or its comments change. */
+  /**
+   * The server's version of one task. It changes only when that task does, and an optimistic edit
+   * (which bumps the shown version early) doesn't touch it.
+   */
+  const syncedVersionFamily = Atom.family((taskId: string) =>
+    Atom.make((get) => {
+      const synced = get(syncedAtom)
+      return AsyncResult.isSuccess(synced) ? synced.value.state.tasks[taskId]?.version : undefined
+    }))
+
+  /** A task's history, fetched again whenever the server changes the task or its comments. */
   const historyFamily = Atom.family((taskId: string) =>
     runtime.atom((get) => {
-      const board = get(boardAtom)
+      const version = get(syncedVersionFamily(taskId))
       get(commentsFamily(taskId))
-      const version = AsyncResult.isSuccess(board) ? board.value.tasks[taskId]?.version : undefined
       return Effect.gen(function* () {
         void version
         const client = yield* CelloClient
@@ -260,7 +280,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     }),
   )
 
-  return { workspaceIdAtom, syncedAtom, pendingAtom, boardAtom, commands, commentsFamily, historyFamily, command }
+  return { workspaceIdAtom, syncedAtom, currentAtom, pendingAtom, boardAtom, commands, commentsFamily, historyFamily, command }
 }
 
 export type CelloAtoms = ReturnType<typeof makeCelloAtoms>
