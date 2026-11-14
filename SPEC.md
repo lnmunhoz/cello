@@ -40,12 +40,14 @@ Three things set it apart from Trello, Linear or GitHub Issues:
 - Live updates, agent cursors and animations, markers on recently changed cards, an activity feed and replay.
 - Linking commits to tasks by hand (`cello task link`).
 - Runs locally with one command; data lives in `~/.cello/`.
+- Installable as a standalone app from the browser (a PWA): its own dock icon and window, no browser chrome.
 
 **Next (v1.1, decided after two weeks of real use)**
 
 - **Pages first**: `cello doc publish` and the page reader, with task links.
 - Then, in an order set by use: table layout, grouping and sorting, saved views, Docs and Specs, version history, Inbox, command menu.
 - Git hook and GitHub links (M5).
+- **Desktop app** (decided 2026-11-14), following T3 Code's `apps/desktop`: an Electron app with a dock icon, tray menu and `cello://THAI-12` links. Electron's Node runtime can't run the Bun server, so the app bundles the compiled `cello` binary as a sidecar, starts it or joins the running one through the server lock, and loads the board from it. Agents' CLI calls work the same whether the app is open or not.
 
 **Out of scope (v1)**
 
