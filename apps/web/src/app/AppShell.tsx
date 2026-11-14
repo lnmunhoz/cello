@@ -11,6 +11,7 @@ import { workspaceIdAtom } from "../lib/cello.ts"
 import { useBoard, useConnection, useWorkspaceId } from "../lib/hooks.ts"
 import { isDark, toggleTheme } from "../lib/theme.ts"
 import { NewProjectDialog } from "../project/NewProjectDialog.tsx"
+import { ViewerPanel } from "../viewer/ViewerPanel.tsx"
 import { byPosition } from "@cello/client/sync/selectors"
 
 export function AppShell() {
@@ -128,11 +129,30 @@ export function AppShell() {
         ) : null}
       </aside>
 
-      <main className="my-2 mr-2 flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-card">
-        <Outlet />
+      <main className="my-2 mr-2 flex min-w-0 flex-1 overflow-hidden rounded-lg border border-line bg-surface shadow-card">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Outlet />
+        </div>
+        <ViewerPanel />
       </main>
 
       {workspaceId ? <NewProjectDialog open={newProject} onOpenChange={setNewProject} workspaceId={workspaceId} /> : null}
+      <Toaster />
+    </div>
+  )
+}
+
+/**
+ * A Cello page inside a panel (the viewer's iframe, the desktop app's native panel): the page alone,
+ * without the sidebar. Its links open in the board's viewer (lib/desktop.ts posts them up).
+ */
+export function EmbeddedShell() {
+  return (
+    <div className="flex h-full bg-surface">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Outlet />
+      </div>
+      <ViewerPanel />
       <Toaster />
     </div>
   )

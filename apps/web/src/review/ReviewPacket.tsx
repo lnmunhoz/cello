@@ -1,6 +1,7 @@
 import type { Review, Task } from "@cello/contract/entities"
 import { Markdown } from "../components/ui/Markdown.tsx"
 import { relativeTime } from "../lib/format.ts"
+import { Linkified } from "../viewer/ViewerLink.tsx"
 import { Evidence } from "./Evidence.tsx"
 import { ReviewActions } from "./ReviewActions.tsx"
 
@@ -20,7 +21,9 @@ export function ReviewPacket({ task, review, decide }: { task: Task; review: Rev
               <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full bg-sunken text-[11px] font-semibold tabular-nums text-muted">
                 {i + 1}
               </span>
-              <span className="pt-px">{step}</span>
+              <span className="min-w-0 pt-px [overflow-wrap:anywhere]">
+                <Linkified text={step} />
+              </span>
             </li>
           ))}
         </ol>
