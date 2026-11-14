@@ -15,6 +15,7 @@ import { Select } from "../components/ui/Select.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "../components/ui/Tabs.tsx"
 import { commands } from "../lib/cello.ts"
+import { EarlierReviews, PinnedReview } from "../review/TaskReviews.tsx"
 import { Comments } from "./Comments.tsx"
 import { History } from "./History.tsx"
 
@@ -89,6 +90,7 @@ function TaskDetails({ board, project, task }: { board: BoardState; project: Pro
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="flex flex-col gap-4 px-6 pt-5 pb-6">
+        <PinnedReview board={board} task={task} />
         <Input
           variant="title"
           aria-label="Title"
@@ -133,6 +135,7 @@ function TaskDetails({ board, project, task }: { board: BoardState; project: Pro
         </Tabs>
       </div>
       <div className="flex flex-col gap-6 border-t border-line px-6 py-5">
+        <EarlierReviews task={task} />
         <Comments board={board} task={task} />
         <History board={board} task={task} />
       </div>

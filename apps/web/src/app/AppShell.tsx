@@ -1,7 +1,8 @@
 import { useAtomSet } from "@effect/atom-react"
 import { projectsOf } from "@cello/client/sync/selectors"
 import { Link, Outlet, useNavigate } from "@tanstack/react-router"
-import { ChevronDownIcon, MoonIcon, PlusIcon, SettingsIcon, SunIcon } from "lucide-react"
+import { reviewQueue } from "@cello/client/sync/reviews"
+import { ChevronDownIcon, ClipboardCheckIcon, MoonIcon, PlusIcon, SettingsIcon, SunIcon } from "lucide-react"
 import { useState } from "react"
 import { Button } from "../components/ui/Button.tsx"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.tsx"
@@ -24,6 +25,7 @@ export function AppShell() {
   const workspaces = board ? byPosition(Object.values(board.workspaces).filter((w) => w.archivedAt === null)) : []
   const workspace = workspaceId && board ? board.workspaces[workspaceId] : undefined
   const projects = board && workspaceId ? projectsOf(board, workspaceId) : []
+  const waiting = board && workspaceId ? reviewQueue(board, workspaceId).length : 0
 
   return (
     <div className="flex h-full">
@@ -57,6 +59,25 @@ export function AppShell() {
             </div>
           )}
         </div>
+
+        <nav aria-label="Inbox" className="flex flex-col gap-0.5">
+          <Link
+            to="/review"
+            className="flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium text-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-selected"
+          >
+            <ClipboardCheckIcon aria-hidden className="size-3.5 text-muted" />
+            Review
+            {waiting > 0 ? (
+              <span
+                data-review-count
+                className="ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-semibold tabular-nums text-accent-ink"
+              >
+                {waiting}
+                <span className="sr-only"> waiting</span>
+              </span>
+            ) : null}
+          </Link>
+        </nav>
 
         <nav aria-label="Projects" className="flex flex-col gap-0.5">
           <div className="flex h-7 items-center justify-between px-2 text-xs font-medium text-muted">

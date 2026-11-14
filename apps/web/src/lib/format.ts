@@ -21,3 +21,10 @@ export const relativeTime = (ms: number, now = Date.now()): string => {
   if (s < 30 * 86_400) return `${Math.floor(s / 86_400)} d ago`
   return formatDay(ms, now)
 }
+
+/** "512 B", "20 KB", "3.4 MB". */
+export const formatBytes = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}

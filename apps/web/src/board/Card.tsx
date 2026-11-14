@@ -5,6 +5,7 @@ import { Chip } from "../components/ui/Chip.tsx"
 import { PriorityIcon } from "../components/ui/PriorityIcon.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { formatDay, formatDue } from "../lib/format.ts"
+import { EvidenceBadge } from "../review/EvidenceBadge.tsx"
 
 /** What a card shows: key, status and title, priority, due date, labels, created date. */
 export function CardBody({ task, board }: { task: Task; board: BoardState }) {
@@ -33,6 +34,7 @@ export function CardBody({ task, board }: { task: Task; board: BoardState }) {
             {l!.name}
           </Chip>
         ))}
+        <EvidenceBadge task={task} board={board} />
       </span>
       <span className="text-xs text-faint">Created {formatDay(task.createdAt)}</span>
     </>
