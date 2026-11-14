@@ -1,9 +1,11 @@
 import type { Snapshot, Status, Task, Workspace } from "@cello/contract/entities"
 import { VersionConflict } from "@cello/contract/errors"
+import type { CelloEvent } from "@cello/contract/events"
 import { describe, expect, it } from "vitest"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
 import * as Atom from "effect/reactivity/Atom"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
@@ -62,6 +64,75 @@ describe("command atoms", () => {
     const after = await Effect.runPromise(AtomRegistry.getResult(registry, atoms.boardAtom))
     expect(after.tasks["t1"]?.statusId).toBe("todo")
     expect(errors).toEqual(["CEL-1 was changed by Claude since you opened it"])
+  })
+
+  it("let a second quick edit expect the version the first one will make, instead of conflicting with it", async () => {
+    const answer = Effect.runSync(Deferred.make<void>())
+    const expected: number[] = []
+    const fake = {
+      "snapshot.get": () => Effect.succeed(snapshot),
+      "events.subscribe": () => Stream.never,
+      "task.update": (payload: { expectedVersion: number }) => {
+        expected.push(payload.expectedVersion)
+        return Deferred.await(answer).pipe(Effect.as({ result: task, seq: null }))
+      },
+    } as unknown as CelloClient["Service"]
+    const atoms = makeCelloAtoms(Atom.runtime(Layer.succeed(CelloClient, fake)))
+    const registry = AtomRegistry.make()
+    registry.mount(atoms.boardAtom)
+    registry.mount(atoms.commands.updateTask)
+    const edit = async (fields: { priority?: 2; dueDate?: string }) => {
+      const board = await Effect.runPromise(AtomRegistry.getResult(registry, atoms.boardAtom))
+      registry.set(atoms.commands.updateTask, { id: "t1", expectedVersion: board.tasks["t1"]!.version, ...fields })
+    }
+
+    await edit({ priority: 2 })
+    await edit({ dueDate: "2026-12-01" })
+    expect(expected).toEqual([2, 3])
+    Effect.runSync(Deferred.succeed(answer, undefined))
+  })
+
+  it("fetch a task's history again when the server's version changes, not on this tab's optimistic edit", async () => {
+    const events = Effect.runSync(Queue.unbounded<CelloEvent>())
+    let fetches = 0
+    const fake = {
+      "snapshot.get": () => Effect.succeed(snapshot),
+      "events.subscribe": () => Stream.fromQueue(events),
+      "comment.list": () => Effect.succeed([]),
+      "task.history": () => Effect.sync(() => (fetches++, [])),
+      "task.update": () => Effect.never,
+    } as unknown as CelloClient["Service"]
+    const atoms = makeCelloAtoms(Atom.runtime(Layer.succeed(CelloClient, fake)))
+    const registry = AtomRegistry.make()
+    registry.mount(atoms.boardAtom)
+    registry.mount(atoms.commands.updateTask)
+    await Effect.runPromise(AtomRegistry.getResult(registry, atoms.boardAtom))
+    registry.mount(atoms.historyFamily("t1"))
+    await Effect.runPromise(AtomRegistry.getResult(registry, atoms.historyFamily("t1")))
+    expect(fetches).toBe(1)
+
+    registry.set(atoms.commands.updateTask, { id: "t1", expectedVersion: 2, priority: 2 })
+    expect((await Effect.runPromise(AtomRegistry.getResult(registry, atoms.boardAtom))).tasks["t1"]?.priority).toBe(2)
+    await Effect.runPromise(AtomRegistry.getResult(registry, atoms.historyFamily("t1")))
+    expect(fetches).toBe(1) // the server hasn't written it yet
+
+    const envelope = { ts: 6, actorId: "me", sessionId: null, workspaceId: "w1", projectId: "p1", schemaVersion: 1 }
+    const applied = (seq: number) =>
+      Effect.runPromise(AtomRegistry.toStreamResult(registry, atoms.syncedAtom).pipe(Stream.filter((s) => s.state.seq >= seq), Stream.runHead))
+
+    // A change to another task leaves this history alone.
+    const other = { ...envelope, seq: 6, commandId: "c6", type: "task.created", task: { ...task, id: "t2", number: 2, key: "CEL-2" }, labelIds: [] }
+    Effect.runSync(Queue.offer(events, other as CelloEvent))
+    await applied(6)
+    await Effect.runPromise(AtomRegistry.getResult(registry, atoms.historyFamily("t1")))
+    expect(fetches).toBe(1)
+
+    // The server's write of this task fetches it again.
+    const update = { ...envelope, seq: 7, commandId: "c7", type: "task.updated", id: "t1", before: { priority: 0 }, after: { priority: 2 }, version: 3 }
+    Effect.runSync(Queue.offer(events, update as CelloEvent))
+    await applied(7)
+    await Effect.runPromise(AtomRegistry.getResult(registry, atoms.historyFamily("t1")))
+    expect(fetches).toBe(2)
   })
 
   it("show no board while a workspace switch loads, so no screen acts on the old workspace's rows", async () => {

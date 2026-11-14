@@ -72,6 +72,14 @@ describe("patches", () => {
     expect(archiveTask("t1")(state).tasks["t1"]?.archivedAt).not.toBeNull()
   })
 
+  it("bump a task's version the way the server will, so the next edit from this tab expects the right one", () => {
+    expect(updateTask("t1", { priority: 2 })(state).tasks["t1"]?.version).toBe(2)
+    expect(moveTask("t1", "done", "b0")(state).tasks["t1"]?.version).toBe(2)
+    expect(setTaskLabels("t1", ["bug"], [])(state).tasks["t1"]?.version).toBe(2)
+    expect(archiveTask("t1")(state).tasks["t1"]?.version).toBe(2)
+    expect(updateTask("t1", { dueDate: "2026-12-01" })(updateTask("t1", { priority: 2 })(state)).tasks["t1"]?.version).toBe(3)
+  })
+
   it("add a task under a temporary id", () => {
     const next = addTask(task("optimistic:c1", { title: "Draft" }))(state)
     expect(next.tasks["optimistic:c1"]?.title).toBe("Draft")

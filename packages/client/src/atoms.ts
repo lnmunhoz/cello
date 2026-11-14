@@ -257,12 +257,21 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
       )),
   )
 
-  /** A task's history, fetched again whenever the task or its comments change. */
+  /**
+   * The server's version of one task. It changes only when that task does, and an optimistic edit
+   * (which bumps the shown version early) doesn't touch it.
+   */
+  const syncedVersionFamily = Atom.family((taskId: string) =>
+    Atom.make((get) => {
+      const synced = get(syncedAtom)
+      return AsyncResult.isSuccess(synced) ? synced.value.state.tasks[taskId]?.version : undefined
+    }))
+
+  /** A task's history, fetched again whenever the server changes the task or its comments. */
   const historyFamily = Atom.family((taskId: string) =>
     runtime.atom((get) => {
-      const board = get(boardAtom)
+      const version = get(syncedVersionFamily(taskId))
       get(commentsFamily(taskId))
-      const version = AsyncResult.isSuccess(board) ? board.value.tasks[taskId]?.version : undefined
       return Effect.gen(function* () {
         void version
         const client = yield* CelloClient

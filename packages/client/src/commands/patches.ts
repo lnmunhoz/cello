@@ -17,8 +17,14 @@ const change = <K extends Collection>(key: K, id: string, f: (row: Row<K>) => Ro
 
 const now = () => Date.now()
 
+/**
+ * A change to a task, with its version bumped as the server will bump it. The next edit from this tab
+ * then sends the version it will really find, instead of conflicting with this tab's own edit still in flight.
+ */
+const changeTask = (id: string, f: (task: Task) => Task): Patch => change("tasks", id, (t) => ({ ...f(t), version: t.version + 1 }))
+
 export const moveTask = (id: string, statusId: string, position: string): Patch =>
-  change("tasks", id, (t) => ({ ...t, statusId, position }))
+  changeTask(id, (t) => ({ ...t, statusId, position }))
 
 export interface TaskFields {
   readonly title?: string
@@ -28,15 +34,15 @@ export interface TaskFields {
   readonly parentId?: string | null
 }
 
-export const updateTask = (id: string, fields: TaskFields): Patch => change("tasks", id, (t) => ({ ...t, ...fields }))
+export const updateTask = (id: string, fields: TaskFields): Patch => changeTask(id, (t) => ({ ...t, ...fields }))
 
 export const setTaskLabels = (id: string, add: ReadonlyArray<string>, remove: ReadonlyArray<string>): Patch =>
-  change("tasks", id, (t) => ({
+  changeTask(id, (t) => ({
     ...t,
     labelIds: [...t.labelIds.filter((l) => !remove.includes(l)), ...add.filter((l) => !t.labelIds.includes(l))],
   }))
 
-export const archiveTask = (id: string): Patch => change("tasks", id, (t) => ({ ...t, archivedAt: now() }))
+export const archiveTask = (id: string): Patch => changeTask(id, (t) => ({ ...t, archivedAt: now() }))
 
 export const addTask = (task: Task): Patch => (state) => put(state, "tasks", task)
 
