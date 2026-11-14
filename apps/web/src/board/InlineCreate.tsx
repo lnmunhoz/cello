@@ -1,12 +1,15 @@
-import { placement } from "@cello/client/sync/selectors"
+import { placementAtEnd } from "@cello/client/sync/selectors"
 import type { Project, Status, Task } from "@cello/contract/entities"
 import { useAtomSet } from "@effect/atom-react"
 import { useState } from "react"
 import { Input } from "../components/ui/Input.tsx"
 import { commands } from "../lib/cello.ts"
 
-/** The column `+`: type a title, Enter creates the task at the top. Stays open for the next one; Escape closes. */
-export function InlineCreate({ project, status, first, onDone }: { project: Project; status: Status; first: Task | null; onDone: () => void }) {
+/**
+ * The column `+`: type a title, Enter creates the task at the bottom of the column, so tasks keep
+ * the order you typed them in. Stays open for the next one; Escape closes.
+ */
+export function InlineCreate({ project, status, tasks, onDone }: { project: Project; status: Status; tasks: ReadonlyArray<Task>; onDone: () => void }) {
   const [title, setTitle] = useState("")
   const create = useAtomSet(commands.createTask)
   return (
@@ -26,7 +29,7 @@ export function InlineCreate({ project, status, first, onDone }: { project: Proj
           onDone()
         } else if (e.key === "Enter" && title.trim() !== "") {
           e.preventDefault()
-          create({ projectId: project.id, title: title.trim(), statusId: status.id, ...placement(first ? [first] : [], 0) })
+          create({ projectId: project.id, title: title.trim(), statusId: status.id, ...placementAtEnd(tasks) })
           setTitle("")
         }
       }}
