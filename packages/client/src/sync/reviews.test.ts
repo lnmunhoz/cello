@@ -50,6 +50,7 @@ const state: BoardState = {
     r4: review("r4", "t4", 20),
     rg: review("rg", "gone", 5),
   },
+  documents: {},
 }
 
 const ev = (seq: number, body: EventBody): CelloEvent =>

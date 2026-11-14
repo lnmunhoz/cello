@@ -4,10 +4,12 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import init from "./migrations/0001_init.ts"
 import reviews from "./migrations/0002_reviews.ts"
+import documents from "./migrations/0003_documents.ts"
 
 export const migrations = SqliteMigrator.fromRecord({
   "0001_init": init,
   "0002_reviews": reviews,
+  "0003_documents": documents,
 })
 
 /** Applies pending migrations. Failing to migrate is a defect: the server can't run on a half-built schema. */

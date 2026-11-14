@@ -31,6 +31,7 @@ const snapshot: Snapshot = {
   labels: [],
   tasks: [task],
   reviews: [],
+  documents: [],
 }
 
 describe("command atoms", () => {
@@ -134,6 +135,53 @@ describe("command atoms", () => {
     await applied(7)
     await Effect.runPromise(AtomRegistry.getResult(registry, atoms.historyFamily("t1")))
     expect(fetches).toBe(2)
+  })
+
+  it("fetch a page's body again when it gets a new version, not when another document changes", async () => {
+    const events = Effect.runSync(Queue.unbounded<CelloEvent>())
+    const project = { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", color: "#000", description: "", repoPath: null, createdAt: 1, updatedAt: 1, archivedAt: null }
+    const doc = (id: string, version: number) => ({
+      id, workspaceId: "w1", projectId: "p1", kind: "page" as const, slug: id, title: id, summary: "", version, tasks: [],
+      createdByActorId: "a1", createdBySessionId: null, updatedByActorId: "a1", updatedBySessionId: null,
+      updatedBy: { name: "Claude Code", color: "#7C3AED", session: null }, createdAt: 1, updatedAt: version, archivedAt: null,
+    })
+    const fetched: string[] = []
+    const fake = {
+      "snapshot.get": () => Effect.succeed({ ...snapshot, projects: [project], documents: [doc("report", 1), doc("other", 1)] }),
+      "events.subscribe": () => Stream.fromQueue(events),
+      "document.get": (payload: { project: { key: string }; slug: string; version?: number }) =>
+        Effect.sync(() => {
+          fetched.push(`${payload.project.key}/${payload.slug}${payload.version ? `@${payload.version}` : ""}`)
+          return { ...doc(payload.slug, payload.version ?? fetched.length), body: `# ${payload.slug}` }
+        }),
+    } as unknown as CelloClient["Service"]
+    const atoms = makeCelloAtoms(Atom.runtime(Layer.succeed(CelloClient, fake)))
+    const registry = AtomRegistry.make()
+    registry.mount(atoms.boardAtom)
+    await Effect.runPromise(AtomRegistry.getResult(registry, atoms.boardAtom))
+    const page = atoms.pageFamily("CEL/report")
+    registry.mount(page)
+    expect((await Effect.runPromise(AtomRegistry.getResult(registry, page))).body).toBe("# report")
+    expect(fetched).toEqual(["CEL/report"])
+
+    const envelope = { ts: 6, actorId: "a1", sessionId: null, workspaceId: "w1", projectId: "p1", schemaVersion: 1 }
+    const applied = (seq: number) =>
+      Effect.runPromise(AtomRegistry.toStreamResult(registry, atoms.syncedAtom).pipe(Stream.filter((s) => s.state.seq >= seq), Stream.runHead))
+    Effect.runSync(Queue.offer(events, { ...envelope, seq: 6, commandId: "c6", type: "document.updated", id: "other", version: 2, document: doc("other", 2) } as CelloEvent))
+    await applied(6)
+    await Effect.runPromise(AtomRegistry.getResult(registry, page))
+    expect(fetched).toEqual(["CEL/report"])
+
+    Effect.runSync(Queue.offer(events, { ...envelope, seq: 7, commandId: "c7", type: "document.updated", id: "report", version: 2, document: doc("report", 2) } as CelloEvent))
+    await applied(7)
+    await Effect.runPromise(AtomRegistry.getResult(registry, page, { suspendOnWaiting: true }))
+    expect(fetched).toEqual(["CEL/report", "CEL/report"])
+
+    // An older version is fetched once, by number.
+    const old = atoms.pageFamily("CEL/report@1")
+    registry.mount(old)
+    expect((await Effect.runPromise(AtomRegistry.getResult(registry, old))).version).toBe(1)
+    expect(fetched.at(-1)).toBe("CEL/report@1")
   })
 
   it("show no board while a workspace switch loads, so no screen acts on the old workspace's rows", async () => {

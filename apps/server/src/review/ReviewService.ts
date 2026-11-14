@@ -19,7 +19,7 @@ import * as Seed from "../persistence/Seed.ts"
 import * as TaskService from "../task/TaskService.ts"
 import { requireText } from "../validation.ts"
 import * as AssetStore from "./AssetStore.ts"
-import { ACCEPTED, classify, MAX_ATTACHMENT_BYTES, requireLink } from "./evidence.ts"
+import { checkFile, requireLink } from "./evidence.ts"
 
 export interface SubmitReview {
   readonly commandId: string
@@ -55,17 +55,6 @@ export class ReviewService extends Context.Service<ReviewService, {
   readonly file: (attachmentId: string, variant: "original" | "poster") => Effect.Effect<StoredFile, NotFound>
 }>()("cello/ReviewService") {}
 
-const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`
-
-/** A file the packet will carry, checked before anything is written. */
-interface CheckedFile {
-  readonly source: string
-  readonly caption: string
-  readonly kind: "image" | "video" | "file"
-  readonly mime: string
-  readonly bytes: number
-}
-
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const commands = yield* Commands.Commands
@@ -87,19 +76,6 @@ const make = Effect.gen(function* () {
   const openReviewOf = (taskId: string) =>
     selectReviews(sql, sql`r.task_id = ${taskId} AND r.decided_at IS NULL`).pipe(Effect.map((rows) => rows.at(-1) ?? null))
 
-  const checkFile = (file: EvidenceFile) =>
-    Effect.gen(function* () {
-      const fail = (reason: string) => Effect.fail(new Invalid({ field: "files", reason }))
-      if (!path.isAbsolute(file.path)) return yield* fail(`${file.path} isn't an absolute path`)
-      const name = path.basename(file.path)
-      const type = classify(name)
-      if (type === null) return yield* fail(`${name} isn't an image, a video or a text file (accepted: ${ACCEPTED})`)
-      const bytes = yield* assets.sizeOf(file.path)
-      if (bytes === null) return yield* fail(`there's no file at ${file.path}`)
-      if (bytes > MAX_ATTACHMENT_BYTES) return yield* fail(`${name} is ${megabytes(bytes)}; the limit is ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB`)
-      return { source: file.path, caption: file.caption?.trim() ?? "", ...type, bytes } satisfies CheckedFile
-    })
-
   const submit = Effect.fn("ReviewService.submit")(function* (input: SubmitReview) {
     const summary = yield* requireText("summary", input.summary)
     const steps = input.steps.map((s) => s.trim()).filter((s) => s !== "")
@@ -109,7 +85,7 @@ const make = Effect.gen(function* () {
     }
     const links = yield* Effect.forEach(input.links, (link) =>
       Effect.map(requireLink(link.url), (url) => ({ url, caption: link.caption?.trim() ?? "" })))
-    const files = yield* Effect.forEach(input.files, checkFile)
+    const files = yield* Effect.forEach(input.files, (file) => checkFile(assets.sizeOf, file))
 
     // Files copied so far, removed again if the command fails after copying.
     const copied: string[] = []

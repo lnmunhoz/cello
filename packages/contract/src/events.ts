@@ -1,6 +1,6 @@
 // Every change is one of these events. `before`/`after` hold only the fields that changed.
 import * as Schema from "effect/Schema"
-import { Comment, DueDate, Id, Label, Millis, Priority, Project, Review, ReviewDecision, Status, Task, Workspace } from "./entities.ts"
+import { Comment, DocumentSummary, DueDate, Id, Label, Millis, Priority, Project, Review, ReviewDecision, Status, Task, Workspace } from "./entities.ts"
 
 export const CURRENT_SCHEMA_VERSION = 1
 
@@ -74,6 +74,11 @@ export const CelloEvent = Schema.Union([
   event("review.submitted", { review: Review }),
   // Approved, sent back, or superseded by a newer review. `ts` is when.
   event("review.decided", { id: Id, taskId: Id, decision: ReviewDecision, note: Schema.NullOr(Schema.String) }),
+  // Documents travel without their bodies (every version's body is in `document_versions`); a reader
+  // fetches the new body when the version changes.
+  event("document.published", { document: DocumentSummary }),
+  event("document.updated", { id: Id, version: Schema.Number, document: DocumentSummary }),
+  event("document.archived", { id: Id }),
 ])
 export type CelloEvent = typeof CelloEvent.Type
 export type CelloEventType = CelloEvent["type"]

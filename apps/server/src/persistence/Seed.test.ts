@@ -58,6 +58,6 @@ describe("Migrations", () => {
       const sql = yield* SqlClient.SqlClient
       yield* Migrations.run
       const rows = yield* sql<{ migration_id: number; name: string }>`SELECT migration_id, name FROM migrations`.pipe(Effect.orDie)
-      expect(rows).toEqual([{ migration_id: 1, name: "init" }, { migration_id: 2, name: "reviews" }])
+      expect(rows).toEqual([{ migration_id: 1, name: "init" }, { migration_id: 2, name: "reviews" }, { migration_id: 3, name: "documents" }])
     }).pipe(Effect.provide(db)))
 })

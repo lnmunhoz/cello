@@ -1,6 +1,6 @@
 // The thin atom layer over the pure sync and command code: one synced atom fed by `follow`,
 // a list of optimistic patches, the view the screens read, and command atoms for writes.
-import type { Comment, Priority, Review, Scope } from "@cello/contract/entities"
+import type { Comment, Document, DocumentVersion, Priority, Review, Scope } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
@@ -14,6 +14,8 @@ import { describeError } from "./commands/describeError.ts"
 import { begin, confirm, pendingOf, prune, rollback, view, type Patch, type Pending } from "./commands/optimistic.ts"
 import * as patches from "./commands/patches.ts"
 import { applyCommentEvents } from "./sync/comments.ts"
+import { documentBySlug } from "./sync/documents.ts"
+import { projectByKey } from "./sync/selectors.ts"
 import { applyReviewEvents } from "./sync/reviews.ts"
 import { follow, followsWorkspace, sourceFromClient, type Synced } from "./sync/follow.ts"
 import type { BoardState } from "./sync/applyEvents.ts"
@@ -299,7 +301,65 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     }),
   )
 
-  return { workspaceIdAtom, syncedAtom, currentAtom, pendingAtom, boardAtom, commands, commentsFamily, reviewsFamily, historyFamily, command }
+  /** The version of a document the server has, by id or by `KEY/slug`; changes when it's republished. */
+  const documentVersionFamily = Atom.family((ref: string) =>
+    Atom.make((get) => {
+      const synced = get(syncedAtom)
+      if (!AsyncResult.isSuccess(synced)) return undefined
+      const state = synced.value.state
+      const slash = ref.indexOf("/")
+      if (slash === -1) return state.documents[ref]?.version
+      const project = projectByKey(state, ref.slice(0, slash))
+      return project ? documentBySlug(state, project.id, ref.slice(slash + 1))?.version : undefined
+    }))
+
+  /**
+   * A page with its body, by `KEY/slug` (the latest version, fetched again whenever it's republished)
+   * or `KEY/slug@3` (that version, fetched once).
+   */
+  const pageFamily = Atom.family((ref: string) =>
+    runtime.atom((get) => {
+      const at = ref.lastIndexOf("@")
+      const pinned = at === -1 ? undefined : Number(ref.slice(at + 1))
+      const page = at === -1 ? ref : ref.slice(0, at)
+      const version = pinned === undefined ? get(documentVersionFamily(page)) : pinned
+      const slash = page.indexOf("/")
+      return Effect.gen(function* () {
+        void version
+        const client = yield* CelloClient
+        return (yield* client["document.get"]({
+          project: { key: page.slice(0, slash) },
+          slug: page.slice(slash + 1),
+          ...(pinned === undefined ? {} : { version: pinned }),
+        })) as Document
+      })
+    }))
+
+  /** A document's versions, newest first, fetched again when it gets a new one. */
+  const documentHistoryFamily = Atom.family((documentId: string) =>
+    runtime.atom((get) => {
+      const version = get(documentVersionFamily(documentId))
+      return Effect.gen(function* () {
+        void version
+        const client = yield* CelloClient
+        return (yield* client["document.history"]({ id: documentId })) as ReadonlyArray<DocumentVersion>
+      })
+    }))
+
+  return {
+    workspaceIdAtom,
+    syncedAtom,
+    currentAtom,
+    pendingAtom,
+    boardAtom,
+    commands,
+    commentsFamily,
+    reviewsFamily,
+    historyFamily,
+    pageFamily,
+    documentHistoryFamily,
+    command,
+  }
 }
 
 export type CelloAtoms = ReturnType<typeof makeCelloAtoms>
