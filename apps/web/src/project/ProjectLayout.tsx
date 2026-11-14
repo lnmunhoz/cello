@@ -1,14 +1,16 @@
 import { projectByKey, taskByKey } from "@cello/client/sync/selectors"
-import { Outlet, useParams } from "@tanstack/react-router"
+import { Outlet, useMatch, useParams } from "@tanstack/react-router"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
 import { Centered } from "../app/Home.tsx"
 import { TabLink } from "../components/ui/TabLink.tsx"
+import { DisplayOptions } from "../issues/DisplayOptions.tsx"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 
 export function ProjectLayout() {
   const { projectKey, number } = useParams({ strict: false }) as { projectKey: string; number?: string }
   const board = useBoard()
   const workspaceId = useWorkspaceId()
+  const onIssues = useMatch({ from: "/$projectKey/issues", shouldThrow: false }) !== undefined || number !== undefined
   if (!board) return <Centered>Loading…</Centered>
   const project = projectByKey(board, projectKey)
   if (!project) return <Centered>No project with the key {projectKey.toUpperCase()}.</Centered>
@@ -45,6 +47,11 @@ export function ProjectLayout() {
         <TabLink to="/$projectKey/activity" params={{ projectKey: project.key }}>
           Activity
         </TabLink>
+        {onIssues ? (
+          <span className="ml-auto">
+            <DisplayOptions />
+          </span>
+        ) : null}
       </div>
       <Outlet />
     </div>
