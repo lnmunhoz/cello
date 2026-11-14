@@ -339,7 +339,7 @@ This is the part that makes Cello different, so it gets its own milestone (M3) a
 **Pacing**
 
 - Each agent has its own queue. Different agents animate at the same time.
-- One event takes at most about 1.2 s. Past 5 queued events, durations shrink. Past 20, the queue skips to the end and shows "Claude made 23 changes · Replay".
+- One move takes about 1.1 s at full speed. With more than 2 waiting, moves speed up (scale = 2 / waiting, down to 0.35×, including the move in flight). With more than 8 waiting, the queue skips to the end and shows "Claude made 23 changes · Replay". These numbers come from the M0 spike; see `docs/internals/spike-board-ui.md`.
 - If a card is off screen or filtered out, the cursor waits at the edge of the board pointing at it, the way Figma does, and the event goes into the activity feed.
 - Your own drags never wait for a queue.
 - `prefers-reduced-motion` swaps the motion for fades and markers.
@@ -634,7 +634,7 @@ Three fresh-context reviewers (scope, design, implementation readiness) read thi
 
 - One WebSocket at `/rpc`, on `127.0.0.1:4747` by default.
 - The browser is served from the same origin. The server accepts its connection only with an allowed `Origin` (`http://127.0.0.1:4747`, `http://localhost:4747`), and the caller is the human actor.
-- The CLI sends `x-cello-token` and its identity headers (`x-cello-session`, `x-cello-client`, `x-cello-cwd`, `x-cello-pid`) on the WebSocket upgrade. Bun's WebSocket client can set headers.
+- The CLI sends `x-cello-token` on the WebSocket upgrade. Identity (`x-cello-session`, `x-cello-client`, `x-cello-cwd`, `x-cello-pid`) travels as per-request RPC headers set by a client middleware and read by a server middleware that provides `Caller`. Spike (d) proved this works the same from Bun and the browser, and it will work over a future MCP transport.
 - The token is created on first start in `~/.cello/token` with file mode 0600.
 - Caller resolution order: browser origin → human; `CELLO_SESSION=me` → human; agent identity headers → that agent session; no agent variables → human.
 
@@ -650,7 +650,7 @@ Three fresh-context reviewers (scope, design, implementation readiness) read thi
 **Animations without a lost "from" state**
 
 - Before the store applies an event, the animation layer records the card's position and screen rectangle.
-- During a move, the card's new spot holds an invisible spacer, and a ghost copy flies from the recorded rectangle with the cursor. The spacer turns into the real card when the ghost lands.
+- While a move waits in its queue, the card stays as a static copy in its old slot and is hidden at its new one (parking copies at a recorded rectangle drifted as columns reflowed, found in M0). When the move plays, the new spot holds an invisible spacer and a ghost flies from the old slot with the cursor. The spacer turns into the real card when the ghost lands.
 - Queued animations for the same card merge, newest wins, across agents.
 - Grabbing a card cancels its ghost.
 - Events whose `command_id` came from this tab never animate.
@@ -675,12 +675,9 @@ Three fresh-context reviewers (scope, design, implementation readiness) read thi
 
 - The first `cello start` creates the human actor (name from `git config user.name`), the default workspace and the default statuses with their categories. A "New project" dialog in the web app registers projects in M1, before `cello init` exists.
 
-**Still to write before M1** (the readiness review's blockers)
+**M1 details**
 
-- The M1 RPC table: name, payload, success, errors. The event catalog: type, entity, payload fields, with `before` and `after` holding only the changed fields.
-- Column-level tables for the M1 schema: types, nullability, uniqueness (`projects.key` unique globally, so a bare `THAI-12` works), per-project task numbers that are never reused, priority 0 = none, 1 = urgent through 4 = low, positions ordered within (project, status), archive instead of delete.
-- `snapshot.get` contents: workspaces, projects, statuses, labels and tasks; comments load when a task opens.
-- An M1 UI checklist and 6–10 named M1 test cases.
+The readiness review's M1 blockers are written up in [the M1 plan](docs/M1.md): the full RPC list, the event catalog, column-level tables, first-start seed, the M1 screens and 19 named tests.
 
 ## Testing and TDD
 
@@ -783,7 +780,7 @@ M0 spikes are throwaway prototypes and aren't test-first. From M1 on, everything
 
 | | Milestone | Done when |
 | --- | --- | --- |
-| **M0** | Spikes (1–2 days) | (a) `cello whoami` prints JSON (agent env vars seen, cwd, `git rev-parse --git-common-dir`, process tree) from Claude Code, Codex and T3 Code, including a nested launch and a subagent; findings go in `docs/internals/session-env.md`. (b) UI SDK `createTransfer` + Motion: 50 cards at 60 fps while dragging, keyboard move with `Space` and arrows; if either fails, switch to dnd-kit. (c) The cursor prototype covers ghost-and-spacer moves, two agents on one card, grabbing a card mid-animation and a catch-up burst (see "Settled in review"); it sets the pacing numbers. (d) `task.create` and `events.subscribe` end to end: contract, service, thin handler, CLI command, browser atom, CLI-to-board under 100 ms. If the Effect slice isn't working after 2 days, fall back to the oRPC stack. The contract from (d) is kept as M1's starting point; the rest of M0 is thrown away. |
+| **M0** | Spikes: **done 2026-11-14, all pass** | (a) Identity: Claude Code passes session id and pid; nested agents get their own; subagents share the parent's (`docs/internals/session-env.md`); Codex untested until its usage limit resets. (b) UI SDK drag: 59.5–60 fps with 50 cards, keyboard moves work; keep UI SDK. (c) Agent cursor: all behaviors work; pacing numbers set (`docs/internals/spike-board-ui.md`). (d) Effect slice: compiled CLI to browser in 78–81 ms; identity in RPC headers; the contract carries into M1 (`docs/internals/spike-effect-slice.md`). |
 | **M1** | Local board | Server, schema, workspaces, projects, statuses, tasks, labels, comments. Board with drag and drop, live sync between two browser tabs, task detail. |
 | **M2** | Agents | The `cello` agent commands, `cello guide` and the skill, agent sessions, provenance on cards and in task detail, `cello init` and `cello install`, Agents section in the sidebar. |
 | **M3** | Watching agents | Presence, cursors, animation queues, recent-change rings, Activity tab, replay, a basic list layout, `cello search`. **v1 ends here.** |
@@ -845,7 +842,7 @@ Proposed; Lucas to confirm.
 
 ## Open questions for Lucas
 
-1. **Statuses:** shared by all projects in a workspace (assumed), or set per project?
+1. ~~**Statuses**~~ Decided 2026-11-14: shared by all projects in a workspace.
 2. **T3 Code:** does a T3 thread pass its thread id to the shell commands its agents run? If so, provenance can link straight to the thread. M0 will check, but you may know.
 3. **Phone:** do you want to see the board from your phone soon? That changes the security model (Tailscale plus a login).
 4. **Inbox:** what should reach you there: only agents asking for review, or every comment?
