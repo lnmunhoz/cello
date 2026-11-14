@@ -3,8 +3,9 @@
 import * as BunSocket from "@effect/platform-bun/BunSocket"
 import { CelloClient, makeClientLayer, newCommandId } from "@cello/client/client"
 import { describeEvent } from "@cello/client/history"
-import type { Actor, AgentSession, Priority, ProjectRef, Status, Task } from "@cello/contract/entities"
+import type { Actor, AgentSession, Priority, ProjectRef, Review, Status, Task } from "@cello/contract/entities"
 import * as Console from "effect/Console"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Argument from "effect/cli/Argument"
@@ -12,6 +13,7 @@ import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
 import { CliEnv, portOf } from "./env.ts"
 import { CliFailure, explain } from "./errors.ts"
+import { evidenceFromArgs } from "./evidence.ts"
 import { ago, columns, sessionName } from "./format.ts"
 import { GUIDE } from "./guide.ts"
 import { IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
@@ -21,6 +23,9 @@ import { start } from "./start.ts"
 export { CliEnv } from "./env.ts"
 
 export const VERSION = "0.2.0"
+
+/** The raw arguments, for flags whose order matters (`submit`'s --caption after an --attach). */
+class CliArgs extends Context.Service<CliArgs, ReadonlyArray<string>>()("cello/CliArgs") {}
 
 // ── running a call ──────────────────────────────────────────────────────────────────────────────
 
@@ -104,6 +109,40 @@ const author = (
 ) => {
   const session = names.sessions.find((s) => s.id === sessionId)
   return session ? sessionName(session) : names.actors.find((a) => a.id === actorId)?.name ?? "Someone"
+}
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
+
+const EVIDENCE_WORDS = { video: "video", image: "screenshot", file: "file", link: "link" } as const
+
+/** "2 steps · 1 video · 1 screenshot · 1 link". */
+const packetCounts = (review: Review) =>
+  [
+    plural(review.steps.length, "step"),
+    ...(["video", "image", "file", "link"] as const).flatMap((kind) => {
+      const count = review.attachments.filter((a) => a.kind === kind).length
+      return count ? [plural(count, EVIDENCE_WORDS[kind])] : []
+    }),
+  ].join(" · ")
+
+const DECISIONS = { approved: "approved", sent_back: "sent back", superseded: "superseded by a newer one" } as const
+
+/** One review in `task get`: state, who submitted it, summary, steps, evidence and Lucas's note. */
+const reviewLines = (
+  names: Names & { readonly actors: ReadonlyArray<Actor> },
+  review: Review,
+  now: number,
+): string[] => {
+  const state = review.decision === null ? "open" : `${DECISIONS[review.decision]} ${ago(review.decidedAt!, now)}`
+  const indent = (text: string) => text.split("\n").map((l) => `    ${l}`)
+  return [
+    `  Review (${state}), submitted by ${author(names, review.actorId, review.sessionId)}, ${ago(review.createdAt, now)}`,
+    ...(review.decisionNote ? indent(`Note: ${review.decisionNote}`) : []),
+    ...indent(review.summary.trim()),
+    "    How to check:",
+    ...review.steps.map((step, i) => `    ${i + 1}. ${step}`),
+    ...review.attachments.map((a) => `    ${a.name} (${a.kind})${a.caption ? `: ${a.caption}` : ""}`),
+  ]
 }
 
 // ── commands ────────────────────────────────────────────────────────────────────────────────────
@@ -216,6 +255,10 @@ const get = Command.make("get", { key, json }, (input) =>
       `Created by ${author(detail, task.createdByActorId, task.createdBySessionId)}, ${ago(task.createdAt, now)}`,
     ]
     if (task.description.trim()) lines.push("", task.description.trim())
+    if (detail.reviews.length) {
+      lines.push("", `Reviews (${detail.reviews.length})`)
+      for (const r of [...detail.reviews].reverse()) lines.push(...reviewLines(detail, r, now))
+    }
     if (detail.comments.length) {
       lines.push("", `Comments (${detail.comments.length})`)
       for (const c of detail.comments) {
@@ -237,7 +280,7 @@ const create = Command.make("create", {
   bodyFile: Flag.String("body-file").pipe(Flag.optional, Flag.withDescription("Read the description from a file; - is stdin.")),
   status: Flag.String("status").pipe(Flag.optional),
   priority: Flag.String("priority").pipe(Flag.optional, Flag.withDescription("urgent, high, medium, low or none.")),
-  label: Flag.String("label").pipe(Flag.optional, Flag.withDescription("Label names, comma-separated.")),
+  label: Flag.String("label").pipe(Flag.atLeast(0), Flag.withDescription("A label name; repeat it, or separate names with commas.")),
   parent: Flag.String("parent").pipe(Flag.optional, Flag.withDescription("Parent task key.")),
 }, (input) =>
   Effect.gen(function* () {
@@ -251,9 +294,8 @@ const create = Command.make("create", {
       Effect.gen(function* () {
         const ctx = yield* client["context"]({ project: ref })
         const status = Option.isSome(input.status) ? yield* byName("status", ctx.statuses, input.status.value) : undefined
-        const labels = Option.isSome(input.label)
-          ? yield* Effect.forEach(input.label.value.split(",").filter((l) => l.trim()), (name) => byName("label", ctx.labels, name))
-          : []
+        const names = input.label.flatMap((value) => value.split(",")).filter((l) => l.trim())
+        const labels = yield* Effect.forEach(names, (name) => byName("label", ctx.labels, name))
         const parent = Option.isSome(input.parent) ? (yield* client["task.get"]({ key: input.parent.value })).task : undefined
         const result = yield* client["task.create"]({
           commandId: newCommandId(),
@@ -338,11 +380,56 @@ const comment = Command.make("comment", {
     yield* print(`Commented on ${input.key.toUpperCase()}`)
   })).pipe(Command.withDescription("Add a markdown comment."))
 
+const submit = Command.make("submit", {
+  key,
+  json,
+  summary: Flag.String("summary").pipe(Flag.optional, Flag.withDescription("What changed, in markdown.")),
+  summaryFile: Flag.String("summary-file").pipe(Flag.optional, Flag.withDescription("Read the summary from a file; - is stdin.")),
+  step: Flag.String("step").pipe(Flag.atLeast(0), Flag.withDescription("How to check the work, one step each; repeat in order.")),
+  attach: Flag.String("attach").pipe(
+    Flag.atLeast(0),
+    Flag.withDescription("A video (MP4), a screenshot, or a text file such as test output or a terminal recording; repeatable."),
+  ),
+  caption: Flag.String("caption").pipe(Flag.atLeast(0), Flag.withDescription("Describes the --attach or --link right before it.")),
+  link: Flag.String("link").pipe(Flag.atLeast(0), Flag.withDescription("A link, e.g. the PR; repeatable.")),
+}, (input) =>
+  Effect.gen(function* () {
+    const summary = yield* bodyText(input.summary, input.summaryFile)
+    if (summary === undefined || summary.trim() === "") {
+      return yield* new CliFailure({ message: "Say what changed: --summary \"…\", or --summary-file - for markdown from stdin." })
+    }
+    const { cwd, env } = yield* CliEnv
+    const evidence = evidenceFromArgs(yield* CliArgs, cwd)
+    if ("error" in evidence) return yield* new CliFailure({ message: evidence.error })
+    const written = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const before = yield* client["task.get"]({ key: input.key })
+        const response = yield* client["review.submit"]({
+          commandId: newCommandId(),
+          key: input.key,
+          summary,
+          steps: input.step,
+          files: evidence.files,
+          links: evidence.links,
+        })
+        return { before, response }
+      })
+    )
+    if (input.json) return yield* printJson(written.response)
+    const { before, response } = written
+    const human = before.actors.find((a) => a.kind === "human")?.name ?? "Lucas"
+    yield* print([
+      `Submitted ${response.result.task.key} for review  ${statusName(before, before.task.statusId)} → ${statusName(before, response.result.task.statusId)}`,
+      `  ${packetCounts(response.result.review)}`,
+      `  ${human} reviews it at http://127.0.0.1:${portOf(env)}/review`,
+    ].join("\n"))
+  })).pipe(Command.withDescription("Hand finished work to Lucas: a review packet (summary, steps, evidence) that moves the task to In Review."))
+
 const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(Command.withDescription("How agents work with Cello."))
 
 const task = Command.make("task").pipe(
-  Command.withDescription("Tasks: list, get, create, claim, release, move, comment."),
-  Command.withSubcommands([list, get, create, claim, release, move, comment]),
+  Command.withDescription("Tasks: list, get, create, claim, release, move, comment, submit."),
+  Command.withSubcommands([list, get, create, claim, release, move, comment, submit]),
 )
 
 const startCommand = Command.make("start", {}, () => start).pipe(
@@ -355,4 +442,5 @@ export const cello = Command.make("cello").pipe(
 )
 
 /** Runs `cello` with these arguments (without the program name). */
-export const run = (args: ReadonlyArray<string>) => Command.runWith(cello, { version: VERSION })(args)
+export const run = (args: ReadonlyArray<string>) =>
+  Command.runWith(cello, { version: VERSION })(args).pipe(Effect.provideService(CliArgs, args))
