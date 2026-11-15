@@ -2,6 +2,9 @@
 // column maps to a field in exactly one place. Each reader takes a WHERE fragment over its aliases.
 import type {
   Actor,
+  Ask,
+  AskQuestion,
+  AskState,
   Attachment,
   AttachmentKind,
   Comment,
@@ -253,9 +256,12 @@ export const selectComments = (sql: Sql, where: Where) =>
     Effect.map((rows) => rows.map(toComment)),
   )
 
-interface InboxRow extends CommentRow {
+type InboxRow = { [K in keyof CommentRow]: CommentRow[K] | null } & {
   item_id: string
   kind: InboxKind
+  item_task_id: string
+  ask_id: string | null
+  detail: string | null
   item_created_at: number
   read_at: number | null
   task_number: number
@@ -264,36 +270,50 @@ interface InboxRow extends CommentRow {
   author: string
 }
 
-/** Aliases: `i` (inbox_items), `c` (its comment), `t` (the task). Oldest first; deleted comments are left out. */
+/**
+ * Aliases: `i` (inbox_items), `c` (its comment, when it holds one), `t` (the task). Oldest first;
+ * deleted comments are left out. An answers or withdrawn item comes with its ask; its author is the human.
+ */
 export const selectInboxItems = (sql: Sql, where: Where) =>
-  sql<InboxRow>`
-    SELECT c.*, i.id AS item_id, i.kind, i.created_at AS item_created_at, i.read_at, t.number AS task_number,
-           t.title AS task_title, p.key AS project_key, a.name AS author
-    FROM inbox_items i
-    JOIN comments c ON c.id = i.comment_id
-    JOIN tasks t ON t.id = i.task_id
-    JOIN projects p ON p.id = t.project_id
-    JOIN actors a ON a.id = c.actor_id
-    WHERE c.deleted_at IS NULL AND ${where}
-    ORDER BY i.created_at, i.rowid`.pipe(
-    Effect.map((rows) =>
-      rows.map((r): InboxItem => ({
+  Effect.gen(function* () {
+    const rows = yield* sql<InboxRow>`
+      SELECT c.*, i.id AS item_id, i.kind, i.task_id AS item_task_id, i.ask_id, i.detail, i.created_at AS item_created_at, i.read_at,
+             t.number AS task_number, t.title AS task_title, p.key AS project_key,
+             COALESCE(a.name, (SELECT name FROM actors WHERE kind = 'human' ORDER BY created_at LIMIT 1)) AS author
+      FROM inbox_items i
+      LEFT JOIN comments c ON c.id = i.comment_id
+      JOIN tasks t ON t.id = i.task_id
+      JOIN projects p ON p.id = t.project_id
+      LEFT JOIN actors a ON a.id = c.actor_id
+      WHERE (i.comment_id IS NULL OR c.deleted_at IS NULL) AND ${where}
+      ORDER BY i.created_at, i.rowid`
+    const askIds = rows.flatMap((r) => (r.ask_id === null ? [] : [r.ask_id]))
+    const asks = askIds.length === 0 ? [] : yield* selectAsks(sql, sql.in("a.id", askIds))
+    return rows.flatMap((r): InboxItem[] => {
+      const common = {
         id: r.item_id,
-        kind: r.kind,
-        taskId: r.task_id,
+        taskId: r.item_task_id,
         taskKey: formatTaskKey(r.project_key, r.task_number),
         taskTitle: r.task_title,
-        comment: toComment(r),
         author: r.author,
         createdAt: r.item_created_at,
         readAt: r.read_at,
-      }))),
-  )
+      }
+      if (r.kind === "answers" || r.kind === "withdrawn") {
+        const ask = asks.find((k) => k.id === r.ask_id)
+        if (!ask) return []
+        return [r.kind === "answers" ? { ...common, kind: "answers", ask } : { ...common, kind: "withdrawn", ask, status: r.detail ?? "another status" }]
+      }
+      return [{ ...common, kind: r.kind, comment: toComment(r as CommentRow) }]
+    })
+  })
 
 interface AttachmentRow {
   id: string
   task_id: string
   review_id: string | null
+  ask_id: string | null
+  answer_to: string | null
   kind: AttachmentKind
   name: string
   url: string | null
@@ -307,10 +327,11 @@ interface AttachmentRow {
   deleted_at: number | null
 }
 
-const toAttachment = (r: AttachmentRow): Attachment => ({
+export const toAttachment = (r: AttachmentRow): Attachment => ({
   id: r.id,
   taskId: r.task_id,
   reviewId: r.review_id,
+  askId: r.ask_id,
   kind: r.kind,
   name: r.name,
   url: r.url,
@@ -427,4 +448,76 @@ export const selectReviews = (sql: Sql, where: Where) =>
       decision: r.decision,
       decisionNote: r.decision_note,
     }))
+  })
+
+interface AskRow {
+  id: string
+  task_id: string
+  actor_id: string
+  session_id: string | null
+  title: string
+  intro: string
+  questions: string
+  state: AskState
+  created_at: number
+  answered_at: number | null
+  answers: string | null
+  note: string | null
+  withdrawn_at: number | null
+  withdrawn_by: string | null
+  author_name: string
+  author_session: string | null
+}
+
+/** How `asks.answers` is stored: the picks and comments; screenshots are attachments, by `answer_to`. */
+export interface StoredAnswers {
+  readonly questions: ReadonlyArray<{
+    readonly questionId: string
+    readonly optionIds: ReadonlyArray<string>
+    readonly none: boolean
+    readonly comment: string
+  }>
+}
+
+/**
+ * Aliases: `a` (asks), `t` (its task) and `p` (the task's project). Oldest first. Each ask comes with
+ * its evidence, its author's name and host session id, and, once answered, Lucas's answers with the
+ * screenshots he pasted into each (attachments whose `answer_to` is the question, or 'note').
+ */
+export const selectAsks = (sql: Sql, where: Where) =>
+  Effect.gen(function* () {
+    const rows = yield* sql<AskRow>`
+      SELECT a.*, ac.name AS author_name, s.external_id AS author_session
+      FROM asks a JOIN tasks t ON t.id = a.task_id JOIN projects p ON p.id = t.project_id
+      JOIN actors ac ON ac.id = a.actor_id LEFT JOIN agent_sessions s ON s.id = a.session_id
+      WHERE ${where} ORDER BY a.created_at, a.id`
+    const files = rows.length === 0 ? [] : yield* sql<AttachmentRow>`
+      SELECT * FROM attachments WHERE ${sql.in("ask_id", rows.map((r) => r.id))} AND deleted_at IS NULL
+      ORDER BY created_at, rowid`
+    return rows.map((r): Ask => {
+      const mine = files.filter((f) => f.ask_id === r.id)
+      const answering = (to: string) => mine.filter((f) => f.answer_to === to).map(toAttachment)
+      const stored = r.answers === null ? null : (JSON.parse(r.answers) as StoredAnswers)
+      return {
+        id: r.id,
+        taskId: r.task_id,
+        title: r.title,
+        intro: r.intro,
+        questions: JSON.parse(r.questions) as AskQuestion[],
+        attachments: mine.filter((f) => f.answer_to === null).map(toAttachment),
+        actorId: r.actor_id,
+        sessionId: r.session_id,
+        author: { name: r.author_name, session: r.author_session },
+        state: r.state,
+        createdAt: r.created_at,
+        answeredAt: r.answered_at,
+        answers: stored === null ? null : {
+          questions: stored.questions.map((q) => ({ ...q, attachments: answering(q.questionId) })),
+          note: r.note ?? "",
+          noteAttachments: answering("note"),
+        },
+        withdrawnAt: r.withdrawn_at,
+        withdrawnBy: r.withdrawn_by,
+      }
+    })
   })

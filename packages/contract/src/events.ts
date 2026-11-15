@@ -1,7 +1,22 @@
 // Every change is one of these events. `before`/`after` hold only the fields that changed.
 import * as Schema from "effect/Schema"
 import { BuildRecord } from "./build.ts"
-import { Comment, DocumentSummary, DueDate, Id, Label, Millis, Priority, Project, Review, ReviewDecision, Status, Task, Workspace } from "./entities.ts"
+import {
+  Ask,
+  Comment,
+  DocumentSummary,
+  DueDate,
+  Id,
+  Label,
+  Millis,
+  Priority,
+  Project,
+  Review,
+  ReviewDecision,
+  Status,
+  Task,
+  Workspace,
+} from "./entities.ts"
 
 export const CURRENT_SCHEMA_VERSION = 1
 
@@ -39,6 +54,9 @@ export const CommentPatch = patch({ body: Schema.String })
 const Place = Schema.Struct({ statusId: Id, position: Schema.String })
 /** Who held a claim: an agent session, or the human (sessionId null). */
 export const ClaimHolder = Schema.Struct({ actorId: Id, sessionId: Schema.NullOr(Id) })
+/** `agent`: `cello task ask --withdraw`; `moved`: Lucas moved the card out of Needs input; `superseded`: a newer ask replaced it. */
+export const AskWithdrawReason = Schema.Literals(["agent", "moved", "superseded"])
+export type AskWithdrawReason = typeof AskWithdrawReason.Type
 
 export const CelloEvent = Schema.Union([
   event("workspace.created", { workspace: Workspace }),
@@ -75,6 +93,13 @@ export const CelloEvent = Schema.Union([
   event("review.submitted", { review: Review }),
   // Approved, sent back, or superseded by a newer review. `ts` is when.
   event("review.decided", { id: Id, taskId: Id, decision: ReviewDecision, note: Schema.NullOr(Schema.String) }),
+  // Needs input (CEL-47). An ask with its questions and evidence; the same command moves the task to
+  // Needs input (task.moved). Answered carries the whole ask with Lucas's answers; the same command
+  // moves the task back to In Progress. Withdrawn: by the agent, by Lucas moving the card himself, or
+  // replaced by a newer ask on the same task (state `superseded`). `ts` is when.
+  event("ask.created", { ask: Ask }),
+  event("ask.answered", { ask: Ask }),
+  event("ask.withdrawn", { id: Id, taskId: Id, reason: AskWithdrawReason }),
   // Documents travel without their bodies (every version's body is in `document_versions`); a reader
   // fetches the new body when the version changes.
   event("document.published", { document: DocumentSummary }),

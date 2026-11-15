@@ -257,7 +257,6 @@ test("CEL-6: Lucas drags a card while an agent moves another: nothing shifts und
 
   await caption(page, `Lucas picks up ${key}-1 and starts dragging it`)
   const from = (await card(page, `${key}-1`).boundingBox())!
-  const target = (await column(page, "In Review").locator('[role="list"]').boundingBox())!
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
   await page.mouse.down()
   await page.mouse.move(from.x + 200, from.y + 40, { steps: 12 })
@@ -278,6 +277,8 @@ test("CEL-6: Lucas drags a card while an agent moves another: nothing shifts und
   await expect(page.locator("[data-dragging]")).toHaveCount(1)
   // The next caption first holds this moment in a review video.
   await caption(page, "Lucas drops it on In Review")
+  // Measured now, not before the drag: an agent's flight can scroll the board to show its column.
+  const target = (await column(page, "In Review").locator('[role="list"]').boundingBox())!
   await page.mouse.move(target.x + target.width / 2, target.y + 30, { steps: 20 })
   await page.mouse.up()
 

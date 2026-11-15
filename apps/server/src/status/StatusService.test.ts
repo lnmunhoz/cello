@@ -26,7 +26,7 @@ describe("StatusService.update", () => {
         after: byName["In Progress"]!.id,
       })
       expect(result).toMatchObject({ name: "Review", hidden: true })
-      expect((yield* statusNames).names).toEqual(["Backlog", "Todo", "Review", "In Progress", "Done", "Canceled"])
+      expect((yield* statusNames).names).toEqual(["Backlog", "Todo", "Review", "In Progress", "Needs input", "Done", "Canceled"])
     })))
 
   it.effect("a name used by another status is Invalid; a no-op writes nothing", () =>

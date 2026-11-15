@@ -31,6 +31,7 @@ const snapshot: Snapshot = {
   labels: [],
   tasks: [task],
   reviews: [],
+  asks: [],
   documents: [],
 }
 

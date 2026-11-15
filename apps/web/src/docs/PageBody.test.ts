@@ -21,7 +21,7 @@ const review: Task = {
   createdBySessionId: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null,
 }
 const board: BoardState = {
-  seq: 1, actors: {}, workspaces: {}, projects: { p1: cel }, statuses: { s2: inProgress }, labels: {}, tasks: { t8: review }, reviews: {}, documents: {},
+  seq: 1, actors: {}, workspaces: {}, projects: { p1: cel }, statuses: { s2: inProgress }, labels: {}, tasks: { t8: review }, reviews: {}, asks: {}, documents: {},
 }
 
 /** The page body as the reader renders it, with the board above it (the key chips read it themselves). */

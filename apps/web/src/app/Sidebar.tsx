@@ -1,11 +1,13 @@
 import { projectsOf, byPosition } from "@cello/client/sync/selectors"
 import { WorkspaceMark } from "./WorkspaceMark.tsx"
+import { needsInputQueue } from "@cello/client/sync/asks"
 import { reviewQueue } from "@cello/client/sync/reviews"
 import { useAtomSet } from "@effect/atom-react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import {
   ChevronDownIcon,
   ClipboardCheckIcon,
+  MessageCircleQuestionIcon,
   CloudOffIcon,
   MoonIcon,
   PanelLeftCloseIcon,
@@ -32,8 +34,13 @@ import { SIDEBAR_SHORTCUT, SIDEBAR_WIDTH, type SidebarMode } from "./sidebarStat
 /** The sidebar's mode as shown, for the pieces outside it (the breadcrumb makes room for "Show sidebar"). Null outside the app shell. */
 export const SidebarContext = createContext<SidebarMode | null>(null)
 
-const row =
-  "flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium text-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-selected"
+/**
+ * A sidebar row, and one that also marks the page it opens as the current one. Needs input opens the
+ * Review page too, so only Review is marked there.
+ */
+const rowBase =
+  "flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium text-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
+const row = `${rowBase} data-[status=active]:bg-selected`
 /** What the rail's one tooltip says for the item under the pointer (or focused). */
 interface RailHint {
   readonly label: string
@@ -42,8 +49,9 @@ interface RailHint {
 type RailTips = ReturnType<typeof createTooltipController<RailHint>>
 
 /** A rail item: an icon the size of an icon button, with its tooltip on the right. */
-const railItem =
-  "relative flex size-7 shrink-0 items-center justify-center rounded-md text-muted outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-selected data-[status=active]:text-ink"
+const railItemBase =
+  "relative flex size-7 shrink-0 items-center justify-center rounded-md text-muted outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
+const railItem = `${railItemBase} data-[status=active]:bg-selected data-[status=active]:text-ink`
 
 /**
  * The left sidebar, expanded (resizable by its right edge) or as a rail of icons with tooltips. Hidden,
@@ -76,6 +84,7 @@ export function Sidebar({
   const workspaces = board ? byPosition(Object.values(board.workspaces).filter((w) => w.archivedAt === null)) : []
   const workspace = workspaceId && board ? board.workspaces[workspaceId] : undefined
   const projects = board && workspaceId ? projectsOf(board, workspaceId) : []
+  const asked = board && workspaceId ? needsInputQueue(board, workspaceId) : []
   const waiting = board && workspaceId ? reviewQueue(board, workspaceId).length : 0
   const switchTo = (id: string | number) => {
     setWorkspace(String(id))
@@ -92,20 +101,24 @@ export function Sidebar({
       {dark ? <SunIcon className="size-3.5" /> : <MoonIcon className="size-3.5" />}
     </Button>
   )
-  const reviewBadge =
-    waiting > 0 ? (
+  const countBadge = (count: number, data: "data-review-count" | "data-input-count") =>
+    count > 0 ? (
       <span
-        data-review-count
+        {...{ [data]: "" }}
         className={
           mode === "rail"
             ? "absolute -top-1 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold tabular-nums text-accent-ink ring-2 ring-canvas"
             : "ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-semibold tabular-nums text-accent-ink"
         }
       >
-        {waiting}
+        {count}
         <span className="sr-only"> waiting</span>
       </span>
     ) : null
+  const reviewBadge = countBadge(waiting, "data-review-count")
+  const inputBadge = countBadge(asked.length, "data-input-count")
+  // Needs input opens the Review page at the oldest ask, in the group above the packets.
+  const inputSearch = asked[0] ? { open: asked[0].task.key } : {}
 
   if (mode === "rail") {
     return (
@@ -146,7 +159,14 @@ export function Sidebar({
           </span>
         )}
 
-        <nav aria-label="Inbox" className="flex flex-col items-center">
+        <nav aria-label="Inbox" className="flex flex-col items-center gap-1">
+          <RailTip tips={tips} label={asked.length > 0 ? `Needs input · ${asked.length} waiting` : "Needs input"}>
+            <Link to="/review" search={inputSearch} className={railItemBase}>
+              <MessageCircleQuestionIcon aria-hidden className="size-4" />
+              <span className="sr-only">Needs input</span>
+              {inputBadge}
+            </Link>
+          </RailTip>
           <RailTip tips={tips} label={waiting > 0 ? `Review · ${waiting} waiting` : "Review"}>
             <Link to="/review" className={railItem}>
               <ClipboardCheckIcon aria-hidden className="size-4" />
@@ -238,6 +258,11 @@ export function Sidebar({
       </div>
 
       <nav aria-label="Inbox" className="flex flex-col gap-0.5">
+        <Link to="/review" search={inputSearch} className={rowBase}>
+          <MessageCircleQuestionIcon aria-hidden className="size-3.5 text-muted" />
+          Needs input
+          {inputBadge}
+        </Link>
         <Link to="/review" className={row}>
           <ClipboardCheckIcon aria-hidden className="size-3.5 text-muted" />
           Review

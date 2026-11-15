@@ -36,6 +36,7 @@ const snapshot = (tasks: Task[], seq = 10): Snapshot => ({
   labels: [],
   tasks,
   reviews: [],
+  asks: [],
   documents: [],
 })
 

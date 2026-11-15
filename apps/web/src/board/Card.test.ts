@@ -26,6 +26,7 @@ const board: BoardState = {
   labels: { bug: label("bug", "Bug"), old: label("old", "Old", { archivedAt: 5 }) },
   tasks: { t1: task("t1", 1, { title: "Plan the release" }) },
   reviews: {},
+  asks: {},
   documents: {},
 }
 

@@ -1,12 +1,12 @@
 // What an agent reads when comments reach it: `cello inbox`, `cello context` and the Claude Code hook
 // all print items the same way.
-import type { InboxItem } from "@cello/contract/entities"
+import type { InboxComment } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import { deliveryText, inboxEntries, MAX_DELIVERY } from "./inbox.ts"
 
 const NOW = 1_800_000_000_000
 
-const item = (overrides: Partial<InboxItem> & { body?: string } = {}): InboxItem => {
+const item = (overrides: Partial<InboxComment> & { body?: string } = {}): InboxComment => {
   const { body = "Also handle the empty state.", ...rest } = overrides
   return {
     id: "item-1",

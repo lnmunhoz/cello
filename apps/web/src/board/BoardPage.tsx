@@ -1,5 +1,6 @@
 import { ORDERING_LABELS, orderTasks, type Ordering } from "@cello/client/sync/ordering"
 import { boardColumns, projectByKey } from "@cello/client/sync/selectors"
+import { needsInputFold } from "@cello/client/sync/asks"
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Project, Status, Task } from "@cello/contract/entities"
 import { useAtomSet } from "@effect/atom-react"
@@ -21,6 +22,7 @@ import { animator, useCursorVisual } from "./cursors/animator.ts"
 import { withHoles, type Hole } from "./cursors/holes.ts"
 import { useAgentCursors } from "./cursors/useAgentCursors.ts"
 import { InlineCreate } from "./InlineCreate.tsx"
+import { useNeedsInputColumn } from "./needsInputColumn.ts"
 import { Kanban, KanbanCard, KanbanColumn } from "./kanban.tsx"
 import { dropOf, findMove } from "./moves.ts"
 import { readUnfolded, unfoldedKey } from "./unfolded.ts"
@@ -74,10 +76,15 @@ function Board({
   const visual = useCursorVisual()
   useAgentCursors(project.id)
 
-  const shown: Status[] = [...columns.visible, ...columns.hidden.filter((s) => unfolded.includes(s.id))]
-  const folded = columns.hidden.filter((s) => !unfolded.includes(s.id))
+  // With the Needs input column off (the default), its cards sit at the bottom of In Progress, badged.
+  const fold = needsInputFold([...columns.visible, ...columns.hidden], useNeedsInputColumn())
+  const shown: Status[] = [...columns.visible, ...columns.hidden.filter((s) => unfolded.includes(s.id))].filter((s) => s.id !== fold?.from)
+  const folded = columns.hidden.filter((s) => !unfolded.includes(s.id) && s.id !== fold?.from)
   // Each column's cards as shown: in the ordering. `columns.tasks` stays in the drag order, which placements need.
-  const ordered = Object.fromEntries(shown.map((s) => [s.id, orderTasks(columns.tasks[s.id] ?? [], ordering)]))
+  const ordered = Object.fromEntries(shown.map((s) => [s.id, [
+    ...orderTasks(columns.tasks[s.id] ?? [], ordering),
+    ...(s.id === fold?.into ? orderTasks(columns.tasks[fold.from] ?? [], ordering) : []),
+  ]]))
   const lists = Object.fromEntries(shown.map((s) => [s.id, ordered[s.id]!.map((t) => t.id)]))
   const labels = Object.fromEntries(shown.map((s) => [s.id, s.name]))
 
@@ -90,8 +97,11 @@ function Board({
     if (!found) return
     const task = board.tasks[found.key]
     if (!task || task.number === 0) return
+    // A folded Needs input card moved within In Progress stays where it is: only another column moves it.
+    if (fold && task.statusId === fold.from && found.to === fold.into) return
     const target = (columns.tasks[found.to] ?? []).filter((t) => t.id !== task.id)
-    const drop = dropOf(found, task.statusId, ordering, target)
+    // Folded cards sit below In Progress's own, which are all the placement counts.
+    const drop = dropOf({ ...found, index: Math.min(found.index, target.length) }, task.statusId, ordering, target)
     if (drop) move({ id: task.id, ...drop })
   }
 

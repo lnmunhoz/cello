@@ -2,6 +2,7 @@ import type { BoardState } from "@cello/client/sync/applyEvents"
 import { boardColumns, placement, statusesOf, taskByKey } from "@cello/client/sync/selectors"
 import type { Priority, Project, Task } from "@cello/contract/entities"
 import { useAtomSet } from "@effect/atom-react"
+import { openAskOf } from "@cello/client/sync/asks"
 import { openReviewOf } from "@cello/client/sync/reviews"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { useShortcut, useShortcutHint } from "@ui-sdk/react/shortcuts"
@@ -22,6 +23,7 @@ import { commands } from "../lib/cello.ts"
 import { SAVES_ON_BLUR } from "../lib/editing.ts"
 import { useMediaQuery } from "../lib/hooks.ts"
 import { EarlierReviews, PinnedReview } from "../review/TaskReviews.tsx"
+import { AskThread, PinnedAsk } from "../ask/TaskAsks.tsx"
 import { useViewerItem } from "../viewer/store.ts"
 import { Comments } from "./Comments.tsx"
 import { History } from "./History.tsx"
@@ -148,7 +150,8 @@ function TaskMenu({ task, onArchived }: { task: Task; onArchived: () => void }) 
  * while the rest keeps a readable width, aligned with the packet's left edge.
  */
 function TaskDetails({ board, project, task, full }: { board: BoardState; project: Project; task: Task; full: boolean }) {
-  const reviewing = openReviewOf(board, task.id) !== undefined
+  // An open packet or ask splits in two on a wide page, so the column widens for it.
+  const reviewing = openReviewOf(board, task.id) !== undefined || openAskOf(board, task.id) !== undefined
   const update = useAtomSet(commands.updateTask)
   const [title, setTitle] = useState<string | null>(null)
   const [description, setDescription] = useState<string | null>(null)
@@ -172,6 +175,7 @@ function TaskDetails({ board, project, task, full }: { board: BoardState; projec
     <div className={`min-h-0 flex-1 overflow-y-auto ${full ? "@container/packet block" : "flex flex-col"}`}>
       <div className={full ? `mx-auto box-content max-w-3xl px-8 ${reviewing ? "packet-wide:max-w-[1536px]" : ""}` : "contents"}>
       <div className={`flex flex-col gap-4 pt-5 pb-6 ${full ? "" : "px-6"}`}>
+        <PinnedAsk board={board} task={task} />
         <PinnedReview board={board} task={task} />
         <div className={full ? "flex max-w-3xl flex-col gap-4" : "contents"}>
         <Input
@@ -222,6 +226,7 @@ function TaskDetails({ board, project, task, full }: { board: BoardState; projec
       </div>
       <div className={`flex flex-col gap-6 border-t border-line py-5 ${full ? "max-w-3xl" : "px-6"}`}>
         <TaskPages board={board} task={task} />
+        <AskThread task={task} />
         <EarlierReviews task={task} />
         <Comments board={board} task={task} />
         <History board={board} task={task} />

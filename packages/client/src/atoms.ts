@@ -1,6 +1,7 @@
 // The thin atom layer over the pure sync and command code: one synced atom fed by `follow`,
 // a list of optimistic patches, the view the screens read, and command atoms for writes.
-import type { Comment, Document, DocumentVersion, Priority, Review, Scope } from "@cello/contract/entities"
+import type { Ask, Comment, Document, DocumentVersion, Priority, Review, Scope } from "@cello/contract/entities"
+import type { AnswerInput } from "@cello/contract/rpcs"
 import type { CelloEvent } from "@cello/contract/events"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
@@ -16,6 +17,7 @@ import * as patches from "./commands/patches.ts"
 import { applyCommentEvents } from "./sync/comments.ts"
 import { documentBySlug } from "./sync/documents.ts"
 import { projectByKey } from "./sync/selectors.ts"
+import { applyAskEvents } from "./sync/asks.ts"
 import { applyReviewEvents } from "./sync/reviews.ts"
 import { follow, followsWorkspace, sourceFromClient, type Synced } from "./sync/follow.ts"
 import type { BoardState } from "./sync/applyEvents.ts"
@@ -276,6 +278,15 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
       call: (c, a: { key: string; note: string }, commandId) => c["review.sendBack"]({ commandId, ...a }),
       subject: (a) => a.key,
     }),
+    // No optimistic patch either: the ask closes and the task moves back to In Progress in one batch.
+    answerAsk: command({
+      call: (
+        c,
+        a: { askId: string; key: string; answers: ReadonlyArray<AnswerInput>; note: string; noteAttachmentIds: ReadonlyArray<string> },
+        commandId,
+      ) => c["ask.answer"]({ commandId, askId: a.askId, answers: a.answers, note: a.note, noteAttachmentIds: a.noteAttachmentIds }),
+      subject: (a) => a.key,
+    }),
   }
 
   /** A list loaded once with `load`, then kept current by `apply` over each batch of events. */
@@ -309,6 +320,10 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
   /** A task's reviews, open and decided, oldest first. */
   const reviewsFamily = Atom.family((taskId: string) =>
     followedList<Review>((c) => c["review.list"]({ taskId }), (list, events) => applyReviewEvents(list, taskId, events)))
+
+  /** A task's asks (questions for Lucas, CEL-47), open and closed, oldest first. */
+  const asksFamily = Atom.family((taskId: string) =>
+    followedList<Ask>((c) => c["ask.list"]({ taskId }), (list, events) => applyAskEvents(list, taskId, events)))
 
   /**
    * The server's version of one task. It changes only when that task does, and an optimistic edit
@@ -389,6 +404,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     commands,
     commentsFamily,
     reviewsFamily,
+    asksFamily,
     historyFamily,
     pageFamily,
     documentHistoryFamily,

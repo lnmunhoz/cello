@@ -7,6 +7,7 @@ import reviews from "./migrations/0002_reviews.ts"
 import documents from "./migrations/0003_documents.ts"
 import inbox from "./migrations/0004_inbox.ts"
 import builds from "./migrations/0005_builds.ts"
+import asks from "./migrations/0006_asks.ts"
 
 export const migrations = SqliteMigrator.fromRecord({
   "0001_init": init,
@@ -14,6 +15,7 @@ export const migrations = SqliteMigrator.fromRecord({
   "0003_documents": documents,
   "0004_inbox": inbox,
   "0005_builds": builds,
+  "0006_asks": asks,
 })
 
 /** Applies pending migrations. Failing to migrate is a defect: the server can't run on a half-built schema. */

@@ -105,7 +105,7 @@ describe("cello commands against a real server", () => {
       const text = (yield* agent("context")).out
       expect(text).toContain(`Project   CEL · Cello · ${repo}`)
       expect(text).toContain("You       Claude Code session 2fd0505c")
-      expect(text).toContain("Statuses  Todo · In Progress · In Review · Done")
+      expect(text).toContain("Statuses  Todo · In Progress · Needs input · In Review · Done")
       expect(text).toContain("Labels    cli")
       expect(text).toContain("Claimed by you\n  CEL-1  In Progress  Write the CLI")
       expect(text).toMatch(/Recent activity\n  just now  CEL-1  Claude Code session 2fd0505c claimed it/)
@@ -170,7 +170,7 @@ describe("cello commands against a real server", () => {
       expect((yield* agent("task", "get", "CEL-42")).failure).toBe("No task CEL-42. Run `cello task list` to see open tasks.")
       yield* agent("task", "create", "Write the CLI")
       expect((yield* agent("task", "move", "CEL-1", "Doing")).failure).toBe(
-        "No status named \"Doing\". Statuses: Backlog, Todo, In Progress, In Review, Done, Canceled.",
+        "No status named \"Doing\". Statuses: Backlog, Todo, In Progress, Needs input, In Review, Done, Canceled.",
       )
       const down = cello({ port: 1, env: claude, cwd: "/" })
       expect((yield* down("task", "get", "CEL-1")).failure).toBe("Cello isn't running on 127.0.0.1:1. Start it with `cello start`.")

@@ -40,6 +40,7 @@ const state: BoardState = {
     orphan: task("orphan", "todo", "a3", { parentId: "missing" }),
   },
   reviews: {},
+  asks: {},
   documents: {},
 }
 
@@ -51,6 +52,23 @@ describe("listGroups", () => {
   it("holds each status's open tasks of this project in position order, and keeps empty groups", () => {
     const groups = Object.fromEntries(listGroups(state, "w1", "p1").map((g) => [g.status.id, g.tasks.map((t) => t.id)]))
     expect(groups).toEqual({ todo: ["t1", "t2", "orphan"], review: [], done: ["t3"], back: ["t4"], canceled: [] })
+  })
+
+  it("folds Needs input into the first started group while its column is off, and shows it as a group when on", () => {
+    const withInput: BoardState = {
+      ...state,
+      statuses: {
+        ...state.statuses,
+        doing: { ...status("doing", "a5"), name: "In Progress", category: "started" },
+        input: { ...status("input", "a7"), name: "Needs input", category: "waiting" },
+      },
+      tasks: { ...state.tasks, w1: task("w1", "input", "a0"), d1: task("d1", "doing", "a0") },
+    }
+    const off = listGroups(withInput, "w1", "p1", { needsInputColumn: false })
+    expect(off.map((g) => [g.status.id, g.tasks.map((t) => t.id)])).toEqual([
+      ["todo", ["t1", "t2", "orphan"]], ["doing", ["d1", "w1"]], ["review", []], ["done", ["t3"]], ["back", ["t4"]], ["canceled", []],
+    ])
+    expect(listGroups(withInput, "w1", "p1", { needsInputColumn: true }).map((g) => g.status.id)).toContain("input")
   })
 })
 

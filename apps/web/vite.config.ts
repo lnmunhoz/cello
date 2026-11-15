@@ -6,10 +6,11 @@ import { buildStamp } from "./buildStamp.ts"
 
 const server = process.env.CELLO_SERVER ?? "127.0.0.1:4748"
 
-// The socket, and review evidence (videos, screenshots), come from the Cello server.
+// The socket, review evidence (videos, screenshots) and the screenshots pasted into answers go to the Cello server.
 const proxy = {
   "/rpc": { target: `ws://${server}`, ws: true },
   "/attachments": { target: `http://${server}` },
+  "/asks": { target: `http://${server}` },
 }
 
 export default defineConfig({

@@ -50,3 +50,9 @@ export class ReviewRequired extends Schema.TaggedError<ReviewRequired>()("Review
   key: Schema.String,
   status: Schema.String,
 }) {}
+
+/** An agent tried to move a task into Needs input by hand: only `cello task ask` puts it there (CEL-47). */
+export class AskRequired extends Schema.TaggedError<AskRequired>()("AskRequired", {
+  key: Schema.String,
+  status: Schema.String,
+}) {}

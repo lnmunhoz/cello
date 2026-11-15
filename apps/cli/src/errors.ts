@@ -47,8 +47,13 @@ export const explain = (error: unknown, where: Where): string => {
     case "ReviewRequired":
       return `${e.key} needs a review packet before it goes to ${e.status}. Submit one instead: ` +
         `\`cello task submit ${e.key} --summary "what changed" --step "how to check it" --attach demo.mp4\`. See \`cello guide\`.`
+    case "AskRequired":
+      return `${e.key} goes to ${e.status} only with questions for Lucas. Ask them instead: ` +
+        `\`cello task ask ${e.key} --title "what to decide" --question "…" --option "A" --option "B"\` (or --file ask.json). See \`cello guide\`.`
     case "HumanOnly":
-      return `Only ${e.human} can ${e.action}. Leave the task in In Review; ${e.human} decides on the Review page.`
+      return e.action === "answer an ask"
+        ? `Only ${e.human} can answer the questions; he does it on the card. Wait with \`cello wait\`, or let the hook deliver the answers.`
+        : `Only ${e.human} can ${e.action}. Leave the task in In Review; ${e.human} decides on the Review page.`
     case "RpcClientError":
       // Connected, then cut off: the server stopped mid-command, and a write it had started still commits.
       if (["SocketCloseError", "SocketReadError", "SocketWriteError"].includes(e.reason?._tag)) {
