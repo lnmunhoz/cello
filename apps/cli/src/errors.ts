@@ -51,9 +51,25 @@ export const explain = (error: unknown, where: Where): string => {
       return `Cello isn't running on 127.0.0.1:${where.port}. Start it with \`cello start\`.`
     // Backups and restore, which work on the data folder itself while no server runs.
     case "RestoreBlocked":
-      return `Cello is running for ${e.dataDir} (pid ${e.pid}, http://127.0.0.1:${e.port}). Stop it before restoring: ` +
-        "press Ctrl-C where `cello start` runs, or quit the Cello desktop app (there's no `cello stop` yet). " +
-        `Then run \`cello restore ${e.id}\` again.`
+      return `Cello is running for ${e.dataDir} (pid ${e.pid}, http://127.0.0.1:${e.port}), and restore only runs while it's stopped; ` +
+        "nothing was changed. Stop it: press Ctrl-C in the terminal running `cello start`, or quit the Cello desktop app " +
+        `(there's no \`cello stop\` yet). Then run \`cello restore ${e.id}\` again.`
+    case "RestoreFailed": {
+      const what = `The restore of ${e.id} failed while ${e.step} (${e.reason})`
+      const undo = e.safetyId ? `run \`cello restore ${e.safetyId}\` (the safety backup taken just before)` : null
+      if (e.unchanged) {
+        return `${what}. Nothing was changed: your data is as it was${e.safetyId ? `, and safety backup ${e.safetyId} holds it too` : ""}.`
+      }
+      if (e.keptAt) {
+        return `${what}, and moving your files back failed too. Don't start Cello yet: your data is in ${e.keptAt}/previous. ` +
+          `Move everything in it back into ${e.dataDir}, replacing what's there${undo ? `, or ${undo}` : ""}.`
+      }
+      return `${what}, and moving files back failed too, so ${e.dataDir} may be half restored. Don't start Cello yet: ` +
+        (undo ? `${undo.charAt(0).toUpperCase()}${undo.slice(1)}.` : "it held no data before the restore, so nothing was lost; run the restore again.")
+    }
+    case "BackupFailed":
+      return `The backup failed (${e.reason}). Nothing was saved, and your data and earlier backups are untouched. ` +
+        `Check that the disk has room and that every file in ${e.dataDir}/assets can be read, then run \`cello backup\` again.`
     case "ServerAlreadyRunning":
       return `Cello is running for ${e.dataDir} (pid ${e.pid}) but doesn't answer on 127.0.0.1:${where.port}. ` +
         `Run the command again with CELLO_PORT=${e.port}.`

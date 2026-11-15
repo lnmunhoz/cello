@@ -11,7 +11,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Scope from "effect/Scope"
 import { BACKUPS_DIR } from "../../src/backup/BackupService.ts"
-import { backupOffline, restore } from "../../src/backup/offline.ts"
+import { backupOffline, listBackups, restore } from "../../src/backup/offline.ts"
 import { writePng, writeText } from "../../src/testing/media.ts"
 import { AGENT_IDENTITY, connect, startServer, tempDataDir, withClient } from "./harness.ts"
 
@@ -44,6 +44,25 @@ const filesIn = (dir: string): Record<string, string> =>
       .sort()
       .map((name) => [name, fs.readFileSync(path.join(dir, name)).toString("base64")]),
   )
+
+/** The inode of every file under `dir`. */
+const inodesIn = (dir: string): Set<number> =>
+  new Set(
+    (fs.readdirSync(dir, { recursive: true }) as string[])
+      .map((name) => fs.statSync(path.join(dir, name)))
+      .filter((stat) => stat.isFile())
+      .map((stat) => stat.ino),
+  )
+
+/** Live evidence files never share an inode with a backup's: changing one can't change a backup. */
+const expectNoSharedInodes = (dataDir: string) => {
+  const live = inodesIn(path.join(dataDir, "assets"))
+  expect(live.size).toBeGreaterThan(0)
+  for (const id of fs.readdirSync(path.join(dataDir, BACKUPS_DIR))) {
+    const shared = [...inodesIn(path.join(dataDir, BACKUPS_DIR, id))].filter((ino) => live.has(ino))
+    expect(shared, `backup ${id} shares files with assets/`).toEqual([])
+  }
+}
 
 const titles = (client: Client) =>
   Effect.map(client["snapshot.get"]({}), (s) => s.tasks.map((t) => `${t.key} ${t.title}`).sort())
@@ -110,6 +129,7 @@ describe("backups of a running server", () => {
       const third = yield* human["backup.create"]({})
       expect(third.assets).toMatchObject({ linked: 2, copied: 0, copiedBytes: 0 })
       expect(inode(third, png!)).toBe(inode(first, png!))
+      expectNoSharedInodes(dataDir)
     }).pipe(Effect.scoped))
 })
 
@@ -146,7 +166,7 @@ describe("restore", () => {
       const restored = yield* restore({ dataDir, id: backup.id })
 
       expect(restored.backup).toEqual(backup)
-      expect(restored.assets).toEqual({ files: 2, bytes: backup.assets.bytes })
+      expect(restored.assets).toEqual({ files: 2, bytes: backup.assets.bytes, expected: 2 })
       expect(restored.safety).toMatchObject({ kind: "safety", note: `before restoring ${backup.id}` })
       // The safety backup holds the state restore replaced.
       const safetyDb = new Database(path.join(restored.safety!.path, "cello.db"), { readonly: true })
@@ -157,6 +177,7 @@ describe("restore", () => {
       // Nothing is left over: no staging folder, no stale -wal or -shm, no lock.
       expect(fs.readdirSync(dataDir).sort()).toEqual(["assets", BACKUPS_DIR, "cello.db", "scratch"])
       expect(filesIn(path.join(dataDir, "assets"))).toEqual(filesBefore)
+      expectNoSharedInodes(dataDir)
 
       const { port: again } = yield* startServer(dataDir)
       yield* withClient(again, (client) =>
@@ -212,6 +233,96 @@ describe("restore", () => {
       expect(fs.readFileSync(path.join(dataDir, "cello.db")).equals(db)).toBe(true)
       expect(fs.readdirSync(dataDir).filter((name) => name.startsWith("."))).toEqual([])
     }).pipe(Effect.scoped))
+
+  it.live("warns when the backup holds fewer evidence files than its manifest lists (its assets/ was changed by hand)", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* tempDataDir
+      const backup = yield* stoppedWithBackup(dataDir)
+      fs.rmSync(path.join(backup.path, "assets"), { recursive: true })
+
+      const restored = yield* restore({ dataDir, id: backup.id })
+      expect(restored.assets).toEqual({ files: 0, bytes: 0, expected: 2 })
+    }).pipe(Effect.scoped))
+})
+
+/** A data folder with a task, two evidence files and a backup of them; the server is stopped again. */
+const stoppedWithBackup = (dataDir: string) =>
+  Effect.scoped(Effect.gen(function* () {
+    const { port } = yield* startServer(dataDir)
+    const human = yield* connect(port)
+    const agent = yield* connect(port, AGENT_IDENTITY)
+    yield* boardWithEvidence(human, agent, path.join(dataDir, "scratch"))
+    return yield* human["backup.create"]({})
+  }))
+
+/** A path in the staging folder that came from the backup (not the live files moved aside into previous/). */
+const isStaged = (file: string) => file.includes(`${path.sep}.restore-`) && !file.includes(`${path.sep}previous${path.sep}`) && !file.endsWith(`${path.sep}previous`)
+
+/** fs.renameSync, except it throws EPERM for the renames `fails` picks. */
+const failingRename = (fails: (from: string, to: string) => boolean) => (from: string, to: string) => {
+  if (fails(from, to)) throw Object.assign(new Error(`EPERM: operation not permitted, rename '${from}' -> '${to}'`), { code: "EPERM" })
+  fs.renameSync(from, to)
+}
+
+describe("a restore that fails", () => {
+  it.live("while copying the backup changes nothing and says so", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* tempDataDir
+      const backup = yield* stoppedWithBackup(dataDir)
+      const before = filesIn(path.join(dataDir, "assets"))
+      const taskDir = fs.readdirSync(path.join(backup.path, "assets"))[0]!
+      const locked = path.join(backup.path, "assets", taskDir, fs.readdirSync(path.join(backup.path, "assets", taskDir))[0]!)
+      fs.chmodSync(locked, 0o000)
+      yield* Effect.addFinalizer(() => Effect.sync(() => fs.chmodSync(locked, 0o644)))
+
+      const error = yield* Effect.flip(restore({ dataDir, id: backup.id }))
+      expect(error).toMatchObject({ _tag: "RestoreFailed", id: backup.id, dataDir, step: "copying the backup", unchanged: true, safetyId: null, keptAt: null })
+      expect((error as { reason: string }).reason).toContain("EACCES")
+      expect(filesIn(path.join(dataDir, "assets"))).toEqual(before)
+      expect(fs.readdirSync(dataDir).filter((name) => name.startsWith("."))).toEqual([])
+    }).pipe(Effect.scoped))
+
+  it.live("while swapping puts everything back, says nothing changed, and names the safety backup", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* tempDataDir
+      const backup = yield* stoppedWithBackup(dataDir)
+      const db = fs.readFileSync(path.join(dataDir, "cello.db"))
+      const before = filesIn(path.join(dataDir, "assets"))
+
+      const error = yield* Effect.flip(restore({
+        dataDir,
+        id: backup.id,
+        rename: failingRename((from, to) => to === path.join(dataDir, "assets") && isStaged(from)),
+      }))
+      const safety = (yield* listBackups({ dataDir })).find((b) => b.kind === "safety")!
+      expect(error).toMatchObject({ _tag: "RestoreFailed", step: "swapping the files in", unchanged: true, safetyId: safety.id, keptAt: null })
+      expect((error as { reason: string }).reason).toContain("EPERM")
+      expect(fs.readFileSync(path.join(dataDir, "cello.db")).equals(db)).toBe(true)
+      expect(filesIn(path.join(dataDir, "assets"))).toEqual(before)
+      expect(fs.readdirSync(dataDir).filter((name) => name.startsWith("."))).toEqual([])
+    }).pipe(Effect.scoped))
+
+  it.live("and can't put everything back keeps the live files in <staging>/previous and says where", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* tempDataDir
+      const backup = yield* stoppedWithBackup(dataDir)
+      const db = fs.readFileSync(path.join(dataDir, "cello.db"))
+
+      const error = yield* Effect.flip(restore({
+        dataDir,
+        id: backup.id,
+        rename: failingRename((from, to) =>
+          (to === path.join(dataDir, "assets") && isStaged(from)) || // placing the backup's assets
+          (from.endsWith(path.join("previous", "cello.db")) && to === path.join(dataDir, "cello.db")) // moving the live db back
+        ),
+      }))
+      const safety = (yield* listBackups({ dataDir })).find((b) => b.kind === "safety")!
+      expect(error).toMatchObject({ _tag: "RestoreFailed", step: "swapping the files in", unchanged: false, safetyId: safety.id })
+      const keptAt = (error as { keptAt: string }).keptAt
+      expect(path.dirname(keptAt)).toBe(dataDir)
+      expect(path.basename(keptAt)).toMatch(/^\.restore-/)
+      expect(fs.readFileSync(path.join(keptAt, "previous", "cello.db")).equals(db)).toBe(true)
+    }).pipe(Effect.scoped))
 })
 
 describe("a backup with no server running", () => {
@@ -225,6 +336,23 @@ describe("a backup with no server running", () => {
 
       const backup = yield* backupOffline({ dataDir })
       expect(backup).toMatchObject({ kind: "manual", path: path.join(dataDir, BACKUPS_DIR, backup.id) })
+      expect(fs.existsSync(path.join(dataDir, "server.lock"))).toBe(false)
+    }).pipe(Effect.scoped))
+
+  it.live("that fails (an unreadable file) says why, and leaves no half-made backup", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* tempDataDir
+      yield* stoppedWithBackup(dataDir)
+      // A new file must be read to be copied (an unchanged one is only linked).
+      const taskDir = fs.readdirSync(path.join(dataDir, "assets"))[0]!
+      const locked = writeText(path.join(dataDir, "assets", taskDir), "new.txt", "can't read me")
+      fs.chmodSync(locked, 0o000)
+      yield* Effect.addFinalizer(() => Effect.sync(() => fs.chmodSync(locked, 0o644)))
+
+      const error = yield* Effect.flip(backupOffline({ dataDir }))
+      expect(error).toMatchObject({ _tag: "BackupFailed", dataDir })
+      expect((error as { reason: string }).reason).toContain("EACCES")
+      expect(fs.readdirSync(path.join(dataDir, BACKUPS_DIR))).toHaveLength(1)
       expect(fs.existsSync(path.join(dataDir, "server.lock"))).toBe(false)
     }).pipe(Effect.scoped))
 

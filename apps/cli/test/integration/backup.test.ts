@@ -90,6 +90,41 @@ describe("cello backup", () => {
     }).pipe(Effect.scoped))
 })
 
+describe("cello backup that fails", () => {
+  /** A new evidence file nobody can read: a backup must copy it, and can't. */
+  const unreadableAsset = (dataDir: string) =>
+    Effect.gen(function* () {
+      const taskDir = path.join(dataDir, "assets", fs.readdirSync(path.join(dataDir, "assets"))[0]!)
+      const locked = writeText(taskDir, "locked.txt", "can't read me")
+      fs.chmodSync(locked, 0o000)
+      yield* Effect.addFinalizer(() => Effect.sync(() => fs.chmodSync(locked, 0o644)))
+    })
+
+  const FAILED = (dataDir: string) =>
+    new RegExp(
+      `^The backup failed \\(EACCES: [^)]*locked\\.txt[^)]*\\)\\. Nothing was saved, and your data and earlier backups are untouched\\. ` +
+        `Check that the disk has room and that every file in ${dataDir}/assets can be read, then run \\\`cello backup\\\` again\\.$`,
+    )
+
+  it.live("through the running server prints why, and leaves no half-made backup", () =>
+    Effect.gen(function* () {
+      const { run, dataDir } = yield* setup
+      yield* unreadableAsset(dataDir)
+      const result = yield* run("backup")
+      expect(result.failure).toMatch(FAILED(dataDir))
+      expect(fs.readdirSync(path.join(dataDir, "backups"))).toEqual([])
+    }).pipe(Effect.scoped))
+
+  it.live("with no server running prints why too", () =>
+    Effect.gen(function* () {
+      const { run, stop, dataDir } = yield* setup
+      yield* stop
+      yield* unreadableAsset(dataDir)
+      expect((yield* run("backup")).failure).toMatch(FAILED(dataDir))
+      expect(fs.readdirSync(path.join(dataDir, "backups"))).toEqual([])
+    }).pipe(Effect.scoped))
+})
+
 describe("cello backup list", () => {
   it.live("shows id, time, kind, size and asset count, newest first, with or without the server", () =>
     Effect.gen(function* () {
@@ -121,9 +156,9 @@ describe("cello restore", () => {
       const { run, dataDir, port } = yield* setup
       const backup = JSON.parse((yield* run("backup", "--json")).out) as Backup
       expect((yield* run("restore", backup.id)).failure).toBe(
-        `Cello is running for ${dataDir} (pid ${process.pid}, http://127.0.0.1:${port}). Stop it before restoring: ` +
-          "press Ctrl-C where `cello start` runs, or quit the Cello desktop app (there's no `cello stop` yet). " +
-          `Then run \`cello restore ${backup.id}\` again.`,
+        `Cello is running for ${dataDir} (pid ${process.pid}, http://127.0.0.1:${port}), and restore only runs while it's stopped; ` +
+          "nothing was changed. Stop it: press Ctrl-C in the terminal running `cello start`, or quit the Cello desktop app " +
+          `(there's no \`cello stop\` yet). Then run \`cello restore ${backup.id}\` again.`,
       )
     }).pipe(Effect.scoped))
 
@@ -147,6 +182,38 @@ describe("cello restore", () => {
       ].join("\n"))
       const row = (yield* run("backup", "list")).out.split("\n").find((line) => line.startsWith(safety.id))!
       expect(row).toMatch(new RegExp(`^${safety.id}  .*  safety  .*  before restoring ${backup.id}$`))
+    }).pipe(Effect.scoped))
+
+  it.live.skipIf(process.platform !== "darwin")("that fails while swapping (assets/ locked with chflags uchg) prints that nothing changed and the safety backup", () =>
+    Effect.gen(function* () {
+      const { run, stop, dataDir } = yield* setup
+      const backup = JSON.parse((yield* run("backup", "--json")).out) as Backup
+      yield* stop
+      const assets = path.join(dataDir, "assets")
+      Bun.spawnSync(["chflags", "uchg", assets])
+      yield* Effect.addFinalizer(() => Effect.sync(() => Bun.spawnSync(["chflags", "nouchg", assets])))
+
+      const result = yield* run("restore", backup.id)
+      const safety = (JSON.parse((yield* run("backup", "list", "--json")).out) as Array<Backup>).find((b) => b.kind === "safety")!
+      expect(result.failure).toMatch(new RegExp(
+        `^The restore of ${backup.id} failed while swapping the files in \\(EPERM: [^)]*\\)\\. ` +
+          `Nothing was changed: your data is as it was, and safety backup ${safety.id} holds it too\\.$`,
+      ))
+      expect(fs.readdirSync(dataDir).filter((name) => name.startsWith("."))).toEqual([])
+    }).pipe(Effect.scoped))
+
+  it.live("warns when the backup holds fewer evidence files than its manifest lists", () =>
+    Effect.gen(function* () {
+      const { run, stop } = yield* setup
+      const backup = JSON.parse((yield* run("backup", "--json")).out) as Backup
+      yield* stop
+      fs.rmSync(path.join(backup.path, "assets"), { recursive: true })
+      const result = yield* run("restore", backup.id)
+      expect(result.failure).toBeNull()
+      expect(result.out.split("\n").slice(2, 4)).toEqual([
+        "  assets    0 files, 0 B",
+        "  warning   the backup's manifest lists 2 evidence files but only 0 were there to restore (was its assets/ folder changed by hand?); reviews and pages may show missing files.",
+      ])
     }).pipe(Effect.scoped))
 
   it.live("an unknown id says where to find the real ones", () =>

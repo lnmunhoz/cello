@@ -7,7 +7,7 @@ import { describeEvent } from "@cello/client/history"
 import type { Backup } from "@cello/contract/backups"
 import type { Actor, AgentSession, DocumentKind, Priority, ProjectRef, Review, Status, Task } from "@cello/contract/entities"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
-import { backupOffline, listBackups, restore } from "@cello/server/backup/offline"
+import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
 import { pagePath } from "@cello/shared/document"
 import { APP_VERSION } from "@cello/shared/version"
 import * as Console from "effect/Console"
@@ -599,10 +599,16 @@ const backupJson = Flag.Boolean("json").pipe(Flag.withDefault(false), Flag.withD
 
 const backupCreate = Command.make("backup", { json: backupJson }, (input) =>
   Effect.gen(function* () {
-    const dataDir = dataDirOf((yield* CliEnv).env)
+    const { env, now } = yield* CliEnv
+    const dataDir = dataDirOf(env)
     const taken = yield* withClient(
       (client) => Effect.map(client["backup.create"]({}), (backup) => ({ backup, direct: false })),
       Effect.map(backupOffline({ dataDir }), (backup) => ({ backup, direct: true })),
+    ).pipe(
+      // The server's disk failing is a defect there, and arrives here as one.
+      Effect.catchDefect((defect) =>
+        Effect.fail(new CliFailure({ message: explain(new BackupFailed({ dataDir, reason: reasonOf(defect) }), { port: portOf(env), now: now() }) }))
+      ),
     )
     if (input.json) return yield* printJson(taken.backup)
     yield* print([
@@ -671,6 +677,10 @@ const restoreCommand = Command.make("restore", {
       `Restored backup ${backup.id} (${backup.kind}, taken ${localTime(backup.createdAt)})`,
       `  database  ${bytes(backup.dbBytes)}, schema level ${backup.schemaLevel}`,
       `  assets    ${plural(assets.files, "file")}, ${bytes(assets.bytes)}`,
+      ...(assets.files < assets.expected
+        ? [`  warning   the backup's manifest lists ${assets.expected} evidence files but only ${assets.files} were there to restore ` +
+          "(was its assets/ folder changed by hand?); reviews and pages may show missing files."]
+        : []),
       safety
         ? `What it replaced is saved as backup ${safety.id}; \`cello restore ${safety.id}\` brings it back.`
         : "The data folder held nothing before, so there was nothing to save.",
@@ -705,6 +715,12 @@ export const cello = Command.make("cello").pipe(
   Command.withSubcommands([context, task, doc, whoami, guide, startCommand, backup, restoreCommand]),
 )
 
-/** Runs `cello` with these arguments (without the program name). */
+/**
+ * Runs `cello` with these arguments (without the program name). A defect (a failing disk, a bug)
+ * still ends in one printed sentence instead of a silent exit.
+ */
 export const run = (args: ReadonlyArray<string>) =>
-  Command.runWith(cello, { version: VERSION })(args).pipe(Effect.provideService(CliArgs, args))
+  Command.runWith(cello, { version: VERSION })(args).pipe(
+    Effect.provideService(CliArgs, args),
+    Effect.catchDefect((defect) => Effect.fail(new CliFailure({ message: `Something went wrong: ${reasonOf(defect)}` }))),
+  )
