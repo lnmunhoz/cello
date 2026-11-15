@@ -137,9 +137,10 @@ function useTaskMark(task: Task, board: BoardState, holder: AgentSession | null)
     // separately, Done would play with the holder and, once over, a later claim end shows nothing more.
     setGone(next === "done" && holder === null ? (last.session ?? gone) : null)
   }
+  // Only when what the mark shows changes: a 200-card board re-renders every card on each event.
   useEffect(() => {
-    drawn.seen(task.id, { ...seen, session: holder })
-  })
+    drawn.seen(task.id, { mood: seen.mood, statusId: seen.statusId, session: holder })
+  }, [task.id, seen.mood, seen.statusId, holder?.id])
   // Leaving the screen (not each re-render) starts the baseline's short lifetime.
   useEffect(() => () => drawn.left(task.id, Date.now()), [task.id])
   const session = holder ?? gone
