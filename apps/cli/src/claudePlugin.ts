@@ -32,7 +32,27 @@ const inside = (folder: string, relative: string): string | null => {
   return full.startsWith(folder + path.sep) ? full : null
 }
 
-/** Replaces `file` with `text` through a temp file and a rename, which replaces a symlink there rather than what it points at. */
+/**
+ * The first folder between `root` (not included: it may be a symlink, dotfiles-style) and `full` that
+ * is a symlink, or null. Writing or deleting through one would reach outside the plugin folder.
+ */
+const symlinkedFolder = (root: string, full: string): string | null => {
+  const parts = path.relative(root, path.dirname(full)).split(path.sep).filter((p) => p !== "")
+  let dir = root
+  for (const part of parts) {
+    dir = path.join(dir, part)
+    const stat = fs.lstatSync(dir, { throwIfNoEntry: false })
+    if (stat === undefined) return null
+    if (stat.isSymbolicLink()) return dir
+  }
+  return null
+}
+
+/**
+ * Replaces `file` with `text` through a temp file and a rename, which replaces a symlink there rather
+ * than what it points at. Not writeFileAtomically: that follows a symlink to its target and keeps a
+ * .bak, and neither is wanted for files Cello owns.
+ */
 const replaceFile = (file: string, text: string) => {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   const temp = `${file}.cello-${process.pid}.tmp`
@@ -63,13 +83,16 @@ const ownFiles = (folder: string): ReadonlyArray<string> => {
 /**
  * Makes `folder` hold exactly `files`: writes the ones that are missing or different, removes the files
  * an earlier install wrote that aren't in `files` any more (never anything else), and keeps the list in
- * OWN_FILES. Says whether it changed anything on disk.
+ * OWN_FILES. Refuses, before writing anything, when a folder inside it is a symlink. Says whether it
+ * changed anything on disk.
  */
 export const writePluginFolder = (folder: string, files: ReadonlyArray<PluginFile>): { readonly changed: boolean } => {
   const root = path.resolve(folder)
   const targets = files.map((file) => {
     const full = inside(root, file.path)
     if (full === null) throw new Error(`${file.path} is outside ${root}`)
+    const link = symlinkedFolder(root, full)
+    if (link !== null) throw new Error(`${link} is a symlink; Cello only writes real folders inside ${root}`)
     return { full, text: file.text }
   })
   let changed = false
@@ -81,7 +104,10 @@ export const writePluginFolder = (folder: string, files: ReadonlyArray<PluginFil
   const wanted = new Set(files.map((f) => f.path))
   for (const old of ownFiles(root)) {
     const full = wanted.has(old) ? null : inside(root, old)
-    if (full === null || fs.lstatSync(full, { throwIfNoEntry: false }) === undefined) continue
+    if (full === null || symlinkedFolder(root, full) !== null) continue
+    // Only files (or a link in a file's place): a folder named in the list is left alone.
+    const stat = fs.lstatSync(full, { throwIfNoEntry: false })
+    if (stat === undefined || !(stat.isFile() || stat.isSymbolicLink())) continue
     fs.rmSync(full, { force: true })
     changed = true
     // Folders it leaves empty go too, up to the plugin folder itself.
@@ -97,3 +123,4 @@ export const writePluginFolder = (folder: string, files: ReadonlyArray<PluginFil
   }
   return { changed }
 }
+

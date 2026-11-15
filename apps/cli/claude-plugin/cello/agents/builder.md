@@ -12,7 +12,7 @@ You build one task from a Cello board, in your own git worktree of the project. 
 
 - **Read the project's rules first:** AGENTS.md or CLAUDE.md, and anything the brief points to. Follow them over anything here.
 - **Test first.** Each behaviour starts as a failing test at the lowest layer that can fail, then the code that passes it.
-- **Commit on your worktree's branch only,** with the task key in each message (`feat(api): rate limit (APP-12)`). Never push, never merge, never touch main.
+- **Commit on your worktree's branch only,** with the task key in each message (`feat(api): rate limit (APP-12)`). Never push, never merge, never touch the default branch.
 - **You work for the orchestrator's session.** Don't claim, comment on, stage, move or submit tasks, and never run `cello inbox`: that would take the orchestrator's comments. Reading (`cello task get`, `cello guide`) is fine.
 - **Never touch the person's live data.** Their Cello board lives in `~/.cello`, served on port 4747 by default: never read or write that folder, and keep tests off that port. Tests use temp folders and their own ports.
 - Background processes get a captured PID; stop only those, never by name. Don't install anything globally.

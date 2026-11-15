@@ -97,6 +97,59 @@ describe("cello install claude: the plugin", () => {
       expect(fs.readFileSync(file, "utf8")).toBe(theirs)
     }).pipe(Effect.scoped))
 
+  it.live("--shared changes neither file when this machine's settings.local.json is broken", () =>
+    Effect.gen(function* () {
+      const { repo, run } = yield* installSetup
+      const shared = path.join(repo, ".claude", "settings.json")
+      const local = path.join(repo, ".claude", "settings.local.json")
+      fs.mkdirSync(path.dirname(shared))
+      const committed = `${JSON.stringify({ model: "opus" }, null, 2)}\n`
+      fs.writeFileSync(shared, committed)
+      fs.writeFileSync(local, "{ broken")
+      expect(yield* run(repo)("install", "claude", "--shared")).toEqual({
+        out: "",
+        failure: `Can't update ${local}: it isn't valid JSON. Fix it first; Cello won't overwrite it.`,
+      })
+      expect(fs.readFileSync(shared, "utf8")).toBe(committed)
+      expect(fs.readFileSync(local, "utf8")).toBe("{ broken")
+    }).pipe(Effect.scoped))
+
+  it.live("--shared doesn't enable cello@cello in the committed file when this machine's cello marketplace is someone else's", () =>
+    Effect.gen(function* () {
+      const { repo, run } = yield* installSetup
+      const shared = path.join(repo, ".claude", "settings.json")
+      const local = path.join(repo, ".claude", "settings.local.json")
+      fs.mkdirSync(path.dirname(shared))
+      const theirs = `${JSON.stringify({ extraKnownMarketplaces: { cello: { source: { source: "github", repo: "someone/cello" } } } }, null, 2)}\n`
+      fs.writeFileSync(local, theirs)
+      expect(yield* run(repo)("install", "claude", "--shared")).toEqual({
+        out: "",
+        failure: `Can't update ${local}: "extraKnownMarketplaces.cello" is another marketplace, not Cello's folder. Fix it first; Cello won't overwrite it.`,
+      })
+      expect(fs.existsSync(shared)).toBe(false)
+      expect(fs.readFileSync(local, "utf8")).toBe(theirs)
+    }).pipe(Effect.scoped))
+
+  it.live("leaves a plugin turned off in the settings (false) off, and says how to turn it on", () =>
+    Effect.gen(function* () {
+      const { repo, home, run } = yield* installSetup
+      yield* run(repo)("install", "claude")
+      const file = path.join(repo, ".claude", "settings.local.json")
+      const settings = JSON.parse(fs.readFileSync(file, "utf8"))
+      settings.enabledPlugins["cello@cello"] = false
+      fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`)
+      const before = fs.readFileSync(file, "utf8")
+      expect(yield* run(repo)("install", "claude")).toEqual({
+        out: [
+          `Cello's Claude Code hooks are already in ${file}.`,
+          `Cello's Claude Code plugin is turned off in ${file} ("cello@cello": false), so Cello left it off; its files in ${pluginAt(home)} are current. ` +
+          "Set it to true, or delete that line, to turn it on.",
+        ].join("\n"),
+        failure: null,
+      })
+      expect(fs.readFileSync(file, "utf8")).toBe(before)
+    }).pipe(Effect.scoped))
+
   it.live("never writes the plugin inside Cello's data folder", () =>
     Effect.gen(function* () {
       const { dir, repo, run } = yield* installSetup

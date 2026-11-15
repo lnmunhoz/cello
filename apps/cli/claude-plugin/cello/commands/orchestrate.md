@@ -34,10 +34,10 @@ flowchart TD
 
 1. **Build** (`stage building`). Start one builder agent per task with the Agent tool, in its own git worktree (`isolation: "worktree"`), in the background.
    - **Which agent:** the project's own when `.claude/agents/` defines one (a name like `*-builder`), else this plugin's `cello:builder`.
-   - **The brief is all it knows.** Give it: what to build and why (the person's words, quoted), what to read first, what other agents are changing right now (so it stays out of their files), and the rules: test first, commit on its branch, never push or touch main, never change the live board, report back with commits, test results, evidence and decisions.
+   - **The brief is all it knows.** Give it: what to build and why (the person's words, quoted), what to read first, what other agents are changing right now (so it stays out of their files), and the rules: test first, commit on its branch, never push or touch the default branch, never change the live board, report back with commits, test results, evidence and decisions.
 2. **Review** (`stage review`). When the builder reports, start a **fresh** reviewer: the project's own (`*-reviewer`) or `cello:reviewer`. Give it the task's text, the branch and its worktree, and nothing from the builder's report, so it judges the code, not the story.
 3. **Fix** (`stage fixing`). Send the findings back to **the same builder** with SendMessage, so it keeps its context. Only blockers get a re-check, by the same reviewer. If one round doesn't settle a blocker, or it's a design question the task doesn't answer, ask the person on the card (below). Comment the review's result on the card.
-4. **Merge** (`stage merged`). Merge the branch into main, run the whole test suite, and deploy if the project does.
+4. **Merge** (`stage merged`). Merge the branch into the default branch (usually main), run the whole test suite, and deploy if the project does.
 5. **Submit right after the merge**, one task at a time; don't batch. `cello task submit <KEY>` with a summary, how to check it, and the evidence (videos and screenshots for UI; a terminal transcript or test output for CLI and server work). When the work is a flow, put a small ```mermaid flowchart TD in the summary. Say what the review found and what was fixed.
 
 ## Rules for the whole run

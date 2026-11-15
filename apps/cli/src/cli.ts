@@ -1374,19 +1374,30 @@ const claudeSettings = Effect.gen(function* () {
   return { projectRoot, paths: settingsPaths({ projectRoot: projectRoot ?? cwd, home: env.HOME }) }
 })
 
-/** Reads a settings file, changes it with `change`, and replaces it atomically (old bytes in .bak) if anything changed. */
-const updateSettings = <M extends Merged>(file: string, change: (settings: unknown) => M) =>
+/** Reads a settings file and works out `change` without writing anything, so a refusal comes before any file is touched. */
+const planSettings = <M extends Merged>(file: string, change: (settings: unknown) => M) =>
   Effect.gen(function* () {
     const refused = (e: unknown) => new CliFailure({ message: `Can't update ${file}: ${(e as Error).message}. Fix it first; Cello won't overwrite it.` })
     const current = yield* Effect.try({ try: () => readSettingsFile(file), catch: refused })
     const merged = yield* Effect.try({ try: () => change(current.settings), catch: refused })
+    return { file, merged, format: current.format }
+  })
+
+/** Writes a planned change, if it changes anything, atomically (old bytes in .bak). */
+const writeSettings = <M extends Merged>(plan: Effect.Success<ReturnType<typeof planSettings<M>>>) =>
+  Effect.gen(function* () {
+    const { file, merged, format } = plan
     if (!merged.changed) return { merged, backup: null }
     const written = yield* Effect.try({
-      try: () => writeFileAtomically(file, formatSettings(merged.settings, current.format)),
+      try: () => writeFileAtomically(file, formatSettings(merged.settings, format)),
       catch: (e) => new CliFailure({ message: `Can't write ${file}: ${(e as Error).message}.` }),
     })
     return { merged, backup: written.backup }
   })
+
+/** Reads a settings file, changes it with `change`, and replaces it atomically (old bytes in .bak) if anything changed. */
+const updateSettings = <M extends Merged>(file: string, change: (settings: unknown) => M) =>
+  Effect.flatMap(planSettings(file, change), writeSettings)
 
 /** What git runs with when it checks ignores: HOME (and XDG_CONFIG_HOME) decide the user's global excludes. */
 const gitEnv = (env: Env) =>
@@ -1413,20 +1424,25 @@ const installHooks = (scope: keyof typeof SCOPES) =>
     if (insideAny(folder, [dataDirOf(env)])) {
       return yield* new CliFailure({ message: `The plugin's folder ${folder} is inside Cello's data folder; set XDG_DATA_HOME to somewhere else.` })
     }
-    // The plugin's files first, so the settings never point at a folder that isn't there.
+    // The artifact guard is for Cello projects, so the user's settings (every project) don't get it.
+    const wanted = celloHooksFor(scope === "user" ? "user" : "project")
+    // Both settings files are read and checked before anything is written: with --shared, a refusal on
+    // this machine's file must not leave the committed one enabling cello@cello.
+    const mainPlan = yield* planSettings(file, (settings) =>
+      installCello(settings, { hooks: wanted, plugin: { folder, declare: scope !== "shared", enable: true } }))
+    const localPlan = scope === "shared"
+      ? yield* planSettings(paths.local, (settings) => installCello(settings, { hooks: [], plugin: { folder, declare: true, enable: false } }))
+      : null
+    // Then the plugin's files, so the settings never point at a folder that isn't there; then the
+    // marketplace before the file that enables it.
     const files = yield* Effect.try({
       try: () => writePluginFolder(folder, CLAUDE_PLUGIN_FILES),
       catch: (e) => new CliFailure({ message: `Can't write Cello's Claude Code plugin to ${folder}: ${(e as Error).message}.` }),
     })
-    // The artifact guard is for Cello projects, so the user's settings (every project) don't get it.
-    const wanted = celloHooksFor(scope === "user" ? "user" : "project")
-    const main = yield* updateSettings(file, (settings) =>
-      installCello(settings, { hooks: wanted, plugin: { marketplace: scope === "shared" ? null : folder, enable: true } }))
-    const local = scope === "shared"
-      ? yield* updateSettings(paths.local, (settings) => installCello(settings, { hooks: [], plugin: { marketplace: folder, enable: false } }))
-      : null
-    const { hooks: hooksChanged, plugin: enabled } = main.merged
-    const pluginChanged = enabled || files.changed || (local?.merged.changed ?? false)
+    const local = localPlan === null ? null : yield* writeSettings(localPlan)
+    const main = yield* writeSettings(mainPlan)
+    const { hooks: hooksChanged, plugin: enabled, off } = main.merged
+    const pluginChanged = !off && (enabled || files.changed || (local?.merged.changed ?? false))
     const ignored = (scope === "local" || local !== null) && projectRoot !== null
       ? ensureGitIgnored(projectRoot, ".claude/settings.local.json", gitEnv(env))
       : null
@@ -1434,7 +1450,10 @@ const installHooks = (scope: keyof typeof SCOPES) =>
       ...(hooksChanged
         ? [`Installed Cello's Claude Code hooks in ${file} (${SCOPES[scope]}):`, ...indent(columns(wanted.map((h) => [h.event, h.command])))]
         : [`Cello's Claude Code hooks are already in ${file}.`]),
-      enabled
+      off
+        ? `Cello's Claude Code plugin is turned off in ${file} ("cello@cello": false), so Cello left it off; its files in ${folder} are ` +
+          `${files.changed ? "updated" : "current"}. Set it to true, or delete that line, to turn it on.`
+        : enabled
         ? `Enabled Cello's Claude Code plugin in ${file}; its files are in ${folder}.`
         : pluginChanged
         ? `Updated Cello's Claude Code plugin in ${folder}; it's already enabled in ${file}.`
@@ -1508,15 +1527,15 @@ const uninstallClaude = Command.make("claude", {}, () =>
     const { paths } = yield* claudeSettings
     const files = [...new Set([paths.local, paths.shared, paths.user].filter((f): f is string => f !== null))]
     const lines: string[] = []
+    const folder = pluginFolder(env)
     let plugin = false
     for (const file of files) {
-      const { merged } = yield* updateSettings(file, uninstallCello)
+      const { merged } = yield* updateSettings(file, (settings) => uninstallCello(settings, folder))
       if (!merged.changed) continue
       plugin ||= merged.plugin
       lines.push(`Removed Cello's Claude Code ${merged.hooks && merged.plugin ? "hooks and plugin" : merged.hooks ? "hooks" : "plugin"} from ${file}.`)
     }
     // Other projects' settings may still enable the plugin from this folder, so it stays.
-    const folder = pluginFolder(env)
     if (plugin && folder !== null && fs.existsSync(folder)) {
       lines.push(`The plugin's files stay in ${folder}, for other projects that still enable it; delete that folder when none do.`)
     }

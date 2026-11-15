@@ -129,12 +129,11 @@ export const removeCelloHooks = (settings: unknown): Merged => {
 export const CELLO_MARKETPLACE = "cello"
 export const CELLO_PLUGIN_ID = "cello@cello"
 
-/** `extraKnownMarketplaces.cello` when it is Cello's own: a local folder `…/cello/claude-plugin` (pluginFolder). */
-const isCelloMarketplace = (entry: unknown) => {
+/** `extraKnownMarketplaces.cello` when it is Cello's own: a local-folder source at exactly `folder` (pluginFolder). Extra keys don't matter. */
+const isCelloMarketplace = (entry: unknown, folder: string) => {
   if (!isObject(entry) || !isObject(entry.source)) return false
-  const { source, path: folder } = entry.source
-  return source === "directory" && typeof folder === "string" && path.basename(folder) === "claude-plugin" &&
-    path.basename(path.dirname(folder)) === "cello"
+  const { source, path: at } = entry.source
+  return source === "directory" && typeof at === "string" && path.resolve(at) === path.resolve(folder)
 }
 
 /** `settings[key]`, checked: missing is `{}`, anything but an object is an error (a sentence), never overwritten. */
@@ -147,50 +146,64 @@ const objectAt = (settings: unknown, key: string): Json => {
 }
 
 export interface PluginWanted {
-  /** The folder to declare as the `cello` marketplace; null leaves the marketplace out (--shared's committed file). */
-  readonly marketplace: string | null
+  /** Cello's plugin folder (pluginFolder): the only `cello` marketplace Cello declares or accepts. */
+  readonly folder: string
+  /** Whether to declare the folder as the `cello` marketplace here; --shared's committed file doesn't. */
+  readonly declare: boolean
   /** Whether to enable cello@cello here. */
   readonly enable: boolean
 }
 
-/**
- * Settings with Cello's marketplace declared at `marketplace` and cello@cello enabled, as asked.
- * A marketplace called cello that isn't Cello's folder is refused, not replaced. Doesn't change its input.
- */
-export const addCelloPlugin = (settings: unknown, wanted: PluginWanted): Merged => {
-  const marketplaces = objectAt(settings, "extraKnownMarketplaces")
-  const plugins = objectAt(settings, "enabledPlugins")
-  let next = settings as Json
-  if (wanted.marketplace !== null) {
-    const current = marketplaces[CELLO_MARKETPLACE]
-    if (current !== undefined && !isCelloMarketplace(current)) {
-      throw new Error(`"extraKnownMarketplaces.${CELLO_MARKETPLACE}" is another marketplace, not Cello's folder`)
-    }
-    const entry = { source: { source: "directory", path: wanted.marketplace } }
-    if (JSON.stringify(current) !== JSON.stringify(entry)) next = withKey(next, "extraKnownMarketplaces", { ...marketplaces, [CELLO_MARKETPLACE]: entry })
-  }
-  if (wanted.enable && plugins[CELLO_PLUGIN_ID] !== true) next = withKey(next, "enabledPlugins", { ...plugins, [CELLO_PLUGIN_ID]: true })
-  return { settings: next, changed: next !== settings }
+/** A plugin change; `off` says cello@cello is explicitly false here, which Cello leaves alone. */
+export interface PluginMerged extends Merged {
+  readonly off: boolean
 }
 
-/** Settings without cello@cello and Cello's own marketplace, and without the keys that leaves empty. */
-export const removeCelloPlugin = (settings: unknown): Merged => {
+/**
+ * Settings with Cello's marketplace declared and cello@cello enabled, as asked. A `cello` marketplace
+ * that isn't exactly Cello's folder is refused, never replaced, also when only enabling (it would
+ * enable someone else's plugin). An explicit `"cello@cello": false` stays. Doesn't change its input.
+ */
+export const addCelloPlugin = (settings: unknown, wanted: PluginWanted): PluginMerged => {
   const marketplaces = objectAt(settings, "extraKnownMarketplaces")
   const plugins = objectAt(settings, "enabledPlugins")
+  const current = marketplaces[CELLO_MARKETPLACE]
+  if (current !== undefined && !isCelloMarketplace(current, wanted.folder)) {
+    throw new Error(`"extraKnownMarketplaces.${CELLO_MARKETPLACE}" is another marketplace, not Cello's folder`)
+  }
+  let next = settings as Json
+  if (wanted.declare && current === undefined) {
+    next = withKey(next, "extraKnownMarketplaces", { ...marketplaces, [CELLO_MARKETPLACE]: { source: { source: "directory", path: wanted.folder } } })
+  }
+  const off = wanted.enable && plugins[CELLO_PLUGIN_ID] === false
+  if (wanted.enable && plugins[CELLO_PLUGIN_ID] === undefined) next = withKey(next, "enabledPlugins", { ...plugins, [CELLO_PLUGIN_ID]: true })
+  return { settings: next, changed: next !== settings, off }
+}
+
+/**
+ * Settings without Cello's own marketplace (exactly `folder`) and without cello@cello, unless the file
+ * declares a `cello` marketplace that isn't Cello's (then cello@cello is that one's); keys left empty go too.
+ */
+export const removeCelloPlugin = (settings: unknown, folder: string | null): Merged => {
+  const marketplaces = objectAt(settings, "extraKnownMarketplaces")
+  const plugins = objectAt(settings, "enabledPlugins")
+  const current = marketplaces[CELLO_MARKETPLACE]
+  const ours = folder !== null && isCelloMarketplace(current, folder)
   let next = settings as Json
   const without = (object: Json, key: string) => {
     const { [key]: _, ...rest } = object
     return Object.keys(rest).length === 0 ? undefined : rest
   }
-  if (isCelloMarketplace(marketplaces[CELLO_MARKETPLACE])) next = withKey(next, "extraKnownMarketplaces", without(marketplaces, CELLO_MARKETPLACE))
-  if (CELLO_PLUGIN_ID in plugins) next = withKey(next, "enabledPlugins", without(plugins, CELLO_PLUGIN_ID))
+  if (ours) next = withKey(next, "extraKnownMarketplaces", without(marketplaces, CELLO_MARKETPLACE))
+  if ((ours || current === undefined) && CELLO_PLUGIN_ID in plugins) next = withKey(next, "enabledPlugins", without(plugins, CELLO_PLUGIN_ID))
   return { settings: next, changed: next !== settings }
 }
 
-/** A settings change that says what it changed: Cello's hooks, its plugin, or both. */
+/** A settings change that says what it changed: Cello's hooks, its plugin, or both; `off` as in PluginMerged. */
 export interface CelloMerged extends Merged {
   readonly hooks: boolean
   readonly plugin: boolean
+  readonly off: boolean
 }
 
 /** What `cello install claude` puts in one settings file: the hooks it wants and the plugin entries. */
@@ -200,14 +213,14 @@ export const installCello = (
 ): CelloMerged => {
   const hooks = wanted.hooks.length === 0 ? { settings: settings as Json, changed: false } : addCelloHooks(settings, wanted.hooks)
   const plugin = addCelloPlugin(hooks.settings, wanted.plugin)
-  return { settings: plugin.settings, changed: hooks.changed || plugin.changed, hooks: hooks.changed, plugin: plugin.changed }
+  return { settings: plugin.settings, changed: hooks.changed || plugin.changed, hooks: hooks.changed, plugin: plugin.changed, off: plugin.off }
 }
 
-/** What `cello uninstall claude` takes out of one settings file: Cello's hooks and its plugin entries. */
-export const uninstallCello = (settings: unknown): CelloMerged => {
+/** What `cello uninstall claude` takes out of one settings file: Cello's hooks and its plugin entries (`folder`: pluginFolder). */
+export const uninstallCello = (settings: unknown, folder: string | null): CelloMerged => {
   const hooks = removeCelloHooks(settings)
-  const plugin = removeCelloPlugin(hooks.settings)
-  return { settings: plugin.settings, changed: hooks.changed || plugin.changed, hooks: hooks.changed, plugin: plugin.changed }
+  const plugin = removeCelloPlugin(hooks.settings, folder)
+  return { settings: plugin.settings, changed: hooks.changed || plugin.changed, hooks: hooks.changed, plugin: plugin.changed, off: false }
 }
 
 /** How a settings file is laid out, so writing it back changes as little as possible. */

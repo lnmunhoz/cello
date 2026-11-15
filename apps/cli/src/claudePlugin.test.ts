@@ -113,6 +113,44 @@ describe("writePluginFolder", () => {
     expect(fs.readFileSync(target, "utf8")).toBe("not Cello's\n")
   })
 
+  it("refuses to write through a symlinked folder inside the plugin folder, leaving where it points alone", () => {
+    const elsewhere = path.join(dir, "elsewhere")
+    fs.mkdirSync(path.join(elsewhere, "commands"), { recursive: true })
+    fs.writeFileSync(path.join(elsewhere, "commands", "work.md"), "not Cello's\n")
+    fs.mkdirSync(folder, { recursive: true })
+    fs.symlinkSync(elsewhere, path.join(folder, "cello"))
+    expect(() => writePluginFolder(folder, files)).toThrow(`${path.join(folder, "cello")} is a symlink; Cello only writes real folders inside ${folder}`)
+    expect(fs.readFileSync(path.join(elsewhere, "commands", "work.md"), "utf8")).toBe("not Cello's\n")
+  })
+
+  it("never removes a file it wrote earlier through a symlinked folder", () => {
+    writePluginFolder(folder, files)
+    const elsewhere = path.join(dir, "elsewhere")
+    fs.mkdirSync(path.join(elsewhere, "commands"), { recursive: true })
+    fs.writeFileSync(path.join(elsewhere, "commands", "work.md"), "not Cello's\n")
+    fs.rmSync(path.join(folder, "cello"), { recursive: true })
+    fs.symlinkSync(elsewhere, path.join(folder, "cello"))
+    writePluginFolder(folder, [files[0]!])
+    expect(fs.readFileSync(path.join(elsewhere, "commands", "work.md"), "utf8")).toBe("not Cello's\n")
+  })
+
+  it("works when the plugin folder itself is a symlink (dotfiles)", () => {
+    const real = path.join(dir, "dotfiles", "claude-plugin")
+    fs.mkdirSync(real, { recursive: true })
+    fs.mkdirSync(path.dirname(folder), { recursive: true })
+    fs.symlinkSync(real, folder)
+    expect(writePluginFolder(folder, files)).toEqual({ changed: true })
+    expect(fs.readFileSync(path.join(real, "cello/commands/work.md"), "utf8")).toBe("Work.\n")
+  })
+
+  it("skips a folder named in its list of files instead of failing on it", () => {
+    fs.mkdirSync(path.join(folder, "cello", "commands"), { recursive: true })
+    fs.writeFileSync(path.join(folder, OWN_FILES), JSON.stringify(["cello/commands", "cello"]))
+    expect(writePluginFolder(folder, [files[0]!])).toEqual({ changed: true })
+    expect(fs.existsSync(path.join(folder, "cello", "commands"))).toBe(true)
+    expect(writePluginFolder(folder, [files[0]!])).toEqual({ changed: false })
+  })
+
   it("refuses a file path that would leave the folder", () => {
     expect(() => writePluginFolder(folder, [{ path: "../escape.md", text: "x" }])).toThrow("outside")
     expect(fs.existsSync(path.join(folder, "..", "escape.md"))).toBe(false)

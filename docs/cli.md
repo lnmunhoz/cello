@@ -411,7 +411,7 @@ For a task Lucas N. Munhoz sent back, fix what the note asks, then hand it in ag
 | --- | --- | --- |
 | `/cello:orchestrate [task keys, or a goal]` | You type it at the start of a thread | Makes this thread the **orchestrator**: it claims the tasks (or creates them from a goal), then runs each one through a builder agent in its own worktree, a fresh reviewer, fixes, merge and `cello task submit`, marking each step with `cello task stage`. It doesn't write the feature code itself. |
 | `/cello:work <task key, or what to do>` | You type it | Does one task in this thread: find or create it, claim, test first, comment progress, submit with evidence. |
-| The `cello` skill | Claude loads it by itself in a repo tracked in Cello | The core rules in ten lines (a task before work, claim, ask on the card, submit), and a pointer to `cello guide`. |
+| The `cello` skill | Claude loads it by itself in a repo tracked in Cello | The core rules in a few lines (a task before work, claim, ask on the card, submit), and a pointer to `cello guide`. |
 | `cello:builder` and `cello:reviewer` agents | The orchestrator starts them | A builder that works test first in its own worktree and never pushes or touches the live board; a read-only reviewer that judges the diff against the task text and gives a verdict. When the repo has its own agents in `.claude/agents/` (named like `*-builder`, `*-reviewer`), the orchestrator uses those instead. |
 
 ```
@@ -436,11 +436,14 @@ flowchart TD
     E --> F(["Submit right away<br/>cello task submit: In Review"])
 ```
 
-- **Where the files go.** The plugin's files are written to `$XDG_DATA_HOME/cello/claude-plugin` (by default `~/.local/share/cello/claude-plugin`), a folder of Cello's own, never inside the repo or `~/.cello`. Every install rewrites what changed there, so updating `cello` and running `cello install claude` again updates the plugin. Cello only ever removes files it wrote there itself.
+- **Where the files go.** The plugin's files are written to `$XDG_DATA_HOME/cello/claude-plugin` (by default `~/.local/share/cello/claude-plugin`), a folder of Cello's own, never inside the repo or `~/.cello`. Every install rewrites what changed there, so updating `cello` and running `cello install claude` again updates the plugin. Cello only ever removes files it wrote there itself, and refuses to write through a symlinked folder inside it.
+- **Don't edit the plugin's files there:** the next install puts Cello's text back. Put your own commands in the project's `.claude/commands/` (or skills in `.claude/skills/`) instead.
 - **How it's enabled.** Two entries in the same settings file as the hooks: `extraKnownMarketplaces.cello` (that folder, as a local marketplace) and `enabledPlugins["cello@cello"]: true`. Claude Code loads the plugin straight from the folder when a session starts, with no prompt, as long as you've trusted the project folder (as you have for the hooks).
 - **Per project by default,** like the hooks, since not every project uses Cello. `--user` enables it for every project on this machine.
 - **`--shared`** enables it in the committed `.claude/settings.json`, but the marketplace is a folder on your machine, so it's declared in your `.claude/settings.local.json` instead. Others who clone the repo get the plugin once they run `cello install claude` themselves.
 - **Running it again changes nothing.** In a project set up before the plugin existed, it adds the plugin and leaves the hooks as they are.
+- **A plugin you turned off stays off.** If the settings file says `"cello@cello": false`, install leaves it and says so; set it to `true`, or delete the line, to turn it on.
+- **Another marketplace called `cello`** in the settings file (one that isn't Cello's folder) is never replaced: install refuses with a sentence and changes nothing, and uninstall leaves it and the `cello@cello` it enables alone. With `--shared`, both files are checked before either is written.
 - **Removing it:** `cello uninstall claude` takes the plugin out of all three settings files with the hooks. The folder stays, since other projects may still enable it; delete it yourself when none do.
 - **Check it:** in a new session, typing `/cello:` lists the two commands. From a shell in the project, `claude plugin details cello@cello` shows its commands, skill and agents once a session has started there. `claude plugin list` doesn't list it: that shows only plugins added with `claude plugin install`, which Cello doesn't run because it rewrites the whole settings file.
 
