@@ -1,6 +1,6 @@
 // Read models for the CLI (and later MCP): one RPC returns everything a command prints.
 import * as Schema from "effect/Schema"
-import { Actor, AgentSession, Comment, DocumentSummary, Label, Project, Review, Status, Task } from "./entities.ts"
+import { Actor, AgentSession, Comment, DocumentSummary, InboxItem, Label, Project, Review, Status, Task } from "./entities.ts"
 import { CelloEvent } from "./events.ts"
 
 /** Who the server sees: the actor, its agent session (null for the human), and the project if one resolved. */
@@ -34,8 +34,21 @@ export const ProjectContext = Schema.Struct({
   recent: Schema.Array(Activity),
   /** Claims this session lost, newest first: taken over by another session, or ended by a human change. */
   lostClaims: Schema.Array(Activity),
+  /** Comments waiting in this session's inbox, from every project, oldest first (empty for the human). */
+  inbox: Schema.Array(InboxItem),
 })
 export type ProjectContext = typeof ProjectContext.Type
+
+/** An agent session's inbox (`cello inbox`): the human's comments on tasks it claimed. */
+export const Inbox = Schema.Struct({
+  /** The caller's session; null for the human, who has no inbox. */
+  session: Schema.NullOr(AgentSession),
+  /** Oldest first: every new item, plus (unless only new ones were asked for) the latest read ones. */
+  items: Schema.Array(InboxItem),
+  /** How many items are new. */
+  unread: Schema.Number,
+})
+export type Inbox = typeof Inbox.Type
 
 export const TaskList = Schema.Struct({ ...projectFields, tasks: Schema.Array(Task) })
 export type TaskList = typeof TaskList.Type

@@ -1,6 +1,7 @@
 // Review packets: what an agent hands Lucas when it moves a task to In Review. Submit copies the
 // evidence into the data folder and moves the task in one command; only the human approves (to the
-// first completed status) or sends back (to the first started status, with the note as a comment).
+// first completed status) or sends back (to the first started status, with the note as a comment that
+// lands in the agent session's inbox).
 import * as path from "node:path"
 import type { Review, Task } from "@cello/contract/entities"
 import { HumanOnly, Invalid, NotFound } from "@cello/contract/errors"
@@ -13,6 +14,7 @@ import * as SqlClient from "effect/sql/SqlClient"
 import type { SqlError } from "effect/sql/SqlError"
 import * as CommentService from "../comment/CommentService.ts"
 import * as Commands from "../commands/Commands.ts"
+import * as InboxService from "../inbox/InboxService.ts"
 import { newId } from "../persistence/ids.ts"
 import { selectReviews, selectStatuses } from "../persistence/rows.ts"
 import * as Seed from "../persistence/Seed.ts"
@@ -60,6 +62,7 @@ const make = Effect.gen(function* () {
   const commands = yield* Commands.Commands
   const tasks = yield* TaskService.TaskService
   const comments = yield* CommentService.CommentService
+  const inbox = yield* InboxService.InboxService
   const assets = yield* AssetStore.AssetStore
   const human = yield* Seed.HumanActor
 
@@ -170,9 +173,10 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const started = sendBackTarget(yield* statusesOf(task))
         if (started === null) return yield* new Invalid({ field: "key", reason: "this workspace has no started status" })
-        // Sent back to the same agent: its claim stays, and the note waits for it as a comment.
+        // Sent back to the same agent: its claim stays, and the note waits for it as a comment, in its inbox.
         const moved = yield* tasks.moveWithin(context, { id: task.id, statusId: started.id, keepClaim: true })
-        yield* comments.addWithin(context, { taskId: task.id, body: note })
+        const comment = yield* comments.addWithin(context, { taskId: task.id, body: note })
+        yield* inbox.deliverWithin(context, comment, "send_back")
         return moved
       }))
   })

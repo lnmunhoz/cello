@@ -25,7 +25,7 @@ import {
 } from "./entities.ts"
 import { HumanOnly, Invalid, KeyTaken, NotFound, ReviewRequired, SnapshotRequired, TaskClaimed, VersionConflict } from "./errors.ts"
 import { CelloEvent } from "./events.ts"
-import { DocumentList, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
+import { DocumentList, Inbox, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
 
 /** Who is calling, resolved by the server from per-request RPC headers. */
 export class Caller extends Context.Service<Caller, {
@@ -195,6 +195,11 @@ export const CelloRpcs = RpcGroup.make(
     success: write(Task),
     error: Schema.Union([NotFound, Invalid]),
   }),
+
+  // The caller's inbox (CEL-15): the human's comments on tasks its session claimed. Read marks are the
+  // session's own bookkeeping, not board changes: no commandId, no event, and marking twice is harmless.
+  Rpc.make("inbox.list", { payload: { unreadOnly: Schema.optionalKey(Schema.Boolean) }, success: Inbox }),
+  Rpc.make("inbox.markRead", { payload: { ids: Schema.Array(Id) }, success: Schema.Struct({ marked: Schema.Number }) }),
 
   // Review packets. `review.submit` copies the files (absolute paths on this machine) into the data
   // folder and moves the task to In Review, in one command. Only the human approves or sends back.
