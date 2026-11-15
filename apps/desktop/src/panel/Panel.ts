@@ -11,7 +11,7 @@ import {
   type PanelState,
   type ResizeMessage,
 } from "../ipc.ts"
-import { addressToUrl, boardTaskKey, panelNavigationAction, panelPageUrl, panelTitle, panelUrl, panelWindowOpenAction } from "./urls.ts"
+import { addressToUrl, panelNavigation, panelPageUrl, panelTitle, panelUrl, panelWindowOpen, type PanelContext, type PanelOpen } from "./urls.ts"
 
 /** Panel pages keep their cookies across launches, apart from the board's session. */
 export const PANEL_PARTITION = "persist:panel"
@@ -178,31 +178,18 @@ export class Panel {
       this.#sendState()
     })
     page.setWindowOpenHandler((details) => {
-      const task = boardTaskKey(details.url, this.host.boardOrigin())
-      if (task) {
-        this.host.openTask(task)
-        return { action: "deny" }
-      }
-      const action = panelWindowOpenAction(details)
-      if (action === "popup") return { action: "allow", overrideBrowserWindowOptions: POPUP_OPTIONS }
-      if (action === "panel") this.#load(details.url)
-      if (action === "external") void shell.openExternal(details.url)
+      const open = panelWindowOpen(details, this.#context())
+      if (open.kind === "popup") return { action: "allow", overrideBrowserWindowOptions: POPUP_OPTIONS }
+      this.#follow(open, details.url)
       return { action: "deny" }
     })
     // A sign-in popup may not open popups of its own.
     page.on("did-create-window", (popup) => popup.webContents.setWindowOpenHandler(() => ({ action: "deny" })))
     page.on("will-navigate", (event, url) => {
-      // A link to a task on the board (a task key in a Cello page) opens it in the main window; the page stays.
-      const task = boardTaskKey(url, this.host.boardOrigin())
-      if (task) {
-        event.preventDefault()
-        this.host.openTask(task)
-        return
-      }
-      const action = panelNavigationAction(url)
-      if (action === "allow") return
+      const open = panelNavigation(url, this.#context())
+      if (open.kind === "allow") return
       event.preventDefault()
-      if (action === "external") void shell.openExternal(url)
+      this.#follow(open, url)
     })
     page.on("before-input-event", (event, input) => {
       // ⌘L puts the cursor in the address field, as in a browser.
@@ -211,6 +198,18 @@ export class Panel {
         this.focusAddress()
       }
     })
+  }
+
+  /** The board's origin and the page the panel shows: what decides where its links go (urls.ts). */
+  #context(): PanelContext {
+    return { boardOrigin: this.host.boardOrigin(), from: this.page.webContents.getURL() }
+  }
+
+  /** A task key in a Cello page opens the task on the board (the page stays); a load replaces the page. */
+  #follow(open: PanelOpen, url: string): void {
+    if (open.kind === "task") this.host.openTask(open.key)
+    else if (open.kind === "load") this.#load(open.url)
+    else if (open.kind === "external") void shell.openExternal(url)
   }
 
   #run(command: ChromeCommand): void {

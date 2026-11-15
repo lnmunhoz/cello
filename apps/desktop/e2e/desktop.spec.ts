@@ -201,7 +201,7 @@ test("CEL-20: a task key clicked in a page shown in the native panel opens the t
   await panel.waitForURL(`${pageUrl}?embed=1`)
   await expect(panel.getByRole("heading", { level: 1, name: "Desktop progress" })).toBeVisible()
   await expect(panel.getByRole("navigation", { name: "Projects" })).toHaveCount(0)
-  const key = panel.locator('[data-task-key="DSK-2"]')
+  const key = panel.locator('[data-task-link="DSK-2"]')
   await expect(key).toHaveAttribute("href", "/DSK/2")
   await expect(key.locator("[data-task-status]")).toHaveText("Todo")
 

@@ -16,16 +16,54 @@ export const panelUrl = (raw: string): string | null => {
  */
 export const panelPageUrl = (url: string, boardOrigin: string | null): string => (boardOrigin ? embedUrl(url, boardOrigin) : url)
 
-/**
- * The task a link to the board shows ("http://127.0.0.1:4747/CEL/3" → "CEL-3"), or null. A panel page
- * following such a link (a task key in a Cello page, a link on any site) opens the task in the main
- * window instead, beside the page.
- */
+const onBoard = (url: string, boardOrigin: string | null): boolean => boardOrigin !== null && URL.parse(url)?.origin === new URL(boardOrigin).origin
+
+/** The task a link to the board shows ("http://127.0.0.1:4747/CEL/3" → "CEL-3"), or null. */
 export const boardTaskKey = (url: string, boardOrigin: string | null): string | null => {
   const target = URL.parse(url)
-  if (!target || !boardOrigin || target.origin !== new URL(boardOrigin).origin) return null
+  if (!target || !onBoard(url, boardOrigin)) return null
   const task = parseTaskPath(target.pathname)
   return task ? formatTaskKey(task.projectKey, task.number) : null
+}
+
+export interface PanelContext {
+  /** The board's origin once it's loaded, else null. */
+  readonly boardOrigin: string | null
+  /** The page the panel shows, which asks to navigate or open a window. */
+  readonly from: string
+}
+
+/** task: open it on the board, in the main window. load: load this URL in the panel instead. */
+export type PanelOpen =
+  | { readonly kind: "task"; readonly key: string }
+  | { readonly kind: "load"; readonly url: string }
+  | { readonly kind: "external" }
+  | { readonly kind: "deny" }
+
+/**
+ * A link to the board. From a Cello page (a task key), a task opens on the board, beside the page.
+ * Only from a Cello page: another site could otherwise switch the board's task, and take the focus,
+ * whenever it liked. Any other board page loads in the panel, without the sidebar. Null for other URLs.
+ */
+const boardLink = (url: string, context: PanelContext): PanelOpen | null => {
+  if (!onBoard(url, context.boardOrigin)) return null
+  const task = onBoard(context.from, context.boardOrigin) ? boardTaskKey(url, context.boardOrigin) : null
+  return task ? { kind: "task", key: task } : { kind: "load", url: panelPageUrl(url, context.boardOrigin) }
+}
+
+/** Where a panel page's navigation (a link it follows, `location = …`) goes. */
+export const panelNavigation = (url: string, context: PanelContext): PanelOpen | { readonly kind: "allow" } => {
+  const board = boardLink(url, context)
+  if (board) return board.kind === "load" && board.url === url ? { kind: "allow" } : board
+  return { kind: panelNavigationAction(url) }
+}
+
+/** Where a panel page's new window (target=_blank, `window.open`) goes. */
+export const panelWindowOpen = (details: { readonly url: string; readonly disposition: string }, context: PanelContext): PanelOpen | { readonly kind: "popup" } => {
+  const board = boardLink(details.url, context)
+  if (board) return board
+  const action = panelWindowOpenAction(details)
+  return action === "panel" ? { kind: "load", url: details.url } : { kind: action }
 }
 
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i

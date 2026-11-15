@@ -54,12 +54,15 @@ Electron's Node can't run the Bun server, so the app uses the `cello` binary as 
 - Links that open a new window, from the board or from a panel page, open in the panel. Links off
   the board's origin open there too. A scripted popup (`window.open` with features, as sign-in
   flows use) opens as its own window.
-- The board's own pages show in the panel without the app's sidebar (`?embed=1`), however they were
-  opened: from the board, a `cello://open` link or the address field.
-- A link in the panel to a task on the board (a task key in a Cello page, `…/CEL/3` on any site)
-  opens the task in the main window; the page stays in the panel. Main sends the key to the board's
-  preload, which hands it to the web app as the same `cello:task` message a page in the web viewer's
-  iframe posts, so the board opens it with its router, without reloading.
+- The board's own pages show in the panel without the app's sidebar (`?embed=1`), however they got
+  there: from the board, a `cello://open` link, the address field, or a link followed inside the panel.
+- A task key clicked in a Cello page in the panel opens the task in the main window; the page stays
+  in the panel. Main sends the key to the board's preload, which hands it to the web app as the same
+  `cello:task` message a page in the web viewer's iframe posts, so the board opens it with its router,
+  without reloading.
+- Only Cello pages can do that. A link to a board task on any other site loads in the panel instead,
+  so a site can't switch the board's task, or take the focus, by setting `location` or calling
+  `window.open` on its own.
 - **Toolbar:** back, forward, reload, the title (click it to type a URL: `localhost:5173`,
   `claude.ai/…`), open in your browser, close. Drag the panel's left edge to resize it.
 - **Keys:** ⌘\ toggles the panel (it comes back on the page it showed), ⌘L puts the cursor in the
