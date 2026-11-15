@@ -1,6 +1,7 @@
 // `bun run package`: an unsigned Cello.app for Apple silicon in dist/mac-arm64/, with the compiled
 // `cello` binary (and the web app it embeds) at Contents/Resources/cello. Builds the CLI first;
-// `--skip-cli` reuses apps/cli/dist/cello as it is.
+// `--skip-cli` reuses apps/cli/dist/cello as it is. `--install` also copies the app to /Applications, where
+// Launchpad, Spotlight and Raycast list it (they don't look in dist/).
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { desktopDir } from "./electron.ts"
@@ -25,3 +26,12 @@ const app = path.join(desktopDir, "dist/mac-arm64/Cello.app")
 fs.rmSync(path.join(app, "Contents/Resources/default_app.asar"), { force: true })
 const size = Bun.spawnSync(["du", "-sh", app]).stdout.toString().split("\t")[0]
 console.log(`Packaged ${app} (${size})`)
+
+if (process.argv.includes("--install")) {
+  const installed = "/Applications/Cello.app"
+  // Quit Cello first if it runs from /Applications: the copy replaces the bundle.
+  run(["rm", "-rf", installed], desktopDir)
+  run(["ditto", app, installed], desktopDir)
+  run(["touch", installed], desktopDir)
+  console.log(`Installed ${installed}`)
+}

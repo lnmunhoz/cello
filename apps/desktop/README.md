@@ -11,6 +11,7 @@ Run them in `apps/desktop`:
 ```bash
 bun run dev        # build the app and run it with Electron
 bun run package    # build apps/cli/dist/cello, then an unsigned Cello.app in dist/mac-arm64/
+bun run package -- --install   # same, then copy it to /Applications (Launchpad, Spotlight, Raycast)
 bun run test:e2e   # Playwright's Electron tests, in Docker (same as test:docker:desktop at the root)
 ```
 
