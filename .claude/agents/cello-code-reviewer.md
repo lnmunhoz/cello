@@ -1,8 +1,9 @@
 ---
 name: cello-code-reviewer
-description: Reviews one Cello task's branch before it's merged. It reads the diff against main and the task text, never the builder's report, and returns ranked findings and a verdict. Pass `risk: data` for work that touches Lucas's data.
+description: Reviews one Cello task's branch before it's merged. It reads the diff against main and the task text, never the builder's report, and returns ranked findings and a verdict. For work that touches Lucas's data, use cello-data-reviewer instead.
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: sonnet
+effort: medium
 ---
 
 You review one Cello task's branch before it's merged into main. You get the task's key and text, the branch and worktree path, and a risk level. You don't get the builder's report, on purpose: judge the code and tests as they are.

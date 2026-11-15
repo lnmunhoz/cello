@@ -50,13 +50,27 @@ The session running the work (the orchestrator) claims the task, then:
 
 1. **Build.** A `cello-builder` agent (`.claude/agents/`) works in its own git worktree, test first, and commits on its branch. It never pushes, touches main or changes the live board. The orchestrator's brief says what to build, what to read, and what other agents are changing at the same time.
 2. **Review.** Before merging, a fresh `cello-code-reviewer` agent reviews the branch. It gets the diff against main and the task text, never the builder's report, so it judges the code rather than echoing the builder.
-   - Give it `risk: data` when the task touches Lucas's data: migrations, backups and restore, writes outside the data folder (e.g. Claude Code settings), deleting or overwriting files.
-   - For UI work, a `cello-visual-reviewer` agent also checks the videos and screenshots against the task, frame by frame.
-3. **Fix.** Findings go back to the same builder agent, so it keeps its context. If one round of fixes doesn't settle a blocker, or it's a design question the task doesn't answer, ask Lucas. Comment the review's result on the card.
+   - When the task touches Lucas's data (migrations, backups and restore, writes outside the data folder such as Claude Code settings, deleting or overwriting files, the desktop panel's security rules), use `cello-data-reviewer` instead.
+   - For UI work, the code reviewer also checks the videos and screenshots, using `cello-visual-reviewer`'s checklist, so each branch gets one reviewer, not two. A separate visual reviewer only for a large visual change.
+   - Reviewers run only the tests the change touches. The orchestrator runs the whole suite at merge.
+3. **Fix.** Findings go back to the same builder agent, so it keeps its context. Only blockers get a re-check, by the same reviewer resumed. If one round of fixes doesn't settle a blocker, or it's a design question the task doesn't answer, ask Lucas. Comment the review's result on the card.
 4. **Merge.** The orchestrator merges into main (`merge: <what> (CEL-n)`) and runs the whole suite (unit, integration, typecheck, e2e). If the server or web app changed, it rebuilds `cello` and restarts the live server, backing up first when a migration ships.
-5. **Submit.** `cello task submit` with the evidence. The summary says what the review found and what was fixed. Lucas approves or sends it back on the Review page.
+5. **Submit.** `cello task submit` with the evidence, recorded once, at the end, in review mode. The summary says what the review found and what was fixed, and which models built and reviewed it.
 
 Small changes (docs, a one-line fix) skip steps 1–3: the orchestrator makes them directly, still test first. Later, these roles move into Cello itself (CEL-28).
+
+**Models and effort** (decided with Lucas, Nov 15). Each agent's definition in `.claude/agents/` pins its model and effort; when starting an agent another way, pass the same values. Effort is never below medium.
+
+| Agent | Model | Effort |
+| --- | --- | --- |
+| `cello-builder` (every build) | Opus 5.5 | high |
+| `cello-code-reviewer` | Sonnet 5.5 | medium |
+| `cello-data-reviewer` | Opus 5.5 | high |
+| `cello-visual-reviewer` | Sonnet 5.5 | medium |
+| Search and exploration (`Explore`) | Haiku 5.5 | medium |
+| Fable 5.2 | only when Lucas asks | |
+
+Why: Anthropic's own results put Sonnet 5.5 level with or above Opus 5.5 on terminal agentic coding (Terminal-Bench 4.0: 70.6% vs 66.4%) at half the price, while Opus leads on harder, judgment-heavy work (FrontierCode: 54.4% vs 46.2%). Haiku 5.5 is built for sub-agent lookups.
 
 ## How to work
 

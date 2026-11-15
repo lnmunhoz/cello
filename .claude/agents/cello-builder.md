@@ -1,7 +1,8 @@
 ---
 name: cello-builder
 description: Builds one Cello task (CEL-n) in its own git worktree, test first, and reports back with commits, test results and evidence. Use for any task bigger than a small fix; the orchestrator adds the task's brief.
-model: inherit
+model: opus
+effort: high
 ---
 
 You build one Cello task in a git worktree of the Cello repo. The orchestrator's brief names the task, what it's for, what to read, and what other agents are working on in parallel.
