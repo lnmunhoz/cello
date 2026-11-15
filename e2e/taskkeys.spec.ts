@@ -51,8 +51,8 @@ test("CEL-20: a page's task table links its keys with their live status; moving 
   await caption(page, "An agent publishes a progress page with a task table")
   const { path: pagePath, dir } = publishProgress(key)
 
-  await caption(page, "Open the page: the keys are links, each with its task's status")
   await page.goto(pagePath)
+  await caption(page, "Open the page: the keys are links, each with its task's status")
   const article = page.getByRole("article")
   // Each task's own row (the second row also names the first task, in its notes).
   const first = article.locator("tbody tr").nth(0).locator(`[data-task-key="${key}-1"]`)
@@ -103,8 +103,8 @@ test("CEL-20: inside the viewer panel, a key in a page opens its task in the mai
   await createProject(page, "Viewer links test", key)
   const { path: pagePath, dir } = publishProgress(key)
 
-  await caption(page, `Open ${key}-1 and leave a comment with a link to the page`)
   await page.goto(`/${key}/1`)
+  await caption(page, `Open ${key}-1 and leave a comment with a link to the page`)
   const panel = taskPanel(page, `${key}-1`)
   const pageUrl = `${WEB_URL}${pagePath}`
   await panel.getByLabel("New comment").fill(`Progress: ${pageUrl}`)
@@ -127,8 +127,8 @@ test("CEL-20: inside the viewer panel, a key in a page opens its task in the mai
   // The board navigated in place: no reload, and no second copy of the app inside the panel.
   expect(await page.evaluate(() => (window as { stillTheSamePage?: boolean }).stillTheSamePage)).toBe(true)
 
-  await caption(page, `Back on ${key}-1, the page's linked-task chip does the same`)
   await page.goto(`/${key}/1`)
+  await caption(page, `Back on ${key}-1, the page's linked-task chip does the same`)
   await panel.locator("[data-comment-id]").getByRole("link", { name: pageUrl }).click()
   await frame.locator(`[data-task-chip="${key}-2"]`).click()
   await expect(page).toHaveURL(new RegExp(`/${key}/2$`))
