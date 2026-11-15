@@ -4,24 +4,32 @@
 // theme changes.
 import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { backgroundOf, mermaidConfig } from "./mermaidConfig.ts"
+import { RenderSkipped, renderQueue } from "./renderQueue.ts"
 
 type MermaidApi = (typeof import("mermaid"))["default"]
 
 let library: Promise<MermaidApi> | null = null
 let renders = 0
-/** Renders one at a time: `initialize` sets Mermaid's global config, so another diagram's call mid-render would change this one's. */
-let queue: Promise<unknown> = Promise.resolve()
+/** One at a time (`initialize` sets Mermaid's global config, so another diagram's call mid-render would change this one's), 10 s each. */
+const enqueue = renderQueue(10_000)
 
-const renderDiagram = (source: string, dark: boolean, background: string): Promise<string> => {
-  const next = queue.then(async () => {
-    const mermaid = await (library ??= import("mermaid").then((m) => m.default))
+/** The library, loaded once; a failed load (say, a chunk gone after a deploy) is tried again next time. */
+const loadMermaid = () =>
+  (library ??= import("mermaid").then(
+    (m) => m.default,
+    (error: unknown) => {
+      library = null
+      throw error
+    },
+  ))
+
+const renderDiagram = (source: string, dark: boolean, background: string, wanted: () => boolean): Promise<string> =>
+  enqueue(async () => {
+    const mermaid = await loadMermaid()
     mermaid.initialize(mermaidConfig({ dark, background }))
     const { svg } = await mermaid.render(`cello-diagram-${++renders}`, source)
     return svg
-  })
-  queue = next.catch(() => undefined)
-  return next
-}
+  }, wanted)
 
 /** The colors behind an element, from it outward, as the browser computes them. */
 const backgroundsFrom = (element: Element | null): string[] => {
@@ -49,9 +57,11 @@ export function Mermaid({ source }: { source: string }) {
     let current = true
     const theme = dark ? "dark" : "light"
     // Edge labels get the color behind the diagram, read now that the theme's class is on <html>.
-    renderDiagram(source, dark, backgroundOf(backgroundsFrom(figure.current), dark ? "#1c1c1f" : "#ffffff")).then(
+    // A render still queued when this diagram unmounts or its theme changes is skipped.
+    renderDiagram(source, dark, backgroundOf(backgroundsFrom(figure.current), dark ? "#1c1c1f" : "#ffffff"), () => current).then(
       (svg) => current && setRendered({ svg, theme }),
-      (error: unknown) => current && setRendered({ error: error instanceof Error ? error.message : String(error), theme }),
+      (error: unknown) =>
+        current && !(error instanceof RenderSkipped) && setRendered({ error: error instanceof Error ? error.message : String(error), theme }),
     )
     return () => {
       current = false
