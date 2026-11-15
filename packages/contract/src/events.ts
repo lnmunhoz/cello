@@ -90,7 +90,7 @@ export const CelloEvent = Schema.Union([
   event("task.claim_ended", { id: Id, version: Schema.Number, from: ClaimHolder, reason: Schema.Literals(["human_change"]) }),
   // `cello task stage` (CEL-35). A status change clears the stage inside its own `task.moved`.
   event("task.stage_changed", { id: Id, version: Schema.Number, before: Schema.NullOr(TaskStage), after: Schema.NullOr(TaskStage) }),
-  // An agent session holding a claim checked in (at most once every 30 s) or its process exited, so
+  // An agent session holding a claim checked in (at most once every 2 minutes) or its process exited, so
   // boards show who is working right now (CEL-35). Workspace-level (no projectId): one per workspace
   // the session holds claims in. Not a task change: the task's version stays.
   event("session.seen", { session: AgentSession }),

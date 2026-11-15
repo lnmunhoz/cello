@@ -72,9 +72,11 @@ test("CEL-5, CEL-35: an agent claims, checks in and moves through the stages: ca
   await live.run((c) => c["task.stage"]({ commandId: newCommandId(), key: first, stage: "review" }))
   await expect(firstCard.locator('[data-stage="review"]')).toHaveText("Agent review")
 
-  await caption(page, "The task panel says it too: who's on it and the stage in the header, Created by, Last changed and Working on it")
   await firstCard.click()
   const panel = taskPanel(page, first)
+  await expect(panel).toBeVisible()
+  // Opened first, so the panel stays on screen for the whole caption.
+  await caption(page, "The task panel says it too: who's on it and the stage in the header, Created by, Last changed and Working on it")
   await expect(panel.locator("[data-panel-work]")).toContainText("5e7a91c2 active now")
   await expect(panel.locator("[data-panel-work]")).toContainText("Agent review")
   await expect(panel.locator("[data-last-changed]")).toContainText("Claude Code session 5e7a91c2")

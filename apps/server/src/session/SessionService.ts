@@ -13,6 +13,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
+import type { SqlError } from "effect/sql/SqlError"
 import * as Commands from "../commands/Commands.ts"
 import { newId } from "../persistence/ids.ts"
 import * as Seed from "../persistence/Seed.ts"
@@ -30,8 +31,23 @@ export interface Identity {
 /** A claim holder with no pid is gone after this long without a call. */
 export const IDLE_CLAIM_MS = 2 * 60 * 60 * 1000
 
-/** Boards hear a session check in at most this often (per workspace), however many calls it makes. */
-export const PRESENCE_EVERY_MS = 30_000
+/**
+ * Boards hear a session check in at most this often (per workspace), however many calls it makes.
+ * Well inside ACTIVE_MS (5 min, @cello/shared/presence), so a working session reads "active now"
+ * throughout, with few `session.seen` rows in the log.
+ */
+export const PRESENCE_EVERY_MS = 2 * 60_000
+
+/**
+ * Marks a session ended, but only if nothing changed since `seen` was read: still not ended and not
+ * checked in since (`last_seen_at` as read). A session resuming between the sweep's read and this write
+ * stays live. Returns whether it was ended. Runs inside the command that tells the boards.
+ */
+export const endIfUnchanged = (sql: SqlClient.SqlClient, seen: Pick<AgentSession, "id" | "lastSeenAt">, now: number) =>
+  sql<{ id: string }>`
+    UPDATE agent_sessions SET ended_at = ${now}
+    WHERE id = ${seen.id} AND ended_at IS NULL AND last_seen_at = ${seen.lastSeenAt}
+    RETURNING id`.pipe(Effect.map((rows) => rows.length > 0))
 
 /**
  * Whether a session holding a claim is gone: its process exited (checked by pid, since the server
@@ -147,22 +163,37 @@ const make = Effect.gen(function* () {
       SELECT DISTINCT p.workspace_id FROM tasks t JOIN projects p ON p.id = t.project_id
       WHERE t.assignee_session_id = ${sessionId} AND t.archived_at IS NULL`.pipe(Effect.map((rows) => rows.map((r) => r.workspace_id)))
 
-  /** One session.seen per workspace, as the session itself, with no receipt (nobody retries it). */
-  const tell = (session: AgentSession, workspaceIds: ReadonlyArray<string>, now: number) => {
-    for (const id of workspaceIds) heard.set(`${session.id} ${id}`, now)
-    return commands.write({ commandId: crypto.randomUUID(), rpc: "session.seen", receipt: false }, ({ emit }) =>
-      Effect.forEach(workspaceIds, (workspaceId) => emit({ type: "session.seen", session }, { workspaceId, projectId: null }), { discard: true }),
-    ).pipe(Effect.provideService(Caller, { actorId: session.actorId, sessionId: session.id }))
-  }
+  /**
+   * One session.seen per workspace, as the session itself, with no receipt (nobody retries it). `first`
+   * runs in the same command and can call it off (false): the event and its change commit together.
+   */
+  const tell = (
+    session: AgentSession,
+    workspaceIds: ReadonlyArray<string>,
+    now: number,
+    first: Effect.Effect<boolean, SqlError> = Effect.succeed(true),
+  ) =>
+    commands.write({ commandId: crypto.randomUUID(), rpc: "session.seen", receipt: false }, ({ emit }) =>
+      Effect.gen(function* () {
+        if (!(yield* first)) return false
+        yield* Effect.forEach(workspaceIds, (workspaceId) => emit({ type: "session.seen", session }, { workspaceId, projectId: null }), {
+          discard: true,
+        })
+        for (const id of workspaceIds) heard.set(`${session.id} ${id}`, now)
+        return true
+      })).pipe(Effect.map((written) => written.result), Effect.provideService(Caller, { actorId: session.actorId, sessionId: session.id }))
 
   const checkIn = Effect.fn("SessionService.checkIn")(function* (caller: Caller["Service"]) {
     if (caller.sessionId === null) return
     const now = yield* Clock.currentTimeMillis
     const due = (yield* claimWorkspaces(caller.sessionId)).filter((w) => {
       const last = heard.get(`${caller.sessionId} ${w}`)
-      return last === undefined || now - last >= PRESENCE_EVERY_MS
+      // A clock set back would otherwise hold every check-in until it caught up.
+      return last === undefined || now < last || now - last >= PRESENCE_EVERY_MS
     })
     if (due.length === 0) return
+    // Marked before the write, so parallel calls (the hook on parallel tool calls) send it once.
+    for (const w of due) heard.set(`${caller.sessionId} ${w}`, now)
     const [session] = yield* byIds([caller.sessionId])
     if (session) yield* tell(session, due, now)
   }, Effect.orDie)
@@ -173,13 +204,15 @@ const make = Effect.gen(function* () {
       SELECT * FROM agent_sessions WHERE ended_at IS NULL
         AND id IN (SELECT assignee_session_id FROM tasks WHERE assignee_session_id IS NOT NULL AND archived_at IS NULL)`
     const gone = holding.map(toSession).filter((s) => isGone(s, now) !== false)
+    let ended = 0
     for (const session of gone) {
-      yield* sql`UPDATE agent_sessions SET ended_at = ${now} WHERE id = ${session.id}`
-      yield* tell({ ...session, endedAt: now }, yield* claimWorkspaces(session.id), now)
+      // Ended and told in one command, and only if it hasn't checked in since it was read.
+      if (!(yield* tell({ ...session, endedAt: now }, yield* claimWorkspaces(session.id), now, endIfUnchanged(sql, session, now)))) continue
+      ended++
       // Its next call (a resumed session) must reach the boards at once, whatever the throttle says.
       for (const key of heard.keys()) if (key.startsWith(`${session.id} `)) heard.delete(key)
     }
-    return gone.length
+    return ended
   }).pipe(Effect.orDie, Effect.withSpan("SessionService.sweep"))
 
   return SessionService.of({ resolve, byIds, checkIn, sweep })
