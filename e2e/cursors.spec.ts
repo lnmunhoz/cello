@@ -72,28 +72,54 @@ async function expectIdle(page: Page) {
   await expect(page.locator("[data-agent-ghost], [data-agent-hole], [data-agent-bubble]")).toHaveCount(0)
   // No card waits for a step: the animator's style rules are empty.
   expect(await page.evaluate(() => document.getElementById("agent-cursor-styles")?.textContent ?? "")).toBe("")
-  await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0)
-  // Nothing asks for animation frames: counted over ten frames of the test's own.
-  const calls = await page.evaluate(
+  // Whatever is still animating (a card settling, a notice fading) ends; then nothing is left.
+  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))))
+  expect(await page.evaluate(() => document.getAnimations().length)).toBe(0)
+  // Nothing asks for animation frames, Motion's frame loop included: the spy was in place before the
+  // app loaded, so every requestAnimationFrame the app or Motion makes is counted. Cards may still be
+  // settling into a closed slot (a Motion spring); wait for ten frames in a row with no request, so a
+  // loop that never stops fails the test by its timeout.
+  await page.evaluate(
     () =>
-      new Promise<number>((resolve) => {
-        const original = window.requestAnimationFrame.bind(window)
-        let calls = 0
-        let frames = 0
-        window.requestAnimationFrame = (cb) => {
-          calls++
-          return original(cb)
-        }
+      new Promise<void>((resolve) => {
+        const spy = (window as unknown as { __raf: { raw: typeof requestAnimationFrame; calls: number } }).__raf
+        let last = spy.calls
+        let quiet = 0
         const tick = () => {
-          if (++frames < 10) return void original(tick)
-          window.requestAnimationFrame = original
-          resolve(calls)
+          quiet = spy.calls === last ? quiet + 1 : 0
+          last = spy.calls
+          if (quiet >= 10) resolve()
+          else spy.raw(tick)
         }
-        original(tick)
+        spy.raw(tick)
       }),
   )
-  expect(calls).toBe(0)
+  expect(await framesAskedOver10(page)).toBe(0)
 }
+
+/** Counts `requestAnimationFrame` calls from the page before any of its scripts run (Motion keeps its own reference). */
+const rafSpy = () => {
+  const raw = window.requestAnimationFrame.bind(window)
+  const spy = { raw, calls: 0 }
+  ;(window as unknown as { __raf: typeof spy }).__raf = spy
+  window.requestAnimationFrame = (cb) => {
+    spy.calls++
+    return raw(cb)
+  }
+}
+
+/** How many frames the page asked for over the next ten frames (counted with the unpatched function). */
+const framesAskedOver10 = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        const spy = (window as unknown as { __raf: { raw: typeof requestAnimationFrame; calls: number } }).__raf
+        const before = spy.calls
+        let frames = 0
+        const tick = () => (++frames < 10 ? void spy.raw(tick) : resolve(spy.calls - before))
+        spy.raw(tick)
+      }),
+  )
 
 /** An agent session talking RPC with the CLI's identity headers. */
 const agentClient = (baseURL: string, session: string) =>
@@ -107,6 +133,7 @@ async function boardWith(page: Page, cello: PromiseClient, prefix: string, title
   for (const title of titles) {
     await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title, statusId: statuses.Todo!.id }))
   }
+  await page.addInitScript(rafSpy)
   await page.goto(`/${key}/issues`)
   await expect(column(page, "Todo").locator("[data-task-key]")).toHaveCount(titles.length)
   await record(page)
@@ -123,6 +150,8 @@ test("CEL-6: an agent moves, creates, comments, claims and renames cards while t
   await caption(page, `The agent runs \`cello task move ${key}-1 "In Progress"\`: its cursor picks the card up and carries it`)
   agent("task", "move", `${key}-1`, "In Progress")
   await until(page, (s) => s.carried.length > 0)
+  // The idle check's spy isn't blind: while the card flies, it counts Motion's frames.
+  expect(await framesAskedOver10(page)).toBeGreaterThan(0)
   await expect(column(page, "In Progress").locator(`[data-task-key="${key}-1"]`)).toBeVisible()
   await expect(column(page, "Todo").locator(`[data-task-key="${key}-1"]`)).toHaveCount(0)
   expect((await seen(page)).carried).toContain(`${key}-1`)
@@ -217,8 +246,12 @@ test("CEL-6: Lucas drags a card while an agent moves another: nothing shifts und
   expect((await seen(page)).holes).toBe(0)
   await expect(page.locator("[data-dragging]")).toHaveCount(1)
 
-  await caption(page, `The agent moves the card Lucas is holding to Done; Lucas drops it on In Review`)
+  await caption(page, `The agent moves ${key}-1, the card Lucas is holding, to Done: its cursor marks the card, which stays in his hand`)
   await agent.run((c) => c["task.move"]({ commandId: newCommandId(), id: held, statusId: statuses.Done!.id }))
+  await expect(page.locator("[data-agent-cursor]")).toBeVisible()
+  await expect(page.locator("[data-dragging]")).toHaveCount(1)
+  // The next caption first holds this moment in a review video.
+  await caption(page, "Lucas drops it on In Review")
   await page.mouse.move(target.x + target.width / 2, target.y + 30, { steps: 20 })
   await page.mouse.up()
 
@@ -229,6 +262,50 @@ test("CEL-6: Lucas drags a card while an agent moves another: nothing shifts und
   await page.reload()
   await expect(column(page, "In Review").locator(`[data-task-key="${key}-1"]`)).toBeVisible()
   await expect(column(page, "Done").locator(`[data-task-key="${key}-2"]`)).toBeVisible()
+  await agent.close()
+})
+
+test("CEL-6: Lucas picks up a card while an agent's moves are still flying out of its column: the card and those below it stay put until he lets go", async ({ page, cello, baseURL }) => {
+  const { key, statuses } = await boardWith(page, cello, "PICK", ["Agent takes 1", "Agent takes 2", "Agent takes 3", "Lucas picks this up", "Below it"])
+  const agent = await agentClient(baseURL!, SESSION)
+  const ids = await Promise.all([1, 2, 3].map(async (n) => (await cello.run((c) => c["task.get"]({ key: `${key}-${n}` }))).task.id))
+
+  await caption(page, `The agent moves the top three cards to Done; while the first flies, Lucas picks up ${key}-4 below them (Space)`)
+  for (const id of ids) await agent.run((c) => c["task.move"]({ commandId: newCommandId(), id, statusId: statuses.Done!.id }))
+  await until(page, (s) => s.carried.length > 0)
+  // Where the cards sit in the column's layout (not where an animation draws them) just before and
+  // just after the pickup, measured in the page in one go so the agent's own steps can't land between.
+  const pickup = await page.evaluate(async ([picked, under]) => {
+    const el = document.querySelector<HTMLElement>(`[data-task-key="${picked}"]`)!
+    const below = document.querySelector<HTMLElement>(`[data-task-key="${under}"]`)!
+    const before = { top: el.offsetTop, below: below.offsetTop, holes: document.querySelectorAll("[data-agent-hole]").length }
+    el.focus()
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true }))
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const after = { top: el.offsetTop, below: below.offsetTop, holes: document.querySelectorAll("[data-agent-hole]").length }
+    return { before, after, moving: el.hasAttribute("data-moving") }
+  }, [`${key}-4`, `${key}-5`] as const)
+  expect(pickup.moving).toBe(true)
+  expect(pickup.before.holes).toBeGreaterThan(0)
+  expect(pickup.after).toEqual(pickup.before)
+
+  await caption(page, "While he holds it, the agent's moves wait: their copies keep their places, nothing in the column moves")
+  // The agent's lane gives up the steps it held, goes quiet and its cursor fades; the column stays as it was.
+  await expect(page.locator("[data-agent-cursor]")).toHaveCount(0)
+  const during = await page.evaluate(([picked, under]) => ({
+    top: document.querySelector<HTMLElement>(`[data-task-key="${picked}"]`)!.offsetTop,
+    below: document.querySelector<HTMLElement>(`[data-task-key="${under}"]`)!.offsetTop,
+    holes: document.querySelectorAll("[data-agent-hole]").length,
+  }), [`${key}-4`, `${key}-5`] as const)
+  expect(during).toEqual(pickup.before)
+  await expect(page.locator("[data-moving]")).toHaveCount(1)
+
+  await caption(page, "He puts it back (Esc); then the agent's moves land")
+  await page.keyboard.press("Escape")
+  await expect(page.locator("[data-moving]")).toHaveCount(0)
+  await expectIdle(page)
+  await expect(column(page, "Done").locator("[data-card-title]")).toHaveText(["Agent takes 1", "Agent takes 2", "Agent takes 3"])
+  await expect(column(page, "Todo").locator("[data-card-title]")).toHaveText(["Lucas picks this up", "Below it"])
   await agent.close()
 })
 

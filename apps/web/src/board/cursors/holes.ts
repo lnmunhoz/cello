@@ -19,6 +19,16 @@ export interface Slot {
   readonly hole?: Hole
 }
 
+/**
+ * The holes without `id`. A hole that followed the closed one takes its place (the card the closed
+ * one followed), so it stays where it is instead of falling back to a stale index.
+ */
+export const closeHole = (holes: ReadonlyArray<Hole>, id: number): Hole[] => {
+  const closed = holes.find((h) => h.id === id)
+  if (!closed) return [...holes]
+  return holes.filter((h) => h.id !== id).map((h) => (h.after === closed.card && h.statusId === closed.statusId ? { ...h, after: closed.after } : h))
+}
+
 /** A column's cards with its holes put back after the card each one followed. */
 export const withHoles = (cards: ReadonlyArray<string>, holes: ReadonlyArray<Hole>): Slot[] => {
   const slots: Slot[] = cards.map((key) => ({ key }))

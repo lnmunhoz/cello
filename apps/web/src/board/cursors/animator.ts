@@ -17,7 +17,8 @@ import type { AgentSession } from "@cello/contract/entities"
 import { AGENT_COLORS, colorFromSeed } from "@cello/shared/color"
 import { animate, type AnimationPlaybackControls } from "motion"
 import { useSyncExternalStore } from "react"
-import type { Hole } from "./holes.ts"
+import { cssString, stylesFor } from "./css.ts"
+import { closeHole, type Hole } from "./holes.ts"
 import { glideMs, PACING, type Phase } from "./pacing.ts"
 import { CursorQueue, realScheduler, type Playback, type Player, type QueueStep } from "./queue.ts"
 import { changeOf, type Change } from "./steps.ts"
@@ -78,6 +79,8 @@ interface Cursor {
   x: number
   y: number
   fade: Animation | null
+  /** The pill's width, measured once per label (0: not yet). */
+  labelWidth: number
 }
 
 /** Asks the server who a session is (task.get lists the sessions a task's history names). */
@@ -111,7 +114,7 @@ const COPY_STRIPS = [
 ]
 
 export class Animator implements Player<CursorStep> {
-  readonly queue = new CursorQueue<CursorStep>(this, realScheduler, { motion: () => (this.reduced || this.dragging ? "reduced" : "full") })
+  readonly queue = new CursorQueue<CursorStep>(this, realScheduler, { motion: () => this.motion() })
 
   private visual: Visual = EMPTY
   private readonly pending = new Map<string, Pending>()
@@ -132,6 +135,11 @@ export class Animator implements Player<CursorStep> {
   private last: Synced | null = null
   private reduced = false
   private dragging = false
+  /**
+   * Steps dropped while Lucas drags: their holes keep their space and their waiting cards stay hidden
+   * until he lets go, so nothing moves under his hand. Card → the step that held it, and its hole.
+   */
+  private readonly deferred = new Map<string, { step: CursorStep; holeId: number | null }>()
 
   // ---- React ------------------------------------------------------------
 
@@ -157,10 +165,7 @@ export class Animator implements Player<CursorStep> {
 
   /** Writes the waiting cards and taken-over holes as CSS rules. */
   private paint() {
-    const rules: string[] = []
-    for (const [card, p] of this.pending) rules.push(`[data-card-id="${esc(card)}"]{${p === "queued" ? "display:none" : "opacity:0"} !important}`)
-    for (const h of this.holes) if (h.hidden) rules.push(`[data-agent-hole="${h.id}"]{visibility:hidden}`)
-    const text = rules.join("\n")
+    const text = stylesFor(this.pending, this.holes)
     let el = document.getElementById("agent-cursor-styles")
     if (!el) {
       if (text === "") return
@@ -185,6 +190,11 @@ export class Animator implements Player<CursorStep> {
   detach() {
     this.attachment = null
     this.reset()
+  }
+
+  /** How steps play now: `reduced` (a highlight) under prefers-reduced-motion or while Lucas drags. */
+  motion(): "full" | "reduced" {
+    return this.reduced || this.dragging ? "reduced" : "full"
   }
 
   /** Every change of the synced state; runs before React renders it, so the DOM still shows the old board. */
@@ -213,11 +223,17 @@ export class Animator implements Player<CursorStep> {
   setDragging(on: boolean) {
     if (on === this.dragging) return
     this.dragging = on
-    if (on) this.queue.releaseAll()
+    if (on) return this.queue.releaseAll()
+    // He let go: what waited for him lands now.
+    const deferred = [...this.deferred.values()]
+    this.deferred.clear()
+    for (const { step, holeId } of deferred) this.release(step, holeId)
   }
 
   /** Drops everything on screen. */
   reset() {
+    this.dragging = false
+    this.deferred.clear()
     this.queue.clear()
     for (const c of this.cursors.values()) c.el.remove()
     this.cursors.clear()
@@ -300,6 +316,8 @@ export class Animator implements Player<CursorStep> {
         this.labels.set(lane, `${actor} · ${short}`)
         const label = this.cursors.get(lane)?.el.querySelector("span")
         if (label) label.textContent = this.labels.get(lane)!
+        const cursor = this.cursors.get(lane)
+        if (cursor) cursor.labelWidth = 0
       })
       .catch(() => this.asked.delete(lane))
   }
@@ -430,8 +448,24 @@ export class Animator implements Player<CursorStep> {
     }
   }
 
+  /**
+   * Lucas is dragging: a flying card shows in the space it already holds and its hole stays as an empty
+   * space; a waiting card stays as he saw it (its copy in the old slot). Both land when he lets go.
+   */
+  private defer(step: CursorStep, holeId: number | null) {
+    // A step can be deferred twice (it let go of its hole, then was dropped): keep the hole it named.
+    this.deferred.set(step.card, { step, holeId: holeId ?? this.deferred.get(step.card)?.holeId ?? null })
+    if (this.pending.get(step.card) !== "flying") return
+    this.change((pending, holes) => {
+      pending.delete(step.card)
+      const i = holes.findIndex((h) => h.id === holeId)
+      if (i !== -1) holes[i] = { ...holes[i]!, hidden: true }
+    })
+  }
+
   /** The card shows at its real slot again (if this step held it), and the step's hole closes. */
   private release(step: CursorStep, holeId: number | null) {
+    if (this.dragging && this.owner.get(step.card) === step) return this.defer(step, holeId)
     const owns = this.owner.get(step.card) === step
     if (owns) this.owner.delete(step.card)
     const unhide = owns && this.pending.has(step.card)
@@ -439,7 +473,7 @@ export class Animator implements Player<CursorStep> {
     if (!unhide && !close) return
     this.change((pending, holes) => {
       if (unhide) pending.delete(step.card)
-      if (close) holes.splice(0, holes.length, ...holes.filter((h) => h.id !== holeId))
+      if (close) holes.splice(0, holes.length, ...closeHole(holes, holeId!))
     })
   }
 
@@ -472,7 +506,7 @@ export class Animator implements Player<CursorStep> {
     el.querySelector("span")!.textContent = this.nameOf(step.lane, step.actorId)
     el.style.opacity = "0"
     this.layer().append(el)
-    const cursor: Cursor = { el, x: 0, y: 0, fade: null }
+    const cursor: Cursor = { el, x: 0, y: 0, fade: null, labelWidth: 0 }
     this.cursors.set(step.lane, cursor)
     return { cursor, fresh: true }
   }
@@ -482,6 +516,10 @@ export class Animator implements Player<CursorStep> {
     cursor.x = p.x
     cursor.y = p.y
     cursor.el.style.transform = `translate(${p.x}px, ${p.y}px)`
+    // Near the board's right edge the pill goes to the arrow's left, so it stays on the board.
+    if (cursor.labelWidth === 0) cursor.labelWidth = cursor.el.querySelector("span")?.offsetWidth ?? 0
+    const right = boardRect()?.right ?? innerWidth
+    cursor.el.toggleAttribute("data-flip", p.x + LABEL_OFFSET + cursor.labelWidth > right - 4)
   }
 
   /** One timed step on Motion's frame loop, at the run's speed. Resolves false if the run stopped. */
@@ -614,7 +652,7 @@ export class Animator implements Player<CursorStep> {
           if (held.holeId != null) {
             const id = held.holeId
             held.holeId = null
-            this.change((_, holes) => holes.splice(0, holes.length, ...holes.filter((h) => h.id !== id)))
+            this.change((_, holes) => holes.splice(0, holes.length, ...closeHole(holes, id)))
           }
           const from = { x: held.g.x, y: held.g.y }
           const dx = held.g.w * 0.3
@@ -798,7 +836,7 @@ export class Animator implements Player<CursorStep> {
 // ---------------------------------------------------------------------------
 // DOM helpers
 
-const esc = (s: string) => (typeof CSS !== "undefined" && CSS.escape ? CSS.escape(s) : s.replace(/"/g, '\\"'))
+const esc = cssString
 const cardEl = (card: string) => document.querySelector<HTMLElement>(`[data-card-id="${esc(card)}"]`)
 const holeEl = (id: number) => document.querySelector<HTMLElement>(`[data-agent-hole="${id}"]`)
 const holeOfCard = (card: string) => document.querySelector<HTMLElement>(`[data-agent-hole-card="${esc(card)}"]`)
@@ -806,6 +844,8 @@ const plusOf = (statusId: string | undefined) =>
   statusId ? document.querySelector<HTMLElement>(`[data-status-id="${esc(statusId)}"] [data-column-plus]`) : null
 const keyOf = (el: HTMLElement): string | null => el.dataset?.cardId ?? el.dataset?.agentHoleCard ?? null
 const boardRect = () => document.querySelector<HTMLElement>("[data-agent-board]")?.getBoundingClientRect() ?? null
+/** Where the pill starts, right of the arrow's tip (index.css, `.agent-cursor span`). */
+const LABEL_OFFSET = 16
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
 const insideBoard = (r: DOMRect) => {

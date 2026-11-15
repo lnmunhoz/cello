@@ -226,7 +226,11 @@ function Board({
 
 /** Keyboard and pointer pickups reach the agent cursors here: while Lucas drags, they keep out of his way. */
 function DragWatcher({ movingKey }: { movingKey: string | null }) {
-  useEffect(() => animator.setDragging(movingKey !== null), [movingKey])
+  useEffect(() => {
+    animator.setDragging(movingKey !== null)
+    // Unmounted mid-drag (a route change during a keyboard pickup): the drag is over.
+    return () => animator.setDragging(false)
+  }, [movingKey])
   return null
 }
 
