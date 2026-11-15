@@ -1,0 +1,14 @@
+{
+  "name": "cello",
+  "description": "Cello, the local task board for you and your coding agents. Installed and kept current by `cello install claude`.",
+  "owner": {
+    "name": "Cello"
+  },
+  "plugins": [
+    {
+      "name": "cello",
+      "source": "./cello",
+      "description": "Work with a Cello board: /cello:orchestrate runs tasks through builder and reviewer agents, /cello:work does one task in this thread."
+    }
+  ]
+}

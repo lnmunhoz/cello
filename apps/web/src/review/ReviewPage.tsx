@@ -15,7 +15,7 @@ import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { nextRow } from "../list/rows.ts"
 import { EvidenceBadge } from "./EvidenceBadge.tsx"
 import { nextAfterDecision, rowKey } from "./queue.ts"
-import { ReviewActions } from "./ReviewActions.tsx"
+import { CommentOrDecide } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
 
 /**
@@ -129,8 +129,8 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
               Review <span className="font-normal text-muted tabular-nums">{asked.length + queue.length}</span>
             </h1>
             <p className="text-[13px] text-muted">
-              Answer the agents' questions first, then open a packet: approve it to move the task to Done, or send it back with a note for
-              the agent. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
+              Answer the agents' questions first, then open a packet: comment on it, approve it to move the task to Done, or send it back
+              with a note for the agent. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
             </p>
           </header>
           {/* Both groups are one list for the keys: ↑ ↓ go from the last ask to the first packet. */}
@@ -314,8 +314,8 @@ function QueueRow({
 }
 
 /**
- * A task waiting for review: collapsed, who submitted it and when, and its evidence; open, its packet
- * with Approve and Send back.
+ * A task waiting for review: collapsed, who submitted it and when, and its evidence; open, its packet,
+ * then the task's comments with a comment box, Send back and Approve (CEL-70).
  */
 function ReviewRow({ item, onDecided, ...row }: RowProps & { item: ReviewItem; onDecided: () => void }) {
   const { task, project, review } = item
@@ -329,13 +329,13 @@ function ReviewRow({ item, onDecided, ...row }: RowProps & { item: ReviewItem; o
       badge={<EvidenceBadge task={task} board={row.board} size="md" />}
     >
       {review ? (
-        <ReviewPacket task={task} review={review} decide onDecided={onDecided} />
+        <ReviewPacket task={task} review={review} decide onDecided={onDecided} comments={row.board} />
       ) : (
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-4">
           <p className="text-[13px] text-muted">
             No review packet: {byHand} {relativeTime(task.updatedAt)}.
           </p>
-          <ReviewActions task={task} onDecided={onDecided} />
+          <CommentOrDecide board={row.board} task={task} onDecided={onDecided} />
         </div>
       )}
     </QueueRow>
