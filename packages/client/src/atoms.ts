@@ -94,6 +94,17 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     })
     .pipe(Atom.keepAlive)
 
+  /**
+   * The newest `limit` builds the server has run (CEL-50), asked for once the server's build is known
+   * and again whenever it changes: a server records a new build when it starts on it.
+   */
+  const buildsFamily = Atom.family((limit: number) =>
+    runtime.atom((get) =>
+      Effect.gen(function* () {
+        yield* get.result(serverBuildAtom)
+        return yield* (yield* CelloClient)["builds.list"]({ limit })
+      })))
+
   const current = (registry: AtomRegistry.AtomRegistry) => {
     const synced = registry.get(syncedAtom)
     return AsyncResult.isSuccess(synced) ? synced.value : null
@@ -374,6 +385,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     pendingAtom,
     boardAtom,
     serverBuildAtom,
+    buildsFamily,
     commands,
     commentsFamily,
     reviewsFamily,

@@ -1,22 +1,25 @@
 import { buildLine, buildParts } from "@cello/shared/build"
+import { Link } from "@tanstack/react-router"
+import { useState } from "react"
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/Popover.tsx"
-import { useServerBuild } from "../lib/build.ts"
+import { runningBuild, useServerBuild } from "../lib/build.ts"
 import { Linkified } from "../viewer/ViewerLink.tsx"
 
 /**
  * The running build at the foot of the sidebar (CEL-37): "Cello 0.2.0 · build c602f25", then "live since
- * 18:19". A click lists what changed since the previous build: the merged commits, with their task keys.
+ * 18:19". A click lists what changed since the previous build: the merged commits, with their task keys,
+ * and links to the whole history on the Builds page (CEL-50).
  */
 export function BuildFooter() {
   const build = useServerBuild()
+  const [open, setOpen] = useState(false)
   if (build === null) return null
-  // The server's own commit; one run from a folder without git still names its web build's.
-  const running = { ...build, commit: build.commit ?? build.web?.commit ?? null }
+  const running = runningBuild(build)
   const now = Date.now()
   const { name, since } = buildParts(running, now)
   const changes = build.web?.changes ?? []
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger variant="footer" aria-label={`${buildLine(running, now)}. What changed in this build`} data-build-footer>
         <span className="truncate">{name}</span>
         <span className="truncate">{since}</span>
@@ -35,6 +38,9 @@ export function BuildFooter() {
           ) : (
             <p className="text-[13px] text-muted">No list of changes for this build.</p>
           )}
+          <Link to="/builds" onClick={() => setOpen(false)} className="self-start text-[13px] font-medium text-ink hover:underline">
+            See all builds →
+          </Link>
         </div>
       </PopoverContent>
     </Popover>
