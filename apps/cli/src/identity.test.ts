@@ -31,6 +31,24 @@ describe("identityHeaders", () => {
     })
   })
 
+  it("CELLO_AGENT names the session's subagent making the call (CEL-55): <type>/<id>, or just the id", () => {
+    expect(identityHeaders({ ...claude, CELLO_AGENT: "cello-builder/a13bfb89" }, "/x")).toMatchObject({
+      "x-cello-session": claude.CLAUDE_CODE_SESSION_ID,
+      "x-cello-agent": "a13bfb89",
+      "x-cello-agent-type": "cello-builder",
+    })
+    expect(identityHeaders({ ...claude, CELLO_AGENT: "my-plugin:reviewer/b77d0e11" }, "/x")).toMatchObject({
+      "x-cello-agent": "b77d0e11",
+      "x-cello-agent-type": "my-plugin:reviewer",
+    })
+    const idOnly = identityHeaders({ ...claude, CELLO_AGENT: " a13bfb89 " }, "/x")
+    expect(idOnly["x-cello-agent"]).toBe("a13bfb89")
+    expect(idOnly["x-cello-agent-type"]).toBeUndefined()
+    // No session, or the human: no agent either.
+    expect(identityHeaders({ CELLO_AGENT: "cello-builder/a13bfb89" }, "/x")).toEqual({ "x-cello-cwd": "/x" })
+    expect(identityHeaders({ ...claude, CELLO_SESSION: "me", CELLO_AGENT: "a1" }, "/x")).toEqual({ "x-cello-session": "me", "x-cello-cwd": "/x" })
+  })
+
   it("CELLO_SESSION=me and no agent variables both record the human", () => {
     expect(identityHeaders({ ...claude, CELLO_SESSION: "me" }, "/x")).toEqual({ "x-cello-session": "me", "x-cello-cwd": "/x" })
     expect(identityHeaders({ HOME: "/Users/lnmunhoz" }, "/x")).toEqual({ "x-cello-cwd": "/x" })

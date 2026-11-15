@@ -217,12 +217,21 @@ describe("cello hook claude", () => {
 })
 
 const HOOK_LINES = [
-  "  Stop         cello hook claude stop",
-  "  PostToolUse  cello hook claude post-tool-use",
-  "  PreToolUse   cello hook claude pre-tool-use",
+  "  Stop           cello hook claude stop",
+  "  PostToolUse    cello hook claude post-tool-use",
+  "  PreToolUse     cello hook claude pre-tool-use",
+  "  SubagentStart  cello hook claude subagent-start",
+  "  SubagentStop   cello hook claude subagent-stop",
+]
+/** --user: every project gets the comment hooks and SubagentStop, not the project-only ones. */
+const USER_HOOK_LINES = [
+  "  Stop          cello hook claude stop",
+  "  PostToolUse   cello hook claude post-tool-use",
+  "  SubagentStop  cello hook claude subagent-stop",
 ]
 const AFTER = [
   "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
+  "The board names each subagent working under a session (a builder, a reviewer) and the task it was launched on: it hears them start, work and finish.",
   "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. Start Claude Code with CELLO_ALLOW_ARTIFACTS=1 when you want one.",
   "Agents here can't edit files in the repo until their session has claimed a Cello task: they're told to create or claim one first. Start Claude Code with CELLO_ALLOW_UNTRACKED=1 to turn that off.",
   "New Claude Code sessions pick them up.",
@@ -247,6 +256,8 @@ describe("cello install claude", () => {
           Stop: [{ hooks: [{ type: "command", command: "cello hook claude stop", timeout: 10 }] }],
           PostToolUse: [{ matcher: "*", hooks: [{ type: "command", command: "cello hook claude post-tool-use", timeout: 10 }] }],
           PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }],
+          SubagentStart: [{ hooks: [{ type: "command", command: "cello hook claude subagent-start", timeout: 10 }] }],
+          SubagentStop: [{ hooks: [{ type: "command", command: "cello hook claude subagent-stop", timeout: 10 }] }],
         },
       })
       expect(fs.readFileSync(path.join(repo, ".gitignore"), "utf8")).toBe(".claude/settings.local.json\n")
@@ -312,11 +323,11 @@ describe("cello install claude", () => {
       const file = path.join(home, ".claude", "settings.json")
       const installed = yield* run(dir, "")("install", "claude", "--user")
       expect(installed.failure).toBeNull()
-      expect(installed.out.split("\n").slice(0, 3)).toEqual([`Installed Cello's Claude Code hooks in ${file} (every project):`, ...HOOK_LINES.slice(0, 2)])
+      expect(installed.out.split("\n").slice(0, 4)).toEqual([`Installed Cello's Claude Code hooks in ${file} (every project):`, ...USER_HOOK_LINES])
       expect(installed.out).not.toContain("artifacts")
       expect(installed.out).toContain("`cello` isn't on your PATH, so Claude Code can't run the hooks. Put the cello binary on the PATH Claude Code starts with (e.g. ~/.local/bin).")
       // The guard is for Cello projects; every project on the machine isn't one.
-      expect(Object.keys(JSON.parse(fs.readFileSync(file, "utf8")).hooks)).toEqual(["Stop", "PostToolUse"])
+      expect(Object.keys(JSON.parse(fs.readFileSync(file, "utf8")).hooks)).toEqual(["Stop", "PostToolUse", "SubagentStop"])
 
       fs.writeFileSync(file, "{ broken")
       expect(yield* run(dir)("install", "claude", "--user")).toEqual({

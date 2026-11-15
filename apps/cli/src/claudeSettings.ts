@@ -19,11 +19,15 @@ export const HOOK_TIMEOUT = 10
  * the artifact guard (CEL-57) and the claim guard on the edit tools (CEL-61). The guards are
  * `projectOnly`: they're for Cello projects, so user settings (every project, Cello or not) don't get
  * them. The matcher has only letters and `|`, so Claude Code reads it as a list of exact tool names.
+ * The subagent hooks (CEL-55) tell the board when a subagent starts and finishes; SubagentStart also
+ * hands it the CELLO_AGENT its `cello` commands need, which is Cello-project talk, so it's project-only.
  */
 export const CELLO_HOOKS = [
   { event: "Stop", matcher: undefined, command: "cello hook claude stop", projectOnly: false },
   { event: "PostToolUse", matcher: "*", command: "cello hook claude post-tool-use", projectOnly: false },
   { event: "PreToolUse", matcher: "Artifact|Edit|Write|NotebookEdit", command: "cello hook claude pre-tool-use", projectOnly: true },
+  { event: "SubagentStart", matcher: undefined, command: "cello hook claude subagent-start", projectOnly: true },
+  { event: "SubagentStop", matcher: undefined, command: "cello hook claude subagent-stop", projectOnly: false },
 ] as const
 
 export type CelloHook = (typeof CELLO_HOOKS)[number]
