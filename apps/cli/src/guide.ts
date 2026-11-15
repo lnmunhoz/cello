@@ -47,7 +47,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    - Before your first \`cello\` command in a session, run \`cello guide\` once: it's the full reference (concepts, workflow, every command, what each error means). Don't guess.
    - Run \`cello context\` at the start of each session.
    - Claim a task before working on it (\`cello task claim KEY-n\`), and put the key in commit messages (\`fix(api): rate limit (KEY-12)\`).
-   - In Progress means someone is on it right now. When you stop, or wait on Lucas's decision, put the questions or the state on the card and move it back to Todo.
+   - In Progress means someone is on it right now. When you wait on Lucas's decision, ask on the card with \`cello task ask\` (the task waits in Needs input). When you stop, put the state on the card and move it back to Todo.
    - Hand finished work to Lucas only with \`cello task submit\`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
    - Answer Lucas on the card with \`cello task comment\`. His comments come to your session by themselves.
    - When a decision is Lucas's (a design option, a scope, wording), ask on the card with \`cello task ask\` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. His answers come back to your session.
@@ -138,9 +138,9 @@ Run it first in every session, and again when you come back to a task.
 
    Then fix, and submit a new packet (it replaces the open one). The same goes for feedback on a task in Done: comment it, and move it back to In Progress, or open a new task if it's a new request.
 7. **In Progress means someone is working on it right now.** When work stops before you submit, don't leave the card there: the board would show it as being built when nobody is on it.
-   - **Waiting on Lucas** (a scope's options, a design choice, any decision that's his): put the questions on the card, move it back with \`cello task move CEL-12 Todo\`, and release it. Claim it again when he answers.
+   - **Waiting on Lucas** (a scope's options, a design choice, any decision that's his): ask on the card with \`cello task ask\` (see Questions for Lucas). The task moves to Needs input, your claim stays, and it comes back to In Progress when he answers.
    - **Stopping or pausing:** comment where it stands, move it back to Todo, and \`cello task release CEL-12\`.
-   - A **scope** is part of its task. Claim the task to make the scope; once the scope is published and the questions are on the card, the task goes back to Todo until he picks.
+   - A **scope** is part of its task. Claim the task to make the scope; once the scope is published, ask its questions with \`cello task ask\` (attach its screenshots, link the page): the task waits in Needs input until he picks.
    - \`cello task release\` alone keeps the status, so only use it on its own when another session takes over the work straight away.
 
 Never move a task to Done or Canceled yourself: Lucas decides.

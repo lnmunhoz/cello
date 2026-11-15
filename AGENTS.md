@@ -28,7 +28,9 @@ Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port
 - **Feedback Lucas gives in chat is a review too.** Put it on the task as a comment, in his words (`**Lucas, in chat (review):** "…"`), and if the task is In Review or Done, move it back to In Progress before fixing. Then submit a new packet. The card, not the chat, is where a task's review history lives.
 - **Todo or Backlog:** Todo is ready to build. **Backlog** holds ideas and requests that still need discussing. When Lucas says "add to the backlog", create the task with `--status Backlog`. A Backlog task moves to Todo once it's agreed what to build; nobody builds from Backlog.
 - `cello task claim CEL-n` before working on a task, and comment progress with `cello task comment`
-- **In Progress means someone is working on it right now.** When work stops before submit (a scope waiting for Lucas's pick, a question only he can answer, a pause), put the questions or the state on the card, move it back to Todo and release it. A card left in In Progress with nobody on it looks stuck (Nov 15: CEL-43 and CEL-52 sat there for hours after their scopes)
+- **In Progress means someone is working on it right now.** When work stops before submit, don't leave the card there: a card left in In Progress with nobody on it looks stuck (Nov 15: CEL-43 and CEL-52 sat there for hours after their scopes)
+  - **waiting on Lucas** (a scope waiting for his pick, a question only he can answer): ask on the card with `cello task ask`; the task moves to **Needs input** until he answers (the rule on decisions below), then comes back to In Progress, still yours
+  - **stopping or pausing:** put the state on the card, move it back to Todo and release it
 - Lucas's comments and Send back notes on a task you claimed come to your session (CEL-15):
   - with the hooks installed (`cello install claude`, once per project on this machine; `--user` for every project), new ones arrive by themselves: when you stop, and after each tool call
   - without them, `cello inbox` hands them over; `cello context` lists them without taking them. Each arrives once
