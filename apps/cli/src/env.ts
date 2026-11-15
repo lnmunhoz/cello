@@ -5,6 +5,12 @@ import type { WebFiles } from "@cello/server/web/WebFiles"
 import * as Context from "effect/Context"
 import type { Env } from "./identity.ts"
 
+/** The build this `cello` is (CEL-37): `--version`, `cello whoami`, and the commit `cello start` reports. */
+export interface CliBuild {
+  /** The git commit it was built from; null when unknown. */
+  readonly commit: string | null
+}
+
 export class CliEnv extends Context.Service<CliEnv, {
   readonly env: Env
   readonly cwd: string
@@ -12,6 +18,8 @@ export class CliEnv extends Context.Service<CliEnv, {
   readonly readStdin: () => Promise<string>
   /** The built web app for `cello start`: embedded in the binary, or apps/web/dist from source. */
   readonly web: () => WebFiles | undefined
+  /** This binary's build; tests may leave it out (no commit then). */
+  readonly build?: CliBuild
   /**
    * Ends the process (the binary passes process.exit). The hook calls it so a stdin that never closes
    * can't keep it alive; tests leave it out.

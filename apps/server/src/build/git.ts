@@ -1,0 +1,49 @@
+// A build's git facts (CEL-37): the commit it's made from and what changed since the previous build.
+// Used where builds are made: the web app's `vite build` (apps/web/buildStamp.ts), `bun run build` in
+// apps/cli, and `cello start` or the dev server run from source. Node's child_process, not Bun's, since
+// Vite runs this under Node.
+import { spawnSync } from "node:child_process"
+import type { WebBuild } from "@cello/contract/build"
+import { APP_VERSION } from "@cello/shared/version"
+
+const git = (dir: string, args: ReadonlyArray<string>): string | null => {
+  try {
+    const result = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+    return result.status === 0 ? result.stdout.trim() : null
+  } catch {
+    return null
+  }
+}
+
+/** The short HEAD of the checkout `dir` is in, or null outside one (or without git). */
+export const commitOf = (dir: string): string | null => git(dir, ["rev-parse", "--short", "HEAD"]) || null
+
+/** The build's commit: CELLO_BUILD_COMMIT when set (builds outside a checkout, like Docker's), else `dir`'s HEAD. */
+export const buildCommit = (env: Readonly<Record<string, string | undefined>>, dir: string): string | null =>
+  env.CELLO_BUILD_COMMIT?.trim() || commitOf(dir)
+
+/** First-parent commit subjects in `from..to`, newest first, at most `limit`; empty when git can't tell. */
+export const subjectsBetween = (dir: string, from: string, to: string, limit = 50): ReadonlyArray<string> => {
+  const out = git(dir, ["log", "--first-parent", `--max-count=${limit}`, "--format=%s", `${from}..${to}`])
+  return out ? out.split("\n").filter((line) => line !== "") : []
+}
+
+/**
+ * The stamp for a web build made now in checkout `dir`. Its changes are what happened since `previous`,
+ * the build that was in the same output folder: rebuilt at the same commit, it keeps that build's list.
+ */
+export const webBuildStamp = (input: {
+  readonly dir: string
+  readonly env: Readonly<Record<string, string | undefined>>
+  readonly previous: WebBuild | null
+  readonly now: number
+}): WebBuild => {
+  const commit = buildCommit(input.env, input.dir)
+  const previous = input.previous
+  const changes = previous === null || previous.commit === null || commit === null
+    ? []
+    : previous.commit === commit
+    ? previous.changes
+    : subjectsBetween(input.dir, previous.commit, commit)
+  return { version: APP_VERSION, commit, builtAt: input.now, changes }
+}

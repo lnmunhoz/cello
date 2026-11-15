@@ -4,6 +4,7 @@ import * as path from "node:path"
 import { newCommandId } from "@cello/client/client"
 import { startServer, tempDataDir } from "@cello/server/testing/servers"
 import { describe, expect, it } from "@effect/vitest"
+import { APP_VERSION } from "@cello/shared/version"
 import * as Effect from "effect/Effect"
 import { connect } from "../../../server/test/integration/harness.ts"
 import { cello, gitRepo } from "./cli.ts"
@@ -138,6 +139,10 @@ describe("cello commands against a real server", () => {
         server: { actor: { kind: "agent", name: "Claude Code" }, session: { externalId: SESSION }, project: { key: "CEL" } },
       })
       expect(json(yield* me("whoami")).server).toMatchObject({ actor: { kind: "human", name: "Lucas" }, session: null })
+      // CEL-37: which build the CLI is, and which the server runs.
+      expect(who.cli).toEqual({ version: APP_VERSION, commit: null })
+      expect(who.server.build).toMatchObject({ version: APP_VERSION, commit: null, web: null })
+      expect(who.server.build.startedAt).toBeLessThanOrEqual(Date.now())
       const guide = (yield* agent("guide")).out
       expect(guide).toContain("cello context")
       // Reports go into Cello as pages, and a page can travel in a review packet.
@@ -145,6 +150,13 @@ describe("cello commands against a real server", () => {
       expect(guide).toContain("--link <page url>")
       // The guide is docs/cli.md, command reference included.
       expect(guide).toContain("### cello task submit")
+    }).pipe(Effect.scoped))
+
+  it.live("CEL-37: --version names the build the CLI was made from", () =>
+    Effect.gen(function* () {
+      const { port, repo } = yield* setup
+      expect((yield* cello({ port, cwd: repo, build: { commit: "c602f25" } })("--version")).out).toContain(`${APP_VERSION} (build c602f25)`)
+      expect((yield* cello({ port, cwd: repo, build: { commit: null } })("--version")).out).toContain(`${APP_VERSION} (build dev)`)
     }).pipe(Effect.scoped))
 
   it.live("errors say what to do next: unknown folder, unknown task, unknown status, no server", () =>

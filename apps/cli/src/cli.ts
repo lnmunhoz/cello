@@ -11,6 +11,7 @@ import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
 import { pagePath } from "@cello/shared/document"
 import { formatBytes } from "@cello/shared/bytes"
+import { shortCommit } from "@cello/shared/build"
 import { APP_VERSION } from "@cello/shared/version"
 import * as Console from "effect/Console"
 import * as Context from "effect/Context"
@@ -46,6 +47,9 @@ import { start } from "./start.ts"
 export { CliEnv } from "./env.ts"
 
 export const VERSION = APP_VERSION
+
+/** What `cello --version` prints: "0.2.0 (build c602f25)", "(build dev)" when the commit is unknown. */
+const versionText = (build: CliEnv["Service"]["build"]) => build ? `${VERSION} (build ${shortCommit(build.commit)})` : VERSION
 
 /** The raw arguments, for flags whose order matters (`submit`'s --caption after an --attach). */
 class CliArgs extends Context.Service<CliArgs, ReadonlyArray<string>>()("cello/CliArgs") {}
@@ -185,10 +189,15 @@ const key = Argument.String("key").pipe(Argument.withDescription("A task key, e.
 
 const whoami = Command.make("whoami", { project }, (input) =>
   Effect.gen(function* () {
-    const { env, cwd } = yield* CliEnv
+    const { env, cwd, build } = yield* CliEnv
     const repoRoot = repoRootFor(cwd)
     const ref: ProjectRef = Option.isSome(input.project) ? { key: input.project.value } : repoRoot ? { repoPath: repoRoot } : {}
-    const server = yield* withClient((client) => client["whoami"]({ project: ref })).pipe(
+    const server = yield* withClient((client) =>
+      Effect.map(
+        Effect.all([client["whoami"]({ project: ref }), client["server.build"]({})]),
+        ([who, serverBuild]) => ({ ...who, build: serverBuild }),
+      )
+    ).pipe(
       Effect.catch((failure) => Effect.succeed({ error: failure.message })),
     )
     yield* printJson({
@@ -196,9 +205,10 @@ const whoami = Command.make("whoami", { project }, (input) =>
       headers: identityHeaders(env, cwd),
       cwd,
       repoRoot,
+      cli: { version: VERSION, commit: build?.commit ?? null },
       server,
     })
-  })).pipe(Command.withDescription("Print, as JSON, who Cello thinks is calling."))
+  })).pipe(Command.withDescription("Print, as JSON, who Cello thinks is calling, and which build the CLI and the server are."))
 
 const context = Command.make("context", { project, json }, (input) =>
   Effect.gen(function* () {
@@ -920,7 +930,7 @@ export const cello = Command.make("cello").pipe(
  * still ends in one printed sentence instead of a silent exit.
  */
 export const run = (args: ReadonlyArray<string>) =>
-  Command.runWith(cello, { version: VERSION })(args).pipe(
+  Effect.flatMap(Effect.service(CliEnv), ({ build }) => Command.runWith(cello, { version: versionText(build) })(args)).pipe(
     Effect.provideService(CliArgs, args),
     Effect.catchDefect((defect) => Effect.fail(new CliFailure({ message: `Something went wrong: ${reasonOf(defect)}` }))),
   )
