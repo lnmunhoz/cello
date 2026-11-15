@@ -1473,6 +1473,12 @@ const agentsMdLines = (done: AgentsResult): ReadonlyArray<string> => {
       ]
     case "unchanged":
       return [`The ${section} in ${done.file} is already current.`]
+    case "customised":
+      return [
+        `${done.file} has its own 'Tracking work in Cello' section with lines Cello didn't write; leaving it. Run with \`--replace\` to swap ` +
+        "it for Cello's (the old file is kept as .bak), or add the markers by hand. What swapping it would change:",
+        ...diff,
+      ]
     case "foreign":
       return [
         `${done.file} has a ${section} that isn't Cello's (it doesn't mention \`cello guide\` or \`cello context\`); left it as it is. ` +
@@ -1498,11 +1504,18 @@ const init = Command.make("init", {
       "Also add the \"Tracking work in Cello\" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), or bring the one there up to date.",
     ),
   ),
+  replace: Flag.Boolean("replace").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription(
+      "With --agents-md: swap an old \"Tracking work in Cello\" section that has lines Cello didn't write for Cello's current one " +
+        "(the old file is kept as .bak). Without it, such a section is left as it is.",
+    ),
+  ),
   json: Flag.Boolean("json").pipe(
     Flag.withDefault(false),
     Flag.withDescription(
-      "Print JSON: created, project, url, hooks ({ file, changed }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged or " +
-        "foreign, backup, diff }), each null when not asked for or not reached, and error when --hooks or --agents-md failed.",
+      "Print JSON: created, project, url, hooks ({ file, changed }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged, " +
+        "customised or foreign, backup, diff }), each null when not asked for or not reached, and error when --hooks or --agents-md failed.",
     ),
   ),
 }, (input) =>
@@ -1565,7 +1578,7 @@ const init = Command.make("init", {
       if (input.hooks) done.hooks = yield* installHooks("local")
       if (input.agentsMd) {
         done.agentsMd = yield* Effect.try({
-          try: () => addAgentsSection(checkout, GUIDE, project.key),
+          try: () => addAgentsSection(checkout, GUIDE, project.key, { replace: input.replace }),
           catch: (e) => new CliFailure({ message: `Can't add the Cello section to ${agentsFile(checkout)}: ${(e as Error).message}.` }),
         })
       }
