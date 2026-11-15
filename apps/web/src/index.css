@@ -266,6 +266,10 @@ body {
   & ol {
     margin: 0 0 14px;
   }
+  /* A paragraph holding a video (a page's linked video plays inline). */
+  & .page-media {
+    margin: 18px 0;
+  }
   & ul,
   & ol {
     padding-left: 22px;

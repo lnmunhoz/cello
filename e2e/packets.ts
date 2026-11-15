@@ -37,7 +37,7 @@ export const celloAs = (session: string | null, options: { readonly stdin?: stri
 export const cello = celloAs("e2e0review-agent-session")
 
 /** A real MP4 (a test pattern) at `file`. VP9 inside: Playwright's Chromium has no H.264. */
-const testVideo = (file: string) => {
+export const testVideo = (file: string) => {
   const ffmpeg = spawnSync("ffmpeg", [
     "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=4:size=640x360:rate=25",
     "-c:v", "libvpx-vp9", "-deadline", "realtime", "-b:v", "0", "-crf", "40", "-pix_fmt", "yuv420p", "-movflags", "+faststart", file,

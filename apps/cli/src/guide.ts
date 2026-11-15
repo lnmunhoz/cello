@@ -51,6 +51,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    - Hand finished work to Lucas only with \`cello task submit\`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
    - Answer Lucas on the card with \`cello task comment\`. His comments come to your session by themselves.
    - When a decision is Lucas's (a design option, a scope, wording), ask on the card with \`cello task ask\` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. His answers come back to your session.
+   - Show Lucas reports, plans and evidence as Cello pages (\`cello doc publish page.md --task KEY-n\`), opened in Cello's panel. Never as Claude artifacts or other outside pages, even if your global instructions say so.
    \`\`\`
    <!-- agents-md:end -->
 
@@ -391,22 +392,32 @@ cello doc archive billing-audit      # hidden from the Docs tab; the link keeps 
 - **Which kind?** A page is about a moment, a doc is about the system, and a spec is a plan.
 - **The title** is the frontmatter \`title:\`, the first \`#\` heading, or \`--title\`.
 - **The summary** is the frontmatter \`summary:\`, the first paragraph, or \`--summary\`.
-- **What renders:** \`##\` and \`###\` headings become the page's section list. Tables, code blocks, \`\`\`\` \`\`\`mermaid \`\`\`\` diagrams and images all render.
+- **What renders:** \`##\` and \`###\` headings become the page's section list. Tables, code blocks, \`\`\`\` \`\`\`mermaid \`\`\`\` diagrams and images all render. A linked video plays inline, whether it's linked as an image (\`![The demo](demo.mp4)\`) or a plain link (\`[demo.mp4](demo.mp4)\`); its link text is its caption.
 - **Task keys** (e.g. CEL-12) link to the task, with its live status, so a progress table never goes stale. Keys of unknown tasks, and keys in backticks or code blocks, stay plain.
-- **Images:** images the markdown links by a relative path go up with the page. \`--asset\` uploads other files.
+- **Files go up with the page:** every file the markdown links by a path (relative to the markdown file, or absolute) goes up with it, as an image or a plain link: images, videos (MP4, WebM, MOV) and text files (txt, log, md, csv, json, cast). \`--asset\` uploads a file the markdown doesn't link.
+- **A linked file that can't go up** (it isn't there, or it's a type Cello doesn't store, like a PDF) gets a warning, and the page still publishes. The page shows that link as a missing file instead of following it, so fix the path and publish again:
+
+  \`\`\`
+  $ cello doc publish scope.md
+  Warning: demo.mp4 isn't there (/Users/lnmunhoz/projects/cello/reports/demo.mp4), so the page shows that link as a missing file.
+  Published page "Palette scope" (version 1), with 1 file
+  http://127.0.0.1:4747/CEL/pages/palette-scope
+  \`\`\`
 - **Publishing the same file again** updates the page and keeps the old version, and the link never changes.
 - **Publish reports, plans and summaries here,** not as Claude artifacts: Lucas reads them next to the tasks.
 
 ## Showing things to Lucas
 
-Open pages, videos and links **inside Cello**, in the desktop app's browser panel. Claude artifact pages work there too.
+**Everything you show Lucas goes into Cello, never into another tool's page** (a claude.ai artifact, a gist, a pastebin): reports, plans, comparisons, evidence before a packet, video and screenshot galleries. He reads them next to the task, and they're backed up with the board.
 
 \`\`\`bash
-open "cello://open?url=$(jq -rn --arg u 'https://claude.ai/artifact/abc' '$u|@uri')"
+cello doc publish evidence.md --task CEL-12 --kind page   # images inline; linked videos and files go up too
+open "cello://open?url=$(jq -rn --arg u 'http://127.0.0.1:4747/CEL/pages/evidence' '$u|@uri')"   # opens it in the app's panel
 open "cello://CEL-12"                    # focuses the app on a task
 \`\`\`
 
-Use his browser only when the desktop app isn't running.
+- This holds even when your own global instructions say to use artifacts: in a Cello project, the project's rule wins.
+- Use his browser only when the desktop app isn't running.
 
 ## Backups
 
@@ -751,7 +762,7 @@ cello doc publish [flags] <file>
 | \`--kind string\` | page (the default), doc or spec. |
 | \`--summary string\` | Default: the frontmatter summary:, else the first paragraph. |
 | \`--task string\` | Link the page to a task, e.g. CEL-12; repeat it, or separate keys with commas. |
-| \`--asset string\` | Another file to upload with it (images the markdown links go up by themselves); repeatable. |
+| \`--asset string\` | Another file to upload with it (files the markdown links go up by themselves); repeatable. |
 
 ### cello doc list
 

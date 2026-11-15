@@ -1,5 +1,5 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import type { Project, Status, Task } from "@cello/contract/entities"
+import type { DocumentFile, Project, Status, Task } from "@cello/contract/entities"
 import { RegistryProvider } from "@effect/atom-react"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { createElement } from "react"
@@ -25,9 +25,13 @@ const board: BoardState = {
 }
 
 /** The page body as the reader renders it, with the board above it (the key chips read it themselves). */
-const render = (content: string, flash: { version: number; color: string; ids: string[] } | null = null, projectKeys?: string) =>
+const render = (content: string, flash: { version: number; color: string; ids: string[] } | null = null, projectKeys?: string, files?: DocumentFile[]) =>
   renderToStaticMarkup(
-    createElement(RegistryProvider, { initialValues: [[boardAtom, AsyncResult.success(board)]] }, createElement(PageBody, { content, flash, onFlashEnd: () => {}, projectKeys })),
+    createElement(
+      RegistryProvider,
+      { initialValues: [[boardAtom, AsyncResult.success(board)]] },
+      createElement(PageBody, { content, flash, onFlashEnd: () => {}, projectKeys, ...(files ? { files } : {}) }),
+    ),
   )
 
 const REPORT = [
@@ -118,5 +122,51 @@ describe("PageBody", () => {
 
   it("without the project keys, keys stay text", () => {
     expect(render("CEL-8 shipped.")).toContain("<p>CEL-8 shipped.</p>")
+  })
+
+  // CEL-54: a page's video link led to a page that doesn't exist, with no way back.
+  describe("links to files", () => {
+    const files: DocumentFile[] = [
+      { id: "01VIDEO", kind: "video", name: "a-palette-typing.mp4", mime: "video/mp4", hasPoster: false },
+      { id: "01CLIP", kind: "video", name: "clip.webm", mime: "video/webm", hasPoster: true },
+      { id: "01LOG", kind: "file", name: "vitest.log", mime: "text/plain; charset=utf-8", hasPoster: false },
+    ]
+    const page = (content: string) => render(content, null, undefined, files)
+
+    it("plays a linked video inline, as a link or as an image, captioned by its text unless that's just the name", () => {
+      const html = page("Typing in the palette:\n\n[a-palette-typing.mp4](/attachments/01VIDEO)\n\n![The clip](/attachments/01CLIP)")
+      const videos = [...html.matchAll(/<video [^>]*>/g)].map((m) => m[0])
+      expect(videos).toHaveLength(2)
+      expect(videos[0]).toContain('src="/attachments/01VIDEO"')
+      expect(videos[0]).toContain('aria-label="a-palette-typing.mp4"')
+      expect(videos[0]).toMatch(/controls=""/)
+      expect(videos[0]).toMatch(/playsInline=""|playsinline=""/)
+      expect(videos[1]).toContain('aria-label="The clip"')
+      expect(videos[1]).toContain('poster="/attachments/01CLIP/poster"')
+      // Never a link the window could follow, and never a player inside a <p>.
+      expect(html).not.toContain('href="/attachments/01VIDEO"')
+      expect(html).not.toMatch(/<p>(?:(?!<\/p>).)*<video/s)
+    })
+
+    it("a video in a sentence takes the paragraph's place as a block", () => {
+      const html = page("Watch [the demo](/attachments/01VIDEO) first.")
+      expect(html).toMatch(/^<div class="page-prose" data-gallery=""><section data-section="intro"><div class="page-media">Watch <figure/)
+      expect(html).toContain('aria-label="the demo"')
+    })
+
+    it("links to other files stay links that open elsewhere", () => {
+      expect(page("[The log](/attachments/01LOG)")).toContain('<a href="/attachments/01LOG" target="_blank" rel="noreferrer">The log</a>')
+    })
+
+    it("a linked local file that never went up shows as a missing file, not a link", () => {
+      const html = page("Still to record: [the demo](demo.mp4). ![Gone](shots/gone.png) [a route](/CEL/issues)")
+      expect(html).not.toContain('href="demo.mp4"')
+      expect(html).not.toContain('src="shots/gone.png"')
+      expect(html.match(/data-missing-file=""/g)).toHaveLength(2)
+      expect(html).toContain('title="demo.mp4 didn&#x27;t go up with the page"')
+      expect(html).toMatch(/the demo<\/span><span [^>]*>missing file<\/span>/)
+      expect(html).toMatch(/Gone<\/span><span [^>]*>missing file<\/span>/)
+      expect(html).toContain('<a href="/CEL/issues">a route</a>')
+    })
   })
 })

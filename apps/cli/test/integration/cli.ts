@@ -14,6 +14,8 @@ export interface Output {
   readonly out: string
   /** The failure's message, or null when the command succeeded. */
   readonly failure: string | null
+  /** Warnings printed to stderr, lines joined with "\n"; left out when there were none. */
+  readonly err?: string
 }
 
 /**
@@ -55,7 +57,7 @@ export const cello = (options: {
       const failure = Exit.isFailure(exit)
         ? (exit.cause.reasons.map((r) => ("error" in r ? (r.error as { message?: string }).message : String(r))).join("\n") ?? "")
         : null
-      return { out: lines.join("\n"), failure }
+      return { out: lines.join("\n"), failure, ...(errors.length ? { err: errors.join("\n") } : {}) }
     })
 
 /** A git repository at `dir/name`, for project-from-folder tests. */

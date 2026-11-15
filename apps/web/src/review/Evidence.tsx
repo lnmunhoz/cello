@@ -1,14 +1,15 @@
-import { attachmentUrl, evidenceOpen, posterUrl } from "@cello/client/sync/reviews"
+import { attachmentUrl, evidenceOpen } from "@cello/client/sync/reviews"
 import type { Attachment } from "@cello/contract/entities"
 import { formatBytes } from "@cello/shared/bytes"
 import { shortUrl } from "@cello/shared/linkify"
-import { ExternalLinkIcon, FileTextIcon, PanelRightOpenIcon } from "lucide-react"
-import { useRef, type MouseEvent } from "react"
-import { Button, ButtonLink } from "../components/ui/Button.tsx"
+import { ExternalLinkIcon, FileTextIcon } from "lucide-react"
+import type { MouseEvent } from "react"
+import { ButtonLink } from "../components/ui/Button.tsx"
 import { openInPanel } from "../lib/desktop.ts"
 import { openGallery, zoomable } from "../viewer/gallery.ts"
 import { openImageModal } from "../viewer/imageModal.ts"
 import { isPlainClick } from "../viewer/viewer.ts"
+import { Video } from "./Video.tsx"
 
 /** A piece of evidence that opens in the image modal (any image, attached as a file too) is one of the packet's zoomable things. */
 const zoomableEvidence = (attachment: Attachment) => {
@@ -76,47 +77,6 @@ export function Evidence({ attachments }: { attachments: ReadonlyArray<Attachmen
         </div>
       ) : null}
     </div>
-  )
-}
-
-/** Inline, with its poster, muted until you press play; "Open in viewer" plays it large beside the board. */
-function Video({ video }: { video: Attachment }) {
-  const ref = useRef<HTMLVideoElement>(null)
-  const name = video.caption || video.name
-  return (
-    <figure className="flex flex-col gap-1.5">
-      <video
-        ref={ref}
-        data-evidence="video"
-        aria-label={name}
-        className="aspect-video w-full rounded-lg border border-line bg-black object-contain"
-        src={attachmentUrl(video)}
-        poster={posterUrl(video)}
-        controls
-        muted
-        playsInline
-        preload="metadata"
-        onPlay={(e) => {
-          e.currentTarget.muted = false
-        }}
-      />
-      <figcaption className="flex min-w-0 items-center gap-2 text-xs text-muted">
-        {video.caption ? <span className="shrink-0 font-medium text-ink">{video.caption}</span> : null}
-        <span className="min-w-0 flex-1 truncate text-faint">{video.name}</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label={`Open ${name} in the viewer`}
-          onClick={() => {
-            ref.current?.pause()
-            openEvidence(video, [])
-          }}
-        >
-          <PanelRightOpenIcon aria-hidden className="size-3.5" />
-          Open in viewer
-        </Button>
-      </figcaption>
-    </figure>
   )
 }
 

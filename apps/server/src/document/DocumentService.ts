@@ -3,7 +3,7 @@
 // into the attachments storage (`<dataDir>/assets/documents/<id>/`, served at /attachments/<id>) and
 // the markdown's links to them are rewritten to those URLs. Tasks link by key; links are only added.
 import * as path from "node:path"
-import type { Document, DocumentKind, DocumentSummary, DocumentVersion, Project, ProjectRef } from "@cello/contract/entities"
+import type { Document, DocumentFile, DocumentKind, DocumentSummary, DocumentVersion, Project, ProjectRef } from "@cello/contract/entities"
 import { Invalid, NotFound } from "@cello/contract/errors"
 import type { Caller } from "@cello/contract/rpcs"
 import type { DocumentList } from "@cello/contract/views"
@@ -84,6 +84,19 @@ const make = Effect.gen(function* () {
 
   const first = (where: Statement.Fragment) => Effect.map(selectDocuments(sql, where), (rows) => rows[0])
   const bodyOf = (id: string) => Effect.map(sql<{ body: string }>`SELECT body FROM documents WHERE id = ${id}`, (rows) => rows[0]!.body)
+  /** Every file the document's versions have published, oldest first. */
+  const filesOf = (id: string) =>
+    Effect.map(
+      sql<{ id: string; kind: DocumentFile["kind"]; name: string; mime: string | null; poster_path: string | null }>`
+        SELECT id, kind, name, mime, poster_path FROM attachments WHERE document_id = ${id} AND deleted_at IS NULL ORDER BY created_at, rowid`,
+      (rows) => rows.map((r): DocumentFile => ({ id: r.id, kind: r.kind, name: r.name, mime: r.mime ?? "application/octet-stream", hasPoster: r.poster_path !== null })),
+    )
+  /** A document with its body (the latest version's, unless given) and its files. */
+  const withBody = (document: DocumentSummary, body?: string) =>
+    Effect.map(
+      Effect.all([body === undefined ? bodyOf(document.id) : Effect.succeed(body), filesOf(document.id)]),
+      ([text, files]): Document => ({ ...document, body: text, files }),
+    )
   const bySlug = (project: Project, slug: string) => first(sql`d.project_id = ${project.id} AND d.slug = ${slug}`)
   const missing = (project: Project, slug: string) => new NotFound({ entity: "document", id: `${project.key}/${slug}` })
 
@@ -160,7 +173,7 @@ const make = Effect.gen(function* () {
         if (existing !== undefined) {
           const before = yield* bodyOf(id)
           const changed = before !== text || existing.title !== title || existing.summary !== summary || existing.kind !== kind
-          if (!changed && existing.archivedAt === null && newLinks.length === 0) return { ...existing, body: before }
+          if (!changed && existing.archivedAt === null && newLinks.length === 0) return yield* withBody(existing, before)
           // A new link or bringing back an archived page isn't a new version; changed content is.
           const version = changed ? existing.version + 1 : existing.version
           yield* sql`UPDATE documents SET kind = ${kind}, title = ${title}, summary = ${summary}, body = ${text}, version = ${version},
@@ -193,7 +206,7 @@ const make = Effect.gen(function* () {
         const where = { workspaceId: project.workspaceId, projectId: project.id }
         if (existing === undefined) yield* emit({ type: "document.published", document }, where)
         else yield* emit({ type: "document.updated", id, version: document.version, document }, where)
-        return { ...document, body: text }
+        return yield* withBody(document, text)
       })).pipe(Effect.onError(() => assets.remove(copied)))
   })
 
@@ -201,7 +214,7 @@ const make = Effect.gen(function* () {
     const project = yield* projects.resolve(input.project)
     const document = yield* bySlug(project, input.slug)
     if (document === undefined) return yield* missing(project, input.slug)
-    if (input.version === undefined || input.version === document.version) return { ...document, body: yield* bodyOf(document.id) }
+    if (input.version === undefined || input.version === document.version) return yield* withBody(document)
     const [row] = yield* versionRows(document.id, input.version)
     if (row === undefined) return yield* new NotFound({ entity: "document version", id: `${project.key}/${input.slug}@${input.version}` })
     return {
@@ -211,6 +224,7 @@ const make = Effect.gen(function* () {
       title: row.title,
       summary: row.summary,
       body: row.body,
+      files: yield* filesOf(document.id),
       updatedByActorId: row.actor_id,
       updatedBySessionId: row.session_id,
       updatedBy: { name: row.author_name, color: row.author_color, session: row.author_session },

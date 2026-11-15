@@ -1,3 +1,4 @@
+import type { DocumentFile } from "@cello/contract/entities"
 import { referenceDefinitions, splitSections } from "@cello/shared/document"
 import { Prose } from "./Prose.tsx"
 
@@ -19,11 +20,14 @@ export function PageBody({
   flash,
   onFlashEnd,
   projectKeys,
+  files,
 }: {
   content: string
   flash: Flash | null
   onFlashEnd: (id: string) => void
   projectKeys?: string | undefined
+  /** The page's files: a link to one of its videos plays inline. */
+  files?: ReadonlyArray<DocumentFile>
 }) {
   const references = referenceDefinitions(content)
   const tail = references.length === 0 ? "" : `\n\n${references.join("\n")}`
@@ -43,7 +47,7 @@ export function PageBody({
                 onAnimationEnd={() => onFlashEnd(block.id)}
               />
             ) : null}
-            <Prose markdown={block.markdown + tail} headingId={block.level === null ? undefined : block.id} projectKeys={projectKeys} />
+            <Prose markdown={block.markdown + tail} headingId={block.level === null ? undefined : block.id} projectKeys={projectKeys} files={files} />
           </section>
         )
       })}
