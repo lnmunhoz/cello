@@ -124,10 +124,10 @@ export const layer = (options: BuildHistoryOptions = {}) =>
     const list = Effect.fn("BuildHistory.list")(function* (page: { readonly before?: number | undefined; readonly limit?: number | undefined }) {
       const limit = page.limit ?? DEFAULT_LIMIT
       if (!isWhole(limit) || limit < 1 || limit > MAX_LIMIT) {
-        return yield* Effect.fail(new Invalid({ field: "limit", reason: `must be a whole number from 1 to ${MAX_LIMIT}` }))
+        return yield* Effect.fail(new Invalid({ field: "limit", reason: `the number of builds to list (limit) must be a whole number from 1 to ${MAX_LIMIT}` }))
       }
       if (page.before !== undefined && !isWhole(page.before)) {
-        return yield* Effect.fail(new Invalid({ field: "before", reason: "must be a build number" }))
+        return yield* Effect.fail(new Invalid({ field: "before", reason: "before must be a build number" }))
       }
       // One more than asked for says whether there's another page.
       const rows = yield* sql<BuildRow>`
