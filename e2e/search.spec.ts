@@ -173,7 +173,8 @@ test("⌘K: Peek lists results by kind with the words highlighted, previews the 
   await expect(preview(page).locator('[data-preview="task"] h3')).toHaveText(/evidence/i)
 
   await caption(page, "↓ moves; the preview follows: a comment, whole, in its card")
-  await highlight(page, bar(page).locator('[data-section="comment"] [role="option"]').first())
+  // Other specs share the server and their comments can match too: pick this spec's own.
+  await highlight(page, bar(page).locator('[data-section="comment"] [role="option"]').filter({ hasText: "video stops" }).first())
   await expect(preview(page).locator('[data-preview="comment"]')).toContainText("Can you record it again in review mode")
   await expect(preview(page).locator("mark").first()).toHaveText("evidence")
 
