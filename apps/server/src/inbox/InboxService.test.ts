@@ -192,6 +192,20 @@ describe("InboxService: Send back", () => {
       ])
     })))
 
+  it.effect("a comment while the packet waits for review (the Review page's comment box, CEL-70) leaves the task In Review and claimed, and reaches the submitting session", () =>
+    run(Effect.gen(function* () {
+      const { inbox, tasks, status, one, comment } = yield* submitted
+      const before = yield* tasks.byKey(one.key)
+      expect(before.assigneeSessionId).not.toBeNull()
+      yield* comment(one.id, "Looks right; also check the dark theme")
+      const after = yield* tasks.byKey(one.key)
+      expect(after.statusId).toBe(status["In Review"]!.id)
+      expect(after.assigneeSessionId).toBe(before.assigneeSessionId)
+      expect((yield* agent(inbox.unread)).map((i) => [i.kind, i.taskKey, bodies([i])[0]])).toEqual([
+        ["comment", "CEL-1", "Looks right; also check the dark theme"],
+      ])
+    })))
+
   it.effect("it still reaches the session that submitted the packet when a human change ended the claim during review", () =>
     run(Effect.gen(function* () {
       const { inbox, reviews, tasks, one } = yield* submitted
