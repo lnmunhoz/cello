@@ -92,10 +92,11 @@ describe("dockerArgs", () => {
     }
   })
 
-  it("tells the tests they're in the container, and passes CELLO_E2E_SLOWMO and CELLO_E2E_ONLINE through only when set", () => {
+  it("tells the tests they're in the container, and passes CELLO_E2E_REVIEW, CELLO_E2E_SLOWMO and CELLO_E2E_ONLINE through only when set", () => {
     expect(args).toContain("CELLO_DESKTOP_E2E=docker")
     expect(args.join(" ")).not.toContain("CELLO_E2E_SLOWMO")
-    const slow = dockerArgs({ ...options, env: { CELLO_E2E_SLOWMO: "400", CELLO_E2E_ONLINE: "1", HOME: "/Users/x" } })
+    const slow = dockerArgs({ ...options, env: { CELLO_E2E_REVIEW: "1", CELLO_E2E_SLOWMO: "400", CELLO_E2E_ONLINE: "1", HOME: "/Users/x" } })
+    expect(slow).toContain("CELLO_E2E_REVIEW=1")
     expect(slow).toContain("CELLO_E2E_SLOWMO=400")
     expect(slow).toContain("CELLO_E2E_ONLINE=1")
     expect(slow.join(" ")).not.toContain("HOME=")

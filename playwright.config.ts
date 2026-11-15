@@ -5,6 +5,7 @@ import { defineConfig, devices } from "@playwright/test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
+import { slowMo, VIDEO_SIZE } from "./e2e/recording.ts"
 
 // Ports come from the environment so parallel runs (worktrees, a running dev app) don't clash.
 const SERVER_PORT = Number(process.env.CELLO_E2E_SERVER_PORT ?? 4791)
@@ -14,6 +15,8 @@ process.env.CELLO_E2E_DATA ??= fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-
 
 export default defineConfig({
   testDir: "e2e",
+  // e2e/*.test.ts are Vitest unit tests of the harness's own pure parts.
+  testMatch: "**/*.spec.ts",
   // Not test-results/ itself: Playwright empties its output folder, and test-results/docker/ holds
   // the Docker runs' videos (one of them maybe still being written).
   outputDir: "test-results/playwright",
@@ -26,11 +29,11 @@ export default defineConfig({
     // The server only accepts pages on its own port or CELLO_WEB_PORT (default 5199).
     baseURL: `http://localhost:${WEB_PORT}`,
     ...devices["Desktop Chrome"],
-    viewport: { width: 1440, height: 900 },
-    video: { mode: "on", size: { width: 1440, height: 900 } },
-    // Videos for a review packet: CELLO_E2E_SLOWMO=400 slows every browser action so each step can be
-    // seen. Off by default; tests never wait on it.
-    launchOptions: { slowMo: Number(process.env.CELLO_E2E_SLOWMO ?? 0) },
+    viewport: VIDEO_SIZE,
+    video: { mode: "on", size: VIDEO_SIZE },
+    // Videos for a review packet: CELLO_E2E_REVIEW=1 slows every browser action and holds each step
+    // (e2e/recording.ts); CELLO_E2E_SLOWMO sets the slow motion alone. Off by default; tests never wait on it.
+    launchOptions: { slowMo: slowMo(process.env) },
   },
   webServer: [
     {

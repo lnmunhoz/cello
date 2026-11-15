@@ -41,8 +41,8 @@ export const EXCLUDES: ReadonlyArray<string> = [
   "./e2e/videos", "./.claude/worktrees", "./apps/cli/.build", "./art/promo", "./art/variations",
 ]
 
-/** Passed into the container when set on the Mac: slow motion for review videos, and the online test. */
-const PASSED_ENV = ["CELLO_E2E_SLOWMO", "CELLO_E2E_ONLINE"] as const
+/** Passed into the container when set on the Mac: review videos, slow motion, and the online test. */
+const PASSED_ENV = ["CELLO_E2E_REVIEW", "CELLO_E2E_SLOWMO", "CELLO_E2E_ONLINE"] as const
 
 /** The variables from `env` that go into the container. */
 export const passedEnv = (env: Readonly<Record<string, string | undefined>>): Record<string, string> =>
