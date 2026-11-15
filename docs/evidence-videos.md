@@ -36,7 +36,7 @@ Every run (`bun run test:docker`, `test:docker:e2e`, `test:docker:desktop`) writ
 test-results/docker/latest/
   summary.txt            what ran, what passed, how long it took
   logs/<step>.log        each step's full output
-  web/videos/*.mp4       web e2e videos
+  web/videos/            web e2e videos (MP4) and the screenshots the tests take (PNG)
   web/playwright/        Playwright's output (error context of failed tests)
   desktop/videos/*.mp4   desktop app videos
   desktop/screenshots/   desktop app screenshots

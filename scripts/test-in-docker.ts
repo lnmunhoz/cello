@@ -103,6 +103,8 @@ const summary = summarize({
   logs: Object.fromEntries(steps.map((step) => [step.name, read(path.join(out, "logs", `${step.name}.log`))])),
   files: {
     "web/videos": countFiles(path.join(out, "web/videos"), ".mp4"),
+    // The web e2e saves its screenshots beside its videos (e2e/videos).
+    "web/videos PNGs": countFiles(path.join(out, "web/videos"), ".png"),
     "desktop/videos": countFiles(path.join(out, "desktop/videos"), ".mp4"),
     "desktop/screenshots": countFiles(path.join(out, "desktop/screenshots"), ".png"),
   },
