@@ -82,6 +82,12 @@ describe("patches", () => {
     expect(updateTask("t1", { dueDate: "2026-12-01" })(updateTask("t1", { priority: 2 })(state)).tasks["t1"]?.version).toBe(3)
   })
 
+  it("mark a changed task as updated now, so Last updated ordering moves it at once", () => {
+    for (const change of [moveTask("t1", "done", "b0"), updateTask("t1", { priority: 2 }), setTaskLabels("t1", ["bug"], [])]) {
+      expect(change(state).tasks["t1"]!.updatedAt).toBeGreaterThan(1)
+    }
+  })
+
   it("add a task under a temporary id", () => {
     const next = addTask(task("optimistic:c1", { title: "Draft" }))(state)
     expect(next.tasks["optimistic:c1"]?.title).toBe("Draft")
