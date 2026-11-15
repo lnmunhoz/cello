@@ -1,7 +1,7 @@
 // The whole server as one layer: lock → database → migrations → seed → services → RPC over a
 // WebSocket at /rpc on 127.0.0.1, review evidence at /attachments/<id> (files in <dataDir>/assets),
-// plus the built web app when given. main.ts and `cello start` launch it; integration tests build it
-// on port 0.
+// plus the built web app when given, and the daily backup into <dataDir>/backups. main.ts and
+// `cello start` launch it; integration tests build it on port 0.
 import * as path from "node:path"
 import * as BunHttpServer from "@effect/platform-bun/BunHttpServer"
 import * as Effect from "effect/Effect"
@@ -11,6 +11,8 @@ import * as HttpServer from "effect/http/HttpServer"
 import * as RpcSerialization from "effect/rpc/RpcSerialization"
 import * as RpcServer from "effect/rpc/RpcServer"
 import { CelloRpcs } from "@cello/contract/rpcs"
+import * as BackupSchedule from "./backup/BackupSchedule.ts"
+import * as BackupService from "./backup/BackupService.ts"
 import * as CallerMiddleware from "./caller/CallerMiddleware.ts"
 import * as Migrations from "./persistence/Migrations.ts"
 import * as Seed from "./persistence/Seed.ts"
@@ -32,6 +34,8 @@ export interface ServerOptions {
   readonly humanName: string
   /** The built web app to serve on the same port. Dev leaves it out: Vite serves the app. */
   readonly web?: WebFiles.WebFiles | undefined
+  /** Take the daily backup (on unless false). Integration tests turn it off; the schedule has its own tests. */
+  readonly autoBackup?: boolean | undefined
 }
 
 /** The database is opened only after the lock is held: the layer needs `ServerLock`. */
@@ -48,8 +52,9 @@ export const layer = (options: ServerOptions) => {
     Layer.provideMerge(Migrations.layer),
     Layer.provideMerge(database),
   )
-  const assets = AssetStore.layer({ dir: path.join(options.dataDir, "assets") })
-  const app = Services.layer.pipe(Layer.provideMerge(storage), Layer.provideMerge(assets))
+  const assets = AssetStore.layer({ dir: path.join(options.dataDir, AssetStore.ASSETS_DIR) })
+  const backups = BackupService.layer({ dir: path.join(options.dataDir, BackupService.BACKUPS_DIR) })
+  const app = Layer.merge(Services.layer, backups).pipe(Layer.provideMerge(storage), Layer.provideMerge(assets))
   const rpc = RpcServer.layer(CelloRpcs).pipe(
     Layer.provide(Handlers.layer),
     Layer.provide(CallerMiddleware.layer),
@@ -58,7 +63,8 @@ export const layer = (options: ServerOptions) => {
   )
   const api = Layer.mergeAll(rpc, Attachments.layer, AllowedOrigins.layer)
   const routes = options.web === undefined ? api : Layer.mergeAll(api, WebFiles.layer(options.web))
-  return Layer.mergeAll(HttpRouter.serve(routes, { disableLogger: true }), recordPort).pipe(
+  const dailyBackup = options.autoBackup === false ? Layer.empty : BackupSchedule.layer
+  return Layer.mergeAll(HttpRouter.serve(routes, { disableLogger: true }), recordPort, dailyBackup).pipe(
     Layer.provide(app),
     Layer.provideMerge(BunHttpServer.layer({ hostname: "127.0.0.1", port: options.port })),
     Layer.provideMerge(ServerLock.layer({ dataDir: options.dataDir, port: options.port })),

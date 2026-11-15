@@ -6,6 +6,7 @@ import { CelloClient, makeClientLayer, newCommandId } from "@cello/client/client
 import { describeEvent } from "@cello/client/history"
 import type { Actor, AgentSession, DocumentKind, Priority, ProjectRef, Review, Status, Task } from "@cello/contract/entities"
 import { pagePath } from "@cello/shared/document"
+import { APP_VERSION } from "@cello/shared/version"
 import * as Console from "effect/Console"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -25,7 +26,7 @@ import { start } from "./start.ts"
 
 export { CliEnv } from "./env.ts"
 
-export const VERSION = "0.2.0"
+export const VERSION = APP_VERSION
 
 /** The raw arguments, for flags whose order matters (`submit`'s --caption after an --attach). */
 class CliArgs extends Context.Service<CliArgs, ReadonlyArray<string>>()("cello/CliArgs") {}
