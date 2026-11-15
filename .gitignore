@@ -8,8 +8,12 @@ playwright-report/
 .env
 .env.*
 e2e/videos/
+# review evidence (screenshots, mocks) made in worktrees; it's attached to the task, not committed
+evidence/
 apps/cli/.build/
 .claude/worktrees/
+# per-machine Claude Code settings, e.g. the hooks `cello install claude` adds (CEL-15)
+.claude/settings.local.json
 
 # promo render output (rebuild with art/promo/render.sh)
 art/promo/frames/

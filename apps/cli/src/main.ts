@@ -15,6 +15,7 @@ export const main = (web: () => WebFiles.WebFiles | undefined) =>
       now: () => Date.now(),
       readStdin: () => Bun.stdin.text(),
       web,
+      exit: (code) => process.exit(code),
     }),
     // CliFailure carries the sentence to print; parse errors were already shown with the help text.
     Effect.catch((error) =>

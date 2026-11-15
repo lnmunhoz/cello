@@ -7,6 +7,7 @@ import * as Commands from "./commands/Commands.ts"
 import * as DocumentService from "./document/DocumentService.ts"
 import * as EventLog from "./events/EventLog.ts"
 import * as EventStore from "./events/EventStore.ts"
+import * as InboxService from "./inbox/InboxService.ts"
 import * as LabelService from "./label/LabelService.ts"
 import * as ProjectService from "./project/ProjectService.ts"
 import * as ReviewService from "./review/ReviewService.ts"
@@ -25,6 +26,8 @@ const domain = Layer.mergeAll(
   CommentService.layer,
   SnapshotService.layer,
 ).pipe(
+  // Comments and reviews deliver into agents' inboxes, which read sessions.
+  Layer.provideMerge(InboxService.layer),
   Layer.provideMerge(SessionService.layer),
   Layer.provideMerge(Commands.layer),
   Layer.provideMerge(EventLog.layer),

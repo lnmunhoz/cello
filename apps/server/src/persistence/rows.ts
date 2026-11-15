@@ -7,6 +7,8 @@ import type {
   Comment,
   DocumentKind,
   DocumentSummary,
+  InboxItem,
+  InboxKind,
   Label,
   Priority,
   Project,
@@ -234,19 +236,57 @@ interface CommentRow {
   deleted_at: number | null
 }
 
+const toComment = (r: CommentRow): Comment => ({
+  id: r.id,
+  taskId: r.task_id,
+  body: r.body,
+  actorId: r.actor_id,
+  sessionId: r.session_id,
+  createdAt: r.created_at,
+  updatedAt: r.updated_at,
+  deletedAt: r.deleted_at,
+})
+
 /** Alias: `c`. */
 export const selectComments = (sql: Sql, where: Where) =>
   sql<CommentRow>`SELECT c.* FROM comments c WHERE ${where} ORDER BY c.created_at, c.rowid`.pipe(
+    Effect.map((rows) => rows.map(toComment)),
+  )
+
+interface InboxRow extends CommentRow {
+  item_id: string
+  kind: InboxKind
+  item_created_at: number
+  read_at: number | null
+  task_number: number
+  task_title: string
+  project_key: string
+  author: string
+}
+
+/** Aliases: `i` (inbox_items), `c` (its comment), `t` (the task). Oldest first; deleted comments are left out. */
+export const selectInboxItems = (sql: Sql, where: Where) =>
+  sql<InboxRow>`
+    SELECT c.*, i.id AS item_id, i.kind, i.created_at AS item_created_at, i.read_at, t.number AS task_number,
+           t.title AS task_title, p.key AS project_key, a.name AS author
+    FROM inbox_items i
+    JOIN comments c ON c.id = i.comment_id
+    JOIN tasks t ON t.id = i.task_id
+    JOIN projects p ON p.id = t.project_id
+    JOIN actors a ON a.id = c.actor_id
+    WHERE c.deleted_at IS NULL AND ${where}
+    ORDER BY i.created_at, i.rowid`.pipe(
     Effect.map((rows) =>
-      rows.map((r): Comment => ({
-        id: r.id,
+      rows.map((r): InboxItem => ({
+        id: r.item_id,
+        kind: r.kind,
         taskId: r.task_id,
-        body: r.body,
-        actorId: r.actor_id,
-        sessionId: r.session_id,
-        createdAt: r.created_at,
-        updatedAt: r.updated_at,
-        deletedAt: r.deleted_at,
+        taskKey: formatTaskKey(r.project_key, r.task_number),
+        taskTitle: r.task_title,
+        comment: toComment(r),
+        author: r.author,
+        createdAt: r.item_created_at,
+        readAt: r.read_at,
       }))),
   )
 

@@ -13,22 +13,28 @@ export const WEB_URL = `http://localhost:${process.env.CELLO_WEB_PORT ?? 5199}`
 /** Where the specs save stills for the report, next to the videos. */
 export const SHOTS = path.join(import.meta.dirname, "videos")
 
-/** Runs the `cello` CLI from source as a Claude Code session, against the e2e server. */
-export const cello = (...args: string[]) => {
+/**
+ * Runs the `cello` CLI from source against the e2e server, as Claude Code session `session` (null: no
+ * session in the environment, the way Claude Code runs a hook), with `stdin` piped in.
+ */
+export const celloAs = (session: string | null, options: { readonly stdin?: string } = {}) => (...args: string[]) => {
   const result = spawnSync("bun", [path.join(root, "apps/cli/src/bin.ts"), ...args], {
     cwd: root,
     encoding: "utf8",
+    input: options.stdin ?? "",
     env: {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
       CELLO_PORT: String(SERVER_PORT),
-      CLAUDE_CODE_SESSION_ID: "e2e0review-agent-session",
-      CLAUDE_PID: String(process.pid),
+      ...(session === null ? {} : { CLAUDE_CODE_SESSION_ID: session, CLAUDE_PID: String(process.pid) }),
     },
   })
   if (result.status !== 0) throw new Error(`cello ${args.join(" ")} failed: ${result.stderr}`)
   return result.stdout.trim()
 }
+
+/** Runs the `cello` CLI from source as a Claude Code session, against the e2e server. */
+export const cello = celloAs("e2e0review-agent-session")
 
 /**
  * An agent's packet for task 1 of `key`: a real MP4 ("The whole flow"), a real screenshot of the

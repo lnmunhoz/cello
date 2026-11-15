@@ -32,7 +32,7 @@ This page is kept current: any change to a command, a flag, an output or a rule 
   - Lucas always wins: when he changes a task you've claimed (moves it, approves it), your claim ends, and \`cello context\` lists it under "Claims you lost".
 - **Review packet:** how finished work reaches Lucas. It holds a summary, how-to-check steps and evidence (videos, screenshots, test output, links). \`cello task submit\` creates it and moves the task to In Review. Then Lucas decides:
   - **Approve:** the task moves to Done and your claim ends.
-  - **Send back:** the task returns to In Progress with his note, and your claim stays. \`cello task get\` shows the note under Reviews.
+  - **Send back:** the task returns to In Progress with his note, and your claim stays. The note comes to your session (see Comments from Lucas reach your session), and \`cello task get\` shows it under Reviews.
 - **Documents:** markdown published into the project's Docs tab with \`cello doc publish\`. There are three kinds:
   - a **page** reports on finished work (a snapshot to read now)
   - a **doc** explains how something works (kept up to date)
@@ -47,13 +47,19 @@ This page is kept current: any change to a command, a flag, an output or a rule 
 cello context
 \`\`\`
 
-It shows the project, its statuses (hidden ones in brackets), its labels, the tasks your session has claimed, claims you lost and why, and recent activity:
+It shows the project, its statuses (hidden ones in brackets), its labels, new comments from Lucas on tasks you've claimed (shown, not taken; see Comments from Lucas reach your session), the tasks your session has claimed, claims you lost and why, and recent activity:
 
 \`\`\`
 Project   CEL · Cello · /Users/lnmunhoz/projects/cello
 You       Claude Code session 2fd0505c (cli)
 Statuses  Todo · In Progress · In Review · Done (hidden: Backlog, Canceled)
 Labels    M2 · M3 · server · ui
+
+New comments for you (1)
+  CEL-22  Review page: collapsed rows, one packet open at a time
+    Lucas N. Munhoz commented, 5m ago
+      Use the same row height as the list layout.
+  Answer on the card: \`cello task comment CEL-22 "…"\`. They stay new until the hook or \`cello inbox\` hands them over.
 
 Claimed by you
   CEL-22  In Progress  Review page: collapsed rows, one packet open at a time
@@ -71,7 +77,7 @@ Run it first in every session, and again when you come back to a task.
 3. **Work, test first, and put the key in every commit:** \`feat(web): collapsed review rows (CEL-22)\`.
 4. **Comment** progress, decisions and questions on the card (\`cello task comment\`). Lucas reads them there.
 5. **Hand it over** with \`cello task submit\` and evidence he can look at (see Review packets). The task moves to In Review.
-6. **If it's sent back,** \`cello task get CEL-12\` shows his note under Reviews. Fix it, then submit again.
+6. **If it's sent back,** his note comes to your session (by the hook, or \`cello inbox\`), and \`cello task get CEL-12\` shows it under Reviews. Fix it, then submit again.
 7. **If you stop without finishing,** \`cello task release CEL-12\`. The task keeps its status, and someone else can claim it.
 
 Never move a task to Done or Canceled yourself: Lucas decides.
@@ -134,7 +140,53 @@ cello task comment CEL-12 --body-file - <<'EOF'
 EOF
 \`\`\`
 
-Comments are markdown, rendered on the card, and links in them can be clicked. Answer Lucas's comments and Send back notes on the card, so the conversation stays with the task.
+Comments are markdown, rendered on the card, and links in them can be clicked. Answer Lucas's comments and Send back notes on the card, so the conversation stays with the task. His comments come to your session by themselves (next section).
+
+## Comments from Lucas reach your session
+
+Lucas's comments on a task you've claimed, and his Send back notes, are addressed to your session: the one holding the claim. Your own comments and other agents' never come back to you, and nothing does once your claim has ended. One exception: a Send back note still reaches the session that handed in the packet.
+
+**With the hooks (the usual way),** they arrive by themselves:
+
+\`\`\`bash
+cello install claude            # this project, this machine: .claude/settings.local.json (git-ignored)
+cello install claude --user     # every project on this machine: ~/.claude/settings.json
+cello install claude --shared   # .claude/settings.json, committed: everyone who clones the repo gets them
+cello uninstall claude          # takes them out of all three
+\`\`\`
+
+- **Once per project** (or once with \`--user\`). From inside a worktree it writes the main checkout's settings.
+- **It merges** with the hooks already there, and running it again changes nothing. The old file is kept as \`<file>.bak\`.
+- **What runs:** Claude Code runs \`cello hook claude stop\` when you finish a turn, and \`cello hook claude post-tool-use\` after each tool call. New comments come in as context. If you were about to stop, they keep you going: the transcript shows them as "Stop hook feedback".
+- **\`cello\` must be on the PATH** Claude Code starts with (\`~/.local/bin\`). When the server is down, the hook stays silent and your session carries on.
+
+**Without the hooks:**
+
+\`\`\`bash
+cello context            # lists new comments and leaves them new
+cello inbox              # hands them over and marks them read, then lists what came earlier
+cello inbox --new        # only new ones; prints nothing when there are none
+cello inbox --json
+\`\`\`
+
+**Each comment arrives once.** Whichever gets it first (the Stop hook, the PostToolUse hook or \`cello inbox\`) marks it read, so it never comes a second time, even when parallel tool calls run the hook at the same moment. \`cello context\` only shows them. What arrives looks like this:
+
+\`\`\`
+New Cello comment on a task you claimed:
+
+CEL-22  Review page: collapsed rows, one packet open at a time
+  Lucas N. Munhoz sent it back, 2m ago
+    The next row doesn't open by itself after Approve.
+
+Act on it now, then answer on the card: \`cello task comment CEL-22 "…"\` (or \`--body-file -\` for markdown), so Lucas N. Munhoz sees your reply there.
+For a task Lucas N. Munhoz sent back, fix what the note asks, then hand it in again with \`cello task submit CEL-22\`.
+\`\`\`
+
+**Answer on the card.** Act on the comment, then reply with \`cello task comment CEL-22 "…"\` (\`--body-file -\` for markdown), so the conversation stays with the task and Lucas sees it there.
+
+**When a task is sent back,** it's in In Progress again and still yours. The note arrives the same way, marked "sent it back" (\`cello task get\` also shows it under Reviews). Fix what it asks, test, then hand the task in again with \`cello task submit CEL-22\` and new evidence.
+
+**Subagents share your session.** A subagent's \`CLAUDE_CODE_SESSION_ID\` is its parent's, so Cello can't tell them apart. The hook skips tool calls made inside a subagent, so comments reach the main conversation. Don't run \`cello inbox\` from a subagent: it would take the parent's comments. \`cello context\` is safe anywhere, since it takes nothing.
 
 ## Review packets
 
@@ -144,7 +196,7 @@ cello task submit CEL-22 \\
   --step "Open the Review page" \\
   --step "Press j twice, then Enter: the third packet opens and the first closes" \\
   --step "Approve it: the next packet opens by itself" \\
-  --attach e2e/videos/review-rows.mp4 --caption "Going through the queue with the keyboard" \\
+  --attach test-results/docker/latest/web/videos/review-rows.mp4 --caption "Going through the queue with the keyboard" \\
   --attach shots/review-dark.png --caption "Dark mode" \\
   --link http://127.0.0.1:4747/CEL/pages/review-rows --caption "The report"
 \`\`\`
@@ -222,7 +274,7 @@ cello restore 20261115-120000    # only when Lucas asks, with Cello stopped
 
 | Variable | What it does |
 | --- | --- |
-| \`CLAUDE_CODE_SESSION_ID\` | Set by Claude Code. Your agent session: your changes are credited to it, and your claims belong to it. |
+| \`CLAUDE_CODE_SESSION_ID\` | Set by Claude Code. Your agent session: your changes are credited to it, your claims belong to it, and Lucas's comments on them come to it. Subagents get their parent's. |
 | \`CLAUDE_PID\` | Set by Claude Code. Lets Cello tell whether your session is still alive, so a dead session's claim can be taken over. |
 | \`CELLO_SESSION\` | Overrides the session. An agent that isn't Claude Code sets a stable id for its conversation here. \`CELLO_SESSION=me\` acts as Lucas: only when he asks you to. |
 | \`CELLO_PORT\` | The server's port, 4747 by default. Dev servers and tests use other ports. |
@@ -258,7 +310,7 @@ Generated from the CLI's own \`--help\` by \`bun run docs:cli\`. Don't edit it b
 
 ### cello context
 
-Start here: the project, its statuses and labels, your claims and recent activity.
+Start here: the project, its statuses and labels, new comments for you, your claims and recent activity.
 
 \`\`\`
 cello context [flags]
@@ -392,6 +444,19 @@ cello task submit [flags] <key>
 | \`--caption string\` | Describes the --attach or --link right before it. |
 | \`--link string\` | A link, e.g. the PR; repeatable. |
 
+### cello inbox
+
+Show the comments Lucas left on tasks this session claimed (Send back notes too) and mark them read; each one arrives once. Use it when \`cello context\` lists new ones, or to reread what he said. With \`cello install claude\` they arrive by themselves. Not from a subagent: it shares its parent's session and would take the parent's comments.
+
+\`\`\`
+cello inbox [flags]
+\`\`\`
+
+| | |
+| --- | --- |
+| \`--new\` | Only new comments, and print nothing (exit 0) when there are none. For scripts and hooks. |
+| \`--json\` | Print JSON: \`items\` (new, handed over now and marked read) and \`earlier\` (read before). |
+
 ### cello doc publish
 
 Publish a markdown report, plan or summary as a page in Cello and print its URL.
@@ -474,6 +539,39 @@ Print the full guide for agents: concepts, workflow, examples, errors and every 
 \`\`\`
 cello guide [flags]
 \`\`\`
+
+### cello install claude
+
+Add Claude Code hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse, running \`cello hook claude\`). Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main checkout's), merged with the hooks already there; running it again changes nothing. The old file is kept as .bak.
+
+\`\`\`
+cello install claude [flags]
+\`\`\`
+
+| | |
+| --- | --- |
+| \`--user\` | Write ~/.claude/settings.json instead: every project on this machine. |
+| \`--shared\` | Write this project's .claude/settings.json instead, committed with the repo: everyone who clones it gets the hooks and needs cello. |
+
+### cello uninstall claude
+
+Take Cello's hooks out of Claude Code's settings: this project's .claude/settings.local.json and .claude/settings.json, and ~/.claude/settings.json. Every other hook and setting stays as it was.
+
+\`\`\`
+cello uninstall claude [flags]
+\`\`\`
+
+### cello hook claude
+
+Run by the hooks \`cello install claude\` adds, not by hand: reads Claude Code's hook JSON on stdin and hands new comments for its session back to the agent as context (on Stop it keeps the agent going). Prints nothing when there are none, inside a subagent, or when the server doesn't answer within 2 seconds; always exits 0.
+
+\`\`\`
+cello hook claude [flags] <event>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`event choice\` | The hook event Claude Code runs it for: stop (Stop) or post-tool-use (PostToolUse). |
 
 ### cello start
 
