@@ -135,16 +135,48 @@ test("performance: a 200-task board with three agent cursors flying at once stay
       openClient(url, { "x-cello-session": session, "x-cello-client": "Claude Code" })),
   )
 
+  // Notes every card a cursor carried (a copy flying over the board) and every "made N changes" notice,
+  // so the frame rate below is measured with real flights, not skipped ones.
+  await page.evaluate(() => {
+    const w = window as unknown as { __carried: Set<string>; __notices: number }
+    w.__carried = new Set()
+    w.__notices = 0
+    new MutationObserver((records) => {
+      for (const r of records)
+        for (const node of r.addedNodes) {
+          if (!(node instanceof HTMLElement)) continue
+          if (node.dataset.agentGhost) w.__carried.add(node.dataset.agentGhost)
+          if (node.dataset.agentNotice) w.__notices++
+        }
+    }).observe(document.body, { subtree: true, childList: true })
+  })
+
+  // Each column's cards top to bottom, as seeded (card i is in column i % 4), kept up to date below.
+  const columnOf = new Map(ids.map((id, i) => [id, COLUMNS[i % COLUMNS.length]!]))
+  const tops = Object.fromEntries(COLUMNS.map((name) => [name, ids.filter((id) => columnOf.get(id) === name)]))
+  // Each agent has two cards near the top of the board: Todo, In Progress and Done's first two rows.
+  const own = [
+    [ids[0]!, ids[4]!],
+    [ids[1]!, ids[5]!],
+    [ids[3]!, ids[7]!],
+  ]
+
   await startFrames(page)
   const started = Date.now()
-  // Each agent moves a card of its own to the next column (not In Review: agents get there only by submitting), one after another, for 2.5 s: three lanes
-  // with moves waiting, so three cursors carry cards at the same time.
+  // Each agent moves its cards in turn to the top of the next column (not In Review: agents get there
+  // only by submitting) for 2.5 s, so every move is a flight on screen, from the top rows to the top
+  // rows, and three cursors carry cards at the same time.
   await Promise.all(
     agents.map(async (agent, a) => {
       for (let n = 0; Date.now() - started < 2500; n++) {
-        const id = ids[a * 40 + (n % 40)]!
-        const to = AGENT_COLUMNS[(a + n + 1) % AGENT_COLUMNS.length]!
-        await agent.run((c) => c["task.move"]({ commandId: newCommandId(), id, statusId: statuses[to]!.id }))
+        const id = own[a]![n % 2]!
+        const from = columnOf.get(id)!
+        const to = AGENT_COLUMNS[(AGENT_COLUMNS.indexOf(from) + 1) % AGENT_COLUMNS.length]!
+        const after = tops[to]![0] ?? null
+        tops[from] = tops[from]!.filter((x) => x !== id)
+        tops[to] = [id, ...tops[to]!]
+        columnOf.set(id, to)
+        await agent.run((c) => c["task.move"]({ commandId: newCommandId(), id, statusId: statuses[to]!.id, before: null, after }))
         // 24 frames apart (~0.4 s): about as fast as a sped-up lane plays, so lanes stay busy without skipping.
         await page.evaluate(
           () =>
@@ -163,6 +195,13 @@ test("performance: a 200-task board with three agent cursors flying at once stay
   testInfo.annotations.push({ type: "perf", description: JSON.stringify(stats) })
   for (const agent of agents) await agent.close()
 
+  const flights = await page.evaluate(() => {
+    const w = window as unknown as { __carried: Set<string>; __notices: number }
+    return { carried: w.__carried.size, notices: w.__notices }
+  })
+  console.log(`[perf] cursors flights ${JSON.stringify(flights)}`)
+  expect(flights.carried).toBeGreaterThanOrEqual(3)
+  expect(flights.notices, "no lane fell behind and skipped").toBe(0)
   expect(stats.maxCursors).toBe(3)
   expect(stats.durationMs).toBeGreaterThan(2000)
   expect(stats.averageFps).toBeGreaterThanOrEqual(55)

@@ -136,7 +136,9 @@ body {
   will-change: transform;
 }
 .agent-cursor span {
-  margin: 14px 0 0 2px;
+  position: absolute;
+  top: 14px;
+  left: 16px;
   padding: 3px 8px;
   border-radius: 999px;
   white-space: nowrap;
@@ -145,6 +147,11 @@ body {
   font-size: 12px;
   font-weight: 600;
   box-shadow: 0 2px 6px rgb(15 23 42 / 0.2);
+}
+/* Near the board's right edge: the pill on the arrow's left. */
+.agent-cursor[data-flip] span {
+  left: auto;
+  right: 14px;
 }
 /* "Claude Code made 23 changes" when a session's burst skips to the end: at the foot of the board. */
 #agent-notices {
