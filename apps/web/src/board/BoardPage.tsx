@@ -5,7 +5,7 @@ import { useAtomSet } from "@effect/atom-react"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { ChevronRightIcon, EyeOffIcon, PlusIcon } from "lucide-react"
 import { LayoutGroup, MotionConfig, motion } from "motion/react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Centered } from "../app/Home.tsx"
 import { Button } from "../components/ui/Button.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
@@ -14,11 +14,17 @@ import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { TaskPanel, useTaskView } from "../task/TaskPanel.tsx"
 import { behindTask } from "../task/view.ts"
 import { CardBody } from "./Card.tsx"
+import { animator, useCursorVisual } from "./cursors/animator.ts"
+import { withHoles, type Hole } from "./cursors/holes.ts"
+import { useAgentCursors } from "./cursors/useAgentCursors.ts"
 import { InlineCreate } from "./InlineCreate.tsx"
 import { Kanban, KanbanCard, KanbanColumn } from "./kanban.tsx"
 import { findMove } from "./moves.ts"
 
 const layoutTransition = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 } as const
+
+/** A card's look, shared by the card and the copy an agent's waiting move leaves in its old slot. */
+const CARD = "group flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-3 py-2.5 shadow-card"
 
 /** New cards land at the bottom of their column, so a card you just made (still optimistic) scrolls into view. */
 const reveal = (el: HTMLElement | null) => el?.scrollIntoView({ block: "nearest", inline: "nearest" })
@@ -44,6 +50,8 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
   const move = useAtomSet(commands.moveTask)
   const navigate = useNavigate()
   const view = useTaskView()
+  const visual = useCursorVisual()
+  useAgentCursors(project.id)
 
   const shown: Status[] = [...columns.visible, ...columns.hidden.filter((s) => unfolded.includes(s.id))]
   const folded = columns.hidden.filter((s) => !unfolded.includes(s.id))
@@ -68,7 +76,7 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
     <MotionConfig reducedMotion="user">
       <LayoutGroup>
         {/* Its sideways scroll stays inside (no back swipe from its edge). In a narrow window an open task takes its place. */}
-        <div className={`flex min-w-0 flex-1 gap-3 overflow-x-auto overscroll-x-contain px-3 pb-3 ${behindTask(openNumber !== undefined, view)}`}>
+        <div data-agent-board className={`flex min-w-0 flex-1 gap-3 overflow-x-auto overscroll-x-contain px-3 pb-3 ${behindTask(openNumber !== undefined, view)}`}>
           <Kanban
             lists={lists}
             onListsChange={onListsChange}
@@ -77,13 +85,16 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
             aria-label={`${project.name} board`}
             className="flex items-start gap-3"
           >
-            {() =>
-              shown.map((status) => {
+            {({ movingKey }) => [
+              <DragWatcher key="drag-watcher" movingKey={movingKey} />,
+              ...shown.map((status) => {
                 const tasks = columns.tasks[status.id] ?? []
+                const holes = visual.holes.filter((h) => h.statusId === status.id)
                 return (
                   <section
                     key={status.id}
                     data-column={status.name}
+                    data-status-id={status.id}
                     aria-labelledby={`col-${status.id}`}
                     className="flex max-h-full w-[300px] shrink-0 flex-col rounded-lg bg-sunken"
                   >
@@ -106,7 +117,7 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
                             <EyeOffIcon className="size-3.5" />
                           </Button>
                         ) : null}
-                        <Button variant="ghost" size="icon" aria-label={`New task in ${status.name}`} onClick={() => setComposing(status.id)}>
+                        <Button variant="ghost" size="icon" aria-label={`New task in ${status.name}`} data-column-plus onClick={() => setComposing(status.id)}>
                           <PlusIcon className="size-3.5" />
                         </Button>
                       </span>
@@ -129,22 +140,25 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
                       render={(props) => <motion.div {...(props as object)} layoutScroll />}
                     >
                       {({ cards }) =>
-                        cards.map((id) => {
+                        withHoles(cards, holes).map(({ key: id, hole }) => {
                           const task = board.tasks[id]
                           if (!task) return null
+                          if (hole) return <HoleCard key={`hole-${hole.id}`} hole={hole} task={task} board={board} />
                           return (
                             <KanbanCard
                               key={id}
                               value={id}
                               data-card-id={id}
                               data-task-key={task.key}
+                              data-agent-pending={visual.pending.get(id)}
+                              onPointerDownCapture={() => animator.grab(id)}
                               ref={task.number === 0 ? reveal : undefined}
                               aria-current={task.number === openNumber ? "true" : undefined}
                               onClick={() => open(task)}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") open(task)
                               }}
-                              className="group flex cursor-grab flex-col gap-1.5 rounded-lg border border-line bg-raised px-3 py-2.5 shadow-card outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring aria-[current=true]:border-accent data-dragging:border-dashed data-dragging:bg-transparent data-dragging:shadow-none data-dragging:*:invisible data-moving:not-data-dragging:ring-2 data-moving:not-data-dragging:ring-ring data-moving:not-data-dragging:shadow-pop"
+                              className={`${CARD} cursor-grab outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring aria-[current=true]:border-accent data-dragging:border-dashed data-dragging:bg-transparent data-dragging:shadow-none data-dragging:*:invisible data-moving:not-data-dragging:ring-2 data-moving:not-data-dragging:ring-ring data-moving:not-data-dragging:shadow-pop`}
                               render={(props) => <motion.div {...(props as object)} layout="position" transition={layoutTransition} />}
                             >
                               <CardBody task={task} board={board} />
@@ -155,8 +169,8 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
                     </KanbanColumn>
                   </section>
                 )
-              })
-            }
+              }),
+            ]}
           </Kanban>
           {folded.length > 0 ? (
             <aside aria-label="Hidden columns" className="flex w-52 shrink-0 flex-col gap-1 pt-2">
@@ -181,5 +195,31 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
         </div>
       </LayoutGroup>
     </MotionConfig>
+  )
+}
+
+/** Keyboard and pointer pickups reach the agent cursors here: while Lucas drags, they keep out of his way. */
+function DragWatcher({ movingKey }: { movingKey: string | null }) {
+  useEffect(() => animator.setDragging(movingKey !== null), [movingKey])
+  return null
+}
+
+/**
+ * The copy of a card an agent's waiting move leaves in its old slot, so the card stays where Lucas saw
+ * it until the cursor comes to carry it. Not a card: no key, no drag; pressing it lands the move at once.
+ */
+function HoleCard({ hole, task, board }: { hole: Hole; task: Task; board: BoardState }) {
+  return (
+    <motion.div
+      layout="position"
+      transition={layoutTransition}
+      aria-hidden
+      data-agent-hole={hole.id}
+      data-agent-hole-card={hole.card}
+      onPointerDown={() => animator.grab(hole.card)}
+      className={`${CARD} ${hole.hidden ? "invisible" : ""}`}
+    >
+      <CardBody task={task} board={board} />
+    </motion.div>
   )
 }

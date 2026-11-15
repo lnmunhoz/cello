@@ -3,6 +3,8 @@ import { KanbanIcon, ListIcon, SlidersHorizontalIcon } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/Popover.tsx"
 import { SegmentedControl, SegmentedControlItem } from "../components/ui/SegmentedControl.tsx"
 import { Select } from "../components/ui/Select.tsx"
+import { Switch } from "../components/ui/Switch.tsx"
+import { showAgentCursors, useAgentCursorsShown } from "../board/cursors/settings.ts"
 import { layoutOf, searchFor, type Layout } from "./layout.ts"
 
 /**
@@ -39,8 +41,20 @@ export function DisplayOptions() {
               <Select variant="chip" label="Grouping" value="status" options={[{ value: "status", label: "Status" }]} onValueChange={() => {}} />
             </dd>
           </dl>
+          <AgentCursorsRow />
         </div>
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** Agents' cursors flying over the board (CEL-6): on unless turned off on this device. */
+function AgentCursorsRow() {
+  const shown = useAgentCursorsShown()
+  return (
+    <label className="flex items-center justify-between gap-3 border-t border-line pt-2 text-[13px]">
+      <span className="text-muted">Show agent cursors</span>
+      <Switch checked={shown} onCheckedChange={(on) => showAgentCursors(on)} />
+    </label>
   )
 }
