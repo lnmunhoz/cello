@@ -1,6 +1,7 @@
 // CEL-52: the filter panel on the Issues tab. Labels in their groups (any within a group, all across),
 // Area cut to its busiest 6 until Show all, "An agent" opening into the sessions holding claims, and
-// the filter kept per project on this device, shared by board and list, a link winning over it.
+// the filter kept per project on this device, shared by board and list, a link winning over it; the
+// panel folding to a rail (⌘⇧F) and its sections folding, both kept on this device.
 import * as path from "node:path"
 import type { Locator, Page } from "@playwright/test"
 import { newCommandId, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
@@ -10,6 +11,14 @@ import { SHOTS, WEB_URL } from "./packets.ts"
 
 const panel = (page: Page) => page.getByRole("complementary", { name: "Filters" })
 const option = (page: Page, id: string) => panel(page).locator(`[data-facet-option="${id}"]`)
+/** The open panel, and the panel folded to its rail. */
+const openPanel = (page: Page) => page.locator('[data-facets]:not([data-facets="rail"])')
+const rail = (page: Page) => page.locator('[data-facets="rail"]')
+/** Folds a section or label group by its heading. */
+const fold = async (page: Page, heading: string) => {
+  await panel(page).locator(`[data-fold="${heading}"]`).click()
+  await expect(panel(page).locator(`[data-fold="${heading}"]`)).toHaveAttribute("aria-expanded", "false")
+}
 const tick = async (page: Page, id: string, checked: "true" | "false" | "mixed") => {
   await option(page, id).click()
   await expect(option(page, id)).toHaveAttribute("aria-checked", checked)
@@ -261,6 +270,61 @@ test("CEL-52: while filtered: the text box keeps up with typing and an edit mid-
   await expect(todo.last()).toContainText("Write the filter docs")
 })
 
+test("CEL-52: the panel folds to a rail counting the filters on, ⌘⇧F opens and folds it, sections fold, and a reload keeps it all", async ({ page, cello, baseURL }) => {
+  const { key } = await seed(cello, baseURL!, "RAIL")
+  await page.goto(`/${key}/issues?label=bug,agents&who=nobody`)
+  await expectShown(boardCards(page), key, [16, 17])
+
+  await caption(page, "Bugs in agents that nobody is on: 3 filters. Hide the panel: it folds to a rail")
+  await panel(page).getByRole("button", { name: "Hide filters" }).click()
+  await expect(rail(page)).toBeVisible()
+  await expect(openPanel(page)).toHaveCount(0)
+  await expect(rail(page).locator("[data-filter-count]")).toHaveText("3")
+  await expect(rail(page).locator('[data-rail-facet="labels"]')).toHaveAttribute("data-active", "")
+  await expect(rail(page).locator('[data-rail-facet="holder"]')).toHaveAttribute("data-active", "")
+  await expect(rail(page).locator('[data-rail-facet="priority"]')).not.toHaveAttribute("data-active")
+  // The filter still applies with the panel folded.
+  await expectShown(boardCards(page), key, [16, 17])
+
+  await caption(page, "⌘⇧F opens the panel again…")
+  await page.keyboard.press("ControlOrMeta+Shift+F")
+  await expect(openPanel(page)).toBeVisible()
+  await expect(rail(page)).toHaveCount(0)
+  await caption(page, "…and folds it back to the rail")
+  await page.keyboard.press("ControlOrMeta+Shift+F")
+  await expect(rail(page)).toBeVisible()
+  await caption(page, "A click on any icon in the rail opens it too")
+  await rail(page).locator('[data-rail-facet="labels"]').click()
+  await expect(openPanel(page)).toBeVisible()
+
+  await caption(page, "Fold Area and Working on it: each heading still says what's picked there")
+  await fold(page, "Area")
+  await fold(page, "Working on it")
+  await expect(panel(page).locator('[data-fold="Area"] [data-fold-summary]')).toHaveText("agents")
+  await expect(panel(page).locator('[data-fold="Working on it"] [data-fold-summary]')).toHaveText("Nobody")
+  await expect(option(page, "label-agents")).toHaveCount(0)
+  await expect(option(page, "who-nobody")).toHaveCount(0)
+  await expect(option(page, "label-bug")).toBeVisible()
+
+  await caption(page, "Fold the panel to the rail and reload: the rail, its count and the filter are kept")
+  await page.keyboard.press("ControlOrMeta+Shift+F")
+  await expect(rail(page)).toBeVisible()
+  await page.reload()
+  await expect(rail(page).locator("[data-filter-count]")).toHaveText("3")
+  await expectShown(boardCards(page), key, [16, 17])
+
+  await caption(page, "Open it: Area and Working on it are still folded")
+  await rail(page).getByRole("button", { name: "Show filters" }).click()
+  await expect(panel(page).locator('[data-fold="Area"]')).toHaveAttribute("aria-expanded", "false")
+  await expect(panel(page).locator('[data-fold="Working on it"]')).toHaveAttribute("aria-expanded", "false")
+  await expect(panel(page).locator('[data-fold="Kind"]')).toHaveAttribute("aria-expanded", "true")
+
+  await caption(page, "Unfold Area: its labels are back, agents still ticked")
+  await panel(page).locator('[data-fold="Area"]').click()
+  await expect(option(page, "label-agents")).toHaveAttribute("aria-checked", "true")
+  await expect(panel(page).locator('[data-fold="Area"] [data-fold-summary]')).toHaveCount(0)
+})
+
 test("CEL-52: screenshots of the filter panel, light and dark", async ({ browser, cello, baseURL }) => {
   const { key } = await seed(cello, baseURL!, "SHOT")
   for (const colorScheme of ["light", "dark"] as const) {
@@ -297,6 +361,16 @@ test("CEL-52: screenshots of the filter panel, light and dark", async ({ browser
     await page.goto(`/${key}/issues?layout=list&label=bug`)
     await expectShown(listRows(page), key, [12, 13, 14, 15, 16, 17])
     await shot("list-bugs")
+
+    await page.goto(`/${key}/issues?label=bug,agents&who=nobody`)
+    await expectShown(boardCards(page), key, [16, 17])
+    await fold(page, "Area")
+    await fold(page, "Working on it")
+    await expect(panel(page).locator('[data-fold="Working on it"] [data-fold-summary]')).toHaveText("Nobody")
+    await shot("folded-sections")
+    await panel(page).getByRole("button", { name: "Hide filters" }).click()
+    await expect(rail(page).locator("[data-filter-count]")).toHaveText("3")
+    await shot("rail")
     await context.close()
   }
 })

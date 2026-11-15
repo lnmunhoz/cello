@@ -22,12 +22,6 @@ describe("issues layout in the URL", () => {
     })
   })
 
-  it("keeps the scope's ?collapse=a|b|c|bc switch (CEL-52 scope, removed in the real build)", () => {
-    expect(parseIssuesSearch({ collapse: "b" })).toEqual({ collapse: "b" })
-    expect(parseIssuesSearch({ collapse: "bc" })).toEqual({ collapse: "bc" })
-    expect(parseIssuesSearch({ collapse: "z" })).toEqual({})
-  })
-
   it("names the layout a search shows", () => {
     expect(layoutOf({ layout: "list" })).toBe("list")
     expect(layoutOf({})).toBe("board")
