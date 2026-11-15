@@ -268,6 +268,13 @@ test("CEL-5: a comment is activity: the card says who commented just now, with a
   await agent.run((c) => c["comment.add"]({ commandId: newCommandId(), taskId: ids[1]!, body: "Found the cause: the lane's drop zone is too wide." }))
   await expect(card(page, middle).locator("[data-provenance]")).toHaveText(/created · 2fd0505c commented just now$/)
   await order([middle, oldest, newest])
+
+  await caption(page, "After a reload the board says the same: the order, who commented and the counts")
+  // A fresh render also has no card mid-slide in the screenshots below.
+  await page.reload()
+  await order([middle, oldest, newest])
+  await expect(commented.locator("[data-provenance]")).toHaveText(/created · commented just now$/)
+  await expect(card(page, middle).locator("[data-comment-count]")).toHaveText("1")
   for (const theme of ["light", "dark"] as const) {
     await page.evaluate((dark) => document.documentElement.classList.toggle("dark", dark), theme === "dark")
     await column(page, "Todo").screenshot({ path: path.join(SHOTS, `cel-5-comments-column-${theme}.png`), animations: "disabled" })
