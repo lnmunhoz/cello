@@ -6,8 +6,9 @@ import { Input } from "../components/ui/Input.tsx"
 import { commands } from "../lib/cello.ts"
 
 /**
- * The column `+`: type a title, Enter creates the task at the bottom of the column, so tasks keep
- * the order you typed them in. Stays open for the next one; Escape closes.
+ * The column `+`: type a title, Enter creates the task at the bottom of the column's drag order, so
+ * tasks keep the order you typed them in (a sorted ordering shows it where it sorts: Newest first at
+ * the top). Stays open for the next one; Escape closes.
  */
 export function InlineCreate({ project, status, tasks, onDone }: { project: Project; status: Status; tasks: ReadonlyArray<Task>; onDone: () => void }) {
   const [title, setTitle] = useState("")
