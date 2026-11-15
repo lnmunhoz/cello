@@ -2,11 +2,22 @@
 // screenshot), and Lucas reviews it in the browser: on the Review page (approve → Done) and in the
 // task panel (send back with a note → In Progress).
 // CEL-22: the Review page shows the queue as collapsed rows and opens one packet at a time.
+// CEL-38: on a wide panel the open packet splits in two, the evidence on the right and sticky.
 import * as fs from "node:fs"
 import * as path from "node:path"
 import type { Browser, Page } from "@playwright/test"
 import { caption, captionWithUrl, card, column, createProject, expect, test, uniqueKey } from "./fixtures.ts"
-import { SHOTS, submitPacket, submitPackets, WEB_URL } from "./packets.ts"
+import {
+  expectOneColumn,
+  expectTwoColumns,
+  packetDrawn,
+  packetLayout,
+  SHOTS,
+  submitDiagramPacket,
+  submitPacket,
+  submitPackets,
+  WEB_URL,
+} from "./packets.ts"
 import { isReview } from "./recording.ts"
 
 // Review videos hold every step (e2e/recording.ts), which takes these flows past the default timeout.
@@ -264,5 +275,103 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
   await expect(three.header).toHaveAttribute("aria-expanded", "true")
   await expect(page).toHaveURL(new RegExp(`/review\\?open=${key}-3$`))
   await captionWithUrl(page, "One packet at a time, in order")
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+/** The Review page with `key` open in its own unrecorded window, saved to e2e/videos/review-wide-<width>x<height>-<scheme>.png. */
+async function screenshotWide(browser: Browser, key: string, viewport: { width: number; height: number }, colorScheme: "light" | "dark") {
+  const context = await browser.newContext({ baseURL: WEB_URL, viewport, colorScheme })
+  const page = await context.newPage()
+  await page.goto(`/review?open=${key}`)
+  const item = page.getByRole("article", { name: new RegExp(`${key}\\b`) })
+  await packetDrawn(item)
+  const poster = await item.locator("video").getAttribute("poster")
+  await page.evaluate((src) => new Promise((resolve) => Object.assign(new Image(), { onload: resolve, src })), poster!)
+  // A screenshot in the window has loaded (one below the fold loads lazily, out of the picture anyway).
+  await item
+    .locator("img[data-evidence=screenshot]")
+    .first()
+    .evaluate((img: HTMLImageElement) => img.complete || img.getBoundingClientRect().top > innerHeight || new Promise((resolve) => img.addEventListener("load", resolve)))
+  await page.screenshot({ path: path.join(SHOTS, `review-wide-${viewport.width}x${viewport.height}-${colorScheme}.png`) })
+  await context.close()
+}
+
+test("CEL-38: a wide Review page opens the packet in two columns, evidence on the right and sticky; a narrow panel and the task panel keep one column", async ({ page, browser }) => {
+  const key = uniqueKey("WID")
+  await createProject(page, "Wide review test", key)
+  await caption(page, "An agent submits a packet with a diagram, a video and a screenshot")
+  const { dir } = await submitDiagramPacket(page, key, "Use the screen width on the Review page")
+  const item = page.getByRole("article", { name: new RegExp(`${key}-1\\b`) })
+
+  await captionWithUrl(page, "Open it on the Review page, 1440 px wide: summary and steps on the left, evidence on the right")
+  await page.goto(`/review?open=${key}-1`)
+  await packetDrawn(item)
+  await expectTwoColumns(item)
+
+  await caption(page, "Scroll down: the evidence stays in view beside the steps")
+  const evidence = item.getByRole("region", { name: "Evidence" })
+  // Scroll the packet's top 120 px past the top of the page's scroll area.
+  const { scrollerTop, padding } = await evidence.evaluate((el) => {
+    const scroller = el.closest<HTMLElement>("[data-review-scroller]")!
+    const packetTop = el.parentElement!.getBoundingClientRect().top
+    const top = scroller.getBoundingClientRect().top
+    scroller.scrollTop += packetTop - top + 120
+    return { scrollerTop: top, padding: parseFloat(getComputedStyle(scroller).paddingTop) }
+  })
+  const scrolled = await packetLayout(item)
+  expect(scrolled.diagram.y).toBeLessThan(scrollerTop)
+  // Stuck at the scroll area's top padding, while the left column moved on.
+  expect(Math.abs(scrolled.evidence.y - (scrollerTop + padding))).toBeLessThan(1)
+
+  await caption(page, "A narrower window, 1100 px: too narrow for two columns, so one column as before")
+  await page.setViewportSize({ width: 1100, height: 900 })
+  await expectOneColumn(item)
+
+  await caption(page, "Back to 1440 px, then open a screenshot in the viewer: the panel narrows, so one column again")
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expectTwoColumns(item)
+  await item.getByRole("button", { name: "Open The board" }).click()
+  const viewer = page.getByRole("complementary", { name: "Viewer" })
+  await expect(viewer.getByRole("img", { name: "The board" })).toBeVisible()
+  await expectOneColumn(item)
+  await caption(page, "Close the viewer: two columns again")
+  await viewer.getByRole("button", { name: "Close viewer" }).click()
+  await expect(viewer).toBeHidden()
+  await expectTwoColumns(item)
+
+  // Stills for the report, without the test's overlay: wide and laptop sizes in both themes, and a narrow one.
+  for (const colorScheme of ["light", "dark"] as const) {
+    await screenshotWide(browser, `${key}-1`, { width: 2560, height: 1440 }, colorScheme)
+    await screenshotWide(browser, `${key}-1`, { width: 1440, height: 900 }, colorScheme)
+  }
+  await screenshotWide(browser, `${key}-1`, { width: 1100, height: 900 }, "light")
+
+  // On a 2560 px screen the rows and the packet grow, but stop well short of the edges.
+  const wide = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 2560, height: 1440 } })
+  const widePage = await wide.newPage()
+  await widePage.goto(`/review?open=${key}-1`)
+  const wideItem = widePage.getByRole("article", { name: new RegExp(`${key}-1\\b`) })
+  await packetDrawn(wideItem)
+  const list = (await widePage.getByRole("list", { name: "Waiting for review" }).boundingBox())!
+  const scrollArea = (await widePage.locator("[data-review-scroller]").boundingBox())!
+  expect(list.width).toBeGreaterThan(1400)
+  expect(list.width).toBeLessThanOrEqual(1536)
+  // Centred in the panel.
+  expect(Math.abs(list.x - scrollArea.x - (scrollArea.x + scrollArea.width - list.x - list.width))).toBeLessThan(2)
+  const at = await expectTwoColumns(wideItem)
+  // The text column keeps a readable line length.
+  expect(at.steps.width).toBeLessThan(720)
+  await wide.close()
+
+  await caption(page, "The task panel's pinned packet stays in one column")
+  await item.getByRole("link", { name: `Open ${key}-1` }).click()
+  const pinned = page.getByRole("complementary", { name: `${key}-1 details` }).getByRole("region", { name: "Review packet" })
+  await packetDrawn(pinned)
+  await expectOneColumn(pinned)
+
+  await caption(page, `Approve ${key}-1 from the panel`)
+  await pinned.getByRole("button", { name: "Approve" }).click()
+  await expect(pinned).toBeHidden()
+  await caption(page, "Wide panels read on the left and watch on the right; narrow ones keep one column")
   fs.rmSync(dir, { recursive: true, force: true })
 })

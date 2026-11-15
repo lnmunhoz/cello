@@ -11,6 +11,7 @@ import { ProjectLayout } from "../project/ProjectLayout.tsx"
 import { parseReviewSearch } from "../review/queue.ts"
 import { ReviewPage } from "../review/ReviewPage.tsx"
 import { Settings } from "../settings/Settings.tsx"
+import { parseTaskSearch } from "../task/view.ts"
 import { isEmbedded } from "../viewer/viewer.ts"
 import { AppShell, EmbeddedShell } from "./AppShell.tsx"
 import { Home } from "./Home.tsx"
@@ -48,8 +49,8 @@ const docs = createRoute({ getParentRoute: () => project, path: "docs", componen
 // The reader for every kind of document.
 const page = createRoute({ getParentRoute: () => project, path: "pages/$slug", component: PageReader, validateSearch: parsePageSearch })
 const activity = createRoute({ getParentRoute: () => project, path: "activity", component: () => <ComingSoon what="Activity" when="M3" /> })
-// The same component as `issues`, so opening a task keeps the page mounted.
-const task = createRoute({ getParentRoute: () => project, path: "$number", component: IssuesPage })
+// The same component as `issues`, so opening a task keeps the page mounted. `?view=full` shows the task as a full page.
+const task = createRoute({ getParentRoute: () => project, path: "$number", component: IssuesPage, validateSearch: parseTaskSearch })
 
 const routeTree = root.addChildren([home, settings, review, project.addChildren([projectIndex, overview, issues, docs, page, activity, task])])
 

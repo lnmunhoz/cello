@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { expect } from "./fixtures.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
@@ -89,5 +89,96 @@ export async function submitPackets(page: Page, key: string, titles: ReadonlyArr
       "--link", "https://github.com/lnmunhoz/cello/pull/22", "--caption", "The PR",
     )
   })
+  return { dir }
+}
+
+/** Where an open packet's parts sit on screen, and how its evidence is positioned. For `submitDiagramPacket`'s packet. */
+export async function packetLayout(packet: Locator) {
+  const box = async (locator: Locator) => (await locator.boundingBox())!
+  const evidence = packet.getByRole("region", { name: "Evidence" })
+  return {
+    diagram: await box(packet.locator("figure[data-mermaid]")),
+    steps: await box(packet.getByRole("region", { name: "How to check" })),
+    evidence: await box(evidence),
+    approve: await box(packet.getByRole("button", { name: "Approve" })),
+    position: await evidence.evaluate((el) => getComputedStyle(el).position),
+  }
+}
+
+/** Two columns: the summary's diagram, the steps and Approve on the left; the evidence beside them on the right, sticky. */
+export async function expectTwoColumns(packet: Locator) {
+  const at = await packetLayout(packet)
+  expect(at.evidence.x).toBeGreaterThanOrEqual(at.diagram.x + at.diagram.width)
+  expect(at.evidence.x).toBeGreaterThanOrEqual(at.steps.x + at.steps.width)
+  expect(at.approve.x + at.approve.width).toBeLessThanOrEqual(at.evidence.x)
+  // Side by side: the evidence starts level with the summary, above the steps.
+  expect(at.evidence.y).toBeLessThan(at.steps.y)
+  expect(at.position).toBe("sticky")
+  return at
+}
+
+/** One column, as before: the evidence under the steps, Approve under the evidence. */
+export async function expectOneColumn(packet: Locator) {
+  const at = await packetLayout(packet)
+  expect(at.evidence.y).toBeGreaterThanOrEqual(at.steps.y + at.steps.height)
+  expect(Math.abs(at.evidence.x - at.steps.x)).toBeLessThan(1)
+  expect(at.approve.y).toBeGreaterThanOrEqual(at.evidence.y + at.evidence.height)
+  expect(at.position).toBe("static")
+}
+
+/** The open packet's diagram is drawn, so the layout has settled (videos and screenshots keep their box's shape while they load). */
+export async function packetDrawn(packet: Locator) {
+  await expect(packet.locator("figure[data-mermaid] svg")).toBeVisible()
+}
+
+/** The summary of `submitDiagramPacket`: a paragraph, then a mermaid flowchart (top to bottom). */
+export const DIAGRAM_SUMMARY = [
+  "Review packets get the **whole width**: on a wide panel the summary and steps sit on the left and the evidence stays in view on the right.",
+  "",
+  "```mermaid",
+  "flowchart TD",
+  '    A["An agent runs cello task submit"] --> B["The packet lands in Review"]',
+  '    B --> C{"Is the panel wide enough?"}',
+  '    C -- "Yes" --> D["Two columns: read on the left, watch on the right"]',
+  '    C -- "No" --> E["One column, as before"]',
+  '    D --> F(["Approve or send back"])',
+  "    E --> F",
+  "```",
+  "",
+  "The evidence column is sticky, so the video stays next to the steps while you scroll.",
+].join("\n")
+
+/**
+ * Task 1 of `key` handed in with a packet that explains a flow: a summary with a mermaid diagram
+ * (`DIAGRAM_SUMMARY`), six steps, a real MP4, two screenshots and a link. Remove `dir` when done.
+ */
+export async function submitDiagramPacket(page: Page, key: string, title: string): Promise<{ dir: string }> {
+  cello("task", "create", title, "--project", key)
+  cello("task", "claim", `${key}-1`)
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-evidence-"))
+  const video = path.join(dir, "review-flow.mp4")
+  const ffmpeg = spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=4:size=640x360:rate=25",
+    "-c:v", "libvpx-vp9", "-deadline", "realtime", "-b:v", "0", "-crf", "40", "-pix_fmt", "yuv420p", "-movflags", "+faststart", video,
+  ])
+  if (ffmpeg.status !== 0) throw new Error(`ffmpeg failed: ${ffmpeg.stderr}`)
+  const board = path.join(dir, "board.png")
+  await page.screenshot({ path: board })
+  const out = celloAs("e2e0review-agent-session", { stdin: DIAGRAM_SUMMARY })(
+    "task", "submit", `${key}-1`,
+    "--summary-file", "-",
+    "--step", `Open ${key}-1 on the Review page in a wide window`,
+    "--step", "The summary, the diagram and these steps are on the left",
+    "--step", "The video and the screenshots are on the right",
+    "--step", "Scroll down: the evidence stays in view",
+    "--step", "Make the window narrow: it goes back to one column",
+    "--step", "Open the viewer beside the board: the packet narrows to one column too",
+    "--step", "The task panel's pinned packet stays in one column",
+    "--step", "Approve it, or send it back",
+    "--attach", video, "--caption", "The whole flow",
+    "--attach", board, "--caption", "The board",
+    "--link", "https://github.com/lnmunhoz/cello/pull/38", "--caption", "The PR",
+  )
+  expect(out).toContain(`Submitted ${key}-1 for review  In Progress → In Review`)
   return { dir }
 }

@@ -3,6 +3,21 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+ * A page with room for a review packet marks its scroll area `@container/packet`. When that area is at
+ * least 72rem (1152 px) wide, `packet-wide:` applies: the packet splits in two (summary and steps on the left,
+ * evidence on the right) and the page widens. 1152 px is where the text column still gets about 460 px
+ * (a readable line beside a diagram) and the evidence about 550 px (a 16:9 video 310 px tall); the
+ * default 240 px sidebar on a 1440 px window leaves about 1190 px, so a laptop-sized window splits.
+ * Measured on the panel, not the window, so the sidebar and the viewer change it. Without the container
+ * (the task panel's pinned packet) `packet-wide:` never applies.
+ */
+@custom-variant packet-wide {
+  @container packet (width >= 72rem) {
+    @slot;
+  }
+}
+
 /* Colors are tokens; both themes redefine them. Components use the utilities below (bg-surface, text-muted…). */
 :root {
   --canvas: #f4f4f5;
