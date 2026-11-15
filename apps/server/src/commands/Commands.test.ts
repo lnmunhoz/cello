@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as SqlClient from "effect/sql/SqlClient"
 import { cmd } from "../testing/fixtures.ts"
@@ -44,11 +45,20 @@ describe("Commands", () => {
       )
       yield* Deferred.await(entered)
       const queuedId = cmd()
-      const queued = yield* Effect.forkChild(commands.write({ commandId: queuedId, rpc: "test.write" }, () => Effect.succeed("late")))
-      yield* Effect.yieldNow // lets it start and wait for the first write's permit
+      const calling = yield* Deferred.make<void>()
+      let ran = false
+      const queued = yield* Effect.forkChild(Deferred.succeed(calling, undefined).pipe(
+        Effect.andThen(commands.write({ commandId: queuedId, rpc: "test.write" }, () => Effect.sync(() => (ran = true)))),
+      ))
+      // `calling` wakes this fiber only once the queued one has suspended, and the only place it can
+      // suspend before its change runs is the wait for the first write's permit.
+      yield* Deferred.await(calling)
+      expect(ran).toBe(false)
       yield* Fiber.interrupt(queued)
       yield* Deferred.succeed(gate, undefined)
       yield* Fiber.join(first)
+      expect(Exit.hasInterrupts(yield* Fiber.await(queued))).toBe(true)
+      expect(ran).toBe(false)
       expect(yield* receipts(queuedId)).toEqual([])
     })))
 })
