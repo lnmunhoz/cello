@@ -13,13 +13,14 @@ import { NARROW_WIDTH } from "../app/sidebarState.ts"
 import { Button } from "../components/ui/Button.tsx"
 import { Input, Textarea } from "../components/ui/Input.tsx"
 import { Markdown } from "../components/ui/Markdown.tsx"
-import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.tsx"
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "../components/ui/Menu.tsx"
 import { PRIORITY_LABELS, PriorityIcon } from "../components/ui/PriorityIcon.tsx"
 import { ResizeHandle } from "../components/ui/ResizeHandle.tsx"
 import { Select } from "../components/ui/Select.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "../components/ui/Tabs.tsx"
 import { commands } from "../lib/cello.ts"
+import { copyText } from "../lib/clipboard.ts"
 import { SAVES_ON_BLUR } from "../lib/editing.ts"
 import { useMediaQuery } from "../lib/hooks.ts"
 import { EarlierReviews, PinnedReview } from "../review/TaskReviews.tsx"
@@ -27,6 +28,7 @@ import { AskThread, PinnedAsk } from "../ask/TaskAsks.tsx"
 import { useViewerItem } from "../viewer/store.ts"
 import { PanelWork, ProvenanceRows } from "../presence/Presence.tsx"
 import { Comments } from "./Comments.tsx"
+import { COPY_KEY_SHORTCUT, taskForAgent } from "./copy.ts"
 import { History } from "./History.tsx"
 import { TaskPages } from "./TaskPages.tsx"
 import { searchForView, TASK_PANEL_WIDTH, TASK_VIEW_SHORTCUT, taskPlacement, taskViewOf, toggledView, type TaskSearch, type TaskView } from "./view.ts"
@@ -38,7 +40,8 @@ export const useTaskView = (): TaskView => taskViewOf(useSearch({ strict: false 
  * The open task: a side panel docked on the right of the main area at full height, `width` wide and
  * resized by its left edge, or, expanded, a full page under the tabs, where the open packet has room
  * for its two columns. project/ProjectLayout.tsx places it in its grid. Expand and collapse sit left
- * of the ••• menu; F toggles, and Esc on the full page goes back to the panel.
+ * of the ••• menu; F toggles, and Esc on the full page goes back to the panel. A click on the key in
+ * the header copies it, as does ⌘. while the task is open; the menu also copies it for an agent.
  */
 export function TaskPanel({
   board,
@@ -70,6 +73,8 @@ export function TaskPanel({
   const toggleHint = useShortcutHint(TASK_VIEW_SHORTCUT)
   useShortcut(task ? TASK_VIEW_SHORTCUT : null, () => show(toggledView(view)), { description: "Expand the task to a full page, or back to the panel" })
   useShortcut(full ? "escape" : null, () => show("panel"), { when: () => !covered, description: "Back to the board with the side panel" })
+  const copyHint = useShortcutHint(COPY_KEY_SHORTCUT)
+  useShortcut(task ? COPY_KEY_SHORTCUT : null, () => task && copyKey(task), { description: "Copy the open task's key" })
   return (
     <aside
       hidden={placement === "covered"}
@@ -96,7 +101,20 @@ export function TaskPanel({
               <ChevronRightIcon aria-hidden className="size-3.5 shrink-0 text-faint" />
             </>
           ) : null}
-          <span className="shrink-0">{task?.key ?? `${project.key}-${number}`}</span>
+          {task ? (
+            <button
+              type="button"
+              aria-label={`Copy key ${task.key}`}
+              aria-keyshortcuts={copyHint.ariaKeyshortcuts}
+              title={`Copy key (${copyHint.text})`}
+              onClick={() => copyKey(task)}
+              className="-mx-1 shrink-0 cursor-pointer rounded-sm px-1 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {task.key}
+            </button>
+          ) : (
+            <span className="shrink-0">{`${project.key}-${number}`}</span>
+          )}
         </span>
         {task ? <PanelWork task={task} board={board} /> : null}
         <span className="ml-auto flex items-center gap-1">
@@ -123,11 +141,16 @@ export function TaskPanel({
   )
 }
 
+/** Puts the task's key on the clipboard, for a commit message or a chat. */
+const copyKey = (task: Task) => copyText(task.key, `Copied ${task.key}`)
+
 function TaskMenu({ task, onArchived }: { task: Task; onArchived: () => void }) {
   const archive = useAtomSet(commands.archiveTask)
   return (
     <Menu
       onAction={(value) => {
+        if (value === "copy-key") copyKey(task)
+        if (value === "copy-for-agent") copyText(taskForAgent(task), `Copied ${task.key} for an agent`)
         if (value === "archive") {
           archive({ id: task.id })
           onArchived()
@@ -138,6 +161,11 @@ function TaskMenu({ task, onArchived }: { task: Task; onArchived: () => void }) 
         <MoreHorizontalIcon className="size-4" />
       </MenuTrigger>
       <MenuContent>
+        <MenuItem value="copy-key" shortcut={COPY_KEY_SHORTCUT}>
+          Copy key
+        </MenuItem>
+        <MenuItem value="copy-for-agent">Copy for an agent</MenuItem>
+        <MenuSeparator />
         <MenuItem value="archive" variant="danger">
           Archive task
         </MenuItem>
