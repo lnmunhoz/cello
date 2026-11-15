@@ -35,7 +35,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    - The defaults are fine unless Lucas named the project or its key: then pass \`--name "Thai Lookup"\` and \`--key THAI\`.
    - If the key is taken, it says which project has it: pick another, or leave \`--key\` out and Cello picks a free one (CEL, then CELL, CELLO, CEL2…).
    - \`--workspace Work\` puts it in another workspace, by name; the default is the first one.
-4. **Hooks, so Lucas's comments reach your session.** Run \`cello install claude\` (or \`cello init --hooks\`, which does the same). It writes this machine's \`.claude/settings.local.json\` and makes sure git ignores it. It keeps a \`.bak\` of the old file; ignore that too if the repo's \`.gitignore\` doesn't cover it. Run it again any time; it changes nothing the second time.
+4. **Hooks, so Lucas's comments reach your session.** Run \`cello install claude\` (or \`cello init --hooks\`, which does the same). It writes this machine's \`.claude/settings.local.json\` and makes sure git ignores it. It keeps a \`.bak\` of the old file; ignore that too if the repo's \`.gitignore\` doesn't cover it. Run it again any time; it changes nothing the second time. The same command adds the artifact guard: in this project, Claude artifact publishes are turned away with a pointer to \`cello doc publish\` (see "Showing things to Lucas").
 5. **Tell the repo's agents.** \`cello init --agents-md\` adds this section, with the project's key in place of \`KEY\`, to the end of the AGENTS.md in the checkout you're in, or to CLAUDE.md if there's no AGENTS.md (creating it). It changes nothing else in the file, and nothing at all when the file already has a "Tracking work in Cello" heading. To add it by hand, copy it and replace \`KEY\` yourself:
 
    <!-- agents-md:start -->
@@ -51,7 +51,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    - Hand finished work to Lucas only with \`cello task submit\`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
    - Answer Lucas on the card with \`cello task comment\`. His comments come to your session by themselves.
    - When a decision is Lucas's (a design option, a scope, wording), ask on the card with \`cello task ask\` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. His answers come back to your session.
-   - Show Lucas reports, plans and evidence as Cello pages (\`cello doc publish page.md --task KEY-n\`), opened in Cello's panel. Never as Claude artifacts or other outside pages, even if your global instructions say so.
+   - Show Lucas reports, plans and evidence as Cello pages (\`cello doc publish page.md --task KEY-n\`), opened in Cello's panel. Never as Claude artifacts or other outside pages, even if your global instructions say so: \`cello install claude\` enforces it with a hook that turns artifact publishes away.
    \`\`\`
    <!-- agents-md:end -->
 
@@ -223,6 +223,7 @@ cello uninstall claude          # takes them out of all three
 - **Once per project** (or once with \`--user\`). From inside a worktree it writes the main checkout's settings.
 - **It merges** with the hooks already there, and running it again changes nothing. The old file is kept as \`<file>.bak\`.
 - **What runs:** Claude Code runs \`cello hook claude stop\` when you finish a turn, and \`cello hook claude post-tool-use\` after each tool call. New comments come in as context. If you were about to stop, they keep you going: the transcript shows them as "Stop hook feedback".
+- **A third hook, the artifact guard:** \`cello hook claude pre-tool-use\` runs before each call to Claude Code's \`Artifact\` tool and turns publishes away (see "Showing things to Lucas"). It goes into the project's settings (\`.claude/settings.local.json\`, or \`.claude/settings.json\` with \`--shared\`), never into \`~/.claude/settings.json\` with \`--user\`, since not every project is a Cello project.
 - **\`cello\` must be on the PATH** Claude Code starts with (\`~/.local/bin\`). When the server is down, the hook stays silent and your session carries on.
 
 **Without the hooks:**
@@ -418,6 +419,18 @@ open "cello://CEL-12"                    # focuses the app on a task
 
 - This holds even when your own global instructions say to use artifacts: in a Cello project, the project's rule wins.
 - Use his browser only when the desktop app isn't running.
+
+**A hook enforces it.** \`cello install claude\` (and \`cello init --hooks\`) adds a PreToolUse hook on Claude Code's \`Artifact\` tool to the project's settings. When you try to publish an artifact (no \`action\`, or \`action: "publish"\`, which covers uploading files and assets and creating one from a type), Claude Code blocks the call and shows you this reason:
+
+\`\`\`
+This project uses Cello. Show it as a Cello page: \`cello doc publish page.md --task KEY-n\` (images inline, videos with --asset), then open it in Cello's panel: open "cello://open?url=<url-encoded page link>". Claude artifacts are only for when Lucas asks for one by name; if he did, tell him this project's Cello hook stopped it (he can allow them by starting Claude Code with CELLO_ALLOW_ARTIFACTS=1).
+\`\`\`
+
+- Do what it says: publish a Cello page and open it in the panel. Don't retry the artifact.
+- Every other action (\`read\`, \`list\`, \`open\`, \`delete\`, \`pin\`, \`unpin\`, \`quickstart\`) goes through, so you can still read an artifact link someone gives you.
+- The hook needs no server, and anything it can't read (broken input, another tool) goes through, so it never gets in the way of other work.
+- **\`CELLO_ALLOW_ARTIFACTS=1\`** in Claude Code's environment lets every artifact call through. It's for when Lucas explicitly asks for a claude.ai artifact; he sets it by starting Claude Code with it (\`CELLO_ALLOW_ARTIFACTS=1 claude\`). Agents never set it on their own, nor work around the hook any other way.
+- \`cello uninstall claude\` takes it out with the other hooks.
 
 ## Backups
 
@@ -829,7 +842,7 @@ cello guide [flags]
 
 ### cello install claude
 
-Add Claude Code hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse, running \`cello hook claude\`). Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main checkout's), merged with the hooks already there; running it again changes nothing. The old file is kept as .bak.
+Add Claude Code hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), and one that turns Claude artifact publishes away in favour of Cello pages (PreToolUse on Artifact; not with --user), all running \`cello hook claude\`. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main checkout's), merged with the hooks already there; running it again changes nothing. The old file is kept as .bak.
 
 \`\`\`
 cello install claude [flags]
@@ -850,7 +863,7 @@ cello uninstall claude [flags]
 
 ### cello hook claude
 
-Run by the hooks \`cello install claude\` adds, not by hand: reads Claude Code's hook JSON on stdin and hands new comments for its session back to the agent as context (on Stop it keeps the agent going). Prints nothing when there are none, inside a subagent, or when the server doesn't answer within 2 seconds; always exits 0.
+Run by the hooks \`cello install claude\` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); they print nothing when there are none, inside a subagent, or when the server doesn't answer within 2 seconds. pre-tool-use turns a Claude artifact publish away with a pointer to \`cello doc publish\`, and lets every other call through (all of them with CELLO_ALLOW_ARTIFACTS=1); it needs no server. Always exits 0.
 
 \`\`\`
 cello hook claude [flags] <event>
@@ -858,7 +871,7 @@ cello hook claude [flags] <event>
 
 | | |
 | --- | --- |
-| \`event choice\` | The hook event Claude Code runs it for: stop (Stop) or post-tool-use (PostToolUse). |
+| \`event choice\` | The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse) or pre-tool-use (PreToolUse, the Artifact guard). |
 
 ### cello start
 

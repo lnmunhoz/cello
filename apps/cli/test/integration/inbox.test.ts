@@ -11,13 +11,11 @@ import { startServer, tempDataDir } from "@cello/server/testing/servers"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import { connect } from "../../../server/test/integration/harness.ts"
-import { cello, gitRepo } from "./cli.ts"
+import { cello, gitRepo, hookProcess, installSetup } from "./cli.ts"
 
 const X = "2fd0505c-417a-4167-acfe-2d66080fcae0"
 const Y = "9f2c1a7b-other-session"
 const claude = (session: string) => ({ CLAUDE_CODE_SESSION_ID: session, CLAUDE_PID: String(process.pid) })
-const ROOT = path.resolve(import.meta.dirname, "../../../..")
-const BIN = path.join(ROOT, "apps/cli/src/bin.ts")
 
 /** Project CEL linked to a git repo; session X created CEL-1 and claimed it. */
 const setup = Effect.gen(function* () {
@@ -52,19 +50,6 @@ const NEW_COMMENT = [
   "",
   "Act on it now, then answer on the card: `cello task comment CEL-1 \"…\"` (or `--body-file -` for markdown), so Lucas sees your reply there.",
 ].join("\n")
-
-/** The hook as a real process: its exit code, stdout and stderr. `stdin: null` leaves stdin open. */
-const hookProcess = (event: string, env: Record<string, string>, stdin: string | null) =>
-  Effect.promise(async () => {
-    const proc = Bun.spawn(["bun", BIN, "hook", "claude", event], {
-      env: { PATH: process.env.PATH, ...env },
-      stdin: stdin === null ? "pipe" : new Blob([stdin]),
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-    const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()])
-    return { exitCode, stdout, stderr }
-  })
 
 describe("cello inbox", () => {
   it.live("a human comment on a task claimed by session X shows up once in `cello inbox --new` for X, and not a second time", () =>
@@ -231,24 +216,14 @@ describe("cello hook claude", () => {
     }))
 })
 
-/** A temp HOME, a fake `cello` on PATH, and a git repo "app" inside `dir`. */
-const installSetup = Effect.gen(function* () {
-  const dir = yield* tempDataDir
-  const repo = gitRepo(dir, "app")
-  const home = path.join(dir, "home")
-  const bin = path.join(dir, "bin")
-  fs.mkdirSync(bin)
-  fs.writeFileSync(path.join(bin, "cello"), "#!/bin/sh\n", { mode: 0o755 })
-  const run = (cwd: string, PATH = bin) => cello({ port: 1, env: { HOME: home, PATH }, cwd })
-  return { dir, repo, home, run }
-})
-
 const HOOK_LINES = [
   "  Stop         cello hook claude stop",
   "  PostToolUse  cello hook claude post-tool-use",
+  "  PreToolUse   cello hook claude pre-tool-use",
 ]
 const AFTER = [
   "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
+  "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. Start Claude Code with CELLO_ALLOW_ARTIFACTS=1 when you want one.",
   "New Claude Code sessions pick them up.",
 ]
 
@@ -270,6 +245,7 @@ describe("cello install claude", () => {
         hooks: {
           Stop: [{ hooks: [{ type: "command", command: "cello hook claude stop", timeout: 10 }] }],
           PostToolUse: [{ matcher: "*", hooks: [{ type: "command", command: "cello hook claude post-tool-use", timeout: 10 }] }],
+          PreToolUse: [{ matcher: "Artifact", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }],
         },
       })
       expect(fs.readFileSync(path.join(repo, ".gitignore"), "utf8")).toBe(".claude/settings.local.json\n")
@@ -329,14 +305,16 @@ describe("cello install claude", () => {
       expect(fs.existsSync(path.join(worktree, ".claude"))).toBe(false)
     }).pipe(Effect.scoped))
 
-  it.live("--user writes ~/.claude/settings.json under HOME; it warns when cello isn't on PATH and refuses a broken file", () =>
+  it.live("--user writes ~/.claude/settings.json under HOME, without the artifact guard; it warns when cello isn't on PATH and refuses a broken file", () =>
     Effect.gen(function* () {
       const { dir, home, run } = yield* installSetup
       const file = path.join(home, ".claude", "settings.json")
       const installed = yield* run(dir, "")("install", "claude", "--user")
       expect(installed.failure).toBeNull()
-      expect(installed.out.split("\n")[0]).toBe(`Installed Cello's Claude Code hooks in ${file} (every project):`)
+      expect(installed.out.split("\n").slice(0, 3)).toEqual([`Installed Cello's Claude Code hooks in ${file} (every project):`, ...HOOK_LINES.slice(0, 2)])
+      expect(installed.out).not.toContain("artifacts")
       expect(installed.out).toContain("`cello` isn't on your PATH, so Claude Code can't run the hooks. Put the cello binary on the PATH Claude Code starts with (e.g. ~/.local/bin).")
+      // The guard is for Cello projects; every project on the machine isn't one.
       expect(Object.keys(JSON.parse(fs.readFileSync(file, "utf8")).hooks)).toEqual(["Stop", "PostToolUse"])
 
       fs.writeFileSync(file, "{ broken")

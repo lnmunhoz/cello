@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   addCelloHooks,
   CELLO_HOOKS,
+  celloHooksFor,
   detectFormat,
   formatSettings,
   readSettingsFile,
@@ -19,19 +20,44 @@ import {
 
 const stop = { type: "command", command: "cello hook claude stop", timeout: 10 }
 const postToolUse = { type: "command", command: "cello hook claude post-tool-use", timeout: 10 }
+const preToolUse = { type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }
 
 describe("addCelloHooks", () => {
-  it("adds a Stop hook and a PostToolUse hook for every tool to empty settings", () => {
+  it("adds a Stop hook, a PostToolUse hook for every tool and a PreToolUse hook for Artifact to empty settings", () => {
     expect(addCelloHooks({})).toEqual({
       changed: true,
       settings: {
         hooks: {
           Stop: [{ hooks: [stop] }],
           PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
+          PreToolUse: [{ matcher: "Artifact", hooks: [preToolUse] }],
         },
       },
     })
-    expect(CELLO_HOOKS.map((h) => h.event)).toEqual(["Stop", "PostToolUse"])
+    expect(CELLO_HOOKS.map((h) => h.event)).toEqual(["Stop", "PostToolUse", "PreToolUse"])
+  })
+
+  it("the artifact guard is for Cello projects only: user settings (every project) get just the comment hooks", () => {
+    expect(celloHooksFor("project")).toEqual(CELLO_HOOKS)
+    expect(addCelloHooks({}, celloHooksFor("user")).settings).toEqual({
+      hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }] },
+    })
+  })
+
+  it("adds the guard to settings installed before it existed (CEL-15's two hooks), and nothing else", () => {
+    const before = { hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }] } }
+    expect(addCelloHooks(before)).toEqual({
+      changed: true,
+      settings: { hooks: { ...before.hooks, PreToolUse: [{ matcher: "Artifact", hooks: [preToolUse] }] } },
+    })
+  })
+
+  it("keeps the user's own PreToolUse hooks, adding its group after them", () => {
+    const mine = { hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "guard.sh" }] }] } }
+    expect(addCelloHooks(mine).settings.hooks).toMatchObject({
+      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "guard.sh" }] }, { matcher: "Artifact", hooks: [preToolUse] }],
+    })
+    expect(removeCelloHooks(addCelloHooks(mine).settings)).toEqual({ changed: true, settings: mine })
   })
 
   it("keeps every other setting and hook, adding its own groups after them", () => {
@@ -53,6 +79,7 @@ describe("addCelloHooks", () => {
         Stop: [{ hooks: [{ type: "command", command: "say done" }] }, { hooks: [stop] }],
         PostToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "prettier --write" }] }, { matcher: "*", hooks: [postToolUse] }],
         SessionStart: [{ hooks: [{ type: "command", command: "echo hi" }] }],
+        PreToolUse: [{ matcher: "Artifact", hooks: [preToolUse] }],
       },
     })
     // The input isn't changed in place.
@@ -62,14 +89,20 @@ describe("addCelloHooks", () => {
   it("is idempotent: installing again changes nothing, even when the user tuned a hook", () => {
     const once = addCelloHooks({}).settings
     expect(addCelloHooks(once)).toEqual({ changed: false, settings: once })
-    const tuned = { hooks: { Stop: [{ hooks: [{ ...stop, timeout: 30 }] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }] } }
+    const tuned = {
+      hooks: {
+        Stop: [{ hooks: [{ ...stop, timeout: 30 }] }],
+        PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
+        PreToolUse: [{ matcher: "Artifact", hooks: [{ ...preToolUse, timeout: 5 }] }],
+      },
+    }
     expect(addCelloHooks(tuned)).toEqual({ changed: false, settings: tuned })
   })
 
   it("adds only the hook that's missing", () => {
     const half = { hooks: { Stop: [{ hooks: [stop] }] } }
     expect(addCelloHooks(half).settings).toEqual({
-      hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }] },
+      hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }], PreToolUse: [{ matcher: "Artifact", hooks: [preToolUse] }] },
     })
   })
 
