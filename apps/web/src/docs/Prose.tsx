@@ -1,14 +1,17 @@
 import type { DocumentFile } from "@cello/contract/entities"
 import { pageTarget } from "@cello/shared/document"
 import { shortUrl } from "@cello/shared/linkify"
+import { formatTaskKey } from "@cello/shared/taskKey"
 import { Children, isValidElement, type ReactNode } from "react"
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { MissingFile } from "../components/ui/MissingFile.tsx"
 import { remarkLinkify } from "../components/ui/remarkLinkify.ts"
+import { openInPanel } from "../lib/desktop.ts"
 import { Video } from "../review/Video.tsx"
-import { LiveTaskKey, linkifyTasks, markdownTaskKey } from "../task/TaskKey.tsx"
+import { LiveTaskKey, linkifyTasks, markdownTaskKey, TaskLink } from "../task/TaskKey.tsx"
 import { openGallery, zoomable } from "../viewer/gallery.ts"
+import { isPlainClick, taskOfHref } from "../viewer/viewer.ts"
 import { Mermaid } from "./Mermaid.tsx"
 import { mermaidSource } from "./mermaidSource.ts"
 
@@ -88,11 +91,27 @@ export function Prose({
     a({ href, children, node }) {
       const taskKey = markdownTaskKey(node)
       if (taskKey) return <LiveTaskKey taskKey={taskKey} />
+      // A hand-written link to a task (`[the fix](/CEL/3)`) opens the task in the main window, as its key would.
+      const linkedTask = taskOfHref(href, globalThis.location?.origin ?? "http://localhost")
+      if (linkedTask) return <TaskLink taskKey={formatTaskKey(linkedTask.projectKey, linkedTask.number)}>{children}</TaskLink>
       const target = pageTarget(href, files)
       if (target.kind === "file" && target.file.kind === "video") return pageVideo(target.file, node ? textOf(node) : "")
       if (target.kind === "missing") return <MissingFile path={target.path}>{children}</MissingFile>
+      // A plain click opens it where viewer.ts's `openRoute` says (CEL-60): one of the page's text files
+      // or another Cello page in the side panel, an image in the image modal, another site in the
+      // desktop app's built-in browser. ⌘-click still opens a tab.
+      const file = target.kind === "file" ? target.file : undefined
       return (
-        <a href={href} {...(opensElsewhere(href) ? { target: "_blank", rel: "noreferrer" } : {})}>
+        <a
+          href={href}
+          {...(opensElsewhere(href) ? { target: "_blank", rel: "noreferrer" } : {})}
+          onClick={(e) => {
+            if (!href || !isPlainClick(e)) return
+            const label = node ? textOf(node).trim() : ""
+            const kind = file ? (file.kind === "file" ? "text" : file.kind) : undefined
+            if (openInPanel({ url: href, title: label || file?.name, kind, name: file?.name })) e.preventDefault()
+          }}
+        >
           {children}
         </a>
       )

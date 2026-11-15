@@ -149,7 +149,7 @@ test("CEL-20: a page's task table links its keys with their live status; moving 
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
-test("CEL-20: inside the viewer panel, a key in a page opens its task in the main window, not in the panel", async ({ page }) => {
+test("CEL-20, CEL-60: inside the side panel (the page rendered by the app, no iframe), a key in a page opens its task in the main window", async ({ page }) => {
   const key = uniqueKey("KEYV")
   await createProject(page, "Viewer links test", key)
   const { path: pagePath, dir } = publishProgress(key)
@@ -164,9 +164,8 @@ test("CEL-20: inside the viewer panel, a key in a page opens its task in the mai
   await caption(page, "The link opens the page in the viewer, beside the board")
   await panel.locator("[data-comment-id]").getByRole("link", { name: pageUrl }).click()
   const viewer = page.getByRole("complementary", { name: "Viewer" })
-  const frame = viewer.frameLocator("iframe")
-  await expect(frame.getByRole("heading", { level: 1, name: "M2 progress" })).toBeVisible()
-  const inFrame = frame.locator(`table [data-task-link="${key}-2"]`)
+  await expect(viewer.getByRole("heading", { level: 1, name: "M2 progress" })).toBeVisible()
+  const inFrame = viewer.locator(`table [data-task-link="${key}-2"]`)
   await expect(inFrame.locator("[data-task-status]")).toHaveText("Todo")
 
   await captionWithUrl(page, `Click ${key}-2 inside the viewer: the task opens in the main window`)
@@ -181,7 +180,7 @@ test("CEL-20: inside the viewer panel, a key in a page opens its task in the mai
   await page.goto(`/${key}/1`)
   await captionWithUrl(page, `Back on ${key}-1, the page's linked-task chip does the same`)
   await panel.locator("[data-comment-id]").getByRole("link", { name: pageUrl }).click()
-  await frame.locator(`[data-task-chip="${key}-2"]`).click()
+  await viewer.locator(`[data-task-chip="${key}-2"]`).click()
   await expect(page).toHaveURL(new RegExp(`/${key}/2$`))
   await expect(viewer).toHaveCount(0)
   await expect(taskPanel(page, `${key}-2`)).toBeVisible()
@@ -189,7 +188,7 @@ test("CEL-20: inside the viewer panel, a key in a page opens its task in the mai
   await page.goto(`/${key}/1`)
   await captionWithUrl(page, `The key of ${key}-1, the task under the viewer: the viewer closes and shows it`)
   await panel.locator("[data-comment-id]").getByRole("link", { name: pageUrl }).click()
-  await frame.locator(`tbody tr`).nth(0).locator(`[data-task-link="${key}-1"]`).click()
+  await viewer.locator(`tbody tr`).nth(0).locator(`[data-task-link="${key}-1"]`).click()
   await expect(viewer).toHaveCount(0)
   await expect(page).toHaveURL(new RegExp(`/${key}/1$`))
   await expect(panel).toBeVisible()

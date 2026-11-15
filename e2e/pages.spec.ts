@@ -197,7 +197,11 @@ test("CEL-13: an agent publishes a report with an image and a Mermaid diagram th
   const panel = taskPanel(page, `${key}-1`)
   const pages = panel.getByRole("region", { name: "Pages" })
   await expect(pages.getByRole("link", { name: /Billing audit/ })).toContainText("version 2")
+  // It opens in the side panel beside the board (CEL-60); Expand to full page goes to its address.
   await pages.getByRole("link", { name: /Billing audit/ }).click()
+  const viewer = page.getByRole("complementary", { name: "Viewer" })
+  await expect(viewer.getByRole("heading", { level: 1, name: "Billing audit" })).toBeVisible()
+  await viewer.getByRole("button", { name: "Expand to full page" }).click()
   await expect(page).toHaveURL(new RegExp(`/${key}/pages/billing-audit$`))
 
   await caption(page, "In a side panel (?embed=1): no app shell, sections fold into a menu")

@@ -14,6 +14,7 @@ import * as InboxService from "../inbox/InboxService.ts"
 import * as LabelService from "../label/LabelService.ts"
 import * as ProjectService from "../project/ProjectService.ts"
 import * as ReviewService from "../review/ReviewService.ts"
+import * as SearchService from "../search/SearchService.ts"
 import * as SnapshotService from "../snapshot/SnapshotService.ts"
 import * as StatusService from "../status/StatusService.ts"
 import * as TaskService from "../task/TaskService.ts"
@@ -36,6 +37,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
   const asks = yield* AskService.AskService
   const build = yield* BuildInfo.BuildInfo
   const builds = yield* BuildHistory.BuildHistory
+  const search = yield* SearchService.SearchService
 
   return CelloRpcs.of({
     "snapshot.get": ({ scope }) => snapshots.get(scope),
@@ -84,6 +86,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "backup.list": () => backups.list(),
     "server.build": () => build.get(),
     "builds.list": (page) => builds.list(page),
+    "search.query": (input) => search.query(input),
     "comment.list": ({ taskId }) => comments.list(taskId),
     "comment.add": (input) => comments.add(input),
     "comment.edit": (input) => comments.edit(input),

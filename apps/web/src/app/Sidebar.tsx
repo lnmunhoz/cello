@@ -14,6 +14,7 @@ import {
   PanelLeftDashedIcon,
   PanelLeftOpenIcon,
   PlusIcon,
+  SearchIcon,
   SettingsIcon,
   SunIcon,
 } from "lucide-react"
@@ -26,7 +27,8 @@ import { createTooltipController, Tooltip, TooltipContent, TooltipShortcut, Tool
 import { workspaceIdAtom } from "../lib/cello.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { widthLimits } from "../lib/resize.ts"
-import { isDark, toggleTheme } from "../lib/theme.ts"
+import { toggleTheme, useDark } from "../lib/theme.ts"
+import { COMMAND_BAR_SHORTCUT } from "../search/layout.ts"
 import { BuildFooter } from "./BuildFooter.tsx"
 import { ConnectionStatus, useConnectionText } from "./ConnectionStatus.tsx"
 import { AgentsWorking, AgentsWorkingRail } from "../presence/Presence.tsx"
@@ -64,16 +66,21 @@ export function Sidebar({
   onResize,
   onMode,
   onNewProject,
+  onSearch,
 }: {
   mode: "expanded" | "rail"
   width: number
   onResize: (width: number, persist: boolean) => void
   onMode: (mode: SidebarMode) => void
   onNewProject: () => void
+  /** Opens the ⌘K bar (CEL-43). */
+  onSearch: () => void
 }) {
   const board = useBoard()
   const workspaceId = useWorkspaceId()
-  const [dark, setDark] = useState(isDark)
+  // Follows the theme wherever it's switched (here, or from ⌘K).
+  const dark = useDark()
+  const searchHint = useShortcutHint(COMMAND_BAR_SHORTCUT)
   // The rail's items share one tooltip: only one shows at a time, and a click closes it (a link's
   // click is the router's, so the tooltip wouldn't close by itself).
   const [tips] = useState(() => createTooltipController<RailHint>())
@@ -98,7 +105,7 @@ export function Sidebar({
     </MenuItem>
   ))
   const theme = (
-    <Button variant="ghost" size="iconMd" aria-label={dark ? "Use light theme" : "Use dark theme"} onClick={() => setDark(toggleTheme())}>
+    <Button variant="ghost" size="iconMd" aria-label={dark ? "Use light theme" : "Use dark theme"} onClick={() => toggleTheme()}>
       {dark ? <SunIcon className="size-3.5" /> : <MoonIcon className="size-3.5" />}
     </Button>
   )
@@ -161,6 +168,12 @@ export function Sidebar({
         )}
 
         <nav aria-label="Inbox" className="flex flex-col items-center gap-1">
+          <RailTip tips={tips} label="Search" shortcut={COMMAND_BAR_SHORTCUT}>
+            <button type="button" onClick={onSearch} className={railItemBase} aria-keyshortcuts={searchHint.ariaKeyshortcuts}>
+              <SearchIcon aria-hidden className="size-4" />
+              <span className="sr-only">Search</span>
+            </button>
+          </RailTip>
           <RailTip tips={tips} label={asked.length > 0 ? `Needs input · ${asked.length} waiting` : "Needs input"}>
             <Link to="/review" search={inputSearch} className={railItemBase}>
               <MessageCircleQuestionIcon aria-hidden className="size-4" />
@@ -260,6 +273,11 @@ export function Sidebar({
       </div>
 
       <nav aria-label="Inbox" className="flex flex-col gap-0.5">
+        <button type="button" onClick={onSearch} className={`${rowBase} text-muted`} aria-keyshortcuts={searchHint.ariaKeyshortcuts}>
+          <SearchIcon aria-hidden className="size-3.5" />
+          Search
+          <kbd className="ml-auto font-sans text-[11px] font-normal text-faint">{searchHint.text}</kbd>
+        </button>
         <Link to="/review" search={inputSearch} className={rowBase}>
           <MessageCircleQuestionIcon aria-hidden className="size-3.5 text-muted" />
           Needs input

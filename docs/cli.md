@@ -184,6 +184,40 @@ cello task get CEL-12 --json | jq -r '.task.description'
 
 Every command takes `--json` and prints the whole response, for scripts.
 
+## Searching
+
+`cello search` finds things in the project by what they say: task keys, titles and descriptions, comments, review packets, pages and docs, and project and label names. Use it before creating a task (is there one already?), to find the comment where Lucas decided something, or the page that explains a part of the system. Lucas's ⌘K bar in the app runs the same search, so you both see the same results.
+
+```bash
+cello search evidence video              # every word must match the start of a word
+cello search CEL-15                      # the task, then everything that mentions it or is on it
+cello search backup --kind comment,packet
+cello search restore --kind page --limit 20
+cello search stage --json | jq -r '.groups[] | select(.kind == "task") | .hits[].taskKey'
+```
+
+```
+$ cello search evidence
+Tasks (2)
+  CEL-12  In Review  [Evidence] in review packets
+  CEL-9   Todo       Record the flow
+          The [evidence] goes in the packet.
+Comments (1 of 3)
+  CEL-9  Lucas N. Munhoz, 2h ago, on Record the flow
+         The [evidence] video stops before the inbox shows the comment.
+Pages and docs (1)
+  evidence-videos  doc  How [evidence] videos are made  · Claude Code, 1d ago
+
+More: `--limit 20` shows more per kind; `--kind comment` shows only one kind.
+```
+
+- **Words** match the start of words, so `evid` finds "evidence", and they're stemmed, so `videos` finds "video". Every word must match. Case and accents don't matter.
+- **A task key** (`CEL-15`) prints that task first, then the tasks, comments, packets and docs that mention it, and the comments and packets on it. `CEL-1` never matches CEL-15.
+- **Results** come grouped by kind (tasks, comments, review packets, pages and docs, projects, labels), best match first: a match in a title counts more than one in a description, and an open task ranks above a Done one. The matched words are in `[brackets]`. Each group shows 5 hits unless `--limit` says more (up to 50); the heading says how many matched in all ("1 of 3").
+- **`--kind`** narrows it: `task`, `comment`, `packet`, `page` (pages, docs and specs alike), `project`, `label`, comma-separated.
+- **What's left out:** archived tasks and documents, deleted comments, packets replaced by a newer one, and archived projects. It searches the working folder's project; `--project KEY` searches another.
+- It sees a change the moment it's made: the index is updated in the same transaction as the change.
+
 ## Moving tasks
 
 ```bash
@@ -485,10 +519,11 @@ cello doc archive billing-audit      # hidden from the Docs tab; the link keeps 
 
 ```bash
 cello doc publish evidence.md --task CEL-12 --kind page   # images inline; linked videos and files go up too
-open "cello://open?url=$(jq -rn --arg u 'http://127.0.0.1:4747/CEL/pages/evidence' '$u|@uri')"   # opens it in the app's panel
+open "cello://open?url=$(jq -rn --arg u 'http://127.0.0.1:4747/CEL/pages/evidence' '$u|@uri')"   # opens it in the board's side panel
 open "cello://CEL-12"                    # focuses the app on a task
 ```
 
+- **Where it opens.** A Cello page or doc (`/KEY/pages/<slug>`) opens in the board's own side panel, docked on the right like the task panel, in the page reader, with buttons to expand it to a full page and to close it. So does a text file on the board (a transcript, a test log, `.md`, `.json`, `.csv`: shown as text, with Copy and Download). The app's built-in browser panel is only for outside sites (claude.ai, GitHub, a dev server). In a plain browser tab, Cello pages open in the same side panel.
 - This holds even when your own global instructions say to use artifacts: in a Cello project, the project's rule wins.
 - Use his browser only when the desktop app isn't running.
 
@@ -984,6 +1019,22 @@ cello doc archive [flags] <slug>
 | `slug string` | The page's slug, e.g. billing-audit. |
 | `--project string` | Project key, instead of the working folder's. |
 | `--json` | Print JSON for scripts. |
+
+### cello search
+
+Search the project: task keys, titles and descriptions, comments, review packets, pages and docs, and project and label names. Each word matches the start of a word, stemmed (videos finds video), and all of them must match; a task key (CEL-15) prints that task, then everything that mentions it or is on it. Results come grouped by kind, best match first, with the matched words in [brackets]. The ⌘K bar in the app runs the same search.
+
+```
+cello search [flags] <query...>
+```
+
+| | |
+| --- | --- |
+| `query... string` | Words to find (each matches the start of a word, all of them required), or a task key like CEL-15. |
+| `--kind string` | Only these kinds, comma-separated: task, comment, packet, page (docs and specs too), project, label. |
+| `--limit integer` | How many hits to print per kind, best first (1 to 50). |
+| `--project string` | Project key, instead of the working folder's. |
+| `--json` | Print the results as JSON for scripts: query, terms, key, jump (the task a key names) and groups of hits with their matched ranges. |
 
 ### cello whoami
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { findCelloLink, parseCelloLink } from "./celloLink.ts"
+import { findCelloLink, parseCelloLink, routeCelloLink } from "./celloLink.ts"
 
 describe("parseCelloLink", () => {
   it("turns a task key into the board path of that task", () => {
@@ -30,6 +30,41 @@ describe("parseCelloLink", () => {
     ]) {
       expect(parseCelloLink(bad), bad).toBeNull()
     }
+  })
+})
+
+describe("routeCelloLink: where a link goes once the board is up (CEL-60)", () => {
+  const BOARD = "http://127.0.0.1:4747"
+
+  it("a Cello page goes to the board window, which opens it in its own side panel, not the built-in browser", () => {
+    const page = "http://127.0.0.1:4747/CEL/pages/billing-audit"
+    expect(routeCelloLink(parseCelloLink(`cello://open?url=${encodeURIComponent(page)}`)!, BOARD)).toEqual({ kind: "board", url: page })
+    const section = "http://127.0.0.1:4747/CEL/pages/billing-audit?version=2#next-steps"
+    expect(routeCelloLink({ kind: "panel", url: section }, BOARD)).toEqual({ kind: "board", url: section })
+  })
+
+  it("a stored text file on the board goes to the board window too", () => {
+    expect(routeCelloLink({ kind: "panel", url: "http://127.0.0.1:4747/attachments/f1" }, BOARD)).toEqual({
+      kind: "board",
+      url: "http://127.0.0.1:4747/attachments/f1",
+    })
+  })
+
+  it("an outside site, a dev server on another port included, stays in the built-in browser", () => {
+    expect(routeCelloLink({ kind: "panel", url: "https://claude.ai/artifact/x" }, BOARD)).toEqual({ kind: "panel", url: "https://claude.ai/artifact/x" })
+    expect(routeCelloLink({ kind: "panel", url: "http://127.0.0.1:5173/" }, BOARD)).toEqual({ kind: "panel", url: "http://127.0.0.1:5173/" })
+  })
+
+  it("drops a user name and password from the address before routing it", () => {
+    expect(routeCelloLink({ kind: "panel", url: "http://user:secret@127.0.0.1:4747/CEL/pages/notes" }, BOARD)).toEqual({
+      kind: "board",
+      url: "http://127.0.0.1:4747/CEL/pages/notes",
+    })
+    expect(routeCelloLink({ kind: "panel", url: "https://me:pw@example.com/a" }, BOARD)).toEqual({ kind: "panel", url: "https://example.com/a" })
+  })
+
+  it("a task still goes to the board at its path", () => {
+    expect(routeCelloLink({ kind: "task", path: "/CEL/3" }, BOARD)).toEqual({ kind: "task", path: "/CEL/3" })
   })
 })
 

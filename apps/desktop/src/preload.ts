@@ -1,9 +1,9 @@
 // The board's preload (sandboxed, context-isolated): exposes `window.celloDesktop` so the web app
 // can open pages in the side panel. The main process accepts only http(s) URLs from it.
 import { contextBridge, ipcRenderer } from "electron"
-import type { CelloDesktop } from "../../web/src/lib/desktop.ts"
+import type { CelloDesktop, OpenMessage } from "../../web/src/lib/desktop.ts"
 import type { OpenTaskMessage } from "../../web/src/viewer/viewer.ts"
-import { BOARD_OPEN_TASK, PANEL_CLOSE, PANEL_OPEN } from "./ipc.ts"
+import { BOARD_OPEN, BOARD_OPEN_TASK, PANEL_CLOSE, PANEL_OPEN } from "./ipc.ts"
 import { mouseButtonDirection } from "./window/history.ts"
 
 const bridge: CelloDesktop = {
@@ -32,4 +32,10 @@ window.addEventListener("mouseup", (event) => {
 // iframe, from a same-origin `cello:task` message (the web app checks the key).
 ipcRenderer.on(BOARD_OPEN_TASK, (_event, key: unknown) => {
   if (typeof key === "string") window.postMessage({ type: "cello:task", key } satisfies OpenTaskMessage, window.location.origin)
+})
+
+// A page on the board (a `cello://open` link, a ⌘-click): the web app opens it in its side panel, as it
+// does a link a page framed in its viewer asks it to open (CEL-60).
+ipcRenderer.on(BOARD_OPEN, (_event, url: unknown) => {
+  if (typeof url === "string") window.postMessage({ type: "cello:open", item: { url } } satisfies OpenMessage, window.location.origin)
 })

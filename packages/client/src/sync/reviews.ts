@@ -78,8 +78,13 @@ export const firstEvidence = (review: Review): Attachment | undefined => evidenc
 export interface EvidenceTarget {
   readonly url: string
   readonly title: string
-  /** Set when the file is an image or a video; anything else shows as a page. */
-  readonly kind?: "image" | "video"
+  /**
+   * Set for a stored file: an image or a video, else text (the server stores only those: transcripts,
+   * logs, markdown, JSON, CSV), which the side panel shows in its text view. Unset for a link.
+   */
+  readonly kind?: "image" | "video" | "text"
+  /** A text file's own name, for its Download button and to tell markdown. */
+  readonly name?: string
 }
 
 const mediaKind = (attachment: Attachment): "image" | "video" | undefined => {
@@ -95,7 +100,8 @@ export const evidenceTarget = (attachment: Attachment): EvidenceTarget | null =>
     return attachment.url ? { url: attachment.url, title: attachment.caption || shortUrl(attachment.url) } : null
   }
   const kind = mediaKind(attachment)
-  return { url: attachmentUrl(attachment), title: attachment.caption || attachment.name, ...(kind ? { kind } : {}) }
+  const title = attachment.caption || attachment.name
+  return kind ? { url: attachmentUrl(attachment), title, kind } : { url: attachmentUrl(attachment), title, kind: "text", name: attachment.name }
 }
 
 /** A screenshot as the image modal shows it: the served file, titled by its caption, and its file name. */
@@ -108,8 +114,8 @@ export interface EvidenceImage {
 /**
  * Where a click on a piece of evidence opens it. A screenshot (any image, attached as a file too) opens
  * in the image modal over the page, at its place among the packet's images, so ←/→ step through them;
- * that's the same in the desktop app. A video, another file or a link opens beside the board (the viewer,
- * or the desktop app's native panel). Null for a link without a URL.
+ * that's the same in the desktop app. A video or a text file opens in the side panel beside the board; a
+ * link where viewer.ts's `openRoute` sends it. Null for a link without a URL.
  */
 export type EvidenceOpen =
   | { readonly in: "modal"; readonly images: ReadonlyArray<EvidenceImage>; readonly index: number }

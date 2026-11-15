@@ -92,7 +92,7 @@ function Content({ state }: { state: ImageModalState }) {
             size="md"
             aria-label={`Open ${item.title} in the viewer`}
             // After the modal has closed and given the focus back, so the viewer returns it there in turn.
-            onClick={() => closeImageModal(() => openInPanel(item.url, item.title, "image"))}
+            onClick={() => closeImageModal(() => openInPanel({ url: item.url, title: item.title, kind: "image", place: "viewer" }))}
           >
             <PanelRightOpenIcon aria-hidden className="size-3.5" />
             Open in viewer

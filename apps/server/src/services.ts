@@ -13,6 +13,7 @@ import * as LabelService from "./label/LabelService.ts"
 import * as ProjectService from "./project/ProjectService.ts"
 import * as RepoPaths from "./project/repoPath.ts"
 import * as ReviewService from "./review/ReviewService.ts"
+import * as SearchService from "./search/SearchService.ts"
 import * as SessionService from "./session/SessionService.ts"
 import * as SnapshotService from "./snapshot/SnapshotService.ts"
 import * as StatusService from "./status/StatusService.ts"
@@ -40,8 +41,8 @@ const domain = Layer.mergeAll(
 /** Reviews and asks move tasks and deliver to inboxes; documents link tasks. They sit on the domain services. */
 const reviews = Layer.mergeAll(ReviewService.layer, AskService.layer, DocumentService.layer).pipe(Layer.provideMerge(domain))
 
-/** The CLI's read models sit on top of the domain services. Tests can swap how project folders are normalized. */
+/** The CLI's read models and search sit on top of the domain services. Tests can swap how project folders are normalized. */
 export const layerWith = (repoPaths: Layer.Layer<RepoPaths.RepoPaths>) =>
-  ContextService.layer.pipe(Layer.provideMerge(reviews), Layer.provideMerge(repoPaths))
+  Layer.mergeAll(ContextService.layer, SearchService.layer).pipe(Layer.provideMerge(reviews), Layer.provideMerge(repoPaths))
 
 export const layer = layerWith(RepoPaths.layer)
