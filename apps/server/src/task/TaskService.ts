@@ -71,7 +71,10 @@ type Write<E> = Effect.Effect<Commands.Written<Task>, E, Caller>
 export class TaskService extends Context.Service<TaskService, {
   readonly create: (input: CreateTask) => Write<NotFound | Invalid>
   readonly update: (input: UpdateTask) => Write<NotFound | Invalid | VersionConflict>
-  /** An agent can't move a task into In Review unless it has an open review (`ReviewRequired`). */
+  /**
+   * An agent can't move a task into In Review unless it has an open review (`ReviewRequired`), nor into
+   * Needs input (`AskRequired`). Moving a task out of Needs input withdraws its open ask.
+   */
   readonly move: (input: MoveTask) => Write<NotFound | Invalid | VersionConflict | ReviewRequired | AskRequired>
   readonly setLabels: (input: SetTaskLabels) => Write<NotFound | Invalid>
   readonly archive: (input: ById) => Write<NotFound>
