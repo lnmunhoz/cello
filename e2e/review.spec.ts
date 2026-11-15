@@ -5,9 +5,19 @@
 // CEL-38: on a wide panel the open packet splits in two, the evidence on the right and sticky.
 import * as fs from "node:fs"
 import * as path from "node:path"
-import type { Browser, Locator, Page } from "@playwright/test"
+import type { Browser, Page } from "@playwright/test"
 import { caption, captionWithUrl, card, column, createProject, expect, test, uniqueKey } from "./fixtures.ts"
-import { SHOTS, submitDiagramPacket, submitPacket, submitPackets, WEB_URL } from "./packets.ts"
+import {
+  expectOneColumn,
+  expectTwoColumns,
+  packetDrawn,
+  packetLayout,
+  SHOTS,
+  submitDiagramPacket,
+  submitPacket,
+  submitPackets,
+  WEB_URL,
+} from "./packets.ts"
 import { isReview } from "./recording.ts"
 
 // Review videos hold every step (e2e/recording.ts), which takes these flows past the default timeout.
@@ -267,45 +277,6 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
   await captionWithUrl(page, "One packet at a time, in order")
   fs.rmSync(dir, { recursive: true, force: true })
 })
-
-/** Where an open packet's parts sit on screen, and how its evidence is positioned. */
-async function packetLayout(packet: Locator) {
-  const box = async (locator: Locator) => (await locator.boundingBox())!
-  const evidence = packet.getByRole("region", { name: "Evidence" })
-  return {
-    diagram: await box(packet.locator("figure[data-mermaid]")),
-    steps: await box(packet.getByRole("region", { name: "How to check" })),
-    evidence: await box(evidence),
-    approve: await box(packet.getByRole("button", { name: "Approve" })),
-    position: await evidence.evaluate((el) => getComputedStyle(el).position),
-  }
-}
-
-/** Two columns: the summary's diagram, the steps and Approve on the left; the evidence beside them on the right, sticky. */
-async function expectTwoColumns(packet: Locator) {
-  const at = await packetLayout(packet)
-  expect(at.evidence.x).toBeGreaterThanOrEqual(at.diagram.x + at.diagram.width)
-  expect(at.evidence.x).toBeGreaterThanOrEqual(at.steps.x + at.steps.width)
-  expect(at.approve.x + at.approve.width).toBeLessThanOrEqual(at.evidence.x)
-  // Side by side: the evidence starts level with the summary, above the steps.
-  expect(at.evidence.y).toBeLessThan(at.steps.y)
-  expect(at.position).toBe("sticky")
-  return at
-}
-
-/** One column, as before: the evidence under the steps, Approve under the evidence. */
-async function expectOneColumn(packet: Locator) {
-  const at = await packetLayout(packet)
-  expect(at.evidence.y).toBeGreaterThanOrEqual(at.steps.y + at.steps.height)
-  expect(Math.abs(at.evidence.x - at.steps.x)).toBeLessThan(1)
-  expect(at.approve.y).toBeGreaterThanOrEqual(at.evidence.y + at.evidence.height)
-  expect(at.position).toBe("static")
-}
-
-/** The open packet's diagram is drawn, so the layout has settled (videos and screenshots keep their box's shape while they load). */
-async function packetDrawn(packet: Locator) {
-  await expect(packet.locator("figure[data-mermaid] svg")).toBeVisible()
-}
 
 /** The Review page with `key` open in its own unrecorded window, saved to e2e/videos/review-wide-<width>x<height>-<scheme>.png. */
 async function screenshotWide(browser: Browser, key: string, viewport: { width: number; height: number }, colorScheme: "light" | "dark") {

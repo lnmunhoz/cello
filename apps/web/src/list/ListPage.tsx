@@ -10,7 +10,8 @@ import { InlineCreate } from "../board/InlineCreate.tsx"
 import { Button } from "../components/ui/Button.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
-import { TaskPanel } from "../task/TaskPanel.tsx"
+import { TaskPanel, useTaskView } from "../task/TaskPanel.tsx"
+import { behindTask } from "../task/view.ts"
 import { ListRow } from "./ListRow.tsx"
 import { isCollapsed, keyChars, nextRow, rowOrder } from "./rows.ts"
 
@@ -38,6 +39,7 @@ function TaskList({ board, workspaceId, project, openNumber }: { board: BoardSta
   const [focused, setFocused] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
+  const view = useTaskView()
 
   const collapsed = (group: ListGroup) => isCollapsed(group, chosen, open?.id ?? null)
   const rows = rowOrder(groups, collapsed)
@@ -58,7 +60,7 @@ function TaskList({ board, workspaceId, project, openNumber }: { board: BoardSta
   }
 
   return (
-    <div ref={listRef} data-layout="list" aria-label={`${project.name} list`} role="region" className={`min-w-0 flex-1 overflow-y-auto px-3 pb-3 ${openNumber !== undefined ? "max-md:hidden" : ""}`}>
+    <div ref={listRef} data-layout="list" aria-label={`${project.name} list`} role="region" className={`min-w-0 flex-1 overflow-y-auto px-3 pb-3 ${behindTask(openNumber !== undefined, view)}`}>
       {groups.map((group) => {
         const { status, tasks } = group
         const folded = collapsed(group)

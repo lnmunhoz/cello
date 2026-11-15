@@ -11,7 +11,8 @@ import { Button } from "../components/ui/Button.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { commands } from "../lib/cello.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
-import { TaskPanel } from "../task/TaskPanel.tsx"
+import { TaskPanel, useTaskView } from "../task/TaskPanel.tsx"
+import { behindTask } from "../task/view.ts"
 import { CardBody } from "./Card.tsx"
 import { InlineCreate } from "./InlineCreate.tsx"
 import { Kanban, KanbanCard, KanbanColumn } from "./kanban.tsx"
@@ -42,6 +43,7 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
   const [composing, setComposing] = useState<string | null>(null)
   const move = useAtomSet(commands.moveTask)
   const navigate = useNavigate()
+  const view = useTaskView()
 
   const shown: Status[] = [...columns.visible, ...columns.hidden.filter((s) => unfolded.includes(s.id))]
   const folded = columns.hidden.filter((s) => !unfolded.includes(s.id))
@@ -66,7 +68,7 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
     <MotionConfig reducedMotion="user">
       <LayoutGroup>
         {/* Its sideways scroll stays inside (no back swipe from its edge). In a narrow window an open task takes its place. */}
-        <div className={`flex min-w-0 flex-1 gap-3 overflow-x-auto overscroll-x-contain px-3 pb-3 ${openNumber !== undefined ? "max-md:hidden" : ""}`}>
+        <div className={`flex min-w-0 flex-1 gap-3 overflow-x-auto overscroll-x-contain px-3 pb-3 ${behindTask(openNumber !== undefined, view)}`}>
           <Kanban
             lists={lists}
             onListsChange={onListsChange}

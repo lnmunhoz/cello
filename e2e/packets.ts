@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { expect } from "./fixtures.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
@@ -90,6 +90,45 @@ export async function submitPackets(page: Page, key: string, titles: ReadonlyArr
     )
   })
   return { dir }
+}
+
+/** Where an open packet's parts sit on screen, and how its evidence is positioned. For `submitDiagramPacket`'s packet. */
+export async function packetLayout(packet: Locator) {
+  const box = async (locator: Locator) => (await locator.boundingBox())!
+  const evidence = packet.getByRole("region", { name: "Evidence" })
+  return {
+    diagram: await box(packet.locator("figure[data-mermaid]")),
+    steps: await box(packet.getByRole("region", { name: "How to check" })),
+    evidence: await box(evidence),
+    approve: await box(packet.getByRole("button", { name: "Approve" })),
+    position: await evidence.evaluate((el) => getComputedStyle(el).position),
+  }
+}
+
+/** Two columns: the summary's diagram, the steps and Approve on the left; the evidence beside them on the right, sticky. */
+export async function expectTwoColumns(packet: Locator) {
+  const at = await packetLayout(packet)
+  expect(at.evidence.x).toBeGreaterThanOrEqual(at.diagram.x + at.diagram.width)
+  expect(at.evidence.x).toBeGreaterThanOrEqual(at.steps.x + at.steps.width)
+  expect(at.approve.x + at.approve.width).toBeLessThanOrEqual(at.evidence.x)
+  // Side by side: the evidence starts level with the summary, above the steps.
+  expect(at.evidence.y).toBeLessThan(at.steps.y)
+  expect(at.position).toBe("sticky")
+  return at
+}
+
+/** One column, as before: the evidence under the steps, Approve under the evidence. */
+export async function expectOneColumn(packet: Locator) {
+  const at = await packetLayout(packet)
+  expect(at.evidence.y).toBeGreaterThanOrEqual(at.steps.y + at.steps.height)
+  expect(Math.abs(at.evidence.x - at.steps.x)).toBeLessThan(1)
+  expect(at.approve.y).toBeGreaterThanOrEqual(at.evidence.y + at.evidence.height)
+  expect(at.position).toBe("static")
+}
+
+/** The open packet's diagram is drawn, so the layout has settled (videos and screenshots keep their box's shape while they load). */
+export async function packetDrawn(packet: Locator) {
+  await expect(packet.locator("figure[data-mermaid] svg")).toBeVisible()
 }
 
 /** The summary of `submitDiagramPacket`: a paragraph, then a mermaid flowchart (top to bottom). */
