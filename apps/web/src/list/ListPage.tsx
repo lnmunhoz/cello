@@ -3,11 +3,14 @@ import { listGroups, type ListGroup } from "@cello/client/sync/list"
 import { orderTasks, type Ordering } from "@cello/client/sync/ordering"
 import { projectByKey, taskByKey } from "@cello/client/sync/selectors"
 import type { Project, Task } from "@cello/contract/entities"
+import { stageStatus } from "@cello/shared/review"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { ChevronRightIcon, EyeOffIcon, PlusIcon } from "lucide-react"
 import { useRef, useState, type KeyboardEvent } from "react"
 import { Centered } from "../app/Home.tsx"
 import { InlineCreate } from "../board/InlineCreate.tsx"
+import { stageLanes } from "../board/lanes.ts"
+import { useStageLanes } from "../board/useStageLanes.ts"
 import { Button } from "../components/ui/Button.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { useOrdering } from "../issues/useOrdering.ts"
@@ -45,7 +48,14 @@ function TaskList({
   ordering: Ordering
   openNumber?: number
 }) {
-  const groups = listGroups(board, workspaceId, project.id).map((g) => ({ ...g, tasks: orderTasks(g.tasks, ordering) }))
+  // Display → "Group In Progress by stage" (CEL-35): that group's rows go lane by lane, with a stage column.
+  const lanesOn = useStageLanes()
+  const all = listGroups(board, workspaceId, project.id)
+  const lanedId = lanesOn ? (stageStatus(all.map((g) => g.status))?.id ?? null) : null
+  const groups = all.map((g) => {
+    const tasks = orderTasks(g.tasks, ordering)
+    return { ...g, tasks: g.status.id === lanedId ? stageLanes(tasks).flatMap((lane) => lane.tasks) : tasks }
+  })
   const open = openNumber === undefined ? undefined : taskByKey(board, project.key, openNumber)
   // Groups you folded or unfolded; the rest follow the default in `isCollapsed`.
   const [chosen, setChosen] = useState<Readonly<Record<string, boolean>>>({})
@@ -137,6 +147,7 @@ function TaskList({
                       keyChars={width}
                       current={task.id === open?.id}
                       tabbable={task.id === tabbable}
+                      stageColumn={status.id === lanedId}
                       onFocus={() => setFocused(task.id)}
                       onKeyDown={(e) => onRowKeyDown(e, task)}
                     />

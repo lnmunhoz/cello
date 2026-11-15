@@ -6,6 +6,7 @@ import { SegmentedControl, SegmentedControlItem } from "../components/ui/Segment
 import { Select } from "../components/ui/Select.tsx"
 import { Switch } from "../components/ui/Switch.tsx"
 import { showAgentCursors, useAgentCursorsShown } from "../board/cursors/settings.ts"
+import { showStageLanes, useStageLanes } from "../board/useStageLanes.ts"
 import { layoutOf, searchFor, type Layout } from "./layout.ts"
 import { useOrdering } from "./useOrdering.ts"
 
@@ -60,10 +61,22 @@ export function DisplayOptions() {
               />
             </dd>
           </dl>
+          <StageLanesRow />
           <AgentCursorsRow />
         </div>
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** In Progress split into a lane per stage (CEL-35): off unless turned on on this device. */
+function StageLanesRow() {
+  const on = useStageLanes()
+  return (
+    <label className="flex items-center justify-between gap-3 border-t border-line pt-2 text-[13px]">
+      <span className="text-muted">Group In Progress by stage</span>
+      <Switch checked={on} onCheckedChange={(next) => showStageLanes(next)} />
+    </label>
   )
 }
 

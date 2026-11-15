@@ -23,6 +23,7 @@ import { SAVES_ON_BLUR } from "../lib/editing.ts"
 import { useMediaQuery } from "../lib/hooks.ts"
 import { EarlierReviews, PinnedReview } from "../review/TaskReviews.tsx"
 import { useViewerItem } from "../viewer/store.ts"
+import { PanelWork, ProvenanceRows } from "../presence/Presence.tsx"
 import { Comments } from "./Comments.tsx"
 import { History } from "./History.tsx"
 import { TaskPages } from "./TaskPages.tsx"
@@ -95,6 +96,7 @@ export function TaskPanel({
           ) : null}
           <span className="shrink-0">{task?.key ?? `${project.key}-${number}`}</span>
         </span>
+        {task ? <PanelWork task={task} board={board} /> : null}
         <span className="ml-auto flex items-center gap-1">
           {task ? (
             <Button
@@ -332,6 +334,7 @@ function Properties({ board, project, task }: { board: BoardState; project: Proj
           }}
         />
       </dd>
+      <ProvenanceRows task={task} board={board} />
     </dl>
   )
 }
