@@ -331,7 +331,10 @@ const workingTitle = (sessions: ReadonlyArray<Working>, now: number) =>
       ])
       .join("\n")
 
-/** One line of the sidebar's list: a dot, who, and the task keys at the right. */
+/**
+ * One entry of the sidebar's list: a dot and who, and under it, faint, what it's on (the task keys).
+ * Two lines, so a long agent name and a task key both fit the sidebar's width.
+ */
 function WorkingLine({ who, subject, color, keys, nested, title, data }: {
   who: string
   subject: SessionLike
@@ -344,12 +347,14 @@ function WorkingLine({ who, subject, color, keys, nested, title, data }: {
   const now = useNow()
   const presence = presenceOf(subject, now)
   return (
-    <li className={`flex h-6 min-w-0 items-center gap-2 pr-2 text-xs ${nested ? "pl-6" : "pl-2"} ${PRESENCE_TEXT[presence]}`} title={title} {...data}>
-      <span className="flex size-3.5 shrink-0 items-center justify-center">
+    <li className={`flex min-w-0 items-start gap-2 py-0.5 pr-2 text-xs ${nested ? "pl-6" : "pl-2"} ${PRESENCE_TEXT[presence]}`} title={title} {...data}>
+      <span className="flex h-4 w-3.5 shrink-0 items-center justify-center">
         <PresenceDot of={subject} color={color} size={nested ? 6 : 7} />
       </span>
-      <span className="min-w-0 truncate">{who}</span>
-      {keys ? <span className="ml-auto shrink-0 tabular-nums text-faint">{keys}</span> : null}
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate leading-4" data-working-who>{who}</span>
+        {keys ? <span className="truncate leading-4 tabular-nums text-faint" data-working-on>{keys}</span> : null}
+      </span>
     </li>
   )
 }
@@ -382,7 +387,7 @@ export function AgentsWorking({ board, workspaceId, className }: { board: BoardS
               who={s.agents.length ? `${s.who.short} · orchestrator` : s.who.short}
               subject={s.session}
               color={sessionColor(s.session)}
-              keys={keysOf(s.tasks)}
+              keys={s.tasks.length ? `holds ${keysOf(s.tasks)}` : ""}
               nested={false}
               title={`${s.who.name}: ${presenceWords(s.session, now)}`}
               data={{ "data-working-session": s.session.id }}
@@ -393,7 +398,7 @@ export function AgentsWorking({ board, workspaceId, className }: { board: BoardS
                 who={a.who.name}
                 subject={agentPresenceSubject(board, a.agent)}
                 color={a.who.color}
-                keys={a.task?.key ?? ""}
+                keys={a.task ? `on ${a.task.key}` : ""}
                 nested
                 title={`${a.who.name}, under ${s.who.name}: ${presenceWords(a.agent, now)}${a.agent.description ? `\n${a.agent.description}` : ""}`}
                 data={{ "data-working-agent": a.agent.agentId }}
