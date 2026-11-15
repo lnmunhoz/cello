@@ -1,5 +1,6 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { listGroups, type ListGroup } from "@cello/client/sync/list"
+import { orderTasks, type Ordering } from "@cello/client/sync/ordering"
 import { projectByKey, taskByKey } from "@cello/client/sync/selectors"
 import type { Project, Task } from "@cello/contract/entities"
 import { useNavigate, useParams } from "@tanstack/react-router"
@@ -9,6 +10,7 @@ import { Centered } from "../app/Home.tsx"
 import { InlineCreate } from "../board/InlineCreate.tsx"
 import { Button } from "../components/ui/Button.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
+import { useOrdering } from "../issues/useOrdering.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { TaskPanel, useTaskView } from "../task/TaskPanel.tsx"
 import { behindTask } from "../task/view.ts"
@@ -20,18 +22,31 @@ export function ListPage({ openNumber }: { openNumber?: number }) {
   const board = useBoard()
   const workspaceId = useWorkspaceId()
   const project = board ? projectByKey(board, projectKey) : undefined
+  const { ordering } = useOrdering()
   if (!board || !workspaceId || !project) return <Centered>Loading…</Centered>
   return (
     <div className="flex min-h-0 flex-1">
-      <TaskList board={board} workspaceId={workspaceId} project={project} openNumber={openNumber} />
+      <TaskList board={board} workspaceId={workspaceId} project={project} ordering={ordering} openNumber={openNumber} />
       {openNumber !== undefined ? <TaskPanel board={board} project={project} number={openNumber} /> : null}
     </div>
   )
 }
 
-/** A project's tasks as rows grouped by status, in status order, with the hidden statuses folded at the end. */
-function TaskList({ board, workspaceId, project, openNumber }: { board: BoardState; workspaceId: string; project: Project; openNumber?: number }) {
-  const groups = listGroups(board, workspaceId, project.id)
+/** A project's tasks as rows grouped by status, in status order, with the hidden statuses folded at the end; rows in the ordering. */
+function TaskList({
+  board,
+  workspaceId,
+  project,
+  ordering,
+  openNumber,
+}: {
+  board: BoardState
+  workspaceId: string
+  project: Project
+  ordering: Ordering
+  openNumber?: number
+}) {
+  const groups = listGroups(board, workspaceId, project.id).map((g) => ({ ...g, tasks: orderTasks(g.tasks, ordering) }))
   const open = openNumber === undefined ? undefined : taskByKey(board, project.key, openNumber)
   // Groups you folded or unfolded; the rest follow the default in `isCollapsed`.
   const [chosen, setChosen] = useState<Readonly<Record<string, boolean>>>({})
@@ -65,7 +80,7 @@ function TaskList({ board, workspaceId, project, openNumber }: { board: BoardSta
         const { status, tasks } = group
         const folded = collapsed(group)
         return (
-          <section key={status.id} data-group={status.name} aria-labelledby={`group-${status.id}`} className="pb-1">
+          <section key={status.id} data-group={status.name} data-ordering={ordering} aria-labelledby={`group-${status.id}`} className="pb-1">
             <header className="sticky top-0 z-10 bg-surface">
               {/* A band a step off the page: recessed in light, raised in dark (as in Linear's list). */}
               <div className="flex h-9 items-center gap-2 rounded-md bg-sunken pr-1 pl-1 dark:bg-raised">

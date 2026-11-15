@@ -70,6 +70,11 @@ describe("selectors", () => {
     expect(next.position > end.position).toBe(true)
   })
 
+  it("places a new item after the last position even when the list is shown in another order (newest first)", () => {
+    const shown = [state.tasks["t2"]!, state.tasks["t1"]!]
+    expect(placementAtEnd(shown).position > "a2").toBe(true)
+  })
+
   it("lists a workspace's open projects by name and finds a task by key", () => {
     expect(projectsOf(state, "w1").map((p) => p.key)).toEqual(["CEL", "ZED"])
     expect(taskByKey(state, "ZED", 4)?.id).toBe("other")

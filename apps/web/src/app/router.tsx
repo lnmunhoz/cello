@@ -26,13 +26,13 @@ const settings = createRoute({ getParentRoute: () => root, path: "/settings", co
 // `?open=CEL-12`: the packet open on the Review page, so a reload or a link keeps it.
 const review = createRoute({ getParentRoute: () => root, path: "/review", component: ReviewPage, validateSearch: parseReviewSearch })
 
-// `?layout=list` picks the Issues layout; every link inside the project keeps it, so opening and closing tasks stays in the list.
+// `?layout=list` picks the Issues layout and `?order=newest` its ordering; every link inside the project keeps them, so opening and closing tasks stays as it was.
 const project = createRoute({
   getParentRoute: () => root,
   path: "$projectKey",
   component: ProjectLayout,
   validateSearch: parseIssuesSearch,
-  search: { middlewares: [retainSearchParams<IssuesSearch>(["layout"])] },
+  search: { middlewares: [retainSearchParams<IssuesSearch>(["layout", "order"])] },
 })
 
 const projectIndex = createRoute({
