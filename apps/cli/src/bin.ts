@@ -4,4 +4,4 @@ import { buildCommit } from "@cello/server/build/git"
 import { main } from "./main.ts"
 import { webFromSource } from "./web.ts"
 
-main(webFromSource, { commit: buildCommit(process.env, import.meta.dir) })
+main(webFromSource, { commit: buildCommit(process.env, import.meta.dir), checkout: import.meta.dir })

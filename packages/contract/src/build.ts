@@ -26,3 +26,38 @@ export const ServerBuild = Schema.Struct({
   web: Schema.NullOr(WebBuild),
 })
 export type ServerBuild = typeof ServerBuild.Type
+
+/**
+ * One build the server has run (CEL-50), recorded the first time a server starts serving it. A build is
+ * its version, commit and web build time together (`buildKey` in packages/shared/src/build.ts).
+ */
+export const BuildRecord = Schema.Struct({
+  /** `buildKey`: "0.2.0+c602f25.1763230740000". */
+  id: Schema.String,
+  /** 1 for the first build recorded in this data folder, then 2, 3… */
+  number: Schema.Number,
+  version: Schema.String,
+  /** The commit it was built from; null when unknown. */
+  commit: Schema.NullOr(Schema.String),
+  /** When its web app was built. */
+  webBuiltAt: Millis,
+  /** When a server first started on it: when it went live. */
+  startedAt: Millis,
+  /** When a server last started on it (a restart of the same build moves only this). */
+  lastStartedAt: Millis,
+  /** When the next build went live; null for the newest. */
+  liveUntil: Schema.NullOr(Millis),
+  /** First-parent commit subjects since the previous recorded build, newest first. */
+  changes: Schema.Array(Schema.String),
+})
+export type BuildRecord = typeof BuildRecord.Type
+
+/** A page of `builds.list`, newest first. */
+export const BuildPage = Schema.Struct({
+  builds: Schema.Array(BuildRecord),
+  /** The id of the build the server runs now; null when it isn't a recorded one (no web app served). */
+  running: Schema.NullOr(Schema.String),
+  /** Pass as `before` for the next, older page; null when this is the last. */
+  next: Schema.NullOr(Schema.Number),
+})
+export type BuildPage = typeof BuildPage.Type
