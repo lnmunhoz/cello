@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { behindTask, parseTaskSearch, searchForView, taskViewOf, toggledView } from "./view.ts"
+import { clampWidth } from "../lib/resize.ts"
+import { behindTask, parseTaskSearch, searchForView, TASK_PANEL_WIDTH, taskPlacement, taskViewOf, toggledView } from "./view.ts"
 
 describe("an open task's view in the URL", () => {
   it("reads ?view=full, and anything else as the side panel", () => {
@@ -33,5 +34,32 @@ describe("an open task's view in the URL", () => {
   it("toggles between the two", () => {
     expect(toggledView("panel")).toBe("full")
     expect(toggledView("full")).toBe("panel")
+  })
+})
+
+describe("where the open task sits in the project layout", () => {
+  it("docks on the right beside the board, as a page in its place when full, and nowhere without a task", () => {
+    expect(taskPlacement(false, "panel", false)).toBe("none")
+    expect(taskPlacement(false, "full", true)).toBe("none")
+    expect(taskPlacement(true, "panel", false)).toBe("side")
+    expect(taskPlacement(true, "full", false)).toBe("page")
+  })
+
+  it("the viewer takes the docked panel's place, but sits beside a full page", () => {
+    expect(taskPlacement(true, "panel", true)).toBe("covered")
+    expect(taskPlacement(true, "full", true)).toBe("page")
+  })
+})
+
+describe("the docked panel's width", () => {
+  it("starts at 560px, and stays between 360px and 960px", () => {
+    expect(TASK_PANEL_WIDTH.initial).toBe(560)
+    expect(clampWidth(100, TASK_PANEL_WIDTH, 2000)).toBe(360)
+    expect(clampWidth(2000, TASK_PANEL_WIDTH, 2000)).toBe(960)
+  })
+
+  it("leaves the board or list at least 360px", () => {
+    expect(clampWidth(2000, TASK_PANEL_WIDTH, 1190)).toBe(830)
+    expect(clampWidth(700, TASK_PANEL_WIDTH, 1190)).toBe(700)
   })
 })

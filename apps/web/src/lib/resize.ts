@@ -1,5 +1,5 @@
 // The width of a panel you resize by dragging one of its edges (the sidebar's right edge, the
-// viewer's left edge): its limits, the drag, the arrow keys, and the width remembered on this device.
+// viewer's left edge, the task panel's left edge): its limits, the drag, the arrow keys, and the width remembered on this device.
 // Pure, so the rules are tested once here; components/ui/ResizeHandle.tsx maps them to the DOM.
 
 export interface WidthRule {
@@ -45,4 +45,13 @@ export const widthLimits = (rule: WidthRule): { readonly minWidth: string; reado
   const min = `min(${rule.min}px, 100%)`
   const rest = `calc(100% - ${rule.minRest}px)`
   return { minWidth: min, maxWidth: `max(${min}, ${rule.max === undefined ? rest : `min(${rule.max}px, ${rest})`})` }
+}
+
+/**
+ * A grid column (`grid-template-columns`) at `width`, within `widthLimits`, for a panel whose width
+ * its grid sets: a percentage there is of the grid, where one on the panel itself wouldn't resolve.
+ */
+export const widthTrack = (width: number, rule: WidthRule): string => {
+  const { minWidth, maxWidth } = widthLimits(rule)
+  return `clamp(${minWidth}, ${Math.round(width)}px, ${maxWidth})`
 }
