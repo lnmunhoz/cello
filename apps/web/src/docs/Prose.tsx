@@ -4,29 +4,12 @@ import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { remarkLinkify } from "../components/ui/remarkLinkify.ts"
 import { LiveTaskKey, linkifyTasks, markdownTaskKey } from "../task/TaskKey.tsx"
-import { openImageModal } from "../viewer/imageModal.ts"
+import { openGallery, zoomable } from "../viewer/gallery.ts"
 import { Mermaid } from "./Mermaid.tsx"
 import { mermaidSource } from "./mermaidSource.ts"
 
 /** Links that leave the page (other sites, stored files) open in a new tab. */
 const opensElsewhere = (href: string | undefined) => href !== undefined && (/^(https?:)?\/\//i.test(href) || href.startsWith("/attachments/"))
-
-/**
- * A click on an image in a page opens it in the image modal, with the page's other images (every
- * section's) to step through with ← and →.
- */
-const openPageImage = (button: HTMLElement) => {
-  const images = [...(button.closest(".page-prose") ?? button).querySelectorAll<HTMLImageElement>("img[data-page-image]")]
-  const clicked = button.querySelector("img")
-  openImageModal(
-    images.map((img) => {
-      const url = img.getAttribute("src") ?? ""
-      return { url, title: img.alt || img.title || shortUrl(img.src) }
-    }),
-    clicked ? images.indexOf(clicked) : 0,
-    button,
-  )
-}
 
 /** The heading on the block's first line is the section's own: it gets the id the section list links to. */
 const heading = (Tag: "h2" | "h3", id: string | undefined): Components["h2"] =>
@@ -69,10 +52,18 @@ export function Prose({ markdown, headingId, projectKeys }: { markdown: string; 
       )
     },
     img({ src, alt, title }) {
+      const url = typeof src === "string" ? src : undefined
+      // A click opens it in the image modal, with the page's other images and diagrams a ← or → away.
       return (
         <>
-          <button type="button" className="page-image" aria-label={`Open ${alt || title || "the image"}`} onClick={(e) => openPageImage(e.currentTarget)}>
-            <img data-page-image="" src={typeof src === "string" ? src : undefined} alt={alt ?? ""} title={title} loading="lazy" />
+          <button
+            type="button"
+            className="page-image"
+            aria-label={`Open ${alt || title || "the image"}`}
+            {...(url ? zoomable({ url, title: alt || title || shortUrl(url) }) : {})}
+            onClick={(e) => openGallery(e.currentTarget)}
+          >
+            <img data-page-image="" src={url} alt={alt ?? ""} title={title} loading="lazy" />
           </button>
           {title ? <span className="page-caption">{title}</span> : null}
         </>

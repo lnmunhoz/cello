@@ -53,6 +53,16 @@ describe("the image modal's state", () => {
     closeImageModal()
   })
 
+  it("steps through images and diagrams alike, in the order given", () => {
+    const flow = { kind: "diagram" as const, source: "flowchart TD\n  A --> B", title: "Diagram: A" }
+    openImageModal([shots[0]!, flow, shots[1]!], 0, null)
+    stepImage(1)
+    expect(imageModal()?.items[imageModal()!.index]).toEqual(flow)
+    stepImage(1)
+    expect(imageModal()?.items[imageModal()!.index]).toEqual(shots[1])
+    closeImageModal()
+  })
+
   it("an index outside the list opens the nearest image; an empty list doesn't open", () => {
     openImageModal(shots, 7, null)
     expect(imageModal()?.index).toBe(2)

@@ -6,18 +6,27 @@ import { ExternalLinkIcon, FileTextIcon, PanelRightOpenIcon } from "lucide-react
 import { useRef, type MouseEvent } from "react"
 import { Button, ButtonLink } from "../components/ui/Button.tsx"
 import { openInPanel } from "../lib/desktop.ts"
+import { openGallery, zoomable } from "../viewer/gallery.ts"
 import { openImageModal } from "../viewer/imageModal.ts"
 import { isPlainClick } from "../viewer/viewer.ts"
+
+/** A piece of evidence that opens in the image modal (any image, attached as a file too) is one of the packet's zoomable things. */
+const zoomableEvidence = (attachment: Attachment) => {
+  const open = evidenceOpen(attachment, [attachment])
+  return open?.in === "modal" ? zoomable(open.images[0]!) : {}
+}
 
 /**
  * Opens a piece of evidence from `packet` (see `evidenceOpen`): a screenshot in the image modal, with
  * the packet's other screenshots to step through (`opener` gets the focus back when it closes);
- * anything else beside the board, in the viewer or the desktop app's panel.
+ * anything else beside the board, in the viewer or the desktop app's panel. Clicked in the packet
+ * itself (a zoomable `opener`), the modal steps through the summary's diagrams too (`openGallery`).
  */
 export const openEvidence = (attachment: Attachment, packet: ReadonlyArray<Attachment>, opener: HTMLElement | null = null): boolean => {
   const open = evidenceOpen(attachment, packet)
   if (open?.in === "modal") {
-    openImageModal(open.images, open.index, opener)
+    if (opener?.dataset.zoomable) openGallery(opener)
+    else openImageModal(open.images, open.index, opener)
     return true
   }
   return open !== null && openInPanel(open.target.url, open.target.title, open.target.kind)
@@ -44,7 +53,15 @@ export function Evidence({ attachments }: { attachments: ReadonlyArray<Attachmen
       {files.length + links.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">
           {files.map((f) => (
-            <ButtonLink key={f.id} href={attachmentUrl(f)} onClick={openOnPlainClick(f, attachments)} variant="secondary" size="md" aria-label={`Open ${f.name}`}>
+            <ButtonLink
+              key={f.id}
+              href={attachmentUrl(f)}
+              onClick={openOnPlainClick(f, attachments)}
+              variant="secondary"
+              size="md"
+              aria-label={`Open ${f.name}`}
+              {...zoomableEvidence(f)}
+            >
               <FileTextIcon aria-hidden className="size-3.5 text-muted" />
               {f.caption || f.name}
               {f.bytes !== null ? <span className="font-normal text-faint">{formatBytes(f.bytes)}</span> : null}
@@ -117,6 +134,7 @@ function Screenshots({ images, packet }: { images: ReadonlyArray<Attachment>; pa
             <button
               type="button"
               aria-label={`Open ${image.caption || image.name}`}
+              {...zoomableEvidence(image)}
               onClick={(e) => openEvidence(image, packet, e.currentTarget)}
               className="flex w-full cursor-zoom-in justify-center overflow-hidden rounded-lg border border-line bg-sunken outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring"
             >

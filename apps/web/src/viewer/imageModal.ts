@@ -1,9 +1,10 @@
-// What the image modal shows: a list of images and which one, or nothing. A plain store like the
-// viewer's, so a screenshot in a packet, a card's evidence badge or an image in a page can open it
-// from a click handler; one ImageModal (mounted by the app shell) draws it.
+// What the image modal shows: a list of images and diagrams and which one, or nothing. A plain store
+// like the viewer's, so a screenshot in a packet, a card's evidence badge, an image or a diagram in a
+// page can open it from a click handler; one ImageModal (mounted by the app shell) draws it.
 import { useSyncExternalStore } from "react"
 
 export interface ModalImage {
+  readonly kind?: "image"
   readonly url: string
   /** The caption, else the file name: names the dialog and the image. */
   readonly title: string
@@ -11,10 +12,20 @@ export interface ModalImage {
   readonly name?: string | undefined
 }
 
+/** A Mermaid diagram: the modal draws it again from its source, as vector, in the current theme. */
+export interface ModalDiagram {
+  readonly kind: "diagram"
+  readonly source: string
+  /** "Diagram: " and its first label: names the dialog. */
+  readonly title: string
+}
+
+export type ModalItem = ModalImage | ModalDiagram
+
 export interface ImageModalState {
-  readonly images: ReadonlyArray<ModalImage>
+  readonly items: ReadonlyArray<ModalItem>
   readonly index: number
-  /** What had the focus (the thumbnail clicked): it gets it back when the modal closes. */
+  /** What had the focus (the thumbnail or diagram clicked): it gets it back when the modal closes. */
   readonly opener: HTMLElement | null
 }
 
@@ -31,17 +42,17 @@ const within = (index: number, count: number) => Math.min(count - 1, Math.max(0,
 
 export const imageModal = (): ImageModalState | null => current
 
-/** Opens `images` at `index`. `opener` gets the focus back on close. */
-export const openImageModal = (images: ReadonlyArray<ModalImage>, index: number, opener: HTMLElement | null): void => {
-  if (images.length === 0) return
+/** Opens `items` at `index`. `opener` gets the focus back on close. */
+export const openImageModal = (items: ReadonlyArray<ModalItem>, index: number, opener: HTMLElement | null): void => {
+  if (items.length === 0) return
   // A close still finishing doesn't get to run its follow-up over the modal opened since.
   afterClose = null
-  set({ images, index: within(index, images.length), opener })
+  set({ items, index: within(index, items.length), opener })
 }
 
-/** ← and →: the previous or next image, stopping at the first and the last. */
+/** ← and →: the previous or next item, stopping at the first and the last. */
 export const stepImage = (delta: number): void => {
-  if (current) set({ ...current, index: within(current.index + delta, current.images.length) })
+  if (current) set({ ...current, index: within(current.index + delta, current.items.length) })
 }
 
 /**
