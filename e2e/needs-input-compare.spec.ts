@@ -7,7 +7,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import type { Locator, Page } from "@playwright/test"
-import { caption, card, createProject, expect, taskPanel, test, uniqueKey } from "./fixtures.ts"
+import { animationsSettled, caption, card, createProject, expect, taskPanel, test, uniqueKey } from "./fixtures.ts"
 import { celloAs, SHOTS } from "./packets.ts"
 
 const SESSION = "e2e0compare-agent-session"
@@ -64,7 +64,7 @@ const stacked = async (view: Locator) => {
   expect(b!.y + b!.height).toBeLessThanOrEqual(c!.y)
 }
 
-const settle = (page: Page) => page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)))
+const settle = (page: Page) => animationsSettled(page)
 
 test("CEL-47: Lucas expands a question full screen, compares its three options in columns and rows, picks from there, and closes with his picks kept", async ({ page }) => {
   const key = uniqueKey("CMP")

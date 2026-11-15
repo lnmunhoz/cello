@@ -9,7 +9,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import type { Page } from "@playwright/test"
-import { caption, card, column, createProject, dragCard, expect, test, uniqueKey } from "./fixtures.ts"
+import { animationsSettled, caption, card, column, createProject, dragCard, expect, test, uniqueKey } from "./fixtures.ts"
 import { celloAs, SHOTS } from "./packets.ts"
 
 const SESSION = "e2e0asks-agent-session"
@@ -176,7 +176,7 @@ test("CEL-47: an agent asks with --wait; Lucas answers from the sidebar (several
   await page.getByRole("button", { name: "Use dark theme" }).click()
   await expect(page.locator("html")).toHaveClass(/dark/)
   // The colors fade to the new theme: wait for the fades to end, so the still shows the dark one.
-  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)))
+  await animationsSettled(page)
   await first.screenshot({ path: path.join(SHOTS, "cel-47-question-dark.png") })
   await second.screenshot({ path: path.join(SHOTS, "cel-47-none-of-these-dark.png") })
   await page.screenshot({ path: path.join(SHOTS, "cel-47-answers-drafted-dark.png") })

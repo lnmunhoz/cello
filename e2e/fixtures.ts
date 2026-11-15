@@ -242,6 +242,14 @@ export const test = base.extend<{ cello: PromiseClient }>({
 export { expect }
 
 /**
+ * Resolves when every animation running on the page has ended. One cancelled meanwhile counts as ended:
+ * an element leaving or moving in the document cancels its animations, as when the sidebar's Agents
+ * working list reorders on a check-in and a row's presence ripple is cut short (CEL-69).
+ */
+export const animationsSettled = (page: Page): Promise<void> =>
+  page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))).then(() => undefined))
+
+/**
  * An agent session over RPC, as the CLI calls: its session id and its process's pid (x-cello-pid, so
  * the server can tell whether the process is alive; an exited pid makes a session that ends).
  */
