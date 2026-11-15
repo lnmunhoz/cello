@@ -69,6 +69,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
   | Backlog (hidden) | An idea or request that still needs discussing. Nobody builds from here. | \`cello task create … --status Backlog\` |
   | Todo | Agreed and ready to build. | The default for new tasks |
   | In Progress | Someone is working on it. | \`cello task claim\` |
+  | Needs input | Waiting for Lucas to decide something an agent asked on the card. | Only \`cello task ask\` |
   | In Review | Waiting for Lucas, with a review packet. | Only \`cello task submit\` |
   | Done | Lucas approved it. | Lucas, on the Review page |
   | Canceled (hidden) | It won't be done. | Lucas |
@@ -82,6 +83,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
 - **Review packet:** how finished work reaches Lucas. It holds a summary, how-to-check steps and evidence (videos, screenshots, test output, links). \`cello task submit\` creates it and moves the task to In Review. Then Lucas decides:
   - **Approve:** the task moves to Done and your claim ends.
   - **Send back:** the task returns to In Progress with his note, and your claim stays. The note comes to your session (see Comments from Lucas reach your session), and \`cello task get\` shows it under Reviews.
+- **Ask (Needs input):** how you get a decision from Lucas: questions on the card, each with options (one recommended, with your reason), plus evidence. \`cello task ask\` moves the task to Needs input; he answers in Cello, next to the evidence; the task comes back to In Progress, still yours, and his answers reach your session. Never ask him in the terminal when the decision is his (see Questions for Lucas).
 - **Documents:** markdown published into the project's Docs tab with \`cello doc publish\`. There are three kinds:
   - a **page** reports on finished work (a snapshot to read now)
   - a **doc** explains how something works (kept up to date)
@@ -101,7 +103,7 @@ It shows the project, its statuses (hidden ones in brackets), its labels, new co
 \`\`\`
 Project   CEL · Cello · /Users/lnmunhoz/projects/cello
 You       Claude Code session 2fd0505c (cli)
-Statuses  Todo · In Progress · In Review · Done (hidden: Backlog, Canceled)
+Statuses  Todo · In Progress · Needs input · In Review · Done (hidden: Backlog, Canceled)
 Labels    M2 · M3 · server · ui
 
 New comments for you (1)
@@ -124,7 +126,8 @@ Run it first in every session, and again when you come back to a task.
 1. **Find the work.** \`cello task list\` shows Todo and In Progress. \`cello task get CEL-12\` reads one task in full, including Lucas's notes on earlier packets and every comment.
 2. **Claim it.** \`cello task claim CEL-12\`. If it says another session holds the task, pick another one. Don't work on a task someone else holds.
 3. **Work, test first, and put the key in every commit:** \`feat(web): collapsed review rows (CEL-22)\`.
-4. **Comment** progress, decisions and questions on the card (\`cello task comment\`). Lucas reads them there.
+4. **Comment** progress and decisions on the card (\`cello task comment\`). Lucas reads them there.
+   - **When a decision is his** (which design, which scope, what wording), ask on the card with \`cello task ask\` and wait for his answers (see Questions for Lucas). Never ask him in the terminal.
 5. **Hand it over** with \`cello task submit\` and evidence he can look at (see Review packets). The task moves to In Review.
 6. **If it's sent back,** his note comes to your session (by the hook, or \`cello inbox\`), and \`cello task get CEL-12\` shows it under Reviews. Fix it, then submit again.
 7. **If you stop without finishing,** \`cello task release CEL-12\`. The task keeps its status, and someone else can claim it.
@@ -174,6 +177,7 @@ cello task move CEL-31 backlog           # any case
 \`\`\`
 
 - **Moving into In Review is refused:** use \`cello task submit\`.
+- **Moving into Needs input is refused:** use \`cello task ask\`, with your questions.
 - **Don't move tasks to Done or Canceled.**
 - **"It was changed by … in the meantime":** someone changed the task while you were acting. Run the command again.
 
@@ -193,7 +197,7 @@ Comments are markdown, rendered on the card, and links in them can be clicked. T
 
 ## Comments from Lucas reach your session
 
-Lucas's comments on a task you've claimed, and his Send back notes, are addressed to your session: the one holding the claim. Your own comments and other agents' never come back to you, and nothing does once your claim has ended. One exception: a Send back note still reaches the session that handed in the packet.
+Lucas's comments on a task you've claimed, his Send back notes and his answers to your asks (see Questions for Lucas) are addressed to your session: the one holding the claim. Your own comments and other agents' never come back to you, and nothing does once your claim has ended. One exception: a Send back note still reaches the session that handed in the packet.
 
 **With the hooks (the usual way),** they arrive by themselves:
 
@@ -266,6 +270,92 @@ What to bring, by kind of work:
 - **UI:** MP4 videos of the flow (the Playwright e2e videos) plus screenshots, in light and dark when it matters. How they're made: \`docs/evidence-videos.md\` in the Cello repository, also in Cello's Docs tab.
 - **CLI or server:** a terminal transcript or a test-output file (\`… > vitest.log\`), plus steps Lucas can run himself.
 - **A report you published:** \`--link <page url> --caption "The report"\`.
+
+## Questions for Lucas (Needs input)
+
+When you need Lucas to decide something (which design option, which stages, what wording), ask **on the card**, never in the terminal. He sees your questions next to the evidence, picks options, writes what he likes and doesn't, and can paste screenshots to show what he means. His answers come back to your session.
+
+\`\`\`bash
+# Anything real: a file with the questions and the evidence, waiting for the answers
+cello task ask CEL-35 --file ask.yaml --wait
+
+# One quick question, inline
+cello task ask CEL-43 --title "Search layout" \\
+  --question "Which layout?" \\
+  --option "Peek: list + preview|Shows the highlighted result's text" --recommend "Peek: list + preview" --because "Most results are long text" \\
+  --option "Palette: one line per result" \\
+  --attach shots/peek-dark.png --attach shots/palette-dark.png \\
+  --link http://127.0.0.1:4747/CEL/pages/cel-43-scope \\
+  --wait
+\`\`\`
+
+What happens:
+
+1. The task moves to **Needs input** (your claim stays). It shows in that column, in the sidebar's Needs input count, and first on Lucas's Review page.
+2. Lucas answers every question and sends. The task goes back to **In Progress**, still yours.
+3. The answers reach you, once:
+   - **with \`--wait\`:** the command blocks until he sends, then prints the answers and exits. Run it in the background (Claude Code: \`run_in_background\`), so your session wakes when they arrive.
+   - **without it:** the hook delivers them like a comment (see Comments from Lucas reach your session), or \`cello wait CEL-43\` waits for them later (after a restart, say).
+   - \`cello task answers CEL-43\` prints them again any time; \`--json\` for scripts.
+
+**The file** (JSON or YAML; paths are relative to it):
+
+\`\`\`yaml
+title: Search layout                 # what the decision is about
+intro: |                             # optional markdown, shown above the questions
+  Both layouts are built; the screenshots are from the real app.
+questions:
+  - prompt: Which layout?
+    kind: one                        # one (pick one; the default with options), any (pick any), text (no options)
+    options:
+      - label: "Peek: list + preview"
+        description: Shows the highlighted result's text   # one line, optional
+        image: shots/peek-dark.png                         # optional: shown on the option, opens large
+        recommended: true
+        because: Most results are long text                # required with recommended
+      - label: "Palette: one line per result"
+        image: shots/palette-dark.png
+  - prompt: Which extras?
+    kind: any
+    options: [Filters, Recent searches]
+  - prompt: Anything else before I build it?             # text only: no options
+attach:                                                   # screenshots, videos, text files
+  - shots/peek-dark.png
+  - { path: shots/flow.mp4, caption: Both layouts, side by side }
+links:
+  - { url: "http://127.0.0.1:4747/CEL/pages/cel-43-scope", caption: The scope }
+\`\`\`
+
+- **Inline flags** in order: \`--question\` starts a question; the \`--kind\`, \`--option "Label|description"\`, \`--recommend "Label"\` and \`--because "why"\` after it belong to it. \`--attach\`, \`--caption\` and \`--link\` work as for \`submit\`; they add to a file's evidence too.
+- **Recommend at most one option** of a pick-one question, and always say why (\`because\`). Nothing is pre-selected for Lucas: he picks.
+- **Up to 20 questions, 9 options each** (he picks with the 1-9 keys).
+- **One ask per task at a time.** Asking again while one is open replaces it (the old one is kept, marked replaced).
+- **Withdraw** an ask you no longer need: \`cello task ask CEL-43 --withdraw\`. The task goes back to In Progress.
+- **If Lucas moves the card himself** out of Needs input, the ask is withdrawn and your claim ends, as with any move he makes; \`--wait\` then says it was withdrawn.
+- **Scopes** always attach their screenshots and link the scope page.
+
+**What arrives** (by \`--wait\`, the hook, or \`cello inbox\`) is each question with what he picked and his comment; screenshots he pasted are saved as files you can open, and their paths printed:
+
+\`\`\`
+Lucas answered "Search layout" on CEL-43, just now:
+
+1. Which layout?
+   Picked: Peek: list + preview (your recommendation)
+   Comment: Yes, but make the preview narrower.
+   Screenshot: /var/folders/…/T/cello-answers/01JD…/q1-1.png
+
+2. Which extras?
+   Picked: Filters
+
+3. Anything else before I build it?
+   Comment: Keep the empty state from the old page.
+
+Note: Ship it after the e2e passes.
+
+CEL-43 is back in progress: carry on with these answers. Reply on the card with \`cello task comment CEL-43 "…"\` if something is unclear.
+\`\`\`
+
+A question can come back with no option picked and only his words ("Picked: none of the options"): none fitted, and the comment says what he wants instead.
 
 ## Pages, docs and specs
 
@@ -349,6 +439,9 @@ Every error is one sentence that says what to do next. The usual ones:
 | It was changed by … in the meantime | Someone changed the task while you were acting. | Run the command again. |
 | CEL-12 needs a review packet before it goes to In Review | You used \`move\` to hand work over. | Use \`cello task submit\`. |
 | Only Lucas can approve a review | Approving and sending back are his. | Leave the task in In Review. |
+| CEL-12 goes to Needs input only with questions for Lucas | You used \`move\` to wait on him. | Ask with \`cello task ask\` (see Questions for Lucas). |
+| Say why you recommend "…" (because) · question 2 needs options… | The ask's questions can't be answered well as written. | Fix what it says; nothing was asked. |
+| CEL-12 has no open ask to withdraw | It was answered, withdrawn or replaced already. | \`cello task answers CEL-12\` shows what happened. |
 | This folder isn't in a git repository | The CLI can't work out the project. | Pass \`--project KEY\`. |
 | No project is linked to /path | This repository isn't a Cello project yet. | Set it up: \`cello init\` (see Set up a repo for Cello), or pass \`--project KEY\`. |
 | The key THAI is taken by ThaiLookup | \`cello init --key\` named a key another project has. | Pick another key, or leave \`--key\` out and Cello picks a free one. |
@@ -518,9 +611,61 @@ cello task submit [flags] <key>
 | \`--caption string\` | Describes the --attach or --link right before it. |
 | \`--link string\` | A link, e.g. the PR; repeatable. |
 
+### cello task ask
+
+Ask Lucas to decide something, on the card: questions with options (one recommended, with a reason) and evidence. The task moves to Needs input until he answers; then it's back in In Progress and the answers reach you (hook, --wait or \`cello wait\`).
+
+\`\`\`
+cello task ask [flags] <key>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`key string\` | A task key, e.g. CEL-3. |
+| \`--json\` | Print JSON for scripts. |
+| \`--file string\` | Read the title, intro, questions and evidence from a JSON or YAML file (the format is in \`cello guide\`); paths in it are relative to the file. |
+| \`--title string\` | What the decision is about, e.g. "Search layout". Overrides the file's. |
+| \`--intro string\` | Context in markdown, shown above the questions. |
+| \`--question string\` | A question; the --kind, --option, --recommend and --because after it belong to it. |
+| \`--kind string\` | one (Lucas picks one option; the default with options), any (any number) or text (no options; the default without). |
+| \`--option string\` | An option: "Label" or "Label\\|one-line description"; repeat in order. |
+| \`--recommend string\` | The label of the option you recommend; --because must follow. |
+| \`--because string\` | Why you recommend it, right after --recommend. |
+| \`--attach string\` | A screenshot, video or text file to decide from; repeatable. |
+| \`--caption string\` | Describes the --attach or --link right before it. |
+| \`--link string\` | A link to decide from, e.g. the scope page; repeatable. |
+| \`--wait\` | Block until Lucas answers (or the ask is withdrawn), then print the answers. Run it in the background. |
+| \`--withdraw\` | Take back the open ask instead: the task returns to In Progress. |
+
+### cello task answers
+
+Print Lucas's answers to the task's latest ask again; screenshots he pasted are saved to files and their paths printed.
+
+\`\`\`
+cello task answers [flags] <key>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`key string\` | A task key, e.g. CEL-3. |
+| \`--json\` | Print JSON for scripts. |
+
+### cello wait
+
+Wait for Lucas to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered.
+
+\`\`\`
+cello wait [flags] <key>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`key string\` | A task key, e.g. CEL-3. |
+| \`--json\` | Print JSON for scripts. |
+
 ### cello inbox
 
-Show the comments Lucas left on tasks this session claimed (Send back notes too) and mark them read; each one arrives once. Use it when \`cello context\` lists new ones, or to reread what he said. With \`cello install claude\` they arrive by themselves. Not from a subagent: it shares its parent's session and would take the parent's comments.
+Show the comments Lucas left on tasks this session claimed (Send back notes and answers to your asks too) and mark them read; each one arrives once. Use it when \`cello context\` lists new ones, or to reread what he said. With \`cello install claude\` they arrive by themselves. Not from a subagent: it shares its parent's session and would take the parent's comments.
 
 \`\`\`
 cello inbox [flags]

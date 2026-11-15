@@ -48,6 +48,9 @@ export const entityOf = (body: EventBody): { readonly type: string; readonly id:
       return { type, id: body.comment.id }
     case "review.submitted":
       return { type, id: body.review.id }
+    case "ask.created":
+    case "ask.answered":
+      return { type, id: body.ask.id }
     case "document.published":
       return { type, id: body.document.id }
     default:
@@ -82,7 +85,7 @@ export class EventStore extends Context.Service<EventStore, {
   readonly countAfter: (scope: ResolvedScope, afterSeq: number) => Effect.Effect<number>
   /** The highest committed seq, 0 when there are none. */
   readonly latestSeq: Effect.Effect<number>
-  /** A project's latest events on tasks, comments and reviews, newest first. */
+  /** A project's latest events on tasks, comments, reviews and asks, newest first. */
   readonly recent: (projectId: string, limit: number) => Effect.Effect<ReadonlyArray<CelloEvent>>
   /** Claims `sessionId` lost in a project (`task.claim_taken`, `task.claim_ended`), newest first. */
   readonly claimsLostBy: (sessionId: string, projectId: string, limit: number) => Effect.Effect<ReadonlyArray<CelloEvent>>
@@ -138,7 +141,7 @@ const make = Effect.gen(function* () {
 
   const recent = Effect.fn("EventStore.recent")(function* (projectId: string, limit: number) {
     const rows = yield* sql<EventRow>`
-      SELECT * FROM events WHERE project_id = ${projectId} AND entity_type IN ('task', 'comment', 'review')
+      SELECT * FROM events WHERE project_id = ${projectId} AND entity_type IN ('task', 'comment', 'review', 'ask')
       ORDER BY seq DESC LIMIT ${limit}`
     return rows.map(decodeRow)
   }, Effect.orDie)

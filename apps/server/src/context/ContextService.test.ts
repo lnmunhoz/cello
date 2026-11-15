@@ -119,7 +119,7 @@ describe("ContextService.taskList", () => {
       expect(yield* Effect.flip(context.taskList({ project: { key: "CEL" }, status: "Doing" }))).toMatchObject({
         _tag: "Invalid",
         field: "status",
-        reason: "no status named \"Doing\". Statuses: Backlog, Todo, In Progress, In Review, Done, Canceled",
+        reason: "no status named \"Doing\". Statuses: Backlog, Todo, In Progress, Needs input, In Review, Done, Canceled",
       })
       expect(yield* Effect.flip(context.taskList({ project: { key: "CEL" }, label: "nope" }))).toMatchObject({
         _tag: "Invalid",

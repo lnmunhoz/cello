@@ -13,7 +13,7 @@ import * as CommentService from "../comment/CommentService.ts"
 import * as DocumentService from "../document/DocumentService.ts"
 import * as EventStore from "../events/EventStore.ts"
 import * as InboxService from "../inbox/InboxService.ts"
-import { selectActors, selectLabels, selectProjects, selectReviews, selectStatuses, selectTasks } from "../persistence/rows.ts"
+import { selectActors, selectAsks, selectLabels, selectProjects, selectReviews, selectStatuses, selectTasks } from "../persistence/rows.ts"
 import * as ProjectService from "../project/ProjectService.ts"
 import { SessionService } from "../session/SessionService.ts"
 import * as TaskService from "../task/TaskService.ts"
@@ -34,8 +34,8 @@ export class ContextService extends Context.Service<ContextService, {
 
 /** How many recent events `context` shows. */
 const RECENT = 15
-/** What `task list` shows by default: tasks to do or in progress. Backlog shows with --status Backlog. */
-const OPEN_CATEGORIES = new Set(["unstarted", "started"])
+/** What `task list` shows by default: tasks to do, in progress or waiting on Lucas. Backlog shows with --status Backlog. */
+const OPEN_CATEGORIES = new Set(["unstarted", "started", "waiting"])
 
 /** The task an event is about, by id; comment edits and deletes only know the comment. */
 const taskIdOf = (e: CelloEvent): { readonly taskId: string } | { readonly commentId: string } | null => {
@@ -47,7 +47,11 @@ const taskIdOf = (e: CelloEvent): { readonly taskId: string } | { readonly comme
     case "review.submitted":
       return { taskId: e.review.taskId }
     case "review.decided":
+    case "ask.withdrawn":
       return { taskId: e.taskId }
+    case "ask.created":
+    case "ask.answered":
+      return { taskId: e.ask.taskId }
     case "comment.edited":
     case "comment.deleted":
       return { commentId: e.id }
@@ -182,12 +186,14 @@ const make = Effect.gen(function* () {
     const history = yield* tasks.history(task.id)
     const list = yield* comments.list(task.id)
     const reviews = yield* selectReviews(sql, sql`r.task_id = ${task.id}`)
+    const asks = yield* selectAsks(sql, sql`a.task_id = ${task.id}`)
     const names = yield* projectNames(project!, [
       ...sessionIdsOf([task], history),
       ...list.map((c) => c.sessionId),
       ...reviews.map((r) => r.sessionId),
+      ...asks.map((a) => a.sessionId),
     ])
-    return { ...names, task, comments: list, reviews, documents: yield* documents.ofTask(task.id), history }
+    return { ...names, task, comments: list, reviews, asks, documents: yield* documents.ofTask(task.id), history }
   }, Effect.catchTag("SqlError", Effect.die))
 
   return ContextService.of({ whoami, context, taskList, taskDetail })

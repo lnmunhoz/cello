@@ -1,8 +1,9 @@
 // Tasks: numbered per project, ordered within (project, status), versioned on every change.
 import type { CelloEvent } from "@cello/contract/events"
 import type { Priority, Task } from "@cello/contract/entities"
-import { Invalid, NotFound, ReviewRequired, TaskClaimed, VersionConflict } from "@cello/contract/errors"
+import { AskRequired, Invalid, NotFound, ReviewRequired, TaskClaimed, VersionConflict } from "@cello/contract/errors"
 import type { Caller } from "@cello/contract/rpcs"
+import { isNeedsInputStatus } from "@cello/shared/ask"
 import { isReviewStatus } from "@cello/shared/review"
 import { parseTaskKey } from "@cello/shared/taskKey"
 import * as Context from "effect/Context"
@@ -10,6 +11,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import type { SqlError } from "effect/sql/SqlError"
+import { withdrawOpenAsk } from "../ask/openAsk.ts"
 import * as Commands from "../commands/Commands.ts"
 import * as EventStore from "../events/EventStore.ts"
 import { newId } from "../persistence/ids.ts"
@@ -70,7 +72,7 @@ export class TaskService extends Context.Service<TaskService, {
   readonly create: (input: CreateTask) => Write<NotFound | Invalid>
   readonly update: (input: UpdateTask) => Write<NotFound | Invalid | VersionConflict>
   /** An agent can't move a task into In Review unless it has an open review (`ReviewRequired`). */
-  readonly move: (input: MoveTask) => Write<NotFound | Invalid | VersionConflict | ReviewRequired>
+  readonly move: (input: MoveTask) => Write<NotFound | Invalid | VersionConflict | ReviewRequired | AskRequired>
   readonly setLabels: (input: SetTaskLabels) => Write<NotFound | Invalid>
   readonly archive: (input: ById) => Write<NotFound>
   readonly unarchive: (input: ById) => Write<NotFound>
@@ -97,6 +99,8 @@ export class TaskService extends Context.Service<TaskService, {
 
 /** Statuses whose tasks are finished: a claim on them no longer holds. */
 const FINISHED = new Set(["completed", "canceled"])
+/** Statuses a claim leaves the task in: work going on, or waiting on Lucas's answers. */
+const WORKING = new Set(["started", "waiting"])
 
 /** Fields `task.update` can change, and their columns. */
 const EDITABLE = {
@@ -217,8 +221,10 @@ const make = Effect.gen(function* () {
   const holderOf = (task: Task) =>
     task.assigneeActorId === null ? null : { actorId: task.assigneeActorId, sessionId: task.assigneeSessionId }
 
-  const categoryOf = (statusId: string) =>
-    sql<{ category: string }>`SELECT category FROM statuses WHERE id = ${statusId}`.pipe(Effect.map((rows) => rows[0]!.category))
+  const statusOf = (statusId: string) =>
+    sql<{ name: string; category: string }>`SELECT name, category FROM statuses WHERE id = ${statusId}`.pipe(Effect.map((rows) => rows[0]!))
+
+  const categoryOf = (statusId: string) => Effect.map(statusOf(statusId), (s) => s.category)
 
   /**
    * A human change ends an agent's claim. Returns the columns that clear it (merged into the change's
@@ -319,6 +325,11 @@ const make = Effect.gen(function* () {
         }),
       )
       if (sameColumn && unchanged) return current
+      // Leaving Needs input any other way than an answer or a withdrawal (those close the ask first):
+      // the open ask goes with it.
+      if (!sameColumn && isNeedsInputStatus(yield* statusOf(current.statusId))) {
+        yield* withdrawOpenAsk(sql, context, current, { workspaceId, projectId: current.projectId }, "moved")
+      }
       const claim = to.keepClaim ? { columns: {}, after: (_version: number) => Effect.void } : humanEndsClaim(current, workspaceId, context)
       yield* bump(current, context.now, { status_id: to.statusId, position, ...claim.columns })
       const task = yield* load(current.id)
@@ -337,12 +348,17 @@ const make = Effect.gen(function* () {
       return task
     })
 
-  /** An agent needs an open review packet to put a task in In Review (`cello task submit`). */
-  const checkReviewGate = (current: Task, statusId: string, caller: Caller["Service"]) =>
+  /**
+   * An agent needs an open review packet to put a task in In Review (`cello task submit`), and can't
+   * put one in Needs input by hand at all (`cello task ask` does that, with its questions).
+   */
+  const checkGates = (current: Task, statusId: string, caller: Caller["Service"]) =>
     Effect.gen(function* () {
       if (caller.sessionId === null || statusId === current.statusId) return
-      const [status] = yield* sql<{ name: string }>`SELECT name FROM statuses WHERE id = ${statusId}`
-      if (!status || !isReviewStatus(status.name)) return
+      const [status] = yield* sql<{ name: string; category: string }>`SELECT name, category FROM statuses WHERE id = ${statusId}`
+      if (!status) return
+      if (isNeedsInputStatus(status)) return yield* new AskRequired({ key: current.key, status: status.name })
+      if (!isReviewStatus(status.name)) return
       const open = yield* sql<{ id: string }>`SELECT id FROM reviews WHERE task_id = ${current.id} AND decided_at IS NULL LIMIT 1`
       if (open.length === 0) return yield* new ReviewRequired({ key: current.key, status: status.name })
     })
@@ -352,7 +368,7 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const current = yield* load(input.id)
         yield* checkVersion(current, input.expectedVersion, context.caller)
-        yield* checkReviewGate(current, input.statusId, context.caller)
+        yield* checkGates(current, input.statusId, context.caller)
         return yield* moveIn(context, current, input)
       }))
   })
@@ -457,7 +473,8 @@ const make = Effect.gen(function* () {
         const current = yield* loadByKey(input.key)
         const workspaceId = yield* workspaceOf(current.projectId)
         const taken = yield* checkClaim(current, caller, now)
-        const started = (yield* categoryOf(current.statusId)) === "started"
+        // Needs input counts as started: a claim (a resumed session, a takeover) leaves the ask waiting.
+        const started = WORKING.has(yield* categoryOf(current.statusId))
         const statusId = started ? current.statusId : (yield* firstStarted(workspaceId))
         const holder = holderOf(current)
         const mine = holder !== null && holder.actorId === caller.actorId && holder.sessionId === caller.sessionId

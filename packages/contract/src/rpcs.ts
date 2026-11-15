@@ -6,6 +6,7 @@ import * as RpcGroup from "effect/rpc/RpcGroup"
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware"
 import { Backup } from "./backups.ts"
 import {
+  Ask,
   Comment,
   Document,
   DocumentKind,
@@ -17,6 +18,7 @@ import {
   Priority,
   Project,
   ProjectRef,
+  QuestionKind,
   Review,
   Scope,
   Snapshot,
@@ -24,7 +26,7 @@ import {
   Task,
   Workspace,
 } from "./entities.ts"
-import { HumanOnly, Invalid, KeyTaken, NotFound, ReviewRequired, SnapshotRequired, TaskClaimed, VersionConflict } from "./errors.ts"
+import { AskRequired, HumanOnly, Invalid, KeyTaken, NotFound, ReviewRequired, SnapshotRequired, TaskClaimed, VersionConflict } from "./errors.ts"
 import { CelloEvent } from "./events.ts"
 import { DocumentList, Inbox, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
 
@@ -59,6 +61,35 @@ export const EvidenceFile = Schema.Struct({ path: Schema.String, caption: Schema
 export type EvidenceFile = typeof EvidenceFile.Type
 export const EvidenceLink = Schema.Struct({ url: Schema.String, caption: Schema.optionalKey(Schema.String) })
 export type EvidenceLink = typeof EvidenceLink.Type
+
+/** An option as an agent writes it; ids are given by the server. */
+export const AskOptionInput = Schema.Struct({
+  label: Schema.String,
+  description: Schema.optionalKey(Schema.String),
+  /** An image file (an absolute path on this machine), stored with the ask's evidence and shown as the option's thumbnail. */
+  image: Schema.optionalKey(Schema.String),
+  recommended: Schema.optionalKey(Schema.Boolean),
+  /** Why it's recommended; required when `recommended` is set. */
+  because: Schema.optionalKey(Schema.String),
+})
+export type AskOptionInput = typeof AskOptionInput.Type
+
+export const AskQuestionInput = Schema.Struct({
+  prompt: Schema.String,
+  /** Default: "one" with options, "text" without. */
+  kind: Schema.optionalKey(QuestionKind),
+  options: Schema.optionalKey(Schema.Array(AskOptionInput)),
+})
+export type AskQuestionInput = typeof AskQuestionInput.Type
+
+/** One question answered: option ids from the ask, a comment, and screenshots uploaded for it (attachment ids). */
+export const AnswerInput = Schema.Struct({
+  questionId: Schema.String,
+  optionIds: Schema.Array(Schema.String),
+  comment: Schema.optionalKey(Schema.String),
+  attachmentIds: Schema.optionalKey(Schema.Array(Id)),
+})
+export type AnswerInput = typeof AnswerInput.Type
 
 export const CelloRpcs = RpcGroup.make(
   // No scope: the first non-archived workspace by position. Every snapshot lists all non-archived workspaces.
@@ -158,11 +189,13 @@ export const CelloRpcs = RpcGroup.make(
     success: write(Task),
     error: Schema.Union([NotFound, Invalid, VersionConflict]),
   }),
-  // An agent can't move a task into In Review without an open review (ReviewRequired); the human can.
+  // An agent can't move a task into In Review without an open review (ReviewRequired), nor into Needs
+  // input at all (AskRequired: `ask.create` does that); the human can. The human moving a task out of
+  // Needs input withdraws its open ask.
   Rpc.make("task.move", {
     payload: { commandId, id: Id, expectedVersion: Schema.optionalKey(Schema.Number), statusId: Id, ...neighbors },
     success: write(Task),
-    error: Schema.Union([NotFound, Invalid, VersionConflict, ReviewRequired]),
+    error: Schema.Union([NotFound, Invalid, VersionConflict, ReviewRequired, AskRequired]),
   }),
   Rpc.make("task.setLabels", {
     payload: { commandId, id: Id, add: Schema.Array(Id), remove: Schema.Array(Id) },
@@ -230,6 +263,50 @@ export const CelloRpcs = RpcGroup.make(
   }),
   // Every review of a task, open and decided, oldest first.
   Rpc.make("review.list", { payload: { taskId: Id }, success: Schema.Array(Review), error: NotFound }),
+
+  // Needs input (CEL-47). `ask.create` copies the evidence (absolute paths on this machine) into the
+  // data folder and moves the task to Needs input, in one command; asking again replaces the open ask.
+  // Only the human answers: every question, with valid option ids; the task goes back to In Progress
+  // and the answers wait in the asking session's inbox. Lucas's pasted screenshots are uploaded first
+  // (POST /asks/<id>/uploads) and referenced by id.
+  Rpc.make("ask.create", {
+    payload: {
+      commandId,
+      key: Schema.String,
+      title: Schema.String,
+      intro: Schema.optionalKey(Schema.String),
+      questions: Schema.Array(AskQuestionInput),
+      files: Schema.Array(EvidenceFile),
+      links: Schema.Array(EvidenceLink),
+    },
+    success: write(Schema.Struct({ ask: Ask, task: Task })),
+    error: Schema.Union([NotFound, Invalid]),
+  }),
+  Rpc.make("ask.answer", {
+    payload: {
+      commandId,
+      askId: Id,
+      answers: Schema.Array(AnswerInput),
+      note: Schema.optionalKey(Schema.String),
+      noteAttachmentIds: Schema.optionalKey(Schema.Array(Id)),
+    },
+    success: write(Schema.Struct({ ask: Ask, task: Task })),
+    error: Schema.Union([NotFound, Invalid, HumanOnly]),
+  }),
+  // The asking agent changed its mind (or the human takes the ask back): the task returns to In Progress.
+  Rpc.make("ask.withdraw", {
+    payload: { commandId, key: Schema.String },
+    success: write(Schema.Struct({ ask: Ask, task: Task })),
+    error: Schema.Union([NotFound, Invalid]),
+  }),
+  // The task's latest ask, open or not.
+  Rpc.make("ask.get", { payload: { key: Schema.String }, success: Ask, error: NotFound }),
+  // Every ask of a task, oldest first.
+  Rpc.make("ask.list", { payload: { taskId: Id }, success: Schema.Array(Ask), error: NotFound }),
+  // Waits until the task's latest ask is answered or withdrawn, then returns it (at once when it
+  // already is). Hands the answers over: the caller's inbox item for them is marked read, so the hook
+  // doesn't deliver them a second time.
+  Rpc.make("ask.wait", { payload: { key: Schema.String }, success: Ask, error: NotFound }),
 
   // Documents (docs, specs, pages). `document.publish` creates a page or saves a new version of one:
   // the same slug, else the same source file, updates it. `files` are absolute paths on this machine

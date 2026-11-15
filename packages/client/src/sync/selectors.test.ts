@@ -30,6 +30,7 @@ const state: BoardState = {
     other: task("other", "todo", "a1", { projectId: "p2", key: "ZED-4", number: 4 }),
   },
   reviews: {},
+  asks: {},
   documents: {},
 }
 

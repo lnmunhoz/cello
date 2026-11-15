@@ -40,6 +40,7 @@ const state: BoardState = {
     orphan: task("orphan", "todo", "a3", { parentId: "missing" }),
   },
   reviews: {},
+  asks: {},
   documents: {},
 }
 

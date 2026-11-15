@@ -19,6 +19,8 @@ export class AssetStore extends Context.Service<AssetStore, {
   readonly sizeOf: (file: string) => Effect.Effect<number | null>
   /** Copies `source` to `<folder>/<attachmentId><ext>` and returns that relative path. */
   readonly copyIn: (source: string, folder: string, attachmentId: string) => Effect.Effect<string>
+  /** Writes bytes (a screenshot pasted in the browser) to `<folder>/<attachmentId><ext>` and returns that relative path. */
+  readonly writeIn: (bytes: Uint8Array, folder: string, attachmentId: string, ext: string) => Effect.Effect<string>
   /** The SHA-256 of a file, as hex: an unchanged file republished is recognized and stored once. */
   readonly hashOf: (file: string) => Effect.Effect<string>
   /**
@@ -92,6 +94,14 @@ export const make = (options: AssetStoreOptions) => {
       return relative
     }).pipe(Effect.withSpan("AssetStore.copyIn"))
 
+  const writeIn = (bytes: Uint8Array, folder: string, attachmentId: string, ext: string) =>
+    Effect.sync(() => {
+      const relative = path.join(folder, attachmentId + ext.toLowerCase())
+      fs.mkdirSync(path.join(dir, folder), { recursive: true })
+      fs.writeFileSync(resolve(relative), bytes)
+      return relative
+    }).pipe(Effect.withSpan("AssetStore.writeIn"))
+
   const hashOf = (file: string) =>
     Effect.sync(() => sha256File(file)).pipe(Effect.withSpan("AssetStore.hashOf"))
 
@@ -124,7 +134,7 @@ export const make = (options: AssetStoreOptions) => {
       for (const file of files) fs.rmSync(resolve(file), { force: true })
     })
 
-  return AssetStore.of({ dir, sizeOf, copyIn, hashOf, poster, remove, resolve })
+  return AssetStore.of({ dir, sizeOf, copyIn, writeIn, hashOf, poster, remove, resolve })
 }
 
 export const layer = (options: AssetStoreOptions) => Layer.sync(AssetStore, () => make(options))

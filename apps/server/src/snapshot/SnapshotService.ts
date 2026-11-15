@@ -9,6 +9,7 @@ import type * as Statement from "effect/sql/Statement"
 import * as EventStore from "../events/EventStore.ts"
 import {
   selectActors,
+  selectAsks,
   selectDocuments,
   selectLabels,
   selectProjects,
@@ -61,6 +62,7 @@ const make = Effect.gen(function* () {
         labels: yield* selectLabels(sql, sql`l.workspace_id = ${workspaceId}`),
         tasks: yield* selectTasks(sql, projectFilter),
         reviews: yield* selectReviews(sql, sql`r.decided_at IS NULL AND ${projectFilter}`),
+        asks: yield* selectAsks(sql, sql`a.state = 'open' AND ${projectFilter}`),
         documents: yield* selectDocuments(sql, projectFilter),
       } satisfies Snapshot
     }))

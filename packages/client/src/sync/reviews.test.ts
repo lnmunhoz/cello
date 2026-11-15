@@ -16,7 +16,7 @@ const task = (id: string, statusId: string, extra: Partial<Task> = {}): Task => 
   createdBySessionId: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
 })
 const attachment = (id: string, kind: Attachment["kind"], extra: Partial<Attachment> = {}): Attachment => ({
-  id, taskId: "t1", reviewId: "r1", kind, name: `${id}.bin`, url: null, caption: "", mime: null, bytes: 10, hasPoster: false,
+  id, taskId: "t1", reviewId: "r1", askId: null, kind, name: `${id}.bin`, url: null, caption: "", mime: null, bytes: 10, hasPoster: false,
   actorId: "agent", sessionId: "s1", createdAt: 1, deletedAt: null, ...extra,
 })
 const review = (id: string, taskId: string, createdAt: number, attachments: Attachment[] = []): Review => ({
@@ -50,6 +50,7 @@ const state: BoardState = {
     r4: review("r4", "t4", 20),
     rg: review("rg", "gone", 5),
   },
+  asks: {},
   documents: {},
 }
 

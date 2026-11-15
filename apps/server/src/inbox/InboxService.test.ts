@@ -2,6 +2,7 @@
 // claim when it was written. Not the agent's own comments, not other agents', nothing after the claim
 // ends. Taking the new items marks them read in the same step, so each one is handed over once, even
 // to takers running at the same time.
+import type { InboxItem } from "@cello/contract/entities"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as CommentService from "../comment/CommentService.ts"
@@ -37,7 +38,8 @@ const setup = Effect.gen(function* () {
   return { tasks, comments, inbox, status, project, one, two, comment }
 })
 
-const bodies = (items: ReadonlyArray<{ readonly comment: { readonly body: string } }>) => items.map((i) => i.comment.body)
+/** What each item says: a comment's body, or the title of the ask an answers item is for. */
+const bodies = (items: ReadonlyArray<InboxItem>) => items.map((i) => (i.kind === "answers" ? `answers: ${i.ask.title}` : i.comment.body))
 
 describe("InboxService: who gets what", () => {
   it.effect("a human comment on a task goes to the session holding its claim, and to no one else", () =>
@@ -185,7 +187,7 @@ describe("InboxService: Send back", () => {
     run(Effect.gen(function* () {
       const { inbox, reviews, one } = yield* submitted
       yield* reviews.sendBack({ commandId: cmd(), key: one.key, note: "The video is missing" })
-      expect((yield* agent(inbox.unread)).map((i) => [i.kind, i.taskKey, i.comment.body, i.author])).toEqual([
+      expect((yield* agent(inbox.unread)).map((i) => [i.kind, i.taskKey, bodies([i])[0], i.author])).toEqual([
         ["send_back", "CEL-1", "The video is missing", "Lucas"],
       ])
     })))
@@ -211,7 +213,7 @@ describe("ContextService.context: the inbox", () => {
       yield* comment(one.id, "Please add a test")
       const context = yield* ContextService
       const shown = (yield* agent(context.context({ key: "CEL" }))).inbox
-      expect(shown.map((i) => [i.taskKey, i.comment.body, i.readAt])).toEqual([["CEL-1", "Please add a test", null]])
+      expect(shown.map((i) => [i.taskKey, bodies([i])[0], i.readAt])).toEqual([["CEL-1", "Please add a test", null]])
       expect((yield* agent(context.context({ key: "CEL" }))).inbox).toEqual(shown)
       expect(bodies((yield* agent(inbox.take({ unreadOnly: true }))).items)).toEqual(["Please add a test"])
       expect((yield* agent(context.context({ key: "CEL" }))).inbox).toEqual([])
