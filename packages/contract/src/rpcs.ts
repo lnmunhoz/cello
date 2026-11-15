@@ -29,7 +29,7 @@ import {
 } from "./entities.ts"
 import { AskRequired, HumanOnly, Invalid, KeyTaken, NotFound, ReviewRequired, SnapshotRequired, TaskClaimed, VersionConflict } from "./errors.ts"
 import { CelloEvent } from "./events.ts"
-import { DocumentList, Inbox, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
+import { DocumentList, Inbox, LabelList, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
 
 /** Who is calling, resolved by the server from per-request RPC headers. */
 export class Caller extends Context.Service<Caller, {
@@ -160,6 +160,8 @@ export const CelloRpcs = RpcGroup.make(
     success: write(Label),
     error: Schema.Union([NotFound, Invalid]),
   }),
+  // Archiving hides a label everywhere (cards, pickers, `cello context`) and it can't be added to a task any more;
+  // tasks keep the link, so their history still names it. Its name stays taken.
   Rpc.make("label.archive", { payload: { commandId, id: Id }, success: write(Label), error: NotFound }),
 
   Rpc.make("task.create", {
@@ -223,6 +225,8 @@ export const CelloRpcs = RpcGroup.make(
     error: Schema.Union([NotFound, Invalid]),
   }),
   Rpc.make("task.get", { payload: { key: Schema.String }, success: TaskDetail, error: NotFound }),
+  // The project's workspace labels, archived ones too, with how many tasks carry each.
+  Rpc.make("label.list", { payload: { project: ProjectRef }, success: LabelList, error: Schema.Union([NotFound, Invalid]) }),
   Rpc.make("task.claim", {
     payload: { commandId, key: Schema.String },
     success: write(Task),

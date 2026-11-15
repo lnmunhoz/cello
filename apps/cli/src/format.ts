@@ -19,6 +19,13 @@ export const shortSession = (id: string): string => id.slice(0, 8)
 export const sessionName = (session: Pick<AgentSession, "clientName" | "externalId" | "id">): string =>
   `${session.clientName} session ${shortSession(session.externalId ?? session.id)}`
 
+/** "1 task", "3 tasks". */
+export const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? "" : "s"}`
+
+/** "a", "a and b", "a, b and c". */
+export const andList = (items: ReadonlyArray<string>): string =>
+  items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`
+
 /** Pads each column but the last to its widest cell. */
 export const columns = (rows: ReadonlyArray<ReadonlyArray<string>>): string[] => {
   const widths: number[] = []
