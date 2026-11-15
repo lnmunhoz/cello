@@ -2,10 +2,12 @@
 // documents/<documentId>/. Rows store paths relative to that folder.
 // A failing disk is a defect, like a failing database; a missing ffmpeg only means no poster.
 import * as fs from "node:fs"
+import * as os from "node:os"
 import * as path from "node:path"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import type * as Scope from "effect/Scope"
 
 /** The folder inside the data folder that holds every stored file. */
 export const ASSETS_DIR = "assets"
@@ -19,8 +21,12 @@ export class AssetStore extends Context.Service<AssetStore, {
   readonly copyIn: (source: string, folder: string, attachmentId: string) => Effect.Effect<string>
   /** The SHA-256 of a file, as hex: an unchanged file republished is recognized and stored once. */
   readonly hashOf: (file: string) => Effect.Effect<string>
-  /** Grabs a frame of a stored video as `<…>.poster.jpg`; null when ffmpeg is missing or fails. */
-  readonly poster: (video: string) => Effect.Effect<string | null>
+  /**
+   * Grabs a frame of a video (an absolute path) into a temp JPEG, removed when the scope closes; null
+   * when ffmpeg is missing, fails or takes too long. Make it before the write that stores it: an
+   * interrupt (a stopping server) kills ffmpeg, and a write can't be interrupted (CEL-17).
+   */
+  readonly poster: (video: string) => Effect.Effect<string | null, never, Scope.Scope>
   /** Deletes stored files (relative paths); a missing one is fine. */
   readonly remove: (files: ReadonlyArray<string>) => Effect.Effect<void>
   /** The absolute path of a stored file. */
@@ -31,7 +37,12 @@ export interface AssetStoreOptions {
   readonly dir: string
   /** The ffmpeg binary for posters; null skips them. Defaults to the one on PATH. */
   readonly ffmpeg?: string | null
+  /** How long one ffmpeg run may take before it's killed (default POSTER_TIMEOUT_MS). */
+  readonly posterTimeoutMs?: number
 }
+
+/** A poster frame takes well under a second; a run still going after this is stuck. */
+export const POSTER_TIMEOUT_MS = 15_000
 
 /** The SHA-256 of a file as hex, read in 1 MB chunks so a long video never sits in memory whole. */
 export const sha256File = (file: string): string => {
@@ -46,15 +57,21 @@ export const sha256File = (file: string): string => {
   return hasher.digest("hex")
 }
 
-const run = (cmd: ReadonlyArray<string>) =>
-  Effect.promise(async () => {
-    const child = Bun.spawn([...cmd], { stdout: "ignore", stderr: "ignore" })
-    return await child.exited
-  })
+/** Runs a command to its exit code. It's killed after `timeoutMs`, or when the fiber is interrupted. */
+const run = (cmd: ReadonlyArray<string>, timeoutMs: number) =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => Bun.spawn([...cmd], { stdout: "ignore", stderr: "ignore", timeout: timeoutMs })),
+    (child) => Effect.promise(() => child.exited),
+    (child) => Effect.promise(async () => {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
+      await child.exited
+    }),
+  )
 
 export const make = (options: AssetStoreOptions) => {
   const dir = options.dir
   const ffmpeg = options.ffmpeg === undefined ? Bun.which("ffmpeg") : options.ffmpeg
+  const posterTimeoutMs = options.posterTimeoutMs ?? POSTER_TIMEOUT_MS
   const resolve = (relative: string) => path.join(dir, relative)
 
   const sizeOf = (file: string) =>
@@ -89,12 +106,15 @@ export const make = (options: AssetStoreOptions) => {
   const poster = (video: string) =>
     Effect.gen(function* () {
       if (ffmpeg === null) return null
-      const relative = video.replace(/\.[^./]+$/, "") + ".poster.jpg"
-      const out = resolve(relative)
+      const tmp = yield* Effect.acquireRelease(
+        Effect.sync(() => fs.mkdtempSync(path.join(os.tmpdir(), "cello-poster-"))),
+        (folder) => Effect.sync(() => fs.rmSync(folder, { recursive: true, force: true })),
+      )
+      const out = path.join(tmp, "poster.jpg")
       // Half a second in skips a black first frame; a shorter clip falls back to its first frame.
       for (const at of ["0.5", "0"]) {
-        yield* run([ffmpeg, "-y", "-loglevel", "error", "-ss", at, "-i", resolve(video), "-frames:v", "1", "-vf", "scale='min(960,iw)':-2", "-q:v", "4", out])
-        if (nonEmpty(out)) return relative
+        yield* run([ffmpeg, "-y", "-loglevel", "error", "-ss", at, "-i", video, "-frames:v", "1", "-vf", "scale='min(960,iw)':-2", "-q:v", "4", out], posterTimeoutMs)
+        if (nonEmpty(out)) return out
       }
       return null
     }).pipe(Effect.withSpan("AssetStore.poster"))

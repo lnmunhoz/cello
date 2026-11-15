@@ -48,6 +48,12 @@ export const explain = (error: unknown, where: Where): string => {
     case "HumanOnly":
       return `Only ${e.human} can ${e.action}. Leave the task in In Review; ${e.human} decides on the Review page.`
     case "RpcClientError":
+      // Connected, then cut off: the server stopped mid-command, and a write it had started still commits.
+      if (["SocketCloseError", "SocketReadError", "SocketWriteError"].includes(e.reason?._tag)) {
+        return `Cello on 127.0.0.1:${where.port} closed the connection before answering; it may have stopped or restarted. ` +
+          "If this command changes something, the change may have gone through: check (for example with `cello task get`) " +
+          "before running it again, because a rerun is a new command."
+      }
       return `Cello isn't running on 127.0.0.1:${where.port}. Start it with \`cello start\`.`
     // Backups and restore, which work on the data folder itself while no server runs.
     case "RestoreBlocked":

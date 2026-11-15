@@ -4,6 +4,7 @@
 // `cello start` launch it; integration tests build it on port 0.
 import * as path from "node:path"
 import * as BunHttpServer from "@effect/platform-bun/BunHttpServer"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as HttpRouter from "effect/http/HttpRouter"
@@ -38,6 +39,14 @@ export interface ServerOptions {
   readonly autoBackup?: boolean | undefined
 }
 
+/**
+ * How long a stopping server waits for open connections to close on their own before it closes them
+ * (CEL-17). Board tabs hold a WebSocket open until the server closes it, so without this a stop waits
+ * Bun's default 20 s. Clients reconnect by themselves; writes already running finish first
+ * (Commands.write), then the database closes and the lock is released.
+ */
+const SHUTDOWN_GRACE = Duration.seconds(1)
+
 /** The database is opened only after the lock is held: the layer needs `ServerLock`. */
 const database = Layer.unwrap(Effect.map(Effect.service(ServerLock.ServerLock), (lock) => Sqlite.layer(lock.dbPath)))
 
@@ -66,7 +75,7 @@ export const layer = (options: ServerOptions) => {
   const dailyBackup = options.autoBackup === false ? Layer.empty : BackupSchedule.layer
   return Layer.mergeAll(HttpRouter.serve(routes, { disableLogger: true }), recordPort, dailyBackup).pipe(
     Layer.provide(app),
-    Layer.provideMerge(BunHttpServer.layer({ hostname: "127.0.0.1", port: options.port })),
+    Layer.provideMerge(BunHttpServer.layer({ hostname: "127.0.0.1", port: options.port, gracefulShutdownTimeout: SHUTDOWN_GRACE })),
     Layer.provideMerge(ServerLock.layer({ dataDir: options.dataDir, port: options.port })),
   )
 }

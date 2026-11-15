@@ -191,8 +191,9 @@ function run() {
     if (stopped || !server?.startedByUs) return
     event.preventDefault()
     const running = server
-    // Close the window first: the server finishes shutting down only once the board's
-    // WebSocket is gone. Closing (not destroying) still saves the window's size and position.
+    // Close the window first, so the board's WebSocket ends cleanly instead of being cut off; the
+    // server stops within about a second either way (CEL-17). Closing (not destroying) still saves
+    // the window's size and position.
     for (const window of BaseWindow.getAllWindows()) window.close()
     stopping ??= running.stop().finally(() => {
       stopped = true

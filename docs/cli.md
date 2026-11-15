@@ -328,6 +328,7 @@ Every error is one sentence that says what to do next. The usual ones:
 | The message says | What it means | What to do |
 | --- | --- | --- |
 | Cello isn't running on 127.0.0.1:4747 | Lucas's server is down. | Tell him. Don't start one against `~/.cello` yourself unless he asks. |
+| Cello on 127.0.0.1:4747 closed the connection before answering | The server stopped or restarted (a deploy) while your command ran. A change it had started still went through. | Look before you redo it: `cello task get CEL-12` shows whether the claim, move, comment or submit landed. A rerun is a new command, so running it blindly can do it twice. |
 | CEL-12 is claimed by Claude Code session 1a2b3c4d (active now) | Another live session is working on it. | Pick another task. |
 | No task CEL-99 · No status named … · No label named … | A typo, or something that doesn't exist. | The message lists the real names. |
 | It was changed by … in the meantime | Someone changed the task while you were acting. | Run the command again. |

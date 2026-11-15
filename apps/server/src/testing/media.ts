@@ -46,3 +46,16 @@ export const writeMp4 = (dir: string, name = "demo.mp4", options: { readonly sec
   if (result.exitCode !== 0) throw new Error(`ffmpeg couldn't make ${name}: ${result.stderr.toString()}`)
   return file
 }
+
+/**
+ * An `ffmpeg` in `dir` that never finishes, for shutdown tests (CEL-17). `started()` resolves with its
+ * pid once it runs: the script writes its pid into a FIFO, which blocks until the test reads it.
+ */
+export const writeHungFfmpeg = (dir: string) => {
+  const fifo = path.join(dir, "ffmpeg-started")
+  const mkfifo = Bun.spawnSync(["mkfifo", fifo])
+  if (mkfifo.exitCode !== 0) throw new Error(`mkfifo failed: ${mkfifo.stderr.toString()}`)
+  const bin = path.join(dir, "ffmpeg")
+  fs.writeFileSync(bin, `#!/bin/sh\necho $$ > '${fifo}'\nexec sleep 600\n`, { mode: 0o755 })
+  return { bin, started: () => fs.promises.readFile(fifo, "utf8").then((pid) => Number(pid.trim())) }
+}
