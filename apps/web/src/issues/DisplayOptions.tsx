@@ -1,29 +1,35 @@
+import { ORDERING_LABELS, ORDERINGS, parseOrdering } from "@cello/client/sync/ordering"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { KanbanIcon, ListIcon, SlidersHorizontalIcon } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/Popover.tsx"
 import { SegmentedControl, SegmentedControlItem } from "../components/ui/SegmentedControl.tsx"
 import { Select } from "../components/ui/Select.tsx"
 import { layoutOf, searchFor, type Layout } from "./layout.ts"
+import { useOrdering } from "./useOrdering.ts"
+
+const orderingOptions = ORDERINGS.map((value) => ({ value, label: ORDERING_LABELS[value] }))
 
 /**
  * The Issues tab's Display popover, after Linear's display options: the List / Board switch, then
- * one row per view option. Grouping by status is the only option for now; sorting, sub-grouping
- * and shown fields join as more rows here.
+ * one row per view option: grouping (by status, the only one for now) and the order of cards in
+ * each column or group. The button names the ordering when it isn't the manual drag order.
  */
 export function DisplayOptions() {
   const layout = layoutOf(useSearch({ from: "/$projectKey" }))
   const navigate = useNavigate()
-  const pick = (next: Layout) => void navigate({ to: ".", search: (prev) => ({ ...prev, ...searchFor(next) }) })
+  const pickLayout = (next: Layout) => void navigate({ to: ".", search: (prev) => ({ ...prev, ...searchFor(next) }) })
+  const { ordering, pick } = useOrdering()
 
   return (
     <Popover>
       <PopoverTrigger variant="toolbar">
         <SlidersHorizontalIcon aria-hidden className="size-3.5 text-muted" />
         Display
+        {ordering === "manual" ? null : <span className="text-muted">· {ORDERING_LABELS[ordering]}</span>}
       </PopoverTrigger>
       <PopoverContent aria-label="Display options" align="end">
         <div className="flex w-72 flex-col gap-2 p-1">
-          <SegmentedControl aria-label="Layout" value={layout} onValueChange={(value) => value && pick(value as Layout)}>
+          <SegmentedControl aria-label="Layout" value={layout} onValueChange={(value) => value && pickLayout(value as Layout)}>
             <SegmentedControlItem value="list">
               <ListIcon aria-hidden className="size-3.5" />
               List
@@ -37,6 +43,19 @@ export function DisplayOptions() {
             <dt className="text-muted">Grouping</dt>
             <dd>
               <Select variant="chip" label="Grouping" value="status" options={[{ value: "status", label: "Status" }]} onValueChange={() => {}} />
+            </dd>
+            <dt className="text-muted">Ordering</dt>
+            <dd>
+              <Select
+                variant="chip"
+                label="Ordering"
+                value={ordering}
+                options={orderingOptions}
+                onValueChange={(value) => {
+                  const next = parseOrdering(value)
+                  if (next) pick(next)
+                }}
+              />
             </dd>
           </dl>
         </div>

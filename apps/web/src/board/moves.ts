@@ -1,4 +1,7 @@
-// Which card a drop moved, from the board's lists before and after it.
+// Which card a drop moved, from the board's lists before and after it, and what that changes.
+import type { Ordering } from "@cello/client/sync/ordering"
+import { placement, placementAtEnd } from "@cello/client/sync/selectors"
+
 export type Lists = Readonly<Record<string, ReadonlyArray<string>>>
 
 export interface Move {
@@ -39,4 +42,28 @@ export const findMove = (prev: Lists, next: Lists, hint?: string): Move | null =
     return { key: keys[first]!, to: list, index: first }
   }
   return null
+}
+
+export interface Drop {
+  readonly statusId: string
+  readonly before: string | null
+  readonly after: string | null
+  readonly position: string
+}
+
+/**
+ * What a drop changes. `target` is the column it landed in, in position order and without the card.
+ * In manual order the card goes between its new neighbors. In any other order the ordering places
+ * it, so only a change of column counts: it changes the status and the card goes to the end of the
+ * column's manual order. A drop within its own column is null, nothing to send.
+ */
+export const dropOf = (
+  move: Move,
+  fromStatusId: string,
+  ordering: Ordering,
+  target: ReadonlyArray<{ readonly id: string; readonly position: string }>,
+): Drop | null => {
+  if (ordering === "manual") return { statusId: move.to, ...placement(target, move.index) }
+  if (move.to === fromStatusId) return null
+  return { statusId: move.to, ...placementAtEnd(target) }
 }
