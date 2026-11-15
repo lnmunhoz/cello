@@ -23,14 +23,14 @@ const postToolUse = { type: "command", command: "cello hook claude post-tool-use
 const preToolUse = { type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }
 
 describe("addCelloHooks", () => {
-  it("adds a Stop hook, a PostToolUse hook for every tool and a PreToolUse hook for Artifact to empty settings", () => {
+  it("adds a Stop hook, a PostToolUse hook for every tool and a PreToolUse hook for Artifact and the edit tools to empty settings", () => {
     expect(addCelloHooks({})).toEqual({
       changed: true,
       settings: {
         hooks: {
           Stop: [{ hooks: [stop] }],
           PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
-          PreToolUse: [{ matcher: "Artifact", hooks: [preToolUse] }],
+          PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
         },
       },
     })
@@ -48,14 +48,36 @@ describe("addCelloHooks", () => {
     const before = { hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }] } }
     expect(addCelloHooks(before)).toEqual({
       changed: true,
-      settings: { hooks: { ...before.hooks, PreToolUse: [{ matcher: "Artifact", hooks: [preToolUse] }] } },
+      settings: { hooks: { ...before.hooks, PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }] } },
     })
+  })
+
+  it("widens the guard of an older install (matcher Artifact, CEL-57) to the edit tools, in place of the old group (CEL-61)", () => {
+    const mine = { matcher: "Bash", hooks: [{ type: "command", command: "guard.sh" }] }
+    const before = {
+      hooks: {
+        Stop: [{ hooks: [stop] }],
+        PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
+        PreToolUse: [{ matcher: "Artifact", hooks: [preToolUse] }, mine, { matcher: "Artifact", hooks: [{ type: "command", command: "log.sh" }, preToolUse] }],
+      },
+    }
+    const after = addCelloHooks(before)
+    expect(after).toEqual({
+      changed: true,
+      settings: {
+        hooks: {
+          ...before.hooks,
+          PreToolUse: [mine, { matcher: "Artifact", hooks: [{ type: "command", command: "log.sh" }] }, { matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+        },
+      },
+    })
+    expect(addCelloHooks(after.settings)).toEqual({ changed: false, settings: after.settings })
   })
 
   it("keeps the user's own PreToolUse hooks, adding its group after them", () => {
     const mine = { hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "guard.sh" }] }] } }
     expect(addCelloHooks(mine).settings.hooks).toMatchObject({
-      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "guard.sh" }] }, { matcher: "Artifact", hooks: [preToolUse] }],
+      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "guard.sh" }] }, { matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
     })
     expect(removeCelloHooks(addCelloHooks(mine).settings)).toEqual({ changed: true, settings: mine })
   })
@@ -79,7 +101,7 @@ describe("addCelloHooks", () => {
         Stop: [{ hooks: [{ type: "command", command: "say done" }] }, { hooks: [stop] }],
         PostToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "prettier --write" }] }, { matcher: "*", hooks: [postToolUse] }],
         SessionStart: [{ hooks: [{ type: "command", command: "echo hi" }] }],
-        PreToolUse: [{ matcher: "Artifact", hooks: [preToolUse] }],
+        PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
       },
     })
     // The input isn't changed in place.
@@ -93,7 +115,7 @@ describe("addCelloHooks", () => {
       hooks: {
         Stop: [{ hooks: [{ ...stop, timeout: 30 }] }],
         PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
-        PreToolUse: [{ matcher: "Artifact", hooks: [{ ...preToolUse, timeout: 5 }] }],
+        PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ ...preToolUse, timeout: 5 }] }],
       },
     }
     expect(addCelloHooks(tuned)).toEqual({ changed: false, settings: tuned })
@@ -102,7 +124,7 @@ describe("addCelloHooks", () => {
   it("adds only the hook that's missing", () => {
     const half = { hooks: { Stop: [{ hooks: [stop] }] } }
     expect(addCelloHooks(half).settings).toEqual({
-      hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }], PreToolUse: [{ matcher: "Artifact", hooks: [preToolUse] }] },
+      hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }], PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }] },
     })
   })
 
@@ -199,7 +221,7 @@ describe("writeFileAtomically", () => {
     const file = path.join(dir, "settings.json")
     fs.writeFileSync(file, "{ \"old\": true }\n")
     const full = { writeSync: () => { throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" }) } }
-    expect(() => writeFileAtomically(file, "{ \"new\": true }\n", full)).toThrow("ENOSPC")
+    expect(() => writeFileAtomically(file, "{ \"new\": true }\n", { io: full })).toThrow("ENOSPC")
     expect(fs.readFileSync(file, "utf8")).toBe("{ \"old\": true }\n")
     expect(leftovers(dir)).toEqual([])
     expect(fs.existsSync(`${file}.bak`)).toBe(false)
@@ -218,6 +240,25 @@ describe("writeFileAtomically", () => {
     expect(fs.readFileSync(link, "utf8")).toBe("{ \"a\": 1 }\n")
     expect(fs.readFileSync(`${real}.bak`, "utf8")).toBe("{}\n")
     expect(leftovers(path.dirname(real))).toEqual([])
+  })
+
+  it("backup: false replaces the file the same way without keeping a .bak", () => {
+    const file = path.join(dir, "AGENTS.md")
+    fs.writeFileSync(file, "old\n")
+    expect(writeFileAtomically(file, "new\n", { backup: false })).toEqual({ target: file, backup: null })
+    expect(fs.readFileSync(file, "utf8")).toBe("new\n")
+    expect(fs.existsSync(`${file}.bak`)).toBe(false)
+    expect(leftovers(dir)).toEqual([])
+  })
+
+  it("backup: \"new\" leaves an existing .bak alone and keeps the copy in the first free .bak.N", () => {
+    const file = path.join(dir, "AGENTS.md")
+    fs.writeFileSync(`${file}.bak`, "oldest\n")
+    fs.writeFileSync(file, "one\n")
+    expect(writeFileAtomically(file, "two\n", { backup: "new" }).backup).toBe(`${file}.bak.1`)
+    expect(writeFileAtomically(file, "three\n", { backup: "new" }).backup).toBe(`${file}.bak.2`)
+    expect([fs.readFileSync(`${file}.bak`, "utf8"), fs.readFileSync(`${file}.bak.1`, "utf8"), fs.readFileSync(`${file}.bak.2`, "utf8")])
+      .toEqual(["oldest\n", "one\n", "two\n"])
   })
 
   it("creates a new file and its folder, with no .bak", () => {

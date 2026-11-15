@@ -10,7 +10,11 @@
 // On Stop, additionalContext "keeps the conversation going through the same loop protections as
 // `decision: "block"` … but the transcript labels it `Stop hook feedback` and no hook error
 // notification is shown". Printing nothing and exiting 0 lets the session carry on as if there were no hook.
-// On PreToolUse, a deny "blocks the tool call, and shows Claude the reason" (CEL-57: the artifact guard).
+// On PreToolUse, a deny "blocks the tool call, and shows Claude the reason" (CEL-57: the artifact
+// guard; CEL-61: the claim guard).
+import * as fs from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
 import { isObject } from "./claudeSettings.ts"
 import type { Env } from "./identity.ts"
 
@@ -101,14 +105,124 @@ const publishes = (toolInput: Readonly<Record<string, unknown>>) => toolInput.ac
 export const artifactGuard = (input: HookInput, env: Env) => {
   if (env[ALLOW_ARTIFACTS_VARIABLE] === "1") return null
   if (input.toolName !== "Artifact" || input.toolInput === null || !publishes(input.toolInput)) return null
+  return preToolDeny(ARTIFACT_DENY_REASON)
+}
+
+/** A PreToolUse answer that blocks the call and shows Claude `reason`. */
+const preToolDeny = (reason: string) => ({
+  hookSpecificOutput: {
+    hookEventName: "PreToolUse" as const,
+    permissionDecision: "deny" as const,
+    permissionDecisionReason: reason,
+  },
+})
+
+// ── the claim guard (CEL-61) ────────────────────────────────────────────────────────────────────
+// Every request from Lucas that changes something starts as a Cello task. The same PreToolUse hook
+// runs before Claude Code's file-editing tools and turns an edit inside the repo away while the
+// session holds no claimed task in the repo's project. It asks the server (`task.list --mine`), so
+// unlike the artifact guard it needs one; when the server is down, slow, or the repo isn't a Cello
+// project, the edit goes through: the guard nudges, it never stops work.
+
+/** The env var that lets every edit through, for when Lucas wants to work without tasks. */
+export const ALLOW_UNTRACKED_VARIABLE = "CELLO_ALLOW_UNTRACKED"
+
+/** Claude Code's tools that write files, and the input field that names the file. */
+const EDIT_TOOLS: Readonly<Record<string, string>> = { Edit: "file_path", Write: "file_path", NotebookEdit: "notebook_path" }
+
+/** What the agent reads when its edit is turned away. */
+export const claimDenyReason = (projectKey: string) =>
+  `Cello: this session hasn't claimed a task in ${projectKey}. Before editing for a request, check it exists (\`cello task list\`), ` +
+  `else \`cello task create "<title>"\` with Lucas's words, then \`cello task claim ${projectKey}-n\`.`
+
+export interface ClaimCheck {
+  /** The agent session whose claims count (subagents share their parent's). */
+  readonly session: string
+  /** The session's folder, which says the repo and so the project. */
+  readonly cwd: string
+  /** The file the tool would write, absolute. */
+  readonly file: string
+}
+
+/**
+ * Whether this call needs the server's answer: an edit tool with a file path, in an agent session,
+ * without the opt-out. `fallbackCwd` is the hook's own folder, for input without `cwd`. Null means
+ * the call goes ahead without asking.
+ */
+export const claimCheck = (input: HookInput, env: Env, fallbackCwd: string): ClaimCheck | null => {
+  if (env[ALLOW_UNTRACKED_VARIABLE] === "1") return null
+  const field = input.toolName === null ? undefined : EDIT_TOOLS[input.toolName]
+  if (field === undefined || input.toolInput === null) return null
+  const target = text(input.toolInput[field])
+  const session = hookSession(input, env)
+  if (target === null || session === null) return null
+  const cwd = input.cwd ?? fallbackCwd
+  return { session, cwd, file: path.resolve(cwd, target) }
+}
+
+/** `file` with symlinks resolved as far as it exists (a new file's folder may not exist yet). */
+const resolved = (file: string): string => {
+  const absolute = path.resolve(file)
+  try {
+    return fs.realpathSync(absolute)
+  } catch {
+    const parent = path.dirname(absolute)
+    return parent === absolute ? absolute : path.join(resolved(parent), path.basename(absolute))
+  }
+}
+
+/** Whether `file` is one of `roots` or inside one, symlinks resolved; null roots are skipped. */
+export const insideAny = (file: string, roots: ReadonlyArray<string | null>): boolean => {
+  const target = resolved(file)
+  return roots.some((root) => {
+    if (root === null) return false
+    const relative = path.relative(resolved(root), target)
+    // "..foo" is a folder inside; only ".." itself or "../…" climbs out.
+    const climbs = relative === ".." || relative.startsWith(`..${path.sep}`)
+    return !climbs && !path.isAbsolute(relative)
+  })
+}
+
+/** The hook's answer once the server said how many open tasks the session holds in the project: null lets the edit through. */
+export const claimAnswer = (result: { readonly projectKey: string; readonly claimed: number }) =>
+  result.claimed > 0 ? null : preToolDeny(claimDenyReason(result.projectKey))
+
+/** How long a claim the server reported lets edits through without asking again. */
+export const CLAIM_CACHE_MS = 60_000
+
+/**
+ * A remembered "this session holds a claim here", one small file per server, repo and session in
+ * `dir` holding when it was seen. Only claims are remembered: after a deny, the next edit asks again,
+ * so claiming takes effect at once. Reading or writing it never throws; trouble just means no cache.
+ */
+export const claimCache = (dir: string, key: { readonly port: string; readonly repoPath: string; readonly session: string }) => {
+  const name = new Bun.CryptoHasher("sha256").update(`${key.port}\0${key.repoPath}\0${key.session}`).digest("hex").slice(0, 32)
+  const file = path.join(dir, name)
   return {
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse" as const,
-      permissionDecision: "deny" as const,
-      permissionDecisionReason: ARTIFACT_DENY_REASON,
+    file,
+    fresh: (now: number): boolean => {
+      try {
+        const seen = Number(fs.readFileSync(file, "utf8"))
+        // A time after now (a clock set back) isn't trusted.
+        return Number.isFinite(seen) && seen > 0 && seen <= now && now - seen < CLAIM_CACHE_MS
+      } catch {
+        return false
+      }
+    },
+    remember: (now: number): void => {
+      try {
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+        fs.writeFileSync(file, String(now), { mode: 0o600 })
+        fs.chmodSync(file, 0o600)
+      } catch {
+        // No cache, then.
+      }
     },
   }
 }
+
+/** Where the claim cache lives: a folder under the system's temp folder (TMPDIR when set). */
+export const claimCacheDir = (env: Env) => path.join(env.TMPDIR || os.tmpdir(), "cello-claims")
 
 /** What the hook prints when comments arrived: context the agent acts on (on Stop, it keeps the agent going). */
 export const hookResponse = (event: Exclude<HookEvent, "pre-tool-use">, delivery: string) => ({

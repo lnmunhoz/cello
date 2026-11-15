@@ -224,6 +224,7 @@ const HOOK_LINES = [
 const AFTER = [
   "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
   "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. Start Claude Code with CELLO_ALLOW_ARTIFACTS=1 when you want one.",
+  "Agents here can't edit files in the repo until their session has claimed a Cello task: they're told to create or claim one first. Start Claude Code with CELLO_ALLOW_UNTRACKED=1 to turn that off.",
   "New Claude Code sessions pick them up.",
 ]
 
@@ -245,7 +246,7 @@ describe("cello install claude", () => {
         hooks: {
           Stop: [{ hooks: [{ type: "command", command: "cello hook claude stop", timeout: 10 }] }],
           PostToolUse: [{ matcher: "*", hooks: [{ type: "command", command: "cello hook claude post-tool-use", timeout: 10 }] }],
-          PreToolUse: [{ matcher: "Artifact", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }],
+          PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }],
         },
       })
       expect(fs.readFileSync(path.join(repo, ".gitignore"), "utf8")).toBe(".claude/settings.local.json\n")

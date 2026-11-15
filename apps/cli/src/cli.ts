@@ -26,19 +26,26 @@ import * as Predicate from "effect/Predicate"
 import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
-import { addAgentsSection, agentsFile } from "./agentsMd.ts"
+import { addAgentsSection, agentsFile, type AgentsResult } from "./agentsMd.ts"
 import { roundLabel } from "@cello/client/sync/asks"
 import { answerLines, answerScreenshots, askResultText, askSpecFromArgs, askSpecFromFile, roundsText } from "./ask.ts"
 import { buildsText } from "./builds.ts"
 import {
   ALLOW_ARTIFACTS_VARIABLE,
+  ALLOW_UNTRACKED_VARIABLE,
   artifactGuard,
+  claimAnswer,
+  claimCache,
+  claimCacheDir,
+  claimCheck,
   HOOK_EVENTS,
   type HookEvent,
   hookAction,
   hookDeadline,
   hookResponse,
   hookSession,
+  type HookInput,
+  insideAny,
   parseHookInput,
 } from "./claudeHook.ts"
 import {
@@ -1264,23 +1271,49 @@ const deliverToClaude = (event: Exclude<HookEvent, "pre-tool-use">) =>
 /** The asks whose answers are among these inbox items. */
 const answeredAsks = (items: ReadonlyArray<InboxItem>) => items.flatMap((i) => (i.kind === "answers" ? [i.ask] : []))
 
-/** What the artifact guard does (CEL-57): denies a Claude artifact publish, pointing to `cello doc publish`. No server needed. */
-const guardArtifacts = Effect.gen(function* () {
+/**
+ * What the claim guard does (CEL-61): an edit inside this repo from a session that holds no open task
+ * in its project is denied. Any doubt (no repo, no project, no server, an error) lets the edit through.
+ */
+const guardClaims = (hook: HookInput) =>
+  Effect.gen(function* () {
+    const { env, cwd, now } = yield* CliEnv
+    const check = claimCheck(hook, env, cwd)
+    if (check === null) return
+    const repoPath = repoRootFor(check.cwd)
+    if (repoPath === null || !insideAny(check.file, [repoPath, checkoutRootFor(check.cwd)])) return
+    const cache = claimCache(claimCacheDir(env), { port: String(portOf(env)), repoPath, session: check.session })
+    if (cache.fresh(now())) return
+    const headers = identityHeaders({ ...env, CELLO_SESSION: undefined, CLAUDE_CODE_SESSION_ID: check.session }, check.cwd)
+    // Todo, In Progress, Needs input and In Review: the open tasks the session holds in the project.
+    const held = yield* withClient((client) => client["task.list"]({ project: { repoPath }, mine: true }), { headers })
+    const answer = claimAnswer({ projectKey: held.project.key, claimed: held.tasks.length })
+    if (answer) return yield* print(JSON.stringify(answer))
+    cache.remember(now())
+  })
+
+/**
+ * The PreToolUse hook: an Artifact call goes to the artifact guard (CEL-57: denies a publish, pointing
+ * to `cello doc publish`; no server needed), an edit to the claim guard (CEL-61).
+ */
+const guardToolUse = Effect.gen(function* () {
   const { env, readStdin } = yield* CliEnv
-  const answer = artifactGuard(parseHookInput(yield* Effect.promise(readStdin)), env)
-  if (answer) yield* print(JSON.stringify(answer))
+  const input = parseHookInput(yield* Effect.promise(readStdin))
+  const answer = artifactGuard(input, env)
+  if (answer) return yield* print(JSON.stringify(answer))
+  yield* guardClaims(input)
 })
 
 const hookClaude = Command.make("claude", {
   event: Argument.Literals("event", HOOK_EVENTS).pipe(
     Argument.withDescription(
-      "The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse) or pre-tool-use (PreToolUse, the Artifact guard).",
+      "The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse) or pre-tool-use (PreToolUse: the artifact and claim guards).",
     ),
   ),
 }, (input) =>
   Effect.gen(function* () {
     const { env, exit } = yield* CliEnv
-    const work = input.event === "pre-tool-use" ? guardArtifacts : deliverToClaude(input.event)
+    const work = input.event === "pre-tool-use" ? guardToolUse : deliverToClaude(input.event)
     // It must never break or stall the session: a slow or missing server, bad input, anything, is silence and exit 0.
     yield* work.pipe(Effect.timeout(hookDeadline(env)), Effect.catchCause(() => Effect.void))
     // An explicit end: a stdin that never closes would otherwise keep the process alive.
@@ -1289,8 +1322,11 @@ const hookClaude = Command.make("claude", {
     "Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand " +
       "new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing " +
       "when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. pre-tool-use turns a Claude artifact publish " +
-      "away with a pointer to `cello doc publish`, and lets every other call through (all of them with CELLO_ALLOW_ARTIFACTS=1); it " +
-      "needs no server. Always exits 0.",
+      "away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); " +
+      "this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and " +
+      "denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the " +
+      "edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a " +
+      "minute. Always exits 0.",
   ))
 
 const hook = Command.make("hook").pipe(
@@ -1356,6 +1392,8 @@ const installHooks = (scope: keyof typeof SCOPES) =>
         ? [
           "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. " +
           `Start Claude Code with ${ALLOW_ARTIFACTS_VARIABLE}=1 when you want one.`,
+          "Agents here can't edit files in the repo until their session has claimed a Cello task: they're told to create or claim one first. " +
+          `Start Claude Code with ${ALLOW_UNTRACKED_VARIABLE}=1 to turn that off.`,
         ]
         : []),
       "New Claude Code sessions pick them up.",
@@ -1388,7 +1426,8 @@ const installClaude = Command.make("claude", {
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
     "Add Claude Code hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), and one that " +
-      "turns Claude artifact publishes away in favour of Cello pages (PreToolUse on Artifact; not with --user), all running " +
+      "turns Claude artifact publishes away in favour of Cello pages and edits away until the session has claimed a task " +
+      "(PreToolUse on Artifact, Edit, Write and NotebookEdit; not with --user), all running " +
       "`cello hook claude`. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main " +
       "checkout's), merged with the hooks already there; running it again changes nothing. The old file is kept as .bak.",
   ))
@@ -1411,6 +1450,37 @@ const uninstallClaude = Command.make("claude", {}, () =>
 /** Where the board shows a project: the web app `cello start` serves on the same port. */
 const boardUrl = (env: Env, projectKey: string) => `http://127.0.0.1:${portOf(env)}/${projectKey}`
 
+/** What `cello init --agents-md` says it did to the agents file, with the section's changed lines when it rewrote it. */
+const agentsMdLines = (done: AgentsResult): ReadonlyArray<string> => {
+  const section = "\"Tracking work in Cello\" section"
+  const diff = indent([...done.diff])
+  switch (done.change) {
+    case "added":
+      return [`Added the ${section} to ${done.file} (uncommitted).`]
+    case "updated":
+      return done.backup === null
+        ? [`Updated the ${section} in ${done.file} to the current text (uncommitted):`, ...diff]
+        : [
+          `Updated the ${section} in ${done.file} to the current text (uncommitted). Its text wasn't exactly what Cello wrote, ` +
+          `so the old file is kept as ${done.backup}; move any notes outside the markers. What changed:`,
+          ...diff,
+        ]
+    case "replaced":
+      return [
+        `Replaced the old ${section} in ${done.file} with the current one, between cello:agents-md markers so later runs update it ` +
+        `(uncommitted). Kept the old file as ${done.backup}. What changed:`,
+        ...diff,
+      ]
+    case "unchanged":
+      return [`The ${section} in ${done.file} is already current.`]
+    case "foreign":
+      return [
+        `${done.file} has a ${section} that isn't Cello's (it doesn't mention \`cello guide\` or \`cello context\`); left it as it is. ` +
+        "Rename or remove it, then run this again to add Cello's.",
+      ]
+  }
+}
+
 const init = Command.make("init", {
   name: Flag.String("name").pipe(Flag.optional, Flag.withDescription("The project's name. Default: the repository's folder name.")),
   key: Flag.String("key").pipe(
@@ -1424,11 +1494,16 @@ const init = Command.make("init", {
   ),
   agentsMd: Flag.Boolean("agents-md").pipe(
     Flag.withDefault(false),
-    Flag.withDescription("Also add the \"Tracking work in Cello\" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), once."),
+    Flag.withDescription(
+      "Also add the \"Tracking work in Cello\" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), or bring the one there up to date.",
+    ),
   ),
   json: Flag.Boolean("json").pipe(
     Flag.withDefault(false),
-    Flag.withDescription("Print JSON: created, project, url, hooks and agentsMd ({ file, changed }, or null when not asked for or not reached), and error when --hooks or --agents-md failed."),
+    Flag.withDescription(
+      "Print JSON: created, project, url, hooks ({ file, changed }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged or " +
+        "foreign, backup, diff }), each null when not asked for or not reached, and error when --hooks or --agents-md failed.",
+    ),
   ),
 }, (input) =>
   Effect.gen(function* () {
@@ -1511,11 +1586,7 @@ const init = Command.make("init", {
     } else {
       const lines = [
         ...(hooks?.lines ?? []),
-        ...(agentsMd === null
-          ? []
-          : agentsMd.changed
-          ? [`Added the "Tracking work in Cello" section to ${agentsMd.file} (uncommitted).`]
-          : [`${agentsMd.file} already has a "Tracking work in Cello" section; left it as it is.`]),
+        ...(agentsMd === null ? [] : agentsMdLines(agentsMd)),
       ]
       if (lines.length) yield* print(lines.join("\n"))
     }

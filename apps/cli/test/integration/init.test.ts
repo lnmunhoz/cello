@@ -1,7 +1,8 @@
 // CEL-41: `cello init` makes the git repo it runs in a Cello project, against a real server and temp
 // repos: the main checkout's path (also from a linked worktree), a name from the folder and a free key
 // unless given, nothing changed when the repo is already linked. --hooks installs the Claude Code hooks
-// (temp HOME, never the real ~/.claude); --agents-md appends docs/cli.md's section once.
+// (temp HOME, never the real ~/.claude); --agents-md appends docs/cli.md's section between markers and
+// brings it up to date on later runs, an old unmarked Cello section included (CEL-61).
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { newCommandId } from "@cello/client/client"
@@ -9,9 +10,12 @@ import { startServer, tempDataDir } from "@cello/server/testing/servers"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import { connect } from "../../../server/test/integration/harness.ts"
-import { agentsSection } from "../../src/agentsMd.ts"
+import { AGENTS_END, agentsBlock, agentsSection } from "../../src/agentsMd.ts"
 import { GUIDE } from "../../src/guide.ts"
 import { cello, gitRepo } from "./cli.ts"
+
+/** docs/cli.md's section for project `key`, between the markers it sits in in a repo's file. */
+const marked = (key: string) => agentsBlock(agentsSection(GUIDE, key))
 
 const SESSION = "2fd0505c-417a-4167-acfe-2d66080fcae0"
 const claude = { CLAUDE_CODE_SESSION_ID: SESSION, CLAUDE_PID: String(process.pid) }
@@ -180,14 +184,15 @@ describe("cello init", () => {
           `Added .claude/settings.local.json to ${path.join(repo, ".gitignore")}, so it stays on this machine.`,
           "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
           "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. Start Claude Code with CELLO_ALLOW_ARTIFACTS=1 when you want one.",
+          "Agents here can't edit files in the repo until their session has claimed a Cello task: they're told to create or claim one first. Start Claude Code with CELLO_ALLOW_UNTRACKED=1 to turn that off.",
           "New Claude Code sessions pick them up.",
         ].join("\n"),
         failure: null,
       })
       const hooks = JSON.parse(fs.readFileSync(file, "utf8")).hooks
       expect(hooks.Stop[0].hooks[0].command).toBe("cello hook claude stop")
-      // The artifact guard comes with it (CEL-57).
-      expect(hooks.PreToolUse).toEqual([{ matcher: "Artifact", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }])
+      // The artifact guard (CEL-57) and the claim guard (CEL-61) come with it.
+      expect(hooks.PreToolUse).toEqual([{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }])
       // Already linked and already installed: both say so.
       expect((yield* agent(repo)("init", "--hooks")).out).toBe([
         `This repo is already project CEL · cello (${repo}); the project itself is unchanged.`,
@@ -223,7 +228,7 @@ describe("cello init", () => {
       })
     }).pipe(Effect.scoped))
 
-  it.live("--agents-md appends docs/cli.md's section to AGENTS.md once, keeping what was there", () =>
+  it.live("--agents-md appends docs/cli.md's section to AGENTS.md between its markers, keeping what was there; again changes nothing", () =>
     Effect.gen(function* () {
       const { dataDir, agent } = yield* setup
       const repo = gitRepo(dataDir, "cello")
@@ -234,14 +239,87 @@ describe("cello init", () => {
       const first = yield* agent(repo)("init", "--agents-md")
       expect(first.failure).toBeNull()
       expect(first.out).toContain(`Added the "Tracking work in Cello" section to ${file} (uncommitted).`)
-      expect(fs.readFileSync(file, "utf8")).toBe(`${original}\n${agentsSection(GUIDE, "CEL")}\n`)
+      expect(fs.readFileSync(file, "utf8")).toBe(`${original}\n${marked("CEL")}\n`)
       expect(fs.readFileSync(path.join(repo, "CLAUDE.md"), "utf8")).toBe("Claude's own file.\n")
 
       const after = fs.readFileSync(file, "utf8")
-      expect((yield* agent(repo)("init", "--agents-md")).out).toContain(
-        `${file} already has a "Tracking work in Cello" section; left it as it is.`,
-      )
+      expect((yield* agent(repo)("init", "--agents-md")).out).toContain(`The "Tracking work in Cello" section in ${file} is already current.`)
       expect(fs.readFileSync(file, "utf8")).toBe(after)
+    }).pipe(Effect.scoped))
+
+  it.live("--agents-md brings an older marked section up to date, printing the lines that changed", () =>
+    Effect.gen(function* () {
+      const { dataDir, agent } = yield* setup
+      const repo = gitRepo(dataDir, "cello")
+      const file = path.join(repo, "AGENTS.md")
+      const current = marked("CEL")
+      // What an earlier version of Cello wrote: no copy needed.
+      const older = agentsBlock(agentsSection(GUIDE, "CEL").replace("- Run `cello context` at the start of each session.", "- Claim a task before working on it."))
+      fs.writeFileSync(file, `# Cello\n\n${older}\n\n## Ours\n`)
+      const run = yield* agent(repo)("init", "--agents-md")
+      expect(run.failure).toBeNull()
+      expect(run.out.split("\n").slice(2)).toEqual([
+        `Updated the "Tracking work in Cello" section in ${file} to the current text (uncommitted):`,
+        "  - - Claim a task before working on it.",
+        "  + - Run `cello context` at the start of each session.",
+      ])
+      expect(fs.readFileSync(file, "utf8")).toBe(`# Cello\n\n${current}\n\n## Ours\n`)
+      expect(fs.existsSync(`${file}.bak`)).toBe(false)
+
+      // Someone's note between the markers: rewritten too, with the old file kept and the note shown.
+      const noted = `# Cello\n\n${current.replace(AGENTS_END, `- Our note: deploys go through Lucas.\n${AGENTS_END}`)}\n\n## Ours\n`
+      fs.writeFileSync(file, noted)
+      expect((yield* agent(repo)("init", "--agents-md")).out.split("\n").slice(2)).toEqual([
+        `Updated the "Tracking work in Cello" section in ${file} to the current text (uncommitted). Its text wasn't exactly what Cello ` +
+          `wrote, so the old file is kept as ${file}.bak; move any notes outside the markers. What changed:`,
+        "  - - Our note: deploys go through Lucas.",
+      ])
+      expect(fs.readFileSync(`${file}.bak`, "utf8")).toBe(noted)
+    }).pipe(Effect.scoped))
+
+  it.live("--agents-md replaces an old Cello section from before the markers, keeping a .bak; a section that isn't Cello's stays", () =>
+    Effect.gen(function* () {
+      const { dataDir, agent } = yield* setup
+      const repo = gitRepo(dataDir, "cello")
+      const file = path.join(repo, "AGENTS.md")
+      const original = [
+        "# Cello",
+        "",
+        "## Tracking work in Cello",
+        "",
+        "This repo's tasks live in Cello, project **CEL** on Lucas's board.",
+        "",
+        "- Run `cello context` at the start of each session.",
+        "- `cello task claim CEL-n` before working on a task.",
+        "",
+        "## Ours",
+        "",
+        "Keep this.",
+        "",
+      ].join("\n")
+      fs.writeFileSync(file, original)
+      const run = yield* agent(repo)("init", "--agents-md")
+      expect(run.failure).toBeNull()
+      const lines = run.out.split("\n").slice(2)
+      expect(lines[0]).toBe(
+        `Replaced the old "Tracking work in Cello" section in ${file} with the current one, between cello:agents-md markers so later ` +
+          `runs update it (uncommitted). Kept the old file as ${file}.bak. What changed:`,
+      )
+      expect(lines).toContain("  - - `cello task claim CEL-n` before working on a task.")
+      expect(fs.readFileSync(file, "utf8")).toBe(`# Cello\n\n${marked("CEL")}\n\n## Ours\n\nKeep this.\n`)
+      expect(fs.readFileSync(`${file}.bak`, "utf8")).toBe(original)
+      expect((yield* agent(repo)("init", "--agents-md")).out).toContain("is already current.")
+
+      const theirs = path.join(dataDir, "theirs")
+      fs.mkdirSync(theirs)
+      const other = gitRepo(theirs, "app")
+      const own = "# App\n\n## Tracking work in Cello\n\nWe track work in a spreadsheet called Cello.\n"
+      fs.writeFileSync(path.join(other, "AGENTS.md"), own)
+      expect((yield* agent(other)("init", "--agents-md")).out).toContain(
+        `${path.join(other, "AGENTS.md")} has a "Tracking work in Cello" section that isn't Cello's (it doesn't mention \`cello guide\` or ` +
+          "`cello context`); left it as it is. Rename or remove it, then run this again to add Cello's.",
+      )
+      expect(fs.readFileSync(path.join(other, "AGENTS.md"), "utf8")).toBe(own)
     }).pipe(Effect.scoped))
 
   it.live("--agents-md writes CLAUDE.md when there's no AGENTS.md, in the checkout it runs in (a worktree's own)", () =>
@@ -252,7 +330,7 @@ describe("cello init", () => {
       const worktree = path.join(dataDir, "feature")
       git(repo, "worktree", "add", "-q", worktree)
       expect((yield* agent(worktree)("init", "--agents-md", "--key", "APP")).failure).toBeNull()
-      expect(fs.readFileSync(path.join(worktree, "CLAUDE.md"), "utf8")).toBe(`${agentsSection(GUIDE, "APP")}\n`)
+      expect(fs.readFileSync(path.join(worktree, "CLAUDE.md"), "utf8")).toBe(`${marked("APP")}\n`)
       expect(fs.existsSync(path.join(repo, "CLAUDE.md"))).toBe(false)
     }).pipe(Effect.scoped))
 })

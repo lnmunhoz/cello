@@ -15,14 +15,15 @@ import * as path from "node:path"
 export const HOOK_TIMEOUT = 10
 
 /**
- * Cello's hooks: the comment hooks (CEL-15) and the artifact guard (CEL-57). The guard is
- * `projectOnly`: it's for Cello projects, so user settings (every project, Cello or not) don't get it.
- * Its matcher has only letters, so Claude Code matches it against the tool name exactly.
+ * Cello's hooks: the comment hooks (CEL-15) and the PreToolUse guards, one command that routes by tool:
+ * the artifact guard (CEL-57) and the claim guard on the edit tools (CEL-61). The guards are
+ * `projectOnly`: they're for Cello projects, so user settings (every project, Cello or not) don't get
+ * them. The matcher has only letters and `|`, so Claude Code reads it as a list of exact tool names.
  */
 export const CELLO_HOOKS = [
   { event: "Stop", matcher: undefined, command: "cello hook claude stop", projectOnly: false },
   { event: "PostToolUse", matcher: "*", command: "cello hook claude post-tool-use", projectOnly: false },
-  { event: "PreToolUse", matcher: "Artifact", command: "cello hook claude pre-tool-use", projectOnly: true },
+  { event: "PreToolUse", matcher: "Artifact|Edit|Write|NotebookEdit", command: "cello hook claude pre-tool-use", projectOnly: true },
 ] as const
 
 export type CelloHook = (typeof CELLO_HOOKS)[number]
@@ -64,15 +65,27 @@ export interface Merged {
   readonly changed: boolean
 }
 
-/** Settings with Cello's hooks (`wanted`, all of them by default) added where they're missing. Doesn't change its input. */
+const isHandlerFor = (command: string) => (handler: unknown) => isCelloHandler(handler) && (handler as Json).command === command
+
+/**
+ * Settings with Cello's hooks (`wanted`, all of them by default) added where they're missing. A Cello
+ * handler under another matcher (an older install's, like the artifact guard's "Artifact" before the
+ * claim guard widened it) is taken out and the hook added again with today's. Doesn't change its input.
+ */
 export const addCelloHooks = (settings: unknown, wanted: ReadonlyArray<CelloHook> = CELLO_HOOKS): Merged => {
   const hooks = { ...hooksOf(settings) }
   let changed = false
   for (const { event, matcher, command } of wanted) {
     const groups = (hooks[event] ?? []) as ReadonlyArray<unknown>
-    const present = groups.some((group) => groupHandlers(group).some((h) => isCelloHandler(h) && (h as Json).command === command))
+    const ours = isHandlerFor(command)
+    const present = groups.some((group) => (group as Json).matcher === matcher && groupHandlers(group).some(ours))
     if (present) continue
-    hooks[event] = [...groups, { ...(matcher === undefined ? {} : { matcher }), hooks: [{ type: "command", command, timeout: HOOK_TIMEOUT }] }]
+    const others = groups.flatMap((group) => {
+      const handlers = groupHandlers(group)
+      const kept = handlers.filter((h) => !ours(h))
+      return kept.length === handlers.length ? [group] : kept.length === 0 ? [] : [{ ...(group as Json), hooks: kept }]
+    })
+    hooks[event] = [...others, { ...(matcher === undefined ? {} : { matcher }), hooks: [{ type: "command", command, timeout: HOOK_TIMEOUT }] }]
     changed = true
   }
   return changed ? { settings: withHooks(settings as Json, hooks), changed } : { settings: settings as Json, changed }
@@ -137,19 +150,23 @@ export const settingsPaths = (options: { readonly projectRoot: string; readonly 
 /**
  * Replaces `file` with `text` so a crash or a full disk never leaves it half written: the new bytes go
  * to `<file>.cello-<pid>.tmp` beside it, are fsynced, and the temp file is renamed over the original,
- * keeping its mode. The old bytes are kept in `<file>.bak`. Returns the file written (a symlink's
- * target) and the backup, if there was an old file. `io` is for tests that fail the write.
+ * keeping its mode. The old bytes are kept in `<file>.bak` (unless `backup: false`); with
+ * `backup: "new"` an existing .bak is left alone and the copy goes to the first free `.bak.1`, `.bak.2`…
+ * Returns the file written (a symlink's target) and the backup, if one was kept. `io` is for tests
+ * that fail the write.
  */
 export const writeFileAtomically = (
   file: string,
   text: string,
-  io: { readonly writeSync: (fd: number, data: string) => unknown } = fs,
+  options: { readonly io?: { readonly writeSync: (fd: number, data: string) => unknown }; readonly backup?: boolean | "new" } = {},
 ): { readonly target: string; readonly backup: string | null } => {
+  const { io = fs, backup = true } = options
   const target = fs.existsSync(file) ? fs.realpathSync(file) : file
   const folder = path.dirname(target)
   fs.mkdirSync(folder, { recursive: true })
   const old = fs.existsSync(target) ? { bytes: fs.readFileSync(target), mode: fs.statSync(target).mode & 0o7777 } : null
   const temp = path.join(folder, `${path.basename(target)}.cello-${process.pid}.tmp`)
+  const backupFile = old === null || backup === false ? null : backup === "new" ? freeBackup(target) : `${target}.bak`
   try {
     const fd = fs.openSync(temp, "w", old?.mode ?? 0o644)
     try {
@@ -159,7 +176,7 @@ export const writeFileAtomically = (
       fs.closeSync(fd)
     }
     if (old) fs.chmodSync(temp, old.mode)
-    if (old) fs.writeFileSync(`${target}.bak`, old.bytes, { mode: old.mode })
+    if (old && backupFile) fs.writeFileSync(backupFile, old.bytes, { mode: old.mode })
     fs.renameSync(temp, target)
   } catch (error) {
     fs.rmSync(temp, { force: true })
@@ -173,7 +190,16 @@ export const writeFileAtomically = (
   } catch {
     // Best effort.
   }
-  return { target, backup: old ? `${target}.bak` : null }
+  return { target, backup: backupFile }
+}
+
+/** `<target>.bak`, or the first of `.bak.1`, `.bak.2`… that doesn't exist yet. */
+const freeBackup = (target: string): string => {
+  const taken = (file: string) => fs.lstatSync(file, { throwIfNoEntry: false }) !== undefined
+  if (!taken(`${target}.bak`)) return `${target}.bak`
+  let n = 1
+  while (taken(`${target}.bak.${n}`)) n++
+  return `${target}.bak.${n}`
 }
 
 /**

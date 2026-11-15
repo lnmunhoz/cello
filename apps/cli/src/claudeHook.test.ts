@@ -1,10 +1,24 @@
 // The Claude Code hook's side of the wire (https://code.claude.com/docs/en/hooks): what it reads on
 // stdin and what it prints for Stop and PostToolUse, and the PreToolUse guard that turns Claude
-// artifact publishes away (CEL-57).
+// artifact publishes away (CEL-57) and edits from a session that hasn't claimed a task (CEL-61).
 import * as fs from "node:fs"
+import * as os from "node:os"
 import * as path from "node:path"
-import { describe, expect, it } from "vitest"
-import { ARTIFACT_DENY_REASON, artifactGuard, hookAction, hookResponse, hookSession, parseHookInput } from "./claudeHook.ts"
+import { afterAll, describe, expect, it } from "vitest"
+import {
+  ARTIFACT_DENY_REASON,
+  artifactGuard,
+  CLAIM_CACHE_MS,
+  claimAnswer,
+  claimCache,
+  claimCheck,
+  claimDenyReason,
+  hookAction,
+  hookResponse,
+  hookSession,
+  insideAny,
+  parseHookInput,
+} from "./claudeHook.ts"
 
 describe("parseHookInput", () => {
   it("reads the session, folder and loop guard from Claude Code's JSON", () => {
@@ -114,5 +128,142 @@ describe("artifactGuard (CEL-57)", () => {
     expect(artifactGuard(artifact([1, 2]), {})).toBeNull()
     expect(artifactGuard(artifact({ action: 42 }), {})).toBeNull()
     expect(artifactGuard(artifact({ action: "something-new" }), {})).toBeNull()
+  })
+})
+
+describe("the claim guard (CEL-61)", () => {
+  const edit = (toolName: string, toolInput: unknown, extra: Record<string, unknown> = {}) =>
+    parseHookInput(JSON.stringify({ session_id: "s1", cwd: "/repo/app", hook_event_name: "PreToolUse", tool_name: toolName, tool_input: toolInput, ...extra }))
+
+  describe("claimCheck: whether a call needs the server's answer", () => {
+    it("Edit, Write and NotebookEdit need it: the session, its folder and the file, resolved against the folder", () => {
+      expect(claimCheck(edit("Edit", { file_path: "/repo/app/src/a.ts", old_string: "a", new_string: "b" }), {}, "/elsewhere"))
+        .toEqual({ session: "s1", cwd: "/repo/app", file: "/repo/app/src/a.ts" })
+      expect(claimCheck(edit("Write", { file_path: "src/b.ts", content: "" }), {}, "/elsewhere"))
+        .toEqual({ session: "s1", cwd: "/repo/app", file: "/repo/app/src/b.ts" })
+      expect(claimCheck(edit("NotebookEdit", { notebook_path: "/repo/app/n.ipynb", new_source: "" }), {}, "/elsewhere"))
+        .toEqual({ session: "s1", cwd: "/repo/app", file: "/repo/app/n.ipynb" })
+    })
+
+    it("inside a subagent too: it shares the session, and its edits are the session's", () => {
+      expect(claimCheck(edit("Edit", { file_path: "/repo/app/a.ts" }, { agent_id: "a1" }), {}, "/x")).not.toBeNull()
+    })
+
+    it("falls back to the hook's own folder and CLAUDE_CODE_SESSION_ID when the input lacks them", () => {
+      const input = parseHookInput(JSON.stringify({ tool_name: "Write", tool_input: { file_path: "a.ts" } }))
+      expect(claimCheck(input, { CLAUDE_CODE_SESSION_ID: "env-session" }, "/repo/app"))
+        .toEqual({ session: "env-session", cwd: "/repo/app", file: "/repo/app/a.ts" })
+    })
+
+    it("everything else goes through without asking: other tools, no session, no path, broken input, CELLO_ALLOW_UNTRACKED=1", () => {
+      expect(claimCheck(edit("Bash", { command: "rm -rf src" }), {}, "/x")).toBeNull()
+      expect(claimCheck(edit("Read", { file_path: "/repo/app/a.ts" }), {}, "/x")).toBeNull()
+      expect(claimCheck(edit("Artifact", { file_path: "/repo/app/a.html" }), {}, "/x")).toBeNull()
+      expect(claimCheck(parseHookInput(JSON.stringify({ tool_name: "Edit", tool_input: { file_path: "/a" } })), {}, "/x")).toBeNull()
+      expect(claimCheck(edit("Edit", {}), {}, "/x")).toBeNull()
+      expect(claimCheck(edit("Edit", { file_path: 42 }), {}, "/x")).toBeNull()
+      expect(claimCheck(edit("Edit", "nope"), {}, "/x")).toBeNull()
+      expect(claimCheck(parseHookInput("{not json"), { CLAUDE_CODE_SESSION_ID: "s" }, "/x")).toBeNull()
+      expect(claimCheck(edit("Edit", { file_path: "/repo/app/a.ts" }), { CELLO_ALLOW_UNTRACKED: "1" }, "/x")).toBeNull()
+      expect(claimCheck(edit("Edit", { file_path: "/repo/app/a.ts" }), { CELLO_ALLOW_UNTRACKED: "0" }, "/x")).not.toBeNull()
+    })
+  })
+
+  describe("insideAny: only files inside the repo are guarded", () => {
+    const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cello-inside-")))
+    afterAll(() => fs.rmSync(base, { recursive: true, force: true }))
+    const repo = path.join(base, "app")
+    fs.mkdirSync(path.join(repo, "src"), { recursive: true })
+
+    it("a file in the repo or below it, existing or new, in a new folder too", () => {
+      expect(insideAny(path.join(repo, "src", "a.ts"), [repo])).toBe(true)
+      expect(insideAny(path.join(repo, "new", "deep", "b.ts"), [repo])).toBe(true)
+      expect(insideAny(repo, [repo])).toBe(true)
+      // A folder whose name starts with two dots is still inside.
+      expect(insideAny(path.join(repo, "..foo", "a.ts"), [repo])).toBe(true)
+      expect(insideAny(path.join(repo, "..", "app", "src", "a.ts"), [repo])).toBe(true)
+      expect(insideAny(path.join(repo, ".."), [repo])).toBe(false)
+    })
+
+    it("not a scratchpad or temp file outside it, nor a sibling whose name starts the same", () => {
+      expect(insideAny(path.join(base, "scratchpad", "notes.md"), [repo])).toBe(false)
+      expect(insideAny(path.join(base, "app-other", "a.ts"), [repo])).toBe(false)
+      expect(insideAny("/tmp/x.md", [repo])).toBe(false)
+    })
+
+    it("follows symlinks, so a path spelled through one (macOS /tmp) still counts", () => {
+      const link = path.join(base, "link")
+      fs.symlinkSync(repo, link)
+      expect(insideAny(path.join(link, "src", "c.ts"), [repo])).toBe(true)
+      expect(insideAny(path.join(repo, "src", "c.ts"), [link])).toBe(true)
+    })
+
+    it("any of the roots (the checkout and the main checkout); null roots are skipped", () => {
+      expect(insideAny(path.join(repo, "a.ts"), [null, path.join(base, "other"), repo])).toBe(true)
+      expect(insideAny(path.join(repo, "a.ts"), [null])).toBe(false)
+    })
+  })
+
+  describe("claimAnswer: the server's answer to the hook's output", () => {
+    const deny = (key: string) => ({
+      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: claimDenyReason(key) },
+    })
+
+    it("a claimed task in the project lets the edit through; none denies it, naming the project", () => {
+      expect(claimAnswer({ projectKey: "THAI", claimed: 1 })).toBeNull()
+      expect(claimAnswer({ projectKey: "THAI", claimed: 0 })).toEqual(deny("THAI"))
+    })
+
+    it("the reason says what to do, with the project's key", () => {
+      expect(claimDenyReason("THAI")).toBe(
+        "Cello: this session hasn't claimed a task in THAI. Before editing for a request, check it exists (`cello task list`), else " +
+          "`cello task create \"<title>\"` with Lucas's words, then `cello task claim THAI-n`.",
+      )
+      // docs/cli.md quotes it word for word, so agents know what they'll read.
+      expect(fs.readFileSync(path.resolve(import.meta.dirname, "../../../docs/cli.md"), "utf8")).toContain(`\n${claimDenyReason("KEY")}\n`)
+    })
+  })
+
+  describe("claimCache: a claim seen recently isn't asked about again", () => {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cello-claim-cache-")))
+    afterAll(() => fs.rmSync(dir, { recursive: true, force: true }))
+    const key = { port: "4747", repoPath: "/repo/app", session: "s1" }
+
+    it("remembers a claim for CLAIM_CACHE_MS, per session, repo and server", () => {
+      const cache = claimCache(dir, key)
+      expect(cache.fresh(1_000)).toBe(false)
+      cache.remember(1_000)
+      expect(cache.fresh(1_000 + CLAIM_CACHE_MS - 1)).toBe(true)
+      expect(cache.fresh(1_000 + CLAIM_CACHE_MS)).toBe(false)
+      expect(claimCache(dir, { ...key, session: "s2" }).fresh(1_000)).toBe(false)
+      expect(claimCache(dir, { ...key, repoPath: "/repo/other" }).fresh(1_000)).toBe(false)
+      expect(claimCache(dir, { ...key, port: "4748" }).fresh(1_000)).toBe(false)
+    })
+
+    it("a claim stamped in the future (a clock set back) isn't trusted", () => {
+      const cache = claimCache(dir, { ...key, session: "future" })
+      cache.remember(10_000)
+      expect(cache.fresh(9_999)).toBe(false)
+      expect(cache.fresh(10_000)).toBe(true)
+    })
+
+    it("the cache file is readable by its owner only", () => {
+      const cache = claimCache(dir, { ...key, session: "private" })
+      cache.remember(1)
+      expect(fs.statSync(cache.file).mode & 0o777).toBe(0o600)
+    })
+
+    it("never throws: a folder it can't write or a broken entry just means no cache", () => {
+      const file = path.join(dir, "a-file")
+      fs.writeFileSync(file, "")
+      const blocked = claimCache(path.join(file, "below"), key)
+      expect(() => blocked.remember(1)).not.toThrow()
+      expect(blocked.fresh(1)).toBe(false)
+
+      const broken = claimCache(dir, { ...key, session: "broken" })
+      broken.remember(5)
+      fs.writeFileSync(broken.file, "garbage")
+      expect(broken.fresh(5)).toBe(false)
+    })
   })
 })
