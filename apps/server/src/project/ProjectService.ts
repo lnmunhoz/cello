@@ -2,7 +2,7 @@
 import type { Project, ProjectRef } from "@cello/contract/entities"
 import { Invalid, KeyTaken, NotFound } from "@cello/contract/errors"
 import type { Caller } from "@cello/contract/rpcs"
-import { isValidProjectKey } from "@cello/shared/taskKey"
+import { freeProjectKey, isValidProjectKey } from "@cello/shared/taskKey"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -19,7 +19,8 @@ export interface CreateProject {
   readonly commandId: string
   readonly workspaceId: string
   readonly name: string
-  readonly key: string
+  /** Without one, the project gets a free key made from its name (`freeProjectKey`). */
+  readonly key?: string
   readonly color?: string
   readonly repoPath?: string
 }
@@ -55,8 +56,8 @@ const make = Effect.gen(function* () {
 
   const create = Effect.fn("ProjectService.create")(function* (input: CreateProject) {
     const name = yield* requireText("name", input.name)
-    const key = input.key.trim().toUpperCase()
-    if (!isValidProjectKey(key)) {
+    const given = input.key?.trim().toUpperCase()
+    if (given !== undefined && !isValidProjectKey(given)) {
       return yield* new Invalid({ field: "key", reason: "must be 2 to 10 letters or digits, starting with a letter" })
     }
     const color = input.color === undefined ? undefined : yield* requireColor("color", input.color)
@@ -67,6 +68,9 @@ const make = Effect.gen(function* () {
         const workspaces = yield* sql<{ id: string }>`
           SELECT id FROM workspaces WHERE id = ${input.workspaceId} AND archived_at IS NULL`
         if (!workspaces[0]) return yield* new NotFound({ entity: "workspace", id: input.workspaceId })
+        // Keys are unique across workspaces, archived projects included.
+        const taken = given === undefined ? new Set((yield* sql<{ key: string }>`SELECT key FROM projects`).map((r) => r.key)) : new Set()
+        const key = given ?? freeProjectKey(name, (k) => taken.has(k))
         const holders = yield* sql<{ name: string }>`SELECT name FROM projects WHERE key = ${key}`
         if (holders[0]) return yield* new KeyTaken({ key, projectName: holders[0].name })
         if (repoPath !== undefined) {

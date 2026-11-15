@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatTaskKey, isValidProjectKey, parseTaskKey, parseTaskPath, suggestProjectKey, taskPath } from "./taskKey.ts"
+import { formatTaskKey, freeProjectKey, isValidProjectKey, parseTaskKey, parseTaskPath, suggestProjectKey, taskPath } from "./taskKey.ts"
 
 describe("project keys", () => {
   it.each([
@@ -20,6 +20,20 @@ describe("project keys", () => {
     expect(suggestProjectKey("cello")).toBe("CEL")
     expect(suggestProjectKey("Rent a Bus")).toBe("RAB")
     expect(isValidProjectKey(suggestProjectKey("9 lives"))).toBe(true)
+  })
+
+  it("a free key: the suggestion, else a longer piece of the name, else the suggestion with a number", () => {
+    const taken = (...keys: string[]) => (key: string) => keys.includes(key)
+    expect(freeProjectKey("cello", taken())).toBe("CEL")
+    expect(freeProjectKey("cello", taken("CEL"))).toBe("CELL")
+    expect(freeProjectKey("cello", taken("CEL", "CELL", "CELLO"))).toBe("CEL2")
+    expect(freeProjectKey("cello", taken("CEL", "CELL", "CELLO", "CEL2"))).toBe("CEL3")
+    expect(freeProjectKey("ThaiLookup", taken("THAI"))).toBe("THAIL")
+    expect(freeProjectKey("my-app", taken("MA"))).toBe("MYA")
+    const tenLetters = "ABCDEFGHIJ"
+    const all = [...Array(11).keys()].map((n) => tenLetters.slice(0, n))
+    expect(freeProjectKey(tenLetters, taken(...all, "ABCD"))).toBe("ABCD2")
+    for (const name of ["9 lives", "", "--", "Über café"]) expect(isValidProjectKey(freeProjectKey(name, taken()))).toBe(true)
   })
 })
 

@@ -38,6 +38,18 @@ describe("ProjectService keys", () => {
       expect(error).toMatchObject({ _tag: "KeyTaken", key: "THAI", projectName: "ThaiLookup" })
     })))
 
+  it.effect("without a key, the project gets a free one made from its name, also against other workspaces' and archived keys", () =>
+    run(Effect.gen(function* () {
+      const { create, projects, workspaceId } = yield* setup
+      const first = (yield* projects.create({ commandId: cmd(), workspaceId, name: "cello" })).result
+      expect(first.key).toBe("CEL")
+      yield* projects.archive({ commandId: cmd(), id: first.id })
+      const { result: other } = yield* (yield* WorkspaceService.WorkspaceService).create({ commandId: cmd(), name: "Work" })
+      yield* create({ key: "CELL", name: "Cell", workspaceId: other.id })
+      const second = (yield* projects.create({ commandId: cmd(), workspaceId, name: "cello" })).result
+      expect(second.key).toBe("CELLO")
+    })))
+
   it.effect("keys are matched after trimming and uppercasing", () =>
     run(Effect.gen(function* () {
       const { create } = yield* setup
