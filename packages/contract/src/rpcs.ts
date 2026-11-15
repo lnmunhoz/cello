@@ -30,6 +30,7 @@ import {
 } from "./entities.ts"
 import { AskRequired, HumanOnly, Invalid, KeyTaken, NotFound, ReviewRequired, SnapshotRequired, TaskClaimed, VersionConflict } from "./errors.ts"
 import { CelloEvent } from "./events.ts"
+import { SearchKind, SearchResults } from "./search.ts"
 import { TaskStage } from "./stages.ts"
 import { DocumentList, Inbox, LabelList, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
 
@@ -390,6 +391,24 @@ export const CelloRpcs = RpcGroup.make(
     payload: { before: Schema.optionalKey(Schema.Number), limit: Schema.optionalKey(Schema.Number) },
     success: BuildPage,
     error: Invalid,
+  }),
+
+  // Search (CEL-11, CEL-43): tasks (key, title, description), comments, review packets and documents
+  // through one SQLite FTS5 index kept current in the same transaction as each change, plus project and
+  // label names. `workspaceId` searches a workspace (the ⌘K bar); otherwise `project` searches one
+  // project (`cello search`). A task key ("CEL-15") jumps to it and finds what mentions it; words match
+  // the start of words, stemmed ("videos" finds "video"), all of them required. `limit`: hits per kind,
+  // 5 by default, at most 50.
+  Rpc.make("search.query", {
+    payload: {
+      query: Schema.String,
+      workspaceId: Schema.optionalKey(Id),
+      project: Schema.optionalKey(ProjectRef),
+      kinds: Schema.optionalKey(Schema.Array(SearchKind)),
+      limit: Schema.optionalKey(Schema.Number),
+    },
+    success: SearchResults,
+    error: Schema.Union([NotFound, Invalid]),
   }),
 
   Rpc.make("comment.list", { payload: { taskId: Id }, success: Schema.Array(Comment), error: NotFound }),

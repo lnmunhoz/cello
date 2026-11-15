@@ -4,7 +4,7 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { app, BaseWindow, dialog, Menu, session, webContents } from "electron"
-import { findCelloLink, parseCelloLink, SCHEME, type CelloLink } from "./links/celloLink.ts"
+import { findCelloLink, parseCelloLink, routeCelloLink, SCHEME, type CelloLink } from "./links/celloLink.ts"
 import { buildMenu } from "./menu.ts"
 import { PANEL_PARTITION } from "./panel/Panel.ts"
 import { celloCommand, serverConfig } from "./server/plan.ts"
@@ -77,8 +77,15 @@ function run() {
       pending.push(link)
       return
     }
-    if (link.kind === "task") void window.loadBoard(server.url, link.path)
-    else window.panel.open(link.url)
+    open(window, server.url, link)
+  }
+
+  /** Follows a link once the board is up: a task or a page on the board to the board, another site to the browser panel. */
+  const open = (window: MainWindow, boardOrigin: string, link: CelloLink) => {
+    const route = routeCelloLink(link, boardOrigin)
+    if (route.kind === "task") void window.loadBoard(boardOrigin, route.path)
+    else if (route.kind === "board") window.openInBoard(route.url)
+    else window.panel.open(route.url)
   }
 
   app.on("open-url", (event, url) => {
@@ -170,11 +177,14 @@ function run() {
     window.showMessage("Starting Cello…")
     server = await connect(window)
     if (!server) return app.quit()
-    // A task link that launched the app decides the first page; panel links open once it's up.
+    // A task link that launched the app decides the first page; page links open once it's up.
     const task = pending.find((link) => link.kind === "task")
     if (!window.isClosed) await window.loadBoard(server.url, task?.kind === "task" ? task.path : "/")
     boardLoaded = true
-    for (const link of pending.splice(0)) if (link.kind === "panel") live()?.panel.open(link.url)
+    for (const link of pending.splice(0)) {
+      const current = live()
+      if (link.kind === "panel" && current) open(current, server.url, link)
+    }
   })
 
   // macOS keeps the app running with no window; the dock icon brings the board back.

@@ -16,7 +16,6 @@ import documents from "./migrations/0003_documents.ts"
 import inbox from "./migrations/0004_inbox.ts"
 import builds from "./migrations/0005_builds.ts"
 import asks from "./migrations/0006_asks.ts"
-import taskStage from "./migrations/0007_task_stage.ts"
 import * as Sqlite from "./Sqlite.ts"
 
 const untilReviews = SqliteMigrator.run({
@@ -310,17 +309,9 @@ describe("migration 0006_asks", () => {
     }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
 })
 
-/** Up to 0007: what the live board has run before CEL-52. */
-const untilTaskStage = SqliteMigrator.run({
-  loader: SqliteMigrator.fromRecord({
-    "0001_init": init,
-    "0002_reviews": reviews,
-    "0003_documents": documents,
-    "0004_inbox": inbox,
-    "0005_builds": builds,
-    "0006_asks": asks,
-    "0007_task_stage": taskStage,
-  }),
+/** Up to 0008: what the live board has run before CEL-52. */
+const untilSearch = SqliteMigrator.run({
+  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0009"))),
   table: "migrations",
 }).pipe(Effect.orDie)
 
@@ -331,7 +322,7 @@ const CEL_AREAS = ["board", "list", "task-panel", "review", "pages", "sidebar", 
 describe("migration 0009_label_group", () => {
   it.effect("adds the group, fills it from CEL-56's names, and leaves every other row and column as it was", () =>
     Effect.gen(function* () {
-      yield* untilTaskStage
+      yield* untilSearch
       yield* realisticBoard
       const sql = yield* SqlClient.SqlClient
       const labels: ReadonlyArray<readonly [string, string, string, number | null]> = [

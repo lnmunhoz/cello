@@ -29,4 +29,5 @@ export const {
   historyFamily,
   pageFamily,
   documentHistoryFamily,
+  searchFamily,
 } = cello

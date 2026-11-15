@@ -14,6 +14,13 @@ describe("an open task's view in the URL", () => {
     expect(parseTaskSearch({ view: "full", embed: 1, layout: "list" })).toEqual({ view: "full" })
   })
 
+  it("keeps the comment ⌘K opened it at (CEL-43)", () => {
+    expect(parseTaskSearch({ comment: "01ABC" })).toEqual({ comment: "01ABC" })
+    expect(parseTaskSearch({ view: "full", comment: "01ABC" })).toEqual({ view: "full", comment: "01ABC" })
+    expect(parseTaskSearch({ comment: "" })).toEqual({})
+    expect(parseTaskSearch({ comment: 5 })).toEqual({})
+  })
+
   it("names the view a search shows", () => {
     expect(taskViewOf({ view: "full" })).toBe("full")
     expect(taskViewOf({})).toBe("panel")

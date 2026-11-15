@@ -316,7 +316,7 @@ test("CEL-24: ⌘B in the board collapses the sidebar to a rail and expands it a
   await expectBoardFills(app, board)
 })
 
-test("CEL-12, CEL-44: a screenshot clicked on the board opens in the image modal in the board's page, and its Open in viewer goes to the native panel; a packet link opens in the native panel beside the task", async ({}, testInfo) => {
+test("CEL-12, CEL-44, CEL-60: a screenshot clicked on the board opens in the image modal, and its Open in viewer in the board's side panel; a packet link to another site opens in the native panel beside the task", async ({}, testInfo) => {
   const site = await testSite()
   const dataDir = tempDir("cello-desktop-e2e-")
   const server = await startCello(dataDir)
@@ -358,18 +358,18 @@ test("CEL-12, CEL-44: a screenshot clicked on the board opens in the image modal
   await modal.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)))
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "image-modal-badge.png"))
 
-  await video.caption("Esc closes it; Open in viewer in the modal shows the screenshot in the native panel")
+  await video.caption("Esc closes it; Open in viewer in the modal shows the screenshot in the board's own side panel (CEL-60)")
   await board.keyboard.press("Escape")
   await expect(modal).toHaveCount(0)
   await badge.click()
   await modal.getByRole("button", { name: "Open The board in the viewer" }).click()
   await expect(modal).toHaveCount(0)
-  await panel.waitForURL(/\/attachments\/[^/]+$/)
-  await expect(chrome.getByLabel("Address")).toHaveValue("The board")
-  expect((await views(app)).page.visible).toBe(true)
-  await expect(webViewer).toHaveCount(0)
+  await expect(webViewer.locator("img[data-viewer-image]")).toBeVisible()
+  expect((await views(app)).page.visible).toBe(false)
   expect(board.url()).toBe(`${server.url}/DSK/issues`)
-  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "panel-evidence-badge.png"))
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "viewer-evidence-badge.png"))
+  await board.keyboard.press("Escape")
+  await expect(webViewer).toHaveCount(0)
 
   await video.caption("Open the card: the packet's link opens in the native panel, beside the task")
   await taskCard.click()
@@ -383,48 +383,72 @@ test("CEL-12, CEL-44: a screenshot clicked on the board opens in the image modal
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "panel-evidence-link.png"))
 })
 
-test("CEL-20: a task key clicked in a page shown in the native panel opens the task in the main window; the page stays in the panel", async ({}, testInfo) => {
+test("CEL-60, CEL-20: cello://open with a Cello page opens it in the board's own side panel, not the native browser; its text file and task keys open in the app; an outside site still opens in the native browser", async ({}, testInfo) => {
+  const site = await testSite()
   const dataDir = tempDir("cello-desktop-e2e-")
   const server = await startCello(dataDir)
   const env = { CELLO_PORT: String(server.port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-") }
   const app = await launchApp(env)
   const video = record(app, testInfo.title)
   const { board, panel } = await appPages(app, server.url)
+  const sidePanel = board.getByRole("complementary", { name: "Viewer" })
 
   await video.caption("Create a project on the board")
   await board.getByRole("button", { name: "New project" }).first().click()
-  await board.getByLabel("Name").fill("Desktop keys")
+  await board.getByLabel("Name").fill("Desktop pages")
   await board.getByLabel("Key").fill("DSK")
   await board.getByRole("button", { name: "Create project" }).click()
   await board.waitForURL(`${server.url}/DSK/issues`)
 
-  await video.caption("An agent creates two tasks and publishes a page with a task table")
-  celloAsAgent(server.port, "task", "create", "Keys in the native panel", "--project", "DSK", "--status", "Todo")
+  await video.caption("An agent creates two tasks and publishes a page with a task table and a test log")
+  celloAsAgent(server.port, "task", "create", "Pages in the side panel", "--project", "DSK", "--status", "Todo")
   celloAsAgent(server.port, "task", "create", "Live status on pages", "--project", "DSK", "--status", "Todo")
-  const file = path.join(tempDir("cello-desktop-page-"), "progress.md")
-  fs.writeFileSync(file, ["# Desktop progress", "", "| Task | What |", "| --- | --- |", "| DSK-1 | Keys in the native panel |", "| DSK-2 | Live status on pages |", ""].join("\n"))
+  const folder = tempDir("cello-desktop-page-")
+  fs.writeFileSync(path.join(folder, "run.log"), "$ bun run test\n\u001b[32m✓\u001b[39m 56 tests \u001b[1mpassed\u001b[22m\n")
+  const file = path.join(folder, "progress.md")
+  fs.writeFileSync(
+    file,
+    ["# Desktop progress", "", "The run is in [the test log](run.log).", "", "| Task | What |", "| --- | --- |", "| DSK-1 | Pages in the side panel |", "| DSK-2 | Live status on pages |", ""].join("\n"),
+  )
   const pageUrl = celloAsAgent(server.port, "doc", "publish", file, "--project", "DSK").split("\n").at(-1)!
   expect(pageUrl).toBe(`${server.url}/DSK/pages/desktop-progress`)
 
-  await video.caption("open cello://open?url=<the page>: it shows in the native panel, without the sidebar")
+  await video.caption("open cello://open?url=<the page>: it opens in the board's side panel, rendered by the app; the native browser stays shut")
   expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(pageUrl)}`])).toBe(0)
-  await panel.waitForURL(`${pageUrl}?embed=1`)
-  await expect(panel.getByRole("heading", { level: 1, name: "Desktop progress" })).toBeVisible()
-  await expect(panel.getByRole("navigation", { name: "Projects" })).toHaveCount(0)
-  const key = panel.locator('[data-task-link="DSK-2"]')
-  await expect(key).toHaveAttribute("href", "/DSK/2")
-  await expect(key.locator("[data-task-status]")).toHaveText("Todo")
+  await expect(sidePanel.getByRole("heading", { level: 1, name: "Desktop progress" })).toBeVisible()
+  await expect(sidePanel.locator("iframe")).toHaveCount(0)
+  // The header names the document, not its address.
+  await expect(sidePanel.getByRole("heading", { level: 2, name: "Desktop progress" })).toBeVisible()
+  await expect(sidePanel.getByRole("button", { name: "Expand to full page" })).toBeVisible()
+  expect((await views(app)).page.visible).toBe(false)
+  expect(board.url()).toBe(`${server.url}/DSK/issues`)
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "side-panel-page.png"))
 
-  await video.caption("Click DSK-2 in the panel: the task opens in the main window, and the page stays in the panel")
-  // The link starts a navigation that the panel cancels (it opens the task on the board instead), so
-  // the click mustn't wait for that navigation to finish: it never does.
-  await key.click({ noWaitAfter: true })
+  await video.caption("Its link to the test log: the log shows in the side panel as text, not in the native browser")
+  await sidePanel.getByRole("link", { name: "the test log" }).click()
+  await expect(sidePanel.locator("pre[data-text-view=plain]")).toContainText("56 tests passed")
+  expect((await views(app)).page.visible).toBe(false)
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "side-panel-text.png"))
+
+  await video.caption("Open the page again and click DSK-2 in it: the task opens in the main window, in the panel's place")
+  expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(pageUrl)}`])).toBe(0)
+  const key = sidePanel.locator('table [data-task-link="DSK-2"]')
+  await expect(key.locator("[data-task-status]")).toHaveText("Todo")
+  await key.click()
   await board.waitForURL(`${server.url}/DSK/2`)
   await expect(board.getByRole("complementary", { name: "DSK-2 details" })).toBeVisible()
-  expect(panel.url()).toBe(`${pageUrl}?embed=1`)
+  await expect(sidePanel).toHaveCount(0)
+  expect((await views(app)).page.visible).toBe(false)
+
+  await video.caption("open cello://open?url=<another site>: that one opens in the native browser")
+  expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(site.url)}`])).toBe(0)
+  await panel.waitForURL(site.url)
+  await expect(panel.getByRole("heading", { name: "Cello panel test page" })).toBeVisible()
   expect((await views(app)).page.visible).toBe(true)
-  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "panel-task-key.png"))
+  await expect(sidePanel).toHaveCount(0)
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "native-panel-outside-site.png"))
 })
+
 
 test("CEL-54: the main window goes back and forward with ⌘[ and ⌘] (Ctrl on Linux), the mouse's buttons and the History menu; a dead address is never a dead end", async ({}, testInfo) => {
   const dataDir = tempDir("cello-desktop-e2e-")
