@@ -48,7 +48,7 @@ test-results/docker/latest/
 - **Setup per run:** Playwright starts a real Cello server (`apps/server`) with a temporary data folder, plus `vite preview` serving the built web app. Each run uses its own ports (`CELLO_E2E_SERVER_PORT`, `CELLO_WEB_PORT`), so it never touches your board on 4747.
 - **Recording:** every test is recorded (`video: { mode: "on", size: 1440×900 }`), as a WebM per browser tab.
 - **What makes it readable:** `e2e/fixtures.ts` injects a small overlay into every page:
-  - a dot that follows the mouse (headless browsers draw no cursor), also over iframes such as the viewer's framed pages
+  - a pointer that follows the mouse (headless browsers draw no cursor), also over iframes such as the viewer's framed pages. It's Cello's teardrop agent (ink, orange eyes) with its tip on the mouse, and it squashes on a click; it comes from `packages/shared/src/agentMark.ts`, like the board's agent cursors
   - a ripple on every click, inside iframes too
   - a caption box at the bottom; tests call `caption(page, "Open it")` before each step. It stays through a reload.
   - `captionWithUrl(page, "Reload: the panel stays open")` adds the page's URL under the caption, kept up to date as the app navigates

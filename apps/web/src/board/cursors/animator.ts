@@ -19,6 +19,7 @@ import { animate, type AnimationPlaybackControls } from "motion"
 import { useSyncExternalStore } from "react"
 import { cssString, stylesFor } from "./css.ts"
 import { closeHole, type Hole } from "./holes.ts"
+import { BLINK, BLINK_DELAY, BLINK_MS, cursorMark, LABEL_OFFSET, SQUASH, SQUASH_MS } from "./mark.ts"
 import { glideMs, PACING, type Phase } from "./pacing.ts"
 import { CursorQueue, realScheduler, type Playback, type Player, type QueueStep } from "./queue.ts"
 import { changeOf, type Change } from "./steps.ts"
@@ -79,6 +80,8 @@ interface Cursor {
   x: number
   y: number
   fade: Animation | null
+  /** A blink waiting to play while the cursor lingers; a next step cancels it. */
+  blink: Animation | null
   /** The pill's width, measured once per label (0: not yet). */
   labelWidth: number
 }
@@ -235,7 +238,10 @@ export class Animator implements Player<CursorStep> {
     this.dragging = false
     this.deferred.clear()
     this.queue.clear()
-    for (const c of this.cursors.values()) c.el.remove()
+    for (const c of this.cursors.values()) {
+      stopBlink(c)
+      c.el.remove()
+    }
     this.cursors.clear()
     for (const run of this.runs.values()) for (const undo of run.cleanups.splice(0)) undo()
     this.runs.clear()
@@ -347,6 +353,7 @@ export class Animator implements Player<CursorStep> {
       this.runs.delete(step)
       for (const undo of run.cleanups.splice(0)) undo()
       this.land(step)
+      this.blinkLater(step.lane)
       done()
     }
     this.perform(step, phases, run).then(finish, (err: unknown) => {
@@ -388,6 +395,7 @@ export class Animator implements Player<CursorStep> {
   idle(lane: string) {
     const cursor = this.cursors.get(lane)
     if (!cursor) return
+    stopBlink(cursor)
     cursor.fade = cursor.el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: PACING.cursorFade, easing: "ease-in", fill: "forwards" })
     cursor.fade.onfinish = () => {
       if (this.cursors.get(lane) !== cursor || cursor.fade === null) return
@@ -397,7 +405,9 @@ export class Animator implements Player<CursorStep> {
   }
 
   skipped(lane: string, count: number) {
-    this.cursors.get(lane)?.el.remove()
+    const cursor = this.cursors.get(lane)
+    if (cursor) stopBlink(cursor)
+    cursor?.el.remove()
     this.cursors.delete(lane)
     const name = this.nameOf(lane, this.laneActors.get(lane) ?? "").split(" · ")[0]
     this.notice(lane, `${name} made ${count} changes`)
@@ -491,6 +501,7 @@ export class Animator implements Player<CursorStep> {
   private cursorFor(step: CursorStep): { cursor: Cursor; fresh: boolean } {
     const existing = this.cursors.get(step.lane)
     if (existing) {
+      stopBlink(existing)
       if (existing.fade) {
         const fade = existing.fade
         existing.fade = null
@@ -502,11 +513,11 @@ export class Animator implements Player<CursorStep> {
     el.className = "agent-cursor"
     el.dataset.agentCursor = step.lane
     el.style.setProperty("--agent", this.colorOf(step.lane))
-    el.innerHTML = `<svg width="18" height="20" viewBox="0 0 18 20" aria-hidden="true"><path d="M1 1 L1 16 L5.2 12.4 L8 19 L10.8 17.8 L8.1 11.4 L14 11.4 Z" fill="var(--agent)" stroke="white" stroke-width="1.4" stroke-linejoin="round"/></svg><span></span>`
+    el.innerHTML = `${cursorMark()}<span></span>`
     el.querySelector("span")!.textContent = this.nameOf(step.lane, step.actorId)
     el.style.opacity = "0"
     this.layer().append(el)
-    const cursor: Cursor = { el, x: 0, y: 0, fade: null, labelWidth: 0 }
+    const cursor: Cursor = { el, x: 0, y: 0, fade: null, blink: null, labelWidth: 0 }
     this.cursors.set(step.lane, cursor)
     return { cursor, fresh: true }
   }
@@ -516,10 +527,29 @@ export class Animator implements Player<CursorStep> {
     cursor.x = p.x
     cursor.y = p.y
     cursor.el.style.transform = `translate(${p.x}px, ${p.y}px)`
-    // Near the board's right edge the pill goes to the arrow's left, so it stays on the board.
+    // Near the board's right edge the pill goes to the mark's left, so it stays on the board.
     if (cursor.labelWidth === 0) cursor.labelWidth = cursor.el.querySelector("span")?.offsetWidth ?? 0
     const right = boardRect()?.right ?? innerWidth
     cursor.el.toggleAttribute("data-flip", p.x + LABEL_OFFSET + cursor.labelWidth > right - 4)
+  }
+
+  /** A click (landing a card, pressing a column's +): the mark squashes about its tip. Not under reduced motion. */
+  private squash(cursor: Cursor, run: Run) {
+    if (this.reduced) return
+    cursor.el.querySelector("[data-agent-mark]")?.animate(SQUASH, { duration: SQUASH_MS * run.scale, easing: "ease-out" })
+  }
+
+  /** A step ended: if the session has nothing next, its cursor blinks once while it lingers. Not under reduced motion. */
+  private blinkLater(lane: string) {
+    const cursor = this.cursors.get(lane)
+    const eyes = cursor?.el.querySelector("[data-agent-eyes]")
+    if (!cursor || !eyes || this.reduced) return
+    stopBlink(cursor)
+    const blink = eyes.animate(BLINK, { duration: BLINK_MS, delay: BLINK_DELAY, easing: "ease-in-out" })
+    cursor.blink = blink
+    blink.onfinish = () => {
+      if (cursor.blink === blink) cursor.blink = null
+    }
   }
 
   /** One timed step on Motion's frame loop, at the run's speed. Resolves false if the run stopped. */
@@ -676,6 +706,7 @@ export class Animator implements Player<CursorStep> {
         case "land": {
           const held = this.held.get(step)
           if (!held) break
+          this.squash(cursor, run)
           const g1 = { ...held.g }
           const dx = held.g.w * 0.3
           const dy = held.g.h * 0.55
@@ -696,7 +727,8 @@ export class Animator implements Player<CursorStep> {
           break
         }
         case "appear": {
-          // The new card shows in its slot and grows in under the cursor.
+          // The cursor clicks the column's +; the new card shows in its slot and grows in under it.
+          this.squash(cursor, run)
           this.release(step, null)
           await nextFrame()
           const el = cardEl(step.card)
@@ -844,8 +876,6 @@ const plusOf = (statusId: string | undefined) =>
   statusId ? document.querySelector<HTMLElement>(`[data-status-id="${esc(statusId)}"] [data-column-plus]`) : null
 const keyOf = (el: HTMLElement): string | null => el.dataset?.cardId ?? el.dataset?.agentHoleCard ?? null
 const boardRect = () => document.querySelector<HTMLElement>("[data-agent-board]")?.getBoundingClientRect() ?? null
-/** Where the pill starts, right of the arrow's tip (index.css, `.agent-cursor span`). */
-const LABEL_OFFSET = 16
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
 const insideBoard = (r: DOMRect) => {
@@ -859,6 +889,11 @@ const clampToBoard = (x: number, y: number) => {
   if (!b) return { x, y }
   const pad = 10
   return { x: Math.min(Math.max(x, b.left + pad), b.right - pad), y: Math.min(Math.max(y, b.top + pad), b.bottom - pad) }
+}
+
+function stopBlink(cursor: Cursor) {
+  cursor.blink?.cancel()
+  cursor.blink = null
 }
 
 function drawGhost(held: Held) {
