@@ -1,11 +1,13 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { documentsOfTask } from "@cello/client/sync/documents"
 import type { Task } from "@cello/contract/entities"
-import { Link } from "@tanstack/react-router"
+import { pagePath } from "@cello/shared/document"
 import { KIND_LABELS, KindIcon } from "../docs/kinds.tsx"
+import { openInPanel } from "../lib/desktop.ts"
 import { relativeTime } from "../lib/format.ts"
+import { isPlainClick } from "../viewer/viewer.ts"
 
-/** Pages, docs and specs linked to the task (`cello doc publish --task`), newest first. */
+/** Pages, docs and specs linked to the task (`cello doc publish --task`), newest first; each opens in the side panel. */
 export function TaskPages({ board, task }: { board: BoardState; task: Task }) {
   const documents = documentsOfTask(board, task.id)
   if (documents.length === 0) return null
@@ -19,9 +21,12 @@ export function TaskPages({ board, task }: { board: BoardState; task: Task }) {
           const project = board.projects[d.projectId]
           return project ? (
             <li key={d.id}>
-              <Link
-                to="/$projectKey/pages/$slug"
-                params={{ projectKey: project.key, slug: d.slug }}
+              <a
+                href={pagePath(project.key, d.slug)}
+                onClick={(e) => {
+                  // In the side panel beside the board, in the task panel's place (CEL-60); ⌘-click still opens a tab.
+                  if (isPlainClick(e) && openInPanel({ url: pagePath(project.key, d.slug), title: d.title })) e.preventDefault()
+                }}
                 className="flex items-center gap-2.5 rounded-lg border border-line bg-raised px-3 py-2 shadow-card outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <KindIcon kind={d.kind} />
@@ -31,7 +36,7 @@ export function TaskPages({ board, task }: { board: BoardState; task: Task }) {
                     {KIND_LABELS[d.kind]} · version {d.version} · {d.updatedBy.name} · {relativeTime(d.updatedAt)}
                   </span>
                 </span>
-              </Link>
+              </a>
             </li>
           ) : null
         })}

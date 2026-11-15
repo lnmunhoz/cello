@@ -1,49 +1,80 @@
+import { documentBySlug } from "@cello/client/sync/documents"
+import { projectByKey } from "@cello/client/sync/selectors"
 import { embedUrl } from "@cello/shared/embed"
-import { useNavigate, useRouterState } from "@tanstack/react-router"
-import { ExternalLinkIcon, FileTextIcon, FilmIcon, GlobeIcon, GlobeLockIcon, ImageIcon, XIcon } from "lucide-react"
-import { useEffect, useLayoutEffect, useRef, useState, type SyntheticEvent } from "react"
+import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router"
+import {
+  CopyIcon,
+  DownloadIcon,
+  ExternalLinkIcon,
+  FileCodeIcon,
+  FileTextIcon,
+  FilmIcon,
+  GlobeIcon,
+  GlobeLockIcon,
+  ImageIcon,
+  Maximize2Icon,
+  XIcon,
+} from "lucide-react"
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type SyntheticEvent } from "react"
 import { Button, ButtonLink } from "../components/ui/Button.tsx"
 import { ResizeHandle, useStoredWidth } from "../components/ui/ResizeHandle.tsx"
-import type { OpenMessage } from "../lib/desktop.ts"
+import { toast } from "../components/ui/Toast.tsx"
+import { PageBody } from "../docs/PageBody.tsx"
+import { DocumentReader } from "../docs/PageReader.tsx"
+import { openInPanel, type OpenMessage } from "../lib/desktop.ts"
+import { useBoard, useProjectKeys } from "../lib/hooks.ts"
 import { widthLimits } from "../lib/resize.ts"
 import { closeViewer, showInViewer, useViewerItem } from "./store.ts"
+import { downloadName, MAX_SHOWN_LABEL, readShown, shownText, textFormat } from "./text.ts"
 import {
   FRAME_TIMEOUT_MS,
+  fullPageHref,
   nextFrameState,
   openTaskFrom,
+  pageRef,
   refusesFraming,
-  toViewerItem,
+  taskOfHref,
   VIEWER_WIDTH,
   WIDTH_KEY,
+  withVersion,
   type FrameState,
   type ViewerItem,
   type ViewerKind,
 } from "./viewer.ts"
 
 /**
- * The viewer side panel, docked on the right of the main area while something is open in it: an
- * image, a video, a Cello page, or an external site. Opened with `openInPanel` (lib/desktop.ts).
+ * The side panel (the viewer), docked on the right of the main area at full height while something is
+ * open in it: an image, a video, a text file, a Cello page (in the page reader), or an external site.
+ * Opened with `openInPanel` (lib/desktop.ts), whose rule (`openRoute`) sends Cello's own pages and
+ * files here in the desktop app too; while it's open it takes the task panel's place.
  */
 export function ViewerPanel() {
   const item = useViewerItem()
   const navigate = useNavigate()
   useEffect(() => {
+    const openTaskHere = (task: { projectKey: string; number: number }) => {
+      void navigate({ to: "/$projectKey/$number", params: { projectKey: task.projectKey, number: String(task.number) } })
+      closeViewer()
+    }
     // A Cello page framed in the viewer opens its links here, not inside itself, and its task keys
     // open the task here, in the main window, closing the viewer (even when the task is the one
-    // already open under it). The desktop app's preload sends the same task message for a key clicked
-    // in its native panel.
+    // already open under it). The desktop app's preload sends the same messages: a task key clicked in
+    // its native panel, and a `cello://open` link or a ⌘-click to a page on the board (CEL-60).
     const onMessage = (e: MessageEvent) => {
       const task = openTaskFrom(e, location.origin)
-      if (task) {
-        void navigate({ to: "/$projectKey/$number", params: { projectKey: task.projectKey, number: String(task.number) } })
-        closeViewer()
-        return
-      }
+      if (task) return openTaskHere(task)
       const data = e.data as Partial<OpenMessage> | null
-      if (e.origin !== location.origin || data?.type !== "cello:open" || !data.item) return
-      const { url, title, kind } = data.item
-      const checked = toViewerItem({ url, title, kind: kind === "image" || kind === "video" ? kind : undefined }, location.origin)
-      if (checked) showInViewer(checked)
+      if (e.origin !== location.origin || data?.type !== "cello:open" || typeof data.item?.url !== "string") return
+      const { url, title, kind, name, place } = data.item
+      const linked = taskOfHref(url, location.origin)
+      if (linked) return openTaskHere(linked)
+      openInPanel({
+        url,
+        title: typeof title === "string" ? title : undefined,
+        kind: kind === "image" || kind === "video" || kind === "text" ? kind : undefined,
+        name: typeof name === "string" ? name : undefined,
+        place: place === "viewer" ? place : undefined,
+      })
     }
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
@@ -59,14 +90,30 @@ const closesOnEscape = (e: KeyboardEvent, doc: Document) => {
   return doc.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]') === null
 }
 
-const KIND_ICON = { image: ImageIcon, video: FilmIcon, page: FileTextIcon, external: GlobeIcon } satisfies Record<ViewerKind, unknown>
+const KIND_ICON = { image: ImageIcon, video: FilmIcon, text: FileCodeIcon, page: FileTextIcon, external: GlobeIcon } satisfies Record<ViewerKind, unknown>
+
+/** A plain click on a task link inside the viewer opened that task: the viewer gives it the place, even when it's the task under it. */
+const closeOnTaskLink = (e: ReactMouseEvent) => {
+  if (!e.defaultPrevented || !(e.target instanceof Element)) return
+  if (taskOfHref(e.target.closest("a[href]")?.getAttribute("href") ?? undefined, location.origin)) closeViewer()
+}
+
+/** A document's own title, live from the board, for the header (a `cello://open` link names only its address). */
+const useDocumentTitle = (item: ViewerItem): string | undefined => {
+  const board = useBoard()
+  const page = item.kind === "page" ? pageRef(item.url, location.origin) : null
+  const project = board && page ? projectByKey(board, page.projectKey) : undefined
+  return board && page && project ? documentBySlug(board, project.id, page.slug)?.title : undefined
+}
 
 function Viewer({ item }: { item: ViewerItem }) {
   const [width, resize] = useStoredWidth(WIDTH_KEY, VIEWER_WIDTH)
   const ref = useRef<HTMLElement>(null)
+  const router = useRouter()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const [openedOn] = useState(pathname)
   const Icon = KIND_ICON[item.kind]
+  const title = useDocumentTitle(item) ?? item.title
 
   // Opening a task, or going anywhere else, brings the page back in front.
   useEffect(() => {
@@ -104,16 +151,33 @@ function Viewer({ item }: { item: ViewerItem }) {
       data-viewer={item.kind}
       style={{ width, ...widthLimits(VIEWER_WIDTH) }}
       className="relative flex shrink-0 flex-col border-l border-line bg-surface outline-none"
+      onClick={closeOnTaskLink}
     >
       <ResizeHandle edge="left" label="Resize viewer" rule={VIEWER_WIDTH} width={width} onResize={resize} />
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
         <Icon aria-hidden className="size-3.5 shrink-0 text-muted" />
         <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium" title={item.url}>
-          {item.title}
+          {title}
         </h2>
-        <ButtonLink href={item.url} variant="ghost" size="iconMd" aria-label="Open in new tab" title="Open in new tab">
-          <ExternalLinkIcon className="size-4" />
-        </ButtonLink>
+        {item.kind === "page" ? (
+          // The page in the main area, in the board's place; going there closes the viewer.
+          <Button
+            variant="ghost"
+            size="iconMd"
+            aria-label="Expand to full page"
+            title="Expand to full page"
+            onClick={() => {
+              router.history.push(fullPageHref(item.url))
+              closeViewer()
+            }}
+          >
+            <Maximize2Icon className="size-4" />
+          </Button>
+        ) : (
+          <ButtonLink href={item.url} variant="ghost" size="iconMd" aria-label="Open in new tab" title="Open in new tab">
+            <ExternalLinkIcon className="size-4" />
+          </ButtonLink>
+        )}
         <Button variant="ghost" size="iconMd" aria-label="Close viewer" onClick={closeViewer}>
           <XIcon className="size-4" />
         </Button>
@@ -131,6 +195,8 @@ function Body({ item }: { item: ViewerItem }) {
       return <ImageView item={item} />
     case "video":
       return <VideoView item={item} />
+    case "text":
+      return <TextView item={item} />
     case "page":
       return <PageView item={item} />
     case "external":
@@ -201,9 +267,110 @@ const closeOnEscapeIn = (e: SyntheticEvent<HTMLIFrameElement>) => {
   } catch {}
 }
 
+/**
+ * A Cello page: a document renders natively in the page reader (CEL-60), its version picker and task
+ * links working here; any other route of the board (the Review page…) in an iframe, without the sidebar.
+ */
 function PageView({ item }: { item: ViewerItem }) {
-  // White like paper: a text file has no background of its own; Cello pages paint theirs.
-  return <iframe title={item.title} src={embedUrl(item.url, location.origin)} onLoad={closeOnEscapeIn} className="min-h-0 w-full flex-1 border-0 bg-white" />
+  const page = pageRef(item.url, location.origin)
+  if (page) {
+    return (
+      <DocumentReader
+        projectKey={page.projectKey}
+        slug={page.slug}
+        pinned={page.version}
+        hash={page.hash}
+        onVersion={(version) => showInViewer({ ...item, url: withVersion(item.url, version) })}
+      />
+    )
+  }
+  return <iframe title={item.title} src={embedUrl(item.url, location.origin)} onLoad={closeOnEscapeIn} className="min-h-0 w-full flex-1 border-0 bg-surface" />
+}
+
+type TextFile =
+  | { readonly state: "loading" }
+  | { readonly state: "failed" }
+  | { readonly state: "shown"; readonly text: string; readonly mime: string | null; readonly clipped: boolean }
+
+/**
+ * A text file on the board (a terminal transcript, a test log, markdown, JSON, CSV), fetched and shown
+ * natively (CEL-60): markdown in the page's prose, anything else in monospace, wrapped, without ANSI
+ * codes. Copy and Download sit above it. Only the first MAX_SHOWN_BYTES are read and shown (a note
+ * says so, and Copy copies just that); Download has all of it. A stored file that turns out to be an
+ * image or a video (a link nothing described) shows as one instead.
+ */
+function TextView({ item }: { item: ViewerItem }) {
+  const [file, setFile] = useState<TextFile>({ state: "loading" })
+  const projectKeys = useProjectKeys()
+
+  useEffect(() => {
+    const request = new AbortController()
+    fetch(item.url, { signal: request.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const mime = response.headers.get("content-type")
+        const media = mime?.startsWith("image/") ? "image" : mime?.startsWith("video/") ? "video" : null
+        if (media) return showInViewer({ ...item, kind: media })
+        const read = response.body ? await readShown(response.body) : { text: await response.text(), clipped: false }
+        setFile({ state: "shown", ...read, mime })
+      })
+      .catch(() => {
+        if (!request.signal.aborted) setFile({ state: "failed" })
+      })
+    return () => request.abort()
+  }, [item])
+
+  const format = file.state === "shown" ? textFormat(file.mime, item.name ?? URL.parse(item.url)?.pathname) : "plain"
+  const shown = file.state !== "shown" ? "" : format === "markdown" ? file.text : shownText(file.text, format)
+  const clipped = file.state === "shown" && file.clipped
+  return (
+    <>
+      <p className="flex shrink-0 items-center gap-2 border-b border-line bg-sunken py-1.5 pr-2 pl-4 text-xs text-muted">
+        <span className="min-w-0 flex-1 truncate">{downloadName(item.url, item.name)}</span>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={file.state !== "shown"}
+          title={clipped ? `Copies the first ${MAX_SHOWN_LABEL}, as shown` : undefined}
+          onClick={() => void navigator.clipboard?.writeText(shown).then(() => toast(clipped ? `Copied the first ${MAX_SHOWN_LABEL}` : "Copied"))}
+        >
+          <CopyIcon aria-hidden className="size-3.5" />
+          Copy
+        </Button>
+        <ButtonLink href={item.url} download={downloadName(item.url, item.name)} target="_self" variant="secondary" size="sm">
+          <DownloadIcon aria-hidden className="size-3.5" />
+          Download
+        </ButtonLink>
+      </p>
+      {clipped ? (
+        <p role="note" data-text-clipped="" className="shrink-0 border-b border-line bg-sunken px-4 py-1.5 text-xs text-muted">
+          Showing the first {MAX_SHOWN_LABEL}. Download for all of it.
+        </p>
+      ) : null}
+      {file.state === "loading" ? (
+        <p className="flex flex-1 items-center justify-center text-[13px] text-muted">Loading…</p>
+      ) : file.state === "failed" ? (
+        <p role="alert" className="flex flex-1 items-center justify-center px-6 text-center text-[13px] text-muted">
+          This file couldn’t be loaded.
+        </p>
+      ) : format === "markdown" ? (
+        <div data-text-view="markdown" className="min-h-0 flex-1 overflow-y-auto bg-surface">
+          <article className="mx-auto max-w-[760px] px-6 pt-6 pb-16">
+            <PageBody content={shown} flash={null} onFlashEnd={() => {}} projectKeys={projectKeys} />
+          </article>
+        </div>
+      ) : (
+        <pre
+          data-text-view={format}
+          tabIndex={0}
+          aria-label={item.title}
+          className="min-h-0 flex-1 overflow-auto bg-surface px-4 py-3 font-mono text-[12.5px] leading-relaxed break-words whitespace-pre-wrap text-ink outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        >
+          {shown}
+        </pre>
+      )}
+    </>
+  )
 }
 
 /**

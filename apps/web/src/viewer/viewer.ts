@@ -1,32 +1,45 @@
-// The viewer side panel's rules: what a URL is (image, video, Cello page, external site), where an
-// "open" goes (the desktop app's native panel, the board's viewer, or this page's own), and its width rule.
+// The side panel's rules (the viewer): what a URL is (image, video, text file, Cello page, external
+// site), where an "open" goes (`openRoute`: the image modal, the side panel, the desktop app's native
+// browser, or the board's window), which document a Cello page shows, and the panel's width rule.
 // Pure, so the rules are tested once here; the components only map a decision to the DOM.
-import { embedUrl } from "@cello/shared/embed"
+import { attachmentIdOf } from "@cello/shared/attachment"
 import { shortUrl } from "@cello/shared/linkify"
-import { parseTaskKey } from "@cello/shared/taskKey"
+import { parseTaskKey, parseTaskPath } from "@cello/shared/taskKey"
 import type { CelloDesktop } from "../lib/desktop.ts"
 import type { WidthRule } from "../lib/resize.ts"
 
-/** image and video: shown as such. page: the board's own origin, in an iframe. external: an iframe attempt. */
-export type ViewerKind = "image" | "video" | "page" | "external"
+/**
+ * image and video: shown as such. text: a text file on the board (a transcript, a log, markdown),
+ * fetched and shown natively. page: the board's own origin (a document in the page reader, any other
+ * route in an iframe). external: another site, an iframe attempt (in a browser).
+ */
+export type ViewerKind = "image" | "video" | "text" | "page" | "external"
 
 export interface ViewerItem {
   /** Absolute http(s). */
   readonly url: string
   readonly title: string
   readonly kind: ViewerKind
+  /** A text file's own name, when known: Download saves under it, and `.md` reads as markdown. */
+  readonly name?: string
 }
 
 /** What a caller asks to open: a URL (absolute, or relative to the board), and what it knows about it. */
 export interface OpenTarget {
   readonly url: string
   readonly title?: string | undefined
-  /** Set for evidence known to be an image or a video, whatever its URL looks like. */
-  readonly kind?: "image" | "video" | undefined
+  /** Set for evidence known to be an image, a video or a text file, whatever its URL looks like. */
+  readonly kind?: "image" | "video" | "text" | undefined
+  /** The file's own name, when known. */
+  readonly name?: string | undefined
+  /** "viewer": Open in viewer, which asks for the side panel even for an image (else the image modal). */
+  readonly place?: "viewer" | undefined
 }
 
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|svg)$/i
 const VIDEO = /\.(mp4|webm|mov|m4v|ogv)$/i
+/** The text files the server stores (packages/shared/src/attachment.ts), by extension. */
+const TEXT = /\.(txt|log|out|md|csv|json|cast)$/i
 
 const resolve = (url: string, origin: string): URL | null => {
   if (url.trim() === "" || url.startsWith("#")) return null
@@ -34,15 +47,94 @@ const resolve = (url: string, origin: string): URL | null => {
   return parsed && (parsed.protocol === "http:" || parsed.protocol === "https:") ? parsed : null
 }
 
-/** Null for anything that isn't a web page (javascript:, file:, mailto:, a bare #hash…). */
+/**
+ * Null for anything that isn't a web page (javascript:, file:, mailto:, a bare #hash…). A stored file
+ * (`/attachments/<id>`) nothing describes is text: the server stores only images, videos and text, and
+ * the text view shows an image or a video it turns out to be as such.
+ */
 export const toViewerItem = (target: OpenTarget, origin: string): ViewerItem | null => {
   const url = resolve(target.url, origin)
   if (!url) return null
+  const onBoard = url.origin === new URL(origin).origin
   const kind: ViewerKind =
     target.kind ??
-    (IMAGE.test(url.pathname) ? "image" : VIDEO.test(url.pathname) ? "video" : url.origin === new URL(origin).origin ? "page" : "external")
-  return { url: url.href, title: target.title?.trim() || shortUrl(url.href), kind }
+    (IMAGE.test(url.pathname)
+      ? "image"
+      : VIDEO.test(url.pathname)
+        ? "video"
+        : !onBoard
+          ? "external"
+          : attachmentIdOf(url.pathname) !== null || TEXT.test(url.pathname)
+            ? "text"
+            : "page")
+  const name = target.name?.trim()
+  return { url: url.href, title: target.title?.trim() || name || shortUrl(url.href), kind, ...(name ? { name } : {}) }
 }
+
+/**
+ * modal: the image modal. panel: the side panel, in this window. desktop: the desktop app's native
+ * browser. parent: the board's window, from a Cello page framed in the side panel; it decides again.
+ */
+export type OpenRoute = "modal" | "panel" | "desktop" | "parent"
+
+/**
+ * The one rule for where an open goes (CEL-60): an image link to the image modal (Open in viewer moves
+ * it to the side panel); a video, a text file and a Cello page to the side panel, in the desktop app as
+ * in a browser; another site to the desktop app's native browser, or the side panel's iframe attempt in
+ * a browser. The native browser is for outside sites only.
+ */
+export const openRoute = (item: ViewerItem, target: OpenTarget, where: { readonly desktop: boolean; readonly framed: boolean }): OpenRoute => {
+  if (where.framed) return "parent"
+  if (item.kind === "image" && target.place !== "viewer") return "modal"
+  if (item.kind === "external" && where.desktop) return "desktop"
+  return "panel"
+}
+
+/** A Cello page's document: its project, slug, pinned version and the section to open at. */
+export interface PageRef {
+  readonly projectKey: string
+  readonly slug: string
+  readonly version: number | undefined
+  /** The section's id, without `#`; "" for the top. */
+  readonly hash: string
+}
+
+/** The document a URL on the board shows (`/CEL/pages/notes?version=2#next`), or null for any other address. */
+export const pageRef = (url: string, origin: string): PageRef | null => {
+  const parsed = URL.parse(url)
+  if (!parsed || parsed.origin !== new URL(origin).origin) return null
+  const match = /^\/([^/]+)\/pages\/([^/]+)\/?$/.exec(parsed.pathname)
+  if (!match) return null
+  const version = Number(parsed.searchParams.get("version"))
+  return {
+    projectKey: decodeURIComponent(match[1]!),
+    slug: decodeURIComponent(match[2]!),
+    version: Number.isInteger(version) && version > 0 ? version : undefined,
+    hash: decodeURIComponent(parsed.hash.slice(1)),
+  }
+}
+
+/** The task a link points at (`/CEL/3`, or that path on the board's origin), or null: such a link opens the task, as its key would. */
+export const taskOfHref = (href: string | undefined, origin: string): { projectKey: string; number: number } | null => {
+  const target = href && !href.startsWith("#") ? URL.parse(href, origin) : null
+  return target?.origin === new URL(origin).origin ? parseTaskPath(target.pathname) : null
+}
+
+/** Where Expand to full page goes: the board's own address for `url`, without `?embed`. */
+export const fullPageHref = (url: string): string => {
+  const parsed = new URL(url)
+  parsed.searchParams.delete("embed")
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`
+}
+
+/** `url` showing `version` of its page; undefined: the latest, which updates live. */
+export const withVersion = (url: string, version: number | undefined): string => {
+  const parsed = new URL(url)
+  if (version === undefined) parsed.searchParams.delete("version")
+  else parsed.searchParams.set("version", String(version))
+  return parsed.href
+}
+
 
 /** This page is a Cello page inside a panel: framed, or opened with ?embed. It shows without the sidebar. */
 export const isEmbedded = (win: { readonly self: unknown; readonly top: unknown; readonly search: string }): boolean =>
@@ -76,37 +168,43 @@ export const openTaskFrom = (message: { readonly origin: string; readonly data: 
   return parseTaskKey(data.key)
 }
 
+
 export interface OpenEnv {
   /** The board's origin; relative URLs resolve against it. */
   readonly origin: string
   /** The desktop app's bridge, when the board runs there. */
   readonly desktop: CelloDesktop | undefined
-  /** Set when this page is a Cello page framed in the board's viewer: opens go to the board's window. */
-  readonly parent?: ((item: ViewerItem) => void) | undefined
-  /** Shows the item in this page's viewer panel. */
+  /** Set when this page is a Cello page framed in the side panel: opens go to the board's window. */
+  readonly parent?: ((target: OpenTarget) => void) | undefined
+  /** Shows the item in this window's side panel. */
   readonly show: (item: ViewerItem) => void
+  /** Shows an image in the image modal. */
+  readonly modal: (item: ViewerItem) => void
 }
 
-export type OpenRoute = "desktop" | "parent" | "viewer"
-
 /**
- * Where an "open" goes: the desktop app's native browser panel when its bridge is there (it shows any
- * site, claude.ai included), else the board's viewer panel. Null when `target` isn't a web page:
- * the caller lets the link do what it would anyway.
+ * Opens `target` where `openRoute` says. Null when `target` isn't a web page: the caller lets the link
+ * do what it would anyway. The board's window gets the target with an absolute URL.
  */
 export const openTarget = (target: OpenTarget, env: OpenEnv): OpenRoute | null => {
   const item = toViewerItem(target, env.origin)
   if (!item) return null
-  if (env.desktop?.isDesktop) {
-    env.desktop.openPanel(embedUrl(item.url, env.origin), item.title)
-    return "desktop"
+  const route = openRoute(item, target, { desktop: env.desktop?.isDesktop === true, framed: env.parent !== undefined })
+  switch (route) {
+    case "parent":
+      env.parent?.({ ...target, url: item.url })
+      break
+    case "desktop":
+      env.desktop?.openPanel(item.url, item.title)
+      break
+    case "modal":
+      env.modal(item)
+      break
+    case "panel":
+      env.show(item)
+      break
   }
-  if (env.parent) {
-    env.parent(item)
-    return "parent"
-  }
-  env.show(item)
-  return "viewer"
+  return route
 }
 
 /** Sites known to forbid framing (X-Frame-Options or CSP frame-ancestors): the viewer skips the iframe attempt. */

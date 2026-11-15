@@ -1,10 +1,12 @@
 // The Cello desktop app (apps/desktop) shows the board in its own window, with a browser panel on the
-// right that loads pages top-level, so it can show pages that refuse to be framed (claude.ai
-// artifacts, `frame-ancestors 'self'`). Its preload exposes `window.celloDesktop`. In a plain browser
-// it's missing, and pages open in the board's own viewer panel (apps/web/src/viewer).
+// right that loads outside sites top-level, so it can show pages that refuse to be framed (claude.ai
+// artifacts, `frame-ancestors 'self'`). Its preload exposes `window.celloDesktop`. Cello's own pages,
+// text files, images and videos open in the board's own side panel (apps/web/src/viewer) either way;
+// in a plain browser the bridge is missing and outside sites open there too.
 import { parseTaskKey } from "@cello/shared/taskKey"
-import { openTarget, taskRoute, type OpenTaskMessage, type ViewerItem, type ViewerKind } from "../viewer/viewer.ts"
+import { openImageModal } from "../viewer/imageModal.ts"
 import { showInViewer } from "../viewer/store.ts"
+import { openTarget, taskRoute, type OpenTarget, type OpenTaskMessage, type ViewerItem } from "../viewer/viewer.ts"
 
 /** What the desktop app's preload puts on `window.celloDesktop`. Only http(s) URLs are accepted. */
 export interface CelloDesktop {
@@ -19,25 +21,33 @@ declare global {
   }
 }
 
-/** What a Cello page framed in the viewer posts to the board's window to open something there. */
+/**
+ * What asks the board's window to open something there: a Cello page framed in the side panel, and
+ * the desktop app's preload for a `cello://open` link or a ⌘-click to a page on the board. The board
+ * decides where it goes (`openRoute`).
+ */
 export interface OpenMessage {
   readonly type: "cello:open"
-  readonly item: ViewerItem
+  readonly item: OpenTarget
+}
+
+/** The image modal, for an image link: just that image, the focus going back to what was clicked. */
+const showInModal = (item: ViewerItem) => {
+  const active = globalThis.document?.activeElement as HTMLElement | null | undefined
+  openImageModal([{ url: item.url, title: item.title }], 0, active?.focus ? active : null)
 }
 
 /**
- * Opens `url` (absolute, or relative to the board: `/attachments/<id>`, `/CEL/pages/notes`) beside the
- * board: in the desktop app's native panel, else in the web viewer panel. `kind` says a URL is an
- * image or a video when its extension doesn't. False when `url` isn't a web page, so a link's own
- * behavior can take over.
+ * Opens `target` (its URL absolute, or relative to the board: `/attachments/<id>`, `/CEL/pages/notes`)
+ * where viewer.ts's `openRoute` says: an image link in the image modal; a video, a text file or a Cello
+ * page in the side panel beside the board; another site in the desktop app's native browser, or the
+ * side panel in a browser. False when the URL isn't a web page, so a link's own behavior can take over.
  */
-export const openInPanel = (url: string, title?: string, kind?: Extract<ViewerKind, "image" | "video">): boolean => {
+export const openInPanel = (target: OpenTarget): boolean => {
   const origin = window.location.origin
   const framed = window.self !== window.top
-  const parent = framed
-    ? (item: ViewerItem) => window.parent.postMessage({ type: "cello:open", item } satisfies OpenMessage, origin)
-    : undefined
-  return openTarget({ url, title, kind }, { origin, desktop: window.celloDesktop, parent, show: showInViewer }) !== null
+  const parent = framed ? (item: OpenTarget) => window.parent.postMessage({ type: "cello:open", item } satisfies OpenMessage, origin) : undefined
+  return openTarget(target, { origin, desktop: window.celloDesktop, parent, show: showInViewer, modal: showInModal }) !== null
 }
 
 /**
