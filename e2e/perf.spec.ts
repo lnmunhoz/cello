@@ -1,8 +1,12 @@
 // M1 "Done when": a board with 200 tasks keeps 60 fps while dragging. Seeds 200 tasks through the RPC
 // client, drags a card across the columns for about 2 seconds, and counts animation frames meanwhile.
+// CEL-6 adds the same board with three agent sessions moving cards, so three cursors fly at once.
+import type { Page } from "@playwright/test"
+import { openClient } from "../packages/client/test/support/promiseClient.ts"
 import { card, caption, column, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, test, uniqueKey } from "./fixtures.ts"
 
 const COLUMNS = ["Todo", "In Progress", "In Review", "Done"]
+const AGENT_COLUMNS = ["Todo", "In Progress", "Done"]
 const TITLES = ["Wire the SQLite store", "Draft the card drawer", "Fix due dates", "Polish theme tokens", "Add keyboard moves"]
 
 /** Frame stats from requestAnimationFrame timestamps. */
@@ -14,13 +18,17 @@ interface Frames {
   readonly slowFrames: number
 }
 
-test("performance: dragging a card across columns on a 200-task board stays near 60 fps", async ({ page, cello }, testInfo) => {
-  const key = uniqueKey("PERF")
+type Cello = Parameters<Parameters<typeof test>[2]>[0]["cello"]
+
+/** A project with 200 tasks spread over the columns, with labels, priorities and dates; its board open. */
+async function board200(page: Page, cello: Cello, prefix: string) {
+  const key = uniqueKey(prefix)
   const project = await seedProject(cello, "Performance test", key)
   const { statuses } = await defaultWorkspace(cello)
   const labels = await seedLabels(cello, [{ name: "Perf: backend", color: "#4ea7fc" }, { name: "Perf: ui", color: "#bb87fc" }])
+  const ids: string[] = []
   for (let i = 0; i < 200; i++) {
-    await cello.run((c) =>
+    const created = await cello.run((c) =>
       c["task.create"]({
         commandId: newCommandId(),
         projectId: project.id,
@@ -30,10 +38,49 @@ test("performance: dragging a card across columns on a 200-task board stays near
         labelIds: i % 3 === 0 ? [labels[i % 2]!.id] : [],
         dueDate: i % 4 === 1 ? "2026-12-01" : null,
       }))
+    ids.push(created.result.id)
   }
-
   await page.goto(`/${key}/issues`)
   await expect(page.locator("[data-task-key]")).toHaveCount(200)
+  return { key, statuses, ids }
+}
+
+/** Starts counting animation frames (and the most agent cursors on screen in any frame). */
+const startFrames = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as unknown as { __frames: number[]; __recording: boolean; __maxCursors: number }
+    w.__frames = []
+    w.__recording = true
+    w.__maxCursors = 0
+    const tick = (t: number) => {
+      if (!w.__recording) return
+      w.__frames.push(t)
+      w.__maxCursors = Math.max(w.__maxCursors, document.querySelectorAll("[data-agent-cursor]").length)
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+
+/** Stops counting and sums the frames up. */
+const stopFrames = (page: Page) =>
+  page.evaluate((): Frames & { maxCursors: number } => {
+    const w = window as unknown as { __frames: number[]; __recording: boolean; __maxCursors: number }
+    w.__recording = false
+    const t = w.__frames
+    const gaps = t.slice(1).map((x, i) => x - t[i]!)
+    const durationMs = t.at(-1)! - t[0]!
+    return {
+      frames: gaps.length,
+      durationMs: Math.round(durationMs),
+      averageFps: Math.round((gaps.length / durationMs) * 1000 * 10) / 10,
+      worstFrameMs: Math.round(Math.max(...gaps) * 10) / 10,
+      slowFrames: gaps.filter((g) => g > 20).length,
+      maxCursors: w.__maxCursors,
+    }
+  })
+
+test("performance: dragging a card across columns on a 200-task board stays near 60 fps", async ({ page, cello }, testInfo) => {
+  const { key } = await board200(page, cello, "PERF")
   await caption(page, `200 tasks. Drag ${key}-1 across the columns for 2 seconds, counting frames`)
 
   const from = (await card(page, `${key}-1`).boundingBox())!
@@ -53,17 +100,7 @@ test("performance: dragging a card across columns on a 200-task board stays near
 
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
   await page.mouse.down()
-  await page.evaluate(() => {
-    const w = window as unknown as { __frames: number[]; __recording: boolean }
-    w.__frames = []
-    w.__recording = true
-    const tick = (t: number) => {
-      if (!w.__recording) return
-      w.__frames.push(t)
-      requestAnimationFrame(tick)
-    }
-    requestAnimationFrame(tick)
-  })
+  await startFrames(page)
   const before = await metrics()
   const started = Date.now()
   let moves = 0
@@ -78,20 +115,7 @@ test("performance: dragging a card across columns on a 200-task board stays near
     ["TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyleDuration"].map((m) => [m, Math.round((after[m]! - before[m]!) * 1000)]),
   )
   console.log(`[perf] ${moves} pointer moves; main thread busy (ms): ${JSON.stringify(busy)} over ${Date.now() - started} ms`)
-  const stats = await page.evaluate((): Frames => {
-    const w = window as unknown as { __frames: number[]; __recording: boolean }
-    w.__recording = false
-    const t = w.__frames
-    const gaps = t.slice(1).map((x, i) => x - t[i]!)
-    const durationMs = t.at(-1)! - t[0]!
-    return {
-      frames: gaps.length,
-      durationMs: Math.round(durationMs),
-      averageFps: Math.round((gaps.length / durationMs) * 1000 * 10) / 10,
-      worstFrameMs: Math.round(Math.max(...gaps) * 10) / 10,
-      slowFrames: gaps.filter((g) => g > 20).length,
-    }
-  })
+  const stats = await stopFrames(page)
   await page.mouse.up()
   await expect(card(page, `${key}-1`)).toHaveCount(1)
   await caption(page, `${stats.averageFps} fps on average, worst frame ${stats.worstFrameMs} ms`)
@@ -100,4 +124,51 @@ test("performance: dragging a card across columns on a 200-task board stays near
   testInfo.annotations.push({ type: "perf", description: JSON.stringify(stats) })
   expect(stats.durationMs).toBeGreaterThan(1500)
   expect(stats.averageFps).toBeGreaterThanOrEqual(55)
+})
+
+test("performance: a 200-task board with three agent cursors flying at once stays near 60 fps (CEL-6)", async ({ page, cello, baseURL }, testInfo) => {
+  const { key, statuses, ids } = await board200(page, cello, "PERFC")
+  await caption(page, `200 tasks. Three agent sessions move cards for 2.5 seconds, counting frames`)
+  const url = `${baseURL!.replace(/^http/, "ws")}/rpc`
+  const agents = await Promise.all(
+    ["a1f0c3d2-perf-agent-one", "b2e1d4c3-perf-agent-two", "c3d2e5f4-perf-agent-three"].map((session) =>
+      openClient(url, { "x-cello-session": session, "x-cello-client": "Claude Code" })),
+  )
+
+  await startFrames(page)
+  const started = Date.now()
+  // Each agent moves a card of its own to the next column (not In Review: agents get there only by submitting), one after another, for 2.5 s: three lanes
+  // with moves waiting, so three cursors carry cards at the same time.
+  await Promise.all(
+    agents.map(async (agent, a) => {
+      for (let n = 0; Date.now() - started < 2500; n++) {
+        const id = ids[a * 40 + (n % 40)]!
+        const to = AGENT_COLUMNS[(a + n + 1) % AGENT_COLUMNS.length]!
+        await agent.run((c) => c["task.move"]({ commandId: newCommandId(), id, statusId: statuses[to]!.id }))
+        // 24 frames apart (~0.4 s): about as fast as a sped-up lane plays, so lanes stay busy without skipping.
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) => {
+              let n = 0
+              const tick = () => (++n >= 24 ? resolve() : requestAnimationFrame(tick))
+              requestAnimationFrame(tick)
+            }),
+        )
+      }
+    }),
+  )
+  const stats = await stopFrames(page)
+  await caption(page, `${stats.averageFps} fps on average with ${stats.maxCursors} cursors, worst frame ${stats.worstFrameMs} ms`)
+  console.log(`[perf] cursors ${JSON.stringify(stats)}`)
+  testInfo.annotations.push({ type: "perf", description: JSON.stringify(stats) })
+  for (const agent of agents) await agent.close()
+
+  expect(stats.maxCursors).toBe(3)
+  expect(stats.durationMs).toBeGreaterThan(2000)
+  expect(stats.averageFps).toBeGreaterThanOrEqual(55)
+  // Every card is still there, once each, and the board settles.
+  await expect(page.locator("[data-task-key]")).toHaveCount(200)
+  await expect(page.locator("[data-agent-cursor]")).toHaveCount(0)
+  await expect(page.locator("[data-agent-ghost], [data-agent-hole]")).toHaveCount(0)
+  expect(await page.evaluate(() => document.getElementById("agent-cursor-styles")?.textContent ?? "")).toBe("")
 })

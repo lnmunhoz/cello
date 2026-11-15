@@ -50,12 +50,13 @@ const record = (page: Page) =>
         const key = document.querySelector(`[data-card-id="${g.dataset.agentGhost}"]`)?.getAttribute("data-task-key")
         add(seen.carried, key)
       }
-      for (const w of document.querySelectorAll('[data-agent-pending="queued"]')) add(seen.waiting, w.getAttribute("data-task-key"))
+      for (const w of document.querySelectorAll<HTMLElement>("[data-task-key]")) if (getComputedStyle(w).display === "none") add(seen.waiting, w.dataset.taskKey)
       seen.holes = Math.max(seen.holes, document.querySelectorAll("[data-agent-hole]").length)
       for (const b of document.querySelectorAll("[data-agent-bubble]")) add(seen.bubbles, b.textContent)
       for (const t of document.querySelectorAll<HTMLElement>("[data-card-title]")) if (t.style.clipPath) add(seen.typed, t.textContent)
     }
-    new MutationObserver(look).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["style", "data-agent-pending"] })
+    // The whole document: the animator's style rules (which cards wait) live in <head>.
+    new MutationObserver(look).observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["style"] })
   })
 
 const seen = (page: Page) => page.evaluate(() => window.__seen!)
@@ -67,7 +68,9 @@ const until = (page: Page, check: (s: Seen) => boolean) =>
 /** The board is still: no cursor, copy, hole or bubble, no running animation and no frame loop. */
 async function expectIdle(page: Page) {
   await expect(page.locator("[data-agent-cursor]")).toHaveCount(0)
-  await expect(page.locator("[data-agent-ghost], [data-agent-hole], [data-agent-bubble], [data-agent-pending]")).toHaveCount(0)
+  await expect(page.locator("[data-agent-ghost], [data-agent-hole], [data-agent-bubble]")).toHaveCount(0)
+  // No card waits for a step: the animator's style rules are empty.
+  expect(await page.evaluate(() => document.getElementById("agent-cursor-styles")?.textContent ?? "")).toBe("")
   await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0)
   // Nothing asks for animation frames: counted over ten frames of the test's own.
   const calls = await page.evaluate(

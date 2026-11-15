@@ -150,7 +150,6 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
                               value={id}
                               data-card-id={id}
                               data-task-key={task.key}
-                              data-agent-pending={visual.pending.get(id)}
                               onPointerDownCapture={() => animator.grab(id)}
                               ref={task.number === 0 ? reveal : undefined}
                               aria-current={task.number === openNumber ? "true" : undefined}
@@ -217,7 +216,7 @@ function HoleCard({ hole, task, board }: { hole: Hole; task: Task; board: BoardS
       data-agent-hole={hole.id}
       data-agent-hole-card={hole.card}
       onPointerDown={() => animator.grab(hole.card)}
-      className={`${CARD} ${hole.hidden ? "invisible" : ""}`}
+      className={CARD}
     >
       <CardBody task={task} board={board} />
     </motion.div>

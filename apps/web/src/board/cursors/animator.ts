@@ -30,18 +30,20 @@ export interface CursorStep extends QueueStep {
 }
 
 // ---------------------------------------------------------------------------
-// What React reads: which cards wait for a step, and the holes. A new snapshot on every change (enqueue,
-// take-off, landing), never per frame, so the board re-renders only then.
+// What React reads: the holes, a new snapshot only when one opens or closes, never per frame. A hole
+// opens with the event that moved its card, so React draws both in one render; closing it is the one
+// extra render a move costs. Which cards wait (hidden at their new slot, or keeping the space a ghost
+// flies to) and which holes a ghost took over are CSS rules in one style element instead, so a 200-card
+// board doesn't re-render for them.
 
+/** A card hidden at its new slot (`queued`), or keeping the space a ghost flies to (`flying`). */
 export type Pending = "queued" | "flying"
 
 export interface Visual {
-  /** A card hidden at its new slot (`queued`), or holding the space a ghost flies to (`flying`). */
-  readonly pending: ReadonlyMap<string, Pending>
   readonly holes: ReadonlyArray<Hole>
 }
 
-const EMPTY: Visual = { pending: new Map(), holes: [] }
+const EMPTY: Visual = { holes: [] }
 
 // ---------------------------------------------------------------------------
 
@@ -97,7 +99,6 @@ const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t 
 const COPY_STRIPS = [
   "data-card-id",
   "data-task-key",
-  "data-agent-pending",
   "data-agent-hole",
   "data-agent-hole-card",
   "data-moving",
@@ -114,6 +115,8 @@ export class Animator implements Player<CursorStep> {
   readonly queue = new CursorQueue<CursorStep>(this, realScheduler, { motion: () => (this.reduced || this.dragging ? "reduced" : "full") })
 
   private visual: Visual = EMPTY
+  private readonly pending = new Map<string, Pending>()
+  private holes: Hole[] = []
   private readonly listeners = new Set<() => void>()
   private readonly held = new Map<CursorStep, Held>()
   private readonly runs = new Map<CursorStep, Run>()
@@ -143,11 +146,30 @@ export class Animator implements Player<CursorStep> {
   readonly snapshot = (): Visual => this.visual
 
   private change(f: (pending: Map<string, Pending>, holes: Hole[]) => void) {
-    const pending = new Map(this.visual.pending)
-    const holes = [...this.visual.holes]
-    f(pending, holes)
-    this.visual = { pending, holes }
+    const before = this.visual.holes
+    const holes = [...this.holes]
+    f(this.pending, holes)
+    this.holes = holes
+    this.paint()
+    if (holes.length === before.length && holes.every((h, i) => h.id === before[i]?.id)) return
+    this.visual = { holes }
     for (const l of this.listeners) l()
+  }
+
+  /** Writes the waiting cards and taken-over holes as CSS rules. */
+  private paint() {
+    const rules: string[] = []
+    for (const [card, p] of this.pending) rules.push(`[data-card-id="${esc(card)}"]{${p === "queued" ? "display:none" : "opacity:0"} !important}`)
+    for (const h of this.holes) if (h.hidden) rules.push(`[data-agent-hole="${h.id}"]{visibility:hidden}`)
+    const text = rules.join("\n")
+    let el = document.getElementById("agent-cursor-styles")
+    if (!el) {
+      if (text === "") return
+      el = document.createElement("style")
+      el.id = "agent-cursor-styles"
+      document.head.append(el)
+    }
+    if (el.textContent !== text) el.textContent = text
   }
 
   // ---- Wiring -----------------------------------------------------------
@@ -207,7 +229,10 @@ export class Animator implements Player<CursorStep> {
     this.held.clear()
     this.owner.clear()
     document.getElementById("agent-layer")?.replaceChildren()
-    if (this.visual.pending.size > 0 || this.visual.holes.length > 0) {
+    this.pending.clear()
+    this.holes = []
+    this.paint()
+    if (this.visual.holes.length > 0) {
       this.visual = EMPTY
       for (const l of this.listeners) l()
     }
@@ -381,8 +406,8 @@ export class Animator implements Player<CursorStep> {
   private release(step: CursorStep, holeId: number | null) {
     const owns = this.owner.get(step.card) === step
     if (owns) this.owner.delete(step.card)
-    const unhide = owns && this.visual.pending.has(step.card)
-    const close = holeId !== null && this.visual.holes.some((h) => h.id === holeId)
+    const unhide = owns && this.pending.has(step.card)
+    const close = holeId !== null && this.holes.some((h) => h.id === holeId)
     if (!unhide && !close) return
     this.change((pending, holes) => {
       if (unhide) pending.delete(step.card)
@@ -469,7 +494,7 @@ export class Animator implements Player<CursorStep> {
     if (held?.ghost) return held.ghost
     const hole = held?.holeId != null ? holeEl(held.holeId) : null
     if (hole) return hole
-    if (this.visual.pending.get(step.card) === "queued") return holeOfCard(step.card)
+    if (this.pending.get(step.card) === "queued") return holeOfCard(step.card)
     return cardEl(step.card)
   }
 

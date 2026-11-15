@@ -113,15 +113,9 @@ body {
 }
 
 /*
- * Agent cursors (CEL-6, board/cursors/animator.ts). While an agent's move waits in its queue the card is
- * hidden at its new slot; while it flies, the slot keeps the card's space for the copy to land in.
+ * Agent cursors (CEL-6, board/cursors/animator.ts): the layer they fly on. Which cards wait for a step
+ * (hidden at their new slot, or keeping the space a copy flies to) the animator writes as rules of its own.
  */
-[data-agent-pending="queued"] {
-  display: none;
-}
-[data-agent-pending="flying"] {
-  opacity: 0;
-}
 #agent-layer {
   position: fixed;
   inset: 0;
