@@ -10,6 +10,7 @@ import { Overview } from "../project/Overview.tsx"
 import { ProjectLayout } from "../project/ProjectLayout.tsx"
 import { parseReviewSearch } from "../review/queue.ts"
 import { ReviewPage } from "../review/ReviewPage.tsx"
+import { BuildsPage } from "../settings/BuildsPage.tsx"
 import { Settings } from "../settings/Settings.tsx"
 import { parseTaskSearch } from "../task/view.ts"
 import { isEmbedded } from "../viewer/viewer.ts"
@@ -23,6 +24,9 @@ const root = createRootRoute({ component: embedded ? EmbeddedShell : AppShell, .
 
 const home = createRoute({ getParentRoute: () => root, path: "/", component: Home })
 const settings = createRoute({ getParentRoute: () => root, path: "/settings", component: Settings })
+// Settings → Builds (CEL-50). Static routes win over `$projectKey`; each top-level word is reserved as a
+// project key (reservedKeyProblem in packages/shared/src/taskKey.ts).
+const builds = createRoute({ getParentRoute: () => root, path: "/builds", component: BuildsPage })
 // `?open=CEL-12`: the packet open on the Review page, so a reload or a link keeps it.
 const review = createRoute({ getParentRoute: () => root, path: "/review", component: ReviewPage, validateSearch: parseReviewSearch })
 
@@ -52,7 +56,7 @@ const activity = createRoute({ getParentRoute: () => project, path: "activity", 
 // The same component as `issues`, so opening a task keeps the page mounted. `?view=full` shows the task as a full page.
 const task = createRoute({ getParentRoute: () => project, path: "$number", component: IssuesPage, validateSearch: parseTaskSearch })
 
-const routeTree = root.addChildren([home, settings, review, project.addChildren([projectIndex, overview, issues, docs, page, activity, task])])
+const routeTree = root.addChildren([home, settings, builds, review, project.addChildren([projectIndex, overview, issues, docs, page, activity, task])])
 
 export const router = createRouter({ routeTree, defaultPreload: false })
 

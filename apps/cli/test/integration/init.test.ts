@@ -104,6 +104,9 @@ describe("cello init", () => {
       expect((yield* agent(repo)("init", "--key", "1X")).failure).toBe(
         "--key 1X won't do: a key must be 2 to 10 letters or digits, starting with a letter.",
       )
+      expect((yield* agent(repo)("init", "--key", "builds")).failure).toBe(
+        "--key builds won't do: a key can't be BUILDS, the address of Cello's Builds page (/builds).",
+      )
       expect((yield* projects).map((p) => p.key)).toEqual(["CEL"])
       expect((yield* agent(repo)("init")).out).toBe([`Created project CELL · cello for ${repo} (tasks CELL-1, CELL-2, …)`, url("CELL")].join("\n"))
     }).pipe(Effect.scoped))

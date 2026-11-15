@@ -1,4 +1,4 @@
-// A database file as a board made before Needs input (CEL-47) left it: migrated up to 0004, with the
+// A database file as a board made before Needs input (CEL-47) left it: migrated up to 0005, with the
 // default statuses of the time, a project CEL and a task in each of In Progress, In Review and Done.
 // For tests of the upgrade a real server runs at start.
 import * as SqliteMigrator from "@effect/sql-sqlite-bun/SqliteMigrator"
@@ -8,12 +8,13 @@ import init from "../persistence/migrations/0001_init.ts"
 import reviews from "../persistence/migrations/0002_reviews.ts"
 import documents from "../persistence/migrations/0003_documents.ts"
 import inbox from "../persistence/migrations/0004_inbox.ts"
+import builds from "../persistence/migrations/0005_builds.ts"
 import * as Sqlite from "../persistence/Sqlite.ts"
 
 export const writeBoardBeforeAsks = (file: string) =>
   Effect.gen(function* () {
     yield* SqliteMigrator.run({
-      loader: SqliteMigrator.fromRecord({ "0001_init": init, "0002_reviews": reviews, "0003_documents": documents, "0004_inbox": inbox }),
+      loader: SqliteMigrator.fromRecord({ "0001_init": init, "0002_reviews": reviews, "0003_documents": documents, "0004_inbox": inbox, "0005_builds": builds }),
       table: "migrations",
     })
     const sql = yield* SqlClient.SqlClient

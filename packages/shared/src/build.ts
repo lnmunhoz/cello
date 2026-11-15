@@ -1,5 +1,6 @@
 // Which build of Cello is running (CEL-37): the stamp a web build carries, what an open tab does when
-// the server it reconnects to serves a different one, and the one line the sidebar shows.
+// the server it reconnects to serves a different one, and the one line the sidebar shows. And the words
+// of the build history (CEL-50), which the Builds page and `cello builds` share.
 //
 // A web build is stamped at `vite build` (apps/web/buildStamp.ts): the bundle knows its own stamp, and
 // the same stamp goes into build.json next to index.html, which the server reads and reports. A tab
@@ -77,4 +78,54 @@ export const buildParts = (build: RunningBuild, now: number): { readonly name: s
 export const buildLine = (build: RunningBuild, now: number): string => {
   const { name, since } = buildParts(build, now)
   return `${name} · ${since}`
+}
+
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+
+/** How long a build was live, in its two largest units: "under a minute", "45 min", "3 h 20 min", "2 d 4 h". */
+export const liveFor = (ms: number): string => {
+  if (ms < MINUTE) return "under a minute"
+  const days = Math.floor(ms / DAY)
+  const hours = Math.floor((ms % DAY) / HOUR)
+  const minutes = Math.floor((ms % HOUR) / MINUTE)
+  if (days > 0) return hours > 0 ? `${days} d ${hours} h` : `${days} d`
+  if (hours > 0) return minutes > 0 ? `${hours} h ${minutes} min` : `${hours} h`
+  return `${minutes} min`
+}
+
+const startOfDay = (ms: number): number => {
+  const d = new Date(ms)
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+}
+
+/** The day a build went live, in local time: "Today", "Yesterday", "Tuesday, Nov 3", or "Wednesday, Dec 31, 2025" in another year. */
+export const buildDay = (startedAt: number, now: number): string => {
+  const day = startOfDay(startedAt)
+  const today = startOfDay(now)
+  if (day === today) return "Today"
+  if (day === startOfDay(today - 1)) return "Yesterday"
+  const at = new Date(startedAt)
+  return at.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    ...(at.getFullYear() === new Date(now).getFullYear() ? {} : { year: "numeric" }),
+  })
+}
+
+/** Builds, newest first, in groups by the day each went live; the order within a day is kept. */
+export const byDay = <B extends { readonly startedAt: number }>(
+  builds: ReadonlyArray<B>,
+  now: number,
+): ReadonlyArray<{ readonly day: string; readonly builds: ReadonlyArray<B> }> => {
+  const groups: Array<{ day: string; builds: B[] }> = []
+  for (const build of builds) {
+    const day = buildDay(build.startedAt, now)
+    const last = groups.at(-1)
+    if (last?.day === day) last.builds.push(build)
+    else groups.push({ day, builds: [build] })
+  }
+  return groups
 }

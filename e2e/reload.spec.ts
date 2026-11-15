@@ -2,119 +2,28 @@
 // own commit stamps) are served by a real `cello start` from source on its own port and data folder;
 // the test restarts that server as build B with the tab still open. Idle, the tab shows "Cello was
 // updated" and reloads by itself into B; while a comment is being written it only offers the reload.
-import { spawn, spawnSync, type ChildProcess } from "node:child_process"
 import * as fs from "node:fs"
-import * as net from "node:net"
 import * as os from "node:os"
 import * as path from "node:path"
-import type { Page } from "@playwright/test"
-import { newCommandId, openClient } from "../packages/client/test/support/promiseClient.ts"
-import { defaultWorkspaceId } from "../packages/client/src/sync/follow.ts"
 import { caption, expect, test } from "./fixtures.ts"
+import { buildWeb, entryOf, freePort, loadedEntry, seed as seedBoard, startCello, still, stop, stopAll } from "./servedBuilds.ts"
 
-const root = path.resolve(import.meta.dirname, "..")
 const work = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-reload-")))
 const A = { commit: "aaaaaaa", dir: path.join(work, "web-a") }
 const B = { commit: "bbbbbbb", dir: path.join(work, "web-b") }
 /** What build B's build.json lists as merged since A. Git isn't in the container, so the test writes it. */
 const B_CHANGES = ["merge: open tabs notice a new Cello build and offer a reload (CEL-1)", "docs: what each column means"]
-const RESERVED = new Set([4747, 4748, 5199, Number(process.env.CELLO_E2E_SERVER_PORT ?? 4791), Number(process.env.CELLO_WEB_PORT ?? 5199)])
 
-const still = (page: Page, name: string) =>
-  page.screenshot({
-    path: path.join(import.meta.dirname, "videos", "evidence", `${name}.png`),
-    animations: "disabled",
-    style: "#e2e-caption, #e2e-cursor, .e2e-ripple { display: none !important; }",
-  })
-
-/** A real web build into `dir`, stamped with `commit`. */
-const buildWeb = (build: { commit: string; dir: string }) => {
-  const result = spawnSync("bunx", ["vite", "build", "--outDir", build.dir, "--emptyOutDir", "--logLevel", "error"], {
-    cwd: path.join(root, "apps/web"),
-    encoding: "utf8",
-    env: { ...process.env, CELLO_BUILD_COMMIT: build.commit },
-  })
-  if (result.status !== 0) throw new Error(`vite build failed: ${result.stderr}`)
-}
-
-/** The bundle a build's index.html loads ("/assets/index-Dk3….js"): which build a page runs. */
-const entryOf = (dir: string) => /<script type="module" crossorigin src="([^"]+)"/.exec(fs.readFileSync(path.join(dir, "index.html"), "utf8"))![1]!
-const loadedEntry = (page: Page) => page.locator('script[type="module"]').first().getAttribute("src")
-
-const freePort = async (): Promise<number> => {
-  for (;;) {
-    const port = await new Promise<number>((resolve, reject) => {
-      const server = net.createServer()
-      server.once("error", reject)
-      server.listen(0, "127.0.0.1", () => {
-        const { port } = server.address() as net.AddressInfo
-        server.close(() => resolve(port))
-      })
-    })
-    if (!RESERVED.has(port)) return port
-  }
-}
-
-const servers: ChildProcess[] = []
-
-/** `cello start` from source serving `build` on `port`, with data in `dataDir`; resolves once it listens. */
-const startCello = (build: { commit: string; dir: string }, port: number, dataDir: string) =>
-  new Promise<ChildProcess>((resolve, reject) => {
-    const child = spawn("bun", [path.join(root, "apps/cli/src/bin.ts"), "start"], {
-      env: {
-        PATH: process.env.PATH,
-        HOME: process.env.HOME,
-        CELLO_PORT: String(port),
-        CELLO_DATA_DIR: dataDir,
-        CELLO_WEB_DIR: build.dir,
-        CELLO_BUILD_COMMIT: build.commit,
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    })
-    servers.push(child)
-    let output = ""
-    child.stdout!.setEncoding("utf8").on("data", (chunk: string) => {
-      output += chunk
-      if (output.includes("Cello is running at")) resolve(child)
-    })
-    child.stderr!.setEncoding("utf8").on("data", (chunk: string) => (output += chunk))
-    child.once("exit", (code) => reject(new Error(`cello start exited (${code}): ${output}`)))
-  })
-
-/**
- * Stops a server this test started, by its pid, and waits for it to exit. SIGKILL: with a tab
- * connected, a SIGTERM'd server still takes 20 s to exit (CEL-17), and the next one takes over its
- * stale lock either way.
- */
-const stop = (child: ChildProcess) =>
-  new Promise<void>((resolve) => {
-    if (child.exitCode !== null || child.signalCode !== null) return resolve()
-    child.once("exit", () => resolve())
-    process.kill(child.pid!, "SIGKILL")
-  })
-
-/** Project CEL with one task, so the board and a task page have something on them. */
-const seed = async (port: number) => {
-  const client = await openClient(`ws://127.0.0.1:${port}/rpc`)
-  const snapshot = await client.run((c) => c["snapshot.get"]({}))
-  const { result: project } = await client.run((c) =>
-    c["project.create"]({ commandId: newCommandId(), workspaceId: defaultWorkspaceId(snapshot), name: "Cello", key: "CEL" }))
-  await client.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title: "Ship the reload bar" }))
-  await client.close()
-}
+const seed = (port: number) => seedBoard(port, "Ship the reload bar")
 
 test.beforeAll(async () => {
   test.setTimeout(180_000)
   buildWeb(A)
-  buildWeb(B)
-  const stamp = JSON.parse(fs.readFileSync(path.join(B.dir, "build.json"), "utf8"))
-  fs.writeFileSync(path.join(B.dir, "build.json"), JSON.stringify({ ...stamp, changes: B_CHANGES }))
+  buildWeb(B, B_CHANGES)
   expect(entryOf(A.dir)).not.toBe(entryOf(B.dir))
 })
 
-test.afterEach(async () => {
-  for (const child of servers.splice(0)) await stop(child)
-})
+test.afterEach(stopAll)
 
 test.afterAll(() => fs.rmSync(work, { recursive: true, force: true }))
 

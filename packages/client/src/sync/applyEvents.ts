@@ -133,6 +133,8 @@ const apply = (d: Draft, e: CelloEvent) => {
       return d.set("documents", e.id, e.document)
     case "document.archived":
       return d.update("documents", e.id, (doc) => ({ ...doc, archivedAt: e.ts }))
+    case "build.recorded":
+      return // builds load on the Builds page, not in board state
   }
 }
 

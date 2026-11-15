@@ -1,15 +1,20 @@
 // Upgrading a database that already has data. 0003 rebuilds `attachments` (a page's files hang off its
-// document, not a task) and must keep every row; 0005 rebuilds `statuses` (a new category, under the
+// document, not a task) and must keep every row. 0005 adds build history to a copy of a database that
+// has a board on it, and changes nothing else. 0006 rebuilds `statuses` (a new category, under the
 // tasks that reference it) and `inbox_items`, and adds Needs input to the workspaces that lack it.
+import * as fs from "node:fs"
+import * as path from "node:path"
 import * as SqliteMigrator from "@effect/sql-sqlite-bun/SqliteMigrator"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/sql/SqlClient"
+import { tempDataDir } from "../testing/tempDir.ts"
 import * as Migrations from "./Migrations.ts"
 import init from "./migrations/0001_init.ts"
 import reviews from "./migrations/0002_reviews.ts"
 import documents from "./migrations/0003_documents.ts"
 import inbox from "./migrations/0004_inbox.ts"
+import builds from "./migrations/0005_builds.ts"
 import * as Sqlite from "./Sqlite.ts"
 
 const untilReviews = SqliteMigrator.run({
@@ -53,8 +58,70 @@ const untilInbox = SqliteMigrator.run({
   table: "migrations",
 }).pipe(Effect.orDie)
 
+/** Every table's rows but the migrations bookkeeping and the new builds table: what 0005 must leave alone. */
+const boardRows = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+  const tables = yield* sql<{ name: string }>`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT IN ('migrations', 'builds') AND name NOT LIKE 'sqlite_%' ORDER BY name`
+  const rows: Record<string, unknown> = {}
+  for (const { name } of tables) rows[name] = yield* sql.unsafe(`SELECT * FROM "${name}" ORDER BY rowid`)
+  return rows
+})
+
+describe("migration 0005_builds", () => {
+  it.effect("adds the builds table to a copy of a database with a board on it, keeps every row, and is safe to run again", () =>
+    Effect.gen(function* () {
+      const dir = yield* tempDataDir
+      const original = path.join(dir, "cello.db")
+      // A database as the live board has it before CEL-50: migrated to 0004, seeded, with a project and a task.
+      const before = yield* Effect.gen(function* () {
+        yield* untilInbox
+        const sql = yield* SqlClient.SqlClient
+        // Seeded as that build seeded it (today's defaults carry Needs input, a category 0004 doesn't know).
+        yield* sql`INSERT INTO actors (id, kind, name, color, created_at) VALUES ('human', 'human', 'Lucas', '#3B82F6', 1)`
+        yield* sql`INSERT INTO workspaces (id, name, slug, position, created_at, updated_at) VALUES ('w1', 'Personal', 'personal', 'a0', 1, 1)`
+        yield* sql`INSERT INTO statuses (id, workspace_id, name, category, position, color, created_at, updated_at)
+          VALUES ('s1', 'w1', 'Todo', 'unstarted', 'a1', '#6B7280', 1, 1)`
+        const [human] = yield* sql<{ id: string }>`SELECT id FROM actors`
+        const [workspace] = yield* sql<{ id: string }>`SELECT id FROM workspaces`
+        const [status] = yield* sql<{ id: string }>`SELECT id FROM statuses ORDER BY position LIMIT 1`
+        yield* sql`INSERT INTO projects (id, workspace_id, name, key, color, created_at, updated_at)
+          VALUES ('p1', ${workspace!.id}, 'Cello', 'CEL', '#5E6AD2', 1, 1)`
+        yield* sql`INSERT INTO tasks (id, project_id, number, title, status_id, position, created_by_actor_id, created_at, updated_at)
+          VALUES ('t1', 'p1', 1, 'Build history', ${status!.id}, 'a0', ${human!.id}, 1, 1)`
+        return yield* boardRows
+      }).pipe(Effect.provide(Sqlite.layer(original)), Effect.scoped)
+
+      // Migrate a copy, the way a migration is checked before it reaches the live board.
+      const copy = path.join(dir, "copy.db")
+      fs.copyFileSync(original, copy)
+      yield* Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient
+        // Up to 0005 only: 0006 (asks, CEL-47) adds a status, and has its own test below.
+        yield* beforeAsks
+        expect(yield* boardRows).toEqual(before)
+        expect(yield* sql`SELECT * FROM builds`).toEqual([])
+        expect((yield* sql<{ name: string }>`SELECT name FROM migrations`).map((m) => m.name)).toContain("builds")
+
+        // Again, as every server start does (nothing pending), and the migration itself twice: no change, no error.
+        yield* beforeAsks
+        yield* builds
+        yield* sql`INSERT INTO builds (id, number, version, commit_hash, web_built_at, started_at, last_started_at, changes, created_at)
+          VALUES ('0.2.0+aaaaaaa.1', 1, '0.2.0', 'aaaaaaa', 1, 2, 2, '[]', 2)`
+        yield* builds
+        expect(yield* sql`SELECT id FROM builds`).toEqual([{ id: "0.2.0+aaaaaaa.1" }])
+        expect(yield* boardRows).toEqual(before)
+      }).pipe(Effect.provide(Sqlite.layer(copy)), Effect.scoped)
+    }).pipe(Effect.scoped))
+})
+
+const beforeAsks = SqliteMigrator.run({
+  loader: SqliteMigrator.fromRecord({ "0001_init": init, "0002_reviews": reviews, "0003_documents": documents, "0004_inbox": inbox, "0005_builds": builds }),
+  table: "migrations",
+}).pipe(Effect.orDie)
+
 /**
- * A board as it is before CEL-47, with every table 0005 rebuilds or touches holding rows: Personal
+ * A board as it is before CEL-47, with every table 0006 rebuilds or touches holding rows: Personal
  * (the default statuses), Work (renamed and reordered statuses, no In Review), Old (archived, with a
  * status of its own already named "needs input"), tasks in every status, some claimed, a review with
  * evidence, comments with inbox items (one read), a document and an event.
@@ -111,7 +178,7 @@ const realisticBoard = Effect.gen(function* () {
     VALUES (5, 'task.moved', 'task', 't10', 'personal', 'cel', 'cmd1', 'claude', 1, '{}', 5)`
 })
 
-/** Every row 0005 might touch, every column that was there before it. */
+/** Every row 0006 might touch, every column that was there before it. */
 const everything = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   return {
@@ -127,10 +194,10 @@ const everything = Effect.gen(function* () {
   }
 })
 
-describe("migration 0005_asks", () => {
+describe("migration 0006_asks", () => {
   it.effect("adds Needs input to every workspace without one, between In Progress and In Review, and changes nothing else", () =>
     Effect.gen(function* () {
-      yield* untilInbox
+      yield* beforeAsks
       yield* realisticBoard
       const sql = yield* SqlClient.SqlClient
       const before = yield* everything
@@ -175,7 +242,7 @@ describe("migration 0005_asks", () => {
 
   it.effect("an inbox item holds a comment or an ask's answers, never both; a task has one open ask at most", () =>
     Effect.gen(function* () {
-      yield* untilInbox
+      yield* beforeAsks
       yield* realisticBoard
       yield* Migrations.run
       const sql = yield* SqlClient.SqlClient
