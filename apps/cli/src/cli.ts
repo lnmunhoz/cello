@@ -1,5 +1,6 @@
 // The `cello` command tree. Each command parses its arguments, makes one RPC call (two when it must
-// first turn a task key or a status name into an id), and prints short text, or JSON with --json.
+// first turn a task key or a status name into an id, or mark what it shows read), and prints short
+// text, or JSON with --json.
 import * as path from "node:path"
 import * as BunSocket from "@effect/platform-bun/BunSocket"
 import { CelloClient, makeClientLayer, newCommandId } from "@cello/client/client"
@@ -13,12 +14,15 @@ import * as Option from "effect/Option"
 import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
+import { HOOK_DEADLINE_MS, HOOK_EVENTS, hookResponse, hookSession, parseHookInput } from "./claudeHook.ts"
+import { addCelloHooks, CELLO_HOOKS, type Merged, readSettings, removeCelloHooks, settingsPath, writeSettings } from "./claudeSettings.ts"
 import { CliEnv, portOf } from "./env.ts"
 import { CliFailure, explain } from "./errors.ts"
 import { evidenceFromArgs } from "./evidence.ts"
 import { ago, columns, sessionName } from "./format.ts"
 import { GUIDE } from "./guide.ts"
 import { type Env, IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
+import { deliveryText, inboxEntries } from "./inbox.ts"
 import { pageFiles } from "./pageFiles.ts"
 import { repoRootFor } from "./repo.ts"
 import { start } from "./start.ts"
@@ -32,14 +36,20 @@ class CliArgs extends Context.Service<CliArgs, ReadonlyArray<string>>()("cello/C
 
 // ── running a call ──────────────────────────────────────────────────────────────────────────────
 
-/** Runs `use` with a client connected as this environment's caller; any failure becomes a CliFailure. */
-const withClient = <A, E>(use: (client: CelloClient["Service"]) => Effect.Effect<A, E | CliFailure, CelloClient>) =>
+/**
+ * Runs `use` with a client connected as this environment's caller (or as `headers`, for the hook);
+ * any failure becomes a CliFailure.
+ */
+const withClient = <A, E>(
+  use: (client: CelloClient["Service"]) => Effect.Effect<A, E | CliFailure, CelloClient>,
+  headers?: Readonly<Record<string, string>>,
+) =>
   Effect.gen(function* () {
     const { env, cwd, now } = yield* CliEnv
     const port = portOf(env)
     const socket = BunSocket.layerWebSocket(`ws://127.0.0.1:${port}/rpc`)
     return yield* Effect.flatMap(Effect.service(CelloClient), use).pipe(
-      Effect.provide(makeClientLayer(socket, identityHeaders(env, cwd))),
+      Effect.provide(makeClientLayer(socket, headers ?? identityHeaders(env, cwd))),
       Effect.mapError((error) => error instanceof CliFailure ? error : new CliFailure({ message: explain(error, { port, now: now() }) })),
     )
   })
@@ -174,7 +184,14 @@ const whoami = Command.make("whoami", { project }, (input) =>
 const context = Command.make("context", { project, json }, (input) =>
   Effect.gen(function* () {
     const ref = yield* projectRef(input.project)
-    const ctx = yield* withClient((client) => client["context"]({ project: ref }))
+    // The new comments it shows count as read, so the hook doesn't hand them over a second time.
+    const ctx = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const ctx = yield* client["context"]({ project: ref })
+        if (ctx.inbox.length) yield* client["inbox.markRead"]({ ids: ctx.inbox.map((i) => i.id) })
+        return ctx
+      })
+    )
     if (input.json) return yield* printJson(ctx)
     const now = (yield* CliEnv).now()
     const visible = ctx.statuses.filter((s) => !s.hidden).map((s) => s.name)
@@ -184,10 +201,22 @@ const context = Command.make("context", { project, json }, (input) =>
       `You       ${ctx.session ? `${sessionName(ctx.session)}${ctx.session.entrypoint ? ` (${ctx.session.entrypoint})` : ""}` : `${ctx.actor.name} (human)`}`,
       `Statuses  ${visible.join(" · ")}${hidden.length ? ` (hidden: ${hidden.join(", ")})` : ""}`,
       `Labels    ${ctx.labels.map((l) => l.name).join(" · ") || "none yet"}`,
+    ]
+    if (ctx.inbox.length) {
+      const sentBack = ctx.inbox.find((i) => i.kind === "send_back")
+      lines.push(
+        "",
+        `New comments for you (${ctx.inbox.length})`,
+        ...indent(inboxEntries(ctx.inbox, now)),
+        `  Answer on the card: \`cello task comment ${ctx.inbox[0]!.taskKey} "…"\`.`,
+        ...(sentBack ? [`  Sent back: fix it, then hand it in again with \`cello task submit ${sentBack.taskKey}\`.`] : []),
+      )
+    }
+    lines.push(
       "",
       "Claimed by you",
       ...(ctx.claimed.length ? taskRows(ctx, ctx.claimed).map((l) => `  ${l}`) : ["  nothing yet: `cello task list`, then `cello task claim KEY`"]),
-    ]
+    )
     if (ctx.lostClaims.length) {
       lines.push("", "Claims you lost")
       for (const { event, taskKey } of ctx.lostClaims) {
@@ -204,7 +233,10 @@ const context = Command.make("context", { project, json }, (input) =>
     ])).map((l) => `  ${l}`))
     if (ctx.recent.length === 0) lines.push("  none yet")
     yield* print(lines.join("\n"))
-  })).pipe(Command.withDescription("Start here: the project, its statuses and labels, your claims and recent activity."))
+  })).pipe(Command.withDescription("Start here: the project, its statuses and labels, new comments for you, your claims and recent activity."))
+
+/** Lines indented by two spaces; blank lines stay blank. */
+const indent = (lines: ReadonlyArray<string>) => lines.map((l) => (l === "" ? l : `  ${l}`))
 
 /** Lookup tables for describeEvent. */
 const byIds = (names: { readonly statuses: ReadonlyArray<Status>; readonly labels: ReadonlyArray<{ id: string; name: string }> }) => ({
@@ -560,6 +592,142 @@ const doc = Command.make("doc").pipe(
   Command.withSubcommands([docPublish, docList, docGet, docArchive]),
 )
 
+// ── comments for agents (CEL-15) ────────────────────────────────────────────────────────────────
+
+const inbox = Command.make("inbox", {
+  onlyNew: Flag.Boolean("new").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Only new comments, and print nothing (exit 0) when there are none. For scripts and hooks."),
+  ),
+  json: Flag.Boolean("json").pipe(Flag.withDefault(false), Flag.withDescription("Print the inbox as JSON, as it was before reading.")),
+}, (input) =>
+  Effect.gen(function* () {
+    // Marked read before it's printed: whatever this prints never comes back through the hook.
+    const read = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const inbox = yield* client["inbox.list"](input.onlyNew ? { unreadOnly: true } : {})
+        const fresh = inbox.items.filter((i) => i.readAt === null)
+        if (fresh.length) yield* client["inbox.markRead"]({ ids: fresh.map((i) => i.id) })
+        return inbox
+      })
+    )
+    if (input.json) return yield* printJson(read)
+    const now = (yield* CliEnv).now()
+    const fresh = read.items.filter((i) => i.readAt === null)
+    if (input.onlyNew) return fresh.length ? yield* print(deliveryText(fresh, now)) : undefined
+    if (read.session === null) {
+      return yield* print(
+        "The human has no inbox: comments reach the agent session that claimed the task. Run this from an agent session (CLAUDE_CODE_SESSION_ID or CELLO_SESSION set).",
+      )
+    }
+    const earlier = read.items.filter((i) => i.readAt !== null)
+    const lines = [fresh.length ? deliveryText(fresh, now) : `No new comments for ${sessionName(read.session)}.`]
+    if (earlier.length) lines.push("", "Earlier", ...indent(inboxEntries(earlier, now)))
+    yield* print(lines.join("\n"))
+  })).pipe(Command.withDescription(
+    "Show the comments Lucas left on tasks this session claimed (Send back notes too) and mark them read. " +
+      "Use it when `cello context` says there are new ones, or to reread what he said; with `cello install claude` they arrive by themselves.",
+  ))
+
+const hookClaude = Command.make("claude", {
+  event: Argument.Literals("event", HOOK_EVENTS).pipe(
+    Argument.withDescription("The hook event Claude Code runs it for: stop (Stop) or post-tool-use (PostToolUse)."),
+  ),
+}, (input) =>
+  Effect.gen(function* () {
+    const { env, cwd, now, readStdin } = yield* CliEnv
+    const hook = parseHookInput(yield* Effect.promise(readStdin))
+    const session = hookSession(hook, env)
+    // A subagent's tool calls carry its parent's session; leave the comments for the main conversation.
+    if (hook.inSubagent || session === null) return
+    const headers = identityHeaders({ ...env, CELLO_SESSION: undefined, CLAUDE_CODE_SESSION_ID: session }, hook.cwd ?? cwd)
+    // Marked read before they're printed, so a comment is never handed over twice and a Stop hook
+    // can't loop on it (stop_hook_active needs no special case).
+    const fresh = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const { items } = yield* client["inbox.list"]({ unreadOnly: true })
+        if (items.length) yield* client["inbox.markRead"]({ ids: items.map((i) => i.id) })
+        return items
+      }), headers)
+    if (fresh.length) yield* print(JSON.stringify(hookResponse(input.event, deliveryText(fresh, now()))))
+  }).pipe(
+    // It must never break or stall the session: a slow or missing server, bad input, anything, is silence and exit 0.
+    Effect.timeout(HOOK_DEADLINE_MS),
+    Effect.catchCause(() => Effect.void),
+  )).pipe(Command.withDescription(
+    "Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin and hands new comments " +
+      "for its session back to the agent (Stop: keeps it going; PostToolUse: adds them as context). Prints nothing when there are none.",
+  ))
+
+const hook = Command.make("hook").pipe(
+  Command.withDescription("Hooks for agent hosts; `cello hook claude <event>` is what `cello install claude` puts in Claude Code's settings."),
+  Command.withSubcommands([hookClaude]),
+)
+
+const userFlag = Flag.Boolean("user").pipe(
+  Flag.withDefault(false),
+  Flag.withDescription("Your user settings, ~/.claude/settings.json (every project), instead of this project's .claude/settings.json."),
+)
+
+/** Reads a Claude Code settings file, changes it with `change`, and writes it back if anything changed. */
+const updateSettings = (user: boolean, change: (settings: unknown) => Merged) =>
+  Effect.gen(function* () {
+    const { env, cwd } = yield* CliEnv
+    const file = yield* Effect.try({
+      try: () => settingsPath({ user, home: env.HOME, cwd }),
+      catch: (e) => new CliFailure({ message: `${(e as Error).message}.` }),
+    })
+    const merged = yield* Effect.try({
+      try: () => change(readSettings(file)),
+      catch: (e) => new CliFailure({ message: `Can't update ${file}: ${(e as Error).message}. Fix it first; Cello won't overwrite it.` }),
+    })
+    if (merged.changed) {
+      yield* Effect.try({
+        try: () => writeSettings(file, merged.settings),
+        catch: (e) => new CliFailure({ message: `Can't write ${file}: ${(e as Error).message}.` }),
+      })
+    }
+    return { file, changed: merged.changed }
+  })
+
+const installClaude = Command.make("claude", { user: userFlag }, (input) =>
+  Effect.gen(function* () {
+    const { file, changed } = yield* updateSettings(input.user, addCelloHooks)
+    if (!changed) return yield* print(`Cello's Claude Code hooks are already in ${file}.`)
+    const { env } = yield* CliEnv
+    const lines = [
+      `Installed Cello's Claude Code hooks in ${file}:`,
+      ...indent(columns(CELLO_HOOKS.map((h) => [h.event, h.command]))),
+      "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
+      "New Claude Code sessions pick them up.",
+    ]
+    if (Bun.which("cello", { PATH: env.PATH ?? "" }) === null) {
+      lines.push(
+        "`cello` isn't on your PATH, so Claude Code can't run the hooks. Put the cello binary on the PATH Claude Code starts with (e.g. ~/.local/bin).",
+      )
+    }
+    yield* print(lines.join("\n"))
+  })).pipe(Command.withDescription(
+    "Add Claude Code hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse, running " +
+      "`cello hook claude`). Merges with the hooks already there; running it again changes nothing. Once per project, or once with --user.",
+  ))
+
+const uninstallClaude = Command.make("claude", { user: userFlag }, (input) =>
+  Effect.gen(function* () {
+    const { file, changed } = yield* updateSettings(input.user, removeCelloHooks)
+    yield* print(changed ? `Removed Cello's Claude Code hooks from ${file}.` : `No Cello hooks in ${file}.`)
+  })).pipe(Command.withDescription("Take Cello's hooks out of Claude Code's settings, leaving every other hook and setting as it was."))
+
+const install = Command.make("install").pipe(
+  Command.withDescription("Connect an agent host to Cello: `cello install claude` adds the Claude Code hooks."),
+  Command.withSubcommands([installClaude]),
+)
+
+const uninstall = Command.make("uninstall").pipe(
+  Command.withDescription("Undo `cello install`: `cello uninstall claude` removes the Claude Code hooks."),
+  Command.withSubcommands([uninstallClaude]),
+)
+
 const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(Command.withDescription("How agents work with Cello."))
 
 const task = Command.make("task").pipe(
@@ -573,7 +741,7 @@ const startCommand = Command.make("start", {}, () => start).pipe(
 
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, task, doc, whoami, guide, startCommand]),
+  Command.withSubcommands([context, task, inbox, doc, whoami, guide, install, uninstall, hook, startCommand]),
 )
 
 /** Runs `cello` with these arguments (without the program name). */
