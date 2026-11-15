@@ -30,11 +30,13 @@ test("settings: rename, reorder and hide a status; the board's columns follow", 
   const name = page.getByLabel("In Review name")
   await name.fill("Reviewing")
   await name.press("Enter")
-  await expect(statusRows(page).nth(3)).toHaveAttribute("data-status-row", "Reviewing")
+  await expect(statusRows(page).nth(4)).toHaveAttribute("data-status-row", "Reviewing")
 
-  await caption(page, "Move Reviewing up, above In Progress")
+  await caption(page, "Move Reviewing up twice, above In Progress")
   await page.getByRole("button", { name: "Move Reviewing up" }).click()
-  const order = ["Backlog", "Todo", "Reviewing", "In Progress", "Done", "Canceled"]
+  await expect(statusRows(page).nth(3)).toHaveAttribute("data-status-row", "Reviewing")
+  await page.getByRole("button", { name: "Move Reviewing up" }).click()
+  const order = ["Backlog", "Todo", "Reviewing", "In Progress", "Needs input", "Done", "Canceled"]
   await expect(statusRows(page)).toHaveCount(order.length)
   for (const [i, status] of order.entries()) await expect(statusRows(page).nth(i)).toHaveAttribute("data-status-row", status)
 
@@ -42,9 +44,9 @@ test("settings: rename, reorder and hide a status; the board's columns follow", 
   await page.getByRole("button", { name: "Hide Todo" }).click()
   await expect(page.locator('[data-status-row="Todo"]')).toContainText("Hidden")
 
-  await caption(page, "The board shows Reviewing, In Progress and Done, in that order")
+  await caption(page, "The board shows Reviewing, In Progress, Needs input and Done, in that order")
   await projectLink(page, key).click()
-  await expect(columnHeadings(page)).toHaveText(["Reviewing", "In Progress", "Done"])
+  await expect(columnHeadings(page)).toHaveText(["Reviewing", "In Progress", "Needs input", "Done"])
 })
 
 test("hidden columns: hide a status in settings; it folds into the strip, and a click shows it again", async ({ page }) => {

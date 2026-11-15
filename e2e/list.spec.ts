@@ -35,7 +35,7 @@ test("list: switch to List, add tasks from a group's +, open a row's panel, use 
 
   await caption(page, "Groups follow the status order; hidden statuses fold at the end")
   const groups = await list(page).locator("section[data-group]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset["group"]))
-  expect(groups).toEqual(["Todo", "In Progress", "In Review", "Done", "Backlog", "Canceled"])
+  expect(groups).toEqual(["Todo", "In Progress", "Needs input", "In Review", "Done", "Backlog", "Canceled"])
   await expect(group(page, "Todo").getByRole("button", { name: "Todo", exact: true })).toHaveAttribute("aria-expanded", "true")
   await expect(group(page, "Backlog").getByRole("button", { name: "Backlog", exact: true })).toHaveAttribute("aria-expanded", "false")
 
