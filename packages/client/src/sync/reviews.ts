@@ -51,12 +51,16 @@ export const attachmentUrl = (attachment: Pick<Attachment, "id">): string => att
 export const posterUrl = (attachment: Pick<Attachment, "id" | "hasPoster">): string | undefined =>
   attachment.hasPoster ? `${attachmentPath(attachment.id)}/poster` : undefined
 
-/** What a card shows for a packet: the first video's poster, else the first screenshot. */
-export const thumbnailOf = (review: Review): string | null => {
+/**
+ * A packet's thumbnail. A card shows the first video's poster, else the first screenshot; a Review row
+ * (`prefer: "screenshot"`) the other way round, since a poster can be the video's blank first frame.
+ */
+export const thumbnailOf = (review: Review, prefer: "poster" | "screenshot" = "poster"): string | null => {
   const video = review.attachments.find((a) => a.kind === "video" && a.hasPoster)
-  if (video) return posterUrl(video)!
   const image = review.attachments.find((a) => a.kind === "image")
-  return image ? attachmentUrl(image) : null
+  const poster = video ? posterUrl(video)! : null
+  const screenshot = image ? attachmentUrl(image) : null
+  return prefer === "poster" ? (poster ?? screenshot) : (screenshot ?? poster)
 }
 
 const EVIDENCE_ORDER: ReadonlyArray<Attachment["kind"]> = ["video", "image", "file", "link"]

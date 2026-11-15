@@ -30,6 +30,9 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   const navigate = useNavigate({ from: "/review" })
   const listRef = useRef<HTMLUListElement>(null)
   const [focused, setFocused] = useState<string | null>(null)
+  // While the keys move between rows, a parked mouse's hover highlight steps aside, so only the focused
+  // row stands out; moving the mouse brings hover back.
+  const [usingKeys, setUsingKeys] = useState(false)
   /** Set by a decision: the row it opens takes the focus, so the keys go on working. */
   const focusOpened = useRef(false)
 
@@ -65,6 +68,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
         void navigate({ search: {}, replace: true })
       } else if ((e.key === "j" || e.key === "k") && tabbable !== null) {
         e.preventDefault()
+        setUsingKeys(true)
         setFocused(tabbable)
         headerOf(tabbable)?.focus()
       }
@@ -77,12 +81,14 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
     if (e.metaKey || e.ctrlKey || e.altKey) return
     if (e.key === "Enter") {
       e.preventDefault()
+      setUsingKeys(true)
       setOpen(key)
       return
     }
     const next = nextRow(keys, key, rowKey(e.key))
     if (next === null) return
     e.preventDefault()
+    setUsingKeys(true)
     focusRow(next)
   }
 
@@ -119,7 +125,16 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
               </p>
             </div>
           ) : (
-            <ul ref={listRef} aria-label="Waiting for review" className="flex flex-col gap-2" onKeyDown={onListKeyDown}>
+            <ul
+              ref={listRef}
+              aria-label="Waiting for review"
+              data-keys={usingKeys ? "" : undefined}
+              className="flex flex-col gap-2"
+              onKeyDown={onListKeyDown}
+              onPointerMove={() => {
+                if (usingKeys) setUsingKeys(false)
+              }}
+            >
               {queue.map((item) => {
                 const key = item.task.key
                 const isOpen = key === openKey
@@ -130,6 +145,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
                       item={item}
                       open={isOpen}
                       tabbable={key === tabbable}
+                      hover={!usingKeys}
                       onToggle={() => setOpen(isOpen ? null : key)}
                       onFocus={() => setFocused(key)}
                       onKeyDown={(e) => onRowKeyDown(e, key)}
@@ -155,6 +171,8 @@ interface ReviewRowProps {
   readonly item: ReviewItem
   readonly open: boolean
   readonly tabbable: boolean
+  /** Off while the keyboard moves between rows. */
+  readonly hover: boolean
   readonly onToggle: () => void
   readonly onFocus: () => void
   readonly onKeyDown: (e: KeyboardEvent<HTMLButtonElement>) => void
@@ -165,7 +183,7 @@ interface ReviewRowProps {
  * A waiting task: collapsed, its key, title, project, who submitted it and when, and its evidence;
  * open, its packet with Approve and Send back.
  */
-function ReviewRow({ board, item, open, tabbable, onToggle, onFocus, onKeyDown, onDecided }: ReviewRowProps) {
+function ReviewRow({ board, item, open, tabbable, hover, onToggle, onFocus, onKeyDown, onDecided }: ReviewRowProps) {
   const { task, project, review } = item
   const status = board.statuses[task.statusId]
   const headingId = `review-${task.id}`
@@ -188,7 +206,7 @@ function ReviewRow({ board, item, open, tabbable, onToggle, onFocus, onKeyDown, 
           onClick={onToggle}
           onFocus={onFocus}
           onKeyDown={onKeyDown}
-          className={`flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring ${open ? "rounded-t-lg" : "rounded-lg"}`}
+          className={`flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring ${hover ? "hover:bg-hover" : ""} ${open ? "rounded-t-lg" : "rounded-lg"}`}
         >
           <ChevronRightIcon
             aria-hidden

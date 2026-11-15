@@ -88,6 +88,14 @@ describe("evidence", () => {
     expect(thumbnailOf(review("r", "t", 1, [attachment("f", "file")]))).toBeNull()
   })
 
+  it("a Review row prefers the first screenshot (a poster can be the video's blank first frame), else a poster", () => {
+    const shot = attachment("s1", "image")
+    const video = attachment("v1", "video", { hasPoster: true })
+    expect(thumbnailOf(review("r", "t", 1, [video, attachment("s0", "image"), shot]), "screenshot")).toBe("/attachments/s0")
+    expect(thumbnailOf(review("r", "t", 1, [attachment("l", "link"), video]), "screenshot")).toBe("/attachments/v1/poster")
+    expect(thumbnailOf(review("r", "t", 1, [attachment("f", "file")]), "screenshot")).toBeNull()
+  })
+
   it("is shown videos first, then screenshots, files and links, each kind in the order it was attached", () => {
     const list = [attachment("l1", "link"), attachment("f1", "file"), attachment("s1", "image"), attachment("v1", "video"), attachment("s2", "image")]
     expect(evidenceInOrder(list).map((a) => a.id)).toEqual(["v1", "s1", "s2", "f1", "l1"])

@@ -177,15 +177,20 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
   await expect(one.header).toContainText("Collapse the review feed")
   await expect(one.header).toContainText("Review rows test")
   await expect(one.header).toContainText(/Claude Code · (just now|\d+ min ago)/)
-  await expect(one.header.locator("[data-evidence-badge]")).toContainText("2")
-  await expect(one.header.locator("[data-evidence-badge] img")).toHaveJSProperty("naturalWidth", 1440)
+  // The evidence: the first screenshot (the board with the tasks on it), and how many pieces, with an icon.
+  const badge = one.header.locator("[data-evidence-badge]")
+  await expect(badge).toHaveText("2")
+  await expect(badge).toHaveAttribute("title", "2 pieces of evidence")
+  await expect(badge.locator("svg")).toHaveCount(1)
+  await expect(badge.locator("img")).toHaveAttribute("src", /^\/attachments\/\w+$/)
+  await expect(badge.locator("img")).toHaveJSProperty("naturalWidth", 1440)
   for (const colorScheme of ["light", "dark"] as const) await screenshotRows(browser, `${key}-1`, colorScheme)
 
   await caption(page, `Click ${key}-1: its packet opens`)
   await one.header.click()
   await expect(one.header).toHaveAttribute("aria-expanded", "true")
   // The step names the task: its key links to it, with its status (CEL-20).
-  await expect(one.steps.locator(`[data-task-key="${key}-1"] [data-task-status]`)).toHaveText("In Review")
+  await expect(one.steps.locator(`[data-task-link="${key}-1"] [data-task-status]`)).toHaveText("In Review")
   await expect(page).toHaveURL(new RegExp(`/review\\?open=${key}-1$`))
 
   await caption(page, `Click ${key}-2: it opens, and ${key}-1 closes`)
@@ -196,9 +201,13 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
   await expect(one.steps).toHaveCount(0)
   await expect(page).toHaveURL(new RegExp(`/review\\?open=${key}-2$`))
 
-  await caption(page, "k moves up a row, Enter opens it")
+  await caption(page, "k moves up a row, Enter opens it; the keyboard wins over the mouse's hover")
+  await two.header.hover()
+  await expect(two.header).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
   await page.keyboard.press("k")
   await expect(one.header).toBeFocused()
+  // The mouse still rests on the other row: its hover highlight gives way while the keys are in use.
+  await expect(two.header).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
   await page.keyboard.press("Enter")
   await expect(one.header).toHaveAttribute("aria-expanded", "true")
   await expect(two.header).toHaveAttribute("aria-expanded", "false")
@@ -226,7 +235,7 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
   await page.reload()
   await caption(page, `Reloaded: ${key}-2 is still open`)
   await expect(two.header).toHaveAttribute("aria-expanded", "true")
-  await expect(two.steps.locator(`[data-task-key="${key}-2"]`)).toBeVisible()
+  await expect(two.steps.locator(`[data-task-link="${key}-2"]`)).toBeVisible()
   await expect(one.header).toHaveAttribute("aria-expanded", "false")
 
   await caption(page, `Approve ${key}-2: it leaves the queue and ${key}-3 opens`)
@@ -238,6 +247,8 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
 
   await caption(page, `Open ${key}-1 and send it back: ${key}-3 opens again`)
   await one.header.click()
+  // The mouse moved: hover highlights are back.
+  await expect(one.header).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
   await one.article.getByRole("button", { name: "Send back" }).click()
   const dialog = page.getByRole("dialog", { name: `Send ${key}-1 back` })
   await dialog.getByLabel("Note").fill("Keep the thumbnail when the row is open, too.")
