@@ -3,7 +3,7 @@
 // what ticking those does, and which filter shows: a link's, or the one kept for the project.
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { filterFromSearch, hasFilter, type MatchContext, type TaskFilter } from "@cello/client/sync/filters"
-import type { AgentSession, Label, LabelGroup, Task } from "@cello/contract/entities"
+import { type AgentSession, type Label, LABEL_GROUP_NAMES, type LabelGroup, type Task } from "@cello/contract/entities"
 import { type Presence, presenceOf } from "@cello/shared/presence"
 
 /** How many areas show before "Show all". */
@@ -20,7 +20,6 @@ export interface LabelSection {
   readonly hidden: number
 }
 
-const HEADINGS: Record<LabelGroup, string> = { kind: "Kind", area: "Area", milestone: "Milestone", none: "Other" }
 const ORDER: ReadonlyArray<LabelGroup> = ["kind", "area", "milestone", "none"]
 
 /**
@@ -43,7 +42,7 @@ export const labelSections = (
   return ORDER.flatMap((group): LabelSection[] => {
     const all = labels.filter((l) => l.group === group)
     if (all.length === 0) return []
-    const heading = grouped ? HEADINGS[group] : null
+    const heading = grouped ? LABEL_GROUP_NAMES[group] : null
     if (group === "kind") return [{ group, heading, rows: [...all].sort(busiest), size: all.length, hidden: 0 }]
     if (group !== "area") return [{ group, heading, rows: [...all].sort(byName), size: all.length, hidden: 0 }]
     const ranked = [...all].sort(busiest)
@@ -88,6 +87,9 @@ export const toggleSession = (f: TaskFilter, id: string, listed: ReadonlyArray<s
   if (listed.length > 0 && listed.every((s) => sessions.includes(s))) return { ...f, holder: [...f.holder, "agent"], sessions: [] }
   return { ...f, sessions }
 }
+
+/** What the strip says where the panel is hidden (narrow windows): "Filtered: 6 of 30 tasks". */
+export const filterSummary = (shown: number, total: number): string => `Filtered: ${shown} of ${total} ${total === 1 ? "task" : "tasks"}`
 
 /** Where this device keeps a project's filter: one per project, so the board and the list share it. */
 export const filterKey = (projectKey: string): string => `cello:filter:${projectKey.toUpperCase()}`

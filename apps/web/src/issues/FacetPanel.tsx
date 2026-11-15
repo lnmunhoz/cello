@@ -3,6 +3,7 @@
 // to its busiest 6 until "Show all"), and "An agent" opens into the sessions holding claims.
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import {
+  applyFilter,
   countWith,
   type Due,
   type FilterField,
@@ -37,7 +38,7 @@ import { sessionWho } from "../presence/model.ts"
 import { PresenceDot } from "../presence/Presence.tsx"
 import { useNow } from "../presence/useNow.ts"
 import { agentBox, claimSessions, labelSections, toggleAgent, toggleSession, TOP_AREAS } from "./facets.ts"
-import { applyFilter, type FilterState, projectTasks, useFilter, useProjectBoard } from "./useFilter.ts"
+import { type FilterState, projectTasks, useFilter, useProjectBoard } from "./useFilter.ts"
 
 const icon = "size-3.5 shrink-0 text-muted"
 const on = (yes: boolean): Checked => (yes ? "on" : "off")
@@ -83,7 +84,7 @@ export function FacetPanel() {
           </Button>
         ) : null}
       </div>
-      <SearchInput aria-label="Filter by text" placeholder="Filter by text…" size="sm" value={state.filter.text} onChange={(e) => state.patch({ text: e.currentTarget.value })} />
+      <TextFilter state={state} />
       <Section name="Label" field="labels" filter={state.filter}>
         <LabelFacet props={props} labels={labels} />
       </Section>
@@ -138,6 +139,31 @@ const UPDATED: ReadonlyArray<{ id: Updated; name: string }> = [
   { id: "day", name: "In the last 24 hours" },
   { id: "week", name: "In the last 7 days" },
 ]
+
+/**
+ * The text box. While you type, what you typed is what it shows, and each change goes out to the
+ * filter (URL and the kept copy); the URL catches up a moment later, so showing it instead would snap
+ * the text back and move the caret. Once you leave the box it shows the filter again, so Clear all
+ * and a link reach it.
+ */
+function TextFilter({ state }: { state: FilterState }) {
+  const [draft, setDraft] = useState<string | null>(null)
+  return (
+    <SearchInput
+      aria-label="Filter by text"
+      placeholder="Filter by text…"
+      size="sm"
+      value={draft ?? state.filter.text}
+      onFocus={() => setDraft(state.filter.text)}
+      onBlur={() => setDraft(null)}
+      onChange={(e) => {
+        const text = e.currentTarget.value
+        setDraft(text)
+        state.patch({ text })
+      }}
+    />
+  )
+}
 
 /** A property's heading and its values; the heading reads darker while it filters. */
 function Section({ name, field, filter, children }: { name: string; field: FilterField; filter: TaskFilter; children: ReactNode }) {

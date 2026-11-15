@@ -829,7 +829,7 @@ const labelList = Command.make("list", { project, json }, (input) =>
 
 const groupFlag = Flag.String("group").pipe(
   Flag.optional,
-  Flag.withDescription(`What the label says about a task: ${LABEL_GROUPS.join(", ")}. The Issues tab's filter groups labels by it.`),
+  Flag.withDescription(`What the label says about a task: ${LABEL_GROUPS.join(", ")} (none is shown as Other; "other" works too). The Issues tab's filter groups labels by it.`),
 )
 
 /** `--group`, read; an unknown name fails before anything is sent. */
@@ -841,7 +841,7 @@ const readGroup = (value: Option.Option<string>) =>
     return group as LabelGroup
   })
 
-/** "Created label bug  #EF4444  kind": the group shows when it was asked for or isn't none. */
+/** "Created label bug  #EF4444  Kind": the group shows when it was asked for or isn't none. */
 const labelLine = (label: Label, groupAsked: boolean) =>
   `${label.name}  ${label.color}${groupAsked || label.group !== "none" ? `  ${groupWord(label.group)}` : ""}`
 
@@ -904,7 +904,7 @@ const labelUpdate = Command.make("update", {
     if (response.seq !== null) return yield* print(`Updated label ${labelLine(label, group !== undefined)}`)
     const already = [
       ...(Option.isSome(input.color) || group === undefined ? [label.color] : []),
-      ...(group === undefined ? [] : [group === "none" ? "without a group" : `in ${group}`]),
+      ...(group === undefined ? [] : [`in ${groupWord(group)}`]),
     ]
     yield* print(`Label ${label.name} is already ${already.join(", ")}.`)
   })).pipe(Command.withDescription("Recolour, rename or regroup a label. Every task carrying it shows the change."))

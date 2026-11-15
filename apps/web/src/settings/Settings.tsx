@@ -1,5 +1,5 @@
 import { placement, statusesOf } from "@cello/client/sync/selectors"
-import { type Label, LABEL_GROUPS, type LabelGroup, type Status } from "@cello/contract/entities"
+import { type Label, LABEL_GROUP_NAMES, LABEL_GROUPS, type LabelGroup, type Status } from "@cello/contract/entities"
 import { buildLine } from "@cello/shared/build"
 import { useAtomSet } from "@effect/atom-react"
 import { Link } from "@tanstack/react-router"
@@ -135,7 +135,7 @@ function StatusRow({ status, statuses, index }: { status: Status; statuses: Read
   )
 }
 
-const GROUP_OPTIONS = LABEL_GROUPS.map((value) => ({ value, label: value === "none" ? "No group" : value.charAt(0).toUpperCase() + value.slice(1) }))
+const GROUP_OPTIONS = LABEL_GROUPS.map((value) => ({ value, label: LABEL_GROUP_NAMES[value] }))
 
 function LabelRow({ label }: { label: Label }) {
   const update = useAtomSet(commands.updateLabel)

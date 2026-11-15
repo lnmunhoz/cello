@@ -159,6 +159,10 @@ const passes = (task: Task, f: TaskFilter, c: MatchContext, except?: Except): bo
 /** Whether the task passes every active filter. */
 export const matches = (task: Task, f: TaskFilter, c: MatchContext): boolean => passes(task, f, c)
 
+/** Keeps the tasks the filter shows. A task still being created (no number yet) always shows: it's yours, and just made. */
+export const applyFilter = (tasks: ReadonlyArray<Task>, f: TaskFilter, c: MatchContext): Task[] =>
+  tasks.filter((t) => t.number === 0 || matches(t, f, c))
+
 /**
  * How many tasks a value of `field` would show, given the other active filters (faceted counts, as in
  * a shop's filters). `value` sets the field to just that value. Labels count with `labelCount`.

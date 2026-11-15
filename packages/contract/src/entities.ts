@@ -87,6 +87,9 @@ export const LABEL_GROUPS = ["kind", "area", "milestone", "none"] as const
 export const LabelGroup = Schema.Literals(LABEL_GROUPS)
 export type LabelGroup = typeof LabelGroup.Type
 
+/** What every screen calls each group: the filter panel's headings, `cello label list`, Settings. */
+export const LABEL_GROUP_NAMES: Record<LabelGroup, string> = { kind: "Kind", area: "Area", milestone: "Milestone", none: "Other" }
+
 export const Label = Schema.Struct({
   id: Id,
   workspaceId: Id,

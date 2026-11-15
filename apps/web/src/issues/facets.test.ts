@@ -2,7 +2,7 @@ import type { BoardState } from "@cello/client/sync/applyEvents"
 import { EMPTY_FILTER, matchContext } from "@cello/client/sync/filters"
 import type { AgentSession, Label, LabelGroup, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { agentBox, claimSessions, filterKey, labelSections, sanitize, shownFilter, toggleAgent, toggleSession, TOP_AREAS } from "./facets.ts"
+import { agentBox, claimSessions, filterKey, filterSummary, labelSections, sanitize, shownFilter, toggleAgent, toggleSession, TOP_AREAS } from "./facets.ts"
 
 const label = (name: string, group: LabelGroup): Label => ({
   id: `l-${name}`, workspaceId: "w1", name, color: "#000", group, createdAt: 0, updatedAt: 0, archivedAt: null,
@@ -129,6 +129,11 @@ describe("An agent and its sessions", () => {
 })
 
 describe("the filter shown, and kept per project on this device", () => {
+  it("says how much a filter shows where the panel is hidden: Filtered: 6 of 30", () => {
+    expect(filterSummary(6, 30)).toBe("Filtered: 6 of 30 tasks")
+    expect(filterSummary(1, 1)).toBe("Filtered: 1 of 1 task")
+  })
+
   it("one key per project, shared by board and list", () => {
     expect(filterKey("cel")).toBe("cello:filter:CEL")
   })

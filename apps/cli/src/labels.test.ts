@@ -116,7 +116,7 @@ describe("labelListText", () => {
       "Milestone",
       "  M2       #3B82F6  1 task in CEL",
       "",
-      "No group",
+      "Other",
       "  misc     #3B82F6  1 task in CEL",
     ].join("\n"))
   })
@@ -126,6 +126,7 @@ describe("parseGroup", () => {
   it("reads a group in any case, and names the groups for anything else", () => {
     expect(parseGroup("Area")).toBe("area")
     expect(parseGroup(" kind ")).toBe("kind")
-    expect(parseGroup("theme")).toBe(`No group named "theme". Groups: kind, area, milestone, none. Nothing was changed.`)
+    expect(parseGroup("Other")).toBe("none")
+    expect(parseGroup("theme")).toBe(`No group named "theme". Groups: kind, area, milestone, none (shown as Other). Nothing was changed.`)
   })
 })

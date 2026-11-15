@@ -73,9 +73,9 @@ async function seedLabels(cello: PromiseClient) {
  * A project with the thirty tasks. Sessions 8a41c9e2 and 3f07b1d4 (live) hold 26–27 and 28–29, session
  * c19e55a0 (its process already gone) holds 30, and Lucas holds 24.
  */
-async function seed(cello: PromiseClient, baseURL: string, prefix: string) {
+async function seed(cello: PromiseClient, baseURL: string, prefix: string, name = "Cello") {
   const key = uniqueKey(prefix)
-  const project = await seedProject(cello, "Cello", key)
+  const project = await seedProject(cello, name, key)
   const { statuses } = await defaultWorkspace(cello)
   const labels = await seedLabels(cello)
   for (const [title, status, names] of TASKS) {
@@ -217,8 +217,14 @@ test("CEL-52: filter by who's working on it: An agent opens into the sessions ho
   await expect(panel(page).locator('[data-facet-option^="session-"]').last()).toHaveAttribute("data-facet-option", "session-c19e55a0")
 })
 
-test("CEL-52: the filter is kept per project across a reload, shared by the board and the list, and a link with a filter wins", async ({ page, cello, baseURL }) => {
-  const { key, k } = await seed(cello, baseURL!, "KEEP")
+test("CEL-52: the filter is kept per project across a reload, shared by the board and the list, not by other projects, and a link with a filter wins", async ({ page, cello, baseURL }) => {
+  const { key, k } = await seed(cello, baseURL!, "KEEP", "Cello filters")
+  const other = { key: uniqueKey("TWO") }
+  const second = await seedProject(cello, "Second project", other.key)
+  const { statuses } = await defaultWorkspace(cello)
+  for (const title of ["Pricing page", "Onboarding emails"]) {
+    await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: second.id, title, statusId: statuses["Todo"]!.id }))
+  }
   await page.goto(`/${key}/issues`)
   await expectShown(boardCards(page), key, Array.from({ length: 30 }, (_, i) => i + 1))
 
@@ -245,6 +251,27 @@ test("CEL-52: the filter is kept per project across a reload, shared by the boar
   await expectShown(listRows(page), key, [12, 13, 14, 15, 16, 17])
   await expect(page).not.toHaveURL(/label=/)
 
+  await captionWithUrl(page, "Another project, from the sidebar: it has no filter of its own, so everything shows")
+  const sidebar = page.locator('aside[data-sidebar="expanded"]')
+  await sidebar.getByRole("link", { name: "Second project", exact: true }).click()
+  await expectShown(listRows(page), other.key, [1, 2])
+  await expect(panel(page).getByRole("button", { name: "Clear all" })).toHaveCount(0)
+
+  await captionWithUrl(page, "Back to the first project: its filter is still there")
+  await sidebar.getByRole("link", { name: "Cello filters", exact: true }).click()
+  await expectShown(listRows(page), key, [12, 13, 14, 15, 16, 17])
+  await expect(option(page, "label-bug")).toHaveAttribute("aria-checked", "true")
+
+  await captionWithUrl(page, "In a narrow window the panel hides: a strip says the list is filtered, with Clear")
+  await page.setViewportSize({ width: 700, height: 900 })
+  await expect(panel(page)).toBeHidden()
+  await expect(page.locator("[data-filter-strip]")).toBeVisible()
+  await expect(page.locator("[data-filter-strip]")).toContainText("Filtered: 6 of 30 tasks")
+  await page.locator("[data-filter-strip]").getByRole("button", { name: "Clear" }).click()
+  await expect(page.locator("[data-filter-strip]")).toHaveCount(0)
+  await expectShown(listRows(page), key, Array.from({ length: 30 }, (_, i) => i + 1))
+  await page.setViewportSize({ width: 1440, height: 900 })
+
   await captionWithUrl(page, "Open a link with another filter (polish): the link wins")
   await page.goto(`/${key}/issues?label=polish`)
   await expectShown(boardCards(page), key, [20, 24, 30])
@@ -265,6 +292,59 @@ test("CEL-52: the filter is kept per project across a reload, shared by the boar
   await page.goto(`/${key}/issues`)
   await expectShown(boardCards(page), key, Array.from({ length: 30 }, (_, i) => i + 1))
   await expect(panel(page).getByRole("button", { name: "Clear all" })).toHaveCount(0)
+})
+
+test("CEL-52: while filtered: the text box keeps up with typing and an edit mid-word, a drag lands next to its shown neighbour, and a new card is created as usual", async ({ page, cello, baseURL }) => {
+  const { key, k } = await seed(cello, baseURL!, "WHILE")
+  await page.goto(`/${key}/issues`)
+  await expectShown(boardCards(page), key, Array.from({ length: 30 }, (_, i) => i + 1))
+  const box = panel(page).getByRole("searchbox", { name: "Filter by text" })
+  const titled = (word: string) => TASKS.flatMap(([title], i) => (title.toLowerCase().includes(word) ? [i + 1] : []))
+
+  await captionWithUrl(page, "Type “agnt” key by key: the box keeps every letter while the URL follows")
+  await box.pressSequentially("agnt")
+  await expect(box).toHaveValue("agnt")
+  await expect(page).toHaveURL(/q=agnt/)
+
+  await captionWithUrl(page, "Fix it in the middle: ← ← then “e” makes “agent”, the caret stays where it was put")
+  await box.press("ArrowLeft")
+  await box.press("ArrowLeft")
+  await box.pressSequentially("e")
+  await expect(box).toHaveValue("agent")
+  await expect(page).toHaveURL(/q=agent/)
+  await expectShown(boardCards(page), key, titled("agent"))
+
+  await caption(page, "Clear all empties the box too")
+  await panel(page).getByRole("button", { name: "Clear all" }).click()
+  await expect(box).toHaveValue("")
+  await expectShown(boardCards(page), key, Array.from({ length: 30 }, (_, i) => i + 1))
+
+  await caption(page, "Tick cli: Todo shows 16, 22 and 18, with the other Todo cards hidden between them")
+  await tick(page, "label-cli", "true")
+  const todo = page.locator('section[data-column="Todo"] [data-task-key]')
+  await expect(todo).toHaveText([new RegExp(k(16)), new RegExp(k(18)), new RegExp(k(22))])
+
+  await caption(page, `Drag ${k(22)} up one place with the keyboard, between ${k(16)} and ${k(18)}`)
+  await page.locator(`[data-task-key="${k(22)}"]`).focus()
+  await page.keyboard.press("Space")
+  await page.keyboard.press("ArrowUp")
+  await page.keyboard.press("Space")
+  await expect(todo).toHaveText([new RegExp(k(16)), new RegExp(k(22)), new RegExp(k(18))])
+
+  await caption(page, "Make a card while filtered: “Write the filter docs” has no cli label, so it's made as usual and leaves this view")
+  await page.getByRole("button", { name: "New task in Todo" }).click()
+  const input = page.getByLabel("New task title in Todo")
+  await input.fill("Write the filter docs")
+  await input.press("Enter")
+  await input.press("Escape")
+  await expect(todo).toHaveCount(3)
+
+  await caption(page, `Clear the filter: ${k(22)} sits right after ${k(16)}, where it was dropped, and the new card is at the bottom`)
+  await panel(page).getByRole("button", { name: "Clear all" }).click()
+  await expect(todo).toHaveCount(14)
+  const keys = await todo.evaluateAll((els) => els.map((el) => el.getAttribute("data-task-key")))
+  expect(keys.indexOf(k(22))).toBe(keys.indexOf(k(16)) + 1)
+  await expect(todo.last()).toContainText("Write the filter docs")
 })
 
 test("CEL-52: screenshots of the filter panel, light and dark", async ({ browser, cello, baseURL }) => {

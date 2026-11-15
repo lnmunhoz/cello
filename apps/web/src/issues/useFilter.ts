@@ -4,12 +4,11 @@
 // becomes the kept one: opening a task (which leaves the filter params behind) keeps showing it.
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import {
+  applyFilter,
   EMPTY_FILTER,
   filterFromSearch,
   hasFilter,
   matchContext,
-  matches,
-  type MatchContext,
   parseStoredFilter,
   searchFromFilter,
   storedFilter,
@@ -73,10 +72,6 @@ export const useKeepLinkedFilter = (): void => {
 /** A project's open tasks, every status. */
 export const projectTasks = (board: BoardState, workspaceId: string, projectId: string): Task[] =>
   Object.values(boardColumns(board, workspaceId, projectId).tasks).flat()
-
-/** Keeps the tasks the filter shows. A task still being created always shows: it's yours, and just made. */
-export const applyFilter = (tasks: ReadonlyArray<Task>, filter: TaskFilter, c: MatchContext): Task[] =>
-  tasks.filter((t) => t.number === 0 || matches(t, filter, c))
 
 export interface Filtered {
   readonly filter: TaskFilter

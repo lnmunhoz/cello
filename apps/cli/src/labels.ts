@@ -1,6 +1,6 @@
 // Labels in the CLI (CEL-56): `cello task label CEL-12 +board -ui` and `cello label list`. The pure parts:
 // reading the changes, matching names (with close matches for a typo), label groups (CEL-52) and the list's text.
-import { type Label, LABEL_GROUPS, type LabelGroup } from "@cello/contract/entities"
+import { type Label, LABEL_GROUP_NAMES, LABEL_GROUPS, type LabelGroup } from "@cello/contract/entities"
 import type { LabelList } from "@cello/contract/views"
 import { andList, columns, plural } from "./format.ts"
 
@@ -104,16 +104,17 @@ const counts = (key: string, tasks: number, otherProjects: number) => {
   return parts.join(" · ")
 }
 
-/** `--group area`, in any case; a string is the reason it can't be read. */
+/** `--group area`, in any case, and `other` for none (what every screen calls it); a string is the reason it can't be read. */
 export const parseGroup = (value: string): LabelGroup | string => {
-  const group = LABEL_GROUPS.find((g) => g === value.trim().toLowerCase())
-  return group ?? `No group named "${value}". Groups: ${LABEL_GROUPS.join(", ")}. Nothing was changed.`
+  const wanted = value.trim().toLowerCase()
+  const group = LABEL_GROUPS.find((g) => g === wanted || LABEL_GROUP_NAMES[g].toLowerCase() === wanted)
+  return group ?? `No group named "${value}". Groups: ${LABEL_GROUPS.join(", ")} (shown as ${LABEL_GROUP_NAMES.none}). Nothing was changed.`
 }
 
-/** How a group reads after a label's colour: "kind", or "no group". */
-export const groupWord = (group: LabelGroup): string => (group === "none" ? "no group" : group)
+/** How a group reads after a label's colour: "Kind", "Other". */
+export const groupWord = (group: LabelGroup): string => LABEL_GROUP_NAMES[group]
 
-const GROUP_HEADINGS: Record<LabelGroup, string> = { kind: "Kind", area: "Area", milestone: "Milestone", none: "No group" }
+const GROUP_HEADINGS = LABEL_GROUP_NAMES
 
 /**
  * `cello label list`: live labels with colour and counts, then the archived ones on one line. Once any

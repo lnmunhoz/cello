@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import type { BoardState } from "./applyEvents.ts"
 import {
   activeFields,
+  applyFilter,
   clearField,
   countWith,
   EMPTY_FILTER,
@@ -120,6 +121,13 @@ describe("the other facets", () => {
     expect(shown({ updated: "day" })).toEqual(["d"])
     expect(shown({ text: "drag" })).toEqual(["c"])
     expect(shown({ text: "cel-b" })).toEqual(["b"])
+  })
+
+  it("a task still being created (number 0) always shows, whatever the filter: it's yours, and just made", () => {
+    const creating = task("new", { number: 0, title: "Write the docs" })
+    const f = { ...EMPTY_FILTER, labels: ["bug"], holder: ["agent" as const], text: "nothing like it" }
+    expect(applyFilter([a, creating, cc], f, c).map((t) => t.id)).toEqual(["new"])
+    expect(applyFilter([a, creating, cc], { ...EMPTY_FILTER, labels: ["bug"] }, c).map((t) => t.id)).toEqual(["a", "new", "c"])
   })
 
   it("facets combine: every active one must match, and a count leaves its own facet out", () => {
