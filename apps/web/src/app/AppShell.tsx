@@ -28,7 +28,7 @@ export function AppShell() {
   // In a panel (`?embed=1`): just the page, no sidebar.
   if (embed) {
     return (
-      <div className="flex h-full flex-col bg-surface">
+      <div className="relative flex h-dvh flex-col overflow-clip bg-surface">
         <Outlet />
         <Toaster />
       </div>
@@ -40,9 +40,12 @@ export function AppShell() {
   const projects = board && workspaceId ? projectsOf(board, workspaceId) : []
   const waiting = board && workspaceId ? reviewQueue(board, workspaceId).length : 0
 
+  // Exactly the window: the shell is the containing block for anything positioned without one of its
+  // own (screen-reader-only text in rows below the fold), and clips it, so the page never grows past
+  // the window and never scrolls.
   return (
-    <div className="flex h-full">
-      <aside className="flex w-60 shrink-0 flex-col gap-4 px-3 py-3">
+    <div className="relative flex h-dvh overflow-clip">
+      <aside className="flex min-h-0 w-60 shrink-0 flex-col gap-4 px-3 py-3">
         <div className="flex h-8 items-center gap-1">
           {workspaces.length >= 2 ? (
             <Menu
@@ -92,7 +95,8 @@ export function AppShell() {
           </Link>
         </nav>
 
-        <nav aria-label="Projects" className="flex flex-col gap-0.5">
+        {/* A long project list scrolls here; Settings stays at the bottom. */}
+        <nav aria-label="Projects" className="-mx-3 flex min-h-0 flex-col gap-0.5 overflow-y-auto px-3">
           <div className="flex h-7 items-center justify-between px-2 text-xs font-medium text-muted">
             Projects
             <Button variant="ghost" size="icon" aria-label="New project" onClick={() => setNewProject(true)} disabled={!workspaceId}>
@@ -141,7 +145,7 @@ export function AppShell() {
         ) : null}
       </aside>
 
-      <main className="my-2 mr-2 flex min-w-0 flex-1 overflow-hidden rounded-lg border border-line bg-surface shadow-card">
+      <main className="my-2 mr-2 flex min-w-0 flex-1 overflow-clip rounded-lg border border-line bg-surface shadow-card">
         <div className="flex min-w-0 flex-1 flex-col">
           <Outlet />
         </div>
@@ -160,7 +164,7 @@ export function AppShell() {
  */
 export function EmbeddedShell() {
   return (
-    <div className="flex h-full bg-surface">
+    <div className="relative flex h-dvh overflow-clip bg-surface">
       <div className="flex min-w-0 flex-1 flex-col">
         <Outlet />
       </div>

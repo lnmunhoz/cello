@@ -110,7 +110,7 @@ function Viewer({ item }: { item: ViewerItem }) {
       tabIndex={-1}
       data-viewer={item.kind}
       style={{ width }}
-      className="relative flex max-w-[calc(100%-360px)] min-w-[320px] shrink-0 flex-col border-l border-line bg-surface outline-none"
+      className="relative flex max-w-[max(min(320px,100%),calc(100%-360px))] min-w-[min(320px,100%)] shrink-0 flex-col border-l border-line bg-surface outline-none"
     >
       <div
         role="separator"

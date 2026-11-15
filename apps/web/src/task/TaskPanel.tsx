@@ -32,7 +32,7 @@ export function TaskPanel({ board, project, number }: { board: BoardState; proje
     <aside
       hidden={covered}
       aria-label={task ? `${task.key} details` : "Task details"}
-      className="flex w-[560px] shrink-0 flex-col border-l border-line bg-surface"
+      className="flex w-[560px] min-w-0 flex-col border-l border-line bg-surface"
       onKeyDown={(e) => {
         if (e.key === "Escape" && e.target === e.currentTarget) close()
       }}

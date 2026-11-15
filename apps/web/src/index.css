@@ -67,10 +67,17 @@
   --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
+/*
+ * The app is exactly the window (the shell is 100dvh): the page itself never scrolls, only the areas
+ * inside it do. Without this, anything that escaped a scroll area (an absolutely positioned span in a
+ * list row below the fold) made the page taller than the window, and scrolling it slid the shell up.
+ */
 html,
 body,
 #root {
   height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body {
