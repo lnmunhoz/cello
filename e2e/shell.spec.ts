@@ -4,9 +4,10 @@
 import type { Locator, Page } from "@playwright/test"
 import { caption, defaultWorkspace, expect, newCommandId, seedProject, switchWorkspace, taskPanel, test, uniqueKey } from "./fixtures.ts"
 import { WEB_URL } from "./packets.ts"
+import { slowMo } from "./recording.ts"
 
 // Classic scrollbars, as on a Mac with a mouse plugged in: the board's sideways scrollbar takes room and shows.
-test.use({ launchOptions: { slowMo: Number(process.env.CELLO_E2E_SLOWMO ?? 0), ignoreDefaultArgs: ["--hide-scrollbars"] } })
+test.use({ launchOptions: { slowMo: slowMo(process.env), ignoreDefaultArgs: ["--hide-scrollbars"] } })
 
 /**
  * Checks the shell around `probe` (an element inside the page's scrolling area, or the area itself):
@@ -65,6 +66,18 @@ async function expectFills(page: Page, probe: Locator, { panels = [], sideways =
   }
 }
 
+/**
+ * Listens for `el`'s next scrollend before anything scrolls it (the listener is in place when this
+ * resolves), and returns a wait for it: how far it then is scrolled, down plus sideways.
+ */
+async function scrollEnd(el: Locator): Promise<() => Promise<number>> {
+  await el.evaluate((node) => {
+    const target = node as HTMLElement & { e2eScrollEnd?: Promise<number> }
+    target.e2eScrollEnd = new Promise((resolve) => node.addEventListener("scrollend", () => resolve(node.scrollTop + node.scrollLeft), { once: true }))
+  })
+  return () => el.evaluate((node) => (node as HTMLElement & { e2eScrollEnd?: Promise<number> }).e2eScrollEnd!)
+}
+
 const boardOf = (page: Page) => page.getByRole("application", { name: /board$/ })
 const listOf = (page: Page) => page.getByRole("region", { name: /list$/ })
 const viewerOf = (page: Page) => page.getByRole("complementary", { name: "Viewer" })
@@ -96,15 +109,14 @@ test("CEL-25: with a wide board, the app fills the window: no page scroll, the s
   await caption(page, "Scroll a column to its end and keep going, then the board sideways: the page stays put")
   await page.locator(`[data-task-key="${key}-3"]`).hover()
   const todo = page.locator('section[data-column="Todo"] [role="list"]')
-  const scrolled = (el: Locator) => el.evaluate((node) => new Promise<number>((resolve) => node.addEventListener("scrollend", () => resolve(node.scrollTop + node.scrollLeft), { once: true })))
-  const columnEnd = scrolled(todo)
+  const columnEnd = await scrollEnd(todo)
   await page.mouse.wheel(0, 4000)
-  expect(await columnEnd, "the column scrolled").toBeGreaterThan(0)
+  expect(await columnEnd(), "the column scrolled").toBeGreaterThan(0)
   // At the column's end the wheel has nowhere to go: the page can't scroll (it's exactly the window).
   await page.mouse.wheel(0, 4000)
-  const boardEnd = scrolled(boardOf(page).locator("xpath=.."))
+  const boardEnd = await scrollEnd(boardOf(page).locator("xpath=.."))
   await page.mouse.wheel(400, 0)
-  expect(await boardEnd, "the board scrolled sideways").toBeGreaterThan(0)
+  expect(await boardEnd(), "the board scrolled sideways").toBeGreaterThan(0)
   await expectFills(page, boardOf(page), { sideways: true })
 
   await caption(page, "Open a task: the task panel stretches to the bottom too")
