@@ -10,6 +10,7 @@ import {
   pinch,
   refit,
   toggleZoom,
+  wheelAction,
   wheelFactor,
   zoomAt,
   zoomBy,
@@ -152,6 +153,34 @@ describe("the wheel", () => {
     expect(wheelFactor({ deltaY: -3, deltaMode: 1, ctrlKey: false })).toBeCloseTo(wheelFactor({ deltaY: -48, deltaMode: 0, ctrlKey: false }))
     expect(wheelFactor({ deltaY: -1, deltaMode: 2, ctrlKey: false })).toBe(wheelFactor({ deltaY: -100000, deltaMode: 0, ctrlKey: false }))
     expect(wheelFactor({ deltaY: -100000, deltaMode: 0, ctrlKey: false })).toBeLessThan(2)
+  })
+})
+
+describe("what a wheel event does: a pinch or a mouse wheel zooms, a trackpad scroll pans", () => {
+  const wheel = (deltaX: number, deltaY: number, deltaMode = 0, ctrlKey = false) => ({ deltaX, deltaY, deltaMode, ctrlKey })
+
+  it("a trackpad pinch (Ctrl held) zooms, zoomed in or not", () => {
+    expect(wheelAction(wheel(0, -6.5, 0, true), false)).toEqual({ kind: "zoom", factor: wheelFactor(wheel(0, -6.5, 0, true)) })
+    expect(wheelAction(wheel(2, 8, 0, true), true)).toMatchObject({ kind: "zoom" })
+  })
+
+  it("a notched mouse wheel zooms: lines or pages, or a whole step of pixels straight up or down", () => {
+    expect(wheelAction(wheel(0, -3, 1), false)).toMatchObject({ kind: "zoom" })
+    expect(wheelAction(wheel(0, 1, 2), true)).toMatchObject({ kind: "zoom" })
+    expect(wheelAction(wheel(0, -100), false)).toMatchObject({ kind: "zoom" })
+    expect(wheelAction(wheel(0, 120), true)).toMatchObject({ kind: "zoom" })
+  })
+
+  it("a two-finger trackpad scroll pans a zoomed image the way the fingers move", () => {
+    expect(wheelAction(wheel(12.5, -30), true)).toEqual({ kind: "pan", delta: { x: -12.5, y: 30 } })
+    // Small whole-pixel steps are a trackpad too, and so is any sideways movement.
+    expect(wheelAction(wheel(0, 4), true)).toEqual({ kind: "pan", delta: { x: -0, y: -4 } })
+    expect(wheelAction(wheel(40, 100), true)).toEqual({ kind: "pan", delta: { x: -40, y: -100 } })
+  })
+
+  it("does nothing to a fitted image (there's nowhere to pan), nor for an empty event", () => {
+    expect(wheelAction(wheel(12.5, -30), false)).toEqual({ kind: "none" })
+    expect(wheelAction(wheel(0, 0), true)).toEqual({ kind: "none" })
   })
 })
 

@@ -26,7 +26,7 @@ const content = variants(
     size: {
       sm: `${PANEL} w-[min(420px,calc(100vw-32px))]`,
       md: `${PANEL} w-[min(560px,calc(100vw-32px))]`,
-      screen: "fixed inset-0 flex flex-col bg-[rgb(9_9_11/0.97)] text-white transition-opacity data-starting-style:opacity-0 data-ending-style:opacity-0",
+      screen: "fixed inset-0 flex flex-col bg-[rgb(9_9_11/0.99)] text-white transition-opacity data-starting-style:opacity-0 data-ending-style:opacity-0",
     },
   },
   { size: "md" },

@@ -99,6 +99,30 @@ export const wheelFactor = (e: { readonly deltaY: number; readonly deltaMode: nu
   return capped === 0 ? 1 : Math.exp(-capped * (e.ctrlKey ? 0.01 : 0.002))
 }
 
+export interface Wheel {
+  readonly deltaX: number
+  readonly deltaY: number
+  readonly deltaMode: number
+  readonly ctrlKey: boolean
+}
+
+export type WheelAction = { readonly kind: "zoom"; readonly factor: number } | { readonly kind: "pan"; readonly delta: Point } | { readonly kind: "none" }
+
+/** A mouse wheel's notch in pixels is a whole step (100 or 120 in Chrome); a trackpad sends small, often fractional, deltas. */
+const NOTCH_PX = 50
+
+/**
+ * What one wheel event does. A trackpad pinch (the browser sends it with Ctrl held) and a notched mouse
+ * wheel (lines, pages, or a whole step of pixels straight up or down) zoom. Anything else is a
+ * two-finger trackpad scroll: it pans a zoomed image the way the fingers move, and leaves a fitted one.
+ */
+export const wheelAction = (e: Wheel, zoomed: boolean): WheelAction => {
+  const notched = e.deltaMode !== 0 || (e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= NOTCH_PX)
+  if (e.ctrlKey || notched) return { kind: "zoom", factor: wheelFactor(e) }
+  if (!zoomed || (e.deltaX === 0 && e.deltaY === 0)) return { kind: "none" }
+  return { kind: "pan", delta: { x: -e.deltaX, y: -e.deltaY } }
+}
+
 /** The stage changed size: a fitted image is fitted again; a zoomed one keeps its scale and the point at the centre. */
 export const refit = (view: View, from: Frame, to: Frame): View =>
   isZoomed(view, from)

@@ -32,8 +32,12 @@ const within = (index: number, count: number) => Math.min(count - 1, Math.max(0,
 export const imageModal = (): ImageModalState | null => current
 
 /** Opens `images` at `index`. `opener` gets the focus back on close. */
-export const openImageModal = (images: ReadonlyArray<ModalImage>, index: number, opener: HTMLElement | null): void =>
-  set(images.length === 0 ? null : { images, index: within(index, images.length), opener })
+export const openImageModal = (images: ReadonlyArray<ModalImage>, index: number, opener: HTMLElement | null): void => {
+  if (images.length === 0) return
+  // A close still finishing doesn't get to run its follow-up over the modal opened since.
+  afterClose = null
+  set({ images, index: within(index, images.length), opener })
+}
 
 /** ← and →: the previous or next image, stopping at the first and the last. */
 export const stepImage = (delta: number): void => {

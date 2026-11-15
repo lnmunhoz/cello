@@ -42,6 +42,17 @@ describe("the image modal's state", () => {
     expect(opened).toEqual(["viewer"])
   })
 
+  it("opening again before the last close finished drops what that close was going to do", () => {
+    const opened: string[] = []
+    openImageModal(shots, 0, null)
+    closeImageModal(() => opened.push("viewer"))
+    openImageModal(shots, 1, null)
+    closedImageModal()
+    expect(opened).toEqual([])
+    expect(imageModal()?.index).toBe(1)
+    closeImageModal()
+  })
+
   it("an index outside the list opens the nearest image; an empty list doesn't open", () => {
     openImageModal(shots, 7, null)
     expect(imageModal()?.index).toBe(2)

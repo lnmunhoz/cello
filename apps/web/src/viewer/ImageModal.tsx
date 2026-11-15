@@ -1,9 +1,9 @@
-import { ChevronLeftIcon, ChevronRightIcon, MinusIcon, PanelRightOpenIcon, PlusIcon, XIcon } from "lucide-react"
+import { ChevronLeftIcon, ChevronRightIcon, ImageOffIcon, MinusIcon, PanelRightOpenIcon, PlusIcon, XIcon } from "lucide-react"
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react"
 import { Button } from "../components/ui/Button.tsx"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../components/ui/Dialog.tsx"
 import { openInPanel } from "../lib/desktop.ts"
-import { fitView, isZoomed, panBy, pinch, refit, toggleZoom, wheelFactor, zoomBy, type Frame, type Point, type Size, type View } from "../lib/zoom.ts"
+import { fitView, isZoomed, panBy, pinch, refit, toggleZoom, wheelAction, zoomBy, type Frame, type Point, type Size, type View } from "../lib/zoom.ts"
 import { closedImageModal, closeImageModal, imageModal, stepImage, useImageModal, type ImageModalState, type ModalImage } from "./imageModal.ts"
 
 /**
@@ -47,7 +47,7 @@ function Content({ state }: { state: ImageModalState }) {
     e.preventDefault()
     if (action === "previous") stepImage(-1)
     else if (action === "next") stepImage(1)
-    else zoom.button(action)
+    else if (!zoom.broken) zoom.button(action)
   }
   return (
     <DialogContent size="screen" initialFocus="content" finalFocus={state.opener ?? "trigger"} onKeyDown={onKeyDown} data-image-modal="">
@@ -64,7 +64,7 @@ function Content({ state }: { state: ImageModalState }) {
           </DialogDescription>
         ) : null}
         <div role="toolbar" aria-label="Zoom" className="ml-2 flex items-center gap-0.5">
-          <Button variant="overlay" size="iconMd" aria-label="Zoom out" title="Zoom out (−)" disabled={!zoom.zoomed} onClick={() => zoom.button("out")}>
+          <Button variant="overlay" size="iconMd" aria-label="Zoom out" title="Zoom out (−)" disabled={zoom.broken || !zoom.zoomed} onClick={() => zoom.button("out")}>
             <MinusIcon aria-hidden className="size-4" />
           </Button>
           <Button
@@ -73,13 +73,14 @@ function Content({ state }: { state: ImageModalState }) {
             aria-label={zoom.zoomed ? "Fit to screen" : "Zoom to 100%"}
             title={zoom.zoomed ? "Fit to screen (0)" : "Zoom to 100% (double-click)"}
             aria-pressed={zoom.zoomed}
+            disabled={zoom.broken}
             onClick={() => zoom.button("toggle")}
           >
             <span data-zoom-percent="" className="w-10 tabular-nums">
               {zoom.percent}%
             </span>
           </Button>
-          <Button variant="overlay" size="iconMd" aria-label="Zoom in" title="Zoom in (+)" onClick={() => zoom.button("in")}>
+          <Button variant="overlay" size="iconMd" aria-label="Zoom in" title="Zoom in (+)" disabled={zoom.broken} onClick={() => zoom.button("in")}>
             <PlusIcon aria-hidden className="size-4" />
           </Button>
         </div>
@@ -137,9 +138,11 @@ interface ZoomState {
   readonly view: View | null
   /** A button, a key or a double-click: the change animates. A wheel, a drag or a pinch follows the hand. */
   readonly smooth: boolean
+  /** The image didn't load: there's nothing to zoom. */
+  readonly broken: boolean
 }
 
-const blank = (url: string): ZoomState => ({ url, stage: null, image: null, view: null, smooth: false })
+const blank = (url: string): ZoomState => ({ url, stage: null, image: null, view: null, smooth: false, broken: false })
 const frameOf = (s: ZoomState): Frame | null => (s.stage && s.image ? { stage: s.stage, image: s.image } : null)
 
 /** A change to the view, kept only when it's zoomed in (fitted stays null). */
@@ -166,6 +169,7 @@ function useZoom(url: string) {
     state: current,
     view,
     zoomed: current.view !== null,
+    broken: current.broken,
     percent: view ? Math.round(view.scale * 100) : 100,
     /** Stable: the stage's listeners keep the first one. */
     update: setState,
@@ -221,19 +225,29 @@ function Stage({ image, zoom }: { image: ModalImage; zoom: Zoom }) {
     return () => observer.disconnect()
   }, [update])
 
-  // The wheel (and a trackpad pinch, which arrives as a wheel with Ctrl) zooms around the pointer. Not
-  // passive, so the page doesn't zoom or scroll instead.
+  // A pinch or a mouse wheel zooms around the pointer; a two-finger trackpad scroll pans (wheelAction).
+  // Not passive, and over the whole modal (the toolbar too), so the page never zooms or scrolls instead.
   useEffect(() => {
     const el = ref.current
-    if (!el) return
+    const modal = el?.closest<HTMLElement>("[data-image-modal]")
+    if (!el || !modal) return
+    const keepFromPage = (e: WheelEvent) => e.preventDefault()
     const onWheel = (e: WheelEvent) => {
-      e.preventDefault()
       const box = el.getBoundingClientRect()
       const point = { x: e.clientX - box.left, y: e.clientY - box.top }
-      update((s) => withView(s, (v, f) => zoomBy(v, wheelFactor(e), point, f), false))
+      update((s) => {
+        const action = wheelAction(e, s.view !== null)
+        if (action.kind === "zoom") return withView(s, (v, f) => zoomBy(v, action.factor, point, f), false)
+        if (action.kind === "pan") return withView(s, (v, f) => panBy(v, action.delta, f), false)
+        return s
+      })
     }
+    modal.addEventListener("wheel", keepFromPage, { passive: false })
     el.addEventListener("wheel", onWheel, { passive: false })
-    return () => el.removeEventListener("wheel", onWheel)
+    return () => {
+      modal.removeEventListener("wheel", keepFromPage)
+      el.removeEventListener("wheel", onWheel)
+    }
   }, [update])
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -286,7 +300,7 @@ function Stage({ image, zoom }: { image: ModalImage; zoom: Zoom }) {
         if (p?.onBackdrop && !p.dragged) closeImageModal()
       }}
       onDoubleClick={(e) => {
-        if (press.current?.onBackdrop) return
+        // Only the image gets here: a click on the backdrop has already closed the modal.
         const point = at(e)
         update((s) => withView(s, (v, f) => toggleZoom(v, point, f), true))
       }}
@@ -302,13 +316,20 @@ function Stage({ image, zoom }: { image: ModalImage; zoom: Zoom }) {
           const size = { width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight }
           update((s) => (s.image ? s : { ...s, image: size }))
         }}
+        onError={() => update((s) => ({ ...s, broken: true, view: null }))}
         style={
           view
             ? { width: zoom.state.image!.width, height: zoom.state.image!.height, transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }
             : undefined
         }
-        className={`absolute top-0 left-0 max-w-none origin-top-left ${view ? "" : "invisible"} ${zoom.zoomed ? "" : "cursor-zoom-in"} ${zoom.state.smooth ? "transition-transform duration-150 ease-out motion-reduce:transition-none" : ""}`}
+        className={`absolute top-0 left-0 max-w-none origin-top-left ${view && !zoom.broken ? "" : "invisible"} ${zoom.zoomed ? "" : "cursor-zoom-in"} ${zoom.state.smooth ? "transition-transform duration-150 ease-out motion-reduce:transition-none" : ""}`}
       />
+      {zoom.broken ? (
+        <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-white/70">
+          <ImageOffIcon aria-hidden className="size-6 text-white/50" />
+          Couldn't load this image
+        </div>
+      ) : null}
     </div>
   )
 }

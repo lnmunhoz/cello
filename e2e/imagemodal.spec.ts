@@ -58,6 +58,10 @@ async function screenshotModal(browser: Browser, key: string, colorScheme: "ligh
   await page.screenshot({ path: path.join(SHOTS, `image-modal-fit-${colorScheme}.png`), animations: "disabled" })
   await dblclickAt(page, imageOf(modal), 0.15, 0.1)
   await expect(modal.locator("[data-zoom-percent]")).toHaveText("100%")
+  await page.screenshot({ path: path.join(SHOTS, `image-modal-100-${colorScheme}.png`), animations: "disabled" })
+  await page.keyboard.press("+")
+  await page.keyboard.press("+")
+  await expect(modal.locator("[data-zoom-percent]")).toHaveText("225%")
   await page.screenshot({ path: path.join(SHOTS, `image-modal-zoomed-${colorScheme}.png`), animations: "disabled" })
   await context.close()
 }
@@ -114,6 +118,24 @@ test("CEL-44: a packet's screenshots show full width; one opens in the image mod
   const zoomedPercent = await percent(modal)
   expect(zoomedPercent).toBeGreaterThan(fitPercent * 1.5)
   expect((await box(image)).width).toBeGreaterThan(fitted.width * 1.5)
+
+  await caption(page, "Scroll with two fingers on a trackpad: it pans instead of zooming")
+  const scrolled = await box(image)
+  const placed = (await image.getAttribute("style"))!
+  await page.mouse.wheel(40, 25)
+  await expect(image).not.toHaveAttribute("style", placed)
+  await expect(modal.locator("[data-zoom-percent]")).toHaveText(`${zoomedPercent}%`)
+  const panned = await box(image)
+  expect(panned.x - scrolled.x).toBeCloseTo(-40, 0)
+  expect(panned.y - scrolled.y).toBeCloseTo(-25, 0)
+  expect(panned.width).toBeCloseTo(scrolled.width, 0)
+
+  await caption(page, "The wheel over the toolbar zooms nothing")
+  const header = await box(modal.getByRole("toolbar", { name: "Zoom" }))
+  await page.mouse.move(header.x + header.width / 2, header.y + header.height / 2)
+  await page.mouse.wheel(0, -120)
+  await expect(modal.locator("[data-zoom-percent]")).toHaveText(`${zoomedPercent}%`)
+  expect((await box(image)).width).toBeCloseTo(panned.width, 0)
 
   await caption(page, "Drag it: the image moves with the mouse")
   const before = await box(image)
@@ -234,21 +256,34 @@ test("CEL-44: the same modal opens from the task panel's packet, the task's full
   const file = path.join(pageDir, "report.md")
   fs.writeFileSync(
     file,
-    ["# Image check", "", "The task page before:", "", "![Before](before.png)", "", "## After", "", "And a closer look:", "", '![After](after.png "The closer look")', ""].join("\n"),
+    ["# Image check", "", "The task page before:", "", "![Before](before.png)", "", "## After", "", "And a closer look:", "", '![After](after.png "The closer look")', "", "One that's gone:", "", "![Missing](/attachments/missing-image)", ""].join("\n"),
   )
   cello("doc", "publish", file, "--project", key, "--task", `${key}-1`)
   await page.goto(`/${key}/pages/image-check`)
   const article = page.getByRole("article")
 
-  await caption(page, "Click the page's first image: the modal, 1 of 2; → shows the second")
+  await caption(page, "Click the page's first image: the modal, 1 of 3; → shows the second")
   const first = article.getByRole("button", { name: "Open Before" })
   await expect(first.locator("img")).toHaveJSProperty("naturalWidth", 1440)
   await first.click()
   await expect(modal).toHaveAccessibleName("Before")
-  await expect(modal.locator("[data-image-count]")).toHaveText("1 of 2")
+  await expect(modal.locator("[data-image-count]")).toHaveText("1 of 3")
   await page.keyboard.press("ArrowRight")
   await expect(modal).toHaveAccessibleName("After")
   await expect(imageOf(modal)).toHaveJSProperty("naturalWidth", 720)
+
+  await caption(page, "→ again: an image that can't load says so; zooming is off, Open in viewer and ← still work")
+  await page.keyboard.press("ArrowRight")
+  await expect(modal).toHaveAccessibleName("Missing")
+  await expect(modal.getByRole("alert")).toHaveText("Couldn't load this image")
+  await expect(modal.getByRole("button", { name: "Zoom in" })).toBeDisabled()
+  await expect(modal.getByRole("button", { name: "Zoom out" })).toBeDisabled()
+  await expect(modal.getByRole("button", { name: "Zoom to 100%" })).toBeDisabled()
+  await expect(modal.getByRole("button", { name: "Open Missing in the viewer" })).toBeEnabled()
+  await page.keyboard.press("ArrowLeft")
+  await expect(modal).toHaveAccessibleName("After")
+  await expect(modal.getByRole("alert")).toHaveCount(0)
+  await expect(imageOf(modal)).toBeVisible()
 
   await caption(page, "Esc closes it; the focus is back on the image clicked")
   await page.keyboard.press("Escape")
