@@ -71,6 +71,16 @@ export const TaskDetail = Schema.Struct({
 })
 export type TaskDetail = typeof TaskDetail.Type
 
+/**
+ * The labels of a project's workspace, archived ones included, for `cello label list`: each with how
+ * many tasks that aren't archived carry it, in this project and in the workspace's other projects.
+ */
+export const LabelList = Schema.Struct({
+  project: Project,
+  labels: Schema.Array(Schema.Struct({ label: Label, tasks: Schema.Number, otherProjects: Schema.Number })),
+})
+export type LabelList = typeof LabelList.Type
+
 /** A project's documents, for `cello doc list`. */
 export const DocumentList = Schema.Struct({ project: Project, documents: Schema.Array(DocumentSummary) })
 export type DocumentList = typeof DocumentList.Type

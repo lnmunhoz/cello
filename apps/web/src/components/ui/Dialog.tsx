@@ -21,8 +21,10 @@ const BAR = `${FLOATING} top-[12vh] overflow-hidden`
 
 /**
  * sm and md: a panel near the top, over a dim. screen: the whole window on a dark backdrop, the same in
- * both themes (the image modal); its content lays out its own toolbar and stage. palette and peek: the
- * ⌘K bar (CEL-43), its list alone, or its list with a preview beside it.
+ * both themes (the image modal); its content lays out its own toolbar and stage. page: the whole window
+ * in the app's own colors, light or dark (a question's compare view); its content lays out its header
+ * and a scrolling body. palette and peek: the ⌘K bar (CEL-43), its list alone, or its list with a
+ * preview beside it.
  */
 const content = variants(
   "outline-none duration-150 motion-reduce:transition-none",
@@ -33,6 +35,7 @@ const content = variants(
       palette: `${BAR} w-[min(680px,calc(100vw-32px))]`,
       peek: `${BAR} w-[min(1000px,calc(100vw-32px))]`,
       screen: "fixed inset-0 flex flex-col bg-[rgb(9_9_11/0.99)] text-white transition-opacity data-starting-style:opacity-0 data-ending-style:opacity-0",
+      page: "fixed inset-0 flex flex-col bg-surface text-ink transition-opacity data-starting-style:opacity-0 data-ending-style:opacity-0",
     },
   },
   { size: "md" },
@@ -40,7 +43,7 @@ const content = variants(
 
 const backdrop = variants(
   "fixed inset-0 transition-opacity duration-150 data-starting-style:opacity-0 data-ending-style:opacity-0",
-  { size: { sm: "bg-black/30", md: "bg-black/30", palette: "bg-black/30", peek: "bg-black/30", screen: "bg-transparent" } },
+  { size: { sm: "bg-black/30", md: "bg-black/30", palette: "bg-black/30", peek: "bg-black/30", screen: "bg-transparent", page: "bg-transparent" } },
   { size: "md" },
 )
 

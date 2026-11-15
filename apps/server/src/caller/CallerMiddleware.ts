@@ -1,6 +1,8 @@
 // Who is calling, from per-request RPC headers. Browser and headerless requests are the human; the
-// CLI's identity headers (x-cello-session and friends) resolve to an agent session.
+// CLI's identity headers (x-cello-session and friends) resolve to an agent session. After the request,
+// succeeded or not, the session has checked in: boards hear it if it holds a claim (CEL-35).
 import { Caller, CallerMiddleware, IDENTITY_HEADERS } from "@cello/contract/rpcs"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import type * as Headers from "effect/http/Headers"
 import * as Layer from "effect/Layer"
@@ -25,6 +27,13 @@ export const identityFromHeaders = (headers: Headers.Headers): Identity => {
 
 export const layer = Layer.effect(CallerMiddleware, Effect.gen(function* () {
   const sessions = yield* SessionService
+  // After the request, which may have committed a write: a failed check-in must not turn its answer into
+  // an error (a rerun would do the change twice), so it's logged instead.
+  const checkIn = (caller: Caller["Service"]) =>
+    sessions.checkIn(caller).pipe(
+      Effect.catchCause((cause) => Effect.logWarning(`A session check-in failed; boards hear it on its next call.\n${Cause.pretty(cause)}`)),
+    )
   return CallerMiddleware.of((effect, { headers }) =>
-    Effect.flatMap(sessions.resolve(identityFromHeaders(headers)), (caller) => Effect.provideService(effect, Caller, caller)))
+    Effect.flatMap(sessions.resolve(identityFromHeaders(headers)), (caller) =>
+      Effect.provideService(effect, Caller, caller).pipe(Effect.ensuring(checkIn(caller)))))
 }))

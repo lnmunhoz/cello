@@ -34,6 +34,8 @@
   --accent: #5e6ad2;
   --accent-ink: #ffffff;
   --danger: #d9473f;
+  /* An agent session holding a claim that has gone quiet ("seen 2h ago", CEL-35). */
+  --idle: #b45309;
   --ring: #5e6ad2;
   --shadow: 0 1px 2px rgb(16 16 20 / 0.06), 0 0 0 1px rgb(16 16 20 / 0.04);
   --shadow-pop: 0 8px 28px rgb(16 16 20 / 0.14), 0 0 0 1px rgb(16 16 20 / 0.06);
@@ -55,6 +57,7 @@
   --accent: #7c85e8;
   --accent-ink: #0e0e10;
   --danger: #ef6a61;
+  --idle: #f59e0b;
   --ring: #7c85e8;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 0 0 1px rgb(255 255 255 / 0.04);
   --shadow-pop: 0 10px 30px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.06);
@@ -76,6 +79,7 @@
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-danger: var(--danger);
+  --color-idle: var(--idle);
   --color-ring: var(--ring);
   --shadow-card: var(--shadow);
   --shadow-pop: var(--shadow-pop);
@@ -491,5 +495,33 @@ body {
   }
   .page-notice {
     animation-timing-function: steps(1, end);
+  }
+}
+
+/*
+ * An agent session checking in (CEL-35): one ripple from its presence dot, played when its check-in
+ * arrives (the element is keyed by the check-in, so each one plays it once). Nothing loops: an idle
+ * board stays still.
+ */
+.presence-ripple {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  pointer-events: none;
+  animation: presence-ripple 0.9s ease-out forwards;
+}
+@keyframes presence-ripple {
+  from {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(3);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .presence-ripple {
+    display: none;
   }
 }

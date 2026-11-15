@@ -9,7 +9,7 @@ const status = (id: string, position: string, hidden = false): Status => ({
 const task = (id: string, statusId: string, position: string, extra: Partial<Task> = {}): Task => ({
   id, projectId: "p1", number: 1, key: "CEL-1", title: id, description: "", statusId, priority: 0, position,
   dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null, createdByActorId: "me",
-  createdBySessionId: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
+  createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
 })
 
 const label = (id: string, archivedAt: number | null = null): Label => ({
@@ -39,6 +39,7 @@ const state: BoardState = {
     other: task("other", "todo", "a1", { projectId: "p2" }),
     orphan: task("orphan", "todo", "a3", { parentId: "missing" }),
   },
+  sessions: {},
   reviews: {},
   asks: {},
   documents: {},

@@ -1,5 +1,7 @@
 import { ORDERING_LABELS, orderTasks, type Ordering } from "@cello/client/sync/ordering"
 import { boardColumns, projectByKey } from "@cello/client/sync/selectors"
+import { stageInfo } from "@cello/contract/stages"
+import { stageStatus } from "@cello/shared/review"
 import { needsInputFold } from "@cello/client/sync/asks"
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Project, Status, Task } from "@cello/contract/entities"
@@ -21,11 +23,17 @@ import { CardBody } from "./Card.tsx"
 import { animator, useCursorVisual } from "./cursors/animator.ts"
 import { withHoles, type Hole } from "./cursors/holes.ts"
 import { useAgentCursors } from "./cursors/useAgentCursors.ts"
+import { LaneHeading } from "../presence/Presence.tsx"
 import { InlineCreate } from "./InlineCreate.tsx"
+import { laneDrop, laneHeadings, stageLanes } from "./lanes.ts"
+import { useStageLanes } from "./useStageLanes.ts"
 import { useNeedsInputColumn } from "./needsInputColumn.ts"
 import { Kanban, KanbanCard, KanbanColumn } from "./kanban.tsx"
 import { dropOf, findMove } from "./moves.ts"
 import { readUnfolded, unfoldedKey } from "./unfolded.ts"
+
+/** The lane key of folded Needs input cards in a column split by stage. */
+const WAITING_LANE = "needs-input"
 
 const layoutTransition = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 } as const
 
@@ -75,16 +83,23 @@ function Board({
   const view = useTaskView()
   const visual = useCursorVisual()
   useAgentCursors(project.id)
+  // Display → "Group In Progress by stage": that one column shows a lane per stage (CEL-35).
+  const lanesOn = useStageLanes()
+  const lanedId = lanesOn ? (stageStatus([...columns.visible, ...columns.hidden])?.id ?? null) : null
 
   // With the Needs input column off (the default), its cards sit at the bottom of In Progress, badged.
   const fold = needsInputFold([...columns.visible, ...columns.hidden], useNeedsInputColumn())
   const shown: Status[] = [...columns.visible, ...columns.hidden.filter((s) => unfolded.includes(s.id))].filter((s) => s.id !== fold?.from)
   const folded = columns.hidden.filter((s) => !unfolded.includes(s.id) && s.id !== fold?.from)
   // Each column's cards as shown: in the ordering. `columns.tasks` stays in the drag order, which placements need.
-  const ordered = Object.fromEntries(shown.map((s) => [s.id, [
-    ...orderTasks(columns.tasks[s.id] ?? [], ordering),
-    ...(s.id === fold?.into ? orderTasks(columns.tasks[fold.from] ?? [], ordering) : []),
-  ]]))
+  const ordered = Object.fromEntries(shown.map((s) => {
+    const own = orderTasks(columns.tasks[s.id] ?? [], ordering)
+    return [s.id, [
+      // In the laned column (Display → Group In Progress by stage) its own cards go lane by lane (CEL-35).
+      ...(s.id === lanedId ? stageLanes(own).flatMap((lane) => lane.tasks) : own),
+      ...(s.id === fold?.into ? orderTasks(columns.tasks[fold.from] ?? [], ordering) : []),
+    ]]
+  }))
   const lists = Object.fromEntries(shown.map((s) => [s.id, ordered[s.id]!.map((t) => t.id)]))
   const labels = Object.fromEntries(shown.map((s) => [s.id, s.name]))
 
@@ -100,8 +115,11 @@ function Board({
     // A folded Needs input card moved within In Progress stays where it is: only another column moves it.
     if (fold && task.statusId === fold.from && found.to === fold.into) return
     const target = (columns.tasks[found.to] ?? []).filter((t) => t.id !== task.id)
+    // In the laned column a card stays in its stage's lane: a drop among another lane snaps back.
     // Folded cards sit below In Progress's own, which are all the placement counts.
-    const drop = dropOf({ ...found, index: Math.min(found.index, target.length) }, task.statusId, ordering, target)
+    const drop = found.to === lanedId
+      ? laneDrop(found, next[found.to] ?? [], task.statusId, ordering, columns.tasks[found.to] ?? [])
+      : dropOf({ ...found, index: Math.min(found.index, target.length) }, task.statusId, ordering, target)
     if (drop) move({ id: task.id, ...drop })
   }
 
@@ -175,12 +193,26 @@ function Board({
                       // The column scrolls, so its cards' layout animations must account for its scroll offset.
                       render={(props) => <motion.div {...(props as object)} layoutScroll />}
                     >
-                      {({ cards }) =>
-                        withHoles(cards, holes).map(({ key: id, hole }) => {
+                      {({ cards }) => {
+                        const laned = status.id === lanedId
+                        // Folded Needs input cards (CEL-47) are a group of their own under the lanes.
+                        const laneOf = (id: string) => {
+                          const t = board.tasks[id]
+                          return t && t.statusId !== status.id ? WAITING_LANE : (t?.stage ?? null)
+                        }
+                        const headings = laned
+                          ? new Map([...laneHeadings(cards, laneOf, movingKey)].map(([i, h]) => [cards[i]!, h]))
+                          : null
+                        return withHoles(cards, holes).flatMap(({ key: id, hole }) => {
                           const task = board.tasks[id]
-                          if (!task) return null
-                          if (hole) return <HoleCard key={`hole-${hole.id}`} hole={hole} task={task} board={board} />
-                          return (
+                          if (!task) return []
+                          if (hole) return [<HoleCard key={`hole-${hole.id}`} hole={hole} task={task} board={board} />]
+                          const heading = headings?.get(id)
+                          const stage = heading?.stage ? (stageInfo(heading.stage) ?? null) : null
+                          return [
+                            ...(heading
+                              ? [<LaneHeading key={`lane-${heading.stage ?? "none"}`} stage={stage} waiting={heading.stage === WAITING_LANE} count={heading.count} />]
+                              : []),
                             <KanbanCard
                               key={id}
                               value={id}
@@ -196,11 +228,11 @@ function Board({
                               className={`${CARD} cursor-grab outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring aria-[current=true]:border-accent data-dragging:border-dashed data-dragging:bg-transparent data-dragging:shadow-none data-dragging:*:invisible data-moving:not-data-dragging:ring-2 data-moving:not-data-dragging:ring-ring data-moving:not-data-dragging:shadow-pop`}
                               render={(props) => <motion.div {...(props as object)} layout="position" transition={layoutTransition} />}
                             >
-                              <CardBody task={task} board={board} />
-                            </KanbanCard>
-                          )
+                              <CardBody task={task} board={board} laned={laned && task.statusId === status.id} />
+                            </KanbanCard>,
+                          ]
                         })
-                      }
+                      }}
                     </KanbanColumn>
                   </section>
                 )

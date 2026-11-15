@@ -4,7 +4,7 @@ import type { Actor, AgentSession, Project, ProjectRef, Task } from "@cello/cont
 import { Invalid, NotFound } from "@cello/contract/errors"
 import type { CelloEvent } from "@cello/contract/events"
 import { Caller } from "@cello/contract/rpcs"
-import type { Activity, ProjectContext, TaskDetail, TaskList, Whoami } from "@cello/contract/views"
+import type { Activity, LabelList, ProjectContext, TaskDetail, TaskList, Whoami } from "@cello/contract/views"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -30,6 +30,7 @@ export class ContextService extends Context.Service<ContextService, {
   readonly context: (ref: ProjectRef) => Effect.Effect<ProjectContext, NotFound | Invalid, Caller>
   readonly taskList: (query: TaskListQuery) => Effect.Effect<TaskList, NotFound | Invalid, Caller>
   readonly taskDetail: (key: string) => Effect.Effect<TaskDetail, NotFound>
+  readonly labelList: (ref: ProjectRef) => Effect.Effect<LabelList, NotFound | Invalid>
 }>()("cello/ContextService") {}
 
 /** How many recent events `context` shows. */
@@ -87,9 +88,9 @@ const make = Effect.gen(function* () {
       }
     })
 
-  /** Sessions a set of tasks and events mention: assignees, creators and event authors. */
+  /** Sessions a set of tasks and events mention: assignees, creators, last changes and event authors. */
   const sessionIdsOf = (taskRows: ReadonlyArray<Task>, events: ReadonlyArray<CelloEvent> = []) => [
-    ...taskRows.flatMap((t) => [t.assigneeSessionId, t.createdBySessionId]),
+    ...taskRows.flatMap((t) => [t.assigneeSessionId, t.createdBySessionId, t.updatedBySessionId]),
     ...events.map((e) => e.sessionId),
   ]
 
@@ -196,7 +197,30 @@ const make = Effect.gen(function* () {
     return { ...names, task, comments: list, reviews, asks, documents: yield* documents.ofTask(task.id), history }
   }, Effect.catchTag("SqlError", Effect.die))
 
-  return ContextService.of({ whoami, context, taskList, taskDetail })
+  const labelList = Effect.fn("ContextService.labelList")(function* (ref: ProjectRef) {
+    const project = yield* projects.resolve(ref)
+    const labels = yield* selectLabels(sql, sql`l.workspace_id = ${project.workspaceId}`)
+    const counts = yield* sql<{ label_id: string; here: number; elsewhere: number }>`
+      SELECT tl.label_id,
+        SUM(CASE WHEN t.project_id = ${project.id} THEN 1 ELSE 0 END) AS here,
+        SUM(CASE WHEN t.project_id = ${project.id} THEN 0 ELSE 1 END) AS elsewhere
+      FROM task_labels tl
+      JOIN tasks t ON t.id = tl.task_id
+      JOIN projects p ON p.id = t.project_id
+      WHERE p.workspace_id = ${project.workspaceId} AND t.archived_at IS NULL
+      GROUP BY tl.label_id`
+    const byLabel = new Map(counts.map((c) => [c.label_id, c]))
+    return {
+      project,
+      labels: labels.map((label) => ({
+        label,
+        tasks: Number(byLabel.get(label.id)?.here ?? 0),
+        otherProjects: Number(byLabel.get(label.id)?.elsewhere ?? 0),
+      })),
+    }
+  }, Effect.catchTag("SqlError", Effect.die))
+
+  return ContextService.of({ whoami, context, taskList, taskDetail, labelList })
 })
 
 export const layer = Layer.effect(ContextService, make)

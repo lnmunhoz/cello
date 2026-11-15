@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { approveTarget, isReviewStatus, reviewTarget, sendBackTarget } from "./review.ts"
+import { approveTarget, isReviewStatus, reviewTarget, sendBackTarget, stageStatus } from "./review.ts"
 
 const status = (id: string, name: string, category: string, position: string) => ({ id, name, category, position })
 
@@ -40,5 +40,17 @@ describe("the review status", () => {
     expect(approveTarget([...DEFAULTS].reverse())?.id).toBe("done")
     expect(sendBackTarget([...DEFAULTS].reverse())?.id).toBe("doing")
     expect(approveTarget([status("todo", "Todo", "unstarted", "a1")])).toBeNull()
+  })
+})
+
+describe("stageStatus", () => {
+
+  it("is the first started status by position: where a claim puts a task", () => {
+    const statuses = [status("review", "In Review", "started", "a3"), status("todo", "Todo", "unstarted", "a1"), status("progress", "In Progress", "started", "a2")]
+    expect(stageStatus(statuses)?.id).toBe("progress")
+  })
+
+  it("is null without a started status", () => {
+    expect(stageStatus([status("todo", "Todo", "unstarted", "a1")])).toBeNull()
   })
 })

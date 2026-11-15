@@ -2,6 +2,7 @@
 import type { CelloEvent } from "@cello/contract/events"
 import type { Priority, Task } from "@cello/contract/entities"
 import { AskRequired, Invalid, NotFound, ReviewRequired, TaskClaimed, VersionConflict } from "@cello/contract/errors"
+import type { TaskStage } from "@cello/contract/stages"
 import type { Caller } from "@cello/contract/rpcs"
 import { isNeedsInputStatus } from "@cello/shared/ask"
 import { isReviewStatus } from "@cello/shared/review"
@@ -65,6 +66,12 @@ export interface SetTaskLabels {
   readonly remove: ReadonlyArray<string>
 }
 
+export interface SetStage {
+  readonly commandId: string
+  readonly key: string
+  readonly stage: TaskStage | null
+}
+
 type ById = { readonly commandId: string; readonly id: string }
 type ByKey = { readonly commandId: string; readonly key: string }
 type Write<E> = Effect.Effect<Commands.Written<Task>, E, Caller>
@@ -91,6 +98,12 @@ export class TaskService extends Context.Service<TaskService, {
   readonly claim: (input: ByKey) => Write<NotFound | TaskClaimed>
   /** Gives up the caller's claim; the human can release anyone's. The status stays. */
   readonly release: (input: ByKey) => Write<NotFound | Invalid>
+  /**
+   * Where the task is inside In Progress (CEL-35); null clears it. Only the session holding the claim,
+   * or the human, and only while the task is in the stage status (In Progress). Moving the task to
+   * another status clears it, except to Needs input and back (an ask pauses the work, CEL-47).
+   */
+  readonly setStage: (input: SetStage) => Write<NotFound | Invalid>
   /**
    * For another service's command: moves a task to the top of a status inside that command's
    * transaction, with the same events as `move`. A human move ends an agent's claim unless `keepClaim`.
@@ -218,9 +231,15 @@ const make = Effect.gen(function* () {
       })
     })
 
-  /** Writes changed columns and bumps the version: every task change goes through here. */
-  const bump = (task: Task, now: number, columns: Record<string, unknown>) =>
-    sql`UPDATE tasks SET ${sql.update({ ...columns, version: task.version + 1, updated_at: now })} WHERE id = ${task.id}`
+  /** Writes changed columns, bumps the version and records who changed it: every task change goes through here. */
+  const bump = (task: Task, { now, caller }: Pick<Commands.WriteContext, "now" | "caller">, columns: Record<string, unknown>) =>
+    sql`UPDATE tasks SET ${sql.update({
+      ...columns,
+      version: task.version + 1,
+      updated_at: now,
+      updated_by_actor_id: caller.actorId,
+      updated_by_session_id: caller.sessionId,
+    })} WHERE id = ${task.id}`
 
   /** Who holds the task's claim, if anyone. */
   const holderOf = (task: Task) =>
@@ -230,6 +249,15 @@ const make = Effect.gen(function* () {
     sql<{ name: string; category: string }>`SELECT name, category FROM statuses WHERE id = ${statusId}`.pipe(Effect.map((rows) => rows[0]!))
 
   const categoryOf = (statusId: string) => Effect.map(statusOf(statusId), (s) => s.category)
+
+  /** Whether a stage survives a move: both ends are In Progress (the stage status) or Needs input. */
+  const stageCarries = (workspaceId: string, from: string, to: string) =>
+    Effect.gen(function* () {
+      const stageStatusId = yield* firstStarted(workspaceId)
+      const holds = (statusId: string) =>
+        statusId === stageStatusId ? Effect.succeed(true) : Effect.map(statusOf(statusId), isNeedsInputStatus)
+      return (yield* holds(from)) && (yield* holds(to))
+    })
 
   /**
    * A human change ends an agent's claim. Returns the columns that clear it (merged into the change's
@@ -268,10 +296,11 @@ const make = Effect.gen(function* () {
           RETURNING next_task_number - 1 AS number`
         const id = newId(now)
         yield* sql`INSERT INTO tasks (id, project_id, number, title, description, status_id, priority, position, due_date,
-                                      parent_id, created_by_actor_id, created_by_session_id, version, created_at, updated_at)
+                                      parent_id, created_by_actor_id, created_by_session_id, updated_by_actor_id,
+                                      updated_by_session_id, version, created_at, updated_at)
           VALUES (${id}, ${input.projectId}, ${numbers[0]!.number}, ${title}, ${input.description ?? ""}, ${statusId},
                   ${input.priority ?? 0}, ${position}, ${input.dueDate ?? null}, ${parentId}, ${caller.actorId},
-                  ${caller.sessionId}, 1, ${now}, ${now})`
+                  ${caller.sessionId}, ${caller.actorId}, ${caller.sessionId}, 1, ${now}, ${now})`
         yield* Effect.forEach(labelIds, (labelId) =>
           sql`INSERT INTO task_labels (task_id, label_id, created_at) VALUES (${id}, ${labelId}, ${now})`, { discard: true })
         const task = yield* load(id)
@@ -302,7 +331,7 @@ const make = Effect.gen(function* () {
         const after = Object.fromEntries(fields.map((f) => [f, next[f]]))
         const workspaceId = yield* workspaceOf(current.projectId)
         const claim = humanEndsClaim(current, workspaceId, context)
-        yield* bump(current, now, { ...Object.fromEntries(fields.map((f) => [EDITABLE[f], next[f]])), ...claim.columns })
+        yield* bump(current, context, { ...Object.fromEntries(fields.map((f) => [EDITABLE[f], next[f]])), ...claim.columns })
         yield* emit(
           { type: "task.updated", id: current.id, before, after, version: current.version + 1 },
           { workspaceId, projectId: current.projectId },
@@ -338,7 +367,12 @@ const make = Effect.gen(function* () {
         if (withdrawn !== null) yield* inbox.deliverWithdrawalWithin(context, withdrawn, (yield* statusOf(to.statusId)).name)
       }
       const claim = to.keepClaim ? { columns: {}, after: (_version: number) => Effect.void } : humanEndsClaim(current, workspaceId, context)
-      yield* bump(current, context.now, { status_id: to.statusId, position, ...claim.columns })
+      // A stage says where the task is inside In Progress (CEL-35): leaving the column ends it, except a
+      // round trip through Needs input, where asking Lucas pauses the work without changing its step.
+      const stage = sameColumn || current.stage === null || (yield* stageCarries(workspaceId, current.statusId, to.statusId))
+        ? {}
+        : { stage: null }
+      yield* bump(current, context, { status_id: to.statusId, position, ...stage, ...claim.columns })
       const task = yield* load(current.id)
       yield* context.emit(
         {
@@ -414,7 +448,7 @@ const make = Effect.gen(function* () {
         yield* Effect.forEach(removed, (labelId) =>
           sql`DELETE FROM task_labels WHERE task_id = ${current.id} AND label_id = ${labelId}`, { discard: true })
         const claim = humanEndsClaim(current, workspaceId, context)
-        yield* bump(current, now, claim.columns)
+        yield* bump(current, context, claim.columns)
         yield* emit(
           { type: "task.labels_changed", id: current.id, added, removed, version: current.version + 1 },
           { workspaceId, projectId: current.projectId },
@@ -433,7 +467,7 @@ const make = Effect.gen(function* () {
           if ((current.archivedAt !== null) === archived) return current
           const workspaceId = yield* workspaceOf(current.projectId)
           const claim = humanEndsClaim(current, workspaceId, context)
-          yield* bump(current, now, { archived_at: archived ? now : null, ...claim.columns })
+          yield* bump(current, context, { archived_at: archived ? now : null, ...claim.columns })
           yield* emit(
             { type: archived ? "task.archived" : "task.unarchived", id: current.id, version: current.version + 1 },
             { workspaceId, projectId: current.projectId },
@@ -477,8 +511,9 @@ const make = Effect.gen(function* () {
     })
 
   const claim = Effect.fn("TaskService.claim")(function* (input: ByKey) {
-    return yield* commands.write({ commandId: input.commandId, rpc: "task.claim" }, ({ now, caller, emit }) =>
+    return yield* commands.write({ commandId: input.commandId, rpc: "task.claim" }, (context) =>
       Effect.gen(function* () {
+        const { now, caller, emit } = context
         const current = yield* loadByKey(input.key)
         const workspaceId = yield* workspaceOf(current.projectId)
         const taken = yield* checkClaim(current, caller, now)
@@ -491,7 +526,7 @@ const make = Effect.gen(function* () {
         const { position } = statusId === current.statusId
           ? { position: current.position }
           : yield* placed(place(yield* column(current.projectId, statusId), {})).pipe(Effect.orDie) // no neighbors: can't fail
-        yield* bump(current, now, {
+        yield* bump(current, context, {
           assignee_actor_id: caller.actorId,
           assignee_session_id: caller.sessionId,
           status_id: statusId,
@@ -510,8 +545,9 @@ const make = Effect.gen(function* () {
   })
 
   const release = Effect.fn("TaskService.release")(function* (input: ByKey) {
-    return yield* commands.write({ commandId: input.commandId, rpc: "task.release" }, ({ now, caller, emit }) =>
+    return yield* commands.write({ commandId: input.commandId, rpc: "task.release" }, (context) =>
       Effect.gen(function* () {
+        const { caller, emit } = context
         const current = yield* loadByKey(input.key)
         const holder = holderOf(current)
         if (holder === null) return yield* new Invalid({ field: "key", reason: `${current.key} isn't claimed` })
@@ -519,7 +555,7 @@ const make = Effect.gen(function* () {
         if (!mine && caller.sessionId !== null) {
           return yield* new Invalid({ field: "key", reason: `${current.key} is claimed by another session` })
         }
-        yield* bump(current, now, { assignee_actor_id: null, assignee_session_id: null })
+        yield* bump(current, context, { assignee_actor_id: null, assignee_session_id: null })
         const task = yield* load(current.id)
         yield* emit(
           { type: "task.released", id: task.id, version: task.version, task },
@@ -529,7 +565,43 @@ const make = Effect.gen(function* () {
       }))
   })
 
+  const setStage = Effect.fn("TaskService.setStage")(function* (input: SetStage) {
+    return yield* commands.write({ commandId: input.commandId, rpc: "task.stage" }, (context) =>
+      Effect.gen(function* () {
+        const { caller, emit } = context
+        const current = yield* loadByKey(input.key)
+        // The session holding the claim says where its work is; the human may too (and keeps the claim).
+        if (caller.sessionId !== null) {
+          const holder = holderOf(current)
+          if (holder === null) {
+            return yield* new Invalid({ field: "key", reason: `${current.key} isn't claimed: claim it first (\`cello task claim ${current.key}\`)` })
+          }
+          if (holder.actorId !== caller.actorId || holder.sessionId !== caller.sessionId) {
+            return yield* new Invalid({ field: "key", reason: `${current.key} is claimed by another session: only the session holding the claim sets its stage` })
+          }
+        }
+        const workspaceId = yield* workspaceOf(current.projectId)
+        const stageStatusId = yield* firstStarted(workspaceId)
+        if (current.statusId !== stageStatusId) {
+          const names = yield* sql<{ id: string; name: string }>`SELECT id, name FROM statuses WHERE id IN (${current.statusId}, ${stageStatusId})`
+          const name = (id: string) => names.find((n) => n.id === id)?.name ?? "another status"
+          return yield* new Invalid({
+            field: "stage",
+            reason: `${current.key} is in ${name(current.statusId)}; a stage is only for tasks in ${name(stageStatusId)}`,
+          })
+        }
+        if (current.stage === input.stage) return current
+        yield* bump(current, context, { stage: input.stage })
+        yield* emit(
+          { type: "task.stage_changed", id: current.id, version: current.version + 1, before: current.stage, after: input.stage },
+          { workspaceId, projectId: current.projectId },
+        )
+        return yield* load(current.id)
+      }))
+  })
+
   return TaskService.of({
+    setStage,
     byKey,
     claim,
     release,

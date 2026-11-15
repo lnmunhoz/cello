@@ -145,3 +145,31 @@ describe("ContextService.taskDetail", () => {
       expect(yield* Effect.flip(context.taskDetail("CEL-99"))).toMatchObject({ _tag: "NotFound", entity: "task", id: "CEL-99" })
     })))
 })
+
+describe("ContextService.labelList", () => {
+  it.effect("lists the workspace's labels, archived ones too, with how many live tasks carry each here and in other projects", () =>
+    run(Effect.gen(function* () {
+      const { context, project, status, label, tasks, one, two } = yield* setup
+      const labels = yield* LabelService.LabelService
+      const { result: ui } = yield* labels.create({ commandId: cmd(), workspaceId: project.workspaceId, name: "ui", color: "#3B82F6" })
+      const { result: old } = yield* labels.create({ commandId: cmd(), workspaceId: project.workspaceId, name: "old", color: "#6B7280" })
+      yield* tasks.setLabels({ commandId: cmd(), id: one.id, add: [label.id, ui.id], remove: [] })
+      yield* tasks.setLabels({ commandId: cmd(), id: two.id, add: [ui.id], remove: [] })
+      yield* labels.archive({ commandId: cmd(), id: old.id })
+      // An archived task doesn't count; a task in another project of the workspace counts apart.
+      yield* tasks.archive({ commandId: cmd(), id: two.id })
+      const { result: thai } = yield* (yield* ProjectService.ProjectService).create({
+        commandId: cmd(), workspaceId: project.workspaceId, name: "Thai", key: "THAI",
+      })
+      yield* tasks.create({ commandId: cmd(), projectId: thai.id, title: "Elsewhere", statusId: status["Todo"]!.id, labelIds: [ui.id] })
+
+      const list = yield* context.labelList({ repoPath: REPO })
+      expect(list.project.key).toBe("CEL")
+      expect(list.labels.map((l) => [l.label.name, l.tasks, l.otherProjects, l.label.archivedAt === null])).toEqual([
+        ["cli", 2, 0, true],
+        ["old", 0, 0, false],
+        ["ui", 1, 1, true],
+      ])
+      expect(yield* Effect.flip(context.labelList({ key: "NOPE" }))).toMatchObject({ _tag: "NotFound", entity: "project" })
+    })))
+})

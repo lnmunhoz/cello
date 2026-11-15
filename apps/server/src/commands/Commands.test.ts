@@ -61,4 +61,14 @@ describe("Commands", () => {
       expect(ran).toBe(false)
       expect(yield* receipts(queuedId)).toEqual([])
     })))
+
+  // The server's own bookkeeping (a session checking in) has no client retrying it: no receipt to keep.
+  it.effect("a write without a receipt still commits and returns its seq, and keeps no receipt", () =>
+    run(Effect.gen(function* () {
+      const commands = yield* Commands.Commands
+      const commandId = cmd()
+      const written = yield* commands.write({ commandId, rpc: "test.write", receipt: false }, () => Effect.succeed("done"))
+      expect(written).toEqual({ result: "done", seq: null })
+      expect(yield* receipts(commandId)).toEqual([])
+    })))
 })

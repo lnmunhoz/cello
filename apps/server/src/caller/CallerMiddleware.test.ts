@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect"
 import * as Headers from "effect/http/Headers"
 import * as Layer from "effect/Layer"
 import * as Seed from "../persistence/Seed.ts"
+import { SessionService } from "../session/SessionService.ts"
 import { services, TEST_HUMAN } from "../testing/TestLayers.ts"
 import * as CallerLayer from "./CallerMiddleware.ts"
 
@@ -65,6 +66,25 @@ describe("CallerMiddleware", () => {
       const human = yield* Seed.HumanActor
       expect(yield* callerFor({ ...cli, [IDENTITY_HEADERS.session]: "me" })).toEqual({ actorId: human.id, sessionId: null })
     })))
+
+  // The check-in runs after the request: a write that already committed must still answer as a success,
+  // or the CLI reports an error and a rerun does the change twice.
+  it.effect("a check-in that fails after the request is logged, and the request's own result stands", () =>
+    Effect.gen(function* () {
+      const fake = SessionService.of({
+        resolve: () => Effect.succeed({ actorId: "agent", sessionId: "s1" }),
+        checkIn: () => Effect.die(new Error("database is locked")),
+      } as unknown as SessionService["Service"])
+      const middleware = yield* CallerMiddleware.pipe(Effect.provide(CallerLayer.layer), Effect.provideService(SessionService, fake))
+      const result = yield* middleware(Effect.succeed("committed") as any, {
+        client: {} as any,
+        requestId: 0n as any,
+        rpc: {} as any,
+        payload: {},
+        headers: Headers.fromInput(cli),
+      })
+      expect(result).toBe("committed")
+    }).pipe(Effect.scoped))
 
   it("decodes the identity headers, ignoring a pid that isn't a number", () => {
     expect(CallerLayer.identityFromHeaders(Headers.fromInput(cli))).toEqual({

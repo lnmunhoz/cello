@@ -29,9 +29,19 @@ export interface WriteContext {
   ) => Effect.Effect<CelloEvent, SqlError>
 }
 
+/**
+ * `receipt: false` is for the server's own bookkeeping (a session checking in, CEL-35): no client
+ * retries it, so there's no receipt to look up or keep.
+ */
+export interface Command {
+  readonly commandId: string
+  readonly rpc: string
+  readonly receipt?: boolean
+}
+
 export class Commands extends Context.Service<Commands, {
   readonly write: <A, E>(
-    command: { readonly commandId: string; readonly rpc: string },
+    command: Command,
     change: (context: WriteContext) => Effect.Effect<A, E | SqlError>,
   ) => Effect.Effect<Written<A>, Exclude<E, SqlError>, Caller>
 }>()("cello/Commands") {}
@@ -44,7 +54,7 @@ const make = Effect.gen(function* () {
   const writing = yield* Semaphore.make(1)
 
   const write = <A, E>(
-    command: { readonly commandId: string; readonly rpc: string },
+    command: Command,
     change: (context: WriteContext) => Effect.Effect<A, E | SqlError>,
   ): Effect.Effect<Written<A>, Exclude<E, SqlError>, Caller> =>
     Effect.gen(function* () {
@@ -52,8 +62,11 @@ const make = Effect.gen(function* () {
       // Once a write holds the permit it runs to the end: a closing connection or a stopping server
       // interrupts its request, but the change still commits and is published (CEL-17).
       const outcome = yield* Effect.uninterruptible(sql.withTransaction(Effect.gen(function* () {
-        const receipts = yield* sql<{ result: string; last_seq: number | null }>`
+        const keep = command.receipt !== false
+        const receipts = keep
+          ? yield* sql<{ result: string; last_seq: number | null }>`
           SELECT result, last_seq FROM command_receipts WHERE command_id = ${command.commandId}`
+          : []
         const receipt = receipts[0]
         if (receipt) {
           // A retry: hand back what the first run returned, write nothing.
@@ -73,8 +86,10 @@ const make = Effect.gen(function* () {
           }).pipe(Effect.tap((event) => Effect.sync(() => events.push(event))))
         const result = yield* change({ now, caller, emit })
         const seq = events.at(-1)?.seq ?? null
-        yield* sql`INSERT INTO command_receipts (command_id, rpc, result, last_seq, created_at)
-          VALUES (${command.commandId}, ${command.rpc}, ${JSON.stringify(result)}, ${seq}, ${now})`
+        if (keep) {
+          yield* sql`INSERT INTO command_receipts (command_id, rpc, result, last_seq, created_at)
+            VALUES (${command.commandId}, ${command.rpc}, ${JSON.stringify(result)}, ${seq}, ${now})`
+        }
         return { written: { result, seq } as Written<A>, events }
       })).pipe(Effect.tap((outcome) => log.publish(outcome.events))))
       return outcome.written

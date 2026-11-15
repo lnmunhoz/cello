@@ -10,7 +10,7 @@ const project = (id: string, workspaceId = "w1", archivedAt: number | null = nul
 const task = (id: string, projectId = "p1", archivedAt: number | null = null): Task => ({
   id, projectId, number: 1, key: `CEL-${id}`, title: id, description: "", statusId: "input", priority: 0, position: "a0",
   dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null, createdByActorId: "me",
-  createdBySessionId: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt,
+  createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt,
 })
 const ask = (id: string, taskId: string, createdAt: number): Ask => ({
   id, taskId, title: `Ask ${id}`, intro: "", questions: [{ id: "q1", prompt: "Which?", kind: "text", options: [] }], attachments: [],
@@ -19,7 +19,7 @@ const ask = (id: string, taskId: string, createdAt: number): Ask => ({
 })
 
 const state: BoardState = {
-  seq: 1, actors: {}, workspaces: {}, statuses: {}, labels: {}, reviews: {}, documents: {},
+  seq: 1, actors: {}, workspaces: {}, statuses: {}, labels: {}, sessions: {}, reviews: {}, documents: {},
   projects: { p1: project("p1"), p2: project("p2", "w2"), p3: project("p3", "w1", 5) },
   tasks: { t1: task("t1"), t2: task("t2"), t3: task("t3", "p2"), t4: task("t4", "p1", 9), t5: task("t5", "p3") },
   asks: { k1: ask("k1", "t1", 30), k2: ask("k2", "t2", 10), k3: ask("k3", "t3", 1), k4: ask("k4", "t4", 1), k5: ask("k5", "t5", 1) },
