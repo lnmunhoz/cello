@@ -216,7 +216,8 @@ test("CEL-24: ⌘B in the board collapses the sidebar to a rail and expands it a
     walk(Menu.getApplicationMenu()?.items ?? [])
     return all
   })
-  expect(accelerators.map((a) => a.toLowerCase())).not.toContain("cmdorctrl+b")
+  // Every spelling Electron takes for ⌘B or Ctrl+B.
+  expect(accelerators.filter((a) => /^(cmdorctrl|commandorcontrol|cmd|command|ctrl|control|super|meta)\+b$/i.test(a.replace(/\s/g, "")))).toEqual([])
 
   await video.caption("⌘B: the sidebar collapses to a rail of icons")
   await pressKey(app, VIEW.board, "b", [mod])
