@@ -82,7 +82,7 @@ test("CEL-70: comment on an open packet from the Review page; it stays In Review
   await expect(one.comments.locator("[data-comment-id]")).toHaveText([/Heads up: the video is silent on purpose\./])
   // Under the steps, above Send back and Approve.
   await expectBelow(one.comments, one.article.getByRole("region", { name: "How to check" }))
-  await expectBelow(one.article.getByRole("button", { name: "Approve" }), one.box)
+  await expectBelow(one.article.getByRole("button", { name: "Approve", exact: true }), one.box)
   await expect(one.box).toHaveAttribute("placeholder", /Send back/)
 
   await caption(page, "Write a comment and click Comment: it joins the thread, and the task stays In Review")
@@ -91,7 +91,8 @@ test("CEL-70: comment on an open packet from the Review page; it stays In Review
   await expect(one.comments.locator("[data-comment-id]").last()).toContainText("Does it also work on a narrow window?")
   await expect(one.box).toHaveValue("")
   await expect(one.header).toHaveAttribute("aria-expanded", "true")
-  await expect(one.article.getByText("In Review", { exact: true })).toBeVisible()
+  // The first step names the task (CEL-20), with its status live.
+  await expect(one.article.locator(`[data-task-link="${key}-1"] [data-task-status]`).first()).toHaveText("In Review")
 
   await caption(page, "In the agent's session: `cello inbox --new` has the comment")
   const inbox = agent("inbox", "--new")
@@ -129,7 +130,7 @@ test("CEL-70: comment on an open packet from the Review page; it stays In Review
   await expect(dialog).toBeHidden()
 
   await caption(page, `Approve ${key}-2: it leaves the queue, as before`)
-  await two.article.getByRole("button", { name: "Approve" }).click()
+  await two.article.getByRole("button", { name: "Approve", exact: true }).click()
   await expect(two.article).toHaveCount(0)
 
   await caption(page, `On the board: ${key}-1 is back in In Progress with the note as a comment, ${key}-2 is Done`)
