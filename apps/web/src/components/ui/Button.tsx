@@ -1,5 +1,6 @@
 import { Button as BaseButton } from "@ui-sdk/react/button"
-import type { ComponentProps } from "react"
+import { Link, type LinkProps } from "@tanstack/react-router"
+import type { ComponentProps, ReactNode } from "react"
 import { variants, type VariantProps } from "./variants.ts"
 
 const button = variants(
@@ -33,6 +34,13 @@ export function Button({ variant, size, type = "button", ...props }: ButtonProps
 }
 
 export type ButtonLinkProps = Omit<ComponentProps<"a">, "className" | "style"> & VariantProps<typeof button>
+
+export type LinkButtonProps = Omit<LinkProps, "className" | "style"> & VariantProps<typeof button> & { children: ReactNode }
+
+/** An in-app route link that looks like a button: "Go to the board" on a Not found screen. */
+export function LinkButton({ variant, size, ...props }: LinkButtonProps) {
+  return <Link {...props} className={button({ variant, size })} />
+}
 
 /** A link that looks like a button: for evidence and other things that open in a new tab. */
 export function ButtonLink({ variant, size, ...props }: ButtonLinkProps) {

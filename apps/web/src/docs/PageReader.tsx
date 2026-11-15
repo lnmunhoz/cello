@@ -13,6 +13,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { CheckIcon, ChevronDownIcon, LinkIcon, ListIcon } from "lucide-react"
 import { type RefObject, useEffect, useRef, useState } from "react"
 import { Centered } from "../app/Home.tsx"
+import { NotFound } from "../app/NotFound.tsx"
 import { Button } from "../components/ui/Button.tsx"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.tsx"
 import { toast } from "../components/ui/Toast.tsx"
@@ -38,12 +39,15 @@ function PageLoader({ board, project, slug, pinned }: { board: BoardState; proje
   if (AsyncResult.isSuccess(result)) return <Reader board={board} project={project} document={result.value} pinned={pinned} />
   if (AsyncResult.isFailure(result)) {
     return (
-      <Centered>
-        <p className="text-[15px] font-medium text-ink">{pinned === undefined ? `No page “${slug}” in ${project.name}` : `No version ${pinned} of “${slug}”`}</p>
-        <Link to="/$projectKey/docs" params={{ projectKey: project.key }} className="text-accent underline">
-          See the project’s docs
-        </Link>
-      </Centered>
+      <NotFound
+        title={pinned === undefined ? `No page “${slug}” in ${project.name}` : `No version ${pinned} of “${slug}”`}
+        detail={
+          <Link to="/$projectKey/docs" params={{ projectKey: project.key }} className="text-accent underline">
+            See the project’s docs
+          </Link>
+        }
+        projectKey={project.key}
+      />
     )
   }
   return <Centered>Loading the page…</Centered>
@@ -190,7 +194,7 @@ function Reader({ board, project, document, pinned }: { board: BoardState; proje
             </div>
           ) : null}
 
-          <PageBody content={content} flash={flash} onFlashEnd={endFlash} projectKeys={projectKeysOf(board)} />
+          <PageBody content={content} flash={flash} onFlashEnd={endFlash} projectKeys={projectKeysOf(board)} files={document.files} />
         </article>
       </div>
     </div>

@@ -1,6 +1,7 @@
 // The built web app, served by the server on its own port. Files are a map from URL path to a file:
 // a folder on disk (`apps/web/dist`), or the files embedded in the compiled `cello` binary. A path
-// without an extension that isn't a file is a client route (/CEL/issues) and gets index.html.
+// without an extension that isn't a file is a client route (/CEL/issues) and gets index.html, as does
+// any page navigation to a path that isn't a file.
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as Effect from "effect/Effect"
@@ -49,7 +50,10 @@ export const handler = (files: WebFiles) =>
     const file = pathname === null ? undefined : files.get(pathname === "/" ? "/index.html" : pathname)
     if (pathname !== null && file !== undefined) return send(pathname, file)
     const index = files.get("/index.html")
-    if (pathname !== null && path.posix.extname(pathname) === "" && index !== undefined) return send("/index.html", index)
+    // A page navigation to a path that isn't a file (a link to a missing `report/demo.mp4`) gets the app
+    // too, whose Not found screen has a way back; a missing script or image stays a 404.
+    const navigation = request.headers["sec-fetch-mode"] === "navigate"
+    if (pathname !== null && (path.posix.extname(pathname) === "" || navigation) && index !== undefined) return send("/index.html", index)
     return HttpServerResponse.text("Not found", { status: 404 })
   })
 

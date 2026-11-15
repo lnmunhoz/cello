@@ -396,6 +396,65 @@ test("CEL-20: a task key clicked in a page shown in the native panel opens the t
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "panel-task-key.png"))
 })
 
+test("CEL-54: the main window goes back and forward with ⌘[ and ⌘] (Ctrl on Linux), the mouse's buttons and the History menu; a dead address is never a dead end", async ({}, testInfo) => {
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const server = await startCello(dataDir)
+  const app = await launchApp({ CELLO_PORT: String(server.port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-") })
+  const video = record(app, testInfo.title)
+  const { board } = await appPages(app, server.url)
+  const [back, forward] = process.platform === "darwin" ? ["⌘[", "⌘]"] : ["Ctrl+[", "Ctrl+]"]
+  const issues = `${server.url}/NAV/issues`
+  const docs = `${server.url}/NAV/docs`
+
+  await video.caption("A project on the board; open its Docs tab")
+  await board.getByRole("button", { name: "New project" }).first().click()
+  await board.getByLabel("Name").fill("Navigation")
+  await board.getByLabel("Key").fill("NAV")
+  await board.getByRole("button", { name: "Create project" }).click()
+  await board.waitForURL(issues)
+  await expect(board.getByRole("dialog")).toBeHidden()
+  // The "Starting Cello…" message the board replaced isn't behind it in the history.
+  expect(await app.evaluate(({ BaseWindow }) => (BaseWindow.getAllWindows()[0]!.contentView.children[0] as Electron.WebContentsView).webContents.navigationHistory.getAllEntries().map((e) => e.url))).not.toContainEqual(expect.stringMatching(/^data:/))
+  await board.getByRole("link", { name: "Docs", exact: true }).click()
+  await board.waitForURL(docs)
+
+  await video.caption(`${back}: back to the board; ${forward}: forward to Docs`)
+  await pressKey(app, VIEW.board, "[", [COMMAND_OR_CONTROL])
+  await board.waitForURL(issues)
+  await pressKey(app, VIEW.board, "]", [COMMAND_OR_CONTROL])
+  await board.waitForURL(docs)
+
+  await video.caption("The mouse's back and forward buttons (an app command on Linux and Windows)")
+  const appCommand = (command: string) => app.evaluate(({ BaseWindow }, command) => BaseWindow.getAllWindows()[0]!.emit("app-command", {}, command), command)
+  await appCommand("browser-backward")
+  await board.waitForURL(issues)
+  await appCommand("browser-forward")
+  await board.waitForURL(docs)
+
+  await video.caption("History in the menu bar has Back and Forward, with their keys")
+  const menu = await app.evaluate(({ Menu }) =>
+    Menu.getApplicationMenu()!.items.find((item) => item.label === "History")!.submenu!.items.map((item) => [item.label, item.accelerator]),
+  )
+  expect(menu).toEqual([["Back", "CmdOrCtrl+["], ["Forward", "CmdOrCtrl+]"]])
+  await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.getMenuItemById("history-back")!.click())
+  await board.waitForURL(issues)
+  await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.getMenuItemById("history-forward")!.click())
+  await board.waitForURL(docs)
+
+  await video.caption("A link to a file that isn't there (what stranded Lucas): Cello's own Not found screen, with a way out")
+  await board.goto(`${server.url}/NAV/pages/a-palette-typing.mp4`)
+  const notFound = board.getByRole("region", { name: "Not found" })
+  await expect(notFound).toContainText("No page “a-palette-typing.mp4” in Navigation")
+  await expect(notFound.getByRole("link", { name: "Go to the NAV board" })).toBeVisible()
+  await painted(board)
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "not-found-in-app.png"))
+
+  await video.caption(`${back} leaves it: back on Docs`)
+  await pressKey(app, VIEW.board, "[", [COMMAND_OR_CONTROL])
+  await board.waitForURL(docs)
+  await expect(board.getByRole("region", { name: "Not found" })).toHaveCount(0)
+})
+
 test("CEL-37: the board in the app notices a new Cello build when the server restarts, says so, and reloads into it", async ({}, testInfo) => {
   test.setTimeout(240_000)
   const builds = tempDir("cello-desktop-builds-")
