@@ -11,7 +11,7 @@ import { startServer, tempDataDir } from "@cello/server/testing/servers"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import { connect } from "../../../server/test/integration/harness.ts"
-import { WAIT_NUDGE } from "../../src/claudeHook.ts"
+import { WAIT_HINT, WAIT_NUDGE } from "../../src/claudeHook.ts"
 import { cello, gitRepo, hookProcess, installSetup } from "./cli.ts"
 
 const X = "2fd0505c-417a-4167-acfe-2d66080fcae0"
@@ -145,12 +145,12 @@ describe("cello hook claude", () => {
       const { hook, me } = yield* setup
       const stop = { session_id: X, cwd: "/tmp", hook_event_name: "Stop", stop_hook_active: false, last_assistant_message: "Done." }
       // Nothing new: X holds CEL-1 and nothing waits for it, so it's asked to start `cello inbox --wait` (inboxWait.test.ts).
-      expect(JSON.parse((yield* hook("stop", stop)).out)).toEqual({ hookSpecificOutput: { hookEventName: "Stop", additionalContext: WAIT_NUDGE(["CEL-1"]) } })
+      expect(JSON.parse((yield* hook("stop", stop)).out)).toEqual({ hookSpecificOutput: { hookEventName: "Stop", additionalContext: WAIT_NUDGE(["CEL-1"], "Lucas") } })
 
       yield* me("task", "comment", "CEL-1", "Please also cover the empty state: https://example.com/spec")
       const delivered = yield* hook("stop", stop)
       expect(delivered.failure).toBeNull()
-      expect(JSON.parse(delivered.out)).toEqual({ hookSpecificOutput: { hookEventName: "Stop", additionalContext: NEW_COMMENT } })
+      expect(JSON.parse(delivered.out)).toEqual({ hookSpecificOutput: { hookEventName: "Stop", additionalContext: `${NEW_COMMENT}\n\n${WAIT_HINT("Lucas")}` } })
       // Delivered once: the next stop goes through.
       expect(yield* hook("stop", { ...stop, stop_hook_active: true })).toEqual({ out: "", failure: null })
     }).pipe(Effect.scoped))

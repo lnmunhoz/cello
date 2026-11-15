@@ -29,6 +29,7 @@ import {
 import type { CelloEvent, EventOf } from "@cello/contract/events"
 import { HUMAN_SESSION, IDENTITY_HEADERS } from "@cello/contract/rpcs"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
+import { isAlive } from "@cello/server/process/isAlive"
 import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
 import { ACCEPTED } from "@cello/shared/attachment"
 import { pagePath } from "@cello/shared/document"
@@ -68,6 +69,7 @@ import {
   parseHookInput,
   stopNudge,
   subagentContext,
+  waitHint,
 } from "./claudeHook.ts"
 import { CLAUDE_PLUGIN_FILES, pluginFolder, writePluginFolder } from "./claudePlugin.ts"
 import {
@@ -92,7 +94,9 @@ import { deliveryText, inboxEntries } from "./inbox.ts"
 import {
   acquireWaiter,
   afterDown,
+  maxWait,
   type Outage,
+  OWNER_CHECK_MS,
   readWaiter,
   reconnectGrace,
   releaseWaiter,
@@ -1386,16 +1390,46 @@ const waitForInbox = (json: boolean) =>
     const me = { pid: process.pid, id: crypto.randomUUID() }
     const lock = acquireWaiter(file, me)
     if (!lock.acquired) {
-      return yield* print(`Already waiting: a \`cello inbox --wait\` (pid ${lock.pid}) is running for this session, and it wakes you when Lucas writes.`)
+      if (json) return yield* printJson({ waiting: true, pid: lock.pid })
+      return yield* Console.error(
+        `Already waiting: a \`cello inbox --wait\` (pid ${lock.pid}) is running for this session, and it wakes you when something new arrives.`,
+      )
     }
-    const taken = yield* Console.error(`${WAITING} (pid ${me.pid})…`).pipe(
-      Effect.andThen(waitForItems),
+    const longest = maxWait(env)
+    // Whichever ends first: something to hand over, a day gone by, or the Claude Code that started it gone.
+    const outcome = yield* Console.error(`${WAITING} (pid ${me.pid})…`).pipe(
+      Effect.andThen(Effect.raceFirst(
+        Effect.map(waitForItems, (taken) => ({ taken })),
+        Effect.raceFirst(Effect.as(Effect.sleep(longest), { taken: null }), ownerGone(env)),
+      )),
       Effect.ensuring(Effect.sync(() => releaseWaiter(file, me.id))),
     )
+    const taken = outcome.taken
+    if (taken === null) {
+      if (json) return yield* printJson({ stopped: "max-wait", afterMs: longest })
+      return yield* print(
+        `Nothing new for this session in ${spanText(longest)}, so \`cello inbox --wait\` stopped. If you still hold a claim, start it again in the background.`,
+      )
+    }
     if (taken.session === null) return yield* new CliFailure({ message: NO_INBOX })
     if (json) return yield* printJson(taken)
     yield* print(deliveryText(taken.items, now(), yield* saveScreenshots(answeredAsks(taken.items))))
   })
+
+/**
+ * Fails once the Claude Code that started this waiter (CLAUDE_PID) is gone, so a waiter never outlives
+ * its session and takes comments nobody reads (CEL-74); never ends without a CLAUDE_PID.
+ */
+const ownerGone = (env: Env) => {
+  const pid = Number(env.CLAUDE_PID)
+  if (!Number.isInteger(pid) || pid <= 0) return Effect.never
+  return Effect.gen(function* () {
+    while (isAlive(pid)) yield* Effect.sleep(OWNER_CHECK_MS)
+    return yield* new CliFailure({
+      message: `The Claude Code session that started this (pid ${pid}) is gone, so \`cello inbox --wait\` stopped. Nothing was taken.`,
+    })
+  })
+}
 
 const inbox = Command.make("inbox", {
   onlyNew: Flag.Boolean("new").pipe(
@@ -1406,14 +1440,16 @@ const inbox = Command.make("inbox", {
     Flag.withDefault(false),
     Flag.withDescription(
       "Block until something new arrives for this session (a comment, a Send back note, answers, a withdrawn ask), then take it and print it, " +
-        "as --new does. Run it in the background when you end a turn holding a claim, so Lucas's comments wake you. A second one for the same " +
-        "session leaves at once. Rides out a server restart; exits 1 if the server stays away for 2 minutes.",
+        "as --new does. Run it in the background when you end a turn holding a claim, so comments wake you. A second one for the same " +
+        "session leaves at once. Rides out a server restart; exits 1 if the server stays away for 2 minutes, or when the Claude Code that " +
+        "started it (CLAUDE_PID) is gone; stops after a day with nothing new.",
     ),
   ),
   json: Flag.Boolean("json").pipe(
     Flag.withDefault(false),
     Flag.withDescription(
-      "Print JSON: `items` (new, handed over now and marked read), `earlier` (read before; empty with --new and --wait) and `claimed` (the keys of the tasks this session holds).",
+      "Print JSON: `items` (new, handed over now and marked read), `earlier` (read before; empty with --new and --wait) and `claimed` (the keys of the tasks this session holds). " +
+        "With --wait: `{ waiting, pid }` when another waiter runs, `{ stopped, afterMs }` after a day with nothing new.",
     ),
   ),
 }, (input) =>
@@ -1468,13 +1504,19 @@ const deliverToClaude = (event: DeliveryEvent) =>
     }
     // Taken and marked read in one step: a comment is handed over once, even to hooks running at the
     // same time, and a Stop hook can't loop on it (stop_hook_active needs no special case).
-    const { items, claimed } = yield* withClient((client) => client["inbox.take"]({ unreadOnly: true }), { headers })
-    if (items.length) return yield* print(JSON.stringify(hookResponse(event, deliveryText(items, now(), yield* saveScreenshots(answeredAsks(items))))))
-    if (event !== "stop") return
-    // Nothing new, and the session is about to go idle: if it holds a claim and nothing waits for it,
-    // keep it going once to start `cello inbox --wait` (CEL-74).
+    const { items, claimed, human } = yield* withClient((client) => client["inbox.take"]({ unreadOnly: true }), { headers })
+    // On Stop the session may be going idle: if it holds a claim and nothing waits for it, it's asked
+    // to start `cello inbox --wait` (CEL-74), by a line after what's handed over, or else by a nudge.
     const lock = waiterLockFile(waiterLockDir(env), { port: String(portOf(env)), session: hookSession(hook, env)! })
-    const nudge = stopNudge(hook, { claimed, waiter: readWaiter(lock).state })
+    const facts = event === "stop"
+      ? { claimed: claimed ?? [], waiter: readWaiter(lock).state, human: human ?? items[0]?.author ?? "the human" }
+      : null
+    if (items.length) {
+      const delivery = deliveryText(items, now(), yield* saveScreenshots(answeredAsks(items)))
+      const hint = facts && waitHint(hook, facts)
+      return yield* print(JSON.stringify(hookResponse(event, hint ? `${delivery}\n\n${hint}` : delivery)))
+    }
+    const nudge = facts && stopNudge(hook, facts)
     if (nudge) yield* print(JSON.stringify(nudge))
   })
 

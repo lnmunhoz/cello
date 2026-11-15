@@ -62,7 +62,7 @@ describe("InboxService: who gets what", () => {
       expect(yield* other(inbox.unread)).toEqual([])
       // The human has no inbox.
       expect(yield* inbox.unread).toEqual([])
-      expect(yield* inbox.take({})).toEqual({ session: null, items: [], earlier: [], claimed: [] })
+      expect(yield* inbox.take({})).toEqual({ session: null, items: [], earlier: [], claimed: [], human: "Lucas" })
     })))
 
   it.effect("the agent's own comments and other agents' comments aren't delivered", () =>
@@ -175,10 +175,10 @@ describe("InboxService.take", () => {
 })
 
 describe("InboxService.take: what the session holds (CEL-74)", () => {
-  it.effect("says which tasks the session holds a claim on, so the Stop hook knows it has comments to wait for", () =>
+  it.effect("says which tasks the session holds a claim on, and the human's name, so the Stop hook can ask it to wait for them", () =>
     run(Effect.gen(function* () {
       const { inbox, tasks, one } = yield* setup
-      expect((yield* agent(inbox.take({ unreadOnly: true }))).claimed).toEqual(["CEL-1"])
+      expect(yield* agent(inbox.take({ unreadOnly: true }))).toMatchObject({ claimed: ["CEL-1"], human: "Lucas" })
       expect((yield* other(inbox.take({ unreadOnly: true }))).claimed).toEqual(["CEL-2"])
       yield* agent(tasks.release({ commandId: cmd(), key: one.key }))
       expect((yield* agent(inbox.take({ unreadOnly: true }))).claimed).toEqual([])
@@ -221,7 +221,7 @@ describe("InboxService.wait (CEL-74)", () => {
   it.effect("the human has no inbox: it returns at once, empty", () =>
     run(Effect.gen(function* () {
       const { inbox } = yield* setup
-      expect(yield* inbox.wait).toEqual({ session: null, items: [], earlier: [], claimed: [] })
+      expect(yield* inbox.wait).toEqual({ session: null, items: [], earlier: [], claimed: [], human: "Lucas" })
     })))
 })
 

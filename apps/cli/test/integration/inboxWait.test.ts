@@ -15,7 +15,7 @@ import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Scope from "effect/Scope"
 import { connect } from "../../../server/test/integration/harness.ts"
-import { WAIT_NUDGE } from "../../src/claudeHook.ts"
+import { WAIT_HINT, WAIT_NUDGE } from "../../src/claudeHook.ts"
 import { waiterLockDir, waiterLockFile, WAITING } from "../../src/inboxWait.ts"
 import { cello, gitRepo } from "./cli.ts"
 
@@ -162,9 +162,11 @@ describe("cello inbox --wait", () => {
       const { x, me, lock, startWaiter } = yield* setup
       const waiting = yield* startWaiter()
       expect(yield* x("inbox", "--wait")).toEqual({
-        out: `Already waiting: a \`cello inbox --wait\` (pid ${process.pid}) is running for this session, and it wakes you when Lucas writes.`,
+        out: "",
         failure: null,
+        err: `Already waiting: a \`cello inbox --wait\` (pid ${process.pid}) is running for this session, and it wakes you when something new arrives.`,
       })
+      expect(JSON.parse((yield* x("inbox", "--wait", "--json")).out)).toEqual({ waiting: true, pid: process.pid })
       // The first one's lock is still there, and it still gets the comment.
       expect(fs.existsSync(lock)).toBe(true)
       yield* me("task", "comment", "CEL-1", "For the first waiter")
@@ -195,6 +197,33 @@ describe("cello inbox --wait", () => {
       expect(fs.existsSync(lock)).toBe(false)
     }).pipe(Effect.scoped))
 
+  it.live("stops when the Claude Code that started it is gone (CLAUDE_PID), leaving comments for the session's next run", () =>
+    Effect.gen(function* () {
+      const { x, me, lock, startWaiter } = yield* setup
+      // A stand-in for Claude Code: a process this test starts, and stops by its pid.
+      const claudeCode = Bun.spawn(["sleep", "600"])
+      const waiting = yield* startWaiter({ CLAUDE_PID: String(claudeCode.pid) })
+      claudeCode.kill()
+      yield* Effect.promise(() => claudeCode.exited)
+      expect((yield* Fiber.join(waiting)).failure).toBe(
+        `The Claude Code session that started this (pid ${claudeCode.pid}) is gone, so \`cello inbox --wait\` stopped. Nothing was taken.`,
+      )
+      expect(fs.existsSync(lock)).toBe(false)
+      yield* me("task", "comment", "CEL-1", "Still here for the next run")
+      expect((yield* x("inbox", "--new")).out).toBe(delivery("Still here for the next run"))
+    }).pipe(Effect.scoped))
+
+  it.live("lives at most a day: then it stops, says to start it again, and lets its lock go", () =>
+    Effect.gen(function* () {
+      const { lock, startWaiter } = yield* setup
+      const waiting = yield* startWaiter({ CELLO_WAIT_MAX_MS: "300" })
+      expect(yield* Fiber.join(waiting)).toMatchObject({
+        out: "Nothing new for this session in 300 ms, so `cello inbox --wait` stopped. If you still hold a claim, start it again in the background.",
+        failure: null,
+      })
+      expect(fs.existsSync(lock)).toBe(false)
+    }).pipe(Effect.scoped))
+
   it.live("the human has no inbox to wait on", () =>
     Effect.gen(function* () {
       const { me } = yield* setup
@@ -205,7 +234,7 @@ describe("cello inbox --wait", () => {
 })
 
 describe("the Stop hook asks an idle session to wait (CEL-74)", () => {
-  const nudge = (keys: ReadonlyArray<string>) => ({ out: JSON.stringify({ hookSpecificOutput: { hookEventName: "Stop", additionalContext: WAIT_NUDGE(keys) } }), failure: null })
+  const nudge = (keys: ReadonlyArray<string>) => ({ out: JSON.stringify({ hookSpecificOutput: { hookEventName: "Stop", additionalContext: WAIT_NUDGE(keys, "Lucas") } }), failure: null })
 
   it.live("holding a claim with no waiter running, it keeps the session going once to start `cello inbox --wait`", () =>
     Effect.gen(function* () {
@@ -228,6 +257,16 @@ describe("the Stop hook asks an idle session to wait (CEL-74)", () => {
       expect(yield* stop()).toEqual(nudge(["CEL-1"]))
     }).pipe(Effect.scoped))
 
+  it.live("an orphaned waiter (a live lock, but Claude Code's background shells don't include it) doesn't silence the nudge", () =>
+    Effect.gen(function* () {
+      const { stop, me, startWaiter } = yield* setup
+      const waiting = yield* startWaiter()
+      expect(yield* stop({ background_tasks: [{ id: "b1", type: "shell", status: "running", command: "bun run dev" }] })).toEqual(nudge(["CEL-1"]))
+      expect(yield* stop({ background_tasks: [] })).toEqual(nudge(["CEL-1"]))
+      yield* me("task", "comment", "CEL-1", "Done")
+      yield* Fiber.join(waiting)
+    }).pipe(Effect.scoped))
+
   it.live("no claim, nothing to wait for: the stop goes through", () =>
     Effect.gen(function* () {
       const { stop, x } = yield* setup
@@ -235,11 +274,29 @@ describe("the Stop hook asks an idle session to wait (CEL-74)", () => {
       expect(yield* stop()).toEqual({ out: "", failure: null })
     }).pipe(Effect.scoped))
 
-  it.live("a comment that's waiting is handed over first, instead of the nudge", () =>
+  it.live("a comment that's waiting is handed over first, with the line to start a waiter, since the next stop won't be nudged", () =>
     Effect.gen(function* () {
       const { stop, me } = yield* setup
       yield* me("task", "comment", "CEL-1", "Read this first")
       const out = JSON.parse((yield* stop()).out)
-      expect(out.hookSpecificOutput.additionalContext).toBe(delivery("Read this first"))
+      expect(out.hookSpecificOutput.additionalContext).toBe(`${delivery("Read this first")}\n\n${WAIT_HINT("Lucas")}`)
+      // Also when Claude is already continuing because of a Stop hook.
+      yield* me("task", "comment", "CEL-1", "And this")
+      const again = JSON.parse((yield* stop({ stop_hook_active: true })).out)
+      expect(again.hookSpecificOutput.additionalContext).toBe(`${delivery("And this")}\n\n${WAIT_HINT("Lucas")}`)
+    }).pipe(Effect.scoped))
+
+  it.live("with a waiter running, a Stop delivery is just the comment", () =>
+    Effect.gen(function* () {
+      const { stop, me, startWaiter } = yield* setup
+      // The waiter starts first, then the comment lands; whoever takes it, it's delivered once.
+      const waiting = yield* startWaiter()
+      yield* me("task", "comment", "CEL-1", "One")
+      const hook = yield* stop({ background_tasks: [{ id: "b1", type: "shell", status: "running", command: "cello inbox --wait" }] })
+      if (hook.out !== "") {
+        expect(JSON.parse(hook.out).hookSpecificOutput.additionalContext).toBe(delivery("One"))
+        yield* me("task", "comment", "CEL-1", "Two")
+      }
+      yield* Fiber.join(waiting)
     }).pipe(Effect.scoped))
 })

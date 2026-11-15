@@ -423,18 +423,21 @@ cello inbox --wait --json   # the same as JSON: items, claimed
 ```
 
 - **It blocks until something new arrives for your session** (a comment, a Send back note, answers to your ask, an ask withdrawn), then takes it the way `cello inbox --new` does (marked read, each item once) and prints it. Run in the background, its end wakes you with the text, as if the hook had delivered it. It returns at once when something is already waiting.
-- **It doesn't poll:** it listens on the server's event stream. When the server restarts, it reconnects and carries on; if the server stays away for 2 minutes, it exits 1 with "The Cello server on port 4747 went away and didn't come back within 2 minutes, so this stopped waiting." Start it (`cello start`) and run `--wait` again.
-- **One per session.** While it waits it holds a lock file (`$TMPDIR/cello-inbox-wait/<hash of port and session>`, holding its pid) and says so on stderr: `Waiting for Lucas's comments, Send back notes and answers for this session (pid 4242)…`. A second `cello inbox --wait` for the same session leaves at once: ``Already waiting: a `cello inbox --wait` (pid 4242) is running for this session, and it wakes you when Lucas writes.`` The lock goes when it ends, however it ends; one left by a killed waiter (dead pid) is ignored.
+- **It doesn't poll the board:** it listens on the server's event stream. When the server restarts, it reconnects and carries on; if the server stays away for 2 minutes, it exits 1 with "The Cello server on port 4747 went away and didn't come back within 2 minutes, so this stopped waiting." Start it (`cello start`) and run `--wait` again.
+- **One per session.** While it waits it holds a lock file (`$TMPDIR/cello-inbox-wait/<hash of port and session>`, holding its pid and when it started) and says so on stderr: `Waiting for new comments, Send back notes and answers for this session (pid 4242)…`. A second `cello inbox --wait` for the same session leaves at once, saying on stderr ``Already waiting: a `cello inbox --wait` (pid 4242) is running for this session, and it wakes you when something new arrives.`` (with `--json`: `{"waiting": true, "pid": 4242}`). The lock goes when it ends, however it ends.
+- **It never outlives your session.** It stops, taking nothing, once the Claude Code that started it is gone (it checks `CLAUDE_PID` every second), and after a day with nothing new it stops and says so: "Nothing new for this session in 24 hours, so `cello inbox --wait` stopped. If you still hold a claim, start it again in the background." A lock whose pid is dead, or that's older than a day (its pid may belong to another process by then), is ignored.
 - **It shares nicely:** the hooks and `cello inbox` take from the same inbox, so whichever gets an item first hands it over and the others never see it. Answers a `cello task ask --wait` (or `cello wait`) is waiting for stay with that command.
 - **Start it again after it wakes you,** when you end that turn too: it hands over one batch and exits.
 
-**The Stop hook asks for it.** When you stop with nothing new, while you hold a claimed task and no waiter is running for your session (no lock, and no background shell running `cello inbox --wait`), the Stop hook keeps you going once with:
+**The Stop hook asks for it.** When you stop with nothing new, while you hold a claimed task and no waiter is running for your session, the Stop hook keeps you going once with:
 
 ```
-Cello: you hold a claim on CEL-22, and nothing is waiting for Lucas's comments, so once this turn ends he can't reach you. Start `cello inbox --wait` in the background now (the Bash tool with run_in_background: true), then end your turn. It wakes you when he comments, sends a task back or answers your questions.
+Cello: you hold a claim on CEL-22, and nothing is waiting for Lucas's comments, so once this turn ends Lucas can't reach you. Start `cello inbox --wait` in the background now (the Bash tool with run_in_background: true), then end your turn. It wakes you when Lucas comments, sends a task back or answers your questions.
 ```
 
-Start it, then end your turn. The hook never loops: the stop you make right after it goes through whatever you did, and so does any stop it can't judge (no server, a lock it can't read, past its 2-second deadline).
+- **"A waiter is running"** means one of Claude Code's background shells runs `cello inbox --wait` (the hook reads the list Claude Code sends it), or, when Claude Code sends no list, the session's lock is held by a live process. When the list is there and has no waiter, a lock doesn't count: it belongs to a waiter that outlived its session.
+- **When the stop hands comments over,** the same advice comes as a last line under them, since the stop you make after acting on them won't be nudged: "When you end this turn, start `cello inbox --wait` in the background first (the Bash tool with run_in_background: true), so Lucas's next comment wakes you."
+- **It never loops:** the stop you make right after a nudge goes through whatever you did, and so does any stop it can't judge (no server, a lock it can't read, past its 2-second deadline).
 
 **Answer on the card.** Act on the comment, then reply with `cello task comment CEL-22 "…"` (`--body-file -` for markdown), so the conversation stays with the task and Lucas sees it there.
 
@@ -1139,8 +1142,8 @@ cello inbox [flags]
 | | |
 | --- | --- |
 | `--new` | Only new comments, and print nothing (exit 0) when there are none. For scripts and hooks. |
-| `--wait` | Block until something new arrives for this session (a comment, a Send back note, answers, a withdrawn ask), then take it and print it, as --new does. Run it in the background when you end a turn holding a claim, so Lucas's comments wake you. A second one for the same session leaves at once. Rides out a server restart; exits 1 if the server stays away for 2 minutes. |
-| `--json` | Print JSON: `items` (new, handed over now and marked read), `earlier` (read before; empty with --new and --wait) and `claimed` (the keys of the tasks this session holds). |
+| `--wait` | Block until something new arrives for this session (a comment, a Send back note, answers, a withdrawn ask), then take it and print it, as --new does. Run it in the background when you end a turn holding a claim, so comments wake you. A second one for the same session leaves at once. Rides out a server restart; exits 1 if the server stays away for 2 minutes, or when the Claude Code that started it (CLAUDE_PID) is gone; stops after a day with nothing new. |
+| `--json` | Print JSON: `items` (new, handed over now and marked read), `earlier` (read before; empty with --new and --wait) and `claimed` (the keys of the tasks this session holds). With --wait: `{ waiting, pid }` when another waiter runs, `{ stopped, afterMs }` after a day with nothing new. |
 
 ### cello doc publish
 

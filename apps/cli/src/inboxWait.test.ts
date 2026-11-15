@@ -8,11 +8,14 @@ import {
   acquireWaiter,
   afterDown,
   CONNECTED_MS,
+  MAX_WAIT_MS,
+  maxWait,
   readWaiter,
   RECONNECT_GRACE_MS,
   reconnectDelay,
   reconnectGrace,
   releaseWaiter,
+  STALE_AFTER_MAX_MS,
   waiterLockDir,
   waiterLockFile,
 } from "./inboxWait.ts"
@@ -75,6 +78,17 @@ describe("the waiter lock", () => {
     releaseWaiter(file, "next")
   })
 
+  it("a lock older than a waiter can live (MAX_WAIT_MS) is stale even when its pid is alive: a reused pid can't hold it", () => {
+    const file = fresh()
+    const startedAt = 1_000_000
+    acquireWaiter(file, { pid: process.pid, id: "old" }, startedAt)
+    expect(readWaiter(file, startedAt + MAX_WAIT_MS)).toEqual({ state: "running", pid: process.pid })
+    expect(readWaiter(file, startedAt + MAX_WAIT_MS + STALE_AFTER_MAX_MS)).toEqual({ state: "absent" })
+    // And the next waiter takes it over.
+    expect(acquireWaiter(file, { pid: process.pid, id: "new" }, startedAt + MAX_WAIT_MS + STALE_AFTER_MAX_MS)).toEqual({ acquired: true })
+    releaseWaiter(file, "new")
+  })
+
   it("a lock it can't read says unknown (the hook then lets the stop through); a waiter replaces a broken one", () => {
     const file = fresh()
     fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -124,6 +138,15 @@ describe("afterDown: what a waiter does when it finds the server down", () => {
     expect(reconnectGrace({})).toBe(RECONNECT_GRACE_MS)
     expect(reconnectGrace({ CELLO_WAIT_RECONNECT_MS: "soon" })).toBe(RECONNECT_GRACE_MS)
     expect(RECONNECT_GRACE_MS).toBe(120_000)
+  })
+})
+
+describe("maxWait", () => {
+  it("a waiter lives at most 24 hours (CELLO_WAIT_MAX_MS shortens it in tests)", () => {
+    expect(MAX_WAIT_MS).toBe(24 * 60 * 60 * 1000)
+    expect(maxWait({})).toBe(MAX_WAIT_MS)
+    expect(maxWait({ CELLO_WAIT_MAX_MS: "300" })).toBe(300)
+    expect(maxWait({ CELLO_WAIT_MAX_MS: "later" })).toBe(MAX_WAIT_MS)
   })
 })
 

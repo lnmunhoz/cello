@@ -24,6 +24,7 @@ import type * as Commands from "../commands/Commands.ts"
 import * as EventLog from "../events/EventLog.ts"
 import { newId } from "../persistence/ids.ts"
 import { selectInboxItems } from "../persistence/rows.ts"
+import * as Seed from "../persistence/Seed.ts"
 import { SessionService } from "../session/SessionService.ts"
 
 /** How many items read before `take` returns as `earlier`. */
@@ -69,6 +70,7 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const sessions = yield* SessionService
   const log = yield* EventLog.EventLog
+  const human = yield* Seed.HumanActor
 
   /** Who gets a human comment: the task's claim holder, else for a Send back the packet's submitter. */
   const recipientOf = (context: Commands.WriteContext, comment: Comment, kind: "comment" | "send_back") =>
@@ -143,7 +145,7 @@ const make = Effect.gen(function* () {
   const take = Effect.fn("InboxService.take")(function* (query: { readonly unreadOnly?: boolean }) {
     const caller = yield* Caller
     const sessionId = caller.sessionId
-    if (sessionId === null) return { session: null, items: [], earlier: [], claimed: [] }
+    if (sessionId === null) return { session: null, items: [], earlier: [], claimed: [], human: human.name }
     const [session] = yield* sessions.byIds([sessionId])
     const now = yield* Clock.currentTimeMillis
     return yield* sql.withTransaction(Effect.gen(function* () {
@@ -163,7 +165,7 @@ const make = Effect.gen(function* () {
       const held = yield* sql<{ project_key: string; number: number }>`
         SELECT p.key AS project_key, t.number FROM tasks t JOIN projects p ON p.id = t.project_id
         WHERE t.assignee_session_id = ${sessionId} AND t.archived_at IS NULL ORDER BY p.key, t.number`
-      return { session: session ?? null, items, earlier, claimed: held.map((t) => formatTaskKey(t.project_key, t.number)) }
+      return { session: session ?? null, items, earlier, claimed: held.map((t) => formatTaskKey(t.project_key, t.number)), human: human.name }
     }))
   }, Effect.orDie)
 

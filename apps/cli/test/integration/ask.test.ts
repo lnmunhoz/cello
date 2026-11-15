@@ -198,7 +198,7 @@ describe("cello task ask", () => {
       expect(fs.existsSync(saved)).toBe(true)
       expect(yield* hook("post-tool-use")).toEqual({ out: "", failure: null })
       // Not again: the stop only asks for a waiter, since the session still holds CEL-1 (CEL-74).
-      expect(JSON.parse((yield* hook("stop")).out).hookSpecificOutput.additionalContext).toBe(WAIT_NUDGE(["CEL-1"]))
+      expect(JSON.parse((yield* hook("stop")).out).hookSpecificOutput.additionalContext).toBe(WAIT_NUDGE(["CEL-1"], "Lucas"))
     }).pipe(Effect.scoped))
 
   it.live("--withdraw takes the ask back; a waiting agent hears it was withdrawn", () =>

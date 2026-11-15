@@ -52,8 +52,11 @@ export interface HookInput {
   readonly toolName: string | null
   /** Its arguments, when they're an object. */
   readonly toolInput: Readonly<Record<string, unknown>> | null
-  /** Stop only: the commands of the shells the session runs in the background (`background_tasks`). */
-  readonly backgroundCommands: ReadonlyArray<string>
+  /**
+   * Stop only: the commands of the shells the session runs in the background (`background_tasks`);
+   * null when Claude Code didn't send the list (an older version, or another event).
+   */
+  readonly backgroundCommands: ReadonlyArray<string> | null
 }
 
 export interface HookAgent {
@@ -116,7 +119,7 @@ export const parseHookInput = (raw: string): HookInput => {
         const command = text(record(task)?.command)
         return command === null ? [] : [command]
       })
-      : [],
+      : null,
   }
 }
 
@@ -314,33 +317,73 @@ export const claimCache = (dir: string, key: { readonly port: string; readonly r
 export const claimCacheDir = (env: Env) => path.join(env.TMPDIR || os.tmpdir(), "cello-claims")
 
 // ── waiting while idle (CEL-74) ─────────────────────────────────────────────────────────────────
-// The hooks only fire while the session works, so a session that ended its turn never hears Lucas.
+// The hooks only fire while the session works, so a session that ended its turn never hears its human.
 // `cello inbox --wait`, run in the background, wakes it instead. When a session holding a claim stops
-// and nothing is waiting for it, the Stop hook keeps it going once to start one. It never loops: a
-// stop Claude makes because a Stop hook kept it going (`stop_hook_active`) goes through, and so does
-// any stop it can't judge (a lock it can't read, a subagent, no server, past the deadline).
+// and nothing is waiting for it, the Stop hook keeps it going once to start one; a Stop that hands
+// comments over says the same in a line at the end, since the stop after it won't be nudged. It never
+// loops: a stop Claude makes because a Stop hook kept it going (`stop_hook_active`) goes through, and
+// so does any stop it can't judge (a lock it can't read, a subagent, no server, past the deadline).
 
 /** What the agent reads when it's asked to start a waiter: which claims, what to run, and how. */
-export const WAIT_NUDGE = (claimed: ReadonlyArray<string>) =>
-  `Cello: you hold ${claimed.length === 1 ? "a claim on" : "claims on"} ${andList(claimed)}, and nothing is waiting for Lucas's comments, ` +
-  "so once this turn ends he can't reach you. Start `cello inbox --wait` in the background now (the Bash tool with run_in_background: true), " +
-  "then end your turn. It wakes you when he comments, sends a task back or answers your questions."
+export const WAIT_NUDGE = (claimed: ReadonlyArray<string>, human: string) =>
+  `Cello: you hold ${claimed.length === 1 ? "a claim on" : "claims on"} ${andList(claimed)}, and nothing is waiting for ${human}'s comments, ` +
+  `so once this turn ends ${human} can't reach you. Start \`cello inbox --wait\` in the background now (the Bash tool with run_in_background: true), ` +
+  `then end your turn. It wakes you when ${human} comments, sends a task back or answers your questions.`
 
-/** Whether one of the session's background shells (Stop's `background_tasks`) runs `cello inbox --wait`. */
+/** The line added to a Stop delivery when nothing waits for the session. */
+export const WAIT_HINT = (human: string) =>
+  `When you end this turn, start \`cello inbox --wait\` in the background first (the Bash tool with run_in_background: true), so ${human}'s next comment wakes you.`
+
+/** Shell words, split at `&&`, `||`, `;` and `|`: enough to read a command line, not a shell. */
+const commandsOf = (line: string): string[][] =>
+  line.split(/&&|\|\||;|\|/).map((part) => part.trim().split(/\s+/).filter((word) => word !== "").map((word) => word.replace(/^["']|["']$/g, "")))
+
+/**
+ * Whether one of the session's background shells (Stop's `background_tasks`) runs `cello inbox --wait`:
+ * a command whose program is `cello` (after any VAR=value), then `inbox`, with `--wait` among its flags.
+ */
 export const waitsInBackground = (input: HookInput): boolean =>
-  input.backgroundCommands.some((command) => /\bcello\b/.test(command) && /\binbox\b/.test(command) && /(^|\s)--wait\b/.test(command))
+  (input.backgroundCommands ?? []).some((line) =>
+    commandsOf(line).some((words) => {
+      const [program, sub, ...rest] = words.slice(words.findIndex((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)))
+      return program !== undefined && path.basename(program) === "cello" && sub === "inbox" && rest.includes("--wait")
+    }))
+
+export type WaiterLock = "running" | "absent" | "unknown"
+
+/**
+ * Whether a waiter runs for the session. A background shell running it counts. When Claude Code lists
+ * its background shells and none is a waiter, a live lock doesn't count either: it belongs to a waiter
+ * that outlived its session, or to a reused pid. Without the list, the lock decides.
+ */
+export const waiterState = (input: HookInput, lock: WaiterLock): WaiterLock => {
+  if (waitsInBackground(input)) return "running"
+  if (input.backgroundCommands !== null && lock === "running") return "absent"
+  return lock
+}
+
+/** What the Stop hook knows: the tasks the session holds, its lock, and the human's name. */
+export interface StopFacts {
+  readonly claimed: ReadonlyArray<string>
+  readonly waiter: WaiterLock
+  readonly human: string
+}
+
+const needsWaiter = (input: HookInput, facts: StopFacts) =>
+  !input.inSubagent && facts.claimed.length > 0 && waiterState(input, facts.waiter) === "absent"
 
 /**
  * The Stop hook's answer when nothing new arrived: keep the session going once to start a waiter, or
- * null to let it stop. `claimed` are the tasks it holds; `waiter` is what its lock file says.
+ * null to let it stop.
  */
-export const stopNudge = (
-  input: HookInput,
-  facts: { readonly claimed: ReadonlyArray<string>; readonly waiter: "running" | "absent" | "unknown" },
-) =>
-  input.stopHookActive || input.inSubagent || facts.claimed.length === 0 || facts.waiter !== "absent" || waitsInBackground(input)
-    ? null
-    : hookResponse("stop", WAIT_NUDGE(facts.claimed))
+export const stopNudge = (input: HookInput, facts: StopFacts) =>
+  !input.stopHookActive && needsWaiter(input, facts) ? hookResponse("stop", WAIT_NUDGE(facts.claimed, facts.human)) : null
+
+/**
+ * The line to add to what a Stop hands over, or null. Even with `stop_hook_active`: the stop after a
+ * delivery has it set, so it wouldn't be nudged.
+ */
+export const waitHint = (input: HookInput, facts: StopFacts): string | null => needsWaiter(input, facts) ? WAIT_HINT(facts.human) : null
 
 /** What the hook prints when comments arrived: context the agent acts on (on Stop, it keeps the agent going). */
 export const hookResponse = (event: DeliveryEvent, delivery: string) => ({

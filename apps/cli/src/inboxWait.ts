@@ -1,18 +1,21 @@
 // `cello inbox --wait` (CEL-74): an agent session runs it in the background when it ends a turn, so a
-// comment from Lucas wakes it even while it's idle (the hooks only fire while it works). While it runs
+// comment from its human wakes it even while it's idle (the hooks only fire while it works). While it runs
 // it holds a lock file, one per server and session, holding its pid: the Stop hook reads it to tell
 // whether the session is already waiting, and a second `--wait` for the same session leaves instead
-// of piling up. A lock whose pid is dead (the waiter was killed with -9) counts as absent.
+// of piling up. A lock whose pid is dead (the waiter was killed with -9) counts as absent, and so does
+// one older than a waiter can live (MAX_WAIT_MS), so a reused pid can't hold it for long. A waiter also
+// stops when the Claude Code that started it is gone (CLAUDE_PID), so it never outlives its session.
 //
 // Reading or writing the lock never throws: trouble reading it says "unknown" (the hook then lets the
 // stop through), and trouble writing it means the waiter carries on without a lock.
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
+import { isAlive } from "@cello/server/process/isAlive"
 import type { Env } from "./identity.ts"
 
 /** What a waiter says on stderr once it holds the lock and starts waiting (followed by its pid). */
-export const WAITING = "Waiting for Lucas's comments, Send back notes and answers for this session"
+export const WAITING = "Waiting for new comments, Send back notes and answers for this session"
 
 /** Where the waiters' lock files live: a folder under the system's temp folder (TMPDIR when set). */
 export const waiterLockDir = (env: Env) => path.join(env.TMPDIR || os.tmpdir(), "cello-inbox-wait")
@@ -33,15 +36,20 @@ export interface Waiter {
   readonly id: string
 }
 
-/** Whether a process with this pid is alive (signal 0 only checks; EPERM means it is, just not ours). */
-export const pidAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM"
-  }
+/** The longest a waiter waits: then it stops and says to start it again (CEL-74). */
+export const MAX_WAIT_MS = 24 * 60 * 60 * 1000
+
+/** How far past MAX_WAIT_MS a lock may be before it counts as stale whatever its pid says. */
+export const STALE_AFTER_MAX_MS = 10 * 60 * 1000
+
+/** The longest wait: MAX_WAIT_MS, or CELLO_WAIT_MAX_MS (tests shorten it). */
+export const maxWait = (env: Env): number => {
+  const value = env.CELLO_WAIT_MAX_MS ? Number(env.CELLO_WAIT_MAX_MS) : Number.NaN
+  return Number.isFinite(value) && value > 0 ? value : MAX_WAIT_MS
 }
+
+/** How often a waiter checks that the Claude Code that started it is still there. */
+export const OWNER_CHECK_MS = 1_000
 
 const errorCode = (error: unknown) => (error as NodeJS.ErrnoException).code
 
@@ -55,7 +63,7 @@ const removeQuietly = (file: string) => {
 }
 
 /** The lock's holder, or null when it's missing; throws "unknown" trouble to the callers below. */
-const holderOf = (file: string): Waiter | "absent" | "unknown" => {
+const holderOf = (file: string): (Waiter & { readonly startedAt: number | null }) | "absent" | "unknown" => {
   let raw: string
   try {
     raw = fs.readFileSync(file, "utf8")
@@ -63,20 +71,24 @@ const holderOf = (file: string): Waiter | "absent" | "unknown" => {
     return errorCode(error) === "ENOENT" ? "absent" : "unknown"
   }
   try {
-    const value = JSON.parse(raw) as { pid?: unknown; id?: unknown }
+    const value = JSON.parse(raw) as { pid?: unknown; id?: unknown; startedAt?: unknown }
     return Number.isInteger(value.pid) && (value.pid as number) > 0 && typeof value.id === "string"
-      ? { pid: value.pid as number, id: value.id }
+      ? { pid: value.pid as number, id: value.id, startedAt: typeof value.startedAt === "number" ? value.startedAt : null }
       : "unknown"
   } catch {
     return "unknown"
   }
 }
 
-/** Whether a waiter runs for this lock file; a dead pid's lock is stale and counts as absent. */
-export const readWaiter = (file: string): WaiterState => {
+/**
+ * Whether a waiter runs for this lock file. A stale lock counts as absent: its pid is dead, or it's
+ * older than a waiter can live (its pid may have been reused).
+ */
+export const readWaiter = (file: string, now = Date.now()): WaiterState => {
   const holder = holderOf(file)
   if (typeof holder === "string") return { state: holder }
-  return pidAlive(holder.pid) ? { state: "running", pid: holder.pid } : { state: "absent" }
+  const tooOld = holder.startedAt !== null && now - holder.startedAt >= MAX_WAIT_MS + STALE_AFTER_MAX_MS
+  return !tooOld && isAlive(holder.pid) ? { state: "running", pid: holder.pid } : { state: "absent" }
 }
 
 /**
@@ -85,18 +97,22 @@ export const readWaiter = (file: string): WaiterState => {
  * two waiters starting together can't both get it. `unlocked`: the folder couldn't be written, so the
  * waiter runs without a lock.
  */
-export const acquireWaiter = (file: string, me: Waiter): { readonly acquired: true; readonly unlocked?: true } | { readonly acquired: false; readonly pid: number } => {
+export const acquireWaiter = (
+  file: string,
+  me: Waiter,
+  now = Date.now(),
+): { readonly acquired: true; readonly unlocked?: true } | { readonly acquired: false; readonly pid: number } => {
   const draft = `${file}.${me.id}`
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
-    fs.writeFileSync(draft, JSON.stringify({ pid: me.pid, id: me.id, startedAt: Date.now() }), { mode: 0o600 })
+    fs.writeFileSync(draft, JSON.stringify({ pid: me.pid, id: me.id, startedAt: now }), { mode: 0o600 })
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         fs.linkSync(draft, file)
         return { acquired: true }
       } catch (error) {
         if (errorCode(error) !== "EEXIST") throw error
-        const current = readWaiter(file)
+        const current = readWaiter(file, now)
         if (current.state === "running") return { acquired: false, pid: current.pid }
         // Stale (its waiter died) or broken: clear it and try again.
         fs.rmSync(file, { force: true })
