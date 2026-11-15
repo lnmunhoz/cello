@@ -1,4 +1,5 @@
-import { boardColumns, placement, projectByKey } from "@cello/client/sync/selectors"
+import { ORDERING_LABELS, orderTasks, type Ordering } from "@cello/client/sync/ordering"
+import { boardColumns, projectByKey } from "@cello/client/sync/selectors"
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Project, Status, Task } from "@cello/contract/entities"
 import { useAtomSet } from "@effect/atom-react"
@@ -11,16 +12,19 @@ import { Button } from "../components/ui/Button.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { commands } from "../lib/cello.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
+import { readStored, writeStored } from "../lib/storage.ts"
+import { useOrdering } from "../issues/useOrdering.ts"
 import { TaskPanel, useTaskView } from "../task/TaskPanel.tsx"
 import { behindTask } from "../task/view.ts"
 import { CardBody } from "./Card.tsx"
 import { InlineCreate } from "./InlineCreate.tsx"
 import { Kanban, KanbanCard, KanbanColumn } from "./kanban.tsx"
-import { findMove } from "./moves.ts"
+import { dropOf, findMove } from "./moves.ts"
+import { readUnfolded, unfoldedKey } from "./unfolded.ts"
 
 const layoutTransition = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 } as const
 
-/** New cards land at the bottom of their column, so a card you just made (still optimistic) scrolls into view. */
+/** A card you just made (still optimistic) scrolls into view, wherever the ordering puts it. */
 const reveal = (el: HTMLElement | null) => el?.scrollIntoView({ block: "nearest", inline: "nearest" })
 
 export function BoardPage({ openNumber }: { openNumber?: number }) {
@@ -28,18 +32,36 @@ export function BoardPage({ openNumber }: { openNumber?: number }) {
   const board = useBoard()
   const workspaceId = useWorkspaceId()
   const project = board ? projectByKey(board, projectKey) : undefined
+  const { ordering } = useOrdering()
   if (!board || !workspaceId || !project) return <Centered>Loading…</Centered>
   return (
     <div className="flex min-h-0 flex-1">
-      <Board board={board} workspaceId={workspaceId} project={project} openNumber={openNumber} />
+      <Board key={project.id} board={board} workspaceId={workspaceId} project={project} ordering={ordering} openNumber={openNumber} />
       {openNumber !== undefined ? <TaskPanel board={board} project={project} number={openNumber} /> : null}
     </div>
   )
 }
 
-function Board({ board, workspaceId, project, openNumber }: { board: BoardState; workspaceId: string; project: Project; openNumber?: number }) {
+function Board({
+  board,
+  workspaceId,
+  project,
+  ordering,
+  openNumber,
+}: {
+  board: BoardState
+  workspaceId: string
+  project: Project
+  ordering: Ordering
+  openNumber?: number
+}) {
   const columns = boardColumns(board, workspaceId, project.id)
-  const [unfolded, setUnfolded] = useState<ReadonlyArray<string>>([])
+  // The hidden columns you unfolded, remembered on this device so a reload keeps them open.
+  const [unfolded, setUnfoldedState] = useState<ReadonlyArray<string>>(() => readUnfolded(readStored(unfoldedKey(project.key))))
+  const setUnfolded = (next: ReadonlyArray<string>) => {
+    setUnfoldedState(next)
+    writeStored(unfoldedKey(project.key), JSON.stringify(next))
+  }
   const [composing, setComposing] = useState<string | null>(null)
   const move = useAtomSet(commands.moveTask)
   const navigate = useNavigate()
@@ -47,7 +69,9 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
 
   const shown: Status[] = [...columns.visible, ...columns.hidden.filter((s) => unfolded.includes(s.id))]
   const folded = columns.hidden.filter((s) => !unfolded.includes(s.id))
-  const lists = Object.fromEntries(shown.map((s) => [s.id, (columns.tasks[s.id] ?? []).map((t) => t.id)]))
+  // Each column's cards as shown: in the ordering. `columns.tasks` stays in the drag order, which placements need.
+  const ordered = Object.fromEntries(shown.map((s) => [s.id, orderTasks(columns.tasks[s.id] ?? [], ordering)]))
+  const lists = Object.fromEntries(shown.map((s) => [s.id, ordered[s.id]!.map((t) => t.id)]))
   const labels = Object.fromEntries(shown.map((s) => [s.id, s.name]))
 
   const open = (task: Task) => {
@@ -60,8 +84,8 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
     const task = board.tasks[found.key]
     if (!task || task.number === 0) return
     const target = (columns.tasks[found.to] ?? []).filter((t) => t.id !== task.id)
-    const place = placement(target, found.index)
-    move({ id: task.id, statusId: found.to, ...place })
+    const drop = dropOf(found, task.statusId, ordering, target)
+    if (drop) move({ id: task.id, ...drop })
   }
 
   return (
@@ -79,7 +103,7 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
           >
             {() =>
               shown.map((status) => {
-                const tasks = columns.tasks[status.id] ?? []
+                const tasks = ordered[status.id] ?? []
                 return (
                   <section
                     key={status.id}
@@ -116,7 +140,7 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
                         <InlineCreate
                           project={project}
                           status={status}
-                          tasks={tasks}
+                          tasks={columns.tasks[status.id] ?? []}
                           onDone={() => setComposing(null)}
                         />
                       </div>
@@ -124,6 +148,9 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
                     <KanbanColumn
                       value={status.id}
                       aria-labelledby={`col-${status.id}`}
+                      // Under a sorted order a drag changes the status only; hovering a column says so.
+                      title={ordering === "manual" ? undefined : `Sorted by ${ORDERING_LABELS[ordering]}. Dragging changes the status only; pick Manual in Display to reorder.`}
+                      data-ordering={ordering}
                       className="flex min-h-16 flex-col gap-1.5 overflow-y-auto px-2 pb-2"
                       // The column scrolls, so its cards' layout animations must account for its scroll offset.
                       render={(props) => <motion.div {...(props as object)} layoutScroll />}

@@ -20,8 +20,10 @@ const now = () => Date.now()
 /**
  * A change to a task, with its version bumped as the server will bump it. The next edit from this tab
  * then sends the version it will really find, instead of conflicting with this tab's own edit still in flight.
+ * It's updated now, as the server will stamp it, so a list in Last updated order moves it at once.
  */
-const changeTask = (id: string, f: (task: Task) => Task): Patch => change("tasks", id, (t) => ({ ...f(t), version: t.version + 1 }))
+const changeTask = (id: string, f: (task: Task) => Task): Patch =>
+  change("tasks", id, (t) => ({ ...f(t), version: t.version + 1, updatedAt: now() }))
 
 export const moveTask = (id: string, statusId: string, position: string): Patch =>
   changeTask(id, (t) => ({ ...t, statusId, position }))

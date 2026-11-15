@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest"
-import { readStored, writeStored } from "./storage.ts"
+import { readStored, subscribeStored, writeStored } from "./storage.ts"
 
 const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage")
 const useStorage = (storage: unknown) => Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true })
@@ -32,5 +32,19 @@ describe("readStored and writeStored: this device's saved settings, never an err
     })
     expect(readStored("cello:x")).toBeNull()
     expect(() => writeStored("cello:x", "1")).not.toThrow()
+  })
+})
+
+describe("subscribeStored: screens showing a saved setting hear when it's written", () => {
+  it("calls a key's listeners on a write to that key only, until they unsubscribe", () => {
+    const items = new Map<string, string>()
+    useStorage({ getItem: (k: string) => items.get(k) ?? null, setItem: (k: string, v: string) => void items.set(k, v) })
+    const heard: string[] = []
+    const stop = subscribeStored("cello:a", () => heard.push(readStored("cello:a") ?? ""))
+    writeStored("cello:a", "1")
+    writeStored("cello:b", "2")
+    stop()
+    writeStored("cello:a", "3")
+    expect(heard).toEqual(["1"])
   })
 })
