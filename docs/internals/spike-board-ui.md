@@ -47,7 +47,7 @@ Videos: `spikes/board-ui/videos/` (7 MP4s).
 Code: `apps/web/src/board/cursors/` (`queue.ts` the timing, `animator.ts` the drawing, `steps.ts` which events animate). Where it differs from the spike:
 
 - **Only agent sessions get a cursor.** An event with no `sessionId` is Lucas's, from any tab, and just applies.
-- **Lucas wins, more strictly.** Picking up a card (pointer or keyboard) lands every step that holds a card, in every session, and steps that start during the drag only highlight. So no hole opens or closes under his hand.
+- **Lucas wins, more strictly.** Picking up a card (pointer or keyboard) stops every step that holds a card, in every session, and steps that start during the drag only highlight. What those steps held stays put until he lets go: a hole keeps its space (empty if its copy was flying), a waiting card stays hidden at its new slot. So no hole opens or closes under his hand.
 - **Waiting cards are CSS rules,** written into one style element, not React state: the board re-renders only when a hole opens (in the same render as the event) or closes. 200 cards with three cursors stay at about 60 fps (`e2e/perf.spec.ts`).
 - **Colour** comes from the session id, but a session never takes a colour another cursor on screen has.
 - **Label** "Claude Code · 2fd0505c" (the host session id's first 8 characters) comes from `task.get`, which lists the sessions a task's history names; no new RPC.
