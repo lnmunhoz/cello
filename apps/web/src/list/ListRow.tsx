@@ -13,7 +13,7 @@ import { EvidenceBadge } from "../review/EvidenceBadge.tsx"
 const MAX_LABELS = 3
 
 const rowLook =
-  "flex h-10 scroll-mt-11 scroll-mb-2 items-center gap-2.5 rounded-md px-2 text-[13px] outline-none hover:bg-hover focus-visible:bg-hover focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset data-current:bg-selected"
+  "relative flex h-10 scroll-mt-11 scroll-mb-2 items-center gap-2.5 rounded-md px-2 text-[13px] outline-none hover:bg-hover focus-visible:bg-hover focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset data-current:bg-selected"
 
 export interface ListRowProps {
   readonly task: Task

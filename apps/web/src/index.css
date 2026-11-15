@@ -77,7 +77,8 @@ body,
 #root {
   height: 100%;
   overflow: hidden;
-  overscroll-behavior: none;
+  /* No vertical bounce; sideways stays free for two-finger back and forward (the board contains its own). */
+  overscroll-behavior-y: none;
 }
 
 body {
