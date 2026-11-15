@@ -177,7 +177,9 @@ export const insideAny = (file: string, roots: ReadonlyArray<string | null>): bo
   return roots.some((root) => {
     if (root === null) return false
     const relative = path.relative(resolved(root), target)
-    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
+    // "..foo" is a folder inside; only ".." itself or "../…" climbs out.
+    const climbs = relative === ".." || relative.startsWith(`..${path.sep}`)
+    return !climbs && !path.isAbsolute(relative)
   })
 }
 
@@ -201,7 +203,8 @@ export const claimCache = (dir: string, key: { readonly port: string; readonly r
     fresh: (now: number): boolean => {
       try {
         const seen = Number(fs.readFileSync(file, "utf8"))
-        return Number.isFinite(seen) && seen > 0 && now - seen < CLAIM_CACHE_MS
+        // A time after now (a clock set back) isn't trusted.
+        return Number.isFinite(seen) && seen > 0 && seen <= now && now - seen < CLAIM_CACHE_MS
       } catch {
         return false
       }
@@ -209,7 +212,8 @@ export const claimCache = (dir: string, key: { readonly port: string; readonly r
     remember: (now: number): void => {
       try {
         fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-        fs.writeFileSync(file, String(now))
+        fs.writeFileSync(file, String(now), { mode: 0o600 })
+        fs.chmodSync(file, 0o600)
       } catch {
         // No cache, then.
       }

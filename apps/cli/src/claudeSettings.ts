@@ -150,13 +150,15 @@ export const settingsPaths = (options: { readonly projectRoot: string; readonly 
 /**
  * Replaces `file` with `text` so a crash or a full disk never leaves it half written: the new bytes go
  * to `<file>.cello-<pid>.tmp` beside it, are fsynced, and the temp file is renamed over the original,
- * keeping its mode. The old bytes are kept in `<file>.bak` (unless `backup: false`). Returns the file
- * written (a symlink's target) and the backup, if one was kept. `io` is for tests that fail the write.
+ * keeping its mode. The old bytes are kept in `<file>.bak` (unless `backup: false`); with
+ * `backup: "new"` an existing .bak is left alone and the copy goes to the first free `.bak.1`, `.bak.2`…
+ * Returns the file written (a symlink's target) and the backup, if one was kept. `io` is for tests
+ * that fail the write.
  */
 export const writeFileAtomically = (
   file: string,
   text: string,
-  options: { readonly io?: { readonly writeSync: (fd: number, data: string) => unknown }; readonly backup?: boolean } = {},
+  options: { readonly io?: { readonly writeSync: (fd: number, data: string) => unknown }; readonly backup?: boolean | "new" } = {},
 ): { readonly target: string; readonly backup: string | null } => {
   const { io = fs, backup = true } = options
   const target = fs.existsSync(file) ? fs.realpathSync(file) : file
@@ -164,6 +166,7 @@ export const writeFileAtomically = (
   fs.mkdirSync(folder, { recursive: true })
   const old = fs.existsSync(target) ? { bytes: fs.readFileSync(target), mode: fs.statSync(target).mode & 0o7777 } : null
   const temp = path.join(folder, `${path.basename(target)}.cello-${process.pid}.tmp`)
+  const backupFile = old === null || backup === false ? null : backup === "new" ? freeBackup(target) : `${target}.bak`
   try {
     const fd = fs.openSync(temp, "w", old?.mode ?? 0o644)
     try {
@@ -173,7 +176,7 @@ export const writeFileAtomically = (
       fs.closeSync(fd)
     }
     if (old) fs.chmodSync(temp, old.mode)
-    if (old && backup) fs.writeFileSync(`${target}.bak`, old.bytes, { mode: old.mode })
+    if (old && backupFile) fs.writeFileSync(backupFile, old.bytes, { mode: old.mode })
     fs.renameSync(temp, target)
   } catch (error) {
     fs.rmSync(temp, { force: true })
@@ -187,7 +190,16 @@ export const writeFileAtomically = (
   } catch {
     // Best effort.
   }
-  return { target, backup: old && backup ? `${target}.bak` : null }
+  return { target, backup: backupFile }
+}
+
+/** `<target>.bak`, or the first of `.bak.1`, `.bak.2`… that doesn't exist yet. */
+const freeBackup = (target: string): string => {
+  const taken = (file: string) => fs.lstatSync(file, { throwIfNoEntry: false }) !== undefined
+  if (!taken(`${target}.bak`)) return `${target}.bak`
+  let n = 1
+  while (taken(`${target}.bak.${n}`)) n++
+  return `${target}.bak.${n}`
 }
 
 /**

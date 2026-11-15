@@ -179,6 +179,10 @@ describe("the claim guard (CEL-61)", () => {
       expect(insideAny(path.join(repo, "src", "a.ts"), [repo])).toBe(true)
       expect(insideAny(path.join(repo, "new", "deep", "b.ts"), [repo])).toBe(true)
       expect(insideAny(repo, [repo])).toBe(true)
+      // A folder whose name starts with two dots is still inside.
+      expect(insideAny(path.join(repo, "..foo", "a.ts"), [repo])).toBe(true)
+      expect(insideAny(path.join(repo, "..", "app", "src", "a.ts"), [repo])).toBe(true)
+      expect(insideAny(path.join(repo, ".."), [repo])).toBe(false)
     })
 
     it("not a scratchpad or temp file outside it, nor a sibling whose name starts the same", () => {
@@ -234,6 +238,19 @@ describe("the claim guard (CEL-61)", () => {
       expect(claimCache(dir, { ...key, session: "s2" }).fresh(1_000)).toBe(false)
       expect(claimCache(dir, { ...key, repoPath: "/repo/other" }).fresh(1_000)).toBe(false)
       expect(claimCache(dir, { ...key, port: "4748" }).fresh(1_000)).toBe(false)
+    })
+
+    it("a claim stamped in the future (a clock set back) isn't trusted", () => {
+      const cache = claimCache(dir, { ...key, session: "future" })
+      cache.remember(10_000)
+      expect(cache.fresh(9_999)).toBe(false)
+      expect(cache.fresh(10_000)).toBe(true)
+    })
+
+    it("the cache file is readable by its owner only", () => {
+      const cache = claimCache(dir, { ...key, session: "private" })
+      cache.remember(1)
+      expect(fs.statSync(cache.file).mode & 0o777).toBe(0o600)
     })
 
     it("never throws: a folder it can't write or a broken entry just means no cache", () => {

@@ -251,6 +251,16 @@ describe("writeFileAtomically", () => {
     expect(leftovers(dir)).toEqual([])
   })
 
+  it("backup: \"new\" leaves an existing .bak alone and keeps the copy in the first free .bak.N", () => {
+    const file = path.join(dir, "AGENTS.md")
+    fs.writeFileSync(`${file}.bak`, "oldest\n")
+    fs.writeFileSync(file, "one\n")
+    expect(writeFileAtomically(file, "two\n", { backup: "new" }).backup).toBe(`${file}.bak.1`)
+    expect(writeFileAtomically(file, "three\n", { backup: "new" }).backup).toBe(`${file}.bak.2`)
+    expect([fs.readFileSync(`${file}.bak`, "utf8"), fs.readFileSync(`${file}.bak.1`, "utf8"), fs.readFileSync(`${file}.bak.2`, "utf8")])
+      .toEqual(["oldest\n", "one\n", "two\n"])
+  })
+
   it("creates a new file and its folder, with no .bak", () => {
     const file = path.join(dir, "project", ".claude", "settings.local.json")
     expect(writeFileAtomically(file, "{}\n")).toEqual({ target: file, backup: null })

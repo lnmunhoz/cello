@@ -1322,10 +1322,11 @@ const hookClaude = Command.make("claude", {
     "Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand " +
       "new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing " +
       "when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. pre-tool-use turns a Claude artifact publish " +
-      "away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); it " +
-      "needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use denies the edit while the session holds no open " +
-      "task in the repo's project, saying to create or claim one; it lets the edit through when the server doesn't answer, the repo isn't a " +
-      "Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a minute. Always exits 0.",
+      "away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); " +
+      "this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and " +
+      "denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the " +
+      "edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a " +
+      "minute. Always exits 0.",
   ))
 
 const hook = Command.make("hook").pipe(
@@ -1457,7 +1458,13 @@ const agentsMdLines = (done: AgentsResult): ReadonlyArray<string> => {
     case "added":
       return [`Added the ${section} to ${done.file} (uncommitted).`]
     case "updated":
-      return [`Updated the ${section} in ${done.file} to the current text (uncommitted):`, ...diff]
+      return done.backup === null
+        ? [`Updated the ${section} in ${done.file} to the current text (uncommitted):`, ...diff]
+        : [
+          `Updated the ${section} in ${done.file} to the current text (uncommitted). Its text wasn't exactly what Cello wrote, ` +
+          `so the old file is kept as ${done.backup}; move any notes outside the markers. What changed:`,
+          ...diff,
+        ]
     case "replaced":
       return [
         `Replaced the old ${section} in ${done.file} with the current one, between cello:agents-md markers so later runs update it ` +

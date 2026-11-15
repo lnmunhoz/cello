@@ -10,12 +10,12 @@ import { startServer, tempDataDir } from "@cello/server/testing/servers"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import { connect } from "../../../server/test/integration/harness.ts"
-import { AGENTS_END, AGENTS_START, agentsSection } from "../../src/agentsMd.ts"
+import { AGENTS_END, agentsBlock, agentsSection } from "../../src/agentsMd.ts"
 import { GUIDE } from "../../src/guide.ts"
 import { cello, gitRepo } from "./cli.ts"
 
 /** docs/cli.md's section for project `key`, between the markers it sits in in a repo's file. */
-const marked = (key: string) => `${AGENTS_START}\n${agentsSection(GUIDE, key)}\n${AGENTS_END}`
+const marked = (key: string) => agentsBlock(agentsSection(GUIDE, key))
 
 const SESSION = "2fd0505c-417a-4167-acfe-2d66080fcae0"
 const claude = { CLAUDE_CODE_SESSION_ID: SESSION, CLAUDE_PID: String(process.pid) }
@@ -253,7 +253,8 @@ describe("cello init", () => {
       const repo = gitRepo(dataDir, "cello")
       const file = path.join(repo, "AGENTS.md")
       const current = marked("CEL")
-      const older = current.replace("- Run `cello context` at the start of each session.", "- Claim a task before working on it.")
+      // What an earlier version of Cello wrote: no copy needed.
+      const older = agentsBlock(agentsSection(GUIDE, "CEL").replace("- Run `cello context` at the start of each session.", "- Claim a task before working on it."))
       fs.writeFileSync(file, `# Cello\n\n${older}\n\n## Ours\n`)
       const run = yield* agent(repo)("init", "--agents-md")
       expect(run.failure).toBeNull()
@@ -264,6 +265,16 @@ describe("cello init", () => {
       ])
       expect(fs.readFileSync(file, "utf8")).toBe(`# Cello\n\n${current}\n\n## Ours\n`)
       expect(fs.existsSync(`${file}.bak`)).toBe(false)
+
+      // Someone's note between the markers: rewritten too, with the old file kept and the note shown.
+      const noted = `# Cello\n\n${current.replace(AGENTS_END, `- Our note: deploys go through Lucas.\n${AGENTS_END}`)}\n\n## Ours\n`
+      fs.writeFileSync(file, noted)
+      expect((yield* agent(repo)("init", "--agents-md")).out.split("\n").slice(2)).toEqual([
+        `Updated the "Tracking work in Cello" section in ${file} to the current text (uncommitted). Its text wasn't exactly what Cello ` +
+          `wrote, so the old file is kept as ${file}.bak; move any notes outside the markers. What changed:`,
+        "  - - Our note: deploys go through Lucas.",
+      ])
+      expect(fs.readFileSync(`${file}.bak`, "utf8")).toBe(noted)
     }).pipe(Effect.scoped))
 
   it.live("--agents-md replaces an old Cello section from before the markers, keeping a .bak; a section that isn't Cello's stays", () =>
