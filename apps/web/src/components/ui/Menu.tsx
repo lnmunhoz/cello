@@ -35,8 +35,9 @@ export function MenuContent(props: Omit<ComponentProps<typeof BaseContent>, "cla
   return <BaseContent sideOffset={4} align="start" {...props} className={popupLook} />
 }
 
+// An item's `shortcut` shows its keys at the right edge (⌘. on a Mac, Ctrl+. elsewhere), quietly.
 const item = variants(
-  "flex h-7 cursor-default items-center gap-2 rounded-md px-2 outline-none data-highlighted:bg-hover data-disabled:opacity-50",
+  "flex h-7 cursor-default items-center gap-2 rounded-md px-2 outline-none data-highlighted:bg-hover data-disabled:opacity-50 [&>[data-slot=menu-shortcut]]:ml-auto [&>[data-slot=menu-shortcut]]:pl-4 [&>[data-slot=menu-shortcut]]:text-xs [&>[data-slot=menu-shortcut]]:text-faint",
   { variant: { default: "text-ink", danger: "text-danger" } },
   { variant: "default" },
 )
