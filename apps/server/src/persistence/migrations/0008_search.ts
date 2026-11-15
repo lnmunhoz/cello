@@ -7,7 +7,7 @@
 //     - a task: its title and description; archived tasks are left out
 //     - a comment: its body; deleted comments are left out
 //     - a packet: its summary, steps and Lucas's note; superseded packets are left out
-//     - a document: its title, and its summary and body; archived documents are left out
+//     - a document: its title, and its summary and body (without the frontmatter); archived documents are left out
 //   A comment or packet on an archived task stays in, and the search leaves it out (it joins the task).
 // - Two FTS5 indexes read their text from it (external content): `search_words` (plain words, for
 //   as-you-type prefixes: "eviden" finds "evidence") and `search_stems` (porter stemming: "videos"
@@ -37,8 +37,17 @@ const COMMENT = (n: string, from = "") =>
 const PACKET = (n: string, from = "") =>
   `SELECT 'packet', ${n}.id, t.project_id, t.id, p.key || '-' || t.number, '', ${packetBody(n)}
    FROM ${from}tasks t JOIN projects p ON p.id = t.project_id WHERE t.id = ${n}.task_id AND ${n}.decision IS NOT 'superseded'`
+/**
+ * A document's markdown without its frontmatter (`---` … `---` at the top): the title and summary
+ * are indexed from their own columns, so snippets never show "summary: …".
+ */
+const withoutFrontmatter = (body: string) => {
+  const rest = `substr(${body}, 5)`
+  const end = `instr(${rest}, char(10) || '---')`
+  return `CASE WHEN substr(${body}, 1, 4) = '---' || char(10) AND ${end} > 0 THEN ltrim(substr(${rest}, ${end} + 4), char(10) || char(13)) ELSE ${body} END`
+}
 const DOCUMENT = (n: string, from = "") =>
-  `SELECT 'document', ${n}.id, ${n}.project_id, NULL, '', ${n}.title, ${n}.summary || char(10) || ${n}.body
+  `SELECT 'document', ${n}.id, ${n}.project_id, NULL, '', ${n}.title, ${n}.summary || char(10) || ${withoutFrontmatter(`${n}.body`)}
    ${from ? `FROM ${from.slice(0, -2)}` : ""} WHERE ${n}.archived_at IS NULL`
 
 /** Each table whose rows are indexed: the entries' kind, the columns whose change re-indexes a row, and its entries. */

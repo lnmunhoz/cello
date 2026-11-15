@@ -56,7 +56,7 @@ const realisticBoard = Effect.gen(function* () {
     ('r-old', 't7', 'An older packet', '["Step"]', 'claude', 15, 16, 'superseded', NULL)`
   yield* sql`INSERT INTO documents (id, workspace_id, project_id, kind, slug, title, summary, body, created_by_actor_id, updated_by_actor_id, created_at, updated_at, archived_at) VALUES
     ('d-scope', 'personal', 'cel', 'spec', 'search-scope', 'Search scope', 'The bar and the index', '# Search scope\n\nFTS5 with porter stemming.', 'claude', 'claude', 20, 20, NULL),
-    ('d-page', 'personal', 'thai', 'page', 'pricing', 'Baht prices', 'Checkout in baht', '# Baht prices', 'claude', 'claude', 21, 21, NULL),
+    ('d-page', 'personal', 'thai', 'page', 'pricing', 'Baht prices', 'Checkout in baht', '---\ntitle: Baht prices\nsummary: Checkout in baht\n---\n\n# Baht prices', 'claude', 'claude', 21, 21, NULL),
     ('d-gone', 'personal', 'cel', 'doc', 'old-notes', 'Old notes', '', '# Old notes about evidence', 'human', 'human', 22, 22, 30)`
 })
 
@@ -119,6 +119,8 @@ describe("migration 0008_search", () => {
         expect(indexed.find((e) => e.ref_id === "r-open")?.body).toBe("Search everything\nPress ⌘K\nType evidence")
         expect(indexed.find((e) => e.ref_id === "r-sent")?.body).toBe("Stages on cards\nOpen the board\nThe stage chip is too loud")
         expect(indexed.find((e) => e.ref_id === "d-scope")).toMatchObject({ task_key: "", title: "Search scope" })
+        // A document's frontmatter is left out: its title and summary are indexed from their own columns.
+        expect(indexed.find((e) => e.ref_id === "d-page")?.body).toBe("Checkout in baht\n# Baht prices")
 
         // Both indexes answer from the backfill: prefixes on words, stems on stems, accents folded.
         expect(yield* matching("search_words", `"chip"*`)).toEqual(["packet:r-sent"])

@@ -185,6 +185,16 @@ describe("SearchService.query", () => {
       expect(yield* ids("recovery")).toEqual([`document:${doc.id}`])
       yield* agent(documents.archive({ commandId: cmd(), project: { key: project.key }, slug: "restore" }))
       expect(yield* ids("recovery")).toEqual([])
+
+      // A published page's frontmatter isn't searched or shown: only its title, summary and body.
+      yield* agent(documents.publish({
+        commandId: cmd(), project: { key: project.key }, slug: "fm",
+        body: "---\ntitle: Frontmatter page\nsummary: The quokka summary\nowner: wombat\n---\n\n# Frontmatter page\n\nAbout the quokka.",
+      }))
+      expect(yield* ids("wombat")).toEqual([])
+      const page = (yield* find("quokka")).groups[0]!.hits[0]!
+      expect(page.text).toBe("The quokka summary\n# Frontmatter page\n\nAbout the quokka.")
+      expect(page.snippet).not.toContain("summary:")
     })))
 
   it.effect("ranks an open task above a Done one on a tie, then the newer first", () =>
