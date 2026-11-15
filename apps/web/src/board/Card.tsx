@@ -6,15 +6,17 @@ import { CalendarIcon, ChevronRightIcon } from "lucide-react"
 import { Chip } from "../components/ui/Chip.tsx"
 import { PriorityIcon } from "../components/ui/PriorityIcon.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
-import { formatDay, formatDue } from "../lib/format.ts"
+import { formatDue } from "../lib/format.ts"
+import { CardWork, ProvenanceLine } from "../presence/Presence.tsx"
 import { QuestionsBadge } from "../ask/QuestionsBadge.tsx"
 import { EvidenceBadge } from "../review/EvidenceBadge.tsx"
 
 /**
  * What a card shows: key and parent breadcrumb, status and title, then priority, due date and labels
- * (a row only when there is one of them), and the created date.
+ * (a row only when there is one of them), who's on it and its stage (CEL-35), and who made it and
+ * changed it last (CEL-5). `laned`: its column's lanes already say the stage.
  */
-export function CardBody({ task, board }: { task: Task; board: BoardState }) {
+export function CardBody({ task, board, laned = false }: { task: Task; board: BoardState; laned?: boolean }) {
   const status = board.statuses[task.statusId]
   const parent = task.parentId ? board.tasks[task.parentId] : undefined
   const labels = task.labelIds.map((id) => board.labels[id]).filter((l) => l !== undefined && l.archivedAt === null)
@@ -62,7 +64,8 @@ export function CardBody({ task, board }: { task: Task; board: BoardState }) {
           <EvidenceBadge task={task} board={board} opens />
         </span>
       ) : null}
-      <span className="text-xs text-faint">Created {formatDay(task.createdAt)}</span>
+      <CardWork task={task} board={board} stage={!laned} />
+      <ProvenanceLine task={task} board={board} />
     </>
   )
 }

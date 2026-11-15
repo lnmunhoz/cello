@@ -29,6 +29,7 @@ import { widthLimits } from "../lib/resize.ts"
 import { isDark, toggleTheme } from "../lib/theme.ts"
 import { BuildFooter } from "./BuildFooter.tsx"
 import { ConnectionStatus, useConnectionText } from "./ConnectionStatus.tsx"
+import { AgentsWorking, AgentsWorkingRail } from "../presence/Presence.tsx"
 import { SIDEBAR_SHORTCUT, SIDEBAR_WIDTH, type SidebarMode } from "./sidebarState.ts"
 
 /** The sidebar's mode as shown, for the pieces outside it (the breadcrumb makes room for "Show sidebar"). Null outside the app shell. */
@@ -174,6 +175,7 @@ export function Sidebar({
               {reviewBadge}
             </Link>
           </RailTip>
+          {board && workspaceId ? <AgentsWorkingRail board={board} workspaceId={workspaceId} className={railItem} /> : null}
         </nav>
 
         <nav aria-label="Projects" className="flex min-h-0 flex-col items-center gap-1 overflow-y-auto py-0.5">
@@ -268,6 +270,7 @@ export function Sidebar({
           Review
           {reviewBadge}
         </Link>
+        {board && workspaceId ? <AgentsWorking board={board} workspaceId={workspaceId} className="flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium text-ink" /> : null}
       </nav>
 
       {/* A long project list scrolls here; Settings stays at the bottom. */}

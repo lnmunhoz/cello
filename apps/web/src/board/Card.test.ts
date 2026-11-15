@@ -1,5 +1,5 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import type { Label, Priority, Status, Task } from "@cello/contract/entities"
+import type { AgentSession, Label, Priority, Status, Task } from "@cello/contract/entities"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
@@ -14,7 +14,7 @@ const label = (id: string, name: string, extra: Partial<Label> = {}): Label => (
 const task = (id: string, number: number, extra: Partial<Task> = {}): Task => ({
   id, projectId: "p1", number, key: `CEL-${number}`, title: `Task ${number}`, description: "", statusId: "todo", priority: 0,
   position: "a0", dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null,
-  createdByActorId: "me", createdBySessionId: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
+  createdByActorId: "me", createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
 })
 
 const board: BoardState = {
@@ -25,6 +25,7 @@ const board: BoardState = {
   statuses: { todo: status },
   labels: { bug: label("bug", "Bug"), old: label("old", "Old", { archivedAt: 5 }) },
   tasks: { t1: task("t1", 1, { title: "Plan the release" }) },
+  sessions: {},
   reviews: {},
   asks: {},
   documents: {},
@@ -64,5 +65,48 @@ describe("CardBody", () => {
     expect(textAt(html, "data-card-parent")).toBe("Plan the release")
     expect(html).toContain('title="Sub-task of CEL-1 Plan the release"')
     expect(render(task("t3", 3))).not.toContain("data-card-parent")
+  })
+
+  describe("who made it, who's on it, where it is (CEL-5, CEL-35)", () => {
+    const now = Date.now()
+    const session: AgentSession = {
+      id: "s1", actorId: "claude", externalId: "8a41c9e2-417a", clientName: "Claude Code", entrypoint: "cli", cwd: null, pid: 1,
+      startedAt: now - 3_600_000, lastSeenAt: now - 30_000, endedAt: null,
+    }
+    const staffed: BoardState = {
+      ...board,
+      actors: {
+        me: { id: "me", kind: "human", name: "Lucas N. Munhoz", client: null, color: "#5e6ad2", createdAt: 1 },
+        claude: { id: "claude", kind: "agent", name: "Claude Code", client: "Claude Code", color: "#10b981", createdAt: 1 },
+      },
+      sessions: { s1: session },
+    }
+    const held = task("t4", 4, {
+      assigneeActorId: "claude", assigneeSessionId: "s1", stage: "fixing", version: 3,
+      updatedByActorId: "claude", updatedBySessionId: "s1", updatedAt: now - 4 * 60_000,
+    })
+    const renderIn = (state: BoardState, t: Task, laned = false) => renderToStaticMarkup(createElement(CardBody, { task: t, board: state, laned }))
+
+    it("says who's on it, that it's active, and the stage; then who created it and who changed it last", () => {
+      const html = renderIn(staffed, held)
+      expect(html).toContain('data-presence="active"')
+      expect(html).toMatch(/8a41c9e2<\/span> active now/)
+      expect(html).toContain('data-stage="fixing"')
+      expect(html).toContain("Fixing findings")
+      expect(textAt(html, "data-provenance")).toBe("Lucas created · 8a41c9e2 changed 4m ago")
+    })
+
+    it("a quiet session says when it was seen, in amber; an ended one says so", () => {
+      const quiet = renderIn({ ...staffed, sessions: { s1: { ...session, lastSeenAt: now - 2 * 3_600_000 } } }, held)
+      expect(quiet).toContain('data-presence="idle"')
+      expect(quiet).toMatch(/8a41c9e2<\/span> seen 2h ago/)
+      const ended = renderIn({ ...staffed, sessions: { s1: { ...session, endedAt: now - 60_000 } } }, held)
+      expect(ended).toMatch(/8a41c9e2<\/span> ended/)
+    })
+
+    it("in a laned column the lane says the stage, so the card doesn't; nobody on it means no work line", () => {
+      expect(renderIn(staffed, held, true)).not.toContain("data-stage")
+      expect(renderIn(staffed, task("t5", 5))).not.toContain("data-card-work")
+    })
   })
 })

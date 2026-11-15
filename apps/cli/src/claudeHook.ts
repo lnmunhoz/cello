@@ -63,6 +63,15 @@ export const parseHookInput = (raw: string): HookInput => {
 /** The session to deliver to: stdin's `session_id`, else CLAUDE_CODE_SESSION_ID. */
 export const hookSession = (input: HookInput, env: Env): string | null => input.sessionId ?? text(env.CLAUDE_CODE_SESSION_ID)
 
+/**
+ * What the hook does for this input. In the main conversation it hands over new comments (which also
+ * checks the session in). Inside a subagent the comments stay for the main conversation, but the
+ * subagent works for the session, so it still checks in: the board shows the task as being worked on
+ * while a builder subagent runs (CEL-35).
+ */
+export const hookAction = (input: HookInput, env: Env): "deliver" | "check-in" | "nothing" =>
+  hookSession(input, env) === null ? "nothing" : input.inSubagent ? "check-in" : "deliver"
+
 // ── the artifact guard (CEL-57) ─────────────────────────────────────────────────────────────────
 // In a Cello project, what an agent shows Lucas goes into Cello as a page, never a claude.ai artifact.
 // `cello install claude` puts a PreToolUse hook on the `Artifact` tool into the project's settings; it
