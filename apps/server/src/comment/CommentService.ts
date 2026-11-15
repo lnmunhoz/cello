@@ -130,8 +130,9 @@ const make = Effect.gen(function* () {
         const { now, emit } = context
         const current = yield* load(input.id)
         yield* sql`UPDATE comments SET deleted_at = ${now}, updated_at = ${now} WHERE id = ${current.id}`
-        yield* tasks.touchWithin(context, current.taskId)
-        yield* emit({ type: "comment.deleted", id: current.id, taskId: current.taskId }, yield* placeOfTask(current.taskId))
+        // The board can't work out the latest remaining comment: the event says it.
+        const { lastCommentAt } = yield* tasks.touchWithin(context, current.taskId)
+        yield* emit({ type: "comment.deleted", id: current.id, taskId: current.taskId, lastCommentAt }, yield* placeOfTask(current.taskId))
         return { ...current, deletedAt: now, updatedAt: now }
       }))
   })

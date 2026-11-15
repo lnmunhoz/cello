@@ -116,8 +116,10 @@ export const Task = Schema.Struct({
   stage: Schema.NullOr(TaskStage).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   /**
    * Its comments that aren't deleted, and when the latest of them was written or edited. Not columns:
-   * read with the task. A comment is activity on the task, so it also sets `updatedAt` and `updatedBy*`;
-   * when `lastCommentAt` is at or after `updatedAt`, the task's latest activity was a comment.
+   * read with the task. Adding, editing or deleting a comment is activity on the task, so it also sets
+   * `updatedAt` and `updatedBy*`. When `lastCommentAt` is at or after `updatedAt`, the latest activity
+   * was a comment written or edited; a delete is a change, not a comment (it leaves `lastCommentAt`
+   * at the latest remaining comment, before `updatedAt`).
    */
   commentCount: Schema.Number.pipe(Schema.withDecodingDefaultKey(Effect.succeed(0))),
   lastCommentAt: Schema.NullOr(Millis).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),

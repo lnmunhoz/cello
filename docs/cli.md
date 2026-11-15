@@ -277,6 +277,8 @@ EOF
 
 Comments are markdown, rendered on the card, and links in them can be clicked. Task keys (e.g. CEL-12) link to the task, with its live status; keys of unknown tasks, and keys in backticks or code blocks, stay plain. Answer Lucas's comments and Send back notes on the card, so the conversation stays with the task. His comments come to your session by themselves (next section).
 
+A comment counts as activity on its task: adding, editing or deleting one moves the task's last change (`updatedAt`, "Last changed by" in `cello task get`) to you, and the card says "2fd0505c commented just now". It's not a status change, so it never ends anyone's claim. `cello task get CEL-12 --json` has them as `.task.commentCount` and `.task.lastCommentAt`.
+
 ## Comments from Lucas reach your session
 
 Lucas's comments on a task you've claimed, his Send back notes and his answers to your asks (see Questions for Lucas) are addressed to your session: the one holding the claim. Your own comments and other agents' never come back to you, and nothing does once your claim has ended. One exception: a Send back note still reaches the session that handed in the packet.

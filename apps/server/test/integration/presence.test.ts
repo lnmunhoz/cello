@@ -71,6 +71,32 @@ describe("presence over a real server", () => {
       expect(fresh.assigneeSessionId).toBe(events[0]!.sessionId)
     }).pipe(Effect.scoped))
 
+  it.live("after a comment is deleted the live board still equals a fresh snapshot, down to deleting the only one", () =>
+    Effect.gen(function* () {
+      const { port } = yield* startServer(yield* tempDataDir)
+      const human = yield* connect(port)
+      const agent = yield* connect(port, AGENT)
+      const workspace = (yield* human["snapshot.get"]({})).workspaces[0]!
+      const scope = { workspaceId: workspace.id }
+      const { result: project } = yield* human["project.create"]({ commandId: newCommandId(), workspaceId: workspace.id, name: "Cello", key: "CEL" })
+      const { result: task } = yield* human["task.create"]({ commandId: newCommandId(), projectId: project.id, title: "Say and unsay" })
+      const { result: first } = yield* agent["comment.add"]({ commandId: newCommandId(), taskId: task.id, body: "First" })
+      const { result: second } = yield* human["comment.add"]({ commandId: newCommandId(), taskId: task.id, body: "Second" })
+      const before = yield* human["snapshot.get"]({ scope })
+
+      const board = yield* Effect.forkChild(next(human["events.subscribe"]({ scope, afterSeq: before.seq }), 2))
+      yield* human["comment.delete"]({ commandId: newCommandId(), id: second.id })
+      const afterOne = (yield* human["snapshot.get"]({ scope })).tasks.find((t) => t.id === task.id)!
+      yield* agent["comment.delete"]({ commandId: newCommandId(), id: first.id })
+      const events = yield* Fiber.join(board)
+      const afterBoth = (yield* human["snapshot.get"]({ scope })).tasks.find((t) => t.id === task.id)!
+
+      expect(applyEvents(fromSnapshot(before), events.slice(0, 1)).tasks[task.id]).toEqual(afterOne)
+      expect(afterOne).toMatchObject({ commentCount: 1, lastCommentAt: first.updatedAt })
+      expect(applyEvents(fromSnapshot(before), events).tasks[task.id]).toEqual(afterBoth)
+      expect(afterBoth).toMatchObject({ commentCount: 0, lastCommentAt: null })
+    }).pipe(Effect.scoped))
+
   it.live("the human's own calls never check anyone in", () =>
     Effect.gen(function* () {
       const { port } = yield* startServer(yield* tempDataDir)

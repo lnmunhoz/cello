@@ -149,7 +149,13 @@ const apply = (d: Draft, e: CelloEvent) => {
       return d.update("tasks", e.taskId, (t) => ({ ...t, ...activity(e, t), lastCommentAt: e.ts }))
     case "comment.deleted":
       if (e.taskId === undefined) return
-      return d.update("tasks", e.taskId, (t) => ({ ...t, ...activity(e, t), commentCount: Math.max(0, t.commentCount - 1) }))
+      return d.update("tasks", e.taskId, (t) => ({
+        ...t,
+        ...activity(e, t),
+        commentCount: Math.max(0, t.commentCount - 1),
+        // The latest remaining comment, from the server; older events didn't say, so it stays.
+        lastCommentAt: e.lastCommentAt === undefined ? t.lastCommentAt : e.lastCommentAt,
+      }))
     case "review.submitted":
       return d.set("reviews", e.review.id, e.review)
     case "review.decided":

@@ -226,10 +226,13 @@ describe("applyEvents: stage, last change and presence (CEL-5, CEL-35)", () => {
     expect(edited.tasks["t1"]).toMatchObject({ commentCount: 1, lastCommentAt: 12, updatedAt: 12, updatedByActorId: "me", version: 5 })
   })
 
-  it("deleting a comment drops the count and is a change, not a comment", () => {
-    const state = fromSnapshot(snapshot([task("t1", { commentCount: 2, lastCommentAt: 5, updatedAt: 5, version: 3 })]))
-    const deleted = applyEvents(state, [ev(12, { type: "comment.deleted", id: "c1", taskId: "t1" })])
+  it("deleting a comment drops the count, takes the latest remaining comment's time from the event, and is a change", () => {
+    const state = fromSnapshot(snapshot([task("t1", { commentCount: 2, lastCommentAt: 9, updatedAt: 9, version: 3 })]))
+    const deleted = applyEvents(state, [ev(12, { type: "comment.deleted", id: "c2", taskId: "t1", lastCommentAt: 5 })])
     expect(deleted.tasks["t1"]).toMatchObject({ commentCount: 1, lastCommentAt: 5, updatedAt: 12, updatedByActorId: "me", version: 4 })
+    // Deleting the only one leaves none.
+    const none = applyEvents(deleted, [ev(13, { type: "comment.deleted", id: "c1", taskId: "t1", lastCommentAt: null })])
+    expect(none.tasks["t1"]).toMatchObject({ commentCount: 0, lastCommentAt: null, updatedAt: 13, version: 5 })
   })
 
   it("an edit or delete stored before it named its task changes no task", () => {

@@ -95,10 +95,11 @@ export const CelloEvent = Schema.Union([
   // the session holds claims in. Not a task change: the task's version stays.
   event("session.seen", { session: AgentSession }),
   // A comment is activity on its task: the same command sets the task's last change and version (no
-  // task event). Edits and deletes name their task so a board can follow; ones stored before don't.
+  // task event). Edits and deletes name their task so a board can follow; ones stored before don't. A
+  // delete carries the task's new `lastCommentAt` (the latest remaining comment, or null).
   event("comment.added", { comment: Comment }),
   event("comment.edited", { id: Id, taskId: Schema.optionalKey(Id), before: CommentPatch, after: CommentPatch }),
-  event("comment.deleted", { id: Id, taskId: Schema.optionalKey(Id) }),
+  event("comment.deleted", { id: Id, taskId: Schema.optionalKey(Id), lastCommentAt: Schema.optionalKey(Schema.NullOr(Millis)) }),
   // A review packet with its attachments. The same command then moves the task (task.moved).
   event("review.submitted", { review: Review }),
   // Approved, sent back, or superseded by a newer review. `ts` is when.
