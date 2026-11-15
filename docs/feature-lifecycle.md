@@ -137,12 +137,14 @@ The packet moves the task to **In Review**. It holds:
 flowchart TD
     A["Review page<br/>one packet open at a time"] --> B{"Lucas"}
     B -->|Approve| D(["Done<br/>the claim ends"])
-    B -->|"Send back + a note"| C["Task back to In Progress<br/>the note becomes a comment"]
+    B -->|"Send back + a note,<br/>or feedback in chat"| C["Task back to In Progress<br/>the note becomes a comment"]
     C --> E["The note reaches the agent's session<br/>through the Claude Code hook (CEL-15)"]
     E --> F["Fix, test, merge"]
     F --> G["Submit again"]
     G --> A
 ```
+
+**Feedback in chat works the same as Send back.** If Lucas reviews a task in the conversation instead of on the Review page, the orchestrator puts his words on the card as a comment ("Lucas, in chat (review): …"), moves the task back to In Progress, and the fix goes through build, review and a new packet like any Send back.
 
 Approve is sign-off, not a gate: the code is already merged and tested. It moves the task to Done.
 

@@ -125,6 +125,11 @@ Run it first in every session, and again when you come back to a task.
 4. **Comment** progress, decisions and questions on the card (`cello task comment`). Lucas reads them there.
 5. **Hand it over** with `cello task submit` and evidence he can look at (see Review packets). The task moves to In Review.
 6. **If it's sent back,** his note comes to your session (by the hook, or `cello inbox`), and `cello task get CEL-12` shows it under Reviews. Fix it, then submit again.
+   **Lucas's feedback in chat counts as a Send back.** When he reviews a task in your conversation instead of on the card (a screenshot, "this should be…", "I don't like…"), do both of these before you start fixing:
+   - put his words on the card as a comment, quoted as he said them and marked as his (`**Lucas, in chat (review):** "…"`), so the review lives with the task;
+   - if the task is In Review, move it back with `cello task move CEL-12 "In Progress"`, so the board shows it's being worked on again.
+
+   Then fix, and submit a new packet (it replaces the open one). The same goes for feedback on a task in Done: comment it, and move it back to In Progress, or open a new task if it's a new request.
 7. **If you stop without finishing,** `cello task release CEL-12`. The task keeps its status, and someone else can claim it.
 
 Never move a task to Done or Canceled yourself: Lucas decides.

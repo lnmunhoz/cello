@@ -12,7 +12,7 @@ import { Button } from "../components/ui/Button.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { useOrdering } from "../issues/useOrdering.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
-import { TaskPanel, useTaskView } from "../task/TaskPanel.tsx"
+import { useTaskView } from "../task/TaskPanel.tsx"
 import { behindTask } from "../task/view.ts"
 import { ListRow } from "./ListRow.tsx"
 import { isCollapsed, keyChars, nextRow, rowOrder } from "./rows.ts"
@@ -27,7 +27,6 @@ export function ListPage({ openNumber }: { openNumber?: number }) {
   return (
     <div className="flex min-h-0 flex-1">
       <TaskList board={board} workspaceId={workspaceId} project={project} ordering={ordering} openNumber={openNumber} />
-      {openNumber !== undefined ? <TaskPanel board={board} project={project} number={openNumber} /> : null}
     </div>
   )
 }
