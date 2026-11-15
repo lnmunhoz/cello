@@ -365,6 +365,22 @@ export const mapLinkTargets = (markdown: string, map: MapTarget): string => {
   return out.join("\n")
 }
 
+const SCHEME = /^[a-z][a-z0-9+.-]*:/i
+/** A last path segment with a name and an extension: `report.md`, `a-palette-typing.mp4`, not `.env` or `shots/`. */
+const FILE_NAME = /(?:^|\/)[^/]*[^/.][^/]*\.[a-z0-9]+$/i
+
+/**
+ * The file on this machine a link points at (`shots/board.png`, `/tmp/a.mp4`), without its `?query`
+ * or `#anchor`. Null for web addresses, anchors, and paths without a file extension (`/attachments/<id>`,
+ * an app route like `/CEL/issues`). Publishing uploads these; the reader shows one left as it is as a
+ * missing file, since following it would only reach a page that doesn't exist.
+ */
+export const localFileTarget = (target: string): string | null => {
+  const clean = target.replace(/[?#].*$/, "")
+  if (clean === "" || SCHEME.test(clean) || clean.startsWith("//")) return null
+  return FILE_NAME.test(clean) ? clean : null
+}
+
 /** Every link and image target outside code, in reading order (an image inside a link comes first). */
 export const linkTargets = (markdown: string): LinkTarget[] => {
   const found: LinkTarget[] = []

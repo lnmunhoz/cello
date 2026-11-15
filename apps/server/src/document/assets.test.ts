@@ -40,4 +40,12 @@ describe("assetResolver", () => {
       "![Board](/attachments/A1)\n\nSee [the log](/attachments/A2) and ![web](https://x.dev/a.png).",
     )
   })
+
+  it("rewrites plain links to a stored video, and leaves a linked file it doesn't have as it is (CEL-54)", () => {
+    const stored = [...assets, { path: "/work/report/a-palette-typing.mp4", url: "/attachments/V1" }]
+    const md = "Typing: [a-palette-typing.mp4](a-palette-typing.mp4). Still to record: [the demo](demo.mp4)."
+    expect(mapLinkTargets(md, assetResolver("/work/report", stored))).toBe(
+      "Typing: [a-palette-typing.mp4](/attachments/V1). Still to record: [the demo](demo.mp4).",
+    )
+  })
 })

@@ -3,6 +3,7 @@ import {
   changedSections,
   isSlug,
   linkTargets,
+  localFileTarget,
   mapLinkTargets,
   pagePath,
   plainText,
@@ -210,5 +211,33 @@ describe("link targets", () => {
 
   it("decodes percent-escapes in targets", () => {
     expect(linkTargets("![x](my%20chart.png)")).toEqual([{ target: "my chart.png", image: true }])
+  })
+})
+
+describe("local file targets", () => {
+  it("is the file path a link points at, without its query or anchor", () => {
+    expect(localFileTarget("a-palette-typing.mp4")).toBe("a-palette-typing.mp4")
+    expect(localFileTarget("./shots/board.png#top")).toBe("./shots/board.png")
+    expect(localFileTarget("../logs/vitest.log?raw")).toBe("../logs/vitest.log")
+    expect(localFileTarget("/tmp/cello/report.md")).toBe("/tmp/cello/report.md")
+    expect(localFileTarget("my chart.png")).toBe("my chart.png")
+  })
+
+  it("is null for web addresses, anchors, stored files and paths without a file extension", () => {
+    for (const target of [
+      "https://example.com/a.mp4",
+      "//cdn.example.com/a.png",
+      "mailto:lucas@example.com",
+      "#findings",
+      "?version=2",
+      "",
+      "/attachments/01ABC",
+      "/CEL/issues",
+      "other-page",
+      "shots/",
+      ".env",
+    ]) {
+      expect(localFileTarget(target), target).toBeNull()
+    }
   })
 })

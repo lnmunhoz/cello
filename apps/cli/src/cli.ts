@@ -9,6 +9,7 @@ import type { Backup } from "@cello/contract/backups"
 import type { Actor, AgentSession, DocumentKind, Priority, ProjectRef, Review, Status, Task } from "@cello/contract/entities"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
+import { ACCEPTED } from "@cello/shared/attachment"
 import { pagePath } from "@cello/shared/document"
 import { formatBytes } from "@cello/shared/bytes"
 import { shortCommit } from "@cello/shared/build"
@@ -536,7 +537,7 @@ const docPublish = Command.make("publish", {
   task: Flag.String("task").pipe(Flag.atLeast(0), Flag.withDescription("Link the page to a task, e.g. CEL-12; repeat it, or separate keys with commas.")),
   asset: Flag.String("asset").pipe(
     Flag.atLeast(0),
-    Flag.withDescription("Another file to upload with it (images the markdown links go up by themselves); repeatable."),
+    Flag.withDescription("Another file to upload with it (files the markdown links go up by themselves); repeatable."),
   ),
 }, (input) =>
   Effect.gen(function* () {
@@ -545,7 +546,11 @@ const docPublish = Command.make("publish", {
     const ref = yield* projectRef(input.project)
     const source = input.file === "-" ? undefined : path.resolve(cwd, input.file)
     const body = source === undefined ? yield* Effect.promise(readStdin) : yield* readFile(source)
-    const files = pageFiles(body, source === undefined ? cwd : path.dirname(source), input.asset, cwd)
+    const { files, skipped } = pageFiles(body, source === undefined ? cwd : path.dirname(source), input.asset, cwd)
+    for (const { target, file, reason } of skipped) {
+      const why = reason === "missing" ? `isn't there (${file})` : `can't go up with the page (Cello stores ${ACCEPTED})`
+      yield* Console.error(`Warning: ${target} ${why}, so the page shows that link as a missing file.`)
+    }
     const taskKeys = input.task.flatMap((value) => value.split(",")).map((k) => k.trim()).filter((k) => k !== "")
     const { response, project: found } = yield* withClient((client) =>
       Effect.gen(function* () {
