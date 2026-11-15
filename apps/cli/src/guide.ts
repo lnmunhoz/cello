@@ -134,7 +134,7 @@ cello task comment CEL-12 --body-file - <<'EOF'
 EOF
 \`\`\`
 
-Comments are markdown, rendered on the card, and links in them can be clicked. Answer Lucas's comments and Send back notes on the card, so the conversation stays with the task.
+Comments are markdown, rendered on the card, and links in them can be clicked. Task keys (e.g. CEL-12) link to the task, with its live status; keys of unknown tasks, and keys in backticks or code blocks, stay plain. Answer Lucas's comments and Send back notes on the card, so the conversation stays with the task.
 
 ## Review packets
 
@@ -186,6 +186,7 @@ cello doc archive billing-audit      # hidden from the Docs tab; the link keeps 
 - **The title** is the frontmatter \`title:\`, the first \`#\` heading, or \`--title\`.
 - **The summary** is the frontmatter \`summary:\`, the first paragraph, or \`--summary\`.
 - **What renders:** \`##\` and \`###\` headings become the page's section list. Tables, code blocks, \`\`\`\` \`\`\`mermaid \`\`\`\` diagrams and images all render.
+- **Task keys** (e.g. CEL-12) link to the task, with its live status, so a progress table never goes stale. Keys of unknown tasks, and keys in backticks or code blocks, stay plain.
 - **Images:** images the markdown links by a relative path go up with the page. \`--asset\` uploads other files.
 - **Publishing the same file again** updates the page and keeps the old version, and the link never changes.
 - **Publish reports, plans and summaries here,** not as Claude artifacts: Lucas reads them next to the tasks.
