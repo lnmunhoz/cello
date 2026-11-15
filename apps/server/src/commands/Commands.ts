@@ -49,7 +49,9 @@ const make = Effect.gen(function* () {
   ): Effect.Effect<Written<A>, Exclude<E, SqlError>, Caller> =>
     Effect.gen(function* () {
       const caller = yield* Caller
-      const outcome = yield* sql.withTransaction(Effect.gen(function* () {
+      // Once a write holds the permit it runs to the end: a closing connection or a stopping server
+      // interrupts its request, but the change still commits and is published (CEL-17).
+      const outcome = yield* Effect.uninterruptible(sql.withTransaction(Effect.gen(function* () {
         const receipts = yield* sql<{ result: string; last_seq: number | null }>`
           SELECT result, last_seq FROM command_receipts WHERE command_id = ${command.commandId}`
         const receipt = receipts[0]
@@ -74,8 +76,7 @@ const make = Effect.gen(function* () {
         yield* sql`INSERT INTO command_receipts (command_id, rpc, result, last_seq, created_at)
           VALUES (${command.commandId}, ${command.rpc}, ${JSON.stringify(result)}, ${seq}, ${now})`
         return { written: { result, seq } as Written<A>, events }
-      }))
-      yield* log.publish(outcome.events)
+      })).pipe(Effect.tap((outcome) => log.publish(outcome.events))))
       return outcome.written
     }).pipe(
       writing.withPermits(1),
