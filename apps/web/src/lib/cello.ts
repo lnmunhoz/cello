@@ -24,6 +24,7 @@ export const {
   commands,
   commentsFamily,
   reviewsFamily,
+  asksFamily,
   historyFamily,
   pageFamily,
   documentHistoryFamily,

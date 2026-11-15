@@ -1,4 +1,5 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
+import { openAskOf } from "@cello/client/sync/asks"
 import { openReviewOf } from "@cello/client/sync/reviews"
 import type { Task } from "@cello/contract/entities"
 import { CalendarIcon, ChevronRightIcon } from "lucide-react"
@@ -6,6 +7,7 @@ import { Chip } from "../components/ui/Chip.tsx"
 import { PriorityIcon } from "../components/ui/PriorityIcon.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { formatDay, formatDue } from "../lib/format.ts"
+import { QuestionsBadge } from "../ask/QuestionsBadge.tsx"
 import { EvidenceBadge } from "../review/EvidenceBadge.tsx"
 
 /**
@@ -16,7 +18,8 @@ export function CardBody({ task, board }: { task: Task; board: BoardState }) {
   const status = board.statuses[task.statusId]
   const parent = task.parentId ? board.tasks[task.parentId] : undefined
   const labels = task.labelIds.map((id) => board.labels[id]).filter((l) => l !== undefined && l.archivedAt === null)
-  const chips = task.priority !== 0 || task.dueDate !== null || labels.length > 0 || openReviewOf(board, task.id) !== undefined
+  const chips = task.priority !== 0 || task.dueDate !== null || labels.length > 0 || openReviewOf(board, task.id) !== undefined ||
+    openAskOf(board, task.id) !== undefined
   return (
     <>
       <span className="flex min-w-0 items-center gap-1 text-xs text-muted">
@@ -55,6 +58,7 @@ export function CardBody({ task, board }: { task: Task; board: BoardState }) {
               {l!.name}
             </Chip>
           ))}
+          <QuestionsBadge task={task} board={board} />
           <EvidenceBadge task={task} board={board} opens />
         </span>
       ) : null}

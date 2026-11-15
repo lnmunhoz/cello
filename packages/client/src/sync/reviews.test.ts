@@ -68,6 +68,15 @@ describe("the review queue", () => {
     ])
   })
 
+  it("leaves out a task waiting on Lucas's answers: the Needs input group shows it first", () => {
+    const ask = {
+      id: "k1", taskId: "t4", title: "Which?", intro: "", questions: [], attachments: [], actorId: "agent", sessionId: "s1",
+      author: { name: "Claude Code", session: "2fd0505c" }, state: "open" as const, createdAt: 1, answeredAt: null, answers: null,
+      withdrawnAt: null, withdrawnBy: null,
+    }
+    expect(reviewQueue({ ...state, asks: { k1: ask } }, "w1").map((i) => i.task.id)).toEqual(["t2", "t1", "t3"])
+  })
+
   it("finds a task's open review", () => {
     expect(openReviewOf(state, "t1")?.id).toBe("r1")
     expect(openReviewOf(state, "t5")).toBeUndefined()

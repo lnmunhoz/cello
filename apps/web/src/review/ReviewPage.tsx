@@ -1,9 +1,13 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
+import { needsInputQueue, type AskItem } from "@cello/client/sync/asks"
 import { reviewQueue, type ReviewItem } from "@cello/client/sync/reviews"
+import type { Project, Task } from "@cello/contract/entities"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { ChevronRightIcon } from "lucide-react"
-import { type KeyboardEvent, useEffect, useRef, useState } from "react"
+import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
+import { AskForm } from "../ask/AskView.tsx"
+import { QuestionsBadge } from "../ask/QuestionsBadge.tsx"
 import { Centered } from "../app/Home.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { relativeTime } from "../lib/format.ts"
@@ -15,8 +19,9 @@ import { ReviewActions } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
 
 /**
- * Everything waiting on Lucas, across the workspace's projects, one row per task. One row is open at
- * a time (`?open=CEL-12`): read its packet, decide, and the next one opens, so the queue goes in order.
+ * Everything waiting on Lucas, across the workspace's projects, one row per task: agents' questions first
+ * (Needs your input, CEL-47), then review packets. One row is open at a time (`?open=CEL-12`): answer
+ * or decide, and the next one opens, so the queue goes in order.
  */
 export function ReviewPage() {
   const board = useBoard()
@@ -28,7 +33,7 @@ export function ReviewPage() {
 function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: string }) {
   const { open } = useSearch({ from: "/review" })
   const navigate = useNavigate({ from: "/review" })
-  const listRef = useRef<HTMLUListElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
   const [focused, setFocused] = useState<string | null>(null)
   // While the keys move between rows, a parked mouse's hover highlight steps aside, so only the focused
   // row stands out; moving the mouse brings hover back.
@@ -36,8 +41,10 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   /** Set by a decision: the row it opens takes the focus, so the keys go on working. */
   const focusOpened = useRef(false)
 
+  // Asks first (an agent is waiting on them), then packets; a task is in one group only.
+  const asked = needsInputQueue(board, workspaceId)
   const queue = reviewQueue(board, workspaceId)
-  const keys = queue.map((item) => item.task.key)
+  const keys = [...asked, ...queue].map((item) => item.task.key)
   const openKey = open !== undefined && keys.includes(open) ? open : null
   // The one row Tab lands on; the arrow keys and j/k move it.
   const tabbable = focused !== null && keys.includes(focused) ? focused : (openKey ?? keys[0] ?? null)
@@ -94,13 +101,20 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
 
   // Esc closes the open row from anywhere in the list, and its row takes the focus. Not while typing,
   // nor from a dialog (portaled out of the list), which Esc closes first.
-  const onListKeyDown = (e: KeyboardEvent<HTMLUListElement>) => {
+  const onListKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement
     if (e.key !== "Escape" || openKey === null || e.defaultPrevented || !e.currentTarget.contains(target)) return
     if (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
     e.preventDefault()
     setOpen(null)
     focusRow(openKey)
+  }
+
+  /** A packet decided or an ask answered: the next row opens, and takes the focus. */
+  const onDecided = (key: string) => {
+    const next = nextAfterDecision(keys, key)
+    focusOpened.current = next !== undefined
+    setOpen(next ?? null)
   }
 
   return (
@@ -112,65 +126,100 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
         <div className="mx-auto box-content flex max-w-3xl flex-col gap-6 px-8 packet-wide:max-w-[1536px]">
           <header className="flex flex-col gap-0.5">
             <h1 className="text-[17px] font-semibold">
-              Review <span className="font-normal text-muted tabular-nums">{queue.length}</span>
+              Review <span className="font-normal text-muted tabular-nums">{asked.length + queue.length}</span>
             </h1>
             <p className="text-[13px] text-muted">
-              Open a packet, then approve it to move the task to Done, or send it back with a note for the agent. ↑ ↓ or j k move between
-              rows, Enter opens, Esc closes.
+              Answer the agents' questions first, then open a packet: approve it to move the task to Done, or send it back with a note for
+              the agent. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
             </p>
           </header>
-          {queue.length === 0 ? (
-            <div className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-line px-6 py-14 text-center text-[13px] text-muted">
-              <p className="text-[15px] font-medium text-ink">Nothing to review</p>
-              <p>
-                When an agent runs <code className="rounded bg-sunken px-1 py-0.5 text-[12px]">cello task submit</code>, its packet shows up here.
-              </p>
-            </div>
-          ) : (
-            <ul
-              ref={listRef}
-              aria-label="Waiting for review"
-              data-keys={usingKeys ? "" : undefined}
-              className="flex flex-col gap-2"
-              onKeyDown={onListKeyDown}
-              onPointerMove={() => {
-                if (usingKeys) setUsingKeys(false)
-              }}
-            >
-              {queue.map((item) => {
-                const key = item.task.key
-                const isOpen = key === openKey
-                return (
-                  <li key={item.task.id}>
-                    <ReviewRow
-                      board={board}
-                      item={item}
-                      open={isOpen}
-                      tabbable={key === tabbable}
-                      hover={!usingKeys}
-                      onToggle={() => setOpen(isOpen ? null : key)}
-                      onFocus={() => setFocused(key)}
-                      onKeyDown={(e) => onRowKeyDown(e, key)}
-                      onDecided={() => {
-                        const next = nextAfterDecision(keys, key)
-                        focusOpened.current = next !== undefined
-                        setOpen(next ?? null)
-                      }}
-                    />
-                  </li>
-                )
-              })}
-            </ul>
-          )}
+          {/* Both groups are one list for the keys: ↑ ↓ go from the last ask to the first packet. */}
+          <div
+            ref={listRef}
+            data-keys={usingKeys ? "" : undefined}
+            className="flex flex-col gap-6"
+            onKeyDown={onListKeyDown}
+            onPointerMove={() => {
+              if (usingKeys) setUsingKeys(false)
+            }}
+          >
+            {asked.length > 0 ? (
+              <section aria-labelledby="needs-input-heading" className="flex flex-col gap-2">
+                <h2 id="needs-input-heading" className="flex items-center gap-2 text-[13px] font-semibold text-ink">
+                  <i aria-hidden className="size-1.5 rounded-full bg-accent" />
+                  Needs your input <span className="font-normal text-muted tabular-nums">{asked.length}</span>
+                </h2>
+                <ul aria-label="Needs your input" className="flex flex-col gap-2">
+                  {asked.map((item) => {
+                    const key = item.task.key
+                    const isOpen = key === openKey
+                    return (
+                      <li key={item.task.id}>
+                        <AskRow
+                          board={board}
+                          item={item}
+                          open={isOpen}
+                          tabbable={key === tabbable}
+                          hover={!usingKeys}
+                          onToggle={() => setOpen(isOpen ? null : key)}
+                          onFocus={() => setFocused(key)}
+                          onKeyDown={(e) => onRowKeyDown(e, key)}
+                          onAnswered={() => onDecided(key)}
+                        />
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
+            ) : null}
+            {queue.length === 0 ? (
+              asked.length === 0 ? (
+                <div className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-line px-6 py-14 text-center text-[13px] text-muted">
+                  <p className="text-[15px] font-medium text-ink">Nothing to review</p>
+                  <p>
+                    When an agent runs <code className="rounded bg-sunken px-1 py-0.5 text-[12px]">cello task submit</code>, its packet shows up here.
+                  </p>
+                </div>
+              ) : null
+            ) : (
+              <section aria-labelledby={asked.length > 0 ? "packets-heading" : undefined} className="flex flex-col gap-2">
+                {asked.length > 0 ? (
+                  <h2 id="packets-heading" className="text-[13px] font-semibold text-ink">
+                    Packets <span className="font-normal text-muted tabular-nums">{queue.length}</span>
+                  </h2>
+                ) : null}
+                <ul aria-label="Waiting for review" className="flex flex-col gap-2">
+                  {queue.map((item) => {
+                    const key = item.task.key
+                    const isOpen = key === openKey
+                    return (
+                      <li key={item.task.id}>
+                        <ReviewRow
+                          board={board}
+                          item={item}
+                          open={isOpen}
+                          tabbable={key === tabbable}
+                          hover={!usingKeys}
+                          onToggle={() => setOpen(isOpen ? null : key)}
+                          onFocus={() => setFocused(key)}
+                          onKeyDown={(e) => onRowKeyDown(e, key)}
+                          onDecided={() => onDecided(key)}
+                        />
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
+            )}
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
-interface ReviewRowProps {
+interface RowProps {
   readonly board: BoardState
-  readonly item: ReviewItem
   readonly open: boolean
   readonly tabbable: boolean
   /** Off while the keyboard moves between rows. */
@@ -178,19 +227,29 @@ interface ReviewRowProps {
   readonly onToggle: () => void
   readonly onFocus: () => void
   readonly onKeyDown: (e: KeyboardEvent<HTMLButtonElement>) => void
-  readonly onDecided: () => void
 }
 
 /**
- * A waiting task: collapsed, its key, title, project, who submitted it and when, and its evidence;
- * open, its packet with Approve and Send back.
+ * One waiting task in the queue: collapsed, its key, title, project and `subtitle`, with `badge` on the
+ * right; open, its status, a link to the task and `children` (a packet, or questions to answer).
  */
-function ReviewRow({ board, item, open, tabbable, hover, onToggle, onFocus, onKeyDown, onDecided }: ReviewRowProps) {
-  const { task, project, review } = item
+function QueueRow({
+  board,
+  task,
+  project,
+  subtitle,
+  badge,
+  open,
+  tabbable,
+  hover,
+  onToggle,
+  onFocus,
+  onKeyDown,
+  children,
+}: RowProps & { task: Task; project: Project; subtitle: string; badge: ReactNode; children: ReactNode }) {
   const status = board.statuses[task.statusId]
   const headingId = `review-${task.id}`
   const bodyId = `review-packet-${task.id}`
-  const byHand = `moved to ${status?.name ?? "In Review"} by hand`
   return (
     <article
       aria-labelledby={headingId}
@@ -222,11 +281,11 @@ function ReviewRow({ board, item, open, tabbable, hover, onToggle, onFocus, onKe
             <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
               <i aria-hidden className="size-2 shrink-0 rounded-[3px]" style={{ background: project.color }} />
               <span className="truncate">
-                {project.name} · {review ? `${review.author.name} · ${relativeTime(review.createdAt)}` : `${byHand} · ${relativeTime(task.updatedAt)}`}
+                {project.name} · {subtitle}
               </span>
             </span>
           </span>
-          <EvidenceBadge task={task} board={board} size="md" />
+          {badge}
         </button>
       </h2>
       {open ? (
@@ -246,18 +305,54 @@ function ReviewRow({ board, item, open, tabbable, hover, onToggle, onFocus, onKe
               Open {task.key}
             </Link>
           </div>
-          {review ? (
-            <ReviewPacket task={task} review={review} decide onDecided={onDecided} />
-          ) : (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-[13px] text-muted">
-                No review packet: {byHand} {relativeTime(task.updatedAt)}.
-              </p>
-              <ReviewActions task={task} onDecided={onDecided} />
-            </div>
-          )}
+          {children}
         </div>
       ) : null}
     </article>
+  )
+}
+
+/**
+ * A task waiting for review: collapsed, who submitted it and when, and its evidence; open, its packet
+ * with Approve and Send back.
+ */
+function ReviewRow({ item, onDecided, ...row }: RowProps & { item: ReviewItem; onDecided: () => void }) {
+  const { task, project, review } = item
+  const byHand = `moved to ${row.board.statuses[task.statusId]?.name ?? "In Review"} by hand`
+  return (
+    <QueueRow
+      {...row}
+      task={task}
+      project={project}
+      subtitle={review ? `${review.author.name} · ${relativeTime(review.createdAt)}` : `${byHand} · ${relativeTime(task.updatedAt)}`}
+      badge={<EvidenceBadge task={task} board={row.board} size="md" />}
+    >
+      {review ? (
+        <ReviewPacket task={task} review={review} decide onDecided={onDecided} />
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[13px] text-muted">
+            No review packet: {byHand} {relativeTime(task.updatedAt)}.
+          </p>
+          <ReviewActions task={task} onDecided={onDecided} />
+        </div>
+      )}
+    </QueueRow>
+  )
+}
+
+/** A task waiting on Lucas's answers (CEL-47): collapsed, who asked what and when; open, the questions to answer, beside the evidence. */
+function AskRow({ item, onAnswered, ...row }: RowProps & { item: AskItem; onAnswered: () => void }) {
+  const { task, project, ask } = item
+  return (
+    <QueueRow
+      {...row}
+      task={task}
+      project={project}
+      subtitle={`${ask.author.name} asks: ${ask.title} · ${relativeTime(ask.createdAt)}`}
+      badge={<QuestionsBadge task={task} board={row.board} />}
+    >
+      <AskForm task={task} ask={ask} onAnswered={onAnswered} />
+    </QueueRow>
   )
 }
