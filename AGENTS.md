@@ -57,6 +57,7 @@ Small changes (docs, a one-line fix) skip steps 1–3: the orchestrator makes th
   - integration tests in `<package>/test/integration/`, real pieces together in one process
   - end-to-end tests in `e2e/`, the built app in a real browser, with videos
 - **No sleeps, timeouts, retries or polling in tests.** Await the event, drain the worker, or advance the test clock.
+- **UI is tested in Docker first, never on Lucas's screen.** `bun run test:e2e` (web) and `bun run test:docker:desktop` (the Electron app, under Xvfb) run in a throwaway Linux container, so nothing opens a window on his Mac while he works. Never run the desktop app, its e2e tests or the packaged app on the Mac: `apps/desktop/playwright.config.ts` refuses there, and `CELLO_ALLOW_LOCAL_DESKTOP=1` is only for a check that needs macOS itself (Dock, `cello://` through LaunchServices, the app menu), when he asks for one. Each run's videos, screenshots, logs and `summary.txt` land in `test-results/docker/latest/` (`web/videos`, `desktop/videos`, `desktop/screenshots`): look at them, and attach them as evidence.
 - **Write it once.** Before writing a helper, look for one. Shared pure logic goes in `packages/shared` (with tests) or `packages/contract`; domain rules live in the owning service. The second copy of anything moves to a shared module and the first copy is deleted.
 - **Storage failures are defects** (`Effect.orDie` at the service edge). API errors are only the tagged errors in `packages/contract/src/errors.ts`.
 - **Effect style** follows T3 Code (`~/projects/t3code`): `Context.Service` classes, layers, `Effect.fn("Service.method")` for service methods. Effect's own source and tests are in `~/projects/t3code/.repos/effect` when the docs aren't enough.
@@ -67,10 +68,18 @@ Small changes (docs, a one-line fix) skip steps 1–3: the orchestrator makes th
 
 ```bash
 bun install
-bun run test         # unit + integration (Vitest)
-bun run typecheck    # tsc over all packages
-bun run dev          # server on 4748 with data in ./.cello, Vite on 5199
-bun run test:e2e     # Playwright, records videos
+bun run test                 # unit + integration (Vitest)
+bun run typecheck            # tsc over all packages
+bun run dev                  # server on 4748 with data in ./.cello, Vite on 5199
+bun run test:e2e             # web e2e (Playwright) in Docker, records videos; -- <playwright args>
+bun run test:docker          # all of it in Docker: unit + integration, typecheck, web e2e, desktop e2e
+bun run test:docker:e2e      # web e2e in Docker (same as test:e2e); -- e2e/board.spec.ts picks a spec
+bun run test:docker:desktop  # desktop (Electron) e2e in Docker under Xvfb; -- <playwright args>
+bun run test:e2e:local       # web e2e here, in headless Chromium (no window), when Docker isn't an option
 ```
+
+- The Docker runs (`scripts/test-in-docker.ts`) need OrbStack running. They test the worktree they're run from: it's mounted read-only and copied into the container, which installs with a cached Bun store and has its own network, so the tests' default ports never meet the Mac's.
+- Each run gets `test-results/docker/<time>-<label>-<pid>/`, and `test-results/docker/latest` points at the newest; two runs at once don't clash, and the last five are kept. `CELLO_E2E_SLOWMO=400` is passed in for review videos; `TEST_CPUS` and `TEST_MEMORY` change the 4 CPU and 6 GB caps.
+- The image (`docker/test.Dockerfile`: Playwright's image for the pinned `@playwright/test`, Bun, ffmpeg) builds on the first run and again only when the Dockerfile or those versions change.
 
 Versions are pinned: Bun 1.4.4, Effect 4.1.4 (every `effect` and `@effect/*` package on the same version).
