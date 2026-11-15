@@ -245,7 +245,8 @@ test("⌘K: the footer switches to Palette, remembered after a reload; Settings 
   await bar(page).getByRole("radio", { name: "Palette" }).click()
   await expect(bar(page)).toHaveAttribute("data-layout", "palette")
   await field(page).fill("evidence")
-  await expect(bar(page).locator('[data-section="task"] [role="option"]').first()).toContainText("Evidence")
+  // Other specs share the server, so their tasks can match too: look for this spec's own.
+  await expect(bar(page).locator('[data-section="task"] [role="option"]').filter({ hasText: "Evidence" }).first()).toBeVisible()
   await expect(preview(page)).toHaveCount(0)
 
   await caption(page, "Reload: ⌘K opens as Palette again")
