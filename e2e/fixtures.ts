@@ -1,11 +1,77 @@
 // Shared steps for the e2e tests, plus a visible cursor, click ripples and captions in the videos.
-import { expect, test as base, type Page } from "@playwright/test"
+// CELLO_E2E_REVIEW=1 records review videos (e2e/recording.ts): slow motion, and each state held
+// about 1.5 s after a caption, around reloads and at the end. Off by default, it waits on nothing:
+// the holds are a recording aid, never what a test relies on.
+import * as fs from "node:fs"
+import { expect, test as base, type Page, type Video } from "@playwright/test"
 import type { Label, Project, Status } from "../packages/contract/src/entities.ts"
 import { defaultWorkspaceId } from "../packages/client/src/sync/follow.ts"
 import { newCommandId, openClient, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
+import { cropFor, holdMs } from "./recording.ts"
 
-/** Draws the pointer, a ripple on each press, and a caption box. Runs in every page. */
+declare global {
+  interface Window {
+    /** Set by the overlay in the top page: shows a caption, with the page's URL under it when `url`. */
+    __e2eCaption?: (text: string, url: boolean) => void
+  }
+}
+
+/**
+ * Draws the pointer, a ripple on each press, and a caption box. Runs in every page and frame, but
+ * draws only in the top page: a frame hands its pointer to its parent (postMessage, which works
+ * across origins), each window adds the frame's position on its own page, and the top page draws
+ * it, so clicks inside iframes (the viewer frames pages) show the cursor and ripple too. The
+ * caption is kept in sessionStorage, so it stays through a reload.
+ */
 const overlay = () => {
+  type Point = { kind: "move" | "press"; x: number; y: number }
+  const isTop = window === window.top
+  let show = (_point: Point) => {}
+  const relay = (point: Point) => (isTop ? show(point) : parent.postMessage({ e2ePointer: point }, "*"))
+  const own = (kind: Point["kind"]) => (e: MouseEvent) => relay({ kind, x: e.clientX, y: e.clientY })
+  addEventListener("pointermove", own("move"), true)
+  addEventListener("mousemove", own("move"), true)
+  addEventListener("pointerdown", own("press"), true)
+  addEventListener("message", (e) => {
+    const point = (e.data as { e2ePointer?: Point } | null)?.e2ePointer
+    if (!point) return
+    const frame = [...document.querySelectorAll("iframe")].find((f) => f.contentWindow === e.source)
+    if (!frame) return
+    const rect = frame.getBoundingClientRect()
+    const style = getComputedStyle(frame)
+    relay({
+      kind: point.kind,
+      x: point.x + rect.left + frame.clientLeft + parseFloat(style.paddingLeft),
+      y: point.y + rect.top + frame.clientTop + parseFloat(style.paddingTop),
+    })
+  })
+  if (!isTop) return
+
+  const KEY = "e2e-caption"
+  const saved = (): { text: string; url: boolean } => {
+    try {
+      return JSON.parse(sessionStorage.getItem(KEY) ?? "null") ?? { text: "", url: false }
+    } catch {
+      return { text: "", url: false }
+    }
+  }
+  let render = () => {}
+  window.__e2eCaption = (text, url) => {
+    try {
+      sessionStorage.setItem(KEY, JSON.stringify({ text, url }))
+    } catch {}
+    render()
+  }
+  // In-app navigation changes the URL without a new page: a caption showing it follows.
+  for (const method of ["pushState", "replaceState"] as const) {
+    const original = history[method]
+    history[method] = function (this: History, ...args: Parameters<History["pushState"]>) {
+      original.apply(this, args)
+      render()
+    }
+  }
+  addEventListener("popstate", () => render())
+
   const install = () => {
     const style = document.createElement("style")
     style.textContent = `
@@ -15,36 +81,59 @@ const overlay = () => {
         border: 2px solid rgb(94 106 210); pointer-events: none; animation: e2e-ripple .5s ease-out forwards; }
       @keyframes e2e-ripple { from { transform: scale(.3); opacity: 1 } to { transform: scale(1.4); opacity: 0 } }
       #e2e-caption { position: fixed; z-index: 2147483647; left: 50%; bottom: 28px; translate: -50% 0; padding: 8px 14px; border-radius: 8px;
-        background: rgb(20 20 24 / .88); color: white; font: 500 15px system-ui; pointer-events: none; }
-      #e2e-caption:empty { display: none; }`
+        background: rgb(20 20 24 / .88); color: white; font: 500 15px system-ui; pointer-events: none; max-width: calc(100vw - 48px); }
+      #e2e-caption:empty { display: none; }
+      #e2e-caption [data-url] { display: block; margin-top: 3px; font: 12px ui-monospace, monospace; opacity: .8; overflow-wrap: anywhere; }`
     document.head.append(style)
     const cursor = document.createElement("div")
     cursor.id = "e2e-cursor"
     const caption = document.createElement("div")
     caption.id = "e2e-caption"
     document.body.append(cursor, caption)
-    const follow = (e: MouseEvent) => { cursor.style.left = `${e.clientX}px`; cursor.style.top = `${e.clientY}px` }
-    window.addEventListener("pointermove", follow, true)
-    window.addEventListener("mousemove", follow, true)
-    window.addEventListener("pointerdown", (e) => {
+    show = ({ kind, x, y }) => {
+      cursor.style.left = `${x}px`
+      cursor.style.top = `${y}px`
+      if (kind !== "press") return
+      cursor.dataset.press = `${Math.round(x)},${Math.round(y)}`
       const ripple = document.createElement("div")
       ripple.className = "e2e-ripple"
-      ripple.style.left = `${e.clientX}px`
-      ripple.style.top = `${e.clientY}px`
+      ripple.style.left = `${x}px`
+      ripple.style.top = `${y}px`
       document.body.append(ripple)
       ripple.addEventListener("animationend", () => ripple.remove())
-    }, true)
+    }
+    render = () => {
+      const { text, url } = saved()
+      caption.textContent = text
+      if (!text || !url) return
+      const line = document.createElement("span")
+      line.dataset.url = ""
+      line.textContent = `${location.pathname}${location.search}${location.hash}`
+      caption.append(line)
+    }
+    render()
   }
   if (document.readyState === "loading") addEventListener("DOMContentLoaded", install)
   else install()
 }
 
-/** Shows what the test is doing, at the bottom of the video. */
-export const caption = (page: Page, text: string) =>
-  page.evaluate((t) => {
-    const el = document.getElementById("e2e-caption")
-    if (el) el.textContent = t
-  }, text)
+const HOLD_MS = holdMs(process.env)
+/** Review videos only: keeps what's on screen for a moment. Without CELLO_E2E_REVIEW=1 it returns at once. */
+const hold = (page: Page) => (HOLD_MS > 0 && !page.isClosed() ? page.waitForTimeout(HOLD_MS) : Promise.resolve())
+
+/**
+ * Shows what the test is doing, at the bottom of the video; `url` adds the page's current URL under
+ * it (for checks like a reload keeping `?open=`). In review videos the previous step's result is
+ * held under its own caption first, then the new caption is held before the step runs.
+ */
+export const caption = async (page: Page, text: string, options: { readonly url?: boolean } = {}) => {
+  await hold(page)
+  await page.evaluate(([t, url]) => window.__e2eCaption?.(t, url), [text, options.url ?? false] as const)
+  await hold(page)
+}
+
+/** A caption with the page's URL under it, kept up to date as the app navigates and reloads. */
+export const captionWithUrl = (page: Page, text: string) => caption(page, text, { url: true })
 
 /** A project key no other test uses. */
 export const uniqueKey = (prefix: string) => `${prefix}${Date.now().toString(36).toUpperCase().slice(-5)}`.replace(/[^A-Z0-9]/g, "").slice(0, 10)
@@ -64,14 +153,44 @@ export const test = base.extend<{ cello: PromiseClient }>({
   },
   context: async ({ context }, use, testInfo) => {
     await context.addInitScript(overlay)
-    const videos: Array<ReturnType<Page["video"]>> = []
-    context.on("page", (page) => videos.push(page.video()))
+    // Each tab's video, and the viewport sizes it showed, so teardown can crop away the grey
+    // Playwright draws around a page smaller than the video (a phone width, a short window).
+    const tabs: Array<{ video: Video | null; viewports: Array<{ width: number; height: number } | null> }> = []
+    context.on("page", (page) => {
+      const tab = { video: page.video(), viewports: [page.viewportSize()] }
+      tabs.push(tab)
+      const setViewportSize = page.setViewportSize.bind(page)
+      page.setViewportSize = async (size) => {
+        // Before the first page loads nothing was shown at the old size, so it doesn't count.
+        tab.viewports = page.url() === "about:blank" ? [size] : [...tab.viewports, size]
+        await setViewportSize(size)
+      }
+      if (HOLD_MS > 0) {
+        // Review videos hold the state before a reload and the reloaded page after it.
+        const reload = page.reload.bind(page)
+        page.reload = async (options) => {
+          await hold(page)
+          const response = await reload(options)
+          await hold(page)
+          return response
+        }
+      }
+    })
     await use(context)
-    // Name each tab's video after the test, in the order the tabs opened; teardown makes MP4s.
+    // Review videos end on the final state for a moment.
+    const last = context.pages().at(-1)
+    if (last) await hold(last)
     await context.close()
+    // Name each tab's video after the test, in the order the tabs opened; teardown makes MP4s.
     const name = slug(testInfo.title)
     await Promise.all(
-      videos.map((video, i) => video?.saveAs(`${import.meta.dirname}/videos/raw/${name}${videos.length > 1 ? `-tab-${i + 1}` : ""}.webm`)),
+      tabs.map(async ({ video, viewports }, i) => {
+        if (!video) return
+        const file = `${import.meta.dirname}/videos/raw/${name}${tabs.length > 1 ? `-tab-${i + 1}` : ""}`
+        await video.saveAs(`${file}.webm`)
+        const crop = cropFor(viewports)
+        if (crop) fs.writeFileSync(`${file}.crop.json`, JSON.stringify(crop))
+      }),
     )
   },
 })
