@@ -36,6 +36,11 @@ const TRANSCRIPT = [
   "",
 ].join("\n")
 
+/** A 1.5 MB test log: 30,000 numbered lines of 50 bytes. The panel shows only its first 1 MB. */
+const BIG_LINES = 30_000
+const BIG_LOG = Array.from({ length: BIG_LINES }, (_, i) => `line ${String(i + 1).padStart(6, "0")} ${"x".repeat(37)}\n`).join("")
+const BIG_LAST_LINE = `line ${String(BIG_LINES).padStart(6, "0")} `
+
 const notes = (key: string) =>
   [
     "# Panel notes",
@@ -44,7 +49,7 @@ const notes = (key: string) =>
     "",
     "## Findings",
     "",
-    "Pages render in the page reader, in the side panel, the way the task panel docks. The test run is in [the test log](run.log).",
+    "Pages render in the page reader, in the side panel, the way the task panel docks. The test run is in [the test log](run.log). See [the task it was built under](/${key}/1).",
     "",
     "## Next steps",
     "",
@@ -117,6 +122,14 @@ test("CEL-60: a Cello page opens in the side panel from the task's Pages list an
   await expect(viewer).toHaveCount(0)
   await expect(panel).toBeVisible()
 
+  await caption(page, "A hand-written link to the task in the page opens the task too, not a page in the panel")
+  await pages.getByRole("link", { name: /Panel notes/ }).click()
+  const taskLink = viewer.getByRole("link", { name: "the task it was built under" })
+  await expect(taskLink).toHaveAttribute("href", `/${key}/1`)
+  await taskLink.click()
+  await expect(viewer).toHaveCount(0)
+  await expect(panel).toBeVisible()
+
   await captionWithUrl(page, "Expand to full page: the page takes the board's place, and Back returns to the task")
   await pages.getByRole("link", { name: /Panel notes/ }).click()
   await viewer.getByRole("button", { name: "Expand to full page" }).click()
@@ -171,15 +184,18 @@ test("CEL-60: a packet's text evidence (a terminal transcript, markdown) opens i
   fs.writeFileSync(transcript, TRANSCRIPT)
   const release = path.join(dir, "release-notes.md")
   fs.writeFileSync(release, "# Release notes\n\nText evidence opens **beside the board**.\n\n- Transcripts in monospace\n- Markdown like a page\n")
+  const bigLog = path.join(dir, "full-test.log")
+  fs.writeFileSync(bigLog, BIG_LOG)
   cello(
     "task", "submit", `${key}-1`,
     "--summary", "Text evidence opens in the side panel.",
     "--step", "Open the transcript from the packet",
     "--attach", transcript, "--caption", "Terminal transcript",
     "--attach", release, "--caption", "Release notes",
+    "--attach", bigLog, "--caption", "Full test log",
   )
 
-  await caption(page, "Open the task; its packet lists the two files")
+  await caption(page, "Open the task; its packet lists the files")
   await card(page, `${key}-1`).click()
   const panel = taskPanel(page, `${key}-1`)
   const packet = panel.getByRole("region", { name: "Review packet" })
@@ -211,6 +227,18 @@ test("CEL-60: a packet's text evidence (a terminal transcript, markdown) opens i
   await expect(markdown.getByRole("heading", { name: "Release notes" })).toBeVisible()
   await expect(markdown.locator("strong")).toHaveText("beside the board")
   await expect(markdown.getByRole("listitem")).toHaveText(["Transcripts in monospace", "Markdown like a page"])
+
+  await caption(page, "A 1.5 MB log: the panel shows its first 1 MB and says so; Copy copies what's shown")
+  await viewer.getByRole("button", { name: "Close viewer" }).click()
+  await packet.getByRole("link", { name: "Open full-test.log" }).click()
+  await expect(viewer.getByRole("note")).toHaveText("Showing the first 1 MB. Download for all of it.")
+  const big = viewer.locator("pre[data-text-view=plain]")
+  await expect(big).toContainText("line 000001 ")
+  expect(await big.evaluate((el) => el.textContent!.length)).toBeLessThanOrEqual(1024 * 1024)
+  expect(await big.textContent()).not.toContain(BIG_LAST_LINE)
+  await viewer.getByRole("button", { name: "Copy" }).click()
+  await expect(page.getByRole("region", { name: "Notifications" }).getByText("Copied the first 1 MB")).toBeVisible()
+  await expect(viewer.getByRole("link", { name: "Download" })).toHaveAttribute("download", "full-test.log")
 
   await caption(page, "Esc brings the task back")
   await page.keyboard.press("Escape")

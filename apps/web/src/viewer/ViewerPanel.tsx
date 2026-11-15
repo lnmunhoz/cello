@@ -1,7 +1,6 @@
 import { documentBySlug } from "@cello/client/sync/documents"
 import { projectByKey } from "@cello/client/sync/selectors"
 import { embedUrl } from "@cello/shared/embed"
-import { parseTaskPath } from "@cello/shared/taskKey"
 import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router"
 import {
   CopyIcon,
@@ -26,7 +25,7 @@ import { openInPanel, type OpenMessage } from "../lib/desktop.ts"
 import { useBoard, useProjectKeys } from "../lib/hooks.ts"
 import { widthLimits } from "../lib/resize.ts"
 import { closeViewer, showInViewer, useViewerItem } from "./store.ts"
-import { downloadName, shownText, textFormat } from "./text.ts"
+import { downloadName, MAX_SHOWN_LABEL, readShown, shownText, textFormat } from "./text.ts"
 import {
   FRAME_TIMEOUT_MS,
   fullPageHref,
@@ -34,6 +33,7 @@ import {
   openTaskFrom,
   pageRef,
   refusesFraming,
+  taskOfHref,
   VIEWER_WIDTH,
   WIDTH_KEY,
   withVersion,
@@ -66,8 +66,7 @@ export function ViewerPanel() {
       const data = e.data as Partial<OpenMessage> | null
       if (e.origin !== location.origin || data?.type !== "cello:open" || typeof data.item?.url !== "string") return
       const { url, title, kind, name, place } = data.item
-      const target = URL.parse(url, location.origin)
-      const linked = target?.origin === location.origin ? parseTaskPath(target.pathname) : null
+      const linked = taskOfHref(url, location.origin)
       if (linked) return openTaskHere(linked)
       openInPanel({
         url,
@@ -96,9 +95,7 @@ const KIND_ICON = { image: ImageIcon, video: FilmIcon, text: FileCodeIcon, page:
 /** A plain click on a task link inside the viewer opened that task: the viewer gives it the place, even when it's the task under it. */
 const closeOnTaskLink = (e: ReactMouseEvent) => {
   if (!e.defaultPrevented || !(e.target instanceof Element)) return
-  const href = e.target.closest("a[href]")?.getAttribute("href")
-  const target = href ? URL.parse(href, location.origin) : null
-  if (target?.origin === location.origin && parseTaskPath(target.pathname)) closeViewer()
+  if (taskOfHref(e.target.closest("a[href]")?.getAttribute("href") ?? undefined, location.origin)) closeViewer()
 }
 
 /** A document's own title, live from the board, for the header (a `cello://open` link names only its address). */
@@ -290,13 +287,17 @@ function PageView({ item }: { item: ViewerItem }) {
   return <iframe title={item.title} src={embedUrl(item.url, location.origin)} onLoad={closeOnEscapeIn} className="min-h-0 w-full flex-1 border-0 bg-surface" />
 }
 
-type TextFile = { readonly state: "loading" } | { readonly state: "failed" } | { readonly state: "shown"; readonly text: string; readonly mime: string | null }
+type TextFile =
+  | { readonly state: "loading" }
+  | { readonly state: "failed" }
+  | { readonly state: "shown"; readonly text: string; readonly mime: string | null; readonly clipped: boolean }
 
 /**
  * A text file on the board (a terminal transcript, a test log, markdown, JSON, CSV), fetched and shown
  * natively (CEL-60): markdown in the page's prose, anything else in monospace, wrapped, without ANSI
- * codes. Copy and Download sit above it. A stored file that turns out to be an image or a video
- * (a link nothing described) shows as one instead.
+ * codes. Copy and Download sit above it. Only the first MAX_SHOWN_BYTES are read and shown (a note
+ * says so, and Copy copies just that); Download has all of it. A stored file that turns out to be an
+ * image or a video (a link nothing described) shows as one instead.
  */
 function TextView({ item }: { item: ViewerItem }) {
   const [file, setFile] = useState<TextFile>({ state: "loading" })
@@ -310,7 +311,8 @@ function TextView({ item }: { item: ViewerItem }) {
         const mime = response.headers.get("content-type")
         const media = mime?.startsWith("image/") ? "image" : mime?.startsWith("video/") ? "video" : null
         if (media) return showInViewer({ ...item, kind: media })
-        setFile({ state: "shown", text: await response.text(), mime })
+        const read = response.body ? await readShown(response.body) : { text: await response.text(), clipped: false }
+        setFile({ state: "shown", ...read, mime })
       })
       .catch(() => {
         if (!request.signal.aborted) setFile({ state: "failed" })
@@ -320,6 +322,7 @@ function TextView({ item }: { item: ViewerItem }) {
 
   const format = file.state === "shown" ? textFormat(file.mime, item.name ?? URL.parse(item.url)?.pathname) : "plain"
   const shown = file.state !== "shown" ? "" : format === "markdown" ? file.text : shownText(file.text, format)
+  const clipped = file.state === "shown" && file.clipped
   return (
     <>
       <p className="flex shrink-0 items-center gap-2 border-b border-line bg-sunken py-1.5 pr-2 pl-4 text-xs text-muted">
@@ -328,7 +331,8 @@ function TextView({ item }: { item: ViewerItem }) {
           variant="secondary"
           size="sm"
           disabled={file.state !== "shown"}
-          onClick={() => void navigator.clipboard?.writeText(shown).then(() => toast("Copied"))}
+          title={clipped ? `Copies the first ${MAX_SHOWN_LABEL}, as shown` : undefined}
+          onClick={() => void navigator.clipboard?.writeText(shown).then(() => toast(clipped ? `Copied the first ${MAX_SHOWN_LABEL}` : "Copied"))}
         >
           <CopyIcon aria-hidden className="size-3.5" />
           Copy
@@ -338,6 +342,11 @@ function TextView({ item }: { item: ViewerItem }) {
           Download
         </ButtonLink>
       </p>
+      {clipped ? (
+        <p role="note" data-text-clipped="" className="shrink-0 border-b border-line bg-sunken px-4 py-1.5 text-xs text-muted">
+          Showing the first {MAX_SHOWN_LABEL}. Download for all of it.
+        </p>
+      ) : null}
       {file.state === "loading" ? (
         <p className="flex flex-1 items-center justify-center text-[13px] text-muted">Loading…</p>
       ) : file.state === "failed" ? (

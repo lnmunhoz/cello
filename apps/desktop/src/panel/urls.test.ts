@@ -134,6 +134,10 @@ describe("new windows and navigation", () => {
     expect(boardWindowOpenAction("http://127.0.0.1:4747/CEL/pages/notes", null)).toBe("panel")
   })
 
+  it("a blob: or other non-web URL on the board's origin is still refused", () => {
+    expect(boardWindowOpenAction("blob:http://127.0.0.1:4747/6f1c2d0e-1111-2222-3333-444455556666", BOARD)).toBe("deny")
+  })
+
   it("keeps the board on its own origin; other pages go to the panel", () => {
     const board = "http://127.0.0.1:4747"
     expect(boardNavigationAction("http://127.0.0.1:4747/CEL/3", board)).toBe("allow")

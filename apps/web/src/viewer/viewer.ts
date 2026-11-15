@@ -4,7 +4,7 @@
 // Pure, so the rules are tested once here; the components only map a decision to the DOM.
 import { attachmentIdOf } from "@cello/shared/attachment"
 import { shortUrl } from "@cello/shared/linkify"
-import { parseTaskKey } from "@cello/shared/taskKey"
+import { parseTaskKey, parseTaskPath } from "@cello/shared/taskKey"
 import type { CelloDesktop } from "../lib/desktop.ts"
 import type { WidthRule } from "../lib/resize.ts"
 
@@ -112,6 +112,12 @@ export const pageRef = (url: string, origin: string): PageRef | null => {
     version: Number.isInteger(version) && version > 0 ? version : undefined,
     hash: decodeURIComponent(parsed.hash.slice(1)),
   }
+}
+
+/** The task a link points at (`/CEL/3`, or that path on the board's origin), or null: such a link opens the task, as its key would. */
+export const taskOfHref = (href: string | undefined, origin: string): { projectKey: string; number: number } | null => {
+  const target = href && !href.startsWith("#") ? URL.parse(href, origin) : null
+  return target?.origin === new URL(origin).origin ? parseTaskPath(target.pathname) : null
 }
 
 /** Where Expand to full page goes: the board's own address for `url`, without `?embed`. */

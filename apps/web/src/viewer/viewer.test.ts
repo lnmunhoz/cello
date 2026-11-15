@@ -11,6 +11,7 @@ import {
   openTaskFrom,
   pageRef,
   refusesFraming,
+  taskOfHref,
   taskRoute,
   toViewerItem,
   VIEWER_WIDTH,
@@ -207,6 +208,20 @@ describe("pageRef: which document a Cello page URL shows, for the side panel's r
     expect(pageRef("http://localhost:4747/CEL/pages/a/b", ORIGIN)).toBeNull()
     expect(pageRef("https://example.com/CEL/pages/notes", ORIGIN)).toBeNull()
     expect(pageRef("http://localhost:4747/CEL/pages/notes?version=0", ORIGIN)?.version).toBeUndefined()
+  })
+})
+
+describe("taskOfHref: a link to a task on the board opens the task, the way a task key does", () => {
+  it("a task path, relative or absolute on the board's origin", () => {
+    expect(taskOfHref("/CEL/3", ORIGIN)).toEqual({ projectKey: "CEL", number: 3 })
+    expect(taskOfHref("http://localhost:4747/cel/12?view=full", ORIGIN)).toEqual({ projectKey: "CEL", number: 12 })
+  })
+  it("null for other routes, other sites, and no link", () => {
+    expect(taskOfHref("/CEL/pages/notes", ORIGIN)).toBeNull()
+    expect(taskOfHref("/CEL/issues", ORIGIN)).toBeNull()
+    expect(taskOfHref("https://example.com/CEL/3", ORIGIN)).toBeNull()
+    expect(taskOfHref(undefined, ORIGIN)).toBeNull()
+    expect(taskOfHref("#CEL-3", ORIGIN)).toBeNull()
   })
 })
 

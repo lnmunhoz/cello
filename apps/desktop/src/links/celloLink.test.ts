@@ -55,6 +55,14 @@ describe("routeCelloLink: where a link goes once the board is up (CEL-60)", () =
     expect(routeCelloLink({ kind: "panel", url: "http://127.0.0.1:5173/" }, BOARD)).toEqual({ kind: "panel", url: "http://127.0.0.1:5173/" })
   })
 
+  it("drops a user name and password from the address before routing it", () => {
+    expect(routeCelloLink({ kind: "panel", url: "http://user:secret@127.0.0.1:4747/CEL/pages/notes" }, BOARD)).toEqual({
+      kind: "board",
+      url: "http://127.0.0.1:4747/CEL/pages/notes",
+    })
+    expect(routeCelloLink({ kind: "panel", url: "https://me:pw@example.com/a" }, BOARD)).toEqual({ kind: "panel", url: "https://example.com/a" })
+  })
+
   it("a task still goes to the board at its path", () => {
     expect(routeCelloLink({ kind: "task", path: "/CEL/3" }, BOARD)).toEqual({ kind: "task", path: "/CEL/3" })
   })

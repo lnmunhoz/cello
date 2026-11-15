@@ -26,12 +26,18 @@ export const parseCelloLink = (raw: string): CelloLink | null => {
 /**
  * Where a link goes once the board at `boardOrigin` is up. A page on the board (a Cello page or doc, a
  * stored text file) goes to the board window, which opens it in its own side panel (CEL-60), the way a
- * task link goes to the board; the built-in browser panel keeps outside sites only.
+ * task link goes to the board; the built-in browser panel keeps outside sites only. A user name and
+ * password in the address are dropped first: a link never carries them anywhere.
  */
 export type LinkRoute = CelloLink | { readonly kind: "board"; readonly url: string }
 
-export const routeCelloLink = (link: CelloLink, boardOrigin: string): LinkRoute =>
-  link.kind === "panel" && URL.parse(link.url)?.origin === new URL(boardOrigin).origin ? { kind: "board", url: link.url } : link
+export const routeCelloLink = (link: CelloLink, boardOrigin: string): LinkRoute => {
+  if (link.kind !== "panel") return link
+  const url = new URL(link.url)
+  url.username = ""
+  url.password = ""
+  return url.origin === new URL(boardOrigin).origin ? { kind: "board", url: url.href } : { kind: "panel", url: url.href }
+}
 
 /** The `cello://` link among a launch's arguments, if any. */
 export const findCelloLink = (argv: ReadonlyArray<string>): string | undefined =>

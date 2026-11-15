@@ -88,7 +88,7 @@ export type OpenAction = "panel" | "external" | "deny"
  * browser panel.
  */
 export const boardWindowOpenAction = (url: string, boardOrigin: string | null = null): "board" | OpenAction =>
-  onBoard(url, boardOrigin) ? "board" : offBoardAction(url)
+  panelUrl(url) && onBoard(url, boardOrigin) ? "board" : offBoardAction(url)
 
 const offBoardAction = (url: string): OpenAction => (panelUrl(url) ? "panel" : isMail(url) ? "external" : "deny")
 

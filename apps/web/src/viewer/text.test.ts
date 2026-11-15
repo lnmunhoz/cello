@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { downloadName, shownText, stripAnsi, textFormat } from "./text.ts"
+import { downloadName, MAX_SHOWN_BYTES, readShown, shownText, stripAnsi, textFormat } from "./text.ts"
 
 describe("stripAnsi: a terminal transcript without its colour and cursor codes", () => {
   it("drops colours, bold and resets", () => {
@@ -47,5 +47,44 @@ describe("downloadName: the name Download saves the file under", () => {
     expect(downloadName("http://localhost:4747/attachments/f1", "test-output.txt")).toBe("test-output.txt")
     expect(downloadName("http://localhost:4747/files/run.log", undefined)).toBe("run.log")
     expect(downloadName("http://localhost:4747/attachments/f1", undefined)).toBe("f1")
+  })
+})
+
+describe("readShown: the text view reads at most MAX_SHOWN_BYTES of a file, and stops reading there", () => {
+  const stream = (chunks: ReadonlyArray<string>) => {
+    const encoder = new TextEncoder()
+    let cancelled = false
+    let pulled = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulled === chunks.length) return controller.close()
+        controller.enqueue(encoder.encode(chunks[pulled++]!))
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    return { body, cancelled: () => cancelled, pulled: () => pulled }
+  }
+
+  it("a file under the limit, whole", async () => {
+    const { body } = stream(["line 1\n", "line 2\n"])
+    expect(await readShown(body, 100)).toEqual({ text: "line 1\nline 2\n", clipped: false })
+  })
+
+  it("a file over the limit: up to the last whole line inside it, and the rest is never read", async () => {
+    const { body, cancelled, pulled } = stream(["aaaa\nbbbb\n", "cccc\ndddd\n", "eeee\n", "ffff\n"])
+    expect(await readShown(body, 12)).toEqual({ text: "aaaa\nbbbb\n", clipped: true })
+    expect(cancelled()).toBe(true)
+    expect(pulled()).toBeLessThan(4)
+  })
+
+  it("never cuts a character in half", async () => {
+    const { body } = stream(["ééééé"]) // 10 bytes, no newline
+    expect(await readShown(body, 5)).toEqual({ text: "éé", clipped: true })
+  })
+
+  it("the limit is 1 MB", () => {
+    expect(MAX_SHOWN_BYTES).toBe(1024 * 1024)
   })
 })
