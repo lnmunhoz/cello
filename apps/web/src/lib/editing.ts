@@ -20,15 +20,33 @@ export const isTextEntry = (element: FieldLike | null): boolean => {
   return element.tagName === "INPUT" && !NOT_TEXT.has((element.type ?? "text").toLowerCase())
 }
 
-/** Fields that show the saved text and save when they lose focus, so their text is never a draft. */
-const SAVED_ON_BLUR = new Set(["Description"])
+/**
+ * Marks a field that shows the saved value and saves when it loses focus (a task's title, a name in
+ * Settings): its text is never a draft once it's blurred. Every other text field holding text is one.
+ */
+export const SAVES_ON_BLUR = { "data-saves-on-blur": "" } as const
 
-/** Whether any of these textareas holds text that isn't saved yet: a comment or a note being written. */
-export const holdsDraft = (textareas: ReadonlyArray<{ readonly value: string; readonly label: string | null }>): boolean =>
-  textareas.some((t) => t.value.trim() !== "" && !SAVED_ON_BLUR.has(t.label ?? ""))
+/** A text field and what the draft check reads of it. */
+export interface DraftField extends FieldLike {
+  readonly value: string
+  readonly savesOnBlur: boolean
+}
 
-/** Typing in a field, a dialog open (a new project, a send-back note), or a draft in a textarea. */
+/** Whether any of these fields holds text that isn't saved: a comment being written, a new label's name typed and left. */
+export const holdsDraft = (fields: ReadonlyArray<DraftField>): boolean =>
+  fields.some((f) => isTextEntry(f) && !f.savesOnBlur && f.value.trim() !== "")
+
+/** Typing in a field, a dialog open (a new project, a send-back note), or unsaved text in a field. */
 export const isEditing = (doc: Document = document): boolean =>
   isTextEntry(doc.activeElement as (Element & FieldLike) | null) ||
   doc.querySelector('[role="dialog"], [role="alertdialog"]') !== null ||
-  holdsDraft([...doc.querySelectorAll("textarea")].map((t) => ({ value: t.value, label: t.getAttribute("aria-label") })))
+  holdsDraft(
+    [...doc.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")].map((f) => ({
+      tagName: f.tagName,
+      type: f.type,
+      readOnly: f.readOnly,
+      disabled: f.disabled,
+      value: f.value,
+      savesOnBlur: f.hasAttribute("data-saves-on-blur"),
+    })),
+  )

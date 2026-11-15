@@ -195,3 +195,33 @@ test("CEL-37: while a comment is being written the tab only offers the reload; t
   await expect(bar).toHaveCount(0)
   await expect(page.locator("[data-build-footer]")).toContainText("build bbbbbbb")
 })
+
+test("CEL-37: a new label's name typed in Settings and left is a draft too: the tab only offers the reload (dark theme)", async ({ page }) => {
+  test.setTimeout(Math.max(test.info().timeout, 90_000))
+  await page.addInitScript(() => localStorage.setItem("cello:theme", "dark"))
+  const port = await freePort()
+  const dataDir = fs.mkdtempSync(path.join(work, "data-"))
+  const a = await startCello(A, port, dataDir)
+  await seed(port)
+  await page.goto(`http://127.0.0.1:${port}/settings`)
+  const bar = page.locator("[data-reload-bar]")
+
+  await caption(page, "In Settings, type a new label's name, then click away without adding it")
+  const name = page.getByRole("textbox", { name: "New label name" })
+  await name.fill("needs-design")
+  await page.getByRole("main").click({ position: { x: 600, y: 860 } })
+  await expect(name).not.toBeFocused()
+
+  await caption(page, "Deploy build bbbbbbb: the typed name would be lost, so the bar only offers the reload")
+  await stop(a)
+  await startCello(B, port, dataDir)
+  await expect(bar).toHaveAttribute("data-reload-bar", "offer")
+  await expect(bar).not.toContainText("reloading in")
+  await expect(name).toHaveValue("needs-design")
+  await still(page, "reload-bar-offer-dark")
+
+  await caption(page, "The footer's popover, in the dark theme")
+  await page.locator("[data-build-footer]").click()
+  await expect(page.getByRole("list", { name: "Changes in this build" }).getByRole("listitem")).toHaveCount(2)
+  await still(page, "reload-footer-changes-dark")
+})

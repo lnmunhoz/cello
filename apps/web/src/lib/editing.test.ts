@@ -19,12 +19,23 @@ describe("a field that takes typing", () => {
 })
 
 describe("a draft a reload would lose", () => {
+  const field = (value: string, savesOnBlur = false) => ({ tagName: "INPUT", type: "text", value, savesOnBlur })
+
   it("is a textarea holding text: a comment or a note being written", () => {
-    expect(holdsDraft([{ value: "Looks good, but", label: "New comment" }])).toBe(true)
-    expect(holdsDraft([{ value: "  ", label: "New comment" }, { value: "", label: "Note" }])).toBe(false)
+    expect(holdsDraft([{ tagName: "TEXTAREA", value: "Looks good, but", savesOnBlur: false }])).toBe(true)
+    expect(holdsDraft([{ tagName: "TEXTAREA", value: "  ", savesOnBlur: false }, { tagName: "TEXTAREA", value: "", savesOnBlur: false }])).toBe(false)
   })
 
-  it("isn't the task's description, which shows the saved text and saves when it loses focus", () => {
-    expect(holdsDraft([{ value: "The saved description", label: "Description" }])).toBe(false)
+  it("is a text input typed in and left, like Settings' New label name or New workspace name", () => {
+    expect(holdsDraft([field("bug")])).toBe(true)
+    expect(holdsDraft([field("")])).toBe(false)
+  })
+
+  it("isn't a field that shows the saved value and saves when it loses focus: a task's title, description or due date, a name in Settings", () => {
+    expect(holdsDraft([field("Ship the reload bar", true), { tagName: "TEXTAREA", value: "The saved description", savesOnBlur: true }])).toBe(false)
+  })
+
+  it("isn't a field that takes no typing, like a checkbox", () => {
+    expect(holdsDraft([{ tagName: "INPUT", type: "checkbox", value: "on", savesOnBlur: false }])).toBe(false)
   })
 })
