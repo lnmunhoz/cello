@@ -21,22 +21,49 @@ import { documentHistoryFamily, pageFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
 import { useBoard } from "../lib/hooks.ts"
 import { TaskLink } from "../task/TaskKey.tsx"
+import { isPlainClick } from "../viewer/viewer.ts"
 import { KIND_LABELS } from "./kinds.tsx"
 import { type Flash, PageBody } from "./PageBody.tsx"
 
+/** The reader at its own route, `/KEY/pages/<slug>`: `?version` pins a version, `#section` opens at one. */
 export function PageReader() {
   const { projectKey, slug } = useParams({ from: "/$projectKey/pages/$slug" })
   const { version } = useSearch({ from: "/$projectKey/pages/$slug" })
+  const navigate = useNavigate({ from: "/$projectKey/pages/$slug" })
+  return (
+    <DocumentReader
+      projectKey={projectKey}
+      slug={slug}
+      pinned={version}
+      hash={decodeURIComponent(location.hash.slice(1))}
+      onVersion={(next) => void navigate({ search: (s) => ({ ...s, version: next }) })}
+    />
+  )
+}
+
+/** Where the reader shows (its route, or the side panel) decides what picking a version does. */
+interface ReaderPlace {
+  /** The section to open at ("" for the top). */
+  readonly hash: string
+  /** Shows `version` (undefined: the latest, which updates live). */
+  readonly onVersion: (version: number | undefined) => void
+}
+
+/**
+ * The reader for one document, wherever it shows: at its route, or in the side panel (CEL-60), where
+ * the same reader renders natively beside the board instead of the page loading as a website.
+ */
+export function DocumentReader({ projectKey, slug, pinned, ...place }: { projectKey: string; slug: string; pinned: number | undefined } & ReaderPlace) {
   const board = useBoard()
   const project = board ? projectByKey(board, projectKey) : undefined
   if (!board || !project) return null
-  return <PageLoader key={`${project.key}/${slug}`} board={board} project={project} slug={slug} pinned={version} />
+  return <PageLoader key={`${project.key}/${slug}`} board={board} project={project} slug={slug} pinned={pinned} place={place} />
 }
 
-function PageLoader({ board, project, slug, pinned }: { board: BoardState; project: Project; slug: string; pinned: number | undefined }) {
+function PageLoader({ board, project, slug, pinned, place }: { board: BoardState; project: Project; slug: string; pinned: number | undefined; place: ReaderPlace }) {
   const ref = `${project.key}/${slug}`
   const result = useAtomValue(pageFamily(pinned === undefined ? ref : `${ref}@${pinned}`))
-  if (AsyncResult.isSuccess(result)) return <Reader board={board} project={project} document={result.value} pinned={pinned} />
+  if (AsyncResult.isSuccess(result)) return <Reader board={board} project={project} document={result.value} pinned={pinned} place={place} />
   if (AsyncResult.isFailure(result)) {
     return (
       <NotFound
@@ -59,7 +86,7 @@ interface Seen {
   readonly content: string
 }
 
-function Reader({ board, project, document, pinned }: { board: BoardState; project: Project; document: Document; pinned: number | undefined }) {
+function Reader({ board, project, document, pinned, place }: { board: BoardState; project: Project; document: Document; pinned: number | undefined; place: ReaderPlace }) {
   const scroller = useRef<HTMLDivElement>(null)
   const latest = documentBySlug(board, project.id, document.slug)
   const content = readerContent(document.body, document.title)
@@ -83,10 +110,10 @@ function Reader({ board, project, document, pinned }: { board: BoardState; proje
     })
 
   // Opened with #section: go there once the page has rendered.
+  const { hash, onVersion } = place
   useEffect(() => {
-    const id = decodeURIComponent(location.hash.slice(1))
-    if (id) scroller.current?.querySelector(`[id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "start" })
-  }, [])
+    if (hash) scroller.current?.querySelector(`[id="${CSS.escape(hash)}"]`)?.scrollIntoView({ block: "start" })
+  }, [hash])
 
   /** Scrolls to a section and marks it current; `smooth` unless motion is reduced (a closing menu's focus would stop a smooth scroll). */
   const goTo = (id: string, smooth = true) => {
@@ -149,7 +176,7 @@ function Reader({ board, project, document, pinned }: { board: BoardState; proje
                 {pinned === undefined ? "Updated" : "Saved"} <b className="font-medium text-ink">{relativeTime(document.updatedAt)}</b>
               </li>
               <li>
-                <VersionMenu documentId={document.id} shown={document.version} latest={latestVersion} />
+                <VersionMenu documentId={document.id} shown={document.version} latest={latestVersion} onVersion={onVersion} />
               </li>
               <li>
                 <Button
@@ -188,9 +215,17 @@ function Reader({ board, project, document, pinned }: { board: BoardState; proje
               <span>
                 You’re reading version {document.version} of {latestVersion}, saved {relativeTime(document.updatedAt)} by {document.updatedBy.name}.
               </span>
-              <Link from="/$projectKey/pages/$slug" search={(s) => ({ ...s, version: undefined })} className="font-medium text-accent underline">
+              <a
+                href={pagePath(project.key, document.slug)}
+                onClick={(e) => {
+                  if (!isPlainClick(e)) return
+                  e.preventDefault()
+                  onVersion(undefined)
+                }}
+                className="font-medium text-accent underline"
+              >
                 Read the latest
-              </Link>
+              </a>
             </div>
           ) : null}
 
@@ -226,13 +261,12 @@ function SectionMenu({ sections, current, onPick }: { sections: ReadonlyArray<Se
 }
 
 /** Picks a version from the history; the latest drops `?version`, so it updates live again. */
-function VersionMenu({ documentId, shown, latest }: { documentId: string; shown: number; latest: number }) {
-  const navigate = useNavigate({ from: "/$projectKey/pages/$slug" })
+function VersionMenu({ documentId, shown, latest, onVersion }: { documentId: string; shown: number; latest: number; onVersion: ReaderPlace["onVersion"] }) {
   return (
     <Menu
       onAction={(value) => {
         const version = Number(value)
-        void navigate({ search: (s) => ({ ...s, version: version === latest ? undefined : version }) })
+        onVersion(version === latest ? undefined : version)
       }}
     >
       <MenuTrigger variant="chip" aria-label="Version history">

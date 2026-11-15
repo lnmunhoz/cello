@@ -127,6 +127,17 @@ describe("new windows and navigation", () => {
     expect(boardWindowOpenAction("file:///etc/passwd")).toBe("deny")
   })
 
+  it("a new-window link to the board's own origin (⌘-click on a Cello page or file) stays in the board, in its side panel (CEL-60)", () => {
+    expect(boardWindowOpenAction("http://127.0.0.1:4747/CEL/pages/notes", BOARD)).toBe("board")
+    expect(boardWindowOpenAction("http://127.0.0.1:4747/attachments/f1", BOARD)).toBe("board")
+    expect(boardWindowOpenAction("http://127.0.0.1:5173/", BOARD)).toBe("panel")
+    expect(boardWindowOpenAction("http://127.0.0.1:4747/CEL/pages/notes", null)).toBe("panel")
+  })
+
+  it("a blob: or other non-web URL on the board's origin is still refused", () => {
+    expect(boardWindowOpenAction("blob:http://127.0.0.1:4747/6f1c2d0e-1111-2222-3333-444455556666", BOARD)).toBe("deny")
+  })
+
   it("keeps the board on its own origin; other pages go to the panel", () => {
     const board = "http://127.0.0.1:4747"
     expect(boardNavigationAction("http://127.0.0.1:4747/CEL/3", board)).toBe("allow")

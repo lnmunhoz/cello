@@ -6,10 +6,15 @@ export type TaskView = "panel" | "full"
 
 export interface TaskSearch {
   readonly view?: "full"
+  /** A comment to scroll to and flash once (opened from ⌘K, CEL-43). */
+  readonly comment?: string
 }
 
-/** The task route's `validateSearch`: keeps `view=full` and drops anything it doesn't know. */
-export const parseTaskSearch = (search: Record<string, unknown>): TaskSearch => (search["view"] === "full" ? { view: "full" } : {})
+/** The task route's `validateSearch`: keeps `view=full` and `comment=<id>`, and drops anything it doesn't know. */
+export const parseTaskSearch = (search: Record<string, unknown>): TaskSearch => ({
+  ...(search["view"] === "full" ? { view: "full" as const } : {}),
+  ...(typeof search["comment"] === "string" && search["comment"] !== "" ? { comment: search["comment"] } : {}),
+})
 
 export const taskViewOf = (search: TaskSearch): TaskView => search.view ?? "panel"
 

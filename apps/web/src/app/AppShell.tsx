@@ -7,6 +7,8 @@ import { isEmbed } from "../lib/embed.ts"
 import { useMediaQuery, useWorkspaceId } from "../lib/hooks.ts"
 import { readStored, writeStored } from "../lib/storage.ts"
 import { NewProjectDialog } from "../project/NewProjectDialog.tsx"
+import { CommandBar } from "../search/CommandBar.tsx"
+import { COMMAND_BAR_SHORTCUT } from "../search/layout.ts"
 import { ImageModal } from "../viewer/ImageModal.tsx"
 import { ViewerPanel } from "../viewer/ViewerPanel.tsx"
 import { ConnectionStatus } from "./ConnectionStatus.tsx"
@@ -43,6 +45,9 @@ export function AppShell() {
   }
   const setMode = (mode: SidebarState["mode"]) => change(setSidebarMode(sidebar, mode))
   useShortcut(embed ? null : SIDEBAR_SHORTCUT, () => change(toggleSidebar(sidebar)), { description: "Collapse or expand the sidebar" })
+  // The ⌘K bar (CEL-43), from any page, even while typing in a field (a ⌘ shortcut always runs there).
+  const [searching, setSearching] = useState(false)
+  useShortcut(embed ? null : COMMAND_BAR_SHORTCUT, () => setSearching(true), { description: "Search Cello" })
 
   // In a panel (`?embed=1`): just the page, no sidebar.
   if (embed) {
@@ -63,7 +68,7 @@ export function AppShell() {
     <SidebarContext value={sidebar.mode}>
       <div className="relative flex h-dvh overflow-clip">
         {sidebar.mode !== "hidden" ? (
-          <Sidebar mode={sidebar.mode} width={width} onResize={resize} onMode={setMode} onNewProject={() => setNewProject(true)} />
+          <Sidebar mode={sidebar.mode} width={width} onResize={resize} onMode={setMode} onNewProject={() => setNewProject(true)} onSearch={() => setSearching(true)} />
         ) : null}
 
         <main
@@ -83,6 +88,7 @@ export function AppShell() {
           <ViewerPanel />
         </main>
 
+        <CommandBar open={searching} onOpenChange={setSearching} onToggleSidebar={() => change(toggleSidebar(sidebar))} />
         {workspaceId ? <NewProjectDialog open={newProject} onOpenChange={setNewProject} workspaceId={workspaceId} /> : null}
         <ImageModal />
         <ReloadBar />

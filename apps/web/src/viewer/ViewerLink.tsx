@@ -17,7 +17,7 @@ export function ViewerLink({ href, title, children }: { href: string; title?: st
       rel="noreferrer"
       className="text-accent underline underline-offset-2 outline-none hover:brightness-110 focus-visible:ring-2 focus-visible:ring-ring"
       onClick={(e) => {
-        if (isPlainClick(e) && openInPanel(href, title)) e.preventDefault()
+        if (isPlainClick(e) && openInPanel({ url: href, title })) e.preventDefault()
       }}
     >
       {children}

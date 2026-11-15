@@ -10,6 +10,12 @@ export const PANEL_CLOSE = "cello:panel-close"
  * hands it to the web app as the `cello:task` message a page framed in its viewer would send.
  */
 export const BOARD_OPEN_TASK = "cello:board-open-task"
+/**
+ * Main → board: a URL on the board's own origin (a `cello://open` link to a Cello page, a ⌘-click to
+ * one), to open in the board's side panel, never the browser panel (CEL-60). The preload hands it to
+ * the web app as the `cello:open` message a page framed in its viewer would send; the web app decides.
+ */
+export const BOARD_OPEN = "cello:board-open"
 
 /** Toolbar → main: a button or the address field. */
 export const CHROME_COMMAND = "cello:chrome-command"

@@ -68,6 +68,7 @@ import { type Env, IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
 import { deliveryText, inboxEntries } from "./inbox.ts"
 import { labelArgs, labelListText, labelNames, parseChanges, resolveChanges } from "./labels.ts"
 import { pageFiles } from "./pageFiles.ts"
+import { kindsOf, searchText } from "./search.ts"
 import { checkoutRootFor, repoRootFor } from "./repo.ts"
 import { start } from "./start.ts"
 
@@ -1035,6 +1036,48 @@ const doc = Command.make("doc").pipe(
   Command.withSubcommands([docPublish, docList, docGet, docArchive]),
 )
 
+// ── search (CEL-11) ─────────────────────────────────────────────────────────────────────────────
+
+const searchCommand = Command.make("search", {
+  query: Argument.String("query").pipe(
+    Argument.atLeast(1),
+    Argument.withDescription("Words to find (each matches the start of a word, all of them required), or a task key like CEL-15."),
+  ),
+  kind: Flag.String("kind").pipe(
+    Flag.optional,
+    Flag.withDescription("Only these kinds, comma-separated: task, comment, packet, page (docs and specs too), project, label."),
+  ),
+  limit: Flag.Int("limit").pipe(Flag.withDefault(5), Flag.withDescription("How many hits to print per kind, best first (1 to 50).")),
+  project,
+  json: Flag.Boolean("json").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Print the results as JSON for scripts: query, terms, key, jump (the task a key names) and groups of hits with their matched ranges."),
+  ),
+}, (input) =>
+  Effect.gen(function* () {
+    const kindText = Option.getOrUndefined(input.kind)
+    const kinds = kindText === undefined
+      ? undefined
+      : yield* Effect.try({ try: () => kindsOf(kindText), catch: (error) => new CliFailure({ message: (error as Error).message }) })
+    const ref = yield* projectRef(input.project)
+    const results = yield* withClient((client) =>
+      client["search.query"]({ query: input.query.join(" "), project: ref, limit: input.limit, ...(kinds ? { kinds } : {}) }))
+    if (input.json) return yield* printJson(results)
+    const scope = Option.isSome(input.project) ? input.project.value.toUpperCase() : "this project"
+    yield* print(searchText(results, { now: (yield* CliEnv).now(), scope }))
+  })).pipe(Command.withDescription(
+    "Search the project: task keys, titles and descriptions, comments, review packets, pages and docs, and project and label names. " +
+      "Each word matches the start of a word, stemmed (videos finds video), and all of them must match; a task key (CEL-15) " +
+      "prints that task, then everything that mentions it or is on it. Results come grouped by kind, best match first, with the " +
+      "matched words in [brackets]. The ⌘K bar in the app runs the same search.",
+  ), Command.withShortDescription("Search tasks, comments, packets, docs, projects and labels."), Command.withExamples([
+    { command: "cello search evidence video", description: "Everything that mentions both words, grouped by kind" },
+    { command: "cello search CEL-15", description: "The task, then the tasks, comments and packets that mention it" },
+    { command: "cello search backup --kind comment,packet", description: "Only comments and review packets" },
+    { command: "cello search restore --kind page --limit 20", description: "Up to 20 pages, docs and specs" },
+    { command: "cello search stage --json | jq -r '.groups[] | select(.kind == \"task\") | .hits[].taskKey'", description: "The keys of matching tasks" },
+  ]))
+
 // ── backups ─────────────────────────────────────────────────────────────────────────────────────
 
 const backupLines = (backup: Backup) => [
@@ -1572,7 +1615,7 @@ const startCommand = Command.make("start", {}, () => start).pipe(
 
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, init, task, label, waitCommand, inbox, doc, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand, buildsCommand]),
+  Command.withSubcommands([context, init, task, label, waitCommand, inbox, doc, searchCommand, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand, buildsCommand]),
 )
 
 /**
