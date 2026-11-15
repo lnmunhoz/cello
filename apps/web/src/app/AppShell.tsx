@@ -7,6 +7,7 @@ import { isEmbed } from "../lib/embed.ts"
 import { useMediaQuery, useWorkspaceId } from "../lib/hooks.ts"
 import { readStored, writeStored } from "../lib/storage.ts"
 import { NewProjectDialog } from "../project/NewProjectDialog.tsx"
+import { ImageModal } from "../viewer/ImageModal.tsx"
 import { ViewerPanel } from "../viewer/ViewerPanel.tsx"
 import { ConnectionStatus } from "./ConnectionStatus.tsx"
 import { ShowSidebarButton, Sidebar, SidebarContext } from "./Sidebar.tsx"
@@ -47,6 +48,7 @@ export function AppShell() {
     return (
       <div className="relative flex h-dvh flex-col overflow-clip bg-surface">
         <Outlet />
+        <ImageModal />
         <Toaster />
       </div>
     )
@@ -80,6 +82,7 @@ export function AppShell() {
         </main>
 
         {workspaceId ? <NewProjectDialog open={newProject} onOpenChange={setNewProject} workspaceId={workspaceId} /> : null}
+        <ImageModal />
         <Toaster />
       </div>
     </SidebarContext>
@@ -97,6 +100,7 @@ export function EmbeddedShell() {
         <Outlet />
       </div>
       <ViewerPanel />
+      <ImageModal />
       <Toaster />
     </div>
   )

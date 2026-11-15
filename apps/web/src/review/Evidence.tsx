@@ -1,4 +1,4 @@
-import { attachmentUrl, evidenceTarget, posterUrl } from "@cello/client/sync/reviews"
+import { attachmentUrl, evidenceOpen, posterUrl } from "@cello/client/sync/reviews"
 import type { Attachment } from "@cello/contract/entities"
 import { formatBytes } from "@cello/shared/bytes"
 import { shortUrl } from "@cello/shared/linkify"
@@ -6,20 +6,29 @@ import { ExternalLinkIcon, FileTextIcon, PanelRightOpenIcon } from "lucide-react
 import { useRef, type MouseEvent } from "react"
 import { Button, ButtonLink } from "../components/ui/Button.tsx"
 import { openInPanel } from "../lib/desktop.ts"
+import { openImageModal } from "../viewer/imageModal.ts"
 import { isPlainClick } from "../viewer/viewer.ts"
 
-/** Opens a piece of evidence beside the board: the viewer, or the desktop app's panel. */
-export const openEvidence = (attachment: Attachment): boolean => {
-  const target = evidenceTarget(attachment)
-  return target !== null && openInPanel(target.url, target.title, target.kind)
+/**
+ * Opens a piece of evidence from `packet` (see `evidenceOpen`): a screenshot in the image modal, with
+ * the packet's other screenshots to step through (`opener` gets the focus back when it closes);
+ * anything else beside the board, in the viewer or the desktop app's panel.
+ */
+export const openEvidence = (attachment: Attachment, packet: ReadonlyArray<Attachment>, opener: HTMLElement | null = null): boolean => {
+  const open = evidenceOpen(attachment, packet)
+  if (open?.in === "modal") {
+    openImageModal(open.images, open.index, opener)
+    return true
+  }
+  return open !== null && openInPanel(open.target.url, open.target.title, open.target.kind)
 }
 
-/** An evidence link: a plain click opens it beside the board; ⌘-click still opens a new tab. */
-const openOnPlainClick = (attachment: Attachment) => (e: MouseEvent) => {
-  if (isPlainClick(e) && openEvidence(attachment)) e.preventDefault()
+/** An evidence link: a plain click opens it (see `openEvidence`); ⌘-click still opens a new tab. */
+const openOnPlainClick = (attachment: Attachment, packet: ReadonlyArray<Attachment>) => (e: MouseEvent<HTMLElement>) => {
+  if (isPlainClick(e) && openEvidence(attachment, packet, e.currentTarget)) e.preventDefault()
 }
 
-/** A packet's evidence: videos to play, screenshots, text files and links, each opening in the viewer. */
+/** A packet's evidence: videos to play, screenshots to open large, text files and links to open in the viewer. */
 export function Evidence({ attachments }: { attachments: ReadonlyArray<Attachment> }) {
   const videos = attachments.filter((a) => a.kind === "video")
   const images = attachments.filter((a) => a.kind === "image")
@@ -31,18 +40,18 @@ export function Evidence({ attachments }: { attachments: ReadonlyArray<Attachmen
       {videos.map((v) => (
         <Video key={v.id} video={v} />
       ))}
-      {images.length > 0 ? <Screenshots images={images} /> : null}
+      {images.length > 0 ? <Screenshots images={images} packet={attachments} /> : null}
       {files.length + links.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">
           {files.map((f) => (
-            <ButtonLink key={f.id} href={attachmentUrl(f)} onClick={openOnPlainClick(f)} variant="secondary" size="md" aria-label={`Open ${f.name}`}>
+            <ButtonLink key={f.id} href={attachmentUrl(f)} onClick={openOnPlainClick(f, attachments)} variant="secondary" size="md" aria-label={`Open ${f.name}`}>
               <FileTextIcon aria-hidden className="size-3.5 text-muted" />
               {f.caption || f.name}
               {f.bytes !== null ? <span className="font-normal text-faint">{formatBytes(f.bytes)}</span> : null}
             </ButtonLink>
           ))}
           {links.map((l) => (
-            <ButtonLink key={l.id} href={l.url ?? "#"} onClick={openOnPlainClick(l)} variant="secondary" size="md">
+            <ButtonLink key={l.id} href={l.url ?? "#"} onClick={openOnPlainClick(l, attachments)} variant="secondary" size="md">
               <ExternalLinkIcon aria-hidden className="size-3.5 text-muted" />
               {l.caption || shortUrl(l.url ?? l.name)}
             </ButtonLink>
@@ -83,7 +92,7 @@ function Video({ video }: { video: Attachment }) {
           aria-label={`Open ${name} in the viewer`}
           onClick={() => {
             ref.current?.pause()
-            openEvidence(video)
+            openEvidence(video, [])
           }}
         >
           <PanelRightOpenIcon aria-hidden className="size-3.5" />
@@ -94,21 +103,27 @@ function Video({ video }: { video: Attachment }) {
   )
 }
 
-/** A grid of thumbnails; each opens in the viewer. */
-function Screenshots({ images }: { images: ReadonlyArray<Attachment> }) {
+/**
+ * The packet's screenshots, one per row at the evidence column's full width, so they read without
+ * opening; a small or tall one sits at its own size (never blown up, at most 70% of the window tall)
+ * in a frame as wide. A click opens one in the image modal, with the others a ← or → away.
+ */
+function Screenshots({ images, packet }: { images: ReadonlyArray<Attachment>; packet: ReadonlyArray<Attachment> }) {
   return (
-    <ul aria-label="Screenshots" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+    <ul aria-label="Screenshots" className="flex flex-col gap-3">
       {images.map((image) => (
-        <li key={image.id} className="flex flex-col gap-1">
-          <button
-            type="button"
-            aria-label={`Open ${image.caption || image.name}`}
-            onClick={() => openEvidence(image)}
-            className="aspect-[16/10] cursor-zoom-in overflow-hidden rounded-md border border-line bg-sunken outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <img data-evidence="screenshot" src={attachmentUrl(image)} alt="" loading="lazy" className="size-full object-cover object-top" />
-          </button>
-          {image.caption ? <span className="truncate text-xs text-muted">{image.caption}</span> : null}
+        <li key={image.id}>
+          <figure className="flex flex-col gap-1.5">
+            <button
+              type="button"
+              aria-label={`Open ${image.caption || image.name}`}
+              onClick={(e) => openEvidence(image, packet, e.currentTarget)}
+              className="flex w-full cursor-zoom-in justify-center overflow-hidden rounded-lg border border-line bg-sunken outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <img data-evidence="screenshot" src={attachmentUrl(image)} alt="" loading="lazy" className="block h-auto max-h-[70vh] w-auto max-w-full" />
+            </button>
+            {image.caption ? <figcaption className="truncate text-xs text-muted">{image.caption}</figcaption> : null}
+          </figure>
         </li>
       ))}
     </ul>

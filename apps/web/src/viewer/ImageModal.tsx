@@ -1,0 +1,314 @@
+import { ChevronLeftIcon, ChevronRightIcon, MinusIcon, PanelRightOpenIcon, PlusIcon, XIcon } from "lucide-react"
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react"
+import { Button } from "../components/ui/Button.tsx"
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../components/ui/Dialog.tsx"
+import { openInPanel } from "../lib/desktop.ts"
+import { fitView, isZoomed, panBy, pinch, refit, toggleZoom, wheelFactor, zoomBy, type Frame, type Point, type Size, type View } from "../lib/zoom.ts"
+import { closedImageModal, closeImageModal, imageModal, stepImage, useImageModal, type ImageModalState, type ModalImage } from "./imageModal.ts"
+
+/**
+ * The image modal: a screenshot over the whole window on a dark backdrop, fitted, to zoom (wheel,
+ * pinch, double-click, +/−) and drag around, with ←/→ through the other images it was opened with.
+ * Esc, the close button or a click on the backdrop closes it, and the focus goes back to the
+ * thumbnail. Opened with `openImageModal` (imageModal.ts); the app shell mounts one.
+ */
+export function ImageModal() {
+  const state = useImageModal()
+  // Kept while it closes, so the content fades out with the image still in it.
+  const [last, setLast] = useState(state)
+  if (state && state !== last) setLast(state)
+  const shown = state ?? last
+  return (
+    <Dialog
+      open={state !== null}
+      onOpenChange={(open) => {
+        // Esc (the dialog asks): close, unless the store already did, with something to do after.
+        if (!open && imageModal() !== null) closeImageModal()
+      }}
+      onOpenChangeComplete={(open) => {
+        if (!open) closedImageModal()
+      }}
+    >
+      {shown ? <Content state={shown} /> : null}
+    </Dialog>
+  )
+}
+
+function Content({ state }: { state: ImageModalState }) {
+  const image = state.images[state.index]!
+  const count = state.images.length
+  const zoom = useZoom(image.url)
+  // After the modal has closed and given the focus back, so the viewer returns it there in turn.
+  const openInViewer = () => closeImageModal(() => openInPanel(image.url, image.title, "image"))
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+    const action = KEYS[e.key]
+    if (!action) return
+    e.preventDefault()
+    if (action === "previous") stepImage(-1)
+    else if (action === "next") stepImage(1)
+    else zoom.button(action)
+  }
+  return (
+    <DialogContent size="screen" initialFocus="content" finalFocus={state.opener ?? "trigger"} onKeyDown={onKeyDown} data-image-modal="">
+      <header className="flex h-12 shrink-0 items-center gap-2 pr-2 pl-4">
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          <DialogTitle size="sm">{image.title}</DialogTitle>
+          {image.name && image.name !== image.title ? <span className="min-w-0 truncate text-xs text-white/55">{image.name}</span> : null}
+        </div>
+        {count > 1 ? (
+          <DialogDescription>
+            <span aria-live="polite" data-image-count="" className="text-xs tabular-nums text-white/70">
+              {state.index + 1} of {count}
+            </span>
+          </DialogDescription>
+        ) : null}
+        <div role="toolbar" aria-label="Zoom" className="ml-2 flex items-center gap-0.5">
+          <Button variant="overlay" size="iconMd" aria-label="Zoom out" title="Zoom out (−)" disabled={!zoom.zoomed} onClick={() => zoom.button("out")}>
+            <MinusIcon aria-hidden className="size-4" />
+          </Button>
+          <Button
+            variant="overlay"
+            size="md"
+            aria-label={zoom.zoomed ? "Fit to screen" : "Zoom to 100%"}
+            title={zoom.zoomed ? "Fit to screen (0)" : "Zoom to 100% (double-click)"}
+            aria-pressed={zoom.zoomed}
+            onClick={() => zoom.button("toggle")}
+          >
+            <span data-zoom-percent="" className="w-10 tabular-nums">
+              {zoom.percent}%
+            </span>
+          </Button>
+          <Button variant="overlay" size="iconMd" aria-label="Zoom in" title="Zoom in (+)" onClick={() => zoom.button("in")}>
+            <PlusIcon aria-hidden className="size-4" />
+          </Button>
+        </div>
+        <Button variant="overlay" size="md" aria-label={`Open ${image.title} in the viewer`} onClick={openInViewer}>
+          <PanelRightOpenIcon aria-hidden className="size-3.5" />
+          Open in viewer
+        </Button>
+        <Button variant="overlay" size="iconMd" aria-label="Close" title="Close (Esc)" onClick={() => closeImageModal()}>
+          <XIcon aria-hidden className="size-4" />
+        </Button>
+      </header>
+      <Stage image={image} zoom={zoom} />
+      {count > 1 ? (
+        <>
+          <Step side="previous" disabled={state.index === 0} />
+          <Step side="next" disabled={state.index === count - 1} />
+        </>
+      ) : null}
+    </DialogContent>
+  )
+}
+
+const KEYS: Record<string, "previous" | "next" | "in" | "out" | "fit"> = {
+  ArrowLeft: "previous",
+  ArrowRight: "next",
+  "+": "in",
+  "=": "in",
+  "-": "out",
+  "0": "fit",
+}
+
+function Step({ side, disabled }: { side: "previous" | "next"; disabled: boolean }) {
+  const Icon = side === "previous" ? ChevronLeftIcon : ChevronRightIcon
+  return (
+    <div className={`absolute top-1/2 -translate-y-1/2 ${side === "previous" ? "left-3" : "right-3"}`}>
+      <Button
+        variant="floating"
+        size="iconLg"
+        aria-label={side === "previous" ? "Previous image" : "Next image"}
+        title={side === "previous" ? "Previous (←)" : "Next (→)"}
+        disabled={disabled}
+        onClick={() => stepImage(side === "previous" ? -1 : 1)}
+      >
+        <Icon aria-hidden className="size-5" />
+      </Button>
+    </div>
+  )
+}
+
+interface ZoomState {
+  readonly url: string
+  readonly stage: Size | null
+  readonly image: Size | null
+  /** Null: fitted, and fitted again whenever the stage changes size. */
+  readonly view: View | null
+  /** A button, a key or a double-click: the change animates. A wheel, a drag or a pinch follows the hand. */
+  readonly smooth: boolean
+}
+
+const blank = (url: string): ZoomState => ({ url, stage: null, image: null, view: null, smooth: false })
+const frameOf = (s: ZoomState): Frame | null => (s.stage && s.image ? { stage: s.stage, image: s.image } : null)
+
+/** A change to the view, kept only when it's zoomed in (fitted stays null). */
+const withView = (s: ZoomState, change: (view: View, frame: Frame) => View, smooth: boolean): ZoomState => {
+  const frame = frameOf(s)
+  if (!frame) return s
+  const next = change(s.view ?? fitView(frame), frame)
+  return { ...s, view: isZoomed(next, frame) ? next : null, smooth }
+}
+
+const STEP = 1.5
+
+type Zoom = ReturnType<typeof useZoom>
+
+/** The zoom state of the image shown, reset (keeping the stage's size) when another image is shown. */
+function useZoom(url: string) {
+  const [state, setState] = useState(() => blank(url))
+  const current = state.url === url ? state : { ...blank(url), stage: state.stage }
+  if (current !== state) setState(current)
+  const frame = frameOf(current)
+  const view = frame ? (current.view ?? fitView(frame)) : null
+  const centre = (s: ZoomState): Point => ({ x: (s.stage?.width ?? 0) / 2, y: (s.stage?.height ?? 0) / 2 })
+  return {
+    state: current,
+    view,
+    zoomed: current.view !== null,
+    percent: view ? Math.round(view.scale * 100) : 100,
+    /** Stable: the stage's listeners keep the first one. */
+    update: setState,
+    button: (action: "in" | "out" | "fit" | "toggle") =>
+      setState((s) =>
+        withView(
+          s,
+          (v, f) =>
+            action === "in"
+              ? zoomBy(v, STEP, centre(s), f)
+              : action === "out"
+                ? zoomBy(v, 1 / STEP, centre(s), f)
+                : action === "fit"
+                  ? fitView(f)
+                  : toggleZoom(v, centre(s), f),
+          true,
+        ),
+      ),
+  }
+}
+
+/** Where a pointer went down, and whether it has moved far enough to be a drag rather than a click. */
+interface Press {
+  readonly onBackdrop: boolean
+  dragged: boolean
+}
+
+const DRAG_PX = 4
+
+function Stage({ image, zoom }: { image: ModalImage; zoom: Zoom }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const pointers = useRef(new Map<number, Point>())
+  const press = useRef<Press | null>(null)
+  const { view, update } = zoom
+  const at = (e: { clientX: number; clientY: number }): Point => {
+    const box = ref.current!.getBoundingClientRect()
+    return { x: e.clientX - box.left, y: e.clientY - box.top }
+  }
+
+  // The stage's size, now and whenever the window changes.
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const observer = new ResizeObserver(([entry]) => {
+      const stage = { width: entry!.contentRect.width, height: entry!.contentRect.height }
+      update((s) => {
+        const from = frameOf(s)
+        const to = s.image ? { stage, image: s.image } : null
+        return { ...s, stage, view: s.view && from && to ? refit(s.view, from, to) : null, smooth: false }
+      })
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [update])
+
+  // The wheel (and a trackpad pinch, which arrives as a wheel with Ctrl) zooms around the pointer. Not
+  // passive, so the page doesn't zoom or scroll instead.
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const box = el.getBoundingClientRect()
+      const point = { x: e.clientX - box.left, y: e.clientY - box.top }
+      update((s) => withView(s, (v, f) => zoomBy(v, wheelFactor(e), point, f), false))
+    }
+    el.addEventListener("wheel", onWheel, { passive: false })
+    return () => el.removeEventListener("wheel", onWheel)
+  }, [update])
+
+  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return
+    pointers.current.set(e.pointerId, at(e))
+    if (pointers.current.size === 1) press.current = { onBackdrop: e.target === e.currentTarget, dragged: false }
+  }
+
+  const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
+    const before = pointers.current.get(e.pointerId)
+    if (!before) return
+    const point = at(e)
+    if (pointers.current.size === 2) {
+      const [a, b] = [...pointers.current.entries()]
+      const from = [a![1], b![1]] as const
+      pointers.current.set(e.pointerId, point)
+      const to = [pointers.current.get(a![0])!, pointers.current.get(b![0])!] as const
+      if (press.current) press.current.dragged = true
+      update((s) => withView(s, (v, f) => pinch(v, from, to, f), false))
+      return
+    }
+    const p = press.current
+    if (!p) return
+    if (!p.dragged && Math.hypot(point.x - before.x, point.y - before.y) < DRAG_PX) return
+    if (!p.dragged) {
+      p.dragged = true
+      e.currentTarget.setPointerCapture(e.pointerId)
+    }
+    pointers.current.set(e.pointerId, point)
+    if (zoom.zoomed) update((s) => withView(s, (v, f) => panBy(v, { x: point.x - before.x, y: point.y - before.y }, f), false))
+  }
+
+  const onPointerEnd = (e: PointerEvent<HTMLDivElement>) => {
+    pointers.current.delete(e.pointerId)
+  }
+
+  return (
+    <div
+      ref={ref}
+      data-image-stage=""
+      data-zoomed={zoom.zoomed ? "" : undefined}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerEnd}
+      onPointerCancel={onPointerEnd}
+      onClick={() => {
+        // A click on the backdrop (not the image, not the end of a drag) closes the modal.
+        const p = press.current
+        press.current = null
+        if (p?.onBackdrop && !p.dragged) closeImageModal()
+      }}
+      onDoubleClick={(e) => {
+        if (press.current?.onBackdrop) return
+        const point = at(e)
+        update((s) => withView(s, (v, f) => toggleZoom(v, point, f), true))
+      }}
+      className={`relative min-h-0 flex-1 touch-none overflow-hidden select-none ${zoom.zoomed ? "cursor-grab active:cursor-grabbing" : ""}`}
+    >
+      <img
+        key={image.url}
+        src={image.url}
+        alt={image.title}
+        draggable={false}
+        data-modal-image=""
+        onLoad={(e) => {
+          const size = { width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight }
+          update((s) => (s.image ? s : { ...s, image: size }))
+        }}
+        style={
+          view
+            ? { width: zoom.state.image!.width, height: zoom.state.image!.height, transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }
+            : undefined
+        }
+        className={`absolute top-0 left-0 max-w-none origin-top-left ${view ? "" : "invisible"} ${zoom.zoomed ? "" : "cursor-zoom-in"} ${zoom.state.smooth ? "transition-transform duration-150 ease-out motion-reduce:transition-none" : ""}`}
+      />
+    </div>
+  )
+}
