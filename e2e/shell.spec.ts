@@ -82,7 +82,7 @@ const boardOf = (page: Page) => page.getByRole("application", { name: /board$/ }
 const listOf = (page: Page) => page.getByRole("region", { name: /list$/ })
 const viewerOf = (page: Page) => page.getByRole("complementary", { name: "Viewer" })
 
-/** A project with a full Todo column, a published doc, and a comment on its first task linking an image. */
+/** A project with a full Todo column, a published doc, and a comment on its first task linking that doc. */
 async function seedWideProject(cello: Parameters<typeof seedProject>[0], key: string) {
   const project = await seedProject(cello, "Wide board", key)
   const { statuses } = await defaultWorkspace(cello)
@@ -90,7 +90,7 @@ async function seedWideProject(cello: Parameters<typeof seedProject>[0], key: st
   for (let i = 1; i <= 24; i++) {
     taskIds.push((await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title: `Task ${i}`, statusId: statuses.Todo!.id }))).result.id)
   }
-  await cello.run((c) => c["comment.add"]({ commandId: newCommandId(), taskId: taskIds[0]!, body: `The icon: ${WEB_URL}/icons/icon-512.png` }))
+  await cello.run((c) => c["comment.add"]({ commandId: newCommandId(), taskId: taskIds[0]!, body: `The notes: ${WEB_URL}/${key}/pages/layout-notes` }))
   await cello.run((c) =>
     c["document.publish"]({ commandId: newCommandId(), project: { key }, body: "# Layout notes\n\nThe app fills the window.\n" }),
   )
@@ -124,9 +124,9 @@ test("CEL-25: with a wide board, the app fills the window: no page scroll, the s
   const panel = taskPanel(page, `${key}-1`)
   await expectFills(page, boardOf(page), { panels: [panel], sideways: true })
 
-  await caption(page, "Open the image linked in a comment: the viewer stretches to the bottom")
+  await caption(page, "Open the page linked in a comment: the side panel stretches to the bottom")
   await panel.locator("[data-comment-id]").getByRole("link").click()
-  await expect(viewerOf(page).locator("img[data-viewer-image]")).toBeVisible()
+  await expect(viewerOf(page).getByText("The app fills the window.")).toBeVisible()
   await expectFills(page, boardOf(page), { panels: [viewerOf(page)], sideways: true })
   await page.keyboard.press("Escape")
   await expect(viewerOf(page)).toHaveCount(0)
