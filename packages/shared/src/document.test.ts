@@ -6,6 +6,7 @@ import {
   localFileTarget,
   mapLinkTargets,
   pagePath,
+  pageTarget,
   plainText,
   readerContent,
   referenceDefinitions,
@@ -211,6 +212,29 @@ describe("link targets", () => {
 
   it("decodes percent-escapes in targets", () => {
     expect(linkTargets("![x](my%20chart.png)")).toEqual([{ target: "my chart.png", image: true }])
+  })
+})
+
+describe("what a page's link points at", () => {
+  const files = [
+    { id: "01VIDEO", kind: "video" as const },
+    { id: "01LOG", kind: "file" as const },
+  ]
+
+  it("a file the page carries, by its stored URL", () => {
+    expect(pageTarget("/attachments/01VIDEO", files)).toEqual({ kind: "file", file: files[0] })
+    expect(pageTarget("/attachments/01LOG#L2", files)).toEqual({ kind: "file", file: files[1] })
+  })
+
+  it("a local file that never went up with the page is missing (CEL-54)", () => {
+    expect(pageTarget("a-palette-typing.mp4", files)).toEqual({ kind: "missing", path: "a-palette-typing.mp4" })
+    expect(pageTarget("../shots/board.png?x=1", files)).toEqual({ kind: "missing", path: "../shots/board.png" })
+  })
+
+  it("anything else is a plain link", () => {
+    for (const href of ["https://example.com/a.mp4", "/attachments/01OTHER", "#findings", "/CEL/issues", undefined]) {
+      expect(pageTarget(href, files), String(href)).toEqual({ kind: "link" })
+    }
   })
 })
 

@@ -7,7 +7,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { useShortcut, useShortcutHint } from "@ui-sdk/react/shortcuts"
 import { ChevronRightIcon, Maximize2Icon, Minimize2Icon, MoreHorizontalIcon, XIcon } from "lucide-react"
 import { useState } from "react"
-import { Centered } from "../app/Home.tsx"
+import { NotFound } from "../app/NotFound.tsx"
 import { NARROW_WIDTH } from "../app/sidebarState.ts"
 import { Button } from "../components/ui/Button.tsx"
 import { Input, Textarea } from "../components/ui/Input.tsx"
@@ -114,7 +114,7 @@ export function TaskPanel({
           </Button>
         </span>
       </div>
-      {task ? <TaskDetails key={task.id} board={board} project={project} task={task} full={full} /> : <Centered>No task {project.key}-{number}.</Centered>}
+      {task ? <TaskDetails key={task.id} board={board} project={project} task={task} full={full} /> : <NotFound title={`No task ${project.key}-${number}`} projectKey={project.key} />}
     </aside>
   )
 }

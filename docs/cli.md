@@ -291,7 +291,7 @@ cello doc archive billing-audit      # hidden from the Docs tab; the link keeps 
 - **Which kind?** A page is about a moment, a doc is about the system, and a spec is a plan.
 - **The title** is the frontmatter `title:`, the first `#` heading, or `--title`.
 - **The summary** is the frontmatter `summary:`, the first paragraph, or `--summary`.
-- **What renders:** `##` and `###` headings become the page's section list. Tables, code blocks, ```` ```mermaid ```` diagrams and images all render.
+- **What renders:** `##` and `###` headings become the page's section list. Tables, code blocks, ```` ```mermaid ```` diagrams and images all render. A linked video plays inline, whether it's linked as an image (`![The demo](demo.mp4)`) or a plain link (`[demo.mp4](demo.mp4)`); its link text is its caption.
 - **Task keys** (e.g. CEL-12) link to the task, with its live status, so a progress table never goes stale. Keys of unknown tasks, and keys in backticks or code blocks, stay plain.
 - **Files go up with the page:** every file the markdown links by a path (relative to the markdown file, or absolute) goes up with it, as an image or a plain link: images, videos (MP4, WebM, MOV) and text files (txt, log, md, csv, json, cast). `--asset` uploads a file the markdown doesn't link.
 - **A linked file that can't go up** (it isn't there, or it's a type Cello doesn't store, like a PDF) gets a warning, and the page still publishes. The page shows that link as a missing file instead of following it, so fix the path and publish again:

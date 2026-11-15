@@ -2,6 +2,7 @@
 // (finding local images) and the web reader (sections, live highlights). They work line by line:
 // they only need block structure (headings, fenced code) and inline links, never a full parse.
 // No Node imports: the web app bundles this file.
+import { attachmentIdOf } from "./attachment.ts"
 
 const MAX_SLUG = 80
 const MAX_SUMMARY = 280
@@ -379,6 +380,28 @@ export const localFileTarget = (target: string): string | null => {
   const clean = target.replace(/[?#].*$/, "")
   if (clean === "" || SCHEME.test(clean) || clean.startsWith("//")) return null
   return FILE_NAME.test(clean) ? clean : null
+}
+
+/** What a link or image in a published page points at. */
+export type PageTarget<F> =
+  /** A file the page carries (`/attachments/<id>`). */
+  | { readonly kind: "file"; readonly file: F }
+  /** A file on the publisher's machine that didn't go up with the page. */
+  | { readonly kind: "missing"; readonly path: string }
+  /** A web address, an anchor, an app route. */
+  | { readonly kind: "link" }
+
+/**
+ * Which of the page's `files` a rendered link or image means, if any. A local file path left in the
+ * page (`localFileTarget`) is missing: publishing rewrites the links to every file it sent.
+ */
+export const pageTarget = <F extends { readonly id: string }>(href: string | undefined, files: ReadonlyArray<F>): PageTarget<F> => {
+  if (href === undefined) return { kind: "link" }
+  const stored = attachmentIdOf(href)
+  const file = stored === null ? undefined : files.find((f) => f.id === stored)
+  if (file) return { kind: "file", file }
+  const local = localFileTarget(href)
+  return local === null ? { kind: "link" } : { kind: "missing", path: local }
 }
 
 /** Every link and image target outside code, in reading order (an image inside a link comes first). */

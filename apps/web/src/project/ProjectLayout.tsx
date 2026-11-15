@@ -4,6 +4,7 @@ import { Outlet, useMatch, useParams, useSearch } from "@tanstack/react-router"
 import type { CSSProperties, ReactNode } from "react"
 import { Breadcrumb, type Crumb } from "../app/Breadcrumb.tsx"
 import { Centered } from "../app/Home.tsx"
+import { NotFound } from "../app/NotFound.tsx"
 import { useStoredWidth } from "../components/ui/ResizeHandle.tsx"
 import { TabLink } from "../components/ui/TabLink.tsx"
 import { DisplayOptions } from "../issues/DisplayOptions.tsx"
@@ -31,7 +32,7 @@ export function ProjectLayout() {
   const [width, resize] = useStoredWidth(TASK_PANEL_WIDTH_KEY, TASK_PANEL_WIDTH)
   if (!board) return <Centered>Loading…</Centered>
   const project = projectByKey(board, projectKey)
-  if (!project) return <Centered>No project with the key {projectKey.toUpperCase()}.</Centered>
+  if (!project) return <NotFound title={`No project with the key ${projectKey.toUpperCase()}`} />
 
   const docked = placement === "side"
   // The breadcrumb and the tabs fill the first two rows of the first column; the page is the third.

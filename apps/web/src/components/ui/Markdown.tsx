@@ -1,3 +1,4 @@
+import { localFileTarget } from "@cello/shared/document"
 import type { ComponentProps } from "react"
 import ReactMarkdown, { type ExtraProps } from "react-markdown"
 import { Mermaid } from "../../docs/Mermaid.tsx"
@@ -5,6 +6,7 @@ import { mermaidSource } from "../../docs/mermaidSource.ts"
 import { useProjectKeys } from "../../lib/hooks.ts"
 import { LiveTaskKey, linkifyTasks, markdownTaskKey } from "../../task/TaskKey.tsx"
 import { ViewerLink } from "../../viewer/ViewerLink.tsx"
+import { MissingFile } from "./MissingFile.tsx"
 import { remarkLinkify } from "./remarkLinkify.ts"
 
 /**
@@ -32,6 +34,9 @@ function MarkdownLink({ href, children, node }: ComponentProps<"a"> & ExtraProps
   if (taskKey) return <LiveTaskKey taskKey={taskKey} />
   // An in-page anchor stays one.
   if (!href || href.startsWith("#")) return <a href={href}>{children}</a>
+  // A path to a file on someone's machine leads nowhere here (CEL-54).
+  const file = localFileTarget(href)
+  if (file !== null) return <MissingFile path={file}>{children}</MissingFile>
   // "[the PR](https://…)" is titled "the PR"; a bare address gets its short form from the viewer.
   const title = typeof children === "string" && children !== href ? children : undefined
   return (
