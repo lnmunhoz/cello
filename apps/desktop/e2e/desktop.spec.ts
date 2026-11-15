@@ -417,6 +417,8 @@ test("CEL-60, CEL-20: cello://open with a Cello page opens it in the board's own
   expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(pageUrl)}`])).toBe(0)
   await expect(sidePanel.getByRole("heading", { level: 1, name: "Desktop progress" })).toBeVisible()
   await expect(sidePanel.locator("iframe")).toHaveCount(0)
+  // The header names the document, not its address.
+  await expect(sidePanel.getByRole("heading", { level: 2, name: "Desktop progress" })).toBeVisible()
   await expect(sidePanel.getByRole("button", { name: "Expand to full page" })).toBeVisible()
   expect((await views(app)).page.visible).toBe(false)
   expect(board.url()).toBe(`${server.url}/DSK/issues`)

@@ -1,3 +1,5 @@
+import { documentBySlug } from "@cello/client/sync/documents"
+import { projectByKey } from "@cello/client/sync/selectors"
 import { embedUrl } from "@cello/shared/embed"
 import { parseTaskPath } from "@cello/shared/taskKey"
 import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router"
@@ -21,7 +23,7 @@ import { toast } from "../components/ui/Toast.tsx"
 import { PageBody } from "../docs/PageBody.tsx"
 import { DocumentReader } from "../docs/PageReader.tsx"
 import { openInPanel, type OpenMessage } from "../lib/desktop.ts"
-import { useProjectKeys } from "../lib/hooks.ts"
+import { useBoard, useProjectKeys } from "../lib/hooks.ts"
 import { widthLimits } from "../lib/resize.ts"
 import { closeViewer, showInViewer, useViewerItem } from "./store.ts"
 import { downloadName, shownText, textFormat } from "./text.ts"
@@ -99,6 +101,14 @@ const closeOnTaskLink = (e: ReactMouseEvent) => {
   if (target?.origin === location.origin && parseTaskPath(target.pathname)) closeViewer()
 }
 
+/** A document's own title, live from the board, for the header (a `cello://open` link names only its address). */
+const useDocumentTitle = (item: ViewerItem): string | undefined => {
+  const board = useBoard()
+  const page = item.kind === "page" ? pageRef(item.url, location.origin) : null
+  const project = board && page ? projectByKey(board, page.projectKey) : undefined
+  return board && page && project ? documentBySlug(board, project.id, page.slug)?.title : undefined
+}
+
 function Viewer({ item }: { item: ViewerItem }) {
   const [width, resize] = useStoredWidth(WIDTH_KEY, VIEWER_WIDTH)
   const ref = useRef<HTMLElement>(null)
@@ -106,6 +116,7 @@ function Viewer({ item }: { item: ViewerItem }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const [openedOn] = useState(pathname)
   const Icon = KIND_ICON[item.kind]
+  const title = useDocumentTitle(item) ?? item.title
 
   // Opening a task, or going anywhere else, brings the page back in front.
   useEffect(() => {
@@ -149,7 +160,7 @@ function Viewer({ item }: { item: ViewerItem }) {
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
         <Icon aria-hidden className="size-3.5 shrink-0 text-muted" />
         <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium" title={item.url}>
-          {item.title}
+          {title}
         </h2>
         {item.kind === "page" ? (
           // The page in the main area, in the board's place; going there closes the viewer.
