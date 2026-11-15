@@ -5,9 +5,9 @@ import { spawnSync } from "node:child_process"
 import * as path from "node:path"
 import type { Locator, Page } from "@playwright/test"
 import type { LabelGroup } from "../packages/contract/src/entities.ts"
-import { newCommandId, openClient, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
+import { newCommandId, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
 import { AREA_GROUPS, KIND_COLORS } from "../scripts/apply-cel56-labels.ts"
-import { caption, captionWithUrl, defaultWorkspace, expect, seedProject, test, uniqueKey } from "./fixtures.ts"
+import { agentAs, caption, captionWithUrl, defaultWorkspace, expect, seedProject, test, uniqueKey } from "./fixtures.ts"
 import { SHOTS, WEB_URL } from "./packets.ts"
 
 /** CEL-56's labels with their colours and groups, and the milestones. */
@@ -51,10 +51,6 @@ const TASKS: ReadonlyArray<readonly [title: string, status: "Done" | "Todo", lab
   ["Filter the board and list by label and more", "Todo", ["feature", "board", "list"]],
   ["Diagrams open in the zoomable image modal", "Todo", ["polish", "pages"]],
 ]
-
-/** An agent session over RPC, as the CLI would call: its session id, and its process's pid. */
-const agentAs = (baseURL: string, session: string, pid: number) =>
-  openClient(`${baseURL.replace(/^http/, "ws")}/rpc`, { "x-cello-session": session, "x-cello-client": "Claude Code", "x-cello-pid": String(pid) })
 
 /** The labels in the default workspace, in their groups: reused when another test made one (in any case). */
 async function seedLabels(cello: PromiseClient) {
