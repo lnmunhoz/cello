@@ -70,7 +70,7 @@ Small changes (docs, a one-line fix) skip steps 1–3: the orchestrator makes th
 | Search and exploration (`Explore`) | Haiku 5.5 | medium |
 | Fable 5.2 | only when Lucas asks | |
 
-Why: Anthropic's own results put Sonnet 5.5 level with or above Opus 5.5 on terminal agentic coding (Terminal-Bench 4.0: 70.6% vs 66.4%) at half the price, while Opus leads on harder, judgment-heavy work (FrontierCode: 54.4% vs 46.2%). Haiku 5.5 is built for sub-agent lookups.
+Why: Anthropic's own results put Sonnet 5.5 level with or above Opus 5.5 on terminal agentic coding (Terminal-Bench 4.0: 70.6% vs 66.4%) at half the price, while Opus leads on harder, judgment-heavy work (FrontierCode: 54.4% vs 46.2%). Haiku 5.5 is built for sub-agent lookups. When to use which, and when to move up or down: [docs/models.md](docs/models.md), also in Cello's Docs tab. Change this table and that page together.
 
 ## How to work
 
