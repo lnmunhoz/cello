@@ -11,6 +11,7 @@ import * as Seed from "../persistence/Seed.ts"
 import * as SnapshotService from "../snapshot/SnapshotService.ts"
 import * as LabelService from "../label/LabelService.ts"
 import * as ProjectService from "../project/ProjectService.ts"
+import * as RepoPaths from "../project/repoPath.ts"
 import * as SessionService from "../session/SessionService.ts"
 import * as TaskService from "../task/TaskService.ts"
 import { cmd, setupProject } from "../testing/fixtures.ts"
@@ -92,6 +93,7 @@ const racingStore = Layer.effect(EventStore.EventStore, Effect.gen(function* () 
 const racingServices = () =>
   Layer.mergeAll(TaskService.layer, ProjectService.layer, SnapshotService.layer).pipe(
     Layer.provideMerge(SessionService.layer),
+    Layer.provideMerge(RepoPaths.layer),
     Layer.provideMerge(Commands.layer),
     Layer.provideMerge(EventLog.layer),
     Layer.provideMerge(racingStore),

@@ -8,6 +8,7 @@ import * as Migrations from "../persistence/Migrations.ts"
 import * as Seed from "../persistence/Seed.ts"
 import * as Sqlite from "../persistence/Sqlite.ts"
 import * as AssetStore from "../review/AssetStore.ts"
+import type * as RepoPaths from "../project/repoPath.ts"
 import * as Services from "../services.ts"
 import * as SessionService from "../session/SessionService.ts"
 import { tempDataDir } from "./tempDir.ts"
@@ -25,9 +26,14 @@ export const tempAssets = (options: { readonly ffmpeg?: string | null } = {}) =>
     Effect.map(tempDataDir, (dir) => AssetStore.make({ dir: path.join(dir, "assets"), ...options })),
   )
 
-/** Every service over a fresh database and a temp asset folder. */
-export const services = (options: { readonly ffmpeg?: string | null } = {}) =>
-  Services.layer.pipe(Layer.provideMerge(database()), Layer.provideMerge(tempAssets(options)))
+/** Every service over a fresh database and a temp asset folder; `repoPaths` replaces the folder normalizer. */
+export const services = (
+  options: { readonly ffmpeg?: string | null; readonly repoPaths?: Layer.Layer<RepoPaths.RepoPaths> } = {},
+) =>
+  (options.repoPaths ? Services.layerWith(options.repoPaths) : Services.layer).pipe(
+    Layer.provideMerge(database()),
+    Layer.provideMerge(tempAssets(options)),
+  )
 
 /** Runs `effect` as the seeded human, the way a browser request would. */
 export const asHuman = <A, E, R>(effect: Effect.Effect<A, E, R>) =>

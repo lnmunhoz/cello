@@ -11,7 +11,7 @@ import * as Commands from "../commands/Commands.ts"
 import { newId } from "../persistence/ids.ts"
 import { selectProjects } from "../persistence/rows.ts"
 import { requireColor, requireText } from "../validation.ts"
-import { normalizeRepoPath } from "./repoPath.ts"
+import { RepoPaths } from "./repoPath.ts"
 
 /** New projects without a color take the next one from this list. */
 export const PROJECT_COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316"]
@@ -52,6 +52,7 @@ export class ProjectService extends Context.Service<ProjectService, {
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const commands = yield* Commands.Commands
+  const repoPaths = yield* RepoPaths
 
   const load = (id: string) =>
     selectProjects(sql, sql`p.id = ${id}`).pipe(
@@ -60,13 +61,18 @@ const make = Effect.gen(function* () {
 
   /**
    * Every project whose folder is `wanted` (a normalized path), archived ones too: rows stored that way,
-   * and rows stored before paths were normalized, normalized as they're read.
+   * and rows stored before paths were normalized, normalized as they're read (once each: RepoPaths
+   * remembers them, and runs git without blocking the server).
    */
   const holdersOf = (wanted: string) =>
     sql<{ project_id: string; path: string; name: string; key: string; archived_at: number | null }>`
       SELECT r.project_id, r.path, p.name, p.key, p.archived_at
       FROM project_repos r JOIN projects p ON p.id = r.project_id ORDER BY p.created_at, p.id`.pipe(
-      Effect.map((rows) => rows.filter((r) => r.path === wanted || normalizeRepoPath(r.path) === wanted)),
+      Effect.flatMap((rows) =>
+        Effect.filter(rows, (r) => r.path === wanted ? Effect.succeed(true) : Effect.map(repoPaths.normalize(r.path), (p) => p === wanted), {
+          concurrency: 8,
+        })
+      ),
     )
 
   const create = Effect.fn("ProjectService.create")(function* (input: CreateProject) {
@@ -76,7 +82,7 @@ const make = Effect.gen(function* () {
       return yield* new Invalid({ field: "key", reason: "must be 2 to 10 letters or digits, starting with a letter" })
     }
     const color = input.color === undefined ? undefined : yield* requireColor("color", input.color)
-    const repoPath = input.repoPath === undefined ? undefined : normalizeRepoPath(yield* requireText("repoPath", input.repoPath))
+    const repoPath = input.repoPath === undefined ? undefined : yield* repoPaths.normalize(yield* requireText("repoPath", input.repoPath))
 
     return yield* commands.write({ commandId: input.commandId, rpc: "project.create" }, ({ now, emit }) =>
       Effect.gen(function* () {
@@ -154,7 +160,7 @@ const make = Effect.gen(function* () {
       return rows[0] ?? (yield* new NotFound({ entity: "project", id: key }))
     }
     if (ref.repoPath) {
-      const wanted = normalizeRepoPath(ref.repoPath)
+      const wanted = yield* repoPaths.normalize(ref.repoPath)
       const exact = yield* selectProjects(sql, sql`p.archived_at IS NULL AND p.id IN (
         SELECT project_id FROM project_repos WHERE path = ${wanted})`)
       if (exact[0]) return exact[0]

@@ -392,7 +392,7 @@ cello init [flags]
 | \`--workspace string\` | The workspace to put it in, by name. Default: the first one. |
 | \`--hooks\` | Also install the Claude Code hooks for this machine, as \`cello install claude\` does. |
 | \`--agents-md\` | Also add the "Tracking work in Cello" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), once. |
-| \`--json\` | Print JSON: created, project, url, and hooks and agentsMd ({ file, changed }, or null when not asked for). |
+| \`--json\` | Print JSON: created, project, url, hooks and agentsMd ({ file, changed }, or null when not asked for or not reached), and error when --hooks or --agents-md failed. |
 
 ### cello task list
 

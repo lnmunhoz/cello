@@ -925,7 +925,7 @@ const init = Command.make("init", {
   ),
   json: Flag.Boolean("json").pipe(
     Flag.withDefault(false),
-    Flag.withDescription("Print JSON: created, project, url, and hooks and agentsMd ({ file, changed }, or null when not asked for)."),
+    Flag.withDescription("Print JSON: created, project, url, hooks and agentsMd ({ file, changed }, or null when not asked for or not reached), and error when --hooks or --agents-md failed."),
   ),
 }, (input) =>
   Effect.gen(function* () {
@@ -978,31 +978,45 @@ const init = Command.make("init", {
         url,
       ].join("\n"))
     }
-    const afterward = <A, E, R>(step: Effect.Effect<A, E | CliFailure, R>) =>
-      step.pipe(Effect.mapError((e) =>
-        new CliFailure({
-          message: `Project ${project.key} is set up, but the next step failed: ${e instanceof CliFailure ? e.message : String(e)}`,
+    // The rest of the setup. What it did is kept even when a later step fails, so it can be reported.
+    const done: {
+      hooks: Effect.Success<ReturnType<typeof installHooks>> | null
+      agentsMd: ReturnType<typeof addAgentsSection> | null
+    } = { hooks: null, agentsMd: null }
+    const failure = yield* Effect.gen(function* () {
+      if (input.hooks) done.hooks = yield* installHooks("local")
+      if (input.agentsMd) {
+        done.agentsMd = yield* Effect.try({
+          try: () => addAgentsSection(checkout, GUIDE, project.key),
+          catch: (e) => new CliFailure({ message: `Can't add the Cello section to ${agentsFile(checkout)}: ${(e as Error).message}.` }),
         })
-      ))
-    const hooks = input.hooks ? yield* afterward(installHooks("local")) : null
-    const agentsMd = input.agentsMd
-      ? yield* afterward(Effect.try({
-        try: () => addAgentsSection(checkout, GUIDE, project.key),
-        catch: (e) => new CliFailure({ message: `Can't add the Cello section to ${agentsFile(checkout)}: ${(e as Error).message}.` }),
-      }))
-      : null
+      }
+    }).pipe(
+      Effect.as(null),
+      Effect.catch((e) => Effect.succeed(new CliFailure({ message: `Project ${project.key} is set up, but the next step failed: ${e.message}` }))),
+    )
+    const { hooks, agentsMd } = done
     if (input.json) {
-      return yield* printJson({ created, project, url, hooks: hooks && { file: hooks.file, changed: hooks.changed }, agentsMd })
+      yield* printJson({
+        created,
+        project,
+        url,
+        hooks: hooks && { file: hooks.file, changed: hooks.changed },
+        agentsMd,
+        ...(failure ? { error: failure.message } : {}),
+      })
+    } else {
+      const lines = [
+        ...(hooks?.lines ?? []),
+        ...(agentsMd === null
+          ? []
+          : agentsMd.changed
+          ? [`Added the "Tracking work in Cello" section to ${agentsMd.file} (uncommitted).`]
+          : [`${agentsMd.file} already has a "Tracking work in Cello" section; left it as it is.`]),
+      ]
+      if (lines.length) yield* print(lines.join("\n"))
     }
-    const lines = [
-      ...(hooks?.lines ?? []),
-      ...(agentsMd === null
-        ? []
-        : agentsMd.changed
-        ? [`Added the "Tracking work in Cello" section to ${agentsMd.file} (uncommitted).`]
-        : [`${agentsMd.file} already has a "Tracking work in Cello" section; left it as it is.`]),
-    ]
-    if (lines.length) yield* print(lines.join("\n"))
+    if (failure) return yield* failure
   })).pipe(Command.withDescription(
     "Make the git repository you're in a Cello project: creates it with this repo's path (the main checkout's, from a worktree), " +
       "named after the folder, with a free key made from the name, and prints its key and board URL. In a repo that's already a " +

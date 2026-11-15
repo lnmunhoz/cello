@@ -9,6 +9,7 @@ import * as WorkspaceService from "../workspace/WorkspaceService.ts"
 import { cmd } from "../testing/fixtures.ts"
 import { asHuman, services } from "../testing/TestLayers.ts"
 import * as ProjectService from "./ProjectService.ts"
+import * as RepoPaths from "./repoPath.ts"
 
 const run = <A, E>(effect: Effect.Effect<A, E, any>) => asHuman(effect).pipe(Effect.provide(services())) as Effect.Effect<A, E>
 
@@ -163,6 +164,31 @@ describe("ProjectService.resolve", () => {
       expect((yield* projects.resolve({ repoPath: repo })).id).toBe(result.id)
       expect(yield* Effect.flip(create({ key: "TWO", repoPath: repo }))).toMatchObject({ _tag: "Invalid", field: "repoPath" })
     })))
+
+  it.effect("a lookup that misses doesn't normalize stored rows again: each path is normalized once per server", () => {
+    const calls: string[] = []
+    const counting = RepoPaths.cachedLayer(async (raw) => {
+      calls.push(raw)
+      return RepoPaths.normalizeRepoPath(raw)
+    })
+    return asHuman(Effect.gen(function* () {
+      const { create, projects } = yield* setup
+      const sql = yield* SqlClient.SqlClient
+      const { repo } = tempRepo()
+      const { result } = yield* create({ repoPath: repo })
+      // An old row, spelled another way, so a miss has to look at it.
+      yield* sql`UPDATE project_repos SET path = ${`${repo}/`} WHERE project_id = ${result.id}`
+      const elsewhere = path.join(path.dirname(repo), "elsewhere")
+      yield* Effect.flip(projects.resolve({ repoPath: elsewhere }))
+      expect(calls).toContain(`${repo}/`)
+      const before = calls.length
+      yield* Effect.flip(projects.resolve({ repoPath: elsewhere }))
+      expect((yield* projects.resolve({ repoPath: repo })).id).toBe(result.id)
+      expect((yield* projects.resolve({ repoPath: repo })).id).toBe(result.id)
+      // `repo` itself was normalized when the project was created.
+      expect(calls.slice(before)).toEqual([])
+    })).pipe(Effect.provide(services({ repoPaths: counting }))) as Effect.Effect<void>
+  })
 
   it.effect("two live projects on one repository (old rows) make the folder ambiguous: Invalid names both", () =>
     run(Effect.gen(function* () {

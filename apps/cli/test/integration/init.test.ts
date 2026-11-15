@@ -200,6 +200,19 @@ describe("cello init", () => {
         failure: `Project CEL is set up, but the next step failed: Can't update ${file}: it isn't valid JSON. Fix it first; Cello won't overwrite it.`,
       })
       expect(fs.readFileSync(file, "utf8")).toBe("{ not json")
+
+      // With --json the project still comes back, with the failure as `error`.
+      const json = yield* agent(repo)("init", "--hooks", "--agents-md", "--json")
+      const message = `Project CEL is set up, but the next step failed: Can't update ${file}: it isn't valid JSON. Fix it first; Cello won't overwrite it.`
+      expect(json.failure).toBe(message)
+      expect(JSON.parse(json.out)).toMatchObject({
+        created: false,
+        project: { key: "CEL", repoPath: repo },
+        url: url("CEL"),
+        hooks: null,
+        agentsMd: null,
+        error: message,
+      })
     }).pipe(Effect.scoped))
 
   it.live("--agents-md appends docs/cli.md's section to AGENTS.md once, keeping what was there", () =>

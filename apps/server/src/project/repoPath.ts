@@ -5,22 +5,40 @@
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+
+const GIT_COMMON_DIR = ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"]
+
+/** The main checkout from `git rev-parse --git-common-dir`'s output; a bare repository is its git dir. */
+const checkoutOf = (output: string): string => {
+  const commonDir = fs.realpathSync(output.trim())
+  return path.basename(commonDir) === ".git" ? path.dirname(commonDir) : commonDir
+}
 
 /**
- * The main checkout of the repository `dir` is in: the parent of `git rev-parse --git-common-dir`, so a
- * linked worktree resolves to the repository it belongs to. Null outside a repository (or without git).
+ * The main checkout of the repository `dir` is in, so a linked worktree resolves to the repository it
+ * belongs to. Null outside a repository (or without git). Synchronous, for the CLI.
  */
 export const repoRootFor = (dir: string): string | null => {
-  let result: ReturnType<typeof Bun.spawnSync>
   try {
-    result = Bun.spawnSync(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: dir, stdout: "pipe", stderr: "ignore" })
+    const result = Bun.spawnSync(GIT_COMMON_DIR, { cwd: dir, stdout: "pipe", stderr: "ignore" })
+    return result.exitCode === 0 ? checkoutOf(result.stdout.toString()) : null
   } catch {
     return null
   }
-  if (result.exitCode !== 0 || !result.stdout) return null
-  const commonDir = fs.realpathSync(result.stdout.toString().trim())
-  // A bare repository has no checkout around its git dir; use the git dir itself.
-  return path.basename(commonDir) === ".git" ? path.dirname(commonDir) : commonDir
+}
+
+/** repoRootFor without blocking: the server keeps answering other requests while git runs. */
+const repoRootForAsync = async (dir: string): Promise<string | null> => {
+  try {
+    const child = Bun.spawn(GIT_COMMON_DIR, { cwd: dir, stdout: "pipe", stderr: "ignore" })
+    const [output, code] = await Promise.all([new Response(child.stdout).text(), child.exited])
+    return code === 0 ? checkoutOf(output) : null
+  } catch {
+    return null
+  }
 }
 
 /** `p` with symlinks resolved in the part of it that exists; the rest (not created yet) is kept as written. */
@@ -39,11 +57,36 @@ const realpathOfExisting = (p: string): string => {
   }
 }
 
-/** The one spelling of a project folder. `home` is what `~` means (the server's HOME). */
-export const normalizeRepoPath = (raw: string, home: string = os.homedir()): string => {
+/** The one spelling of a project folder. `home` is what `~` means (the server's HOME). Never fails. */
+export const normalizeRepoPath = async (raw: string, home: string = os.homedir()): Promise<string> => {
   const trimmed = raw.trim()
   const expanded = trimmed === "~" ? home : trimmed.startsWith("~/") ? path.join(home, trimmed.slice(2)) : trimmed
   const real = realpathOfExisting(path.resolve(expanded))
   const isDir = fs.statSync(real, { throwIfNoEntry: false })?.isDirectory() ?? false
-  return (isDir ? repoRootFor(real) : null) ?? real
+  return (isDir ? await repoRootForAsync(real) : null) ?? real
 }
+
+/** Normalizes project folders for the server (see normalizeRepoPath). */
+export class RepoPaths extends Context.Service<RepoPaths, {
+  readonly normalize: (raw: string) => Effect.Effect<string>
+}>()("cello/RepoPaths") {}
+
+/**
+ * RepoPaths over `normalize`, remembering each answer by the exact string it was given for as long as
+ * the server runs: stored rows never change their text, and a CLI sends the same folder every call, so
+ * git runs once per path, not once per row on every lookup. Lookups of one path at the same time share it.
+ */
+export const cachedLayer = (normalize: (raw: string) => Promise<string>) =>
+  Layer.sync(RepoPaths, () => {
+    const known = new Map<string, Promise<string>>()
+    return RepoPaths.of({
+      normalize: (raw) =>
+        Effect.promise(() => {
+          const answer = known.get(raw) ?? normalize(raw)
+          known.set(raw, answer)
+          return answer
+        }),
+    })
+  })
+
+export const layer = cachedLayer((raw) => normalizeRepoPath(raw))

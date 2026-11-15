@@ -4,8 +4,9 @@
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
+import * as Effect from "effect/Effect"
 import { afterAll, describe, expect, it } from "vitest"
-import { normalizeRepoPath, repoRootFor } from "./repoPath.ts"
+import { cachedLayer, normalizeRepoPath, RepoPaths, repoRootFor } from "./repoPath.ts"
 
 const git = (cwd: string, ...args: string[]) => {
   const result = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" })
@@ -27,22 +28,39 @@ describe("normalizeRepoPath", () => {
   const plain = path.join(base, "notes")
   fs.mkdirSync(plain)
 
-  it("is the same for every spelling of one repository", () => {
+  it("is the same for every spelling of one repository", async () => {
     for (const spelling of [repo, `${repo}/`, `${repo}//`, "~/projects/thai", "~/projects/thai/", path.join(alias, "thai"), path.join(repo, "apps", "web"), worktree]) {
-      expect(normalizeRepoPath(spelling, base), spelling).toBe(repo)
+      expect(await normalizeRepoPath(spelling, base), spelling).toBe(repo)
     }
   })
 
-  it("a folder outside git is itself, resolved; a missing one keeps the part that doesn't exist yet", () => {
-    expect(normalizeRepoPath(`${plain}/`, base)).toBe(plain)
-    expect(normalizeRepoPath("~", base)).toBe(base)
-    expect(normalizeRepoPath(path.join(alias, "not-yet", "x/"), base)).toBe(path.join(base, "projects", "not-yet", "x"))
-    expect(normalizeRepoPath("/code/thai/", base)).toBe("/code/thai")
+  it("a folder outside git is itself, resolved; a missing one keeps the part that doesn't exist yet", async () => {
+    expect(await normalizeRepoPath(`${plain}/`, base)).toBe(plain)
+    expect(await normalizeRepoPath("~", base)).toBe(base)
+    expect(await normalizeRepoPath(path.join(alias, "not-yet", "x/"), base)).toBe(path.join(base, "projects", "not-yet", "x"))
+    expect(await normalizeRepoPath("/code/thai/", base)).toBe("/code/thai")
   })
 
   it("repoRootFor is the main checkout, from a subfolder or a worktree, and null outside git", () => {
     expect(repoRootFor(path.join(repo, "apps"))).toBe(repo)
     expect(repoRootFor(worktree)).toBe(repo)
     expect(repoRootFor(plain)).toBeNull()
+  })
+})
+
+describe("RepoPaths (cached)", () => {
+  it("normalizes each path once, by the string it was given: a second lookup, or one at the same time, doesn't run git again", async () => {
+    const calls: string[] = []
+    const layer = cachedLayer(async (raw) => {
+      calls.push(raw)
+      return raw.replace(/\/+$/, "")
+    })
+    const results = await Effect.runPromise(Effect.gen(function* () {
+      const { normalize } = yield* RepoPaths
+      const first = yield* Effect.all([normalize("/a/"), normalize("/a/")], { concurrency: "unbounded" })
+      return [...first, yield* normalize("/a/"), yield* normalize("/b")]
+    }).pipe(Effect.provide(layer)))
+    expect(results).toEqual(["/a", "/a", "/a", "/b"])
+    expect(calls).toEqual(["/a/", "/b"])
   })
 })
