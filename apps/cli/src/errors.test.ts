@@ -96,4 +96,15 @@ describe("explain", () => {
       "Cello isn't running on 127.0.0.1:4747. Start it with `cello start`.",
     )
   })
+
+  // CEL-17: a server that stops mid-command closes the socket; a write it had started still commits.
+  it("a connection cut off mid-command says a change may have gone through, and to check before rerunning", () => {
+    for (const reason of ["SocketCloseError", "SocketReadError", "SocketWriteError"]) {
+      expect(explain({ _tag: "RpcClientError", reason: { _tag: reason } }, where)).toBe(
+        "Cello on 127.0.0.1:4747 closed the connection before answering; it may have stopped or restarted. " +
+          "If this command changes something, the change may have gone through: check (for example with `cello task get`) " +
+          "before running it again, because a rerun is a new command.",
+      )
+    }
+  })
 })
