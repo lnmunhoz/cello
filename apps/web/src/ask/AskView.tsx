@@ -1,18 +1,17 @@
 import { attachmentUrl } from "@cello/client/sync/reviews"
 import type { Ask, AskOption, AskQuestion, Attachment, Task } from "@cello/contract/entities"
 import { useAtomSet } from "@effect/atom-react"
-import { CheckIcon, ImagePlusIcon, SendIcon, SparklesIcon, XIcon } from "lucide-react"
-import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react"
+import { CheckIcon, Maximize2Icon, SendIcon } from "lucide-react"
+import { useRef, useState, type KeyboardEvent } from "react"
 import { Button } from "../components/ui/Button.tsx"
-import { Textarea } from "../components/ui/Input.tsx"
 import { Markdown } from "../components/ui/Markdown.tsx"
 import { toast } from "../components/ui/Toast.tsx"
 import { commands } from "../lib/cello.ts"
-import { SAVES_ON_BLUR } from "../lib/editing.ts"
 import { relativeTime } from "../lib/format.ts"
 import { readStored, writeStored } from "../lib/storage.ts"
 import { Evidence, openEvidence } from "../review/Evidence.tsx"
 import { openImageModal } from "../viewer/imageModal.ts"
+import { CompareQuestion } from "./Compare.tsx"
 import {
   addScreenshot,
   answerOf,
@@ -29,11 +28,7 @@ import {
   type Target,
   toAnswers,
 } from "./draft.ts"
-
-/** What the agent expects; Lucas may still pick several options on any question (Nov 15). */
-const KIND_HINTS = { one: "Pick one or more", any: "Pick any", text: "Your answer" } as const
-/** The "None of these" choice among a question's options. */
-const NONE = "none"
+import { choicesOf, CommentBox, KIND_HINTS, NONE, NoneChoice, OptionText, PickMark } from "./parts.tsx"
 
 /** Uploads a pasted or dropped screenshot to the ask's drafts; the server answers with its attachment. */
 const upload = async (askId: string, file: Blob, name: string): Promise<Attachment> => {
@@ -190,83 +185,14 @@ interface QuestionCardProps {
 function QuestionCard({ number, question, ask, draft, unanswered, onPick, onNone, onComment, onAttach, onRemove }: QuestionCardProps) {
   const answer = answerOf(draft, question.id)
   const optionsRef = useRef<HTMLDivElement>(null)
+  const expandRef = useRef<HTMLButtonElement>(null)
+  const [comparing, setComparing] = useState(false)
   const promptId = `ask-${ask.id}-${question.id}`
-  // The options and "None of these", in order: one of them in the Tab order (the first picked, else the
-  // first); the arrows move between them.
-  const choices = question.options.length > 0 ? [...question.options.map((o) => o.id), NONE] : []
-  const tabbable = choices.find((id) => (id === NONE ? answer.none : answer.optionIds.includes(id))) ?? choices[0]
-  const focusChoice = (index: number) => optionsRef.current?.querySelectorAll<HTMLElement>("[data-option]")[index]?.focus()
-
-  const onKeyDown = (e: KeyboardEvent<HTMLLIElement>) => {
-    const target = e.target as HTMLElement
-    if (e.metaKey || e.ctrlKey || e.altKey || target.tagName === "TEXTAREA") return
-    const digit = Number(e.key)
-    if (Number.isInteger(digit) && digit >= 1 && digit <= question.options.length) {
-      e.preventDefault()
-      onPick(question.options[digit - 1]!.id)
-      focusChoice(digit - 1)
-    }
-  }
-  const onChoiceKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const step = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0
-    if (step === 0) return
-    e.preventDefault()
-    focusChoice((index + step + choices.length) % choices.length)
-  }
+  const { tabbable, onDigit, onChoiceKeyDown } = choicesOf(question, answer, () => optionsRef.current, onPick)
   const needsWhy = answer.none && answer.comment.trim() === ""
-
-  return (
-    <li
-      data-question={question.id}
-      data-unanswered={unanswered ? "" : undefined}
-      onKeyDown={onKeyDown}
-      className="flex flex-col gap-3 rounded-lg border border-line bg-raised p-4 shadow-card"
-    >
-      <div className="flex items-baseline gap-2.5">
-        <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full bg-sunken text-[11px] font-semibold tabular-nums text-muted">
-          {number}
-        </span>
-        <h5 id={promptId} className="min-w-0 flex-1 text-[13px] leading-snug font-semibold text-ink [overflow-wrap:anywhere]">
-          {question.prompt}
-        </h5>
-        <span className="shrink-0 text-xs text-faint">{KIND_HINTS[question.kind]}</span>
-      </div>
-      {question.options.length > 0 ? (
-        <div ref={optionsRef} role="group" aria-labelledby={promptId} className="flex flex-col gap-1.5">
-          {question.options.map((option, i) => (
-            <OptionButton
-              key={option.id}
-              index={i}
-              option={option}
-              ask={ask}
-              picked={answer.optionIds.includes(option.id)}
-              tabbable={option.id === tabbable}
-              onPick={() => onPick(option.id)}
-              onKeyDown={(e) => onChoiceKeyDown(e, i)}
-            />
-          ))}
-          <button
-            type="button"
-            data-option={NONE}
-            role="checkbox"
-            aria-checked={answer.none}
-            tabIndex={tabbable === NONE ? 0 : -1}
-            onClick={onNone}
-            onKeyDown={(e) => onChoiceKeyDown(e, question.options.length)}
-            data-picked={answer.none ? "" : undefined}
-            className="flex items-center gap-2.5 rounded-md border border-dashed border-line px-3 py-2 text-left text-[13px] text-muted outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring data-picked:border-accent data-picked:text-ink"
-          >
-            <span
-              aria-hidden
-              className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${answer.none ? "border-accent bg-accent text-accent-ink" : "border-line-strong bg-surface"}`}
-            >
-              {answer.none ? <CheckIcon className="size-3" strokeWidth={3} /> : null}
-            </span>
-            None of these
-            <span className="text-xs text-faint">· say what instead below</span>
-          </button>
-        </div>
-      ) : null}
+  // The comment box, inline and in the compare view: one draft, typed in either.
+  const comment = (
+    <>
       <CommentBox
         label={`Comment on question ${number}`}
         placeholder={
@@ -283,6 +209,74 @@ function QuestionCard({ number, question, ask, draft, unanswered, onPick, onNone
         onRemove={onRemove}
       />
       {needsWhy ? <p className="-mt-1 text-xs text-danger">“None of these” needs a comment that says what instead.</p> : null}
+    </>
+  )
+
+  return (
+    <li
+      data-question={question.id}
+      data-unanswered={unanswered ? "" : undefined}
+      onKeyDown={(e: KeyboardEvent) => {
+        // The compare view renders inside this card (dialogs render in place) and takes its own keys.
+        if (!(e.target as HTMLElement).closest("[data-compare]")) onDigit(e)
+      }}
+      className="flex flex-col gap-3 rounded-lg border border-line bg-raised p-4 shadow-card"
+    >
+      <div className="flex items-baseline gap-2.5">
+        <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full bg-sunken text-[11px] font-semibold tabular-nums text-muted">
+          {number}
+        </span>
+        <h5 id={promptId} className="min-w-0 flex-1 text-[13px] leading-snug font-semibold text-ink [overflow-wrap:anywhere]">
+          {question.prompt}
+        </h5>
+        <span className="shrink-0 text-xs text-faint">{KIND_HINTS[question.kind]}</span>
+        {question.options.length > 0 ? (
+          <span className="-my-1 self-center">
+            <Button
+              ref={expandRef}
+              variant="ghost"
+              size="icon"
+              aria-label={`Compare question ${number}'s options full screen`}
+              title="Compare the options full screen"
+              onClick={() => setComparing(true)}
+            >
+              <Maximize2Icon aria-hidden className="size-3.5" />
+            </Button>
+          </span>
+        ) : null}
+      </div>
+      {question.options.length > 0 ? (
+        <div ref={optionsRef} role="group" aria-labelledby={promptId} className="flex flex-col gap-1.5">
+          {question.options.map((option, i) => (
+            <OptionButton
+              key={option.id}
+              index={i}
+              option={option}
+              ask={ask}
+              picked={answer.optionIds.includes(option.id)}
+              tabbable={option.id === tabbable}
+              onPick={() => onPick(option.id)}
+              onKeyDown={(e) => onChoiceKeyDown(e, i)}
+            />
+          ))}
+          <NoneChoice picked={answer.none} tabbable={tabbable === NONE} onPick={onNone} onKeyDown={(e) => onChoiceKeyDown(e, question.options.length)} />
+        </div>
+      ) : null}
+      {comment}
+      {question.options.length > 0 ? (
+        <CompareQuestion
+          open={comparing}
+          onOpenChange={setComparing}
+          opener={() => expandRef.current}
+          number={number}
+          question={question}
+          ask={ask}
+          answer={answer}
+          onPick={onPick}
+          onNone={onNone}
+          comment={comment}
+        />
+      ) : null}
     </li>
   )
 }
@@ -294,7 +288,7 @@ interface OptionButtonProps {
   readonly picked: boolean
   readonly tabbable: boolean
   readonly onPick: () => void
-  readonly onKeyDown: (e: KeyboardEvent<HTMLButtonElement>) => void
+  readonly onKeyDown: (e: KeyboardEvent) => void
 }
 
 function OptionButton({ index, option, ask, picked, tabbable, onPick, onKeyDown }: OptionButtonProps) {
@@ -314,25 +308,10 @@ function OptionButton({ index, option, ask, picked, tabbable, onPick, onKeyDown 
         onKeyDown={onKeyDown}
         className="flex min-w-0 flex-1 items-start gap-2.5 rounded-md px-3 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <span
-          aria-hidden
-          className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${picked ? "border-accent bg-accent text-accent-ink" : "border-line-strong bg-surface"}`}
-        >
-          {picked ? <CheckIcon className="size-3" strokeWidth={3} /> : null}
+        <span className="mt-0.5">
+          <PickMark picked={picked} />
         </span>
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span className="text-[13px] font-medium text-ink [overflow-wrap:anywhere]">{option.label}</span>
-            {option.recommended ? (
-              <span data-recommended className="inline-flex items-center gap-1 rounded-full bg-accent/12 px-1.5 py-px text-[11px] font-medium text-accent">
-                <SparklesIcon aria-hidden className="size-3" />
-                Recommended
-              </span>
-            ) : null}
-          </span>
-          {option.description ? <span className="text-xs text-muted [overflow-wrap:anywhere]">{option.description}</span> : null}
-          {option.recommended && option.because ? <span className="text-xs text-muted italic [overflow-wrap:anywhere]">{option.because}</span> : null}
-        </span>
+        <OptionText option={option} />
         <kbd aria-hidden className="mt-0.5 hidden shrink-0 rounded border border-line px-1 text-[10px] text-faint tabular-nums sm:inline">
           {index + 1}
         </kbd>
@@ -348,91 +327,6 @@ function OptionButton({ index, option, ask, picked, tabbable, onPick, onKeyDown 
           <img src={attachmentUrl(image)} alt="" loading="lazy" className="size-full object-cover object-top" />
         </button>
       ) : null}
-    </div>
-  )
-}
-
-interface CommentBoxProps {
-  readonly label: string
-  readonly placeholder: string
-  readonly value: string
-  readonly screenshots: ReadonlyArray<Attachment>
-  readonly onChange: (text: string) => void
-  readonly onAttach: (files: ReadonlyArray<File>) => void
-  readonly onRemove: (attachmentId: string) => void
-}
-
-const imagesIn = (list: DataTransferItemList | null | undefined): File[] =>
-  [...(list ?? [])].flatMap((item) => {
-    if (item.kind !== "file") return []
-    const file = item.getAsFile()
-    return file ? [file] : []
-  })
-
-/** A comment box that takes pasted (⌘V) and dropped screenshots, shown as thumbnails under it. */
-function CommentBox({ label, placeholder, value, screenshots, onChange, onAttach, onRemove }: CommentBoxProps) {
-  const [dropping, setDropping] = useState(false)
-  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = imagesIn(e.clipboardData?.items)
-    if (files.length === 0) return
-    e.preventDefault()
-    onAttach(files)
-  }
-  const hasFiles = (e: DragEvent) => [...e.dataTransfer.types].includes("Files")
-  return (
-    <div
-      data-comment-box=""
-      data-dropping={dropping ? "" : undefined}
-      onDragOver={(e) => {
-        if (!hasFiles(e)) return
-        e.preventDefault()
-        e.dataTransfer.dropEffect = "copy"
-        setDropping(true)
-      }}
-      onDragLeave={() => setDropping(false)}
-      onDrop={(e) => {
-        if (!hasFiles(e)) return
-        e.preventDefault()
-        setDropping(false)
-        onAttach([...e.dataTransfer.files])
-      }}
-      className="flex flex-col gap-2 rounded-md data-dropping:ring-2 data-dropping:ring-accent"
-    >
-      <Textarea
-        variant="comment"
-        aria-label={label}
-        {...SAVES_ON_BLUR}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.currentTarget.value)}
-        onPaste={onPaste}
-      />
-      {screenshots.length > 0 ? (
-        <ul aria-label="Pasted screenshots" className="flex flex-wrap gap-2">
-          {screenshots.map((shot, i) => (
-            <li key={shot.id} className="relative">
-              <button
-                type="button"
-                aria-label={`Open ${shot.name}`}
-                onClick={(e) => openImageModal(screenshots.map((s) => ({ url: attachmentUrl(s), title: s.name })), i, e.currentTarget)}
-                className="block h-16 w-24 cursor-zoom-in overflow-hidden rounded border border-line bg-sunken outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <img data-pasted-screenshot src={attachmentUrl(shot)} alt="" className="size-full object-cover object-top" />
-              </button>
-              <span className="absolute -top-1.5 -right-1.5">
-                <Button variant="secondary" size="icon" aria-label={`Remove ${shot.name}`} onClick={() => onRemove(shot.id)}>
-                  <XIcon aria-hidden className="size-3" />
-                </Button>
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <span className="flex items-center gap-1.5 text-[11px] text-faint">
-          <ImagePlusIcon aria-hidden className="size-3" />
-          Paste or drop screenshots here
-        </span>
-      )}
     </div>
   )
 }
