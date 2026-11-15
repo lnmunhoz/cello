@@ -59,7 +59,7 @@ const copyImage = async (page: Page, file: string) => {
   }, base64)
 }
 
-test("CEL-47: an agent asks with --wait; Lucas answers on the card, with a pasted screenshot; the agent gets the answers and the card is back in progress", async ({ page, context }) => {
+test("CEL-47: an agent asks with --wait; Lucas answers from the sidebar (several picks, None of these, a pasted screenshot); the agent gets the answers; round 2 follows", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"])
   const key = uniqueKey("ASK")
   const task = `${key}-1`
@@ -98,10 +98,27 @@ test("CEL-47: an agent asks with --wait; Lucas answers on the card, with a paste
 
   await caption(page, "The agent asks on the card and waits: cello task ask --file ask.yaml --wait, in the background")
   const waiting = inBackground("task", "ask", task, "--file", path.join(dir, "ask.yaml"), "--wait")
-  await expect(column(page, "Needs input").locator(`[data-task-key="${task}"]`)).toBeVisible()
-  await expect(card(page, task).locator("[data-questions-badge]")).toHaveText("3 questions")
+  // The Needs input column is off by default: the card stays in In Progress, badged, and the sidebar counts it.
+  await expect(card(page, task).locator("[data-questions-badge]")).toHaveText("Needs input")
+  await expect(column(page, "In Progress").locator(`[data-task-key="${task}"]`)).toBeVisible()
+  await expect(column(page, "Needs input")).toHaveCount(0)
   await expect(page.locator("[data-input-count]")).toHaveText("1 waiting")
   await page.screenshot({ path: path.join(SHOTS, "cel-47-card-needs-input.png") })
+
+  await caption(page, "Display → Needs input column: on, the card has its own column; off again, it's back in In Progress")
+  const display = async (on: boolean) => {
+    await page.getByRole("button", { name: /Display/ }).click()
+    const toggle = page.getByRole("switch", { name: "Needs input column" })
+    if ((await toggle.getAttribute("aria-checked")) !== String(on)) await toggle.click()
+    await expect(toggle).toHaveAttribute("aria-checked", String(on))
+    await page.keyboard.press("Escape")
+  }
+  await display(true)
+  await expect(column(page, "Needs input").locator(`[data-task-key="${task}"]`)).toBeVisible()
+  await page.screenshot({ path: path.join(SHOTS, "cel-47-column-on.png") })
+  await display(false)
+  await expect(column(page, "In Progress").locator(`[data-task-key="${task}"]`)).toBeVisible()
+  await expect(column(page, "Needs input")).toHaveCount(0)
 
   await caption(page, "Lucas opens Needs input in the sidebar: the questions sit first on the Review page")
   await page.getByRole("navigation", { name: "Inbox" }).getByRole("link", { name: /Needs input/ }).click()
@@ -112,8 +129,10 @@ test("CEL-47: an agent asks with --wait; Lucas answers on the card, with a paste
   await expect(ask.getByRole("heading", { name: "Search results layout" })).toBeVisible()
   await expect(ask.locator("[data-recommended]")).toHaveText("Recommended")
   await expect(ask.getByText("Most results are long text")).toBeVisible()
-  // Nothing is picked for him, so Send answers waits.
-  await expect(ask.getByRole("radio", { checked: true })).toHaveCount(0)
+  // The recommended option comes picked; the others wait for him.
+  const first = ask.locator('[data-question="q1"]')
+  await expect(first.getByRole("checkbox", { name: /Peek/ })).toHaveAttribute("aria-checked", "true")
+  await expect(first.getByRole("checkbox", { name: /Palette/ })).toHaveAttribute("aria-checked", "false")
   await expect(ask.getByRole("button", { name: "Send answers" })).toBeDisabled()
   await page.screenshot({ path: path.join(SHOTS, "cel-47-review-page-ask.png") })
 
@@ -124,12 +143,12 @@ test("CEL-47: an agent asks with --wait; Lucas answers on the card, with a paste
   await page.keyboard.press("Escape")
   await expect(modal).toBeHidden()
 
-  await caption(page, "Question 1: he presses 1 to pick Peek, and says what to change")
-  const first = ask.locator('[data-question="q1"]')
-  await first.getByRole("radio", { name: /Peek/ }).focus()
-  await page.keyboard.press("1")
-  await expect(first.getByRole("radio", { name: /Peek/ })).toHaveAttribute("aria-checked", "true")
-  await first.getByRole("textbox", { name: "Comment on question 1" }).fill("Yes, but make the preview narrower, like this:")
+  await caption(page, "Question 1: Peek is already picked; he presses 2 to pick Palette too, and says why")
+  await first.getByRole("checkbox", { name: /Peek/ }).focus()
+  await page.keyboard.press("2")
+  await expect(first.getByRole("checkbox", { name: /Palette/ })).toHaveAttribute("aria-checked", "true")
+  await expect(first.getByRole("checkbox", { name: /Peek/ })).toHaveAttribute("aria-checked", "true")
+  await first.getByRole("textbox", { name: "Comment on question 1" }).fill("Both, behind a toggle. Narrower preview, like this:")
 
   await caption(page, "He pastes a screenshot from the clipboard (⌘V) into the comment")
   const pasted = path.join(dir, "pasted.png")
@@ -138,27 +157,34 @@ test("CEL-47: an agent asks with --wait; Lucas answers on the card, with a paste
   await first.getByRole("textbox", { name: "Comment on question 1" }).focus()
   await page.keyboard.press("ControlOrMeta+V")
   await expect(first.locator("img[data-pasted-screenshot]")).toHaveCount(1)
-  await expect(first.getByRole("textbox", { name: "Comment on question 1" })).toHaveValue("Yes, but make the preview narrower, like this:")
+  await expect(first.getByRole("textbox", { name: "Comment on question 1" })).toHaveValue("Both, behind a toggle. Narrower preview, like this:")
 
-  await caption(page, "Question 2: he picks Filters with the mouse; question 3, a few words")
-  await ask.locator('[data-question="q2"]').getByRole("checkbox", { name: /Filters/ }).click()
+  await caption(page, "Question 2: None of these, which needs a comment")
+  const second = ask.locator('[data-question="q2"]')
+  await second.getByRole("checkbox", { name: /None of these/ }).click()
+  await expect(second.getByText("“None of these” needs a comment that says what instead.")).toBeVisible()
+  await expect(ask.locator("[data-ask-progress]")).toHaveText("1 of 3 answered")
+  await second.getByRole("textbox", { name: "Comment on question 2" }).fill("Neither yet: a saved-search list later.")
   await expect(ask.locator("[data-ask-progress]")).toHaveText("2 of 3 answered")
+
+  await caption(page, "Question 3, a few words")
   await ask.getByRole("textbox", { name: "Comment on question 3" }).fill("Keep the empty state from the old page.")
   await expect(ask.locator("[data-ask-progress]")).toHaveText("All answered")
   await page.screenshot({ path: path.join(SHOTS, "cel-47-answers-drafted.png") })
   // Stills of the open ask, light and dark.
-  await ask.locator('[data-question="q1"]').screenshot({ path: path.join(SHOTS, "cel-47-question-light.png") })
+  await first.screenshot({ path: path.join(SHOTS, "cel-47-question-light.png") })
   await page.getByRole("button", { name: "Use dark theme" }).click()
   await expect(page.locator("html")).toHaveClass(/dark/)
   // The colors fade to the new theme: wait for the fades to end, so the still shows the dark one.
   await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)))
-  await ask.locator('[data-question="q1"]').screenshot({ path: path.join(SHOTS, "cel-47-question-dark.png") })
+  await first.screenshot({ path: path.join(SHOTS, "cel-47-question-dark.png") })
+  await second.screenshot({ path: path.join(SHOTS, "cel-47-none-of-these-dark.png") })
   await page.screenshot({ path: path.join(SHOTS, "cel-47-answers-drafted-dark.png") })
   await page.getByRole("button", { name: "Use light theme" }).click()
 
   await caption(page, "The draft survives a reload")
   await page.reload()
-  await expect(row.locator('[data-question="q1"]').getByRole("radio", { name: /Peek/ })).toHaveAttribute("aria-checked", "true")
+  await expect(row.locator('[data-question="q1"]').getByRole("checkbox", { name: /Palette/ })).toHaveAttribute("aria-checked", "true")
   await expect(row.locator('[data-question="q1"] img[data-pasted-screenshot]')).toHaveCount(1)
   await expect(row.getByRole("textbox", { name: "Comment on question 3" })).toHaveValue("Keep the empty state from the old page.")
 
@@ -172,8 +198,8 @@ test("CEL-47: an agent asks with --wait; Lucas answers on the card, with a paste
   expect(code).toBe(0)
   await showTerminal(page, `cello task ask ${task} --file ask.yaml --wait`, out)
   expect(out).toContain(`answered "Search results layout" on ${task}`)
-  expect(out).toContain("1. Which layout?\n   Picked: Peek: list + preview (your recommendation)\n   Comment: Yes, but make the preview narrower, like this:")
-  expect(out).toContain("2. Which extras?\n   Picked: Filters")
+  expect(out).toContain("1. Which layout?\n   Picked: Peek: list + preview (your recommendation), Palette: one line per result\n   Comment: Both, behind a toggle.")
+  expect(out).toContain("2. Which extras?\n   Picked: None of these\n   Comment: Neither yet: a saved-search list later.")
   expect(out).toContain("3. Anything else before I build it?\n   Comment: Keep the empty state from the old page.")
   const saved = /Screenshot: (\S+)/.exec(out)![1]!
   // The clipboard re-encodes an image, so compare what it shows: a PNG of the same size as the one copied.
@@ -183,19 +209,26 @@ test("CEL-47: an agent asks with --wait; Lucas answers on the card, with a paste
     return [bytes.readUInt32BE(16), bytes.readUInt32BE(20)]
   }
   expect(pngSize(saved)).toEqual(pngSize(pasted))
-  await expect(page.getByLabel("Agent terminal")).toContainText("Picked: Filters")
+  await expect(page.getByLabel("Agent terminal")).toContainText("Picked: None of these")
   await page.screenshot({ path: path.join(SHOTS, "cel-47-agent-gets-answers.png") })
 
-  await caption(page, "The card is back in In Progress, and the answers stay in the task's history")
+  await caption(page, "Round 2: the agent asks a follow-up on the same card")
   await hideTerminal(page)
   await page.goto(`/${key}`)
   await expect(column(page, "In Progress").locator(`[data-task-key="${task}"]`)).toBeVisible()
+  await expect(card(page, task).locator("[data-questions-badge]")).toHaveCount(0)
+  agent("task", "ask", task, "--title", "The toggle", "--question", "Where does the layout toggle go?",
+    "--option", "Header", "--recommend", "Header", "--because", "Next to the search box", "--option", "Footer")
+  await expect(card(page, task).locator("[data-questions-badge]")).toHaveText("Needs input")
+
+  await caption(page, "The task shows the rounds as a thread: round 1 answered, round 2 open")
   await card(page, task).click()
   const questions = page.getByRole("region", { name: "Questions" })
-  await expect(questions).toContainText("Search results layout")
-  await questions.getByRole("button", { name: /Search results layout/ }).click()
+  await expect(questions.locator("[data-round]")).toHaveText([/Round 1 · answered.*Search results layout/, /Round 2 · open.*The toggle/])
+  await questions.getByRole("button", { name: /Round 1 · answered/ }).click()
   await expect(questions.locator("[data-ask-record] li[data-picked]")).toHaveCount(2)
+  await expect(questions.locator("[data-none-of-these]")).toHaveCount(1)
   await expect(questions).toContainText("Keep the empty state from the old page.")
-  await page.screenshot({ path: path.join(SHOTS, "cel-47-history-record.png") })
+  await page.screenshot({ path: path.join(SHOTS, "cel-47-rounds-thread.png") })
   fs.rmSync(dir, { recursive: true, force: true })
 })
