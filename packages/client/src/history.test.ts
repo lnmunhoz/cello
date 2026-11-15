@@ -71,3 +71,16 @@ describe("describeEvent", () => {
     )
   })
 })
+
+describe("describeEvent with a name (CEL-55)", () => {
+  it("names who the caller says: a subagent under its session", () => {
+    expect(describeEvent(ev({ type: "task.stage_changed", id: "t", version: 3, before: null, after: "building" }, "claude"), state, "cello-builder · a13bfb89"))
+      .toBe("cello-builder · a13bfb89 set the stage to Building")
+  })
+
+  it("says what an agent check-in was", () => {
+    const agent = { sessionId: "s1", agentId: "a13bfb89", agentType: "cello-builder", taskId: "t", description: null, startedAt: 1, lastSeenAt: 2, endedAt: null }
+    expect(describeEvent(ev({ type: "agent.seen", agent }), state, "cello-builder · a13bfb89")).toBe("cello-builder · a13bfb89 checked in")
+    expect(describeEvent(ev({ type: "agent.seen", agent: { ...agent, endedAt: 3 } }), state, "cello-builder · a13bfb89")).toBe("cello-builder · a13bfb89 finished")
+  })
+})

@@ -50,7 +50,7 @@ describe("orderTasks: the order cards show in inside a column or group", () => {
   })
 
   it("last updated counts a comment: a fresh one moves its card up", () => {
-    const board = fromSnapshot({ seq: 1, actors: [], workspaces: [], projects: [], statuses: [], labels: [], tasks: column, sessions: [], reviews: [], asks: [], documents: [] })
+    const board = fromSnapshot({ seq: 1, actors: [], workspaces: [], projects: [], statuses: [], labels: [], tasks: column, sessions: [], agents: [], reviews: [], asks: [], documents: [] })
     const comment = { id: "k1", taskId: "b", body: "Hi", actorId: "me", sessionId: null, createdAt: 70, updatedAt: 70, deletedAt: null }
     const next = applyEvents(board, [{
       seq: 2, ts: 70, commandId: "c2", actorId: "me", sessionId: null, workspaceId: "w1", projectId: "p1", schemaVersion: 1, type: "comment.added", comment,

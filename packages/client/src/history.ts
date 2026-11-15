@@ -13,8 +13,12 @@ const WITHDRAWN = { agent: "withdrew the questions", moved: "moved it out of Nee
 
 const TAKEN_BECAUSE = { holder_exited: " (its session had exited)", holder_idle: " (its session was quiet for 2 hours)", human: "" }
 
-export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | "statuses" | "labels">): string => {
-  const who = state.actors[e.actorId]?.name ?? "Someone"
+/**
+ * `name`: who did it, when the caller knows better than the actor's name ("Claude Code session
+ * 2fd0505c", "cello-builder · a13bfb89", CEL-55); else the actor's name.
+ */
+export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | "statuses" | "labels">, name?: string): string => {
+  const who = name ?? state.actors[e.actorId]?.name ?? "Someone"
   const status = (id: string) => state.statuses[id]?.name ?? "another status"
   const label = (id: string) => state.labels[id]?.name ?? "a label"
   switch (e.type) {
@@ -49,6 +53,8 @@ export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | 
       return e.after === null ? `${who} cleared the stage` : `${who} set the stage to ${stageInfo(e.after)?.label ?? e.after}`
     case "session.seen":
       return e.session.endedAt === null ? `${who} checked in` : `${who}'s session ended`
+    case "agent.seen":
+      return e.agent.endedAt === null ? `${who} checked in` : `${who} finished`
     case "comment.added":
       return `${who} commented`
     case "comment.edited":

@@ -23,6 +23,7 @@ import {
   QuestionKind,
   Review,
   Scope,
+  SessionAgent,
   Snapshot,
   Status,
   Task,
@@ -34,11 +35,19 @@ import { SearchKind, SearchResults } from "./search.ts"
 import { TaskStage } from "./stages.ts"
 import { DocumentList, Inbox, LabelList, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
 
-/** Who is calling, resolved by the server from per-request RPC headers. */
+/**
+ * Who is calling, resolved by the server from per-request RPC headers. `agentId`: the session's subagent
+ * making the call (CEL-55), when it said so (`x-cello-agent`); absent or null for the session itself.
+ */
 export class Caller extends Context.Service<Caller, {
   readonly actorId: string
   readonly sessionId: string | null
+  readonly agentId?: string | null
 }>()("cello/Caller") {}
+
+/** What `agent.report` says happened to a subagent. */
+export const AgentReportState = Schema.Literals(["started", "launched", "stopped"])
+export type AgentReportState = typeof AgentReportState.Type
 
 export class CallerMiddleware extends RpcMiddleware.Service<CallerMiddleware, {
   provides: Caller
@@ -51,6 +60,9 @@ export const IDENTITY_HEADERS = {
   cwd: "x-cello-cwd",
   pid: "x-cello-pid",
   entrypoint: "x-cello-entrypoint",
+  /** The session's subagent making the call (CEL-55): its host id, and what it was launched as. */
+  agent: "x-cello-agent",
+  agentType: "x-cello-agent-type",
 } as const
 
 /** The `x-cello-session` value that records the human, whatever agent variables are set. */
@@ -259,6 +271,21 @@ export const CelloRpcs = RpcGroup.make(
   // time; `unreadOnly` leaves out the ones read before. Read marks are the session's own bookkeeping,
   // not board changes: no commandId, no event. (`context` shows new items without taking them.)
   Rpc.make("inbox.take", { payload: { unreadOnly: Schema.optionalKey(Schema.Boolean) }, success: Inbox }),
+
+  // A subagent of the caller's session (CEL-55), as Claude Code's hooks see it: `started` (SubagentStart),
+  // `launched` (the parent's Agent tool returned its id, with the launch's description and prompt, which
+  // name the task) or `stopped` (SubagentStop). Presence bookkeeping like a check-in: no commandId; boards
+  // hear it as `agent.seen`. The human, or a session-less call, changes nothing.
+  Rpc.make("agent.report", {
+    payload: {
+      agentId: Schema.String,
+      agentType: Schema.NullOr(Schema.String),
+      state: AgentReportState,
+      description: Schema.optionalKey(Schema.String),
+      prompt: Schema.optionalKey(Schema.String),
+    },
+    success: Schema.NullOr(SessionAgent),
+  }),
 
   // Review packets. `review.submit` copies the files (absolute paths on this machine) into the data
   // folder and moves the task to In Review, in one command. Only the human approves or sends back.

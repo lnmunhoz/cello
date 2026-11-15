@@ -11,6 +11,7 @@ import { Markdown } from "../components/ui/Markdown.tsx"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.tsx"
 import { commands, commentsFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
+import { type Who, whoOf } from "../presence/model.ts"
 import type { TaskSearch } from "./view.ts"
 
 export function Comments({ board, task }: { board: BoardState; task: Task }) {
@@ -35,7 +36,7 @@ export function Comments({ board, task }: { board: BoardState; task: Task }) {
       {AsyncResult.isInitial(result) ? <p className="text-xs text-faint">Loading comments…</p> : null}
       <ul className="flex flex-col gap-2">
         {comments.map((c) => (
-          <CommentItem key={c.id} comment={c} author={board.actors[c.actorId]?.name ?? "Someone"} target={c.id === target} />
+          <CommentItem key={c.id} comment={c} author={whoOf(board, c.actorId, c.sessionId, c.agentId)} target={c.id === target} />
         ))}
       </ul>
       <div className="flex flex-col gap-2">
@@ -63,7 +64,7 @@ export function Comments({ board, task }: { board: BoardState; task: Task }) {
 }
 
 /** `target`: the comment the task was opened at; it's scrolled to on arrival and flashes once. */
-function CommentItem({ comment, author, target }: { comment: Comment; author: string; target: boolean }) {
+function CommentItem({ comment, author, target }: { comment: Comment; author: Who; target: boolean }) {
   const edit = useAtomSet(commands.editComment, { mode: "promiseExit" })
   const remove = useAtomSet(commands.deleteComment)
   const [draft, setDraft] = useState<string | null>(null)
@@ -82,7 +83,11 @@ function CommentItem({ comment, author, target }: { comment: Comment; author: st
       className={`flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-3 py-2.5 shadow-card ${target ? "comment-flash" : ""}`}
     >
       <div className="flex items-center gap-2 text-xs">
-        <span className="font-medium text-ink">{author}</span>
+        {/* An agent session by its id, a subagent by its type and id with its session after it (CEL-55). */}
+        <span className="min-w-0 truncate" data-comment-author title={author.parent ? `${author.name}, under ${author.parent}` : author.name}>
+          <span className="font-medium text-ink">{author.name}</span>
+          {author.parentShort ? <span className="text-faint"> · under {author.parentShort}</span> : null}
+        </span>
         <span className="text-faint">
           {relativeTime(comment.createdAt)}
           {comment.updatedAt > comment.createdAt ? " · edited" : ""}

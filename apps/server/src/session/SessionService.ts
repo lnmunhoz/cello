@@ -26,7 +26,29 @@ export interface Identity {
   readonly pid?: number | undefined
   readonly cwd?: string | undefined
   readonly entrypoint?: string | undefined
+  /** The session's subagent making the call (CEL-55): its host id, and what it was launched as. */
+  readonly agent?: string | undefined
+  readonly agentType?: string | undefined
 }
+
+/** Longest agent id, type or description kept: hosts use short ids; anything longer is cut, never refused. */
+export const MAX_AGENT_TEXT = 200
+
+/** An agent id or type from outside, trimmed and capped; empty is none. */
+export const cleanAgentText = (value: string | null | undefined): string | null => {
+  const text = value?.trim().slice(0, MAX_AGENT_TEXT)
+  return text ? text : null
+}
+
+/**
+ * Records a call from a session's subagent (CEL-55): created on first sight with its type, else seen
+ * now, a type learnt late filled in, and an ended (resumed) agent live again. AgentService has the rest.
+ */
+export const touchAgent = (sql: SqlClient.SqlClient, sessionId: string, agentId: string, agentType: string | null, now: number) =>
+  sql`INSERT INTO session_agents (session_id, agent_id, agent_type, started_at, last_seen_at)
+    VALUES (${sessionId}, ${agentId}, ${agentType}, ${now}, ${now})
+    ON CONFLICT (session_id, agent_id) DO UPDATE SET
+      last_seen_at = excluded.last_seen_at, ended_at = NULL, agent_type = COALESCE(excluded.agent_type, agent_type)`
 
 /** A claim holder with no pid is gone after this long without a call. */
 export const IDLE_CLAIM_MS = 2 * 60 * 60 * 1000
@@ -129,25 +151,32 @@ const make = Effect.gen(function* () {
     const external = identity.session?.trim()
     if (!external || external === HUMAN_SESSION) return { actorId: human.id, sessionId: null }
     const client = identity.client?.trim() || UNKNOWN_CLIENT
+    const agentId = cleanAgentText(identity.agent)
     return yield* sql.withTransaction(Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis
       const raw = JSON.stringify(identity)
       const existing = yield* sql<{ id: string; actor_id: string }>`
         SELECT id, actor_id FROM agent_sessions WHERE external_id = ${external}`
+      let caller: { actorId: string; sessionId: string }
       if (existing[0]) {
         yield* sql`UPDATE agent_sessions SET last_seen_at = ${now}, ended_at = NULL, pid = COALESCE(${identity.pid ?? null}, pid),
             cwd = COALESCE(${identity.cwd ?? null}, cwd), entrypoint = COALESCE(${identity.entrypoint ?? null}, entrypoint),
             identity_json = ${raw}
           WHERE id = ${existing[0].id}`
-        return { actorId: existing[0].actor_id, sessionId: existing[0].id }
+        caller = { actorId: existing[0].actor_id, sessionId: existing[0].id }
+      } else {
+        const actorId = yield* actorFor(client, external, now)
+        const id = newId(now)
+        yield* sql`INSERT INTO agent_sessions (id, actor_id, external_id, client_name, entrypoint, cwd, project_id, pid,
+                                               identity_json, started_at, last_seen_at, created_at)
+          VALUES (${id}, ${actorId}, ${external}, ${client}, ${identity.entrypoint ?? null}, ${identity.cwd ?? null}, NULL,
+                  ${identity.pid ?? null}, ${raw}, ${now}, ${now}, ${now})`
+        caller = { actorId, sessionId: id }
       }
-      const actorId = yield* actorFor(client, external, now)
-      const id = newId(now)
-      yield* sql`INSERT INTO agent_sessions (id, actor_id, external_id, client_name, entrypoint, cwd, project_id, pid,
-                                             identity_json, started_at, last_seen_at, created_at)
-        VALUES (${id}, ${actorId}, ${external}, ${client}, ${identity.entrypoint ?? null}, ${identity.cwd ?? null}, NULL,
-                ${identity.pid ?? null}, ${raw}, ${now}, ${now}, ${now})`
-      return { actorId, sessionId: id }
+      // A subagent's call (CEL-55): recorded under the session, and the caller says which agent it is.
+      if (agentId === null) return caller
+      yield* touchAgent(sql, caller.sessionId, agentId, cleanAgentText(identity.agentType), now)
+      return { ...caller, agentId }
     }))
   }, Effect.orDie)
 

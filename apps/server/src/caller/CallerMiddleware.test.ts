@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect"
 import * as Headers from "effect/http/Headers"
 import * as Layer from "effect/Layer"
 import * as Seed from "../persistence/Seed.ts"
+import { AgentService } from "../session/AgentService.ts"
 import { SessionService } from "../session/SessionService.ts"
 import { services, TEST_HUMAN } from "../testing/TestLayers.ts"
 import * as CallerLayer from "./CallerMiddleware.ts"
@@ -75,7 +76,12 @@ describe("CallerMiddleware", () => {
         resolve: () => Effect.succeed({ actorId: "agent", sessionId: "s1" }),
         checkIn: () => Effect.die(new Error("database is locked")),
       } as unknown as SessionService["Service"])
-      const middleware = yield* CallerMiddleware.pipe(Effect.provide(CallerLayer.layer), Effect.provideService(SessionService, fake))
+      const agents = AgentService.of({ checkIn: () => Effect.void } as unknown as AgentService["Service"])
+      const middleware = yield* CallerMiddleware.pipe(
+        Effect.provide(CallerLayer.layer),
+        Effect.provideService(SessionService, fake),
+        Effect.provideService(AgentService, agents),
+      )
       const result = yield* middleware(Effect.succeed("committed") as any, {
         client: {} as any,
         requestId: 0n as any,
@@ -96,4 +102,13 @@ describe("CallerMiddleware", () => {
     })
     expect(CallerLayer.identityFromHeaders(Headers.fromInput({ [IDENTITY_HEADERS.pid]: "abc" }))).toEqual({})
   })
+
+  it.effect("a subagent's headers (CEL-55) resolve to its session, with the agent named on the caller", () =>
+    run(Effect.gen(function* () {
+      const session = yield* callerFor(cli)
+      const agent = yield* callerFor({ ...cli, [IDENTITY_HEADERS.agent]: "a13bfb89", [IDENTITY_HEADERS.agentType]: "cello-builder" })
+      expect(agent).toEqual({ ...session, agentId: "a13bfb89" })
+      expect(CallerLayer.identityFromHeaders(Headers.fromInput({ [IDENTITY_HEADERS.agent]: " a13bfb89 ", [IDENTITY_HEADERS.agentType]: "" })))
+        .toEqual({ agent: "a13bfb89" })
+    })))
 })

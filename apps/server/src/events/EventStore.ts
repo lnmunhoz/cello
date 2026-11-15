@@ -15,6 +15,8 @@ export interface EventContext {
   readonly commandId: string
   readonly actorId: string
   readonly sessionId: string | null
+  /** The session's subagent that caused it (CEL-55), or null. */
+  readonly agentId: string | null
   readonly workspaceId: string
   readonly projectId: string | null
 }
@@ -28,6 +30,7 @@ interface EventRow {
   command_id: string
   actor_id: string
   session_id: string | null
+  agent_id: string | null
   schema_version: number
   payload: string
 }
@@ -55,6 +58,8 @@ export const entityOf = (body: EventBody): { readonly type: string; readonly id:
       return { type, id: body.document.id }
     case "session.seen":
       return { type, id: body.session.id }
+    case "agent.seen":
+      return { type, id: `${body.agent.sessionId}/${body.agent.agentId}` }
     case "build.recorded":
       return { type, id: body.build.id }
     default:
@@ -71,6 +76,7 @@ const decodeRow = (row: EventRow): CelloEvent =>
     commandId: row.command_id,
     actorId: row.actor_id,
     sessionId: row.session_id,
+    agentId: row.agent_id,
     workspaceId: row.workspace_id,
     projectId: row.project_id,
     schemaVersion: row.schema_version,
@@ -108,9 +114,9 @@ const make = Effect.gen(function* () {
     const { type, ...payload } = body
     const rows = yield* sql<{ seq: number }>`
       INSERT INTO events (ts, type, entity_type, entity_id, workspace_id, project_id, command_id, actor_id, session_id,
-                          schema_version, payload, created_at)
+                          agent_id, schema_version, payload, created_at)
       VALUES (${context.ts}, ${type}, ${entity.type}, ${entity.id}, ${context.workspaceId}, ${context.projectId},
-              ${context.commandId}, ${context.actorId}, ${context.sessionId}, ${CURRENT_SCHEMA_VERSION},
+              ${context.commandId}, ${context.actorId}, ${context.sessionId}, ${context.agentId}, ${CURRENT_SCHEMA_VERSION},
               ${JSON.stringify(payload)}, ${context.ts})
       RETURNING seq`
     return { ...context, ...body, seq: rows[0]!.seq, schemaVersion: CURRENT_SCHEMA_VERSION } as CelloEvent
