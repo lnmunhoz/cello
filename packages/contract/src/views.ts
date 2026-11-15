@@ -34,19 +34,22 @@ export const ProjectContext = Schema.Struct({
   recent: Schema.Array(Activity),
   /** Claims this session lost, newest first: taken over by another session, or ended by a human change. */
   lostClaims: Schema.Array(Activity),
-  /** Comments waiting in this session's inbox, from every project, oldest first (empty for the human). */
+  /**
+   * New comments waiting in this session's inbox, from every project, oldest first (empty for the
+   * human). Showing them doesn't mark them read: subagents share their parent's session.
+   */
   inbox: Schema.Array(InboxItem),
 })
 export type ProjectContext = typeof ProjectContext.Type
 
-/** An agent session's inbox (`cello inbox`): the human's comments on tasks it claimed. */
+/** What `inbox.take` hands an agent session (`cello inbox`, the hook): the human's comments on tasks it claimed. */
 export const Inbox = Schema.Struct({
   /** The caller's session; null for the human, who has no inbox. */
   session: Schema.NullOr(AgentSession),
-  /** Oldest first: every new item, plus (unless only new ones were asked for) the latest read ones. */
+  /** The new items this call handed over, now marked read, oldest first. Another call never gets them. */
   items: Schema.Array(InboxItem),
-  /** How many items are new. */
-  unread: Schema.Number,
+  /** The latest items read before, oldest first; empty when only new ones were asked for. */
+  earlier: Schema.Array(InboxItem),
 })
 export type Inbox = typeof Inbox.Type
 

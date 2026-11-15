@@ -92,14 +92,18 @@ test("CEL-15: a comment typed in the task panel and a Send back on the Review pa
   await page.getByRole("link", { name: "Inbox test" }).click()
   await expect(column(page, "In Progress").locator(`[data-task-key="${task}"]`)).toBeVisible()
 
-  await caption(page, "When the agent stops, its Stop hook hands the note back and keeps it working")
+  await caption(page, "When the agent stops, its Stop hook hands the note back as feedback and keeps it working")
   const stdin = JSON.stringify({ session_id: SESSION, hook_event_name: "Stop", stop_hook_active: false, last_assistant_message: "Submitted." })
   const hook = celloAs(null, { stdin })("hook", "claude", "stop")
-  const decision = JSON.parse(hook) as { decision: string; reason: string }
-  await showTerminal(page, "cello hook claude stop   # stdin: Claude Code's Stop JSON", `{"decision": "${decision.decision}", "reason": (below)}\n\n${decision.reason}`)
-  expect(decision.decision).toBe("block")
-  expect(decision.reason).toMatch(new RegExp(`${task}  Comments reach agents\n  .+ sent it back, just now\n    The empty state still shows a spinner first\\.`))
-  expect(decision.reason).toContain(`hand it in again with \`cello task submit ${task}\``)
+  const { hookSpecificOutput: feedback } = JSON.parse(hook) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } }
+  await showTerminal(
+    page,
+    "cello hook claude stop   # stdin: Claude Code's Stop JSON",
+    `{"hookSpecificOutput": {"hookEventName": "${feedback.hookEventName}", "additionalContext": (below)}}\n\n${feedback.additionalContext}`,
+  )
+  expect(feedback.hookEventName).toBe("Stop")
+  expect(feedback.additionalContext).toMatch(new RegExp(`${task}  Comments reach agents\n  .+ sent it back, just now\n    The empty state still shows a spinner first\\.`))
+  expect(feedback.additionalContext).toContain(`hand it in again with \`cello task submit ${task}\``)
   await expect(page.getByLabel("Agent terminal")).toContainText("sent it back")
 
   await caption(page, "The next stop goes through: nothing new")

@@ -196,10 +196,11 @@ export const CelloRpcs = RpcGroup.make(
     error: Schema.Union([NotFound, Invalid]),
   }),
 
-  // The caller's inbox (CEL-15): the human's comments on tasks its session claimed. Read marks are the
-  // session's own bookkeeping, not board changes: no commandId, no event, and marking twice is harmless.
-  Rpc.make("inbox.list", { payload: { unreadOnly: Schema.optionalKey(Schema.Boolean) }, success: Inbox }),
-  Rpc.make("inbox.markRead", { payload: { ids: Schema.Array(Id) }, success: Schema.Struct({ marked: Schema.Number }) }),
+  // The caller's inbox (CEL-15): the human's comments on tasks its session claimed. Takes the new items
+  // and marks them read in one step, so each is handed over once, even to takers running at the same
+  // time; `unreadOnly` leaves out the ones read before. Read marks are the session's own bookkeeping,
+  // not board changes: no commandId, no event. (`context` shows new items without taking them.)
+  Rpc.make("inbox.take", { payload: { unreadOnly: Schema.optionalKey(Schema.Boolean) }, success: Inbox }),
 
   // Review packets. `review.submit` copies the files (absolute paths on this machine) into the data
   // folder and moves the task to In Review, in one command. Only the human approves or sends back.

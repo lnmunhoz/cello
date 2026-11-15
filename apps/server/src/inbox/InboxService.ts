@@ -2,9 +2,10 @@
 // agent session holding the task's claim at that moment. A Send back note goes the same way, and when
 // a human change ended the claim during review, to the session that submitted the packet. Agents'
 // comments (their own or another session's) are never delivered, and nothing reaches a session after
-// its claim ends. Reading marks items read for that session only; marks aren't board state, so they
-// write no events (like a session's `last_seen_at`).
-import type { Comment, InboxKind } from "@cello/contract/entities"
+// its claim ends. `take` hands the new items over and marks them read in one statement, so each item
+// reaches the session once, even when several hooks ask at the same time. Read marks belong to the
+// session, not the board, so they write no events (like a session's `last_seen_at`).
+import type { Comment, InboxItem, InboxKind } from "@cello/contract/entities"
 import { Caller } from "@cello/contract/rpcs"
 import type { Inbox } from "@cello/contract/views"
 import * as Clock from "effect/Clock"
@@ -18,14 +19,17 @@ import { newId } from "../persistence/ids.ts"
 import { selectInboxItems } from "../persistence/rows.ts"
 import { SessionService } from "../session/SessionService.ts"
 
-/** How many read items the full list shows after the new ones. */
+/** How many items read before `take` returns as `earlier`. */
 export const EARLIER = 10
 
 export class InboxService extends Context.Service<InboxService, {
-  /** The caller's inbox: new items, plus the latest read ones unless `unreadOnly`. Empty for the human. */
-  readonly list: (query: { readonly unreadOnly?: boolean }) => Effect.Effect<Inbox, never, Caller>
-  /** Marks the caller's items read; others' items and ones already read are left alone. */
-  readonly markRead: (ids: ReadonlyArray<string>) => Effect.Effect<{ readonly marked: number }, never, Caller>
+  /**
+   * Hands the caller its new items and marks them read, atomically: a second take, even a concurrent
+   * one, never gets the same item. Also returns the latest read ones unless `unreadOnly`. Empty for the human.
+   */
+  readonly take: (query: { readonly unreadOnly?: boolean }) => Effect.Effect<Inbox, never, Caller>
+  /** The caller's new items, oldest first, left new (for `context`, which subagents run too). */
+  readonly unread: Effect.Effect<ReadonlyArray<InboxItem>, never, Caller>
   /**
    * For the command that adds a comment: delivers it, in that command's transaction, to whoever should
    * get it (see the top of this file). `send_back` is a review's note, added by the same command.
@@ -60,34 +64,33 @@ const make = Effect.gen(function* () {
         ON CONFLICT (session_id, comment_id) DO NOTHING`
     }).pipe(Effect.withSpan("InboxService.deliverWithin"))
 
-  const list = Effect.fn("InboxService.list")(function* (query: { readonly unreadOnly?: boolean }) {
+  const take = Effect.fn("InboxService.take")(function* (query: { readonly unreadOnly?: boolean }) {
     const caller = yield* Caller
-    if (caller.sessionId === null) return { session: null, items: [], unread: 0 }
-    const [session] = yield* sessions.byIds([caller.sessionId])
-    const unread = yield* selectInboxItems(sql, sql`i.session_id = ${caller.sessionId} AND i.read_at IS NULL`)
-    const earlier = query.unreadOnly
-      ? []
-      : yield* selectInboxItems(
+    const sessionId = caller.sessionId
+    if (sessionId === null) return { session: null, items: [], earlier: [] }
+    const [session] = yield* sessions.byIds([sessionId])
+    const now = yield* Clock.currentTimeMillis
+    return yield* sql.withTransaction(Effect.gen(function* () {
+      const earlier = query.unreadOnly ? [] : yield* selectInboxItems(
         sql,
-        sql`i.id IN (SELECT id FROM inbox_items WHERE session_id = ${caller.sessionId} AND read_at IS NOT NULL
+        sql`i.id IN (SELECT id FROM inbox_items WHERE session_id = ${sessionId} AND read_at IS NOT NULL
                      ORDER BY created_at DESC, rowid DESC LIMIT ${EARLIER})`,
       )
-    const items = [...earlier, ...unread].sort((a, b) => a.createdAt - b.createdAt)
-    return { session: session ?? null, items, unread: unread.length }
+      // One statement marks and claims them: whoever runs it first gets them, nobody else does.
+      const taken = yield* sql<{ id: string }>`
+        UPDATE inbox_items SET read_at = ${now} WHERE session_id = ${sessionId} AND read_at IS NULL RETURNING id`
+      const items = taken.length === 0 ? [] : yield* selectInboxItems(sql, sql.in("i.id", taken.map((r) => r.id)))
+      return { session: session ?? null, items, earlier }
+    }))
   }, Effect.orDie)
 
-  const markRead = Effect.fn("InboxService.markRead")(function* (ids: ReadonlyArray<string>) {
+  const unread = Effect.gen(function* () {
     const caller = yield* Caller
-    if (caller.sessionId === null || ids.length === 0) return { marked: 0 }
-    const now = yield* Clock.currentTimeMillis
-    const rows = yield* sql<{ id: string }>`
-      UPDATE inbox_items SET read_at = ${now}
-      WHERE session_id = ${caller.sessionId} AND read_at IS NULL AND ${sql.in("id", [...new Set(ids)])}
-      RETURNING id`
-    return { marked: rows.length }
-  }, Effect.orDie)
+    if (caller.sessionId === null) return []
+    return yield* selectInboxItems(sql, sql`i.session_id = ${caller.sessionId} AND i.read_at IS NULL`)
+  }).pipe(Effect.orDie, Effect.withSpan("InboxService.unread"))
 
-  return InboxService.of({ list, markRead, deliverWithin })
+  return InboxService.of({ take, unread, deliverWithin })
 })
 
 export const layer = Layer.effect(InboxService, make)

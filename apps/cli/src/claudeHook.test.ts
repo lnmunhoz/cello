@@ -39,8 +39,8 @@ describe("hookSession", () => {
 })
 
 describe("hookResponse", () => {
-  it("Stop: blocks the stop with the comments as the reason, so the agent keeps going", () => {
-    expect(hookResponse("stop", "New comment")).toEqual({ decision: "block", reason: "New comment" })
+  it("Stop: hands the comments back as hook feedback, which keeps the agent going without showing a hook error", () => {
+    expect(hookResponse("stop", "New comment")).toEqual({ hookSpecificOutput: { hookEventName: "Stop", additionalContext: "New comment" } })
   })
 
   it("PostToolUse: adds the comments as context next to the tool result", () => {

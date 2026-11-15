@@ -3,10 +3,11 @@
 // https://code.claude.com/docs/en/hooks (checked 2026-11-15):
 //
 //   stdin   { session_id, cwd, hook_event_name, stop_hook_active (Stop), agent_id (inside a subagent), … }
-//   Stop        { "decision": "block", "reason": "…" }   keeps the agent going, with `reason` as what to do
-//   PostToolUse { "hookSpecificOutput": { "hookEventName": "PostToolUse", "additionalContext": "…" } }
+//   both    { "hookSpecificOutput": { "hookEventName": "Stop" | "PostToolUse", "additionalContext": "…" } }
 //
-// Printing nothing and exiting 0 lets the session carry on as if there were no hook.
+// On Stop, additionalContext "keeps the conversation going through the same loop protections as
+// `decision: "block"` … but the transcript labels it `Stop hook feedback` and no hook error
+// notification is shown". Printing nothing and exiting 0 lets the session carry on as if there were no hook.
 import type { Env } from "./identity.ts"
 
 export const HOOK_EVENTS = ["stop", "post-tool-use"] as const
@@ -14,6 +15,9 @@ export type HookEvent = (typeof HOOK_EVENTS)[number]
 
 /** How long the hook waits for the server before giving up silently (Claude Code's own limit is HOOK_TIMEOUT). */
 export const HOOK_DEADLINE_MS = 2000
+
+/** The deadline: HOOK_DEADLINE_MS, or CELLO_HOOK_DEADLINE_MS (tests shorten it). */
+export const hookDeadline = (env: Env): number => Number(env.CELLO_HOOK_DEADLINE_MS) || HOOK_DEADLINE_MS
 
 export interface HookInput {
   /** Claude Code's session id: the session the comments are for. */
@@ -47,8 +51,7 @@ export const parseHookInput = (raw: string): HookInput => {
 /** The session to deliver to: stdin's `session_id`, else CLAUDE_CODE_SESSION_ID. */
 export const hookSession = (input: HookInput, env: Env): string | null => input.sessionId ?? text(env.CLAUDE_CODE_SESSION_ID)
 
-/** What the hook prints when comments arrived. */
-export const hookResponse = (event: HookEvent, delivery: string) =>
-  event === "stop"
-    ? { decision: "block" as const, reason: delivery }
-    : { hookSpecificOutput: { hookEventName: "PostToolUse" as const, additionalContext: delivery } }
+/** What the hook prints when comments arrived: context the agent acts on (on Stop, it keeps the agent going). */
+export const hookResponse = (event: HookEvent, delivery: string) => ({
+  hookSpecificOutput: { hookEventName: event === "stop" ? "Stop" as const : "PostToolUse" as const, additionalContext: delivery },
+})

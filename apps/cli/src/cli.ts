@@ -14,8 +14,18 @@ import * as Option from "effect/Option"
 import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
-import { HOOK_DEADLINE_MS, HOOK_EVENTS, hookResponse, hookSession, parseHookInput } from "./claudeHook.ts"
-import { addCelloHooks, CELLO_HOOKS, type Merged, readSettings, removeCelloHooks, settingsPath, writeSettings } from "./claudeSettings.ts"
+import { HOOK_EVENTS, type HookEvent, hookDeadline, hookResponse, hookSession, parseHookInput } from "./claudeHook.ts"
+import {
+  addCelloHooks,
+  CELLO_HOOKS,
+  ensureGitIgnored,
+  formatSettings,
+  type Merged,
+  readSettingsFile,
+  removeCelloHooks,
+  settingsPaths,
+  writeFileAtomically,
+} from "./claudeSettings.ts"
 import { CliEnv, portOf } from "./env.ts"
 import { CliFailure, explain } from "./errors.ts"
 import { evidenceFromArgs } from "./evidence.ts"
@@ -184,14 +194,8 @@ const whoami = Command.make("whoami", { project }, (input) =>
 const context = Command.make("context", { project, json }, (input) =>
   Effect.gen(function* () {
     const ref = yield* projectRef(input.project)
-    // The new comments it shows count as read, so the hook doesn't hand them over a second time.
-    const ctx = yield* withClient((client) =>
-      Effect.gen(function* () {
-        const ctx = yield* client["context"]({ project: ref })
-        if (ctx.inbox.length) yield* client["inbox.markRead"]({ ids: ctx.inbox.map((i) => i.id) })
-        return ctx
-      })
-    )
+    // New comments are shown, not taken: subagents run this as their parent's session.
+    const ctx = yield* withClient((client) => client["context"]({ project: ref }))
     if (input.json) return yield* printJson(ctx)
     const now = (yield* CliEnv).now()
     const visible = ctx.statuses.filter((s) => !s.hidden).map((s) => s.name)
@@ -208,7 +212,7 @@ const context = Command.make("context", { project, json }, (input) =>
         "",
         `New comments for you (${ctx.inbox.length})`,
         ...indent(inboxEntries(ctx.inbox, now)),
-        `  Answer on the card: \`cello task comment ${ctx.inbox[0]!.taskKey} "…"\`.`,
+        `  Answer on the card: \`cello task comment ${ctx.inbox[0]!.taskKey} "…"\`. They stay new until the hook or \`cello inbox\` hands them over.`,
         ...(sentBack ? [`  Sent back: fix it, then hand it in again with \`cello task submit ${sentBack.taskKey}\`.`] : []),
       )
     }
@@ -610,41 +614,33 @@ const inbox = Command.make("inbox", {
     Flag.withDefault(false),
     Flag.withDescription("Only new comments, and print nothing (exit 0) when there are none. For scripts and hooks."),
   ),
-  json: Flag.Boolean("json").pipe(Flag.withDefault(false), Flag.withDescription("Print the inbox as JSON, as it was before reading.")),
+  json: Flag.Boolean("json").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Print JSON: `items` (new, handed over now and marked read) and `earlier` (read before)."),
+  ),
 }, (input) =>
   Effect.gen(function* () {
-    // Marked read before it's printed: whatever this prints never comes back through the hook.
-    const read = yield* withClient((client) =>
-      Effect.gen(function* () {
-        const inbox = yield* client["inbox.list"](input.onlyNew ? { unreadOnly: true } : {})
-        const fresh = inbox.items.filter((i) => i.readAt === null)
-        if (fresh.length) yield* client["inbox.markRead"]({ ids: fresh.map((i) => i.id) })
-        return inbox
-      })
-    )
-    if (input.json) return yield* printJson(read)
+    // One call takes the new comments and marks them read, so nothing else (the hook) gets them again.
+    const taken = yield* withClient((client) => client["inbox.take"](input.onlyNew ? { unreadOnly: true } : {}))
+    if (input.json) return yield* printJson(taken)
     const now = (yield* CliEnv).now()
-    const fresh = read.items.filter((i) => i.readAt === null)
-    if (input.onlyNew) return fresh.length ? yield* print(deliveryText(fresh, now)) : undefined
-    if (read.session === null) {
+    if (input.onlyNew) return taken.items.length ? yield* print(deliveryText(taken.items, now)) : undefined
+    if (taken.session === null) {
       return yield* print(
         "The human has no inbox: comments reach the agent session that claimed the task. Run this from an agent session (CLAUDE_CODE_SESSION_ID or CELLO_SESSION set).",
       )
     }
-    const earlier = read.items.filter((i) => i.readAt !== null)
-    const lines = [fresh.length ? deliveryText(fresh, now) : `No new comments for ${sessionName(read.session)}.`]
-    if (earlier.length) lines.push("", "Earlier", ...indent(inboxEntries(earlier, now)))
+    const lines = [taken.items.length ? deliveryText(taken.items, now) : `No new comments for ${sessionName(taken.session)}.`]
+    if (taken.earlier.length) lines.push("", "Earlier", ...indent(inboxEntries(taken.earlier, now)))
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
-    "Show the comments Lucas left on tasks this session claimed (Send back notes too) and mark them read. " +
-      "Use it when `cello context` says there are new ones, or to reread what he said; with `cello install claude` they arrive by themselves.",
+    "Show the comments Lucas left on tasks this session claimed (Send back notes too) and mark them read; each one arrives once. " +
+      "Use it when `cello context` lists new ones, or to reread what he said. With `cello install claude` they arrive by themselves. " +
+      "Not from a subagent: it shares its parent's session and would take the parent's comments.",
   ))
 
-const hookClaude = Command.make("claude", {
-  event: Argument.Literals("event", HOOK_EVENTS).pipe(
-    Argument.withDescription("The hook event Claude Code runs it for: stop (Stop) or post-tool-use (PostToolUse)."),
-  ),
-}, (input) =>
+/** What the hook does: takes the new comments for the session on stdin and prints them for Claude Code. */
+const deliverToClaude = (event: HookEvent) =>
   Effect.gen(function* () {
     const { env, cwd, now, readStdin } = yield* CliEnv
     const hook = parseHookInput(yield* Effect.promise(readStdin))
@@ -652,22 +648,27 @@ const hookClaude = Command.make("claude", {
     // A subagent's tool calls carry its parent's session; leave the comments for the main conversation.
     if (hook.inSubagent || session === null) return
     const headers = identityHeaders({ ...env, CELLO_SESSION: undefined, CLAUDE_CODE_SESSION_ID: session }, hook.cwd ?? cwd)
-    // Marked read before they're printed, so a comment is never handed over twice and a Stop hook
-    // can't loop on it (stop_hook_active needs no special case).
-    const fresh = yield* withClient((client) =>
-      Effect.gen(function* () {
-        const { items } = yield* client["inbox.list"]({ unreadOnly: true })
-        if (items.length) yield* client["inbox.markRead"]({ ids: items.map((i) => i.id) })
-        return items
-      }), headers)
-    if (fresh.length) yield* print(JSON.stringify(hookResponse(input.event, deliveryText(fresh, now()))))
-  }).pipe(
+    // Taken and marked read in one step: a comment is handed over once, even to hooks running at the
+    // same time, and a Stop hook can't loop on it (stop_hook_active needs no special case).
+    const { items } = yield* withClient((client) => client["inbox.take"]({ unreadOnly: true }), headers)
+    if (items.length) yield* print(JSON.stringify(hookResponse(event, deliveryText(items, now()))))
+  })
+
+const hookClaude = Command.make("claude", {
+  event: Argument.Literals("event", HOOK_EVENTS).pipe(
+    Argument.withDescription("The hook event Claude Code runs it for: stop (Stop) or post-tool-use (PostToolUse)."),
+  ),
+}, (input) =>
+  Effect.gen(function* () {
+    const { env, exit } = yield* CliEnv
     // It must never break or stall the session: a slow or missing server, bad input, anything, is silence and exit 0.
-    Effect.timeout(HOOK_DEADLINE_MS),
-    Effect.catchCause(() => Effect.void),
-  )).pipe(Command.withDescription(
+    yield* deliverToClaude(input.event).pipe(Effect.timeout(hookDeadline(env)), Effect.catchCause(() => Effect.void))
+    // An explicit end: a stdin that never closes would otherwise keep the process alive.
+    exit?.(0)
+  })).pipe(Command.withDescription(
     "Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin and hands new comments " +
-      "for its session back to the agent (Stop: keeps it going; PostToolUse: adds them as context). Prints nothing when there are none.",
+      "for its session back to the agent as context (on Stop it keeps the agent going). Prints nothing when there are none, " +
+      "inside a subagent, or when the server doesn't answer within 2 seconds; always exits 0.",
   ))
 
 const hook = Command.make("hook").pipe(
@@ -675,40 +676,67 @@ const hook = Command.make("hook").pipe(
   Command.withSubcommands([hookClaude]),
 )
 
-const userFlag = Flag.Boolean("user").pipe(
-  Flag.withDefault(false),
-  Flag.withDescription("Your user settings, ~/.claude/settings.json (every project), instead of this project's .claude/settings.json."),
-)
+const SCOPES = {
+  local: "this machine only",
+  shared: "shared: committed with the repo",
+  user: "every project",
+} as const
 
-/** Reads a Claude Code settings file, changes it with `change`, and writes it back if anything changed. */
-const updateSettings = (user: boolean, change: (settings: unknown) => Merged) =>
+/** This project's root (the main checkout, also from a linked worktree; else the folder) and the settings files. */
+const claudeSettings = Effect.gen(function* () {
+  const { env, cwd } = yield* CliEnv
+  const projectRoot = repoRootFor(cwd)
+  return { projectRoot, paths: settingsPaths({ projectRoot: projectRoot ?? cwd, home: env.HOME }) }
+})
+
+/** Reads a settings file, changes it with `change`, and replaces it atomically (old bytes in .bak) if anything changed. */
+const updateSettings = (file: string, change: (settings: unknown) => Merged) =>
   Effect.gen(function* () {
-    const { env, cwd } = yield* CliEnv
-    const file = yield* Effect.try({
-      try: () => settingsPath({ user, home: env.HOME, cwd }),
-      catch: (e) => new CliFailure({ message: `${(e as Error).message}.` }),
+    const refused = (e: unknown) => new CliFailure({ message: `Can't update ${file}: ${(e as Error).message}. Fix it first; Cello won't overwrite it.` })
+    const current = yield* Effect.try({ try: () => readSettingsFile(file), catch: refused })
+    const merged = yield* Effect.try({ try: () => change(current.settings), catch: refused })
+    if (!merged.changed) return { changed: false, backup: null }
+    const written = yield* Effect.try({
+      try: () => writeFileAtomically(file, formatSettings(merged.settings, current.format)),
+      catch: (e) => new CliFailure({ message: `Can't write ${file}: ${(e as Error).message}.` }),
     })
-    const merged = yield* Effect.try({
-      try: () => change(readSettings(file)),
-      catch: (e) => new CliFailure({ message: `Can't update ${file}: ${(e as Error).message}. Fix it first; Cello won't overwrite it.` }),
-    })
-    if (merged.changed) {
-      yield* Effect.try({
-        try: () => writeSettings(file, merged.settings),
-        catch: (e) => new CliFailure({ message: `Can't write ${file}: ${(e as Error).message}.` }),
-      })
-    }
-    return { file, changed: merged.changed }
+    return { changed: true, backup: written.backup }
   })
 
-const installClaude = Command.make("claude", { user: userFlag }, (input) =>
+/** What git runs with when it checks ignores: HOME (and XDG_CONFIG_HOME) decide the user's global excludes. */
+const gitEnv = (env: Env) =>
+  Object.fromEntries(Object.entries({ PATH: process.env.PATH, HOME: env.HOME, XDG_CONFIG_HOME: env.XDG_CONFIG_HOME }).filter(([, v]) => v !== undefined))
+
+const installClaude = Command.make("claude", {
+  user: Flag.Boolean("user").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Write ~/.claude/settings.json instead: every project on this machine."),
+  ),
+  shared: Flag.Boolean("shared").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Write this project's .claude/settings.json instead, committed with the repo: everyone who clones it gets the hooks and needs cello."),
+  ),
+}, (input) =>
   Effect.gen(function* () {
-    const { file, changed } = yield* updateSettings(input.user, addCelloHooks)
-    if (!changed) return yield* print(`Cello's Claude Code hooks are already in ${file}.`)
+    if (input.user && input.shared) {
+      return yield* new CliFailure({
+        message: "Pick one: --user (every project) or --shared (this project, committed). Without either it's this project on this machine.",
+      })
+    }
+    const scope = input.user ? "user" : input.shared ? "shared" : "local"
     const { env } = yield* CliEnv
+    const { projectRoot, paths } = yield* claudeSettings
+    const file = paths[scope]
+    if (file === null) return yield* new CliFailure({ message: "HOME isn't set, so there's no ~/.claude/settings.json to write." })
+    const { changed, backup } = yield* updateSettings(file, addCelloHooks)
+    const ignored = scope === "local" && projectRoot !== null ? ensureGitIgnored(projectRoot, ".claude/settings.local.json", gitEnv(env)) : null
+    const ignoredLine = ignored ? [`Added .claude/settings.local.json to ${ignored}, so it stays on this machine.`] : []
+    if (!changed) return yield* print([`Cello's Claude Code hooks are already in ${file}.`, ...ignoredLine].join("\n"))
     const lines = [
-      `Installed Cello's Claude Code hooks in ${file}:`,
+      `Installed Cello's Claude Code hooks in ${file} (${SCOPES[scope]}):`,
       ...indent(columns(CELLO_HOOKS.map((h) => [h.event, h.command]))),
+      ...ignoredLine,
+      ...(backup ? [`Kept the old file as ${backup}.`] : []),
       "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
       "New Claude Code sessions pick them up.",
     ]
@@ -720,14 +748,22 @@ const installClaude = Command.make("claude", { user: userFlag }, (input) =>
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
     "Add Claude Code hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse, running " +
-      "`cello hook claude`). Merges with the hooks already there; running it again changes nothing. Once per project, or once with --user.",
+      "`cello hook claude`). Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main " +
+      "checkout's), merged with the hooks already there; running it again changes nothing. The old file is kept as .bak.",
   ))
 
-const uninstallClaude = Command.make("claude", { user: userFlag }, (input) =>
+const uninstallClaude = Command.make("claude", {}, () =>
   Effect.gen(function* () {
-    const { file, changed } = yield* updateSettings(input.user, removeCelloHooks)
-    yield* print(changed ? `Removed Cello's Claude Code hooks from ${file}.` : `No Cello hooks in ${file}.`)
-  })).pipe(Command.withDescription("Take Cello's hooks out of Claude Code's settings, leaving every other hook and setting as it was."))
+    const { paths } = yield* claudeSettings
+    const files = [...new Set([paths.local, paths.shared, paths.user].filter((f): f is string => f !== null))]
+    const removed: string[] = []
+    for (const file of files) if ((yield* updateSettings(file, removeCelloHooks)).changed) removed.push(file)
+    if (removed.length) return yield* print(removed.map((f) => `Removed Cello's Claude Code hooks from ${f}.`).join("\n"))
+    yield* print(`No Cello hooks in ${files.slice(0, -1).join(", ")}${files.length > 1 ? " or " : ""}${files.at(-1)}.`)
+  })).pipe(Command.withDescription(
+    "Take Cello's hooks out of Claude Code's settings: this project's .claude/settings.local.json and .claude/settings.json, and " +
+      "~/.claude/settings.json. Every other hook and setting stays as it was.",
+  ))
 
 const install = Command.make("install").pipe(
   Command.withDescription("Connect an agent host to Cello: `cello install claude` adds the Claude Code hooks."),

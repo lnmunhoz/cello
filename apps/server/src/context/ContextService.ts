@@ -141,7 +141,7 @@ const make = Effect.gen(function* () {
       claimed,
       recent: yield* withKeys(recent),
       lostClaims: yield* withKeys(lost),
-      inbox: (yield* inbox.list({ unreadOnly: true })).items,
+      inbox: yield* inbox.unread,
     }
   }, Effect.catchTag("SqlError", Effect.die))
 

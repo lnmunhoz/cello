@@ -5,6 +5,9 @@
 //
 // Cello adds its own matcher group per event and recognises its handlers by their command
 // (`cello hook claude …`), so installing twice changes nothing and uninstalling takes out only Cello's.
+// The file keeps its key order and indentation, and is replaced atomically: a temp file in the same
+// folder, fsynced, then renamed over it, with the old bytes kept in `<file>.bak`. A settings file that
+// is a symlink (dotfiles, chezmoi) stays one; the file it points at is the one replaced.
 import * as fs from "node:fs"
 import * as path from "node:path"
 
@@ -36,6 +39,14 @@ const hooksOf = (settings: unknown): Json => {
 
 const groupHandlers = (group: unknown): ReadonlyArray<unknown> => (isObject(group) && Array.isArray(group.hooks) ? group.hooks : [])
 
+/** `settings` with `hooks` replaced where it is (or added at the end), or removed with `undefined`; other keys keep their order. */
+const withHooks = (settings: Json, hooks: Json | undefined): Json => {
+  if (!("hooks" in settings)) return hooks === undefined ? settings : { ...settings, hooks }
+  return Object.fromEntries(
+    Object.entries(settings).flatMap(([key, value]) => (key !== "hooks" ? [[key, value]] : hooks === undefined ? [] : [[key, hooks]])),
+  )
+}
+
 export interface Merged {
   readonly settings: Json
   readonly changed: boolean
@@ -52,7 +63,7 @@ export const addCelloHooks = (settings: unknown): Merged => {
     hooks[event] = [...groups, { ...(matcher === undefined ? {} : { matcher }), hooks: [{ type: "command", command, timeout: HOOK_TIMEOUT }] }]
     changed = true
   }
-  return changed ? { settings: { ...(settings as Json), hooks }, changed } : { settings: settings as Json, changed }
+  return changed ? { settings: withHooks(settings as Json, hooks), changed } : { settings: settings as Json, changed }
 }
 
 /** Settings without Cello's handlers, and without the groups and events that leaves empty. */
@@ -71,34 +82,99 @@ export const removeCelloHooks = (settings: unknown): Merged => {
     if (kept.length > 0) next[event] = kept
   }
   if (!changed) return { settings: settings as Json, changed }
-  const { hooks: _old, ...rest } = settings as Json
-  return { settings: Object.keys(next).length === 0 ? rest : { ...rest, hooks: next }, changed }
+  return { settings: withHooks(settings as Json, Object.keys(next).length === 0 ? undefined : next), changed }
 }
 
-/** `~/.claude/settings.json` with --user, else the project's `.claude/settings.json` (its git top level, or the folder). */
-export const settingsPath = (options: { readonly user: boolean; readonly home: string | undefined; readonly cwd: string }): string => {
-  if (options.user) {
-    if (!options.home) throw new Error("HOME isn't set, so there's no ~/.claude/settings.json to write")
-    return path.join(options.home, ".claude", "settings.json")
-  }
-  const top = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], { cwd: options.cwd, stdout: "pipe", stderr: "ignore" })
-  const root = top.exitCode === 0 ? top.stdout.toString().trim() : options.cwd
-  return path.join(root, ".claude", "settings.json")
+/** How a settings file is laid out, so writing it back changes as little as possible. */
+export interface Format {
+  readonly indent: string
+  readonly newline: string
 }
 
-/** A settings file's JSON; a missing file is empty settings. */
-export const readSettings = (file: string): unknown => {
-  if (!fs.existsSync(file)) return {}
-  const raw = fs.readFileSync(file, "utf8")
-  if (raw.trim() === "") return {}
+/** The indentation of the first indented line (two spaces when there is none) and whether it ends with a newline. */
+export const detectFormat = (raw: string): Format => ({
+  indent: /^([ \t]+)\S/m.exec(raw)?.[1] ?? "  ",
+  newline: raw === "" || raw.endsWith("\n") ? "\n" : "",
+})
+
+export const formatSettings = (settings: Json, format: Format): string => `${JSON.stringify(settings, null, format.indent)}${format.newline}`
+
+export interface SettingsFile {
+  /** The parsed JSON; a missing or empty file is `{}`. */
+  readonly settings: unknown
+  readonly format: Format
+}
+
+export const readSettingsFile = (file: string): SettingsFile => {
+  const raw = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : ""
+  if (raw.trim() === "") return { settings: {}, format: detectFormat("") }
   try {
-    return JSON.parse(raw)
+    return { settings: JSON.parse(raw), format: detectFormat(raw) }
   } catch {
     throw new Error("it isn't valid JSON")
   }
 }
 
-export const writeSettings = (file: string, settings: Json): void => {
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`)
+/** Where `cello install claude` writes: the project's file for this machine, the committed one, and the user's (null without HOME). */
+export const settingsPaths = (options: { readonly projectRoot: string; readonly home: string | undefined }) => ({
+  local: path.join(options.projectRoot, ".claude", "settings.local.json"),
+  shared: path.join(options.projectRoot, ".claude", "settings.json"),
+  user: options.home ? path.join(options.home, ".claude", "settings.json") : null,
+})
+
+/**
+ * Replaces `file` with `text` so a crash or a full disk never leaves it half written: the new bytes go
+ * to `<file>.cello-<pid>.tmp` beside it, are fsynced, and the temp file is renamed over the original,
+ * keeping its mode. The old bytes are kept in `<file>.bak`. Returns the file written (a symlink's
+ * target) and the backup, if there was an old file. `io` is for tests that fail the write.
+ */
+export const writeFileAtomically = (
+  file: string,
+  text: string,
+  io: { readonly writeSync: (fd: number, data: string) => unknown } = fs,
+): { readonly target: string; readonly backup: string | null } => {
+  const target = fs.existsSync(file) ? fs.realpathSync(file) : file
+  const folder = path.dirname(target)
+  fs.mkdirSync(folder, { recursive: true })
+  const old = fs.existsSync(target) ? { bytes: fs.readFileSync(target), mode: fs.statSync(target).mode & 0o7777 } : null
+  const temp = path.join(folder, `${path.basename(target)}.cello-${process.pid}.tmp`)
+  try {
+    const fd = fs.openSync(temp, "w", old?.mode ?? 0o644)
+    try {
+      io.writeSync(fd, text)
+      fs.fsyncSync(fd)
+    } finally {
+      fs.closeSync(fd)
+    }
+    if (old) fs.chmodSync(temp, old.mode)
+    if (old) fs.writeFileSync(`${target}.bak`, old.bytes, { mode: old.mode })
+    fs.renameSync(temp, target)
+  } catch (error) {
+    fs.rmSync(temp, { force: true })
+    throw error
+  }
+  // The rename itself is durable once the folder is synced; not every system allows that.
+  try {
+    const dir = fs.openSync(folder, "r")
+    fs.fsyncSync(dir)
+    fs.closeSync(dir)
+  } catch {
+    // Best effort.
+  }
+  return { target, backup: old ? `${target}.bak` : null }
+}
+
+/**
+ * Makes git ignore `relative` (a path inside `repoRoot`): when git doesn't already ignore it (its own
+ * .gitignore files, the user's global excludes), appends it to `<repoRoot>/.gitignore`. Returns that
+ * .gitignore when it added the line, else null. `env` is what git runs with (HOME decides the global excludes).
+ */
+export const ensureGitIgnored = (repoRoot: string, relative: string, env: Readonly<Record<string, string | undefined>>): string | null => {
+  const check = Bun.spawnSync(["git", "check-ignore", "-q", relative], { cwd: repoRoot, env, stdout: "ignore", stderr: "ignore" })
+  // 0: ignored; 1: not ignored; anything else: not a repository, nothing to do.
+  if (check.exitCode !== 1) return null
+  const gitignore = path.join(repoRoot, ".gitignore")
+  const current = fs.existsSync(gitignore) ? fs.readFileSync(gitignore, "utf8") : ""
+  fs.writeFileSync(gitignore, `${current}${current === "" || current.endsWith("\n") ? "" : "\n"}${relative}\n`)
+  return gitignore
 }
