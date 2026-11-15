@@ -11,6 +11,7 @@ import {
   type PanelState,
   type ResizeMessage,
 } from "../ipc.ts"
+import { goInHistory } from "../window/history.ts"
 import { addressToUrl, panelNavigation, panelPageUrl, panelTitle, panelUrl, panelWindowOpen, type PanelContext, type PanelOpen } from "./urls.ts"
 
 /** Panel pages keep their cookies across launches, apart from the board's session. */
@@ -216,10 +217,8 @@ export class Panel {
     const page = this.page.webContents
     switch (command.kind) {
       case "back":
-        if (page.navigationHistory.canGoBack()) page.navigationHistory.goBack()
-        return
       case "forward":
-        if (page.navigationHistory.canGoForward()) page.navigationHistory.goForward()
+        goInHistory(page.navigationHistory, command.kind)
         return
       case "reload":
         if (this.#failure) this.#load(this.#failure.url)

@@ -5,7 +5,7 @@ import * as Rpc from "effect/rpc/Rpc"
 import * as RpcGroup from "effect/rpc/RpcGroup"
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware"
 import { Backup } from "./backups.ts"
-import { ServerBuild } from "./build.ts"
+import { BuildPage, ServerBuild } from "./build.ts"
 import {
   Comment,
   Document,
@@ -293,6 +293,13 @@ export const CelloRpcs = RpcGroup.make(
   // The server's build (CEL-37): version, commit, start time and the web app it serves. A tab asks on
   // every (re)connect and offers a reload when the web build differs from the one it loaded.
   Rpc.make("server.build", { payload: {}, success: ServerBuild }),
+  // Every build the server has run (CEL-50), newest first, a page at a time: `before` is the previous
+  // page's `next` (a build number); `limit` defaults to 50, at most 200.
+  Rpc.make("builds.list", {
+    payload: { before: Schema.optionalKey(Schema.Number), limit: Schema.optionalKey(Schema.Number) },
+    success: BuildPage,
+    error: Invalid,
+  }),
 
   Rpc.make("comment.list", { payload: { taskId: Id }, success: Schema.Array(Comment), error: NotFound }),
   Rpc.make("comment.add", {

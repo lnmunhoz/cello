@@ -5,7 +5,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { APP_VERSION } from "@cello/shared/version"
 import { afterAll, describe, expect, it } from "vitest"
-import { buildCommit, commitOf, isCommit, subjectsBetween, webBuildStamp } from "./git.ts"
+import { buildCommit, commitOf, commitsBetween, isCommit, subjectsBetween, webBuildStamp } from "./git.ts"
 
 const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cello-build-git-")))
 afterAll(() => fs.rmSync(base, { recursive: true, force: true }))
@@ -58,6 +58,14 @@ describe("the changes since the previous build", () => {
   it("are empty when git can't tell (an unknown commit, no checkout)", () => {
     expect(subjectsBetween(repo, "0000000", last)).toEqual([])
     expect(subjectsBetween(outside, first, last)).toEqual([])
+  })
+
+  it("tell nothing in between (empty) from git not knowing (null), for the build history (CEL-50)", () => {
+    expect(commitsBetween(repo, last, last)).toEqual([])
+    expect(commitsBetween(repo, first, last)).toEqual(["docs: what each column means", "merge: the reload bar (CEL-37)"])
+    expect(commitsBetween(repo, "0000000", last)).toBeNull()
+    expect(commitsBetween(outside, first, last)).toBeNull()
+    expect(commitsBetween(repo, "--output=/tmp/cello-x", last)).toBeNull()
   })
 
   it("are empty for anything that isn't a commit hash (a build.json written by hand), without running git on it", () => {

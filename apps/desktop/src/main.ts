@@ -161,6 +161,7 @@ function run() {
           const window = live()?.window
           window?.setFullScreen(!window.isFullScreen())
         },
+        go: (direction) => live()?.go(direction, webContents.getFocusedWebContents()),
       }),
     )
     if (!app.isPackaged && fs.existsSync(files.devIcon)) app.dock?.setIcon(files.devIcon)

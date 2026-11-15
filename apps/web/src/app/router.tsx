@@ -1,4 +1,4 @@
-import { createRootRoute, createRoute, createRouter, Navigate, retainSearchParams, useParams } from "@tanstack/react-router"
+import { createRootRoute, createRoute, createRouter, Navigate, notFound, retainSearchParams, useParams } from "@tanstack/react-router"
 import { DocsPage } from "../docs/DocsPage.tsx"
 import { PageReader } from "../docs/PageReader.tsx"
 import { parseDocsSearch, parsePageSearch } from "../docs/search.ts"
@@ -10,11 +10,13 @@ import { Overview } from "../project/Overview.tsx"
 import { ProjectLayout } from "../project/ProjectLayout.tsx"
 import { parseReviewSearch } from "../review/queue.ts"
 import { ReviewPage } from "../review/ReviewPage.tsx"
+import { BuildsPage } from "../settings/BuildsPage.tsx"
 import { Settings } from "../settings/Settings.tsx"
 import { parseTaskSearch } from "../task/view.ts"
 import { isEmbedded } from "../viewer/viewer.ts"
 import { AppShell, EmbeddedShell } from "./AppShell.tsx"
 import { Home } from "./Home.tsx"
+import { RouteNotFound } from "./NotFound.tsx"
 
 // Inside a panel (the viewer's iframe, the desktop app's native panel), pages show without the sidebar,
 // and every navigation keeps `?embed` (so their task keys still open the task in the main window).
@@ -23,6 +25,9 @@ const root = createRootRoute({ component: embedded ? EmbeddedShell : AppShell, .
 
 const home = createRoute({ getParentRoute: () => root, path: "/", component: Home })
 const settings = createRoute({ getParentRoute: () => root, path: "/settings", component: Settings })
+// Settings → Builds (CEL-50). Static routes win over `$projectKey`; each top-level word is reserved as a
+// project key (reservedKeyProblem in packages/shared/src/taskKey.ts).
+const builds = createRoute({ getParentRoute: () => root, path: "/builds", component: BuildsPage })
 // `?open=CEL-12`: the packet open on the Review page, so a reload or a link keeps it.
 const review = createRoute({ getParentRoute: () => root, path: "/review", component: ReviewPage, validateSearch: parseReviewSearch })
 
@@ -50,11 +55,21 @@ const docs = createRoute({ getParentRoute: () => project, path: "docs", componen
 const page = createRoute({ getParentRoute: () => project, path: "pages/$slug", component: PageReader, validateSearch: parsePageSearch })
 const activity = createRoute({ getParentRoute: () => project, path: "activity", component: () => <ComingSoon what="Activity" when="M3" /> })
 // The same component as `issues`, so opening a task keeps the page mounted. `?view=full` shows the task as a full page.
-const task = createRoute({ getParentRoute: () => project, path: "$number", component: IssuesPage, validateSearch: parseTaskSearch })
+const task = createRoute({
+  getParentRoute: () => project,
+  path: "$number",
+  component: IssuesPage,
+  validateSearch: parseTaskSearch,
+  // Only numbers are tasks; anything else here (`/CEL/demo.mp4`) is an address with nothing at it.
+  beforeLoad: ({ params }) => {
+    if (!/^\d+$/.test(params.number)) throw notFound()
+  },
+})
 
-const routeTree = root.addChildren([home, settings, review, project.addChildren([projectIndex, overview, issues, docs, page, activity, task])])
+const routeTree = root.addChildren([home, settings, builds, review, project.addChildren([projectIndex, overview, issues, docs, page, activity, task])])
 
-export const router = createRouter({ routeTree, defaultPreload: false })
+// An address no route matches shows a Not found screen with a way back, in the layout around it.
+export const router = createRouter({ routeTree, defaultPreload: false, defaultNotFoundComponent: RouteNotFound })
 
 declare module "@tanstack/react-router" {
   interface Register {

@@ -11,4 +11,7 @@ describe("keyProblem", () => {
     expect(keyProblem("CEL", taken)).toBeNull()
     expect(keyProblem("", taken)).toBe("Pick a key")
   })
+  it("refuses a key that's one of the board's own pages (CEL-50)", () => {
+    expect(keyProblem("BUILDS", taken)).toBe("Can't be BUILDS, the address of Cello's Builds page (/builds)")
+  })
 })

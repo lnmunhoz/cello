@@ -5,6 +5,9 @@
 /** Where the server serves a stored file: GET /attachments/<id>. */
 export const attachmentPath = (id: string): string => `/attachments/${id}`
 
+/** The stored file a URL path serves (`/attachments/<id>`, maybe with a query or anchor), or null. */
+export const attachmentIdOf = (url: string): string | null => /^\/attachments\/([^/?#]+)(?:[?#].*)?$/.exec(url)?.[1] ?? null
+
 export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 export type FileKind = "image" | "video" | "file"

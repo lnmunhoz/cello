@@ -9,6 +9,11 @@ import type { Env } from "./identity.ts"
 export interface CliBuild {
   /** The git commit it was built from; null when unknown. */
   readonly commit: string | null
+  /**
+   * The git checkout it was built from, where `cello start` reads the commits merged between builds for
+   * the build history (CEL-50); left out when unknown. A compiled binary carries the path it was built in.
+   */
+  readonly checkout?: string | undefined
 }
 
 export class CliEnv extends Context.Service<CliEnv, {

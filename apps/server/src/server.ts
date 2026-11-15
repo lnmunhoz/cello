@@ -1,7 +1,8 @@
 // The whole server as one layer: lock → database → migrations → seed → services → RPC over a
 // WebSocket at /rpc on 127.0.0.1, review evidence at /attachments/<id> (files in <dataDir>/assets),
 // plus the built web app when given, and the daily backup into <dataDir>/backups. It knows its build
-// (version, commit, start time, the web app's stamp) for open tabs to compare with theirs (CEL-37). main.ts and
+// (version, commit, start time, the web app's stamp) for open tabs to compare with theirs (CEL-37), and
+// records it in the build history before it serves (CEL-50). main.ts and
 // `cello start` launch it; integration tests build it on port 0.
 import * as path from "node:path"
 import * as BunHttpServer from "@effect/platform-bun/BunHttpServer"
@@ -15,7 +16,9 @@ import * as RpcServer from "effect/rpc/RpcServer"
 import { CelloRpcs } from "@cello/contract/rpcs"
 import * as BackupSchedule from "./backup/BackupSchedule.ts"
 import * as BackupService from "./backup/BackupService.ts"
+import * as BuildHistory from "./build/BuildHistory.ts"
 import * as BuildInfo from "./build/BuildInfo.ts"
+import { commitsBetween } from "./build/git.ts"
 import * as CallerMiddleware from "./caller/CallerMiddleware.ts"
 import * as Migrations from "./persistence/Migrations.ts"
 import * as Seed from "./persistence/Seed.ts"
@@ -40,6 +43,11 @@ export interface ServerOptions {
   readonly web?: WebFiles.WebFiles | undefined
   /** The git commit this server was built from (build/git.ts), for `server.build`; null or left out when unknown. */
   readonly commit?: string | null | undefined
+  /**
+   * A git checkout with this build's history, where the build history reads the commits merged since the
+   * previous build (CEL-50); without one (or when git can't tell) it takes the web build's own list.
+   */
+  readonly checkout?: string | null | undefined
   /** Take the daily backup (on unless false). Integration tests turn it off; the schedule has its own tests. */
   readonly autoBackup?: boolean | undefined
 }
@@ -69,7 +77,15 @@ export const layer = (options: ServerOptions) => {
   const assets = AssetStore.layer({ dir: path.join(options.dataDir, AssetStore.ASSETS_DIR) })
   const backups = BackupService.layer({ dir: path.join(options.dataDir, BackupService.BACKUPS_DIR) })
   const build = BuildInfo.layer({ commit: options.commit ?? null, web: options.web })
-  const app = Layer.mergeAll(Services.layer, backups, build).pipe(Layer.provideMerge(storage), Layer.provideMerge(assets))
+  const checkout = options.checkout
+  const history = BuildHistory.layer({ changesBetween: checkout ? (from, to) => commitsBetween(checkout, from, to) : undefined })
+  const app = history.pipe(
+    Layer.provideMerge(Layer.mergeAll(Services.layer, backups, build)),
+    Layer.provideMerge(storage),
+    Layer.provideMerge(assets),
+  )
+  // The build is recorded before anything is served, so the first `builds.list` already names it running.
+  const started = BuildHistory.recordOnStart.pipe(Layer.provideMerge(app))
   const rpc = RpcServer.layer(CelloRpcs).pipe(
     Layer.provide(Handlers.layer),
     Layer.provide(CallerMiddleware.layer),
@@ -80,7 +96,7 @@ export const layer = (options: ServerOptions) => {
   const routes = options.web === undefined ? api : Layer.mergeAll(api, WebFiles.layer(options.web))
   const dailyBackup = options.autoBackup === false ? Layer.empty : BackupSchedule.layer
   return Layer.mergeAll(HttpRouter.serve(routes, { disableLogger: true }), recordPort, dailyBackup, PresenceWatch.layer).pipe(
-    Layer.provide(app),
+    Layer.provide(started),
     Layer.provideMerge(BunHttpServer.layer({ hostname: "127.0.0.1", port: options.port, gracefulShutdownTimeout: SHUTDOWN_GRACE })),
     Layer.provideMerge(ServerLock.layer({ dataDir: options.dataDir, port: options.port })),
   )

@@ -240,4 +240,36 @@ describe("command atoms", () => {
     expect(asked).toBe(2)
     expect(subscribes).toBe(2)
   })
+
+  it("ask for the build history once the server's build is known, and again when a new build comes up (CEL-50)", async () => {
+    const build = (commit: string) => ({ version: "0.2.0", commit, startedAt: 1, web: { version: "0.2.0", commit, builtAt: 1, changes: [] } })
+    const drop = Effect.runSync(Deferred.make<void>())
+    let subscribes = 0
+    let builds = 0
+    const asked: Array<{ limit?: number }> = []
+    const running = () => (builds === 1 ? "0.2.0+aaaaaaa.1" : "0.2.0+bbbbbbb.1")
+    const fake = {
+      "snapshot.get": () => Effect.succeed(snapshot),
+      "events.subscribe": () =>
+        ++subscribes === 1 ? Stream.fromEffect(Deferred.await(drop)).pipe(Stream.flatMap(() => Stream.fail("dropped"))) : Stream.never,
+      "server.build": () => Effect.sync(() => build(++builds === 1 ? "aaaaaaa" : "bbbbbbb")),
+      "builds.list": (page: { limit?: number }) =>
+        Effect.sync(() => {
+          asked.push(page)
+          return { builds: [], running: running(), next: null }
+        }),
+    } as unknown as CelloClient["Service"]
+    const atoms = makeCelloAtoms(Atom.runtime(Layer.succeed(CelloClient, fake)), { retryDelay: 0 })
+    const registry = AtomRegistry.make()
+    const history = atoms.buildsFamily(50)
+    registry.mount(history)
+    expect((await Effect.runPromise(AtomRegistry.getResult(registry, history))).running).toBe("0.2.0+aaaaaaa.1")
+    expect(asked).toEqual([{ limit: 50 }])
+
+    Effect.runSync(Deferred.succeed(drop, undefined))
+    const next = await Effect.runPromise(
+      AtomRegistry.toStreamResult(registry, history).pipe(Stream.filter((page) => page.running === "0.2.0+bbbbbbb.1"), Stream.runHead),
+    )
+    expect(next._tag).toBe("Some")
+  })
 })

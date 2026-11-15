@@ -19,7 +19,7 @@ export const start = Effect.gen(function* () {
   const files = webFor(env, web, (message) => warnings.push(message))
   for (const warning of warnings) yield* Console.error(warning)
   yield* Effect.scoped(Effect.gen(function* () {
-    const context = yield* Layer.build(Server.layer({ dataDir, port, humanName: gitUserName(), web: files, commit: build?.commit ?? null }))
+    const context = yield* Layer.build(Server.layer({ dataDir, port, humanName: gitUserName(), web: files, commit: build?.commit ?? null, checkout: build?.checkout }))
     const address = Context.get(context, HttpServer.HttpServer).address
     const bound = "port" in address ? address.port : port
     yield* Console.log(`Cello is running at http://127.0.0.1:${bound} (data in ${dataDir}${files ? "" : "; no web app found"})`)

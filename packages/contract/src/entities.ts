@@ -270,8 +270,26 @@ const documentFields = {
 export const DocumentSummary = Schema.Struct(documentFields)
 export type DocumentSummary = typeof DocumentSummary.Type
 
-/** A document with its markdown body (images point at `/attachments/<id>`). */
-export const Document = Schema.Struct({ ...documentFields, body: Schema.String })
+/**
+ * A file published with a document (an image, a video, a text file), served at `/attachments/<id>`.
+ * The reader looks a link's target up here to play a linked video instead of following the link.
+ */
+export const DocumentFile = Schema.Struct({
+  id: Id,
+  kind: Schema.Literals(["image", "video", "file"]),
+  /** The original file name. */
+  name: Schema.String,
+  mime: Schema.String,
+  /** A video with a poster frame, served at `/attachments/<id>/poster`. */
+  hasPoster: Schema.Boolean,
+})
+export type DocumentFile = typeof DocumentFile.Type
+
+/**
+ * A document with its markdown body (links to its files point at `/attachments/<id>`), and the files
+ * every version of it has published, oldest first.
+ */
+export const Document = Schema.Struct({ ...documentFields, body: Schema.String, files: Schema.Array(DocumentFile) })
 export type Document = typeof Document.Type
 
 /** One saved version of a document, without its body, for the version history. */

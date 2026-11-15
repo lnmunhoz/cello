@@ -17,7 +17,7 @@ if (!dataDir) {
 }
 const port = Number(process.env.CELLO_PORT ?? 4747)
 
-Layer.launch(Server.layer({ dataDir, port, humanName: gitUserName(), commit: buildCommit(process.env, import.meta.dir) })).pipe(
+Layer.launch(Server.layer({ dataDir, port, humanName: gitUserName(), commit: buildCommit(process.env, import.meta.dir), checkout: import.meta.dir })).pipe(
   Effect.catchTag("ServerAlreadyRunning", (error) =>
     Console.error(error.message).pipe(Effect.andThen(Effect.sync(() => process.exit(1))))),
   BunRuntime.runMain,

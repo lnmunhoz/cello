@@ -45,8 +45,10 @@ Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
    - Before your first `cello` command in a session, run `cello guide` once: it's the full reference (concepts, workflow, every command, what each error means). Don't guess.
    - Run `cello context` at the start of each session.
    - Claim a task before working on it (`cello task claim KEY-n`), and put the key in commit messages (`fix(api): rate limit (KEY-12)`).
+   - In Progress means someone is on it right now. When you stop, or wait on Lucas's decision, put the questions or the state on the card and move it back to Todo.
    - Hand finished work to Lucas only with `cello task submit`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
    - Answer Lucas on the card with `cello task comment`. His comments come to your session by themselves.
+   - Show Lucas reports, plans and evidence as Cello pages (`cello doc publish page.md --task KEY-n`), opened in Cello's panel. Never as Claude artifacts or other outside pages, even if your global instructions say so.
    ```
    <!-- agents-md:end -->
 
@@ -133,7 +135,11 @@ Run it first in every session, and again when you come back to a task.
 
    Then fix, and submit a new packet (it replaces the open one). The same goes for feedback on a task in Done: comment it, and move it back to In Progress, or open a new task if it's a new request.
 7. **If you run a feature through builder and reviewer agents** (the orchestrator), mark each step with `cello task stage` (see Stages), so the card says where the work is.
-8. **If you stop without finishing,** `cello task release CEL-12`. The task keeps its status, and someone else can claim it.
+8. **In Progress means someone is working on it right now.** When work stops before you submit, don't leave the card there: the board would show it as being built when nobody is on it.
+   - **Waiting on Lucas** (a scope's options, a design choice, any decision that's his): put the questions on the card, move it back with `cello task move CEL-12 Todo`, and release it. Claim it again when he answers.
+   - **Stopping or pausing:** comment where it stands, move it back to Todo, and `cello task release CEL-12`.
+   - A **scope** is part of its task. Claim the task to make the scope; once the scope is published and the questions are on the card, the task goes back to Todo until he picks.
+   - `cello task release` alone keeps the status, so only use it on its own when another session takes over the work straight away.
 
 Never move a task to Done or Canceled yourself: Lucas decides.
 
@@ -320,22 +326,32 @@ cello doc archive billing-audit      # hidden from the Docs tab; the link keeps 
 - **Which kind?** A page is about a moment, a doc is about the system, and a spec is a plan.
 - **The title** is the frontmatter `title:`, the first `#` heading, or `--title`.
 - **The summary** is the frontmatter `summary:`, the first paragraph, or `--summary`.
-- **What renders:** `##` and `###` headings become the page's section list. Tables, code blocks, ```` ```mermaid ```` diagrams and images all render.
+- **What renders:** `##` and `###` headings become the page's section list. Tables, code blocks, ```` ```mermaid ```` diagrams and images all render. A linked video plays inline, whether it's linked as an image (`![The demo](demo.mp4)`) or a plain link (`[demo.mp4](demo.mp4)`); its link text is its caption.
 - **Task keys** (e.g. CEL-12) link to the task, with its live status, so a progress table never goes stale. Keys of unknown tasks, and keys in backticks or code blocks, stay plain.
-- **Images:** images the markdown links by a relative path go up with the page. `--asset` uploads other files.
+- **Files go up with the page:** every file the markdown links by a path (relative to the markdown file, or absolute) goes up with it, as an image or a plain link: images, videos (MP4, WebM, MOV) and text files (txt, log, md, csv, json, cast). `--asset` uploads a file the markdown doesn't link.
+- **A linked file that can't go up** (it isn't there, or it's a type Cello doesn't store, like a PDF) gets a warning, and the page still publishes. The page shows that link as a missing file instead of following it, so fix the path and publish again:
+
+  ```
+  $ cello doc publish scope.md
+  Warning: demo.mp4 isn't there (/Users/lnmunhoz/projects/cello/reports/demo.mp4), so the page shows that link as a missing file.
+  Published page "Palette scope" (version 1), with 1 file
+  http://127.0.0.1:4747/CEL/pages/palette-scope
+  ```
 - **Publishing the same file again** updates the page and keeps the old version, and the link never changes.
 - **Publish reports, plans and summaries here,** not as Claude artifacts: Lucas reads them next to the tasks.
 
 ## Showing things to Lucas
 
-Open pages, videos and links **inside Cello**, in the desktop app's browser panel. Claude artifact pages work there too.
+**Everything you show Lucas goes into Cello, never into another tool's page** (a claude.ai artifact, a gist, a pastebin): reports, plans, comparisons, evidence before a packet, video and screenshot galleries. He reads them next to the task, and they're backed up with the board.
 
 ```bash
-open "cello://open?url=$(jq -rn --arg u 'https://claude.ai/artifact/abc' '$u|@uri')"
+cello doc publish evidence.md --task CEL-12 --kind page   # images inline; linked videos and files go up too
+open "cello://open?url=$(jq -rn --arg u 'http://127.0.0.1:4747/CEL/pages/evidence' '$u|@uri')"   # opens it in the app's panel
 open "cello://CEL-12"                    # focuses the app on a task
 ```
 
-Use his browser only when the desktop app isn't running.
+- This holds even when your own global instructions say to use artifacts: in a Cello project, the project's rule wins.
+- Use his browser only when the desktop app isn't running.
 
 ## Backups
 
@@ -374,6 +390,25 @@ git merge-base --is-ancestor <merge commit> c602f25 && echo "it's in"
 - After a new build is started, open tabs and the desktop app notice it the next time they reconnect: they show "Cello was updated · Reload" and reload by themselves after a few seconds, unless Lucas is typing.
 - `build dev` means the commit is unknown: a build made outside a git checkout without `CELLO_BUILD_COMMIT`.
 
+### Every build so far
+
+The server records each build the first time it starts on it, so the board keeps a history of every deploy. `cello builds` lists it, newest first; Lucas sees the same on the **Builds** page (Settings → Builds, or "See all builds →" in the footer's popover).
+
+```bash
+cello builds
+# #14  build 9afd602  Cello 0.2.0  live since 2026-11-15 18:19, for 2 h 41 min  running
+#     merge: needs input on a task (CEL-47)
+#     merge: build history, one click from the footer (CEL-50)
+# #13  build c602f25  Cello 0.2.0  live since 2026-11-15 12:02, for 6 h 17 min
+#     merge: the task panel's layout (CEL-49)
+```
+
+- Each build has a number (#1 is the first one this data folder recorded), its commit, when it went live and how long it was live (until the next build went live). `running` marks the one the server runs now.
+- Under each build are the commits merged since the build before it: the first-parent subjects, so merges, which name their tasks. Use it to answer "is CEL-47 deployed yet?" or "what did the last deploy bring in?".
+- Restarting the same build adds nothing; a rebuild at the same commit is a new build with no changes.
+- The changes come from git when the server can read the checkout it was built from; otherwise from the list the web build carries (what changed since the build before it in the same folder).
+- A dev server (Vite serving the app) records no builds. `--limit` and `--before` page through a long history; `--json` gives `builds`, `running` and `next`.
+
 ## Identity and environment
 
 | Variable | What it does |
@@ -410,6 +445,7 @@ Every error is one sentence that says what to do next. The usual ones:
 | This folder isn't in a git repository | The CLI can't work out the project. | Pass `--project KEY`. |
 | No project is linked to /path | This repository isn't a Cello project yet. | Set it up: `cello init` (see Set up a repo for Cello), or pass `--project KEY`. |
 | The key THAI is taken by ThaiLookup | `cello init --key` named a key another project has. | Pick another key, or leave `--key` out and Cello picks a free one. |
+| --key builds won't do: a key can't be BUILDS, the address of Cello's Builds page | The key is a word the board uses for its own pages (BUILDS, SETTINGS, REVIEW, ASSETS, ICONS, ATTACHMENTS, RPC), so the project's board would be hidden. | Pick another key, or leave `--key` out. |
 | … is already used by Old Cello (archived), so it can't be linked again | An archived project holds this repo's folder. | Ask Lucas. |
 | Several projects use this folder (A, B) | More than one project was linked to this repo. | Pass `--project KEY`, and tell Lucas. |
 | Project CEL is set up, but the next step failed: … | `cello init` made or found the project; `--hooks` or `--agents-md` then failed. | Fix what the message says, then run the same `cello init` again: it skips what's done. |
@@ -622,7 +658,7 @@ cello doc publish [flags] <file>
 | `--kind string` | page (the default), doc or spec. |
 | `--summary string` | Default: the frontmatter summary:, else the first paragraph. |
 | `--task string` | Link the page to a task, e.g. CEL-12; repeat it, or separate keys with commas. |
-| `--asset string` | Another file to upload with it (images the markdown links go up by themselves); repeatable. |
+| `--asset string` | Another file to upload with it (files the markdown links go up by themselves); repeatable. |
 
 ### cello doc list
 
@@ -764,6 +800,20 @@ cello restore [flags] <id>
 | --- | --- |
 | `id string` | The backup to restore: its id from `cello backup list`, e.g. 20261115-120000. |
 | `--json` | Print what was restored, and the safety backup, as JSON. |
+
+### cello builds
+
+List the builds of Cello the server has run, newest first: each build's number, commit and version, when it went live and for how long (until the next build went live), which one is running now, and the commits merged since the build before it (merge subjects name their tasks). The server records a build the first time it starts on it; restarting the same build adds nothing. Use it to tell whether a merged task is deployed yet, or what a deploy brought in.
+
+```
+cello builds [flags]
+```
+
+| | |
+| --- | --- |
+| `--limit integer` | How many builds to list, newest first (1 to 200). |
+| `--before integer` | List the builds older than this build number: the number the previous list's "Older builds" line gives. |
+| `--json` | Print the page as JSON (builds, running, next) for scripts. |
 
 ### Flags every command takes
 

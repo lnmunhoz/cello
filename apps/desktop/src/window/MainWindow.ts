@@ -2,10 +2,11 @@
 // panel docked on its right. Remembers its size, position and the panel's width in
 // window-state.json; the panel's URL lives only as long as the app runs.
 import * as fs from "node:fs"
-import { BaseWindow, nativeTheme, screen, shell, WebContentsView, type WebContents } from "electron"
+import { BaseWindow, nativeTheme, screen, shell, webContents, WebContentsView, type WebContents } from "electron"
 import { BOARD_OPEN_TASK, PANEL_CLOSE, PANEL_OPEN } from "../ipc.ts"
 import { Panel } from "../panel/Panel.ts"
 import { boardNavigationAction, boardWindowOpenAction } from "../panel/urls.ts"
+import { appCommandDirection, goInHistory, type HistoryDirection, historyShortcut, swipeDirection } from "./history.ts"
 import {
   clampPanelWidth,
   isTogglePanelShortcut,
@@ -96,11 +97,28 @@ export class MainWindow {
     this.#wireBoard(this.board.webContents)
     for (const contents of [this.board.webContents, this.panel.chrome.webContents, this.panel.page.webContents]) {
       contents.on("before-input-event", (event, input) => {
-        if (!isTogglePanelShortcut(input, options.platform)) return
+        if (isTogglePanelShortcut(input, options.platform)) {
+          event.preventDefault()
+          this.panel.toggle()
+          return
+        }
+        // ⌘[ and ⌘] go back and forward in the board, or in the panel's page when the panel has focus.
+        const direction = historyShortcut(input, options.platform)
+        if (direction === null) return
         event.preventDefault()
-        this.panel.toggle()
+        this.go(direction, contents)
       })
     }
+    // A mouse's back and forward buttons (Windows, Linux; macOS reports them to the board's preload)
+    // and a trackpad swipe (macOS) act on the view with focus.
+    this.window.on("app-command", (_event, command) => {
+      const direction = appCommandDirection(command)
+      if (direction) this.go(direction, webContents.getFocusedWebContents())
+    })
+    this.window.on("swipe", (_event, swipe) => {
+      const direction = swipeDirection(swipe)
+      if (direction) this.go(direction, webContents.getFocusedWebContents())
+    })
 
     for (const event of RELAYOUT_EVENTS) {
       this.window.on(event as "resize", () => {
@@ -159,7 +177,18 @@ export class MainWindow {
     return inPanel && this.panel.isOpen ? this.panel.page.webContents : this.board.webContents
   }
 
+  /** One step back or forward: in the panel's page when `focused` is the panel, else in the board. */
+  go(direction: HistoryDirection, focused: WebContents | null): void {
+    const target = this.focusedContents(focused)
+    if (!target.isDestroyed()) goInHistory(target.navigationHistory, direction)
+  }
+
   #wireBoard(board: WebContents): void {
+    // The "Starting Cello…" message the board replaced isn't a page to go back to.
+    board.on("did-navigate", () => {
+      const history = board.navigationHistory
+      if (history.length() > 1 && history.getEntryAtIndex(0)?.url.startsWith("data:")) history.removeEntryAtIndex(0)
+    })
     board.ipc.on(PANEL_OPEN, (_event, message: unknown) => {
       const { url, title } = (message ?? {}) as { url?: unknown; title?: unknown }
       if (typeof url === "string") this.panel.open(url, typeof title === "string" ? title : undefined)

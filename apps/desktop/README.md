@@ -85,6 +85,27 @@ Electron's Node can't run the Bun server, so the app uses the `cello` binary as 
   `claude.ai/…`), open in your browser, close. Drag the panel's left edge to resize it.
 - **Keys:** ⌘\ toggles the panel (it comes back on the page it showed), ⌘L puts the cursor in the
   address field. Pages in the panel keep their sign-ins across launches (`persist:panel`).
+
+## Back and forward
+
+The main window goes back and forward like a browser (CEL-54), in the board, or in the panel's page
+when the panel has focus:
+
+- ⌘[ and ⌘] (Ctrl on Linux and Windows), also in the **History** menu as Back and Forward
+- a mouse's back and forward buttons: Windows and Linux report them as app commands
+  (`browser-backward`, `browser-forward`), which `MainWindow` takes; macOS reports them only to the
+  page, so the board's preload takes them there
+- a trackpad swipe on macOS, when System Settings › Trackpad › More Gestures › "Swipe between pages"
+  is set to swipe with two or three fingers (Electron's `swipe` event)
+
+Which input means which way is `src/window/history.ts`. The "Starting Cello…" message the board
+replaces is dropped from the board's history, so Back never lands on it.
+
+- **What's checked where:** the keys, the History menu and the app commands run in the desktop e2e
+  (Linux, in Docker). The trackpad swipe and a real mouse's buttons on macOS are covered only by the
+  unit tests of `history.ts`; nobody has checked them on a real Mac yet.
+- **Not handled:** on macOS a mouse's back and forward buttons do nothing over the panel's page (it's
+  any website, with no preload of ours). Its toolbar has Back and Forward, and ⌘[ / ⌘] work there.
 - The window's size and position, and the panel's width, are saved; the panel's page lasts as
   long as the app runs.
 
@@ -100,7 +121,7 @@ running app.
 ## Code
 
 - `src/main.ts`: startup, single instance, links, menu, quit
-- `src/window/`: the main window and its layout (board view, panel views)
+- `src/window/`: the main window, its layout (board view, panel views) and its back and forward
 - `src/panel/`: the panel (`Panel.ts`), its toolbar page (`chrome.*`) and the URL rules (`urls.ts`)
 - `src/server/`: finding or starting the server (`plan.ts` decides, `sidecar.ts` does it)
 - `src/preload.ts`: `window.celloDesktop`

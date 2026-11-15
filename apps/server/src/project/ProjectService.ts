@@ -2,7 +2,7 @@
 import type { Project, ProjectRef } from "@cello/contract/entities"
 import { Invalid, KeyTaken, NotFound } from "@cello/contract/errors"
 import type { Caller } from "@cello/contract/rpcs"
-import { freeProjectKey, isValidProjectKey } from "@cello/shared/taskKey"
+import { freeProjectKey, isValidProjectKey, reservedKeyProblem } from "@cello/shared/taskKey"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -81,6 +81,8 @@ const make = Effect.gen(function* () {
     if (given !== undefined && !isValidProjectKey(given)) {
       return yield* new Invalid({ field: "key", reason: "must be 2 to 10 letters or digits, starting with a letter" })
     }
+    const reserved = given === undefined ? null : reservedKeyProblem(given)
+    if (reserved !== null) return yield* new Invalid({ field: "key", reason: reserved })
     const color = input.color === undefined ? undefined : yield* requireColor("color", input.color)
     const repoPath = input.repoPath === undefined ? undefined : yield* repoPaths.normalize(yield* requireText("repoPath", input.repoPath))
 

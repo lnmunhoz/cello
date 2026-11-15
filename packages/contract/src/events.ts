@@ -1,5 +1,6 @@
 // Every change is one of these events. `before`/`after` hold only the fields that changed.
 import * as Schema from "effect/Schema"
+import { BuildRecord } from "./build.ts"
 import { AgentSession, Comment, DocumentSummary, DueDate, Id, Label, Millis, Priority, Project, Review, ReviewDecision, Status, Task, Workspace } from "./entities.ts"
 import { TaskStage } from "./stages.ts"
 
@@ -86,6 +87,9 @@ export const CelloEvent = Schema.Union([
   event("document.published", { document: DocumentSummary }),
   event("document.updated", { id: Id, version: Schema.Number, document: DocumentSummary }),
   event("document.archived", { id: Id }),
+  // A server started on a build it hadn't run before (CEL-50). Builds belong to no workspace, so the
+  // same event goes to every workspace, for each one's subscribers. `liveUntil` is null in it.
+  event("build.recorded", { build: BuildRecord }),
 ])
 export type CelloEvent = typeof CelloEvent.Type
 export type CelloEventType = CelloEvent["type"]

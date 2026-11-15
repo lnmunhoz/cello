@@ -48,6 +48,10 @@ describe("the server serves the web app", () => {
       expect((yield* get("/icons/icon.svg")).type).toContain("image/svg+xml")
       expect((yield* get("/assets/missing.js")).status).toBe(404)
       expect((yield* get("/../server.lock")).status).not.toBe(200)
+      // CEL-54: following a link to a file that isn't there (a page's relative video link) is a page
+      // navigation: it gets the app, whose Not found screen has a way back, never a bare "Not found".
+      expect(yield* get("/CEL/pages/a-palette-typing.mp4", { "sec-fetch-mode": "navigate" })).toMatchObject({ status: 200, body: INDEX })
+      expect((yield* get("/CEL/pages/a-palette-typing.mp4")).status).toBe(404)
 
       // The page's own origin may open the socket; other origins may not.
       expect((yield* get("/rpc", { origin: `http://127.0.0.1:${port}`, upgrade: "websocket" })).status).not.toBe(403)

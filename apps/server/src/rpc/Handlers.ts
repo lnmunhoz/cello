@@ -3,6 +3,7 @@
 import { CelloRpcs } from "@cello/contract/rpcs"
 import * as Effect from "effect/Effect"
 import * as BackupService from "../backup/BackupService.ts"
+import * as BuildHistory from "../build/BuildHistory.ts"
 import * as BuildInfo from "../build/BuildInfo.ts"
 import * as CommentService from "../comment/CommentService.ts"
 import * as ContextService from "../context/ContextService.ts"
@@ -32,6 +33,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
   const backups = yield* BackupService.BackupService
   const inbox = yield* InboxService.InboxService
   const build = yield* BuildInfo.BuildInfo
+  const builds = yield* BuildHistory.BuildHistory
 
   return CelloRpcs.of({
     "snapshot.get": ({ scope }) => snapshots.get(scope),
@@ -72,6 +74,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "backup.create": () => backups.create({ kind: "manual" }),
     "backup.list": () => backups.list(),
     "server.build": () => build.get(),
+    "builds.list": (page) => builds.list(page),
     "comment.list": ({ taskId }) => comments.list(taskId),
     "comment.add": (input) => comments.add(input),
     "comment.edit": (input) => comments.edit(input),

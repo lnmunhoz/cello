@@ -10,6 +10,7 @@ import type { Backup } from "@cello/contract/backups"
 import type { Actor, AgentSession, DocumentKind, Priority, ProjectRef, Review, Status, Task } from "@cello/contract/entities"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
+import { ACCEPTED } from "@cello/shared/attachment"
 import { pagePath } from "@cello/shared/document"
 import { formatBytes } from "@cello/shared/bytes"
 import { shortCommit } from "@cello/shared/build"
@@ -23,6 +24,7 @@ import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
 import { addAgentsSection, agentsFile } from "./agentsMd.ts"
+import { buildsText } from "./builds.ts"
 import { HOOK_EVENTS, type HookEvent, hookAction, hookDeadline, hookResponse, hookSession, parseHookInput } from "./claudeHook.ts"
 import {
   addCelloHooks,
@@ -583,7 +585,7 @@ const docPublish = Command.make("publish", {
   task: Flag.String("task").pipe(Flag.atLeast(0), Flag.withDescription("Link the page to a task, e.g. CEL-12; repeat it, or separate keys with commas.")),
   asset: Flag.String("asset").pipe(
     Flag.atLeast(0),
-    Flag.withDescription("Another file to upload with it (images the markdown links go up by themselves); repeatable."),
+    Flag.withDescription("Another file to upload with it (files the markdown links go up by themselves); repeatable."),
   ),
 }, (input) =>
   Effect.gen(function* () {
@@ -592,7 +594,11 @@ const docPublish = Command.make("publish", {
     const ref = yield* projectRef(input.project)
     const source = input.file === "-" ? undefined : path.resolve(cwd, input.file)
     const body = source === undefined ? yield* Effect.promise(readStdin) : yield* readFile(source)
-    const files = pageFiles(body, source === undefined ? cwd : path.dirname(source), input.asset, cwd)
+    const { files, skipped } = pageFiles(body, source === undefined ? cwd : path.dirname(source), input.asset, cwd)
+    for (const { target, file, reason } of skipped) {
+      const why = reason === "missing" ? `isn't there (${file})` : `can't go up with the page (Cello stores ${ACCEPTED})`
+      yield* Console.error(`Warning: ${target} ${why}, so the page shows that link as a missing file.`)
+    }
     const taskKeys = input.task.flatMap((value) => value.split(",")).map((k) => k.trim()).filter((k) => k !== "")
     const { response, project: found } = yield* withClient((client) =>
       Effect.gen(function* () {
@@ -790,6 +796,33 @@ const restoreCommand = Command.make("restore", {
     { command: "cello backup list", description: "First, pick the backup to restore" },
     { command: "cello restore 20261115-120000", description: "Restore it; the current state is backed up first" },
     { command: "cello restore 20261115-130501", description: "Undo that restore: restore the \"before restoring\" backup it printed" },
+  ]))
+
+// ── build history (CEL-50) ──────────────────────────────────────────────────────────────────────
+
+const buildsCommand = Command.make("builds", {
+  limit: Flag.Int("limit").pipe(Flag.withDefault(20), Flag.withDescription("How many builds to list, newest first (1 to 200).")),
+  before: Flag.Int("before").pipe(
+    Flag.optional,
+    Flag.withDescription("List the builds older than this build number: the number the previous list's \"Older builds\" line gives."),
+  ),
+  json: Flag.Boolean("json").pipe(Flag.withDefault(false), Flag.withDescription("Print the page as JSON (builds, running, next) for scripts.")),
+}, (input) =>
+  Effect.gen(function* () {
+    const page = yield* withClient((client) =>
+      client["builds.list"]({ limit: input.limit, ...(Option.isSome(input.before) ? { before: input.before.value } : {}) }))
+    if (input.json) return yield* printJson(page)
+    yield* print(buildsText(page, (yield* CliEnv).now()))
+  })).pipe(Command.withDescription(
+    "List the builds of Cello the server has run, newest first: each build's number, commit and version, when it went live " +
+      "and for how long (until the next build went live), which one is running now, and the commits merged since the build " +
+      "before it (merge subjects name their tasks). The server records a build the first time it starts on it; restarting the " +
+      "same build adds nothing. Use it to tell whether a merged task is deployed yet, or what a deploy brought in.",
+  ), Command.withShortDescription("List the builds the server has run, newest first, with what changed."), Command.withExamples([
+    { command: "cello builds", description: "The newest 20 builds, with their changes" },
+    { command: "cello builds --limit 5", description: "Only the newest 5" },
+    { command: "cello builds --before 12", description: "The builds before #12 (the next page)" },
+    { command: "cello builds --limit 1 --json | jq -r '.builds[0].changes[]'", description: "What the newest build brought in, one commit per line" },
   ]))
 
 // ── comments for agents (CEL-15) ────────────────────────────────────────────────────────────────
@@ -1107,7 +1140,7 @@ const startCommand = Command.make("start", {}, () => start).pipe(
 
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, init, task, inbox, doc, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand]),
+  Command.withSubcommands([context, init, task, inbox, doc, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand, buildsCommand]),
 )
 
 /**
