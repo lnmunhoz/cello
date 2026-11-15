@@ -1,16 +1,19 @@
 // Review packets: submit copies the evidence and moves the task to In Review in one command; only the
 // human approves or sends back; an agent can't move a task to In Review without a packet.
 import * as fs from "node:fs"
+import * as os from "node:os"
 import * as path from "node:path"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
 import * as CommentService from "../comment/CommentService.ts"
 import * as EventStore from "../events/EventStore.ts"
 import * as Seed from "../persistence/Seed.ts"
+import { isAlive } from "../process/isAlive.ts"
 import * as SnapshotService from "../snapshot/SnapshotService.ts"
 import * as TaskService from "../task/TaskService.ts"
 import { cmd, setupProject } from "../testing/fixtures.ts"
-import { writeMp4, writePng, writeSparse, writeText } from "../testing/media.ts"
+import { writeHungFfmpeg, writeMp4, writePng, writeSparse, writeText } from "../testing/media.ts"
 import { tempDataDir } from "../testing/tempDir.ts"
 import { asAgent, asHuman, services } from "../testing/TestLayers.ts"
 import * as AssetStore from "./AssetStore.ts"
@@ -105,6 +108,22 @@ describe("ReviewService.submit", () => {
       expect(poster.mime).toBe("image/jpeg")
       expect(fs.readFileSync(poster.path).subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]))
     }), { ffmpeg: Bun.which("ffmpeg") }))
+
+  // A stopping server interrupts the submits in flight (CEL-17). The poster is made before the write,
+  // so a hung ffmpeg can't hold the shutdown: it's killed and nothing is written.
+  it.effect("a submit stuck making a poster stops when interrupted, kills ffmpeg and writes nothing", () => {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cello-ffmpeg-")))
+    const ffmpeg = writeHungFfmpeg(dir)
+    return run(Effect.gen(function* () {
+      const { reviews, task, files } = yield* setup
+      const video = writeText(files, "flow.mp4", "not really a video")
+      const submit = yield* Effect.forkChild(agent(reviews.submit(packet(task.key, [{ path: video }]))))
+      const pid = yield* Effect.promise(ffmpeg.started)
+      yield* Fiber.interrupt(submit)
+      expect(isAlive(pid)).toBe(false)
+      expect(yield* reviews.list(task.id)).toEqual([])
+    }).pipe(Effect.ensuring(Effect.sync(() => fs.rmSync(dir, { recursive: true, force: true })))), { ffmpeg: ffmpeg.bin })
+  })
 
   it.effect("without ffmpeg the video is kept without a poster", () =>
     run(Effect.gen(function* () {

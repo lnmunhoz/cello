@@ -7,7 +7,9 @@ import * as path from "node:path"
 import { fileURLToPath } from "node:url"
 import * as BunSocket from "@effect/platform-bun/BunSocket"
 import { CelloClient, makeClientLayer, newCommandId } from "@cello/client/client"
+import { isAlive } from "@cello/server/process/isAlive"
 import { LOCK_FILE } from "@cello/server/server/ServerLock"
+import { writeHungFfmpeg } from "@cello/server/testing/media"
 import { startServer, tempDataDir } from "@cello/server/testing/servers"
 import { describe, expect, it } from "@effect/vitest"
 import * as Context from "effect/Context"
@@ -54,9 +56,9 @@ const readUntil = (stream: ReadableStream<Uint8Array>, pattern: RegExp) =>
 const RUNNING = /Cello is running at http:\/\/127\.0\.0\.1:(\d+) .*\n/
 
 /** Starts `cello start` (daily backup on, as in production) and waits for its banner. */
-const startProcess = (dataDir: string) =>
+const startProcess = (dataDir: string, env: Record<string, string> = {}) =>
   Effect.gen(function* () {
-    const proc = yield* spawnStart({ CELLO_DATA_DIR: dataDir, CELLO_PORT: "0" })
+    const proc = yield* spawnStart({ CELLO_DATA_DIR: dataDir, CELLO_PORT: "0", ...env })
     const banner = yield* readUntil(proc.stdout, RUNNING)
     return { proc, port: Number(RUNNING.exec(banner)![1]) }
   })
@@ -74,13 +76,14 @@ const connectSubscriber = (port: number) =>
         Stream.runCollect,
       ),
     )
-    yield* client["project.create"]({ commandId: newCommandId(), workspaceId: workspace.id, name: "Cello", key: "CEL" })
+    const { result: project } = yield* client["project.create"]({ commandId: newCommandId(), workspaceId: workspace.id, name: "Cello", key: "CEL" })
     expect(yield* Fiber.join(first)).toHaveLength(1)
+    const { result: task } = yield* client["task.create"]({ commandId: newCommandId(), projectId: project.id, title: "Shutdown" })
     // Stays subscribed: the server keeps a stream open for this client until it stops.
     yield* Effect.forkScoped(
       Stream.runDrain(client["events.subscribe"]({ scope: { workspaceId: workspace.id }, afterSeq: snapshot.seq })),
     )
-    return client
+    return { client, task }
   })
 
 /** One masked WebSocket text frame, as a client sends it. */
@@ -128,8 +131,24 @@ const connectNonReader = (port: number, workspaceId: string) =>
     (socket) => Effect.sync(() => socket.destroy()),
   )
 
-/** How long a stop may take with clients connected (CEL-17). */
-const STOP_DEADLINE = Duration.seconds(2)
+/**
+ * How long a stop may take with clients connected (CEL-17). It takes about 1 s; 10 s leaves room on
+ * a busy machine and still proves it isn't Bun's 20 s wait for connections to close.
+ */
+const STOP_DEADLINE = Duration.seconds(10)
+const TEST_TIMEOUT = 30_000
+
+/** Sends `signal` and expects the process to exit within the deadline, with its lock released. */
+const expectStops = (proc: Bun.Subprocess<"ignore", "pipe", "pipe">, dataDir: string, signal: NodeJS.Signals) =>
+  Effect.gen(function* () {
+    const stopped = Date.now()
+    proc.kill(signal)
+    const exited = yield* Effect.promise(() => proc.exited).pipe(Effect.timeoutOption(STOP_DEADLINE))
+    const took = Date.now() - stopped
+    expect(Option.isSome(exited), `still running ${took} ms after ${signal}`).toBe(true)
+    expect(fs.existsSync(path.join(dataDir, LOCK_FILE))).toBe(false)
+    expect(yield* Effect.promise(() => new Response(proc.stderr).text())).toBe("")
+  })
 
 describe("cello start", () => {
   it.live("refuses to start a second server for the same data folder and prints the running one", () =>
@@ -166,18 +185,33 @@ describe("cello start", () => {
       Effect.gen(function* () {
         const dataDir = yield* tempDataDir
         const { proc, port } = yield* startProcess(dataDir)
-        const subscriber = yield* connectSubscriber(port)
-        const { workspaces } = yield* subscriber["snapshot.get"]({})
+        const { client } = yield* connectSubscriber(port)
+        const { workspaces } = yield* client["snapshot.get"]({})
         yield* connectNonReader(port, workspaces[0]!.id)
-
-        const stopped = Date.now()
-        proc.kill(signal)
-        const exited = yield* Effect.promise(() => proc.exited).pipe(Effect.timeoutOption(STOP_DEADLINE))
-        const took = Date.now() - stopped
-
-        expect(Option.isSome(exited), `still running ${took} ms after ${signal}`).toBe(true)
-        expect(fs.existsSync(path.join(dataDir, LOCK_FILE))).toBe(false)
-        expect(yield* Effect.promise(() => new Response(proc.stderr).text())).toBe("")
-      }).pipe(Effect.scoped))
+        yield* expectStops(proc, dataDir, signal)
+      }).pipe(Effect.scoped), TEST_TIMEOUT)
   }
+
+  it.live("SIGTERM stops it while a review submit waits on an ffmpeg that never finishes", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* tempDataDir
+      const bin = path.join(dataDir, "bin")
+      fs.mkdirSync(bin)
+      const ffmpeg = writeHungFfmpeg(bin)
+      const { proc, port } = yield* startProcess(path.join(dataDir, "data"), { PATH: `${bin}:${process.env.PATH ?? ""}` })
+      const { client, task } = yield* connectSubscriber(port)
+      const video = path.join(dataDir, "flow.mp4")
+      fs.writeFileSync(video, "not really a video")
+      yield* Effect.forkScoped(Effect.exit(client["review.submit"]({
+        commandId: newCommandId(),
+        key: task.key,
+        summary: "Stops cleanly",
+        steps: ["Send SIGTERM"],
+        files: [{ path: video }],
+        links: [],
+      })))
+      const pid = yield* Effect.promise(ffmpeg.started)
+      yield* expectStops(proc, path.join(dataDir, "data"), "SIGTERM")
+      expect(isAlive(pid)).toBe(false)
+    }).pipe(Effect.scoped), TEST_TIMEOUT)
 })

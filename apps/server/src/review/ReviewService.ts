@@ -89,6 +89,9 @@ const make = Effect.gen(function* () {
     const links = yield* Effect.forEach(input.links, (link) =>
       Effect.map(requireLink(link.url), (url) => ({ url, caption: link.caption?.trim() ?? "" })))
     const files = yield* Effect.forEach(input.files, (file) => checkFile(assets.sizeOf, file))
+    // Posters are made before the write: ffmpeg can hang, and a write can't be interrupted (CEL-17).
+    // Their temp files go when submit's scope closes, after the write has copied them in.
+    const posters = yield* Effect.forEach(files, (file) => file.kind === "video" ? assets.poster(file.source) : Effect.succeed(null))
 
     // Files copied so far, removed again if the command fails after copying.
     const copied: string[] = []
@@ -109,11 +112,12 @@ const make = Effect.gen(function* () {
         const id = newId(now)
         yield* sql`INSERT INTO reviews (id, task_id, summary, steps, actor_id, session_id, created_at)
           VALUES (${id}, ${task.id}, ${summary}, ${JSON.stringify(steps)}, ${caller.actorId}, ${caller.sessionId}, ${now})`
-        for (const file of files) {
+        for (const [i, file] of files.entries()) {
           const attachmentId = newId(now)
           const stored = yield* assets.copyIn(file.source, task.id, attachmentId)
           copied.push(stored)
-          const poster = file.kind === "video" ? yield* assets.poster(stored) : null
+          const frame = posters[i] ?? null
+          const poster = frame === null ? null : yield* assets.copyIn(frame, task.id, `${attachmentId}.poster`)
           if (poster !== null) copied.push(poster)
           yield* sql`INSERT INTO attachments (id, task_id, review_id, kind, name, path, caption, mime, bytes, poster_path,
                                               actor_id, session_id, created_at)
@@ -131,7 +135,7 @@ const make = Effect.gen(function* () {
         const moved = yield* tasks.moveWithin(context, { id: task.id, statusId: target.id, keepClaim: true })
         return { review, task: moved }
       })).pipe(Effect.onError(() => assets.remove(copied)))
-  })
+  }, Effect.scoped)
 
   /** Only the human decides; the decision closes the open review and moves the task. */
   const decide = (
