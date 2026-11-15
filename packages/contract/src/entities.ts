@@ -190,8 +190,11 @@ export const Attachment = Schema.Struct({
 })
 export type Attachment = typeof Attachment.Type
 
-/** `superseded`: a newer review of the same task replaced it before anyone decided. */
-export const ReviewDecision = Schema.Literals(["approved", "sent_back", "superseded"])
+/**
+ * How a review closed. `superseded`: a newer review of the same task replaced it before anyone decided.
+ * `withdrawn`: the task left In Review some other way than a decision (a plain move, CEL-71).
+ */
+export const ReviewDecision = Schema.Literals(["approved", "sent_back", "superseded", "withdrawn"])
 export type ReviewDecision = typeof ReviewDecision.Type
 
 /**

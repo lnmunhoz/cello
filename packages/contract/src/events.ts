@@ -105,6 +105,10 @@ export const CelloEvent = Schema.Union([
   event("review.submitted", { review: Review }),
   // Approved, sent back, or superseded by a newer review. `ts` is when.
   event("review.decided", { id: Id, taskId: Id, decision: ReviewDecision, note: Schema.NullOr(Schema.String) }),
+  // The task left In Review by a plain move (an agent's `cello task move`, Lucas dragging the card), so
+  // its open packet closed undecided (decision `withdrawn`, CEL-71). `to` is the status it was moved to;
+  // the envelope says who moved it. The same command then moves the task (task.moved).
+  event("review.withdrawn", { id: Id, taskId: Id, to: Id }),
   // Needs input (CEL-47). An ask with its questions and evidence; the same command moves the task to
   // Needs input (task.moved). Answered carries the whole ask with Lucas's answers; the same command
   // moves the task back to In Progress. Withdrawn: by the agent, by Lucas moving the card himself, or

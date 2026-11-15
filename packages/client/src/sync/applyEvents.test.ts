@@ -128,6 +128,12 @@ describe("applyEvents: reviews", () => {
     expect(Object.keys(next.reviews)).toEqual(["r2"])
     expect(next.tasks).toBe(state.tasks)
   })
+
+  it("a packet withdrawn by a move out of In Review leaves too (CEL-71)", () => {
+    const state = fromSnapshot({ ...snapshot([task("t1")]), reviews: [review("r1")] })
+    const next = applyEvents(state, [ev(11, { type: "review.withdrawn", id: "r1", taskId: "t1", to: "s2" })])
+    expect(next.reviews).toEqual({})
+  })
 })
 
 describe("applyEvents: claims", () => {

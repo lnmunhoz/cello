@@ -178,6 +178,38 @@ describe("AskService.create", () => {
       expect(result.task.statusId).toBe(status["Needs input"]!.id)
       expect((yield* reviews.list(task.id)).map((r) => r.decision)).toEqual([null])
     })))
+
+  // CEL-71: the packet waits with the task in Needs input. Back to In Review (Lucas moving the card there)
+  // keeps it open; back to work (his answers, the agent withdrawing, or a drag anywhere else) withdraws it:
+  // the agent works again and hands in a new packet.
+  it.effect("asked from In Review: the packet stays open back in In Review, and is withdrawn when the task goes back to work", () =>
+    run(Effect.gen(function* () {
+      const { tasks, asks, status, task, files } = yield* setup
+      const reviews = yield* ReviewService.ReviewService
+      const submit = () => agent(reviews.submit({ commandId: cmd(), key: task.key, summary: "Done", steps: ["Look"], files: [{ path: writePng(files) }], links: [] }))
+      const decisions = () => Effect.map(reviews.list(task.id), (list) => list.map((r) => r.decision))
+
+      // Lucas moves it back to In Review himself: the same packet waits for him there.
+      yield* submit()
+      yield* agent(asks.create(question(files)))
+      yield* tasks.move({ commandId: cmd(), id: task.id, statusId: status["In Review"]!.id })
+      expect(yield* decisions()).toEqual([null])
+
+      // He answers: the task goes back to In Progress, and the packet with it is withdrawn.
+      yield* agent(tasks.claim({ commandId: cmd(), key: task.key }))
+      const { ask } = (yield* agent(asks.create(question(files)))).result
+      const answer = answers(ask.id)
+      yield* asks.answer(answer)
+      expect((yield* eventsOf(answer.commandId)).map((e) => e.type)).toEqual(["ask.answered", "review.withdrawn", "task.moved"])
+      expect(yield* decisions()).toEqual(["withdrawn"])
+
+      // The agent withdraws its own questions: the same.
+      yield* submit()
+      yield* agent(asks.create(question(files)))
+      yield* agent(asks.withdraw({ commandId: cmd(), key: task.key }))
+      expect(yield* decisions()).toEqual(["withdrawn", "withdrawn"])
+      expect((yield* (yield* SnapshotService.SnapshotService).get()).reviews).toEqual([])
+    })))
 })
 
 describe("AskService.answer", () => {

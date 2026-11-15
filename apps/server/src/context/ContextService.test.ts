@@ -5,9 +5,12 @@ import * as CommentService from "../comment/CommentService.ts"
 import * as LabelService from "../label/LabelService.ts"
 import * as ProjectService from "../project/ProjectService.ts"
 import * as Seed from "../persistence/Seed.ts"
+import * as ReviewService from "../review/ReviewService.ts"
 import * as SnapshotService from "../snapshot/SnapshotService.ts"
 import * as TaskService from "../task/TaskService.ts"
 import { cmd } from "../testing/fixtures.ts"
+import { writePng } from "../testing/media.ts"
+import { tempDataDir } from "../testing/tempDir.ts"
 import { asAgent, asHuman, services } from "../testing/TestLayers.ts"
 import { ContextService } from "./ContextService.ts"
 
@@ -91,6 +94,22 @@ describe("ContextService.context", () => {
       // Project-level events (project and label creation) aren't activity on tasks.
       expect(ctx.recent.every((a) => a.taskKey !== null)).toBe(true)
     })))
+
+  it.effect("a packet withdrawn by a move is activity on its task (CEL-71)", () =>
+    run(Effect.gen(function* () {
+      const { context, tasks, status, one } = yield* setup
+      yield* agent(tasks.claim({ commandId: cmd(), key: one.key }))
+      const files = yield* tempDataDir
+      yield* agent((yield* ReviewService.ReviewService).submit({
+        commandId: cmd(), key: one.key, summary: "Done", steps: ["Look"], files: [{ path: writePng(files) }], links: [],
+      }))
+      yield* agent(tasks.move({ commandId: cmd(), id: one.id, statusId: status["In Progress"]!.id }))
+      const ctx = yield* agent(context.context({ key: "CEL" }))
+      expect(ctx.recent.slice(0, 2).map((a) => [a.event.type, a.taskKey])).toEqual([
+        ["task.moved", one.key],
+        ["review.withdrawn", one.key],
+      ])
+    }).pipe(Effect.scoped)))
 
   it.effect("fails with NotFound for a folder no project is linked to", () =>
     run(Effect.gen(function* () {

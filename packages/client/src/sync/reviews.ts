@@ -19,27 +19,30 @@ export const openReviewOf = (state: BoardState, taskId: string): Review | undefi
   Object.values(state.reviews).find((r) => r.taskId === taskId)
 
 /**
- * Every packet waiting on Lucas in a workspace: tasks with an open review (oldest packet first), then
- * tasks sitting in In Review without one. Archived tasks and projects are left out, and so are tasks
- * waiting on his answers to an ask (CEL-47): the Needs input group shows those first.
+ * Every packet waiting on Lucas in a workspace: tasks in In Review with an open review (oldest packet
+ * first), then tasks sitting in In Review without one. Archived tasks and projects are left out, and so
+ * are tasks waiting on his answers to an ask (CEL-47): the Needs input group shows those first. A
+ * packet whose task has moved on isn't waiting on him, decided or not (CEL-71: the server withdraws
+ * it on the move, and packets left open before that stay undecided).
  */
 export const reviewQueue = (state: BoardState, workspaceId: string): ReviewItem[] => {
   const projectOf = (task: Task) => {
     const project = state.projects[task.projectId]
     return project && project.workspaceId === workspaceId && project.archivedAt === null ? project : undefined
   }
+  const inReview = (task: Task) => task.archivedAt === null && isReviewStatus(state.statuses[task.statusId]?.name ?? "")
   const withPacket: ReviewItem[] = []
   // Asked about: shown in the Needs input group instead.
   const reviewed = new Set<string>(Object.values(state.asks).map((a) => a.taskId))
   for (const review of Object.values(state.reviews).sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1))) {
     const task = state.tasks[review.taskId]
-    const project = task && task.archivedAt === null ? projectOf(task) : undefined
+    const project = task && inReview(task) ? projectOf(task) : undefined
     if (!task || !project || reviewed.has(task.id)) continue
     reviewed.add(task.id)
     withPacket.push({ task, project, review })
   }
   const without = Object.values(state.tasks)
-    .filter((t) => t.archivedAt === null && !reviewed.has(t.id) && isReviewStatus(state.statuses[t.statusId]?.name ?? ""))
+    .filter((t) => inReview(t) && !reviewed.has(t.id))
     .sort((a, b) => a.updatedAt - b.updatedAt || a.number - b.number)
     .flatMap((task) => {
       const project = projectOf(task)
@@ -147,6 +150,8 @@ export const applyReviewEvents = (
       next = [...next, e.review]
     } else if (e.type === "review.decided" && e.taskId === taskId) {
       next = next.map((r) => (r.id === e.id ? { ...r, decision: e.decision, decisionNote: e.note, decidedAt: e.ts } : r))
+    } else if (e.type === "review.withdrawn" && e.taskId === taskId) {
+      next = next.map((r) => (r.id === e.id ? { ...r, decision: "withdrawn", decisionNote: null, decidedAt: e.ts } : r))
     }
   }
   return next

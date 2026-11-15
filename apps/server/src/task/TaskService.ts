@@ -19,6 +19,7 @@ import * as InboxService from "../inbox/InboxService.ts"
 import { newId } from "../persistence/ids.ts"
 import { selectTasks } from "../persistence/rows.ts"
 import * as Seed from "../persistence/Seed.ts"
+import { withdrawOpenReview } from "../review/openReview.ts"
 import { isGone, SessionService } from "../session/SessionService.ts"
 import { place } from "../position/placement.ts"
 import { placed, requireText } from "../validation.ts"
@@ -81,7 +82,8 @@ export class TaskService extends Context.Service<TaskService, {
   readonly update: (input: UpdateTask) => Write<NotFound | Invalid | VersionConflict>
   /**
    * An agent can't move a task into In Review unless it has an open review (`ReviewRequired`); no one moves
-   * one into Needs input (`AskRequired`). Moving a task out of Needs input withdraws its open ask.
+   * one into Needs input (`AskRequired`). Moving a task out of Needs input withdraws its open ask, and
+   * moving it anywhere but In Review or Needs input withdraws its open review packet (CEL-71).
    */
   readonly move: (input: MoveTask) => Write<NotFound | Invalid | VersionConflict | ReviewRequired | AskRequired>
   readonly setLabels: (input: SetTaskLabels) => Write<NotFound | Invalid>
@@ -372,6 +374,15 @@ const make = Effect.gen(function* () {
         const withdrawn = yield* withdrawOpenAsk(sql, context, current, { workspaceId, projectId: current.projectId }, "moved")
         // Lucas moving it himself: the agent that asked hears where the card went.
         if (withdrawn !== null) yield* inbox.deliverWithdrawalWithin(context, withdrawn, (yield* statusOf(to.statusId)).name)
+      }
+      // An open packet waits on Lucas in In Review, or in Needs input when the agent asked from there
+      // (CEL-47). Approve and Send back close it before they move the task; any other move to another
+      // status withdraws it (CEL-71), so the Review page never lists a task that has moved on.
+      if (!sameColumn) {
+        const target = yield* statusOf(to.statusId)
+        if (!isReviewStatus(target.name) && !isNeedsInputStatus(target)) {
+          yield* withdrawOpenReview(sql, context, current, { workspaceId, projectId: current.projectId }, to.statusId)
+        }
       }
       const claim = to.keepClaim ? { columns: {}, after: (_version: number) => Effect.void } : humanEndsClaim(current, workspaceId, context)
       // A stage says where the task is inside In Progress (CEL-35): leaving the column ends it, except a

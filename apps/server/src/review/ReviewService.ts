@@ -1,7 +1,8 @@
 // Review packets: what an agent hands Lucas when it moves a task to In Review. Submit copies the
 // evidence into the data folder and moves the task in one command; only the human approves (to the
 // first completed status) or sends back (to the first started status, with the note as a comment that
-// lands in the agent session's inbox).
+// lands in the agent session's inbox). Any other way out of In Review withdraws the packet: TaskService
+// does that inside the move (openReview.ts, CEL-71).
 import * as path from "node:path"
 import type { Review, Task } from "@cello/contract/entities"
 import { HumanOnly, Invalid, NotFound } from "@cello/contract/errors"
@@ -22,6 +23,7 @@ import * as TaskService from "../task/TaskService.ts"
 import { requireText } from "../validation.ts"
 import * as AssetStore from "./AssetStore.ts"
 import { checkFile, requireLink } from "./evidence.ts"
+import * as openReview from "./openReview.ts"
 
 export interface SubmitReview {
   readonly commandId: string
@@ -76,8 +78,7 @@ const make = Effect.gen(function* () {
       Effect.map((rows) => ({ workspaceId: rows[0]!.workspace_id, projectId: task.projectId })),
     )
 
-  const openReviewOf = (taskId: string) =>
-    selectReviews(sql, sql`r.task_id = ${taskId} AND r.decided_at IS NULL`).pipe(Effect.map((rows) => rows.at(-1) ?? null))
+  const openReviewOf = (taskId: string) => openReview.openReviewOf(sql, taskId)
 
   const submit = Effect.fn("ReviewService.submit")(function* (input: SubmitReview) {
     const summary = yield* requireText("summary", input.summary)

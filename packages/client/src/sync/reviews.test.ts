@@ -39,7 +39,8 @@ const state: BoardState = {
     t1: task("t1", "review"),
     t2: task("t2", "review", { projectId: "p2" }),
     t3: task("t3", "review"), // moved to In Review by hand: no packet
-    t4: task("t4", "done"), // its packet still waits for a decision
+    t4: task("t4", "done"), // moved on before CEL-71 withdrew packets: its packet is still undecided
+    t6: task("t6", "review"),
     t5: task("t5", "doing"),
     gone: task("gone", "review", { archivedAt: 5 }),
     far: task("far", "review", { projectId: "p9" }),
@@ -49,6 +50,7 @@ const state: BoardState = {
     r1: review("r1", "t1", 30),
     r2: review("r2", "t2", 10),
     r4: review("r4", "t4", 20),
+    r6: review("r6", "t6", 25),
     rg: review("rg", "gone", 5),
   },
   asks: {},
@@ -63,15 +65,23 @@ describe("the review queue", () => {
     const queue = reviewQueue(state, "w1")
     expect(queue.map((i) => [i.task.id, i.review?.id ?? null, i.project.key])).toEqual([
       ["t2", "r2", "ZED"],
-      ["t4", "r4", "CEL"],
+      ["t6", "r6", "CEL"],
       ["t1", "r1", "CEL"],
       ["t3", null, "CEL"],
     ])
   })
 
+  // CEL-71: CEL-52 went back to In Progress by a plain move while its packet stayed undecided, and the
+  // Review page kept listing it. A packet is listed only while its task is in In Review.
+  it("leaves out a packet whose task has moved on, though the packet was never decided", () => {
+    expect(reviewQueue(state, "w1").map((i) => i.task.id)).not.toContain("t4")
+    const moved = { ...state, tasks: { ...state.tasks, t1: task("t1", "doing") } }
+    expect(reviewQueue(moved, "w1").map((i) => i.task.id)).toEqual(["t2", "t6", "t3"])
+  })
+
   it("leaves out a task waiting on Lucas's answers: the Needs input group shows it first", () => {
     const ask = {
-      id: "k1", taskId: "t4", title: "Which?", intro: "", questions: [], attachments: [], actorId: "agent", sessionId: "s1",
+      id: "k1", taskId: "t6", title: "Which?", intro: "", questions: [], attachments: [], actorId: "agent", sessionId: "s1",
       author: { name: "Claude Code", session: "2fd0505c" }, state: "open" as const, createdAt: 1, answeredAt: null, answers: null,
       withdrawnAt: null, withdrawnBy: null,
     }
@@ -173,5 +183,10 @@ describe("applyReviewEvents", () => {
     expect(applyReviewEvents(next, "t1", [ev(4, { type: "comment.deleted", id: "c" })])).toBe(next)
     const sent = applyReviewEvents(next, "t1", [ev(5, { type: "review.decided", id: "r2", taskId: "t1", decision: "sent_back", note: "Redo" })])
     expect(sent[1]).toMatchObject({ decision: "sent_back", decisionNote: "Redo", decidedAt: 5 })
+  })
+
+  it("a packet withdrawn by a move closes as withdrawn (CEL-71)", () => {
+    const next = applyReviewEvents([review("r1", "t1", 1)], "t1", [ev(6, { type: "review.withdrawn", id: "r1", taskId: "t1", to: "doing" })])
+    expect(next[0]).toMatchObject({ decision: "withdrawn", decisionNote: null, decidedAt: 6 })
   })
 })
