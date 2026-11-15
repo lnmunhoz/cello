@@ -150,7 +150,7 @@ body {
 #agent-notices {
   position: fixed;
   left: 50%;
-  bottom: 24px;
+  bottom: 72px;
   translate: -50% 0;
   z-index: 40;
   display: flex;
