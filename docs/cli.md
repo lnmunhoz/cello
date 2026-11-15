@@ -425,7 +425,7 @@ When you run builders and reviewers with Claude Code's Agent tool, they all carr
 
 **How Cello learns about them (with the hooks installed):**
 
-- **The launch names the task.** When the Agent tool returns, the PostToolUse hook in your conversation tells Cello the subagent's id and type, and the first task key in the launch's **description** (else in its prompt) that is a real task. So put the task key first in the description: `"CEL-55 which agent is on each card"`. A launch that names no task leaves the subagent under your session with no task.
+- **The launch names the task.** When the Agent tool returns, the PostToolUse hook in your conversation tells Cello the subagent's id and type, and the task the launch's **description** (else its prompt) names: of the keys there that are real tasks, the one your session has claimed, else the first. A foreground subagent's launch arrives after it finished; it links the task and leaves the subagent finished. So put the task key first in the description: `"CEL-55 which agent is on each card"`. A launch that names no task leaves the subagent under your session with no task.
 - **Its tool calls check it in.** Every tool call inside the subagent runs the PostToolUse hook, which checks it in as itself, under your session.
 - **SubagentStart hands it its name.** A subagent's shell can't see its own id, so `cello hook claude subagent-start` tells it, as context: "put `CELLO_AGENT=cello-builder/a13bfb89` before every `cello` command you run".
 - **SubagentStop marks it finished,** so it leaves "Agents working". A resumed subagent comes back.
@@ -437,7 +437,7 @@ CELLO_AGENT=cello-code-reviewer/b77d0e11aa22bb33 cello task comment CEL-55 "Revi
 CELLO_AGENT=cello-code-reviewer/b77d0e11aa22bb33 cello whoami     # "x-cello-agent" and the server's "agent" say who you are
 ```
 
-A command without it is credited to the session, as before. Nothing else changes: **claims and Lucas's comments stay with the session.** A subagent's claim is the session's claim, the main conversation keeps holding it, and comments are delivered there (never `cello inbox` from a subagent).
+A command without it is credited to the session, as before. So a subagent's comments and changes are credited to it **only where `subagent-start` is installed** (a project's settings: `cello install claude` or `--shared`, not `--user`) **and only when the subagent follows that instruction**: it's context the model reads, not something Cello enforces. Its presence and the task it was launched on don't depend on either: the PostToolUse hook reports them. Nothing else changes: **claims and Lucas's comments stay with the session.** A subagent's claim is the session's claim, the main conversation keeps holding it, and comments are delivered there (never `cello inbox` from a subagent).
 
 **What `cello task get` shows:** the subagents launched on the task, and who did what.
 

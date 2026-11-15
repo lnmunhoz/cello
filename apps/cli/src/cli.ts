@@ -1378,7 +1378,10 @@ const deliverToClaude = (event: DeliveryEvent) =>
           state: "launched",
           ...(launched.description ? { description: launched.description } : {}),
           ...(launched.prompt ? { prompt: launched.prompt } : {}),
-        }), { headers })
+        }), { headers }).pipe(
+        // Telling the board is a nicety: if it fails, the comments below are still handed over.
+        Effect.catch(() => Effect.void),
+      )
     }
     // A subagent's tool calls carry its parent's session: check it in (any call does) and leave the
     // comments for the main conversation.

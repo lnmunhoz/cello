@@ -335,8 +335,10 @@ const workingTitle = (sessions: ReadonlyArray<Working>, now: number) =>
  * One entry of the sidebar's list: a dot and who, and under it, faint, what it's on (the task keys).
  * Two lines, so a long agent name and a task key both fit the sidebar's width.
  */
-function WorkingLine({ who, subject, color, keys, nested, title, data }: {
+function WorkingLine({ who, id, subject, color, keys, nested, title, data }: {
   who: string
+  /** A subagent's short id, after its type: never cut off, so two agents of one type tell apart. */
+  id?: string
   subject: SessionLike
   color: string
   keys: string
@@ -352,7 +354,10 @@ function WorkingLine({ who, subject, color, keys, nested, title, data }: {
         <PresenceDot of={subject} color={color} size={nested ? 6 : 7} />
       </span>
       <span className="flex min-w-0 flex-col">
-        <span className="truncate leading-4" data-working-who>{who}</span>
+        <span className="flex min-w-0 leading-4" data-working-who>
+          <span className="truncate">{who}</span>
+          {id ? <span className="shrink-0 whitespace-pre">{` · ${id}`}</span> : null}
+        </span>
         {keys ? <span className="truncate leading-4 tabular-nums text-faint" data-working-on>{keys}</span> : null}
       </span>
     </li>
@@ -395,7 +400,8 @@ export function AgentsWorking({ board, workspaceId, className }: { board: BoardS
             ...s.agents.map((a) => (
               <WorkingLine
                 key={`${a.agent.sessionId}/${a.agent.agentId}`}
-                who={a.who.name}
+                who={a.agent.agentType ?? "agent"}
+                id={a.agent.agentId.slice(0, 8)}
                 subject={agentPresenceSubject(board, a.agent)}
                 color={a.who.color}
                 keys={a.task ? `on ${a.task.key}` : ""}

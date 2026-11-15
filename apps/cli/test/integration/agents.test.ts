@@ -73,7 +73,7 @@ describe("subagents through the hooks", () => {
 
   it.live("SubagentStart hands the subagent its CELLO_AGENT as context; SubagentStop marks it finished", () =>
     Effect.gen(function* () {
-      const { hook, agents } = yield* setup
+      const { hook, agents, x } = yield* setup
       const start = yield* hook("subagent-start", { session_id: X, hook_event_name: "SubagentStart", agent_id: BUILDER, agent_type: "cello-builder" })
       yield* hook("post-tool-use", launch(BUILDER, "cello-builder", "CEL-1 agents on cards", "Build CEL-1"))
       expect(start.failure).toBeNull()
@@ -83,10 +83,13 @@ describe("subagents through the hooks", () => {
       expect((yield* agents)[0]).toMatchObject({ id: BUILDER, ended: false })
 
       expect(yield* hook("subagent-stop", { session_id: X, hook_event_name: "SubagentStop", agent_id: BUILDER, agent_type: "cello-builder" })).toEqual({ out: "", failure: null })
-      expect((yield* agents)[0]).toMatchObject({ id: BUILDER, ended: true })
+      // A finished agent leaves the board; the task still lists it.
+      expect(yield* agents).toEqual([])
+      expect((yield* x("task", "get", "CEL-1")).out).toContain(`Subagents on it (1)
+  cello-builder · ${BUILDER.slice(0, 8)} (under Claude Code session 2fd0505c): finished just now`)
       // Claude Code's own helpers stop without starting: nothing is recorded.
       yield* hook("subagent-stop", { session_id: X, hook_event_name: "SubagentStop", agent_id: "prompt-suggestion", agent_type: "" })
-      expect(yield* agents).toHaveLength(1)
+      expect((yield* x("task", "get", "CEL-1")).out).toContain("Subagents on it (1)")
     }).pipe(Effect.scoped))
 })
 

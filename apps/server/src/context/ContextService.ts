@@ -213,7 +213,7 @@ const make = Effect.gen(function* () {
     ], [
       ...agentRefsOf([lastChange(task), ...history, ...list]),
       // The agents on it (CEL-55), working or done: the panel and `cello task get` name them.
-      ...(yield* agents.forBoard([task.id], [])),
+      ...(yield* agents.onTask(task.id)),
     ])
     return { ...names, task, comments: list, reviews, asks, documents: yield* documents.ofTask(task.id), history }
   }, Effect.catchTag("SqlError", Effect.die))

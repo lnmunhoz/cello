@@ -186,4 +186,53 @@ describe("AgentService.report and checkIn: the hooks", () => {
       expect(yield* agentSeen).toHaveLength(1)
       expect((yield* agentRows).map((a) => a.agent_id)).toEqual([builder.agent, "c0ffee"])
     })))
+
+  // A foreground subagent's launch reaches the board after it finished: the parent's PostToolUse on the
+  // Agent tool fires when the tool returns. It must not bring a finished agent back.
+  it.effect("a launch that arrives after the agent stopped links its task but leaves it ended", () =>
+    run(Effect.gen(function* () {
+      const { first } = yield* board
+      const agents = yield* AgentService
+      yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "started" }))
+      yield* TestClock.adjust("10 seconds")
+      yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "stopped" }))
+      yield* TestClock.adjust("1 second")
+      const launched = yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "launched", description: first.key }))
+      expect(launched).toMatchObject({ taskId: first.id, endedAt: 10_000, lastSeenAt: 0 })
+      expect((yield* agentSeen).at(-1)?.agent).toMatchObject({ taskId: first.id, endedAt: 10_000 })
+    })))
+
+  it.effect("a launch names the task the session holds when the prompt names several; else the first one", () =>
+    run(Effect.gen(function* () {
+      const { project, first } = yield* board
+      const tasks = yield* TaskService.TaskService
+      const { result: other } = yield* asHuman(tasks.create({ commandId: cmd(), projectId: project.id, title: "Not ours" }))
+      const agents = yield* AgentService
+      // The orchestrator holds `first` only; the prompt mentions `other` first.
+      yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "launched", prompt: `After ${other.key}, build ${first.key}` }))
+      yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "launched", prompt: `Look at ${other.key}` }))
+      expect((yield* agentRows).map((a) => [a.agent_id, a.task_id])).toEqual([[builder.agent, first.id], [reviewer.agent, other.id]])
+    })))
+
+  it.effect("the snapshot leaves out agents that finished, except the one that last changed a task", () =>
+    run(Effect.gen(function* () {
+      const { first } = yield* board
+      const agents = yield* AgentService
+      yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "launched", description: first.key }))
+      yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "launched", description: first.key }))
+      yield* asAgent(reviewer)((yield* TaskService.TaskService).setStage({ commandId: cmd(), key: first.key, stage: "review" }))
+      for (const agentId of [builder.agent, reviewer.agent]) {
+        yield* asAgent(orchestrator)(agents.report({ agentId, agentType: null, state: "stopped" }))
+      }
+      const snapshot = yield* (yield* SnapshotService.SnapshotService).get()
+      expect(snapshot.agents.map((a) => a.agentId)).toEqual([reviewer.agent])
+    })))
+
+  it.effect("an agent id or type with control characters is stored without them", () =>
+    run(Effect.gen(function* () {
+      yield* board
+      const agents = yield* AgentService
+      const agent = yield* asAgent(orchestrator)(agents.report({ agentId: "a1\u0000b2", agentType: "cello-\u001b[31mbuilder\n", state: "started" }))
+      expect(agent).toMatchObject({ agentId: "a1b2", agentType: "cello-[31mbuilder" })
+    })))
 })

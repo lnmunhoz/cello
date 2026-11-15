@@ -34,9 +34,12 @@ export interface Identity {
 /** Longest agent id, type or description kept: hosts use short ids; anything longer is cut, never refused. */
 export const MAX_AGENT_TEXT = 200
 
-/** An agent id or type from outside, trimmed and capped; empty is none. */
+/** Control characters (C0, DEL, C1): never kept in text that came from outside and lands on a board or a terminal. */
+export const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g
+
+/** An agent id or type from outside, without control characters, trimmed and capped; empty is none. */
 export const cleanAgentText = (value: string | null | undefined): string | null => {
-  const text = value?.trim().slice(0, MAX_AGENT_TEXT)
+  const text = value?.replace(CONTROL_CHARACTERS, "").trim().slice(0, MAX_AGENT_TEXT)
   return text ? text : null
 }
 

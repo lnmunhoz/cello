@@ -18,7 +18,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as Commands from "../commands/Commands.ts"
-import { cleanAgentText, MAX_AGENT_TEXT, PRESENCE_EVERY_MS, touchAgent } from "./SessionService.ts"
+import { cleanAgentText, CONTROL_CHARACTERS, MAX_AGENT_TEXT, PRESENCE_EVERY_MS, touchAgent } from "./SessionService.ts"
 
 /** What a hook says happened to a subagent of the caller's session. */
 export interface AgentReport {
@@ -68,10 +68,13 @@ export class AgentService extends Context.Service<AgentService, {
   /** Agents by session and id; unknown ones are left out. */
   readonly byRefs: (refs: ReadonlyArray<AgentRef>) => Effect.Effect<ReadonlyArray<SessionAgent>>
   /**
-   * What a board needs: the agents on these tasks, and the live ones (not stopped, seen within
-   * LIVE_AGENT_MS) of these sessions. Oldest first.
+   * What a board needs: the agents still working (not stopped) on these tasks, and the live ones (not
+   * stopped, seen within LIVE_AGENT_MS) of these sessions. Oldest first. The agent that last changed a
+   * task comes from `byRefs`, finished or not.
    */
   readonly forBoard: (taskIds: ReadonlyArray<string>, sessionIds: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<SessionAgent>>
+  /** Every agent ever launched on a task, finished ones too, oldest first: `cello task get` lists them. */
+  readonly onTask: (taskId: string) => Effect.Effect<ReadonlyArray<SessionAgent>>
 }>()("cello/AgentService") {}
 
 const make = Effect.gen(function* () {
@@ -86,13 +89,24 @@ const make = Effect.gen(function* () {
     )
 
   /** The first task the text names, by key, that exists. */
-  const taskNamed = (texts: ReadonlyArray<string | undefined>) =>
+  /**
+   * The task a launch names: the description first, then the prompt. In each, of the keys that are real
+   * tasks, the first one `sessionId` holds a claim on, else the first one (a brief often mentions other
+   * tasks after its own).
+   */
+  const taskNamed = (sessionId: string, texts: ReadonlyArray<string | undefined>) =>
     Effect.gen(function* () {
-      for (const key of texts.flatMap((t) => (t ? taskKeysIn(t) : []))) {
-        const parsed = parseTaskKey(key)!
-        const rows = yield* sql<{ id: string }>`
-          SELECT t.id FROM tasks t JOIN projects p ON p.id = t.project_id WHERE p.key = ${parsed.projectKey} AND t.number = ${parsed.number}`
-        if (rows[0]) return rows[0].id
+      for (const text of texts) {
+        const found: Array<{ id: string; assignee_session_id: string | null }> = []
+        for (const key of text ? taskKeysIn(text) : []) {
+          const parsed = parseTaskKey(key)!
+          const rows = yield* sql<{ id: string; assignee_session_id: string | null }>`
+            SELECT t.id, t.assignee_session_id FROM tasks t JOIN projects p ON p.id = t.project_id
+            WHERE p.key = ${parsed.projectKey} AND t.number = ${parsed.number}`
+          if (rows[0]) found.push(rows[0])
+        }
+        const pick = found.find((t) => t.assignee_session_id === sessionId) ?? found[0]
+        if (pick) return pick.id
       }
       return null
     })
@@ -135,14 +149,20 @@ const make = Effect.gen(function* () {
       const updated = yield* sql`UPDATE session_agents SET ended_at = ${now} WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}
         RETURNING agent_id`
       if (updated.length === 0) return null
-    } else {
+    } else if (input.state === "started") {
+      // SubagentStart: a new agent, or a resumed one (live again).
       yield* touchAgent(sql, ref.sessionId, agentId, agentType, now)
-      if (input.state === "launched") {
-        const description = cleanDescription(input.description)
-        const taskId = yield* taskNamed([input.description, input.prompt])
-        yield* sql`UPDATE session_agents SET description = COALESCE(${description}, description), task_id = COALESCE(${taskId}, task_id)
-          WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
-      }
+    } else {
+      // The Agent tool returned. For a foreground agent that's after it finished, so a launch only links
+      // the task and description: it never revives a stopped agent (only a start or the agent's own call does).
+      const description = cleanDescription(input.description)
+      const taskId = yield* taskNamed(ref.sessionId, [input.description, input.prompt])
+      yield* sql`INSERT INTO session_agents (session_id, agent_id, agent_type, task_id, description, started_at, last_seen_at)
+        VALUES (${ref.sessionId}, ${agentId}, ${agentType}, ${taskId}, ${description}, ${now}, ${now})
+        ON CONFLICT (session_id, agent_id) DO UPDATE SET
+          agent_type = COALESCE(excluded.agent_type, agent_type),
+          task_id = COALESCE(excluded.task_id, task_id),
+          description = COALESCE(excluded.description, description)`
     }
     const agent = (yield* load(ref))!
     // A start, launch or stop is news: told now, whatever the throttle says.
@@ -178,7 +198,7 @@ const make = Effect.gen(function* () {
 
   const forBoard = Effect.fn("AgentService.forBoard")(function* (taskIds: ReadonlyArray<string>, sessionIds: ReadonlyArray<string>) {
     const now = yield* Clock.currentTimeMillis
-    const onTasks = taskIds.length === 0 ? sql`0` : sql.in("task_id", [...new Set(taskIds)])
+    const onTasks = taskIds.length === 0 ? sql`0` : sql`(ended_at IS NULL AND ${sql.in("task_id", [...new Set(taskIds)])})`
     const live = sessionIds.length === 0
       ? sql`0`
       : sql`(ended_at IS NULL AND last_seen_at > ${now - LIVE_AGENT_MS} AND ${sql.in("session_id", [...new Set(sessionIds)])})`
@@ -186,12 +206,17 @@ const make = Effect.gen(function* () {
     return rows.map(toAgent)
   }, Effect.orDie)
 
-  return AgentService.of({ report, checkIn, byRefs, forBoard })
+  const onTask = Effect.fn("AgentService.onTask")(function* (taskId: string) {
+    const rows = yield* sql<AgentRow>`SELECT * FROM session_agents WHERE task_id = ${taskId} ORDER BY started_at, agent_id`
+    return rows.map(toAgent)
+  }, Effect.orDie)
+
+  return AgentService.of({ report, checkIn, byRefs, forBoard, onTask })
 })
 
 /** A launch's description as kept: one line, capped. */
 const cleanDescription = (value: string | undefined): string | null => {
-  const text = value?.replace(/\s+/g, " ").trim().slice(0, MAX_AGENT_TEXT)
+  const text = value?.replace(CONTROL_CHARACTERS, " ").replace(/\s+/g, " ").trim().slice(0, MAX_AGENT_TEXT)
   return text ? text : null
 }
 
