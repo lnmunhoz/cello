@@ -44,13 +44,16 @@ const make = Effect.gen(function* () {
       Effect.flatMap((rows) => rows[0] ? Effect.succeed(rows[0]) : Effect.fail(new NotFound({ entity: "label", id }))),
     )
 
+  /** Names are unique in the workspace ignoring case, archived labels included ("Board" and "board" are one label). */
   const ensureNameFree = (workspaceId: string, name: string, exceptId: string | null) =>
-    sql<{ id: string }>`SELECT id FROM labels WHERE workspace_id = ${workspaceId} AND name = ${name}`.pipe(
-      Effect.flatMap((rows) =>
-        rows.some((r) => r.id !== exceptId)
-          ? Effect.fail(new Invalid({ field: "name", reason: `${name} is already a label` }))
-          : Effect.void
-      ),
+    sql<{ id: string; name: string; archived_at: number | null }>`
+      SELECT id, name, archived_at FROM labels WHERE workspace_id = ${workspaceId} AND lower(name) = lower(${name})`.pipe(
+      Effect.flatMap((rows) => {
+        const taken = rows.find((r) => r.id !== exceptId)
+        if (!taken) return Effect.void
+        const which = taken.archived_at === null ? "a label" : "an archived label"
+        return Effect.fail(new Invalid({ field: "name", reason: `there's already ${which} named "${taken.name}"` }))
+      }),
     )
 
   const create = Effect.fn("LabelService.create")(function* (input: CreateLabel) {

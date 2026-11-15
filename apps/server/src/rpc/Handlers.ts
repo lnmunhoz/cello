@@ -60,6 +60,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "context": ({ project }) => context.context(project),
     "task.list": (query) => context.taskList(query),
     "task.get": ({ key }) => context.taskDetail(key),
+    "label.list": ({ project }) => context.labelList(project),
     "task.claim": (input) => tasks.claim(input),
     "task.release": (input) => tasks.release(input),
     "task.stage": (input) => tasks.setStage(input),

@@ -15,13 +15,15 @@ In Cello every agent has both pinned in its definition (`.claude/agents/*.md`), 
 | Agent | Model | Effort | In one line |
 | --- | --- | --- | --- |
 | `cello-builder` (every build) | Opus 5.5 | high | Writes the code, so quality comes first |
-| `cello-data-reviewer` | Opus 5.5 | high | Anything that could hurt Lucas's data gets the strongest review |
+| `cello-data-reviewer` | Sonnet 5.5 | high | Only the risky part (migrations, deletes, settings writes): it reproduces failure cases; Opus takes a second look only at a blocker it can't settle |
 | `cello-code-reviewer` | Sonnet 5.5 | medium | Checks a diff against the task and the rules |
 | `cello-visual-reviewer` | Sonnet 5.5 | medium | Checks videos and screenshots against the task |
 | Search and exploration (`Explore`) | Haiku 5.5 | medium | Finds files and code, fast and cheap |
 | Fable 5.2 | only when Lucas asks | | For the hardest open-ended problems |
 
 **Effort is never below medium.** Lucas decided this on Nov 15: low effort saves little on short jobs and risks sloppy work.
+
+**Data reviews moved from Opus to Sonnet (Nov 15).** Lucas asked for leaner reviews. The data reviewer now checks only the risky part of a branch and reproduces its failure cases, which is terminal work where Sonnet is as strong as Opus at half the price. Opus is asked only for a second opinion on a blocker Sonnet can't settle.
 
 ## Which model for which work
 
@@ -30,7 +32,7 @@ flowchart TD
     A["A piece of agent work"] --> B{"Does it write the code?"}
     B -->|yes| O1["Opus 5.5, high<br/>every builder"]
     B -->|no| C{"Could it hurt Lucas's data?<br/>migrations, backups, restore,<br/>settings files, deleting files,<br/>the desktop panel's security"}
-    C -->|yes| O2["Opus 5.5, high<br/>cello-data-reviewer"]
+    C -->|yes| O2["Sonnet 5.5, high<br/>cello-data-reviewer: the data paths only<br/>(Opus only for a blocker it can't settle)"]
     C -->|no| D{"Reviewing a diff, or checking<br/>videos and screenshots?"}
     D -->|yes| S["Sonnet 5.5, medium<br/>cello-code-reviewer / cello-visual-reviewer"]
     D -->|no| E{"Only finding files,<br/>code or facts?"}
