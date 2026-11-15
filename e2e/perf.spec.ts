@@ -4,7 +4,7 @@
 // CEL-69 has 40 agents start building at once: their marks spin together while the main thread stays idle.
 import type { Page } from "@playwright/test"
 import { openClient } from "../packages/client/test/support/promiseClient.ts"
-import { agentAs, card, caption, column, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, test, uniqueKey } from "./fixtures.ts"
+import { agentAs, animationsSettled, card, caption, column, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, test, uniqueKey } from "./fixtures.ts"
 
 const COLUMNS = ["Todo", "In Progress", "In Review", "Done"]
 const AGENT_COLUMNS = ["Todo", "In Progress", "Done"]
@@ -298,7 +298,7 @@ test("performance: 40 agents spinning at once stay near 60 fps (at least 55), wi
   await page.evaluate(() => (window as unknown as { __spinning: Promise<void> }).__spinning)
   const spinning = await measure()
   // The bursts end by themselves: the board goes idle with no animation left.
-  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))).then(() => undefined))
+  await animationsSettled(page)
   const still = await measure()
   console.log(`[perf] agent marks spinning ${JSON.stringify(spinning)}`)
   console.log(`[perf] agent marks still ${JSON.stringify(still)}`)

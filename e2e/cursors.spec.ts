@@ -8,7 +8,7 @@
 import * as path from "node:path"
 import type { Page } from "@playwright/test"
 import { openClient, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
-import { caption, card, column, defaultWorkspace, expect, newCommandId, seedProject, test, uniqueKey } from "./fixtures.ts"
+import { animationsSettled, caption, card, column, defaultWorkspace, expect, newCommandId, seedProject, test, uniqueKey } from "./fixtures.ts"
 import { celloAs, SHOTS } from "./packets.ts"
 
 interface Seen {
@@ -95,7 +95,7 @@ async function expectIdle(page: Page) {
   // No card waits for a step: the animator's style rules are empty.
   expect(await page.evaluate(() => document.getElementById("agent-cursor-styles")?.textContent ?? "")).toBe("")
   // Whatever is still animating (a card settling, a notice fading) ends; then nothing is left.
-  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))))
+  await animationsSettled(page)
   expect(await page.evaluate(() => document.getAnimations().length)).toBe(0)
   // Nothing asks for animation frames, Motion's frame loop included: the spy was in place before the
   // app loaded, so every requestAnimationFrame the app or Motion makes is counted. Cards may still be
