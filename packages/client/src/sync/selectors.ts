@@ -3,8 +3,10 @@ import type { Project, Status, Task } from "@cello/contract/entities"
 import { positionBetween } from "@cello/shared/position"
 import type { BoardState } from "./applyEvents.ts"
 
-export const byPosition = <T extends { readonly position: string }>(rows: Iterable<T>): T[] =>
-  [...rows].sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
+export const comparePosition = (a: { readonly position: string }, b: { readonly position: string }): number =>
+  a.position < b.position ? -1 : a.position > b.position ? 1 : 0
+
+export const byPosition = <T extends { readonly position: string }>(rows: Iterable<T>): T[] => [...rows].sort(comparePosition)
 
 export const statusesOf = (state: BoardState, workspaceId: string): Status[] =>
   byPosition(Object.values(state.statuses).filter((s) => s.workspaceId === workspaceId))
@@ -44,16 +46,16 @@ export const placement = <T extends { readonly id: string; readonly position: st
 }
 
 /**
- * Where a new item lands at the end of a list. It names no neighbor, which the server reads as
- * "append", so a card still being created (whose id the server doesn't know yet) is never sent.
+ * Where a new item lands at the end of a list: after its last position, in whatever order the list
+ * is shown. It names no neighbor, which the server reads as "append", so a card still being created
+ * (whose id the server doesn't know yet) is never sent.
  */
 export const placementAtEnd = <T extends { readonly position: string }>(
   list: ReadonlyArray<T>,
-): { before: null; after: null; position: string } => ({
-  before: null,
-  after: null,
-  position: positionBetween(list.at(-1)?.position ?? null, null),
-})
+): { before: null; after: null; position: string } => {
+  const last = list.reduce<string | null>((max, t) => (max === null || t.position > max ? t.position : max), null)
+  return { before: null, after: null, position: positionBetween(last, null) }
+}
 
 export const projectsOf =(state: BoardState, workspaceId: string): Project[] =>
   Object.values(state.projects)
