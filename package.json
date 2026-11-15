@@ -7,7 +7,11 @@
     "dev": "bun run --filter @cello/server dev & bun run --filter @cello/web dev",
     "test": "bun --bun vitest run",
     "test:watch": "bun --bun vitest",
-    "test:e2e": "bun run --filter @cello/web build && playwright test",
+    "test:e2e": "bun scripts/test-in-docker.ts e2e",
+    "test:e2e:local": "bun run --filter @cello/web build && playwright test",
+    "test:docker": "bun scripts/test-in-docker.ts all",
+    "test:docker:e2e": "bun scripts/test-in-docker.ts e2e",
+    "test:docker:desktop": "bun scripts/test-in-docker.ts desktop",
     "typecheck": "tsc -p ."
   },
   "devDependencies": {

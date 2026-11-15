@@ -1,5 +1,6 @@
 // End-to-end tests: the built web app against a real server with a temp data folder (never ~/.cello).
-// `bun run test:e2e` builds the web app first. Videos are converted to MP4 in e2e/videos/.
+// `bun run test:e2e` runs them in Docker (scripts/test-in-docker.ts); `bun run test:e2e:local` runs
+// them here in headless Chromium, building the web app first. Videos are converted to MP4 in e2e/videos/.
 import { defineConfig, devices } from "@playwright/test"
 import * as fs from "node:fs"
 import * as os from "node:os"
@@ -13,7 +14,9 @@ process.env.CELLO_E2E_DATA ??= fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-
 
 export default defineConfig({
   testDir: "e2e",
-  outputDir: "test-results",
+  // Not test-results/ itself: Playwright empties its output folder, and test-results/docker/ holds
+  // the Docker runs' videos (one of them maybe still being written).
+  outputDir: "test-results/playwright",
   fullyParallel: false,
   workers: 1,
   forbidOnly: true,
