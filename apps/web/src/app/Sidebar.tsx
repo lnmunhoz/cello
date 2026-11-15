@@ -1,4 +1,5 @@
 import { projectsOf, byPosition } from "@cello/client/sync/selectors"
+import { WorkspaceMark } from "./WorkspaceMark.tsx"
 import { reviewQueue } from "@cello/client/sync/reviews"
 import { useAtomSet } from "@effect/atom-react"
 import { Link, useNavigate } from "@tanstack/react-router"
@@ -134,13 +135,13 @@ export function Sidebar({
         {workspaces.length >= 2 ? (
           <Menu onAction={switchTo}>
             <MenuTrigger variant="rail" aria-label="Switch workspace" title={workspace?.name}>
-              <WorkspaceMark name={workspace?.name ?? ""} />
+              <WorkspaceMark name={workspace?.name} />
             </MenuTrigger>
             <MenuContent>{workspaceItems}</MenuContent>
           </Menu>
         ) : (
           <span className="flex size-7 items-center justify-center" title={workspace?.name ?? "Cello"}>
-            <WorkspaceMark name={workspace?.name ?? "Cello"} />
+            <WorkspaceMark name={workspace?.name} />
           </span>
         )}
 
@@ -211,7 +212,7 @@ export function Sidebar({
           {workspaces.length >= 2 ? (
             <Menu onAction={switchTo}>
               <MenuTrigger variant="row" aria-label="Switch workspace">
-                <WorkspaceMark name={workspace?.name ?? ""} />
+                <WorkspaceMark name={workspace?.name} />
                 <span className="truncate">{workspace?.name}</span>
                 <ChevronDownIcon className="size-3.5 text-muted" />
               </MenuTrigger>
@@ -219,7 +220,7 @@ export function Sidebar({
             </Menu>
           ) : (
             <div className="flex h-7 min-w-0 items-center gap-2 px-2 text-[13px] font-semibold">
-              <WorkspaceMark name={workspace?.name ?? "Cello"} />
+              <WorkspaceMark name={workspace?.name} />
               <span className="truncate">{workspace?.name ?? "Cello"}</span>
             </div>
           )}
@@ -308,10 +309,3 @@ export function ShowSidebarButton({ onShow }: { onShow: () => void }) {
   )
 }
 
-function WorkspaceMark({ name }: { name: string }) {
-  return (
-    <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-md bg-accent text-[11px] font-semibold text-accent-ink">
-      {name.slice(0, 1).toUpperCase()}
-    </span>
-  )
-}

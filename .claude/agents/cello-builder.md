@@ -27,6 +27,7 @@ You build one Cello task in a git worktree of the Cello repo. The orchestrator's
 Lucas reviews visually, so produce evidence as you go and save it inside the worktree. How it's made is in `docs/evidence-videos.md`.
 
 - **UI work:** MP4s of the e2e runs recorded in review mode (`CELLO_E2E_REVIEW=1 bun run test:docker:e2e -- <spec>`), plus screenshots in light and dark when it matters.
+- **A diagram when the work is a flow** (steps, states, or systems talking to each other): a ```mermaid flowchart TD, top to bottom, ready for the review packet's summary. Put it in your report.
 - **CLI or server work:** a plain-text terminal transcript (commands and their output) of the flow against a temp server, plus the test output.
 
 ## Report back

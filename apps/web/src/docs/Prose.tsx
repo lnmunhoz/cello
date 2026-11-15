@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm"
 import { remarkLinkify } from "../components/ui/remarkLinkify.ts"
 import { LiveTaskKey, linkifyTasks, markdownTaskKey } from "../task/TaskKey.tsx"
 import { Mermaid } from "./Mermaid.tsx"
+import { mermaidSource } from "./mermaidSource.ts"
 
 /** Links that leave the page (other sites, stored files) open in a new tab. */
 const opensElsewhere = (href: string | undefined) => href !== undefined && (/^(https?:)?\/\//i.test(href) || href.startsWith("/attachments/"))
@@ -24,10 +25,8 @@ export function Prose({ markdown, headingId, projectKeys }: { markdown: string; 
     h2: heading("h2", headingId),
     h3: heading("h3", headingId),
     pre({ children }) {
-      const code = Children.toArray(children)[0]
-      if (isValidElement<{ className?: string; children?: ReactNode }>(code) && code.props.className?.split(" ").includes("language-mermaid")) {
-        return <Mermaid source={String(code.props.children ?? "").replace(/\n$/, "")} />
-      }
+      const diagram = mermaidSource(children)
+      if (diagram !== null) return <Mermaid source={diagram} />
       return (
         <div className="page-code">
           <pre>{children}</pre>
