@@ -612,7 +612,7 @@ const backupCreate = Command.make("backup", { json: backupJson }, (input) =>
   })).pipe(Command.withDescription(
     "Back up the database and every evidence file (videos, screenshots, page images) now, into " +
       "<data folder>/backups/<YYYYMMDD-HHMMSS>/, and print the folder, its size and how many files were linked or copied. " +
-      "The server already takes one a day and keeps 14; take one by hand before something risky, like a bulk change or " +
+      "The server already takes one a day and keeps 14 of those; take one by hand before something risky, like a bulk change or " +
       "trying a new build on your real board. Files unchanged since the previous backup become hard links to it, so a " +
       "backup only adds what changed. Talks to the running server on CELLO_PORT; with none running, it backs up " +
       "CELLO_DATA_DIR (default ~/.cello) itself.",
@@ -643,10 +643,11 @@ const backupList = Command.make("list", {
     ])).join("\n"))
   })).pipe(Command.withDescription(
     "List the backups, newest first: the id (the folder name, which `cello restore` takes), when it was taken, its kind " +
-      "(auto: the daily one; manual: `cello backup`, or the copy `cello restore` takes first), its size (the database " +
-      "plus its files, counting files shared with other backups in each) and how many evidence files it holds. Use it to " +
-      "pick a backup to restore. Only Cello's own backups are listed; other folders in backups/ are left alone. Works " +
-      "whether or not Cello is running.",
+      "(auto: the daily one; manual: `cello backup`; safety: the copy of the current state `cello restore` takes first, " +
+      "which undoes that restore), its size (the database plus its files, counting files shared with other backups in " +
+      "each) and how many evidence files it holds. The newest 14 of each kind are kept. Use it to pick a backup to " +
+      "restore. Only Cello's own backups are listed; other folders in backups/ are left alone. Works whether or not " +
+      "Cello is running.",
   ), Command.withShortDescription("List the backups, newest first."), Command.withExamples([
     { command: "cello backup list", description: "Every backup: id, time, kind, size and file count" },
     { command: "cello backup list --json | jq -r '.[0].id'", description: "The newest backup's id" },
@@ -678,8 +679,8 @@ const restoreCommand = Command.make("restore", {
   })).pipe(Command.withDescription(
     "Put a backup's database and evidence files back in place of the current ones, in CELLO_DATA_DIR (default " +
       "~/.cello). Use it when the board's data is lost or damaged. Stop Cello first (Ctrl-C where `cello start` runs, or " +
-      "quit the desktop app): restore refuses while a server holds the data folder. It first backs up the current state " +
-      "(listed as \"before restoring <id>\"), so a restore can itself be undone. For Lucas: agents never run it.",
+      "quit the desktop app): restore refuses while a server holds the data folder. It first takes a safety backup of the " +
+      "current state (kind safety, \"before restoring <id>\"), so restoring that one undoes it. Agents run it only when Lucas asks.",
   ), Command.withShortDescription("Put a backup back in place of the current data (stop Cello first)."), Command.withExamples([
     { command: "cello backup list", description: "First, pick the backup to restore" },
     { command: "cello restore 20261115-120000", description: "Restore it; the current state is backed up first" },

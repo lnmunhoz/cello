@@ -116,6 +116,22 @@ describe("BackupService.list", () => {
 })
 
 describe("BackupService.prune", () => {
+  it.effect("a backup can be protected from the prune that follows it, like the one a restore is putting back", () =>
+    run(Effect.gen(function* () {
+      const backups = yield* BackupService.BackupService
+      const safety: string[] = []
+      for (let i = 0; i < 14; i++) {
+        safety.push((yield* backups.create({ kind: "safety", note: `before restoring ${i}` })).id)
+        yield* TestClock.adjust("1 hour")
+      }
+      const oldest = safety[0]!
+      yield* backups.create({ kind: "safety", note: `before restoring ${oldest}`, protect: [oldest] })
+      expect((yield* backups.list()).map((b) => b.id)).toContain(oldest)
+      expect((yield* backups.list()).filter((b) => b.kind === "safety")).toHaveLength(15)
+      // Unprotected, the next prune takes it.
+      expect(yield* backups.prune()).toEqual([oldest])
+    })))
+
   it.effect("keeps the newest 14 auto backups, counts manual ones apart, and never touches other folders", () =>
     run(Effect.gen(function* () {
       const backups = yield* BackupService.BackupService

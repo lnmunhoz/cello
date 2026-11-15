@@ -3,8 +3,11 @@
 import * as Schema from "effect/Schema"
 import { Millis } from "./entities.ts"
 
-/** `auto`: the server's daily one. `manual`: `cello backup`, or the safety copy `cello restore` takes first. */
-export const BackupKind = Schema.Literals(["auto", "manual"])
+/**
+ * `auto`: the server's daily one. `manual`: `cello backup`. `safety`: the copy of the current state
+ * `cello restore` takes first, the undo for that restore. Each kind is kept apart (14 of each).
+ */
+export const BackupKind = Schema.Literals(["auto", "manual", "safety"])
 export type BackupKind = typeof BackupKind.Type
 
 /** The asset files a backup holds: unchanged ones are hard links to the previous backup's copy. */

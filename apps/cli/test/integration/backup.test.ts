@@ -145,7 +145,8 @@ describe("cello restore", () => {
         `What it replaced is saved as backup ${safety.id}; \`cello restore ${safety.id}\` brings it back.`,
         "Start Cello again: `cello start`, or open the desktop app.",
       ].join("\n"))
-      expect((yield* run("backup", "list")).out).toContain(`before restoring ${backup.id}`)
+      const row = (yield* run("backup", "list")).out.split("\n").find((line) => line.startsWith(safety.id))!
+      expect(row).toMatch(new RegExp(`^${safety.id}  .*  safety  .*  before restoring ${backup.id}$`))
     }).pipe(Effect.scoped))
 
   it.live("an unknown id says where to find the real ones", () =>

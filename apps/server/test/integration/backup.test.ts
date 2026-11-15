@@ -147,7 +147,7 @@ describe("restore", () => {
 
       expect(restored.backup).toEqual(backup)
       expect(restored.assets).toEqual({ files: 2, bytes: backup.assets.bytes })
-      expect(restored.safety).toMatchObject({ kind: "manual", note: `before restoring ${backup.id}` })
+      expect(restored.safety).toMatchObject({ kind: "safety", note: `before restoring ${backup.id}` })
       // The safety backup holds the state restore replaced.
       const safetyDb = new Database(path.join(restored.safety!.path, "cello.db"), { readonly: true })
       expect((safetyDb.query("SELECT title FROM tasks ORDER BY number").all() as Array<{ title: string }>).map((r) => r.title))

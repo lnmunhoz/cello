@@ -45,12 +45,13 @@ describe("BackupSchedule", () => {
       expect((yield* autoBackups).map((b) => b.createdAt)).toEqual([2 * 86_400_000, 86_400_000, 0])
     }).pipe(Effect.scoped, Effect.provide(dataFolder)))
 
-  it.effect("a recent auto backup postpones the first one until it is 24 hours old; manual ones don't count", () =>
+  it.effect("a recent auto backup postpones the first one until it is 24 hours old; manual and safety ones don't count", () =>
     Effect.gen(function* () {
       const backups = yield* BackupService.BackupService
       yield* backups.create({ kind: "auto" })
       yield* TestClock.adjust("10 hours")
       yield* backups.create({ kind: "manual" })
+      yield* backups.create({ kind: "safety", note: "before restoring x" })
       yield* TestClock.adjust("2 hours")
 
       const checks = yield* startSchedule

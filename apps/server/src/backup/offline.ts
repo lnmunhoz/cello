@@ -156,7 +156,7 @@ export const restore = Effect.fn("offline.restore")(function* (options: { readon
       const assets = yield* Effect.promise(() => copyAssets(path.join(backup.path, AssetStore.ASSETS_DIR), path.join(staging, AssetStore.ASSETS_DIR), null))
 
       const holdsData = fs.existsSync(dbPathOf(dataDir)) || fs.existsSync(assetsOf(dataDir))
-      const safety = holdsData ? yield* backUp(dataDir, { kind: "manual", note: `before restoring ${id}` }) : null
+      const safety = holdsData ? yield* backUp(dataDir, { kind: "safety", note: `before restoring ${id}`, protect: [id] }) : null
 
       yield* Effect.sync(() => {
         try {

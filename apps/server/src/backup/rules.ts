@@ -30,19 +30,31 @@ export interface Retained {
   readonly createdAt: number
 }
 
+export interface PruneOptions {
+  /** How many of each kind to keep; 14 unless a test says otherwise. */
+  readonly keep?: number
+  /** Ids never removed, whatever their age: the backup a restore is putting back. */
+  readonly protect?: ReadonlyArray<string>
+}
+
+const KINDS: ReadonlyArray<BackupKind> = ["auto", "manual", "safety"]
+
 /**
- * The backups to remove: all but the newest `keep` of each kind. Auto and manual backups are counted
- * apart, so a burst of manual ones never pushes out two weeks of daily history, and neither kind
- * grows without bound.
+ * The backups to remove: all but the newest `keep` of each kind. Each kind is counted apart, so a
+ * burst of manual backups never pushes out two weeks of daily history or the safety backup that undoes
+ * a restore, and no kind grows without bound. Protected ids stay and don't count.
  */
-export const toPrune = (backups: ReadonlyArray<Retained>, keep = KEEP): ReadonlyArray<string> =>
-  (["auto", "manual"] as const).flatMap((kind) =>
+export const toPrune = (backups: ReadonlyArray<Retained>, options: PruneOptions = {}): ReadonlyArray<string> => {
+  const keep = options.keep ?? KEEP
+  const protect = new Set(options.protect ?? [])
+  return KINDS.flatMap((kind) =>
     backups
-      .filter((b) => b.kind === kind)
+      .filter((b) => b.kind === kind && !protect.has(b.id))
       .sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : -1))
       .slice(keep)
       .map((b) => b.id)
   )
+}
 
 export interface FileFacts {
   readonly size: number

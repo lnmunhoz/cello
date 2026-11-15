@@ -3,7 +3,8 @@
 //   assets/        the stored files; ones unchanged since the previous backup are hard links to it
 //   manifest.json  when, which kind, sizes, how many files were linked or copied, schema level, version
 // A backup is assembled in `.partial-<id>/` and renamed into place once complete, so a folder with a
-// manifest is always whole. After each one, retention keeps the newest 14 of each kind.
+// manifest is always whole. After each one, retention keeps the newest 14 of each kind (auto, manual,
+// safety).
 //
 // Why VACUUM INTO: bun:sqlite has no binding for SQLite's online backup API. VACUUM INTO writes a
 // transactionally consistent snapshot straight to a file in one statement, as a plain rollback-journal
@@ -37,6 +38,8 @@ export interface CreateBackup {
   readonly kind: BackupKind
   /** Why it's taken, when not on schedule ("before restoring 20261115-120000"). */
   readonly note?: string
+  /** Backups the prune after this one must leave alone (the one a restore is putting back). */
+  readonly protect?: ReadonlyArray<string>
 }
 
 export class BackupService extends Context.Service<BackupService, {
@@ -46,8 +49,8 @@ export class BackupService extends Context.Service<BackupService, {
   readonly create: (input: CreateBackup) => Effect.Effect<Backup>
   /** Cello's backups, newest first; folders it didn't make aren't listed. */
   readonly list: () => Effect.Effect<ReadonlyArray<Backup>>
-  /** Removes all but the newest 14 of each kind (auto, manual) and returns their ids. */
-  readonly prune: () => Effect.Effect<ReadonlyArray<string>>
+  /** Removes all but the newest 14 of each kind (auto, manual, safety), never `protect`; returns their ids. */
+  readonly prune: (protect?: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<string>>
 }>()("cello/BackupService") {}
 
 export interface BackupOptions {
@@ -68,8 +71,8 @@ export const make = (options: BackupOptions) =>
       return readBackups(dir)
     })
 
-    const prune = Effect.fn("BackupService.prune")(function* () {
-      const removed = toPrune(readBackups(dir))
+    const prune = Effect.fn("BackupService.prune")(function* (protect: ReadonlyArray<string> = []) {
+      const removed = toPrune(readBackups(dir), { protect })
       for (const id of removed) yield* Effect.promise(() => fsp.rm(path.join(dir, id), { recursive: true, force: true }))
       return removed
     })
@@ -114,7 +117,7 @@ export const make = (options: BackupOptions) =>
         return manifest
       }).pipe(Effect.onError(() => Effect.sync(() => fs.rmSync(partial, { recursive: true, force: true }))))
 
-      yield* prune()
+      yield* prune(input.protect)
       return toBackup(id, path.join(dir, id), manifest)
     }, (effect) => oneAtATime.withPermits(1)(effect))
 

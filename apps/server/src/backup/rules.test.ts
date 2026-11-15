@@ -31,7 +31,7 @@ describe("backup folder names", () => {
 
 describe("retention", () => {
   const day = 86_400_000
-  const backups = (kind: "auto" | "manual", count: number, from = 0) =>
+  const backups = (kind: "auto" | "manual" | "safety", count: number, from = 0) =>
     Array.from({ length: count }, (_, i) => ({ id: `${kind}-${i}`, kind, createdAt: from + i * day }))
 
   it("keeps the newest 14 auto backups and removes the older ones", () => {
@@ -46,13 +46,25 @@ describe("retention", () => {
     expect([...toPrune([...daily, ...burst])].sort()).toEqual(["manual-0", "manual-1"])
   })
 
+  it("counts safety backups (the undo for a restore) apart too, so manual backups never push one out", () => {
+    const undo = backups("safety", 1)
+    const manual = backups("manual", 30, day)
+    expect(toPrune([...undo, ...manual])).not.toContain("safety-0")
+    expect([...toPrune([...backups("safety", 15), ...manual])].filter((id) => id.startsWith("safety"))).toEqual(["safety-0"])
+  })
+
+  it("never removes a protected backup, such as the one being restored", () => {
+    expect(toPrune(backups("safety", 15), { protect: ["safety-0"] })).toEqual([])
+    expect(toPrune(backups("auto", 16), { protect: ["auto-0"] })).toEqual(["auto-1"])
+  })
+
   it("orders by when a backup was taken, not by its name or position", () => {
     const shuffled = [
       { id: "b", kind: "auto" as const, createdAt: 3 },
       { id: "a", kind: "auto" as const, createdAt: 1 },
       { id: "c", kind: "auto" as const, createdAt: 2 },
     ]
-    expect(toPrune(shuffled, 2)).toEqual(["a"])
+    expect(toPrune(shuffled, { keep: 2 })).toEqual(["a"])
   })
 })
 

@@ -40,7 +40,7 @@ Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port
 
 ## Backups
 
-The server backs up `<dataDir>` into `<dataDir>/backups/<YYYYMMDD-HHMMSS>/` (cello.db via `VACUUM INTO`, assets/ with unchanged files hard-linked to the previous backup, manifest.json): at start when the newest auto backup is 24 h old, then every 24 h. It keeps the newest 14 auto and 14 manual backups and never touches folders it didn't make. `cello backup` takes one now, `cello backup list` lists them, `cello restore <id>` puts one back while no server runs (taking a safety backup first). Code: `apps/server/src/backup/`.
+The server backs up `<dataDir>` into `<dataDir>/backups/<YYYYMMDD-HHMMSS>/` (cello.db via `VACUUM INTO`, assets/ with unchanged files hard-linked to the previous backup, manifest.json): at start when the newest auto backup is 24 h old, then every 24 h. It keeps the newest 14 of each kind (auto, manual, and the safety backup restore takes first) and never touches folders it didn't make. `cello backup` takes one now, `cello backup list` lists them, `cello restore <id>` puts one back while no server runs (taking a safety backup first). Code: `apps/server/src/backup/`.
 
 - Agents run `cello restore` only when Lucas asks. The command reference is in docs/cli.md.
 - Tests start servers with `autoBackup` off (`startServer`); the schedule is tested with TestClock.
