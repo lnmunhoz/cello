@@ -73,8 +73,8 @@ export class TaskService extends Context.Service<TaskService, {
   readonly create: (input: CreateTask) => Write<NotFound | Invalid>
   readonly update: (input: UpdateTask) => Write<NotFound | Invalid | VersionConflict>
   /**
-   * An agent can't move a task into In Review unless it has an open review (`ReviewRequired`), nor into
-   * Needs input (`AskRequired`). Moving a task out of Needs input withdraws its open ask.
+   * An agent can't move a task into In Review unless it has an open review (`ReviewRequired`); no one moves
+   * one into Needs input (`AskRequired`). Moving a task out of Needs input withdraws its open ask.
    */
   readonly move: (input: MoveTask) => Write<NotFound | Invalid | VersionConflict | ReviewRequired | AskRequired>
   readonly setLabels: (input: SetTaskLabels) => Write<NotFound | Invalid>
@@ -356,15 +356,17 @@ const make = Effect.gen(function* () {
     })
 
   /**
-   * An agent needs an open review packet to put a task in In Review (`cello task submit`), and can't
-   * put one in Needs input by hand at all (`cello task ask` does that, with its questions).
+   * An agent needs an open review packet to put a task in In Review (`cello task submit`). No one, agent
+   * or human, puts one in Needs input by hand: an agent's `cello task ask` does that, with its questions.
    */
   const checkGates = (current: Task, statusId: string, caller: Caller["Service"]) =>
     Effect.gen(function* () {
-      if (caller.sessionId === null || statusId === current.statusId) return
+      if (statusId === current.statusId) return
       const [status] = yield* sql<{ name: string; category: string }>`SELECT name, category FROM statuses WHERE id = ${statusId}`
       if (!status) return
+      // Only an ask puts a task in Needs input, for anyone: a card there with nothing to answer would be stuck.
       if (isNeedsInputStatus(status)) return yield* new AskRequired({ key: current.key, status: status.name })
+      if (caller.sessionId === null) return
       if (!isReviewStatus(status.name)) return
       const open = yield* sql<{ id: string }>`SELECT id FROM reviews WHERE task_id = ${current.id} AND decided_at IS NULL LIMIT 1`
       if (open.length === 0) return yield* new ReviewRequired({ key: current.key, status: status.name })

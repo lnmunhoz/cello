@@ -192,9 +192,9 @@ export const CelloRpcs = RpcGroup.make(
     success: write(Task),
     error: Schema.Union([NotFound, Invalid, VersionConflict]),
   }),
-  // An agent can't move a task into In Review without an open review (ReviewRequired), nor into Needs
-  // input at all (AskRequired: `ask.create` does that); the human can. The human moving a task out of
-  // Needs input withdraws its open ask.
+  // An agent can't move a task into In Review without an open review (ReviewRequired); the human can.
+  // No one moves a task into Needs input (AskRequired: an agent's `ask.create` does that). Moving a task
+  // out of Needs input withdraws its open ask.
   Rpc.make("task.move", {
     payload: { commandId, id: Id, expectedVersion: Schema.optionalKey(Schema.Number), statusId: Id, ...neighbors },
     success: write(Task),
@@ -283,7 +283,7 @@ export const CelloRpcs = RpcGroup.make(
       links: Schema.Array(EvidenceLink),
     },
     success: write(Schema.Struct({ ask: Ask, task: Task })),
-    error: Schema.Union([NotFound, Invalid]),
+    error: Schema.Union([NotFound, Invalid, TaskClaimed]),
   }),
   Rpc.make("ask.answer", {
     payload: {
@@ -296,11 +296,12 @@ export const CelloRpcs = RpcGroup.make(
     success: write(Schema.Struct({ ask: Ask, task: Task })),
     error: Schema.Union([NotFound, Invalid, HumanOnly]),
   }),
-  // The asking agent changed its mind (or the human takes the ask back): the task returns to In Progress.
+  // The asking agent changed its mind: the task returns to In Progress. Only the claim holder asks or
+  // withdraws (TaskClaimed otherwise); the human answers, and withdraws by moving the card.
   Rpc.make("ask.withdraw", {
     payload: { commandId, key: Schema.String },
     success: write(Schema.Struct({ ask: Ask, task: Task })),
-    error: Schema.Union([NotFound, Invalid]),
+    error: Schema.Union([NotFound, Invalid, TaskClaimed]),
   }),
   // The task's latest ask, open or not.
   Rpc.make("ask.get", { payload: { key: Schema.String }, success: Ask, error: NotFound }),

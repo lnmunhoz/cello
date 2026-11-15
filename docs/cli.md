@@ -186,7 +186,7 @@ cello task move CEL-31 backlog           # any case
 ```
 
 - **Moving into In Review is refused:** use `cello task submit`.
-- **Moving into Needs input is refused:** use `cello task ask`, with your questions.
+- **Moving into Needs input is refused,** to everyone, Lucas included: only `cello task ask` puts a task there, with your questions.
 - **Don't move tasks to Done or Canceled.**
 - **"It was changed by … in the meantime":** someone changed the task while you were acting. Run the command again.
 
@@ -338,6 +338,7 @@ links:
 - **Inline flags** in order: `--question` starts a question; the `--kind`, `--option "Label|description"`, `--recommend "Label"` and `--because "why"` after it belong to it. `--attach`, `--caption` and `--link` work as for `submit`; they add to a file's evidence too.
 - **Recommend at most one option** of a pick-one question, and always say why (`because`). Recommended options come **picked** for Lucas; he can change them, pick several on any question, or pick **None of these** and say what instead.
 - **Up to 20 questions, 9 options each** (he picks with the 1-9 keys).
+- **Only the session holding the claim asks or withdraws.** Claim the task first; another session's ask on it is refused, naming the holder, so the answers never reach a session that didn't ask.
 - **One ask per task at a time.** Asking again while one is open replaces it (the old one is kept, marked replaced).
 - **Withdraw** an ask you no longer need: `cello task ask CEL-43 --withdraw`. The task goes back to In Progress.
 - **If Lucas moves the card himself** out of Needs input, the ask is withdrawn and your claim ends, as with any move he makes. You hear it once, like a comment: "Lucas moved CEL-43 to Todo; your ask 'Search layout' was withdrawn." `--wait` then says it was withdrawn.
@@ -493,6 +494,7 @@ Every error is one sentence that says what to do next. The usual ones:
 | CEL-12 goes to Needs input only with questions for Lucas | You used `move` to wait on him. | Ask with `cello task ask` (see Questions for Lucas). |
 | Say why you recommend "…" (because) · question 2 needs options… | The ask's questions can't be answered well as written. | Fix what it says; nothing was asked. |
 | CEL-12 has no open ask to withdraw | It was answered, withdrawn or replaced already. | `cello task answers CEL-12` shows what happened. |
+| claim CEL-12 first (cello task claim CEL-12): only the session working on a task asks on it | You asked on a task nobody holds. | Claim it, then ask. Asking on a task another session holds is refused like a claim (it names the holder). |
 | This folder isn't in a git repository | The CLI can't work out the project. | Pass `--project KEY`. |
 | No project is linked to /path | This repository isn't a Cello project yet. | Set it up: `cello init` (see Set up a repo for Cello), or pass `--project KEY`. |
 | The key THAI is taken by ThaiLookup | `cello init --key` named a key another project has. | Pick another key, or leave `--key` out and Cello picks a free one. |

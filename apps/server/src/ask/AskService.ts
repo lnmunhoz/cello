@@ -7,7 +7,7 @@
 // by an ask that closed are swept a day later.
 import * as path from "node:path"
 import type { Ask, Attachment, Task } from "@cello/contract/entities"
-import { HumanOnly, Invalid, NotFound } from "@cello/contract/errors"
+import { HumanOnly, Invalid, NotFound, TaskClaimed } from "@cello/contract/errors"
 import { Caller, type AnswerInput, type AskQuestionInput, type EvidenceFile, type EvidenceLink } from "@cello/contract/rpcs"
 import { answerProblem, isNeedsInputStatus, needsInputTarget } from "@cello/shared/ask"
 import { sendBackTarget } from "@cello/shared/review"
@@ -25,6 +25,7 @@ import { newId } from "../persistence/ids.ts"
 import { selectAsks, selectStatuses, selectTasks, type StoredAnswers, toAttachment } from "../persistence/rows.ts"
 import * as Seed from "../persistence/Seed.ts"
 import * as AssetStore from "../review/AssetStore.ts"
+import { SessionService } from "../session/SessionService.ts"
 import { checkFile, requireLink } from "../review/evidence.ts"
 import * as TaskService from "../task/TaskService.ts"
 import { requireText } from "../validation.ts"
@@ -72,9 +73,9 @@ type Write<A, E> = Effect.Effect<Commands.Written<A>, E, Caller>
 type AskAndTask = { readonly ask: Ask; readonly task: Task }
 
 export class AskService extends Context.Service<AskService, {
-  readonly create: (input: CreateAsk) => Write<AskAndTask, NotFound | Invalid>
+  readonly create: (input: CreateAsk) => Write<AskAndTask, NotFound | Invalid | TaskClaimed>
   readonly answer: (input: AnswerAsk) => Write<AskAndTask, NotFound | Invalid | HumanOnly>
-  readonly withdraw: (input: { readonly commandId: string; readonly key: string }) => Write<AskAndTask, NotFound | Invalid>
+  readonly withdraw: (input: { readonly commandId: string; readonly key: string }) => Write<AskAndTask, NotFound | Invalid | TaskClaimed>
   /** The task's latest ask, open or not. */
   readonly latest: (key: string) => Effect.Effect<Ask, NotFound>
   /** Every ask of a task, oldest first. */
@@ -99,6 +100,7 @@ const make = Effect.gen(function* () {
   const log = yield* EventLog.EventLog
   const store = yield* EventStore.EventStore
   const human = yield* Seed.HumanActor
+  const sessions = yield* SessionService
 
   const placeOf = (task: Task) =>
     sql<{ workspace_id: string }>`SELECT workspace_id FROM projects WHERE id = ${task.projectId}`.pipe(
@@ -117,6 +119,36 @@ const make = Effect.gen(function* () {
       const started = sendBackTarget(statuses)
       if (!current || !isNeedsInputStatus(current) || started === null) return task
       return yield* tasks.moveWithin(context, { id: task.id, statusId: started.id, keepClaim: true })
+    })
+
+  /**
+   * Only the session working on a task (its claim holder) asks on it or withdraws: anyone else would
+   * replace the holder's questions, and the answers would reach a session that never asked. Lucas
+   * answers, and withdraws an ask by moving the card.
+   */
+  const requireHolder = (context: Commands.WriteContext, task: Task) =>
+    Effect.gen(function* () {
+      const { caller } = context
+      if (caller.sessionId === null) {
+        return yield* new Invalid({
+          field: "key",
+          reason: `questions come from the agent working on ${task.key}; ${human.name} answers them, and withdraws one by moving the card`,
+        })
+      }
+      if (task.assigneeActorId === caller.actorId && task.assigneeSessionId === caller.sessionId) return
+      if (task.assigneeActorId === null) {
+        return yield* new Invalid({
+          field: "key",
+          reason: `claim ${task.key} first (cello task claim ${task.key}): only the session working on a task asks on it`,
+        })
+      }
+      const [holder] = task.assigneeSessionId === null ? [] : yield* sessions.byIds([task.assigneeSessionId])
+      return yield* new TaskClaimed({
+        key: task.key,
+        holder: holder?.clientName ?? human.name,
+        sessionId: holder?.externalId ?? null,
+        lastSeenAt: holder?.lastSeenAt ?? null,
+      })
     })
 
   const create = Effect.fn("AskService.create")(function* (input: CreateAsk) {
@@ -141,6 +173,7 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const { now, caller, emit } = context
         const task = yield* tasks.byKey(input.key)
+        yield* requireHolder(context, task)
         const where = yield* placeOf(task)
         const target = needsInputTarget(yield* statusesOf(where.workspaceId))
         if (target === null) return yield* new Invalid({ field: "key", reason: `${task.key}'s workspace has no Needs input status to move it to` })
@@ -249,6 +282,7 @@ const make = Effect.gen(function* () {
     return yield* commands.write({ commandId: input.commandId, rpc: "ask.withdraw" }, (context) =>
       Effect.gen(function* () {
         const task = yield* tasks.byKey(input.key)
+        yield* requireHolder(context, task)
         const where = yield* placeOf(task)
         const ask = yield* withdrawOpenAsk(sql, context, task, where, "agent")
         if (ask === null) return yield* new Invalid({ field: "key", reason: `${task.key} has no open ask to withdraw` })
@@ -272,16 +306,19 @@ const make = Effect.gen(function* () {
     // The seq first: an ask closed after it is replayed by the subscription below, so none is missed.
     const seq = yield* store.latestSeq
     const ask = yield* latest(key)
-    const closed = ask.state !== "open"
-      ? ask
-      : yield* log.subscribe({ projectId: (yield* tasks.byKey(key)).projectId }, seq).pipe(
-        Stream.filter((e) => (e.type === "ask.answered" && e.ask.id === ask.id) || (e.type === "ask.withdrawn" && e.id === ask.id)),
-        Stream.runHead,
-        Effect.orDie,
-        Effect.flatMap(() => askById(ask.id)),
-      )
-    yield* inbox.markAnswersRead(closed.id)
-    return closed
+    const projectId = (yield* tasks.byKey(key)).projectId
+    // Handed over by this wait alone: the hook leaves the answers to it while it waits.
+    return yield* inbox.handOverAnswers(
+      ask.id,
+      ask.state !== "open"
+        ? Effect.succeed(ask)
+        : log.subscribe({ projectId }, seq).pipe(
+          Stream.filter((e) => (e.type === "ask.answered" && e.ask.id === ask.id) || (e.type === "ask.withdrawn" && e.id === ask.id)),
+          Stream.runHead,
+          Effect.orDie,
+          Effect.flatMap(() => askById(ask.id)),
+        ),
+    )
   }, Effect.catchTag("SqlError", Effect.die))
 
   const sweepDrafts = Effect.gen(function* () {

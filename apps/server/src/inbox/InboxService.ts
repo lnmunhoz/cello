@@ -46,8 +46,11 @@ export class InboxService extends Context.Service<InboxService, {
    * that asked that its ask was withdrawn, and where the card went (`status`). Agents' moves tell no one.
    */
   readonly deliverWithdrawalWithin: (context: Commands.WriteContext, ask: Ask, status: string) => Effect.Effect<void, SqlError>
-  /** Marks the caller's item for an ask's answers read: `cello wait` handed them over, so the hook won't. */
-  readonly markAnswersRead: (askId: string) => Effect.Effect<void, never, Caller>
+  /**
+   * Runs `wait` (until an ask closes) and hands its answers over: the caller's inbox item for them is
+   * marked read, and while it runs `take` leaves that item alone, so the hook never prints them too.
+   */
+  readonly handOverAnswers: <A extends { readonly id: string }, E, R>(askId: string, wait: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | Caller>
 }>()("cello/InboxService") {}
 
 const make = Effect.gen(function* () {
@@ -95,13 +98,34 @@ const make = Effect.gen(function* () {
         ON CONFLICT (session_id, ask_id) DO NOTHING`
     }).pipe(Effect.withSpan("InboxService.deliverWithdrawalWithin"))
 
-  const markAnswersRead = (askId: string) =>
+  // Asks a session is waiting on right now ("<session> <ask>" → how many waits): `take` leaves their
+  // items to the wait, so the answers aren't handed over twice (the hook firing between the commit and
+  // the wait's own mark). A wait that ends without marking (interrupted) lets go, and the hook gets them.
+  const held = new Map<string, number>()
+  const heldBy = (sessionId: string) =>
+    [...held.keys()].flatMap((k) => (k.startsWith(`${sessionId} `) ? [k.slice(sessionId.length + 1)] : []))
+
+  const handOverAnswers = <A extends { readonly id: string }, E, R>(askId: string, wait: Effect.Effect<A, E, R>) =>
     Effect.gen(function* () {
       const caller = yield* Caller
-      if (caller.sessionId === null) return
-      const now = yield* Clock.currentTimeMillis
-      yield* sql`UPDATE inbox_items SET read_at = ${now} WHERE ask_id = ${askId} AND session_id = ${caller.sessionId} AND read_at IS NULL`
-    }).pipe(Effect.orDie, Effect.withSpan("InboxService.markAnswersRead"))
+      if (caller.sessionId === null) return yield* wait
+      const k = `${caller.sessionId} ${askId}`
+      return yield* Effect.acquireUseRelease(
+        Effect.sync(() => void held.set(k, (held.get(k) ?? 0) + 1)),
+        () =>
+          Effect.tap(wait, () =>
+            Effect.gen(function* () {
+              const now = yield* Clock.currentTimeMillis
+              yield* sql`UPDATE inbox_items SET read_at = ${now} WHERE ask_id = ${askId} AND session_id = ${caller.sessionId} AND read_at IS NULL`
+            }).pipe(Effect.orDie)),
+        () =>
+          Effect.sync(() => {
+            const n = (held.get(k) ?? 1) - 1
+            if (n <= 0) held.delete(k)
+            else held.set(k, n)
+          }),
+      )
+    }).pipe(Effect.withSpan("InboxService.handOverAnswers"))
 
   const take = Effect.fn("InboxService.take")(function* (query: { readonly unreadOnly?: boolean }) {
     const caller = yield* Caller
@@ -115,9 +139,13 @@ const make = Effect.gen(function* () {
         sql`i.id IN (SELECT id FROM inbox_items WHERE session_id = ${sessionId} AND read_at IS NOT NULL
                      ORDER BY created_at DESC, rowid DESC LIMIT ${EARLIER})`,
       )
-      // One statement marks and claims them: whoever runs it first gets them, nobody else does.
+      // One statement marks and claims them: whoever runs it first gets them, nobody else does. Answers a
+      // live `cello wait` is about to hand over are left to it.
+      const waitedOn = heldBy(sessionId)
       const taken = yield* sql<{ id: string }>`
-        UPDATE inbox_items SET read_at = ${now} WHERE session_id = ${sessionId} AND read_at IS NULL RETURNING id`
+        UPDATE inbox_items SET read_at = ${now} WHERE session_id = ${sessionId} AND read_at IS NULL
+          AND ${waitedOn.length === 0 ? sql`1 = 1` : sql`(ask_id IS NULL OR ask_id NOT IN ${sql.in(waitedOn)})`}
+        RETURNING id`
       const items = taken.length === 0 ? [] : yield* selectInboxItems(sql, sql.in("i.id", taken.map((r) => r.id)))
       return { session: session ?? null, items, earlier }
     }))
@@ -129,7 +157,7 @@ const make = Effect.gen(function* () {
     return yield* selectInboxItems(sql, sql`i.session_id = ${caller.sessionId} AND i.read_at IS NULL`)
   }).pipe(Effect.orDie, Effect.withSpan("InboxService.unread"))
 
-  return InboxService.of({ take, unread, deliverWithin, deliverAnswersWithin, deliverWithdrawalWithin, markAnswersRead })
+  return InboxService.of({ take, unread, deliverWithin, deliverAnswersWithin, deliverWithdrawalWithin, handOverAnswers })
 })
 
 export const layer = Layer.effect(InboxService, make)

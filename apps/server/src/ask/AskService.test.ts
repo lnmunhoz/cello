@@ -362,6 +362,38 @@ describe("AskService.upload", () => {
     })))
 })
 
+describe("only the session holding the claim asks and withdraws", () => {
+  it.effect("another session is refused, naming the holder; the holder's ask and inbox stay untouched", () =>
+    run(Effect.gen(function* () {
+      const { asks, task, files } = yield* setup
+      const { ask } = (yield* agent(asks.create(question(files)))).result
+      expect(yield* Effect.flip(other(asks.create(question(files))))).toMatchObject({
+        _tag: "TaskClaimed",
+        key: "CEL-1",
+        holder: "Claude Code",
+        sessionId: "session-ask",
+      })
+      expect(yield* Effect.flip(other(asks.withdraw({ commandId: cmd(), key: task.key })))).toMatchObject({ _tag: "TaskClaimed", sessionId: "session-ask" })
+      expect((yield* asks.list(task.id)).map((a) => [a.id, a.state])).toEqual([[ask.id, "open"]])
+    })))
+
+  it.effect("the human is refused (Lucas answers, and withdraws by moving the card); an unclaimed task must be claimed first", () =>
+    run(Effect.gen(function* () {
+      const { asks, tasks, task, files } = yield* setup
+      yield* agent(asks.create(question(files)))
+      expect(yield* Effect.flip(asks.create(question(files)))).toMatchObject({
+        _tag: "Invalid",
+        reason: "questions come from the agent working on CEL-1; Lucas answers them, and withdraws one by moving the card",
+      })
+      expect(yield* Effect.flip(asks.withdraw({ commandId: cmd(), key: task.key }))).toMatchObject({ _tag: "Invalid", field: "key" })
+      const { result: loose } = yield* tasks.create({ commandId: cmd(), projectId: task.projectId, title: "Nobody's" })
+      expect(yield* Effect.flip(agent(asks.create({ ...question(files), key: loose.key })))).toMatchObject({
+        _tag: "Invalid",
+        reason: `claim ${loose.key} first (cello task claim ${loose.key}): only the session working on a task asks on it`,
+      })
+    })))
+})
+
 describe("AskService.withdraw", () => {
   it.effect("takes the open ask back and returns the task to In Progress, claim kept", () =>
     run(Effect.gen(function* () {
@@ -382,12 +414,13 @@ describe("AskService.withdraw", () => {
 })
 
 describe("Needs input and moves", () => {
-  it.effect("an agent can't move a task into Needs input by hand; the human can", () =>
+  it.effect("no one moves a task into Needs input by hand, agent or human: only an ask puts it there", () =>
     run(Effect.gen(function* () {
       const { tasks, status, task } = yield* setup
       const move = { commandId: cmd(), id: task.id, statusId: status["Needs input"]!.id }
       expect(yield* Effect.flip(agent(tasks.move(move)))).toMatchObject({ _tag: "AskRequired", key: "CEL-1", status: "Needs input" })
-      expect((yield* tasks.move({ ...move, commandId: cmd() })).result.statusId).toBe(status["Needs input"]!.id)
+      expect(yield* Effect.flip(tasks.move({ ...move, commandId: cmd() }))).toMatchObject({ _tag: "AskRequired", key: "CEL-1" })
+      expect((yield* tasks.byKey(task.key)).statusId).toBe(status["In Progress"]!.id)
     })))
 
   it.effect("Lucas moving the card out of Needs input withdraws the ask, ends the claim, and tells the session that asked where it went", () =>
@@ -438,6 +471,21 @@ describe("AskService.wait", () => {
       expect(answered).toMatchObject({ id: ask.id, state: "answered" })
       expect(yield* agent(inbox.unread)).toEqual([])
       // Already answered: at once.
+      expect((yield* agent(asks.wait(task.key))).state).toBe("answered")
+    })))
+
+  it.effect("while a wait is on, the hook's take leaves the answers to it: they're handed over once", () =>
+    run(Effect.gen(function* () {
+      const { asks, task, files } = yield* setup
+      const inbox = yield* InboxService.InboxService
+      const { ask } = (yield* agent(asks.create(question(files)))).result
+      // Answered first, so the item is there the moment the wait starts: only the hold keeps take off it.
+      yield* asks.answer(answers(ask.id))
+      const held = yield* inbox.handOverAnswers(ask.id, agent(inbox.take({ unreadOnly: true })).pipe(Effect.map((taken) => ({ id: ask.id, taken }))))
+        .pipe(agent)
+      expect(held.taken.items).toEqual([])
+      // The wait marked it read on its way out: nothing left for the hook either.
+      expect((yield* agent(inbox.take({ unreadOnly: true }))).items).toEqual([])
       expect((yield* agent(asks.wait(task.key))).state).toBe("answered")
     })))
 
