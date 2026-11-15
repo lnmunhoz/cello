@@ -32,6 +32,25 @@ Files in `art/icon/`:
 The same face is meant for agent avatars in the UI, with state shown by the eyes (idle, working, thinking,
 waiting, done): see `art/variations/round12-face/S-*.svg`.
 
+## Where it ships (CEL-27)
+
+`art/icon/build-app-icons.mjs` builds every icon the apps use from `icon.svg` and `favicon.svg` (resvg, plus
+iconutil for the `.icns`). Edit a source, then run `bun art/icon/build-app-icons.mjs`; `--check` fails if a
+committed icon is out of date. The same sources give the same bytes.
+
+| Built file | From | Used by |
+|---|---|---|
+| `apps/web/public/icons/icon.svg` | `favicon.svg` (as is) | the browser tab, and the manifest's SVG icon |
+| `apps/web/public/favicon.ico` | `favicon.svg` at 16, 32, 48 px | browsers that skip SVG favicons |
+| `apps/web/public/icons/icon-192.png`, `icon-512.png` | `icon.svg` | the PWA manifest (`purpose: any`) |
+| `apps/web/public/icons/icon-maskable-512.png` | `icon.svg`, the agent at 80% | the manifest (`maskable`): the tip stays inside the 80% safe circle |
+| `apps/web/public/icons/apple-touch-icon.png` | `icon.svg` at 180 px, full bleed | iOS home screen (iOS rounds the corners) |
+| `apps/desktop/resources/icon.png` | `icon.svg` in Apple's grid: an 824 px rounded square on 1024, with a shadow | the Dock icon in dev (`app.dock.setIcon`) |
+| `apps/desktop/resources/icon.icns` | the same, rendered at 16 to 1024 px | the packaged `Cello.app` (electron-builder `mac.icon`) |
+
+The manifest's colours come from the icon: `theme_color` ink `#141416` (the installed app's title bar),
+`background_color` orange `#FF7A2F` (its launch screen).
+
 ## How we got here
 
 All rounds live in `art/variations/` (each has its own `make.mjs`); the review page is the Artifact
