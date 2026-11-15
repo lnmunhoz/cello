@@ -9,7 +9,7 @@ import { CelloClient, makeClientLayer, newCommandId } from "@cello/client/client
 import { describeEvent } from "@cello/client/history"
 import { STAGE_IDS, stageInfo, TASK_STAGES } from "@cello/contract/stages"
 import type { Backup } from "@cello/contract/backups"
-import type { Actor, AgentSession, Ask, DocumentKind, InboxItem, Priority, ProjectRef, Review, Status, Task } from "@cello/contract/entities"
+import type { Actor, AgentSession, Ask, DocumentKind, InboxItem, ProjectRef, Review, Status, Task } from "@cello/contract/entities"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
 import { ACCEPTED } from "@cello/shared/attachment"
@@ -61,6 +61,7 @@ import {
 } from "./claudeSettings.ts"
 import { CliEnv, dataDirOf, portOf } from "./env.ts"
 import { CliFailure, explain } from "./errors.ts"
+import { editFields, priorityOf } from "./edit.ts"
 import { evidenceFromArgs } from "./evidence.ts"
 import { ago, andList, columns, localTime, plural, sessionName } from "./format.ts"
 import { GUIDE } from "./guide.ts"
@@ -141,7 +142,6 @@ const byName = <T extends { readonly id: string; readonly name: string }>(kind: 
     : Effect.fail(new CliFailure({ message: `No ${kind} named "${name}". ${KIND_LISTS[kind]}: ${rows.map((r) => r.name).join(", ") || "none yet"}.` }))
 }
 
-const PRIORITIES: Record<string, Priority> = { none: 0, urgent: 1, high: 2, medium: 3, low: 4, "0": 0, "1": 1, "2": 2, "3": 3, "4": 4 }
 const PRIORITY_NAMES = ["None", "Urgent", "High", "Medium", "Low"]
 
 // ── formatting ──────────────────────────────────────────────────────────────────────────────────
@@ -406,10 +406,8 @@ const create = Command.make("create", {
   Effect.gen(function* () {
     const ref = yield* projectRef(input.project)
     const description = yield* bodyText(input.description, input.bodyFile)
-    const priority = Option.isSome(input.priority) ? PRIORITIES[input.priority.value.toLowerCase()] : undefined
-    if (Option.isSome(input.priority) && priority === undefined) {
-      return yield* new CliFailure({ message: `No priority "${input.priority.value}". Use urgent, high, medium, low or none.` })
-    }
+    const priority = Option.isSome(input.priority) ? priorityOf(input.priority.value) : undefined
+    if (typeof priority === "string") return yield* new CliFailure({ message: priority })
     const written = yield* withClient((client) =>
       Effect.gen(function* () {
         const ctx = yield* client["context"]({ project: ref })
@@ -539,6 +537,34 @@ const comment = Command.make("comment", {
     if (input.json) return yield* printJson(response)
     yield* print(`Commented on ${input.key.toUpperCase()}`)
   })).pipe(Command.withDescription("Add a markdown comment to a task: progress, a question, an answer to Lucas."))
+
+const edit = Command.make("edit", {
+  key,
+  title: Flag.String("title").pipe(Flag.optional, Flag.withDescription("A new title.")),
+  description: Flag.String("description").pipe(Flag.optional, Flag.withDescription("A new description, in markdown; replaces the old one.")),
+  bodyFile: Flag.String("body-file").pipe(Flag.optional, Flag.withDescription("Read the new description from a file; - is stdin.")),
+  priority: Flag.String("priority").pipe(Flag.optional, Flag.withDescription("urgent, high, medium, low or none.")),
+  json,
+}, (input) =>
+  Effect.gen(function* () {
+    const fields = editFields(input.key, {
+      title: Option.getOrUndefined(input.title),
+      description: yield* bodyText(input.description, input.bodyFile),
+      priority: Option.getOrUndefined(input.priority),
+    })
+    if (typeof fields === "string") return yield* new CliFailure({ message: fields })
+    const response = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const { task } = yield* client["task.get"]({ key: input.key })
+        return yield* client["task.update"]({ commandId: newCommandId(), id: task.id, expectedVersion: task.version, ...fields })
+      })
+    )
+    if (input.json) return yield* printJson(response)
+    const task = response.result
+    yield* print(response.seq === null ? `Nothing to change on ${task.key}  ${task.title}` : `Edited ${task.key}  ${task.title}`)
+  })).pipe(Command.withDescription(
+    "Change a task's title, description or priority; only the flags you give change. Any task, claimed or not; Lucas's edits end a claim as his other changes do.",
+  ))
 
 const submit = Command.make("submit", {
   key,
@@ -1626,7 +1652,7 @@ const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(
 
 const task = Command.make("task").pipe(
   Command.withDescription("Tasks: list, get, create, claim, release, stage, move, label, comment, submit, ask, answers."),
-  Command.withSubcommands([list, get, create, claim, release, stage, move, taskLabel, comment, submit, ask, answers]),
+  Command.withSubcommands([list, get, create, edit, claim, release, stage, move, taskLabel, comment, submit, ask, answers]),
 )
 
 const startCommand = Command.make("start", {}, () => start).pipe(
