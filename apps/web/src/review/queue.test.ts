@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { nextAfterDecision, parseReviewSearch, rowKey } from "./queue.ts"
+import { nextAfterDecision, parseReviewSearch, rowKey, sendBackNote } from "./queue.ts"
 
 describe("parseReviewSearch: the open row lives in the URL", () => {
   it("keeps a task key, uppercased", () => {
@@ -34,5 +34,15 @@ describe("rowKey: j and k move between rows like ↓ and ↑", () => {
     expect(rowKey("ArrowDown")).toBe("ArrowDown")
     expect(rowKey("Home")).toBe("Home")
     expect(rowKey("J")).toBe("J")
+  })
+})
+
+describe("sendBackNote: Send back on the Review page sends what's in the comment box (CEL-70)", () => {
+  it("the typed text, trimmed, is the note", () => {
+    expect(sendBackNote("  The poster frame is black.\n")).toBe("The poster frame is black.")
+  })
+
+  it("an empty box has no note: Send back asks for one", () => {
+    for (const text of ["", "   ", "\n\t"]) expect(sendBackNote(text)).toBeNull()
   })
 })

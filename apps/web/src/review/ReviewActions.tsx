@@ -1,3 +1,4 @@
+import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Task } from "@cello/contract/entities"
 import { useAtomSet } from "@effect/atom-react"
 import { CheckIcon, CornerUpLeftIcon } from "lucide-react"
@@ -6,17 +7,49 @@ import { Button } from "../components/ui/Button.tsx"
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "../components/ui/Dialog.tsx"
 import { Textarea } from "../components/ui/Input.tsx"
 import { commands } from "../lib/cello.ts"
+import { Comments } from "../task/Comments.tsx"
+import { sendBackNote } from "./queue.ts"
+
+/**
+ * The Review page's decision (CEL-70): the task's comments (the task panel's thread) and one box, with
+ * Comment, Send back and Approve under it. Comment keeps the task In Review and reaches the agent like
+ * any comment; Send back sends the box's text as its note, or asks for one when the box is empty.
+ */
+export function CommentOrDecide({ board, task, onDecided }: { board: BoardState; task: Task; onDecided?: (() => void) | undefined }) {
+  const [typed, setTyped] = useState("")
+  return (
+    <Comments
+      board={board}
+      task={task}
+      draft={{ value: typed, onChange: setTyped }}
+      placeholder="Leave a comment, or write what to change and Send back…"
+      actions={<ReviewActions task={task} onDecided={onDecided} typed={typed} onNoteSent={() => setTyped("")} />}
+    />
+  )
+}
+
+interface ReviewActionsProps {
+  readonly task: Task
+  readonly onDecided?: (() => void) | undefined
+  /**
+   * What's typed in the comment box beside these buttons (the Review page, CEL-70): Send back sends it
+   * as the note, then `onNoteSent` clears the box. Empty or not given, Send back asks for a note.
+   */
+  readonly typed?: string | undefined
+  readonly onNoteSent?: (() => void) | undefined
+}
 
 /**
  * Approve (to Done) or send back with a note (to In Progress). The page updates when the events
  * arrive; `onDecided` runs once the server took the decision (the Review page opens the next packet).
  */
-export function ReviewActions({ task, onDecided }: { task: Task; onDecided?: (() => void) | undefined }) {
+export function ReviewActions({ task, onDecided, typed = "", onNoteSent }: ReviewActionsProps) {
   const approve = useAtomSet(commands.approveReview, { mode: "promiseExit" })
   const sendBack = useAtomSet(commands.sendBackReview, { mode: "promiseExit" })
   const [busy, setBusy] = useState(false)
   const [asking, setAsking] = useState(false)
   const [note, setNote] = useState("")
+  const typedNote = sendBackNote(typed)
 
   const run = async (action: () => Promise<{ _tag: string }>) => {
     setBusy(true)
@@ -28,7 +61,15 @@ export function ReviewActions({ task, onDecided }: { task: Task; onDecided?: (()
 
   return (
     <div className="flex items-center gap-2">
-      <Button variant="secondary" size="md" disabled={busy} onClick={() => setAsking(true)}>
+      <Button
+        variant="secondary"
+        size="md"
+        disabled={busy}
+        onClick={async () => {
+          if (typedNote === null) return setAsking(true)
+          if (await run(() => sendBack({ key: task.key, note: typedNote }))) onNoteSent?.()
+        }}
+      >
         <CornerUpLeftIcon aria-hidden className="size-3.5" />
         Send back
       </Button>
