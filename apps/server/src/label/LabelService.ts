@@ -1,5 +1,6 @@
-// Labels: per workspace, shared by its projects. Names are unique within the workspace.
-import type { Label } from "@cello/contract/entities"
+// Labels: per workspace, shared by its projects. Names are unique within the workspace. Each label is in
+// a group (kind, area, milestone or none, CEL-52), which the Issues tab's filter groups by.
+import type { Label, LabelGroup } from "@cello/contract/entities"
 import { Invalid, NotFound } from "@cello/contract/errors"
 import type { Caller } from "@cello/contract/rpcs"
 import * as Context from "effect/Context"
@@ -16,6 +17,8 @@ export interface CreateLabel {
   readonly workspaceId: string
   readonly name: string
   readonly color: string
+  /** `none` when left out. */
+  readonly group?: LabelGroup
 }
 
 export interface UpdateLabel {
@@ -23,6 +26,7 @@ export interface UpdateLabel {
   readonly id: string
   readonly name?: string
   readonly color?: string
+  readonly group?: LabelGroup
 }
 
 export class LabelService extends Context.Service<LabelService, {
@@ -65,8 +69,8 @@ const make = Effect.gen(function* () {
         if (!workspaces[0]) return yield* new NotFound({ entity: "workspace", id: input.workspaceId })
         yield* ensureNameFree(input.workspaceId, name, null)
         const id = newId(now)
-        yield* sql`INSERT INTO labels (id, workspace_id, name, color, created_at, updated_at)
-          VALUES (${id}, ${input.workspaceId}, ${name}, ${color}, ${now}, ${now})`
+        yield* sql`INSERT INTO labels (id, workspace_id, name, color, label_group, created_at, updated_at)
+          VALUES (${id}, ${input.workspaceId}, ${name}, ${color}, ${input.group ?? "none"}, ${now}, ${now})`
         const label = yield* load(id)
         yield* emit({ type: "label.created", label }, { workspaceId: label.workspaceId, projectId: null })
         return label
@@ -79,8 +83,8 @@ const make = Effect.gen(function* () {
     return yield* commands.write({ commandId: input.commandId, rpc: "label.update" }, ({ now, emit }) =>
       Effect.gen(function* () {
         const current = yield* load(input.id)
-        const before: { name?: string; color?: string } = {}
-        const after: { name?: string; color?: string } = {}
+        const before: { name?: string; color?: string; group?: LabelGroup } = {}
+        const after: { name?: string; color?: string; group?: LabelGroup } = {}
         if (name !== undefined && name !== current.name) {
           yield* ensureNameFree(current.workspaceId, name, current.id)
           before.name = current.name
@@ -90,8 +94,14 @@ const make = Effect.gen(function* () {
           before.color = current.color
           after.color = color
         }
+        if (input.group !== undefined && input.group !== current.group) {
+          before.group = current.group
+          after.group = input.group
+        }
         if (Object.keys(after).length === 0) return current
-        yield* sql`UPDATE labels SET ${sql.update({ ...after, updated_at: now })} WHERE id = ${current.id}`
+        const { group, ...columns } = after
+        yield* sql`UPDATE labels SET ${sql.update({ ...columns, ...(group === undefined ? {} : { label_group: group }), updated_at: now })}
+          WHERE id = ${current.id}`
         yield* emit(
           { type: "label.updated", id: current.id, before, after },
           { workspaceId: current.workspaceId, projectId: null },

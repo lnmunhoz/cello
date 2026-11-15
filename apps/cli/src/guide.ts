@@ -302,28 +302,39 @@ cello task list
 
 ## Labels
 
-Labels say what a task is about: what kind of work, which part of the product. They belong to the workspace, so every project in it shares them, and each has a name (unique, ignoring case) and a colour. A project may have its own convention for them; Cello's own board, for one, gives each task one kind (feature, bug, polish, chore, docs) and one or more areas (board, cli, agents…).
+Labels say what a task is about: what kind of work, which part of the product. They belong to the workspace, so every project in it shares them, and each has a name (unique, ignoring case), a colour and a group. A project may have its own convention for them; Cello's own board, for one, gives each task one kind (feature, bug, polish, chore, docs) and one or more areas (board, cli, agents…).
+
+**Groups** say what a label means, so the board's filter can sort them: **kind** (the kind of work: feature, bug…), **area** (the part of the product: board, cli…), **milestone** (M2, M3) or **none** (the default; every screen calls it **Other**). The Issues tab's filter panel lists labels under Kind, Area, Milestone and Other, and matches any label within a group and every group picked: ticking \`bug\` and \`agents\` shows the bugs in agents.
 
 \`\`\`bash
-cello label list                               # every label: colour, and how many tasks carry it
-cello label create board --color "#5B9A74"     # a new label; without --color, one is picked from the name
-cello label update server --color "#8D7B68"    # recolour; --name renames
-cello label archive ui                         # retire one
+cello label list                                           # every label: colour, and how many tasks carry it, under its group
+cello label create board --color "#5B9A74" --group area    # a new label; without --color, one is picked from the name; without --group, none
+cello label update server --color "#8D7B68"                # recolour; --name renames; --group regroups
+cello label update M2 --group milestone
+cello label archive ui                                     # retire one
 
-cello task label CEL-12 +board +cli -ui        # add and remove a task's labels, in one change
+cello task label CEL-12 +board +cli -ui                    # add and remove a task's labels, in one change
 \`\`\`
 
 \`\`\`
 $ cello label list
-board    #5B9A74  9 tasks in CEL
-feature  #3B82F6  34 tasks in CEL · 2 in other projects
-server   #8D7B68  4 tasks in CEL
+Kind
+  feature  #3B82F6  34 tasks in CEL · 2 in other projects
+
+Area
+  board    #5B9A74  9 tasks in CEL
+  server   #8D7B68  4 tasks in CEL
 
 Archived (hidden from cards and pickers; tasks keep the link): ui (31 tasks in CEL)
+
+$ cello label update server --group area
+Updated label server  #8D7B68  Area
 
 $ cello task label CEL-12 +board +cli -ui
 CEL-12 labels: feature, board, cli (added board and cli; removed ui)
 \`\`\`
+
+Until some label has a group, \`cello label list\` is one list without headings. \`--group\` takes \`kind\`, \`area\`, \`milestone\` or \`none\` (\`other\` works too), in any case; any other name is refused and nothing changes.
 
 - **\`+name\` adds, \`-name\` removes,** as many as you like, in any case. It's one change to the task: one line in its history. Labels it already has (or doesn't have) are skipped, and when nothing changes it says so ("CEL-12 already has these labels: …").
 - **An unknown name is refused,** every unknown one at once, with close matches, and nothing on the task changes:
@@ -960,12 +971,13 @@ cello label create [flags] <name>
 | --- | --- |
 | \`name string\` | The label's name; any case. |
 | \`--color string\` | A colour like "#3B82F6" (quoted, so the shell keeps the #). Default: one picked from the name. |
+| \`--group string\` | What the label says about a task: kind, area, milestone, none (none is shown as Other; "other" works too). The Issues tab's filter groups labels by it. |
 | \`--project string\` | Project key, instead of the working folder's. |
 | \`--json\` | Print JSON for scripts. |
 
 ### cello label update
 
-Recolour or rename a label. Every task carrying it shows the change.
+Recolour, rename or regroup a label. Every task carrying it shows the change.
 
 \`\`\`
 cello label update [flags] <name>
@@ -976,6 +988,7 @@ cello label update [flags] <name>
 | \`name string\` | The label's name; any case. |
 | \`--color string\` | A colour like "#3B82F6" (quoted, so the shell keeps the #). |
 | \`--name string\` | A new name for the label. |
+| \`--group string\` | What the label says about a task: kind, area, milestone, none (none is shown as Other; "other" works too). The Issues tab's filter groups labels by it. |
 | \`--project string\` | Project key, instead of the working folder's. |
 | \`--json\` | Print JSON for scripts. |
 

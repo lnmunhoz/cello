@@ -10,6 +10,8 @@ const button = variants(
       primary: "bg-accent text-accent-ink hover:brightness-110",
       secondary: "border border-line bg-raised text-ink shadow-card hover:bg-hover",
       ghost: "text-muted hover:bg-hover hover:text-ink",
+      /** Quiet text in the accent colour that opens more of a list ("Show all 15"). */
+      more: "justify-start text-accent hover:bg-hover",
       danger: "text-danger hover:bg-hover",
       /** On the image modal's dark backdrop, in both themes. */
       overlay: "text-white/75 hover:bg-white/12 hover:text-white aria-pressed:bg-white/16 aria-pressed:text-white disabled:hover:bg-transparent",
@@ -19,6 +21,8 @@ const button = variants(
     size: {
       sm: "h-6 px-2 text-xs",
       md: "h-8 px-3 text-[13px]",
+      /** As tall and wide as a row in a list it sits in. */
+      row: "h-7 w-full px-2 text-[13px]",
       icon: "size-6 text-muted",
       iconMd: "size-7",
       iconLg: "size-9",

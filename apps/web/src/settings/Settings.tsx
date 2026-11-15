@@ -1,5 +1,5 @@
 import { placement, statusesOf } from "@cello/client/sync/selectors"
-import type { Label, Status } from "@cello/contract/entities"
+import { type Label, LABEL_GROUP_NAMES, LABEL_GROUPS, type LabelGroup, type Status } from "@cello/contract/entities"
 import { buildLine } from "@cello/shared/build"
 import { useAtomSet } from "@effect/atom-react"
 import { Link } from "@tanstack/react-router"
@@ -10,6 +10,7 @@ import { Centered } from "../app/Home.tsx"
 import { Button } from "../components/ui/Button.tsx"
 import { ColorPicker, PALETTE } from "../components/ui/ColorPicker.tsx"
 import { Input } from "../components/ui/Input.tsx"
+import { Select } from "../components/ui/Select.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { runningBuild, useServerBuild } from "../lib/build.ts"
 import { commands } from "../lib/cello.ts"
@@ -134,6 +135,8 @@ function StatusRow({ status, statuses, index }: { status: Status; statuses: Read
   )
 }
 
+const GROUP_OPTIONS = LABEL_GROUPS.map((value) => ({ value, label: LABEL_GROUP_NAMES[value] }))
+
 function LabelRow({ label }: { label: Label }) {
   const update = useAtomSet(commands.updateLabel)
   const archive = useAtomSet(commands.archiveLabel)
@@ -143,6 +146,14 @@ function LabelRow({ label }: { label: Label }) {
       <div className="flex-1">
         <NameField label={`${label.name} name`} value={label.name} onSave={(name) => update({ id: label.id, name })} />
       </div>
+      {/* The group the Issues tab's filter lists it under (CEL-52). */}
+      <Select
+        variant="chip"
+        label={`${label.name} group`}
+        value={label.group}
+        options={GROUP_OPTIONS}
+        onValueChange={(group) => group && update({ id: label.id, group: group as LabelGroup })}
+      />
       <Button variant="ghost" size="icon" aria-label={`Archive ${label.name}`} onClick={() => archive({ id: label.id })}>
         <ArchiveIcon className="size-3.5" />
       </Button>

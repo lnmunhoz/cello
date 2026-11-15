@@ -9,6 +9,7 @@ import {
   DueDate,
   Id,
   Label,
+  LabelGroup,
   Millis,
   Priority,
   Project,
@@ -44,7 +45,7 @@ const patch = <F extends Schema.Struct.Fields>(fields: F) =>
 export const WorkspacePatch = patch({ name: Schema.String })
 export const ProjectPatch = patch({ name: Schema.String, color: Schema.String, description: Schema.String })
 export const StatusPatch = patch({ name: Schema.String, color: Schema.String, hidden: Schema.Boolean, position: Schema.String })
-export const LabelPatch = patch({ name: Schema.String, color: Schema.String })
+export const LabelPatch = patch({ name: Schema.String, color: Schema.String, group: LabelGroup })
 export const TaskPatch = patch({
   title: Schema.String,
   description: Schema.String,

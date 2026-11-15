@@ -3,7 +3,8 @@ import { addTasks, caption, card, createProject, expect, seedLabels, taskPanel, 
 
 test("labels: add two labels in the task panel and remove one; the card shows the labels left", async ({ page, cello }) => {
   const key = uniqueKey("LABL")
-  await seedLabels(cello, [{ name: "Frontend", color: "#4ea7fc" }, { name: "Bug", color: "#eb5757" }])
+  // Not "Bug": filters.spec.ts seeds CEL-56's "bug" on the same server, and label names are unique in any case.
+  await seedLabels(cello, [{ name: "Frontend", color: "#4ea7fc" }, { name: "Regression", color: "#eb5757" }])
   await createProject(page, "Labels test", key)
   await addTasks(page, "Todo", ["Fix the login form"])
   await card(page, `${key}-1`).click()
@@ -11,22 +12,22 @@ test("labels: add two labels in the task panel and remove one; the card shows th
   const chips = card(page, `${key}-1`).locator("[data-card-chips]")
   const labels = panel.getByRole("combobox", { name: "Labels", exact: true })
 
-  await caption(page, "Add the labels Frontend and Bug")
+  await caption(page, "Add the labels Frontend and Regression")
   await labels.click()
   await page.getByRole("option", { name: "Frontend" }).click()
-  await page.getByRole("option", { name: "Bug" }).click()
+  await page.getByRole("option", { name: "Regression" }).click()
   await page.keyboard.press("Escape")
   await expect(labels).toContainText("Frontend")
-  await expect(labels).toContainText("Bug")
+  await expect(labels).toContainText("Regression")
   await expect(chips).toContainText("Frontend")
-  await expect(chips).toContainText("Bug")
+  await expect(chips).toContainText("Regression")
 
-  await caption(page, "Remove Bug")
+  await caption(page, "Remove Regression")
   await labels.click()
-  await page.getByRole("option", { name: "Bug" }).click()
+  await page.getByRole("option", { name: "Regression" }).click()
   await page.keyboard.press("Escape")
   await expect(chips).toContainText("Frontend")
-  await expect(chips).not.toContainText("Bug")
+  await expect(chips).not.toContainText("Regression")
 
   await caption(page, "Reload: the card still shows Frontend only")
   await page.reload()

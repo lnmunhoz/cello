@@ -2,19 +2,21 @@
 // (`?layout=list&order=newest`), so a link and a reload keep them. The board and manual order are the
 // defaults and have no param. Without `?order`, the ordering last picked for this project and layout
 // on this device applies.
+import { parseFilterSearch, type FilterSearch } from "@cello/client/sync/filters"
 import { parseOrdering, type Ordering } from "@cello/client/sync/ordering"
 
 export type Layout = "board" | "list"
 
-export interface IssuesSearch {
+/** The layout, the ordering, and the filter (CEL-52, `?label=bug&who=agent`; see ./useFilter.ts). */
+export interface IssuesSearch extends FilterSearch {
   readonly layout?: "list"
   readonly order?: Ordering
 }
 
-/** The project route's `validateSearch`: keeps `layout=list` and a known `order`, and drops anything it doesn't know. */
+/** The project route's `validateSearch`: keeps `layout=list`, a known `order` and the filter's params, and drops anything it doesn't know. */
 export const parseIssuesSearch = (search: Record<string, unknown>): IssuesSearch => {
   const order = parseOrdering(search["order"])
-  return { ...(search["layout"] === "list" ? { layout: "list" as const } : {}), ...(order ? { order } : {}) }
+  return { ...(search["layout"] === "list" ? { layout: "list" as const } : {}), ...(order ? { order } : {}), ...parseFilterSearch(search) }
 }
 
 export const layoutOf = (search: IssuesSearch): Layout => search.layout ?? "board"

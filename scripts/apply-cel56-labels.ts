@@ -3,7 +3,8 @@
 //   bun scripts/apply-cel56-labels.ts [--project CEL] [--dry-run] [--archive-ui]
 //
 // 1. Creates the 5 kinds and 15 areas, with the page's colours (kinds one colour each, areas one
-//    quieter colour per group), and recolours `server`, which stays as an area.
+//    quieter colour per group), and recolours `server`, which stays as an area. Each goes in its
+//    label group (CEL-52): kinds in kind, areas in area, and M2 and M3, when they exist, in milestone.
 // 2. Labels every task in the table below with its kind and areas: it adds what's missing, and takes
 //    off `ui` and any kind or area the table doesn't give it. Other labels (M2, M3) are left alone.
 //    A task the table doesn't list only loses `ui`. Archived tasks aren't listed, so they keep `ui`,
@@ -39,6 +40,10 @@ export const LABELS: ReadonlyArray<{ readonly name: string; readonly color: stri
   ...Object.entries(KIND_COLORS).map(([name, color]) => ({ name, color })),
   ...Object.values(AREA_GROUPS).flatMap((g) => g.areas.map((name) => ({ name, color: g.color }))),
 ]
+
+/** The label group (CEL-52) each managed label goes in, and the milestones, which it groups but doesn't create. */
+export const groupOf = (name: string): "kind" | "area" => (name in KIND_COLORS ? "kind" : "area")
+export const MILESTONES = ["m2", "m3"]
 
 /** The label being replaced by the areas. */
 export const RETIRED = "ui"
@@ -130,7 +135,7 @@ export const planTask = (current: ReadonlyArray<string>, wanted: Row | undefined
 export type Cli = (args: ReadonlyArray<string>) => Promise<{ readonly out: string; readonly failure: string | null }>
 
 interface ListedLabel {
-  readonly label: { readonly id: string; readonly name: string; readonly color: string; readonly archivedAt: number | null }
+  readonly label: { readonly id: string; readonly name: string; readonly color: string; readonly group: string; readonly archivedAt: number | null }
   readonly tasks: number
   readonly otherProjects: number
 }
@@ -158,19 +163,37 @@ export const apply = async (
   }
   const labelList = () => json<{ labels: ReadonlyArray<ListedLabel> }>(["label", "list", "--project", project]).then((l) => l.labels)
 
-  // 1. The labels, with their colours.
+  // 1. The labels, with their colours and groups.
   const before = await labelList()
   for (const wanted of LABELS) {
     const found = before.find((l) => l.label.name.toLowerCase() === wanted.name)
+    const group = groupOf(wanted.name)
     if (found === undefined) {
-      await change(`created label ${wanted.name} ${wanted.color}`, ["label", "create", wanted.name, "--color", wanted.color, "--project", project])
-    } else if (found.label.archivedAt !== null) {
+      await change(`created label ${wanted.name} ${wanted.color} in ${group}`, [
+        "label", "create", wanted.name, "--color", wanted.color, "--group", group, "--project", project,
+      ])
+      continue
+    }
+    if (found.label.archivedAt !== null) {
       throw new Error(`The label ${found.label.name} is archived, so it can't be used. Ask Lucas: there's no unarchive yet.`)
-    } else if (found.label.color.toUpperCase() !== wanted.color) {
-      await change(`recoloured label ${found.label.name} ${found.label.color} → ${wanted.color}`, [
-        "label", "update", found.label.name, "--color", wanted.color, "--project", project,
+    }
+    const recolour = found.label.color.toUpperCase() !== wanted.color
+    const regroup = found.label.group !== group
+    if (recolour || regroup) {
+      const line = recolour
+        ? `recoloured label ${found.label.name} ${found.label.color} → ${wanted.color}${regroup ? ` and put it in ${group}` : ""}`
+        : `put label ${found.label.name} in ${group}`
+      await change(line, [
+        "label", "update", found.label.name,
+        ...(recolour ? ["--color", wanted.color] : []),
+        ...(regroup ? ["--group", group] : []),
+        "--project", project,
       ])
     }
+  }
+  for (const milestone of before.filter((l) => MILESTONES.includes(l.label.name.toLowerCase()) && l.label.archivedAt === null)) {
+    if (milestone.label.group === "milestone") continue
+    await change(`put label ${milestone.label.name} in milestone`, ["label", "update", milestone.label.name, "--group", "milestone", "--project", project])
   }
 
   // 2. Every task, whatever its status.

@@ -1,6 +1,6 @@
 // Optimistic patches: pure functions from state to state. Untouched rows keep their identity,
 // and a patch whose row is gone leaves the state alone.
-import type { Label, Priority, Project, Status, Task } from "@cello/contract/entities"
+import type { Label, LabelGroup, Priority, Project, Status, Task } from "@cello/contract/entities"
 import type { BoardState } from "../sync/applyEvents.ts"
 import type { Patch } from "./optimistic.ts"
 
@@ -59,7 +59,7 @@ export const updateStatus = (id: string, fields: StatusFields): Patch => change(
 
 export const addLabel = (label: Label): Patch => (state) => put(state, "labels", label)
 
-export const updateLabel = (id: string, fields: { readonly name?: string; readonly color?: string }): Patch =>
+export const updateLabel = (id: string, fields: { readonly name?: string; readonly color?: string; readonly group?: LabelGroup }): Patch =>
   change("labels", id, (l) => ({ ...l, ...fields }))
 
 export const archiveLabel = (id: string): Patch => change("labels", id, (l) => ({ ...l, archivedAt: now() }))

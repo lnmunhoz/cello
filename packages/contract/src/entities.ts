@@ -78,11 +78,25 @@ export const Status = Schema.Struct({
 })
 export type Status = typeof Status.Type
 
+/**
+ * What a label says about a task (CEL-52): the kind of work (feature, bug), the part of the product it
+ * touches (an area), its milestone, or none of these. The Issues tab's filter groups labels by it, and
+ * matches any label within a group and every group picked.
+ */
+export const LABEL_GROUPS = ["kind", "area", "milestone", "none"] as const
+export const LabelGroup = Schema.Literals(LABEL_GROUPS)
+export type LabelGroup = typeof LabelGroup.Type
+
+/** What every screen calls each group: the filter panel's headings, `cello label list`, Settings. */
+export const LABEL_GROUP_NAMES: Record<LabelGroup, string> = { kind: "Kind", area: "Area", milestone: "Milestone", none: "Other" }
+
 export const Label = Schema.Struct({
   id: Id,
   workspaceId: Id,
   name: Schema.String,
   color: Schema.String,
+  /** Labels inside events stored before groups existed (CEL-52) read as `none`. */
+  group: LabelGroup.pipe(Schema.withDecodingDefaultKey(Effect.succeed("none" as const))),
   createdAt: Millis,
   updatedAt: Millis,
   archivedAt: Schema.NullOr(Millis),

@@ -5,7 +5,7 @@
 import type { Ordering } from "@cello/client/sync/ordering"
 import { placement, placementAtEnd } from "@cello/client/sync/selectors"
 import { type StageInfo, stageInfo, stageRank } from "@cello/contract/stages"
-import type { Drop, Move } from "./moves.ts"
+import { type Drop, indexAmong, type Move } from "./moves.ts"
 
 interface Staged {
   readonly id: string
@@ -84,6 +84,6 @@ export const laneDrop = (
   if (!crossing && (!inLane || ordering !== "manual")) return null
   const lane = column.filter((t) => t.id !== move.key && t.stage === own)
   if (crossing && (!inLane || ordering !== "manual")) return { statusId: move.to, ...placementAtEnd(column) }
-  const laneIndex = next.slice(0, move.index).filter((id) => id !== move.key && stageOf(id) === own).length
-  return { statusId: move.to, ...placement(lane, laneIndex) }
+  // Among the lane's cards, shown or not (a filter may hide some, CEL-52).
+  return { statusId: move.to, ...placement(lane, indexAmong(next, move, lane)) }
 }

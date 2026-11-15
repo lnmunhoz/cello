@@ -13,6 +13,7 @@ import type {
   InboxItem,
   InboxKind,
   Label,
+  LabelGroup,
   Priority,
   Project,
   Review,
@@ -147,6 +148,7 @@ interface LabelRow {
   workspace_id: string
   name: string
   color: string
+  label_group: LabelGroup
   created_at: number
   updated_at: number
   archived_at: number | null
@@ -161,6 +163,7 @@ export const selectLabels = (sql: Sql, where: Where) =>
         workspaceId: r.workspace_id,
         name: r.name,
         color: r.color,
+        group: r.label_group,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
         archivedAt: r.archived_at,

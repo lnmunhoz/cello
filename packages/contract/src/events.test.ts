@@ -44,6 +44,17 @@ describe("decodeEvent", () => {
     expect(old.type === "comment.deleted" && old.taskId).toBeUndefined()
   })
 
+  it("reads a label stored before CEL-52 as in no group, and decodes a group change; an unknown group is refused", () => {
+    const label = { id: "l-1", workspaceId: "ws-1", name: "bug", color: "#EF4444", createdAt: 1, updatedAt: 1, archivedAt: null }
+    const created = decodeEvent({ ...envelope, schemaVersion: 1, type: "label.created", label })
+    expect(created.type === "label.created" && created.label.group).toBe("none")
+    const moved = decodeEvent({ ...envelope, schemaVersion: 1, type: "label.updated", id: "l-1", before: { group: "none" }, after: { group: "kind" } })
+    expect(moved.type === "label.updated" && moved.after.group).toBe("kind")
+    expect(() =>
+      decodeEvent({ ...envelope, schemaVersion: 1, type: "label.updated", id: "l-1", before: { group: "none" }, after: { group: "theme" } })
+    ).toThrow()
+  })
+
   it("decodes a stage change and a session check-in, and refuses a stage that isn't in the list", () => {
     const changed = decodeEvent({ ...envelope, schemaVersion: 1, type: "task.stage_changed", id: "t-1", version: 3, before: null, after: "review" })
     expect(changed.type === "task.stage_changed" && changed.after).toBe("review")

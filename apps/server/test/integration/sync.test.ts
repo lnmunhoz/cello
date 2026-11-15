@@ -113,4 +113,26 @@ describe("sync", () => {
       // Every event in this workspace, in order, once: seqs 1..N with no gap or repeat.
       expect(received.map((e) => e.seq)).toEqual(Array.from({ length: backlog + racing }, (_, i) => i + 1))
     }).pipe(Effect.scoped), 60_000)
+
+  it.live("a label's group (CEL-52) travels: made with one, moved to another, B sees both; an unknown group is refused", () =>
+    Effect.gen(function* () {
+      const { port } = yield* startServer(yield* tempDataDir)
+      const a = yield* connect(port)
+      const { workspace } = yield* setup(a)
+      const scope = { workspaceId: workspace.id }
+      const b = yield* connect(port)
+      const from = (yield* b["snapshot.get"]({ scope })).seq
+      const received = yield* Effect.forkChild(next(b["events.subscribe"]({ scope, afterSeq: from }), 2))
+
+      const { result: label } = yield* a["label.create"]({ commandId: newCommandId(), workspaceId: workspace.id, name: "bug", color: "#EF4444", group: "kind" })
+      yield* a["label.update"]({ commandId: newCommandId(), id: label.id, group: "area" })
+      const events = yield* Fiber.join(received)
+      expect(events[0]).toMatchObject({ type: "label.created", label: { name: "bug", group: "kind" } })
+      expect(events[1]).toMatchObject({ type: "label.updated", before: { group: "kind" }, after: { group: "area" } })
+      expect((yield* b["snapshot.get"]({ scope })).labels.find((l) => l.id === label.id)?.group).toBe("area")
+
+      const refused = yield* Effect.exit(a["label.update"]({ commandId: newCommandId(), id: label.id, group: "theme" as never }))
+      expect(refused._tag).toBe("Failure")
+      expect((yield* a["snapshot.get"]({ scope })).labels.find((l) => l.id === label.id)?.group).toBe("area")
+    }).pipe(Effect.scoped))
 })

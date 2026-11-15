@@ -9,7 +9,21 @@ import { CelloClient, makeClientLayer, newCommandId } from "@cello/client/client
 import { describeEvent } from "@cello/client/history"
 import { STAGE_IDS, stageInfo, TASK_STAGES } from "@cello/contract/stages"
 import type { Backup } from "@cello/contract/backups"
-import type { Actor, AgentSession, Ask, DocumentKind, InboxItem, ProjectRef, Review, Status, Task } from "@cello/contract/entities"
+import {
+  type Actor,
+  type AgentSession,
+  type Ask,
+  type DocumentKind,
+  type InboxItem,
+  type Label,
+  LABEL_GROUPS,
+  type LabelGroup,
+  type Priority,
+  type ProjectRef,
+  type Review,
+  type Status,
+  type Task,
+} from "@cello/contract/entities"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
 import { ACCEPTED } from "@cello/shared/attachment"
@@ -67,7 +81,7 @@ import { ago, andList, columns, localTime, plural, sessionName } from "./format.
 import { GUIDE } from "./guide.ts"
 import { type Env, IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
 import { deliveryText, inboxEntries } from "./inbox.ts"
-import { labelArgs, labelListText, labelNames, parseChanges, resolveChanges } from "./labels.ts"
+import { groupWord, labelArgs, labelListText, labelNames, parseChanges, parseGroup, resolveChanges } from "./labels.ts"
 import { pageFiles } from "./pageFiles.ts"
 import { kindsOf, searchText } from "./search.ts"
 import { checkoutRootFor, repoRootFor } from "./repo.ts"
@@ -846,13 +860,33 @@ const labelList = Command.make("list", { project, json }, (input) =>
     "The workspace's labels: each one's colour and how many tasks carry it (in this project, and in the workspace's other projects), then the archived ones.",
   ))
 
+const groupFlag = Flag.String("group").pipe(
+  Flag.optional,
+  Flag.withDescription(`What the label says about a task: ${LABEL_GROUPS.join(", ")} (none is shown as Other; "other" works too). The Issues tab's filter groups labels by it.`),
+)
+
+/** `--group`, read; an unknown name fails before anything is sent. */
+const readGroup = (value: Option.Option<string>) =>
+  Effect.gen(function* () {
+    if (Option.isNone(value)) return undefined
+    const group = parseGroup(value.value)
+    if (!LABEL_GROUPS.includes(group as LabelGroup)) return yield* new CliFailure({ message: group })
+    return group as LabelGroup
+  })
+
+/** "Created label bug  #EF4444  Kind": the group shows when it was asked for or isn't none. */
+const labelLine = (label: Label, groupAsked: boolean) =>
+  `${label.name}  ${label.color}${groupAsked || label.group !== "none" ? `  ${groupWord(label.group)}` : ""}`
+
 const labelCreate = Command.make("create", {
   name: labelName,
   color: Flag.String("color").pipe(Flag.optional, Flag.withDescription("A colour like \"#3B82F6\" (quoted, so the shell keeps the #). Default: one picked from the name.")),
+  group: groupFlag,
   project,
   json,
 }, (input) =>
   Effect.gen(function* () {
+    const group = yield* readGroup(input.group)
     const ref = yield* projectRef(input.project)
     const response = yield* withClient((client) =>
       Effect.gen(function* () {
@@ -862,11 +896,12 @@ const labelCreate = Command.make("create", {
           workspaceId: target.workspaceId,
           name: input.name,
           color: Option.getOrElse(input.color, () => colorFromSeed(input.name.trim().toLowerCase())),
+          ...(group === undefined ? {} : { group }),
         }))
       })
     )
     if (input.json) return yield* printJson(response)
-    yield* print(`Created label ${response.result.name}  ${response.result.color}`)
+    yield* print(`Created label ${labelLine(response.result, group !== undefined)}`)
   })).pipe(Command.withDescription(
     "Make a label in the project's workspace (every project in it shares its labels). A name already taken, in any case and by archived labels too, is refused.",
   ))
@@ -875,13 +910,15 @@ const labelUpdate = Command.make("update", {
   name: labelName,
   color: colorFlag,
   rename: Flag.String("name").pipe(Flag.optional, Flag.withDescription("A new name for the label.")),
+  group: groupFlag,
   project,
   json,
 }, (input) =>
   Effect.gen(function* () {
-    if (Option.isNone(input.color) && Option.isNone(input.rename)) {
-      return yield* new CliFailure({ message: "Say what to change: --color #3B82F6, --name new-name, or both." })
+    if (Option.isNone(input.color) && Option.isNone(input.rename) && Option.isNone(input.group)) {
+      return yield* new CliFailure({ message: "Say what to change: --color #3B82F6, --name new-name, --group area, or several." })
     }
+    const group = yield* readGroup(input.group)
     const ref = yield* projectRef(input.project)
     const response = yield* withClient((client) =>
       Effect.gen(function* () {
@@ -891,13 +928,19 @@ const labelUpdate = Command.make("update", {
           id: found.label.id,
           ...(Option.isSome(input.color) ? { color: input.color.value } : {}),
           ...(Option.isSome(input.rename) ? { name: input.rename.value } : {}),
+          ...(group === undefined ? {} : { group }),
         }))
       })
     )
     if (input.json) return yield* printJson(response)
     const label = response.result
-    yield* print(response.seq === null ? `Label ${label.name} is already ${label.color}.` : `Updated label ${label.name}  ${label.color}`)
-  })).pipe(Command.withDescription("Recolour or rename a label. Every task carrying it shows the change."))
+    if (response.seq !== null) return yield* print(`Updated label ${labelLine(label, group !== undefined)}`)
+    const already = [
+      ...(Option.isSome(input.color) || group === undefined ? [label.color] : []),
+      ...(group === undefined ? [] : [`in ${groupWord(group)}`]),
+    ]
+    yield* print(`Label ${label.name} is already ${already.join(", ")}.`)
+  })).pipe(Command.withDescription("Recolour, rename or regroup a label. Every task carrying it shows the change."))
 
 const labelArchive = Command.make("archive", { name: labelName, project, json }, (input) =>
   Effect.gen(function* () {

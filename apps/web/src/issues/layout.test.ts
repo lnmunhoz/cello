@@ -10,7 +10,16 @@ describe("issues layout in the URL", () => {
   })
 
   it("keeps other search params out of the issues search", () => {
-    expect(parseIssuesSearch({ layout: "list", q: "x" })).toEqual({ layout: "list" })
+    expect(parseIssuesSearch({ layout: "list", view: "x" })).toEqual({ layout: "list" })
+  })
+
+  it("keeps the filter's params beside the layout (CEL-52), and drops values it doesn't know", () => {
+    expect(parseIssuesSearch({ layout: "list", label: "bug,agents", who: "agent,martian", q: "drag" })).toEqual({
+      layout: "list",
+      label: "bug,agents",
+      who: "agent",
+      q: "drag",
+    })
   })
 
   it("names the layout a search shows", () => {

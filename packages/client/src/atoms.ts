@@ -1,6 +1,6 @@
 // The thin atom layer over the pure sync and command code: one synced atom fed by `follow`,
 // a list of optimistic patches, the view the screens read, and command atoms for writes.
-import type { Ask, Comment, Document, DocumentVersion, Priority, Review, Scope } from "@cello/contract/entities"
+import type { Ask, Comment, Document, DocumentVersion, LabelGroup, Priority, Review, Scope } from "@cello/contract/entities"
 import type { AnswerInput } from "@cello/contract/rpcs"
 import type { CelloEvent } from "@cello/contract/events"
 import type { SearchResults } from "@cello/contract/search"
@@ -252,14 +252,14 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
       },
     }),
     createLabel: command({
-      patch: (a: { workspaceId: string; name: string; color: string }, { commandId }) => {
+      patch: (a: { workspaceId: string; name: string; color: string; group?: LabelGroup }, { commandId }) => {
         const now = Date.now()
-        return patches.addLabel({ id: `optimistic:${commandId}`, ...a, createdAt: now, updatedAt: now, archivedAt: null })
+        return patches.addLabel({ id: `optimistic:${commandId}`, ...a, group: a.group ?? "none", createdAt: now, updatedAt: now, archivedAt: null })
       },
       call: (c, a, commandId) => c["label.create"]({ commandId, ...a }),
     }),
     updateLabel: command({
-      patch: (a: { id: string; name?: string; color?: string }) => patches.updateLabel(a.id, a),
+      patch: (a: { id: string; name?: string; color?: string; group?: LabelGroup }) => patches.updateLabel(a.id, a),
       call: (c, a, commandId) => c["label.update"]({ commandId, ...a }),
     }),
     archiveLabel: command({
