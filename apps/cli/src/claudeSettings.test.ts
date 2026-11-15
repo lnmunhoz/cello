@@ -23,14 +23,14 @@ const postToolUse = { type: "command", command: "cello hook claude post-tool-use
 const preToolUse = { type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }
 
 describe("addCelloHooks", () => {
-  it("adds a Stop hook, a PostToolUse hook for every tool and a PreToolUse hook for Artifact to empty settings", () => {
+  it("adds a Stop hook, a PostToolUse hook for every tool and a PreToolUse hook for Artifact and the edit tools to empty settings", () => {
     expect(addCelloHooks({})).toEqual({
       changed: true,
       settings: {
         hooks: {
           Stop: [{ hooks: [stop] }],
           PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
-          PreToolUse: [{ matcher: "Artifact", hooks: [preToolUse] }],
+          PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
         },
       },
     })
@@ -48,14 +48,36 @@ describe("addCelloHooks", () => {
     const before = { hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }] } }
     expect(addCelloHooks(before)).toEqual({
       changed: true,
-      settings: { hooks: { ...before.hooks, PreToolUse: [{ matcher: "Artifact", hooks: [preToolUse] }] } },
+      settings: { hooks: { ...before.hooks, PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }] } },
     })
+  })
+
+  it("widens the guard of an older install (matcher Artifact, CEL-57) to the edit tools, in place of the old group (CEL-61)", () => {
+    const mine = { matcher: "Bash", hooks: [{ type: "command", command: "guard.sh" }] }
+    const before = {
+      hooks: {
+        Stop: [{ hooks: [stop] }],
+        PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
+        PreToolUse: [{ matcher: "Artifact", hooks: [preToolUse] }, mine, { matcher: "Artifact", hooks: [{ type: "command", command: "log.sh" }, preToolUse] }],
+      },
+    }
+    const after = addCelloHooks(before)
+    expect(after).toEqual({
+      changed: true,
+      settings: {
+        hooks: {
+          ...before.hooks,
+          PreToolUse: [mine, { matcher: "Artifact", hooks: [{ type: "command", command: "log.sh" }] }, { matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+        },
+      },
+    })
+    expect(addCelloHooks(after.settings)).toEqual({ changed: false, settings: after.settings })
   })
 
   it("keeps the user's own PreToolUse hooks, adding its group after them", () => {
     const mine = { hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "guard.sh" }] }] } }
     expect(addCelloHooks(mine).settings.hooks).toMatchObject({
-      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "guard.sh" }] }, { matcher: "Artifact", hooks: [preToolUse] }],
+      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "guard.sh" }] }, { matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
     })
     expect(removeCelloHooks(addCelloHooks(mine).settings)).toEqual({ changed: true, settings: mine })
   })
@@ -79,7 +101,7 @@ describe("addCelloHooks", () => {
         Stop: [{ hooks: [{ type: "command", command: "say done" }] }, { hooks: [stop] }],
         PostToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "prettier --write" }] }, { matcher: "*", hooks: [postToolUse] }],
         SessionStart: [{ hooks: [{ type: "command", command: "echo hi" }] }],
-        PreToolUse: [{ matcher: "Artifact", hooks: [preToolUse] }],
+        PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
       },
     })
     // The input isn't changed in place.
@@ -93,7 +115,7 @@ describe("addCelloHooks", () => {
       hooks: {
         Stop: [{ hooks: [{ ...stop, timeout: 30 }] }],
         PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
-        PreToolUse: [{ matcher: "Artifact", hooks: [{ ...preToolUse, timeout: 5 }] }],
+        PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ ...preToolUse, timeout: 5 }] }],
       },
     }
     expect(addCelloHooks(tuned)).toEqual({ changed: false, settings: tuned })
@@ -102,7 +124,7 @@ describe("addCelloHooks", () => {
   it("adds only the hook that's missing", () => {
     const half = { hooks: { Stop: [{ hooks: [stop] }] } }
     expect(addCelloHooks(half).settings).toEqual({
-      hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }], PreToolUse: [{ matcher: "Artifact", hooks: [preToolUse] }] },
+      hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }], PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }] },
     })
   })
 

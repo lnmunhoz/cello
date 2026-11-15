@@ -35,7 +35,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    - The defaults are fine unless Lucas named the project or its key: then pass \`--name "Thai Lookup"\` and \`--key THAI\`.
    - If the key is taken, it says which project has it: pick another, or leave \`--key\` out and Cello picks a free one (CEL, then CELL, CELLO, CEL2…).
    - \`--workspace Work\` puts it in another workspace, by name; the default is the first one.
-4. **Hooks, so Lucas's comments reach your session.** Run \`cello install claude\` (or \`cello init --hooks\`, which does the same). It writes this machine's \`.claude/settings.local.json\` and makes sure git ignores it. It keeps a \`.bak\` of the old file; ignore that too if the repo's \`.gitignore\` doesn't cover it. Run it again any time; it changes nothing the second time. The same command adds the artifact guard: in this project, Claude artifact publishes are turned away with a pointer to \`cello doc publish\` (see "Showing things to Lucas").
+4. **Hooks, so Lucas's comments reach your session.** Run \`cello install claude\` (or \`cello init --hooks\`, which does the same). It writes this machine's \`.claude/settings.local.json\` and makes sure git ignores it. It keeps a \`.bak\` of the old file; ignore that too if the repo's \`.gitignore\` doesn't cover it. Run it again any time; it changes nothing the second time. The same command adds two guards: in this project, Claude artifact publishes are turned away with a pointer to \`cello doc publish\` (see "Showing things to Lucas"), and an agent's edits in the repo are turned away until its session has claimed a task (see "Edits need a claimed task").
 5. **Tell the repo's agents.** \`cello init --agents-md\` adds this section, with the project's key in place of \`KEY\`, to the end of the AGENTS.md in the checkout you're in, or to CLAUDE.md if there's no AGENTS.md (creating it). It changes nothing else in the file, and nothing at all when the file already has a "Tracking work in Cello" heading. To add it by hand, copy it and replace \`KEY\` yourself:
 
    <!-- agents-md:start -->
@@ -45,7 +45,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    This repo's tasks live in Cello, project **KEY** on Lucas's board. Agents use it only through the \`cello\` CLI.
 
    - Before your first \`cello\` command in a session, run \`cello guide\` once: it's the full reference (concepts, workflow, every command, what each error means). Don't guess.
-   - **First decide: is Lucas asking you to do something, or just talking?** Questions, brainstorming and explanations are conversation: answer, no task. A request to do something (build, fix, change, write, set up) is work, and work starts as a Cello task **before you read code or plan**: check whether the task exists (\`cello task list\`, \`cello task get KEY-n\`); if not, \`cello task create "<title>"\` with his words quoted in the description; then \`cello task claim KEY-n\`, then do it. This covers small requests, follow-ups and anything he sends mid-task (each distinct request is its own task). When a chat turns into "ok, do it", that's the moment to create it.
+   - **First decide: is Lucas asking you to do something, or just talking?** Questions, brainstorming and explanations are conversation: answer, no task. A request to do something (build, fix, change, write, set up) is work, and work starts as a Cello task **before you read code or plan**: check whether the task exists (\`cello task list\`, \`cello task get KEY-n\`); if not, \`cello task create "<title>"\` with his words quoted in the description; then \`cello task claim KEY-n\`, then do it. This covers small requests, follow-ups and anything he sends mid-task (each distinct request is its own task). When a chat turns into "ok, do it", that's the moment to create it. \`cello install claude\` enforces it: a hook refuses your edits in this repo until your session has claimed a task.
    - Run \`cello context\` at the start of each session.
    - Put the task key in commit messages (\`fix(api): rate limit (KEY-12)\`).
    - In Progress means someone is on it right now. When you wait on Lucas's decision, ask on the card with \`cello task ask\` (the task waits in Needs input). When you stop, put the state on the card and move it back to Todo.
@@ -131,7 +131,7 @@ Run it first in every session, and again when you come back to a task.
 ## The workflow
 
 1. **Find the work, or make it.** When Lucas asks for something that will change code, docs or anything else, it becomes a task **before you read code or plan**: \`cello task list\` to check it isn't there already, else \`cello task create\` with his words. \`cello task list\` shows Todo and In Progress; \`cello task get CEL-12\` reads one task in full, including Lucas's notes on earlier packets and every comment.
-2. **Claim it.** \`cello task claim CEL-12\`. If it says another session holds the task, pick another one. Don't work on a task someone else holds.
+2. **Claim it.** \`cello task claim CEL-12\`. If it says another session holds the task, pick another one. Don't work on a task someone else holds. With the hooks installed, an edit in the repo is refused until you hold one (see "Edits need a claimed task" below).
 3. **Work, test first, and put the key in every commit:** \`feat(web): collapsed review rows (CEL-22)\`.
 4. **Comment** progress and decisions on the card (\`cello task comment\`). Lucas reads them there.
    - **When a decision is his** (which design, which scope, what wording), ask on the card with \`cello task ask\` and wait for his answers (see Questions for Lucas). Never ask him in the terminal.
@@ -150,6 +150,21 @@ Run it first in every session, and again when you come back to a task.
    - \`cello task release\` alone keeps the status, so only use it on its own when another session takes over the work straight away.
 
 Never move a task to Done or Canceled yourself: Lucas decides.
+
+### Edits need a claimed task
+
+\`cello install claude\` (and \`cello init --hooks\`) puts a PreToolUse hook on Claude Code's \`Edit\`, \`Write\` and \`NotebookEdit\` into the project's settings. Before one of them changes a file **inside this repo**, the hook asks the server whether your session holds an open task (Todo, In Progress, Needs input or In Review) in this repo's project. When it holds none, Claude Code blocks the edit and shows you this reason (with the project's key):
+
+\`\`\`
+Cello: this session hasn't claimed a task in KEY. Before editing for a request, check it exists (\`cello task list\`), else \`cello task create "<title>"\` with Lucas's words, then \`cello task claim KEY-n\`.
+\`\`\`
+
+- Do what it says, then make the edit again. Once you've claimed, the next edit goes through.
+- **Only edits inside the repo** (the checkout you're in, or the main checkout) are checked. Files in your scratchpad, a temp folder or anywhere else outside the repo go through. Reading, searching and running commands are never checked.
+- **Subagents share your session,** so a builder subagent working in a worktree of the repo edits under the task you claimed.
+- **It never stops work it can't be sure about:** when the server is down or doesn't answer within 2 seconds, the repo isn't a Cello project, or the hook's input is broken, the edit goes through silently.
+- A claim it saw is remembered for a minute (a small file under the system's temp folder), so a run of edits doesn't ask the server each time. A refusal isn't remembered: right after you claim, the edit goes through.
+- **\`CELLO_ALLOW_UNTRACKED=1\`** in Claude Code's environment turns the check off. It's Lucas's switch, for when he wants to work without tasks (\`CELLO_ALLOW_UNTRACKED=1 claude\`). Agents never set it on their own, nor work around the hook another way (writing files through Bash to dodge it, say).
 
 ## Creating tasks
 
@@ -295,7 +310,7 @@ cello uninstall claude          # takes them out of all three
 - **Once per project** (or once with \`--user\`). From inside a worktree it writes the main checkout's settings.
 - **It merges** with the hooks already there, and running it again changes nothing. The old file is kept as \`<file>.bak\`.
 - **What runs:** Claude Code runs \`cello hook claude stop\` when you finish a turn, and \`cello hook claude post-tool-use\` after each tool call. New comments come in as context. If you were about to stop, they keep you going: the transcript shows them as "Stop hook feedback".
-- **A third hook, the artifact guard:** \`cello hook claude pre-tool-use\` runs before each call to Claude Code's \`Artifact\` tool and turns publishes away (see "Showing things to Lucas"). It goes into the project's settings (\`.claude/settings.local.json\`, or \`.claude/settings.json\` with \`--shared\`), never into \`~/.claude/settings.json\` with \`--user\`, since not every project is a Cello project.
+- **A third hook, the guards:** \`cello hook claude pre-tool-use\` runs before each call to Claude Code's \`Artifact\`, \`Edit\`, \`Write\` and \`NotebookEdit\` tools. It turns artifact publishes away (see "Showing things to Lucas") and edits in the repo from a session that hasn't claimed a task (see "Edits need a claimed task"). It goes into the project's settings (\`.claude/settings.local.json\`, or \`.claude/settings.json\` with \`--shared\`), never into \`~/.claude/settings.json\` with \`--user\`, since not every project is a Cello project. Running \`cello install claude\` again in a project set up before the claim guard existed adds it.
 - **\`cello\` must be on the PATH** Claude Code starts with (\`~/.local/bin\`). When the server is down, the hook stays silent and your session carries on.
 
 **Without the hooks:**
@@ -1007,7 +1022,7 @@ cello guide [flags]
 
 ### cello install claude
 
-Add Claude Code hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), and one that turns Claude artifact publishes away in favour of Cello pages (PreToolUse on Artifact; not with --user), all running \`cello hook claude\`. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main checkout's), merged with the hooks already there; running it again changes nothing. The old file is kept as .bak.
+Add Claude Code hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), and one that turns Claude artifact publishes away in favour of Cello pages and edits away until the session has claimed a task (PreToolUse on Artifact, Edit, Write and NotebookEdit; not with --user), all running \`cello hook claude\`. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main checkout's), merged with the hooks already there; running it again changes nothing. The old file is kept as .bak.
 
 \`\`\`
 cello install claude [flags]
@@ -1028,7 +1043,7 @@ cello uninstall claude [flags]
 
 ### cello hook claude
 
-Run by the hooks \`cello install claude\` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. pre-tool-use turns a Claude artifact publish away with a pointer to \`cello doc publish\`, and lets every other call through (all of them with CELLO_ALLOW_ARTIFACTS=1); it needs no server. Always exits 0.
+Run by the hooks \`cello install claude\` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. pre-tool-use turns a Claude artifact publish away with a pointer to \`cello doc publish\`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); it needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use denies the edit while the session holds no open task in the repo's project, saying to create or claim one; it lets the edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a minute. Always exits 0.
 
 \`\`\`
 cello hook claude [flags] <event>
@@ -1036,7 +1051,7 @@ cello hook claude [flags] <event>
 
 | | |
 | --- | --- |
-| \`event choice\` | The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse) or pre-tool-use (PreToolUse, the Artifact guard). |
+| \`event choice\` | The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse) or pre-tool-use (PreToolUse: the artifact and claim guards). |
 
 ### cello start
 

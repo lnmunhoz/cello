@@ -10,7 +10,7 @@ import * as Effect from "effect/Effect"
 import { ARTIFACT_DENY_REASON } from "../../src/claudeHook.ts"
 import { cello, hookProcess, installSetup, TEST_HOME } from "./cli.ts"
 
-const GUARD = { matcher: "Artifact", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }
+const GUARD = { matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }
 
 /** Claude Code's PreToolUse input for an Artifact call. */
 const artifactCall = (toolInput: Record<string, unknown>) =>

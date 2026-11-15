@@ -180,14 +180,15 @@ describe("cello init", () => {
           `Added .claude/settings.local.json to ${path.join(repo, ".gitignore")}, so it stays on this machine.`,
           "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
           "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. Start Claude Code with CELLO_ALLOW_ARTIFACTS=1 when you want one.",
+          "Agents here can't edit files in the repo until their session has claimed a Cello task: they're told to create or claim one first. Start Claude Code with CELLO_ALLOW_UNTRACKED=1 to turn that off.",
           "New Claude Code sessions pick them up.",
         ].join("\n"),
         failure: null,
       })
       const hooks = JSON.parse(fs.readFileSync(file, "utf8")).hooks
       expect(hooks.Stop[0].hooks[0].command).toBe("cello hook claude stop")
-      // The artifact guard comes with it (CEL-57).
-      expect(hooks.PreToolUse).toEqual([{ matcher: "Artifact", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }])
+      // The artifact guard (CEL-57) and the claim guard (CEL-61) come with it.
+      expect(hooks.PreToolUse).toEqual([{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }])
       // Already linked and already installed: both say so.
       expect((yield* agent(repo)("init", "--hooks")).out).toBe([
         `This repo is already project CEL · cello (${repo}); the project itself is unchanged.`,
