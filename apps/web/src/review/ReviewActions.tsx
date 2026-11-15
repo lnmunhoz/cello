@@ -8,12 +8,13 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } fr
 import { Textarea } from "../components/ui/Input.tsx"
 import { commands } from "../lib/cello.ts"
 import { Comments } from "../task/Comments.tsx"
-import { sendBackNote } from "./queue.ts"
+import { decisionNote } from "./queue.ts"
 
 /**
  * The Review page's decision (CEL-70): the task's comments (the task panel's thread) and one box, with
  * Comment, Send back and Approve under it. Comment keeps the task In Review and reaches the agent like
- * any comment; Send back sends the box's text as its note, or asks for one when the box is empty.
+ * any comment. Send back and Approve send the box's text as their note, so nothing typed is lost;
+ * with the box empty, Send back asks for a note and Approve goes without.
  */
 export function CommentOrDecide({ board, task, onDecided }: { board: BoardState; task: Task; onDecided?: (() => void) | undefined }) {
   const [typed, setTyped] = useState("")
@@ -32,8 +33,9 @@ interface ReviewActionsProps {
   readonly task: Task
   readonly onDecided?: (() => void) | undefined
   /**
-   * What's typed in the comment box beside these buttons (the Review page, CEL-70): Send back sends it
-   * as the note, then `onNoteSent` clears the box. Empty or not given, Send back asks for a note.
+   * What's typed in the comment box beside these buttons (the Review page, CEL-70): Send back and
+   * Approve send it as their note, then `onNoteSent` clears the box. Empty or not given, Send back asks
+   * for a note and Approve goes without one.
    */
   readonly typed?: string | undefined
   readonly onNoteSent?: (() => void) | undefined
@@ -49,7 +51,7 @@ export function ReviewActions({ task, onDecided, typed = "", onNoteSent }: Revie
   const [busy, setBusy] = useState(false)
   const [asking, setAsking] = useState(false)
   const [note, setNote] = useState("")
-  const typedNote = sendBackNote(typed)
+  const typedNote = decisionNote(typed)
 
   const run = async (action: () => Promise<{ _tag: string }>) => {
     setBusy(true)
@@ -73,7 +75,14 @@ export function ReviewActions({ task, onDecided, typed = "", onNoteSent }: Revie
         <CornerUpLeftIcon aria-hidden className="size-3.5" />
         Send back
       </Button>
-      <Button variant="primary" size="md" disabled={busy} onClick={() => void run(() => approve({ key: task.key }))}>
+      <Button
+        variant="primary"
+        size="md"
+        disabled={busy}
+        onClick={async () => {
+          if (await run(() => approve({ key: task.key, ...(typedNote === null ? {} : { note: typedNote }) })) && typedNote !== null) onNoteSent?.()
+        }}
+      >
         <CheckIcon aria-hidden className="size-3.5" />
         Approve
       </Button>

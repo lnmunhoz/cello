@@ -1,5 +1,5 @@
 // The Review page's rules, kept pure: which row is open (it lives in the URL, `?open=CEL-12`), which
-// opens after a decision, the keys that move between rows, and Send back's note.
+// opens after a decision, the keys that move between rows, and the note a decision sends.
 import { formatTaskKey, parseTaskKey } from "@cello/shared/taskKey"
 
 export interface ReviewSearch {
@@ -24,10 +24,10 @@ const ROW_KEYS: Readonly<Record<string, string>> = { j: "ArrowDown", k: "ArrowUp
 export const rowKey = (key: string): string => ROW_KEYS[key] ?? key
 
 /**
- * Send back's note on the Review page (CEL-70): the comment box's text, trimmed. An empty box has
- * none (null), and Send back asks for one instead.
+ * The note Send back or Approve sends on the Review page (CEL-70): the comment box's text, trimmed.
+ * An empty box has none (null): Send back asks for one instead, Approve goes without.
  */
-export const sendBackNote = (text: string): string | null => {
+export const decisionNote = (text: string): string | null => {
   const note = text.trim()
   return note === "" ? null : note
 }
