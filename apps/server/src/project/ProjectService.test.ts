@@ -48,6 +48,16 @@ describe("ProjectService keys", () => {
       }
     })))
 
+  it.effect("refuses a key that's one of the board's own top-level pages, which its board would hide behind (CEL-50)", () =>
+    run(Effect.gen(function* () {
+      const { create } = yield* setup
+      for (const key of ["BUILDS", "settings", "Review"]) {
+        const error = yield* Effect.flip(create({ key }))
+        expect(error).toMatchObject({ _tag: "Invalid", field: "key" })
+        expect((error as { reason: string }).reason).toMatch(/^can't be (BUILDS|SETTINGS|REVIEW), the address of Cello's/)
+      }
+    })))
+
   it.effect("a key is unique across workspaces: KeyTaken names the project that has it", () =>
     run(Effect.gen(function* () {
       const { create } = yield* setup

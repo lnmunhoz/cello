@@ -24,7 +24,8 @@ const root = createRootRoute({ component: embedded ? EmbeddedShell : AppShell, .
 
 const home = createRoute({ getParentRoute: () => root, path: "/", component: Home })
 const settings = createRoute({ getParentRoute: () => root, path: "/settings", component: Settings })
-// Settings → Builds (CEL-50). Static routes win over `$projectKey`.
+// Settings → Builds (CEL-50). Static routes win over `$projectKey`; each top-level word is reserved as a
+// project key (reservedKeyProblem in packages/shared/src/taskKey.ts).
 const builds = createRoute({ getParentRoute: () => root, path: "/builds", component: BuildsPage })
 // `?open=CEL-12`: the packet open on the Review page, so a reload or a link keeps it.
 const review = createRoute({ getParentRoute: () => root, path: "/review", component: ReviewPage, validateSearch: parseReviewSearch })

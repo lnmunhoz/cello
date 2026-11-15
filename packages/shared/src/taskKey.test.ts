@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatTaskKey, freeProjectKey, isValidProjectKey, parseTaskKey, parseTaskPath, suggestProjectKey, taskPath } from "./taskKey.ts"
+import { formatTaskKey, freeProjectKey, isValidProjectKey, parseTaskKey, parseTaskPath, reservedKeyProblem, suggestProjectKey, taskPath } from "./taskKey.ts"
 
 describe("project keys", () => {
   it.each([
@@ -34,6 +34,15 @@ describe("project keys", () => {
     const all = [...Array(11).keys()].map((n) => tenLetters.slice(0, n))
     expect(freeProjectKey(tenLetters, taken(...all, "ABCD"))).toBe("ABCD2")
     for (const name of ["9 lives", "", "--", "Über café"]) expect(isValidProjectKey(freeProjectKey(name, taken()))).toBe(true)
+  })
+
+  it("never a word the board's own pages use at the top level (/builds, /settings, /review…), which would hide the project (CEL-50)", () => {
+    expect(reservedKeyProblem("BUILDS")).toBe("can't be BUILDS, the address of Cello's Builds page (/builds)")
+    for (const key of ["SETTINGS", "REVIEW", "ASSETS", "ICONS", "ATTACHMENTS", "RPC"]) expect(reservedKeyProblem(key)).not.toBeNull()
+    expect(reservedKeyProblem("CEL")).toBeNull()
+    expect(reservedKeyProblem("BUILD")).toBeNull()
+    // Without a key given, one made from the name skips them.
+    expect(freeProjectKey("Review", (k) => k === "REVI" || k === "REVIE")).toBe("REVI2")
   })
 })
 
