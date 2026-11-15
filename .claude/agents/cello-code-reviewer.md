@@ -23,6 +23,11 @@ You review one Cello task's branch before it's merged into main. You get the tas
      - write it once: a second copy of a helper that already exists is a finding (name the existing one)
      - Effect style
      - UI primitives not restyled with `className`, and no `useMemo`/`useCallback`
+   - **The CLI doc.** If the branch changes anything agents do with `cello`, docs/cli.md must change with it:
+     - the hand-written sections must explain the new behaviour so an agent new to Cello gets it right first time
+     - `bun apps/cli/scripts/docs.ts --check` must pass
+
+     A missing or unclear doc update is a "should fix".
    - **Scope.** Changes outside the task's area, which may clash with parallel work.
 4. Run the tests the branch adds or changes (`bun --bun x vitest run <files>`) and `npx tsc -p .`. Report failures.
 
