@@ -2,12 +2,44 @@ import { describe, expect, it } from "vitest"
 import {
   addressToUrl,
   boardNavigationAction,
+  boardTaskKey,
   boardWindowOpenAction,
   panelNavigationAction,
+  panelPageUrl,
   panelTitle,
   panelUrl,
   panelWindowOpenAction,
 } from "./urls.ts"
+
+const BOARD = "http://127.0.0.1:4747"
+
+describe("boardTaskKey: a link in the panel to a task on the board opens it in the main window", () => {
+  it("the task a board URL shows", () => {
+    expect(boardTaskKey("http://127.0.0.1:4747/CEL/3", BOARD)).toBe("CEL-3")
+    expect(boardTaskKey("http://127.0.0.1:4747/thai/12?layout=list", BOARD)).toBe("THAI-12")
+  })
+
+  it("nothing for other board pages, other sites, or before the board is up", () => {
+    for (const url of ["http://127.0.0.1:4747/CEL/pages/notes", "http://127.0.0.1:4747/CEL/issues", "http://127.0.0.1:4747/review"]) {
+      expect(boardTaskKey(url, BOARD)).toBeNull()
+    }
+    expect(boardTaskKey("http://127.0.0.1:5173/CEL/3", BOARD)).toBeNull()
+    expect(boardTaskKey("https://github.com/CEL/3", BOARD)).toBeNull()
+    expect(boardTaskKey("http://127.0.0.1:4747/CEL/3", null)).toBeNull()
+    expect(boardTaskKey("not a url", BOARD)).toBeNull()
+  })
+})
+
+describe("panelPageUrl: Cello pages in the panel show without the sidebar, however they were opened", () => {
+  it("adds embed=1 to the board's pages (cello://open, the address field, the board)", () => {
+    expect(panelPageUrl("http://127.0.0.1:4747/CEL/pages/notes", BOARD)).toBe("http://127.0.0.1:4747/CEL/pages/notes?embed=1")
+  })
+
+  it("leaves other sites alone, and everything before the board is up", () => {
+    expect(panelPageUrl("https://claude.ai/artifact/x", BOARD)).toBe("https://claude.ai/artifact/x")
+    expect(panelPageUrl("http://127.0.0.1:4747/CEL/pages/notes", null)).toBe("http://127.0.0.1:4747/CEL/pages/notes")
+  })
+})
 
 describe("panelUrl", () => {
   it("allows http and https pages, including claude.ai artifacts and local dev servers", () => {

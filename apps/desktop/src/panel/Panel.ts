@@ -11,7 +11,7 @@ import {
   type PanelState,
   type ResizeMessage,
 } from "../ipc.ts"
-import { addressToUrl, panelNavigationAction, panelTitle, panelUrl, panelWindowOpenAction } from "./urls.ts"
+import { addressToUrl, boardTaskKey, panelNavigationAction, panelPageUrl, panelTitle, panelUrl, panelWindowOpenAction } from "./urls.ts"
 
 /** Panel pages keep their cookies across launches, apart from the board's session. */
 export const PANEL_PARTITION = "persist:panel"
@@ -23,6 +23,10 @@ export interface PanelHost {
   /** `persist`: the drag ended, so save the width. */
   readonly setPanelWidth: (width: number, persist: boolean) => void
   readonly focusBoard: () => void
+  /** The board's origin once it's loaded, else null. */
+  readonly boardOrigin: () => string | null
+  /** Opens a task (`CEL-3`) on the board, in the main window. */
+  readonly openTask: (key: string) => void
 }
 
 export interface PanelFiles {
@@ -95,10 +99,11 @@ export class Panel {
     return url === "about:blank" ? "" : url
   }
 
-  /** Opens an http(s) page in the panel; anything else is refused (returns false). */
+  /** Opens an http(s) page in the panel (the board's pages without its sidebar); anything else is refused (returns false). */
   open(raw: string, title?: string): boolean {
-    const url = panelUrl(raw)
-    if (!url) return false
+    const page = panelUrl(raw)
+    if (!page) return false
+    const url = panelPageUrl(page, this.host.boardOrigin())
     this.#opened = { url, title: title?.trim() ?? "" }
     if (this.page.webContents.getURL() !== url) this.#load(url)
     this.#reveal()
@@ -173,6 +178,11 @@ export class Panel {
       this.#sendState()
     })
     page.setWindowOpenHandler((details) => {
+      const task = boardTaskKey(details.url, this.host.boardOrigin())
+      if (task) {
+        this.host.openTask(task)
+        return { action: "deny" }
+      }
       const action = panelWindowOpenAction(details)
       if (action === "popup") return { action: "allow", overrideBrowserWindowOptions: POPUP_OPTIONS }
       if (action === "panel") this.#load(details.url)
@@ -182,6 +192,13 @@ export class Panel {
     // A sign-in popup may not open popups of its own.
     page.on("did-create-window", (popup) => popup.webContents.setWindowOpenHandler(() => ({ action: "deny" })))
     page.on("will-navigate", (event, url) => {
+      // A link to a task on the board (a task key in a Cello page) opens it in the main window; the page stays.
+      const task = boardTaskKey(url, this.host.boardOrigin())
+      if (task) {
+        event.preventDefault()
+        this.host.openTask(task)
+        return
+      }
       const action = panelNavigationAction(url)
       if (action === "allow") return
       event.preventDefault()

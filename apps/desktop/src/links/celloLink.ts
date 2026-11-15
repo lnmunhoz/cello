@@ -1,6 +1,6 @@
 // `cello://` links: `cello://CEL-3` opens that task on the board, `cello://open?url=<encoded>` opens
 // a page in the browser panel. macOS hands them to `open-url`; a second launch passes them in argv.
-import { parseTaskKey } from "@cello/shared/taskKey"
+import { parseTaskKey, taskPath } from "@cello/shared/taskKey"
 import { panelUrl } from "../panel/urls.ts"
 
 export const SCHEME = "cello"
@@ -19,7 +19,7 @@ export const parseCelloLink = (raw: string): CelloLink | null => {
     return url ? { kind: "panel", url } : null
   }
   const key = parseTaskKey(target)
-  return key ? { kind: "task", path: `/${key.projectKey}/${key.number}` } : null
+  return key ? { kind: "task", path: taskPath(key.projectKey, key.number) } : null
 }
 
 /** The `cello://` link among a launch's arguments, if any. */

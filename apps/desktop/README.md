@@ -54,6 +54,12 @@ Electron's Node can't run the Bun server, so the app uses the `cello` binary as 
 - Links that open a new window, from the board or from a panel page, open in the panel. Links off
   the board's origin open there too. A scripted popup (`window.open` with features, as sign-in
   flows use) opens as its own window.
+- The board's own pages show in the panel without the app's sidebar (`?embed=1`), however they were
+  opened: from the board, a `cello://open` link or the address field.
+- A link in the panel to a task on the board (a task key in a Cello page, `…/CEL/3` on any site)
+  opens the task in the main window; the page stays in the panel. Main sends the key to the board's
+  preload, which hands it to the web app as the same `cello:task` message a page in the web viewer's
+  iframe posts, so the board opens it with its router, without reloading.
 - **Toolbar:** back, forward, reload, the title (click it to type a URL: `localhost:5173`,
   `claude.ai/…`), open in your browser, close. Drag the panel's left edge to resize it.
 - **Keys:** ⌘\ toggles the panel (it comes back on the page it showed), ⌘L puts the cursor in the
