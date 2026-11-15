@@ -393,6 +393,16 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
       })
     }))
 
+  /**
+   * Search results (CEL-43) for a JSON key `{ query, workspaceId, limit }`: one request per query, so
+   * the ⌘K bar asks again as you type and keeps showing the last answer while the next one loads.
+   */
+  const searchFamily = Atom.family((key: string) =>
+    runtime.atom(Effect.gen(function* () {
+      const { query, workspaceId, limit } = JSON.parse(key) as { query: string; workspaceId: string; limit: number }
+      return yield* (yield* CelloClient)["search.query"]({ query, workspaceId, limit })
+    })))
+
   return {
     workspaceIdAtom,
     syncedAtom,
@@ -408,6 +418,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     historyFamily,
     pageFamily,
     documentHistoryFamily,
+    searchFamily,
     command,
   }
 }

@@ -472,7 +472,20 @@ body {
     opacity: 0;
   }
 }
+/* A comment opened from ⌘K (CEL-43): an accent wash and ring when it arrives, fading out once. */
+.comment-flash {
+  animation: comment-flash 2.4s ease-out;
+}
+@keyframes comment-flash {
+  from {
+    background: color-mix(in srgb, var(--accent) 14%, var(--raised));
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
+  .comment-flash {
+    animation-timing-function: steps(1, end);
+  }
   .page-flash {
     animation-timing-function: steps(1, end);
   }

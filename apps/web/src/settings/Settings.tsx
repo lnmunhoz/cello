@@ -3,7 +3,7 @@ import type { Label, Status } from "@cello/contract/entities"
 import { buildLine } from "@cello/shared/build"
 import { useAtomSet } from "@effect/atom-react"
 import { Link } from "@tanstack/react-router"
-import { ArrowDownIcon, ArrowUpIcon, ArchiveIcon, EyeIcon, EyeOffIcon } from "lucide-react"
+import { ArrowDownIcon, ArrowUpIcon, ArchiveIcon, EyeIcon, EyeOffIcon, LayoutListIcon, PanelRightIcon } from "lucide-react"
 import { useState } from "react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
 import { Centered } from "../app/Home.tsx"
@@ -15,6 +15,9 @@ import { runningBuild, useServerBuild } from "../lib/build.ts"
 import { commands } from "../lib/cello.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { SAVES_ON_BLUR } from "../lib/editing.ts"
+import { writeStored } from "../lib/storage.ts"
+import { SegmentedControl, SegmentedControlItem } from "../components/ui/SegmentedControl.tsx"
+import { BAR_LAYOUT_KEY, LAYOUT_NAMES, useBarLayout } from "../search/layout.ts"
 
 export function Settings() {
   const board = useBoard()
@@ -46,6 +49,9 @@ export function Settings() {
           </Section>
           <Section title="Workspaces" description="A second workspace adds a switcher at the top of the sidebar.">
             <NewWorkspace />
+          </Section>
+          <Section title="Search" description="How the ⌘K bar shows results on this device. Peek previews the highlighted result beside the list; in a narrow window it shows as Palette.">
+            <SearchLayout />
           </Section>
           <Section title="Builds" description="Which build of Cello is running, and every build before it with what changed.">
             <RunningBuild />
@@ -164,6 +170,24 @@ function NewLabel({ workspaceId }: { workspaceId: string }) {
       </div>
       <Button type="submit">Add label</Button>
     </form>
+  )
+}
+
+/** The ⌘K bar's layout (CEL-43), the same choice as the bar's footer. */
+function SearchLayout() {
+  const layout = useBarLayout()
+  return (
+    <div className="flex items-center gap-3">
+      <SegmentedControl aria-label="Search layout" value={layout} onValueChange={(value) => value && writeStored(BAR_LAYOUT_KEY, String(value))}>
+        {(["peek", "palette"] as const).map((l) => (
+          <SegmentedControlItem key={l} value={l}>
+            {l === "peek" ? <PanelRightIcon aria-hidden className="size-3.5" /> : <LayoutListIcon aria-hidden className="size-3.5" />}
+            {LAYOUT_NAMES[l]}
+          </SegmentedControlItem>
+        ))}
+      </SegmentedControl>
+      <span className="text-[13px] text-muted">{layout === "peek" ? "The results, and a preview of the highlighted one." : "Centred, one line per result."}</span>
+    </div>
   )
 }
 
