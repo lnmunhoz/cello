@@ -9,6 +9,7 @@ import {
   CELLO_BIN,
   celloAsAgent,
   cleanup,
+  COMMAND_OR_CONTROL,
   freePort,
   isAlive,
   launchApp,
@@ -20,6 +21,7 @@ import {
   startCello,
   tempDir,
   testSite,
+  TOGGLE_PANEL_KEYS,
   VIDEOS_DIR,
   VIEW,
   views,
@@ -39,7 +41,7 @@ test.afterEach(async () => {
   await cleanup()
 })
 
-test("joins a running server: the board loads, openPanel shows a local page, ⌘\\ toggles the panel", async ({}, testInfo) => {
+test("joins a running server: the board loads, openPanel shows a local page, ⌘\\ (Ctrl+\\ on Linux) toggles the panel", async ({}, testInfo) => {
   const site = await testSite()
   const dataDir = tempDir("cello-desktop-e2e-")
   const server = await startCello(dataDir)
@@ -89,15 +91,15 @@ test("joins a running server: the board loads, openPanel shows a local page, ⌘
   const toolbar = chrome.locator("html")
   await expect(toolbar).toHaveAttribute("data-panel", "open")
 
-  await video.caption("⌘\\ in the board closes the panel")
-  await pressKey(app, VIEW.board, "\\", ["meta"])
+  await video.caption(`${TOGGLE_PANEL_KEYS} in the board closes the panel`)
+  await pressKey(app, VIEW.board, "\\", [COMMAND_OR_CONTROL])
   await expect(toolbar).toHaveAttribute("data-panel", "closed")
   const closed = await views(app)
   expect(closed.page.visible).toBe(false)
   expect(closed.board.bounds.width).toBe(open.board.bounds.width + open.chrome.bounds.width)
 
-  await video.caption("⌘\\ opens it again, on the same page")
-  await pressKey(app, VIEW.board, "\\", ["meta"])
+  await video.caption(`${TOGGLE_PANEL_KEYS} opens it again, on the same page`)
+  await pressKey(app, VIEW.board, "\\", [COMMAND_OR_CONTROL])
   await expect(toolbar).toHaveAttribute("data-panel", "open")
   const reopened = await views(app)
   expect(reopened.page.visible).toBe(true)

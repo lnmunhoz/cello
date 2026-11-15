@@ -52,8 +52,8 @@ export interface Recording {
   readonly stop: () => Promise<void>
 }
 
-/** San Francisco has the ⌘ glyph. */
-const FONT = "/System/Library/Fonts/SFNS.ttf"
+/** The captions' font: San Francisco on macOS (it has the ⌘ glyph), DejaVu Sans in the Docker image. */
+const FONT = process.platform === "darwin" ? "/System/Library/Fonts/SFNS.ttf" : "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 /** Each step's result stays on screen this long in the video, so a fast test is still watchable. */
 const HOLD_SECONDS = 1.2

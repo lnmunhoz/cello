@@ -11,7 +11,7 @@ Run them in `apps/desktop`:
 ```bash
 bun run dev        # build the app and run it with Electron
 bun run package    # build apps/cli/dist/cello, then an unsigned Cello.app in dist/mac-arm64/
-bun run test:e2e   # build, then Playwright's Electron tests (videos in test-results/videos)
+bun run test:e2e   # Playwright's Electron tests, in Docker (same as test:docker:desktop at the root)
 ```
 
 - **`bun run dev`** joins the server already running on `CELLO_PORT` (4747 by default, e.g.
@@ -21,9 +21,22 @@ bun run test:e2e   # build, then Playwright's Electron tests (videos in test-res
 - **`bun run package`** makes `dist/mac-arm64/Cello.app` (Apple silicon, about 355 MB), with the
   compiled `cello` binary, web app included, at `Contents/Resources/cello`. `--skip-cli` reuses
   the binary as it is. The app isn't signed: the first time, open it with right-click → Open.
-- **`bun run test:e2e`** builds `apps/cli/dist/cello` if it's missing. Every test runs its own
-  `cello start` with a temp data folder on a free port, never 4747, 4748, 5199 or `~/.cello`.
-  `CELLO_E2E_ONLINE=1` adds the claude.ai test, which needs the internet.
+- **`bun run test:e2e`** runs the tests in a throwaway Linux container (`scripts/test-in-docker.ts`,
+  OrbStack must be running), with the app under Xvfb, so no window opens on the Mac. Arguments
+  after `--` go to `playwright test`. Videos and screenshots land in
+  `test-results/docker/latest/desktop/` at the repo root, with `summary.txt` and the logs.
+  - Inside, `test:e2e:local` builds the app, builds `apps/cli/dist/cello` (a Linux binary there) if
+    it's missing, and runs Playwright. Every test runs its own `cello start` with a temp data
+    folder on a free port, never 4747, 4748, 5199 or `~/.cello`.
+  - `playwright.config.ts` refuses to run on macOS. `CELLO_ALLOW_LOCAL_DESKTOP=1 bun run
+    test:e2e:local` is the rare exception, for a check only macOS can do (Dock, `cello://`
+    through LaunchServices, the app menu), and only when Lucas asks for one.
+  - On Linux the keys are Ctrl where macOS has ⌘ (Electron's CommandOrControl; the tests' helpers
+    pick the right one). In the container Electron gets `--no-sandbox` (it runs as root),
+    `--force-device-scale-factor=2` (Retina-sharp screenshots) and `--hide-scrollbars`
+    (`e2e/support.ts` says why).
+  - `CELLO_E2E_ONLINE=1` adds the claude.ai test, which needs the internet; it's passed into the
+    container. The recorder holds each step's result 1.2 s, so these videos need no slow motion.
 
 ## The server
 
@@ -87,4 +100,4 @@ running app.
 - `src/server/`: finding or starting the server (`plan.ts` decides, `sidecar.ts` does it)
 - `src/preload.ts`: `window.celloDesktop`
 - `scripts/`: bundling with Bun (`dist-electron/`), dev, packaging (electron-builder)
-- `e2e/`: Playwright Electron tests; `recorder.ts` composes the whole window into videos and screenshots
+- `e2e/`: Playwright Electron tests (run in Docker); `recorder.ts` composes the whole window into videos and screenshots
