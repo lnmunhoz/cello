@@ -53,7 +53,7 @@ The server backs up `<dataDir>` into `<dataDir>/backups/<YYYYMMDD-HHMMSS>/` (cel
 
 ## How a task flows: build, review, merge, submit
 
-The session running the work (the orchestrator) claims the task, then:
+The session running the work (the orchestrator) claims the task, then (the whole path, with diagrams: [docs/feature-lifecycle.md](docs/feature-lifecycle.md), also in Cello's Docs tab):
 
 1. **Build.** A `cello-builder` agent (`.claude/agents/`) works in its own git worktree, test first, and commits on its branch. It never pushes, touches main or changes the live board. The orchestrator's brief says what to build, what to read, and what other agents are changing at the same time.
 2. **Review.** Before merging, a fresh `cello-code-reviewer` agent reviews the branch. It gets the diff against main and the task text, never the builder's report, so it judges the code rather than echoing the builder.
