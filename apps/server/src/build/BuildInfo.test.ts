@@ -40,10 +40,33 @@ describe("the web build the server serves", () => {
 describe("the server's build", () => {
   it.effect("is the app version, the commit, when the server started, and the web build", () =>
     Effect.gen(function* () {
+      const dir = yield* tempDataDir
+      const web = webDir(path.join(dir, "web"), JSON.stringify(STAMP))
       yield* TestClock.setTime(1_763_230_740_000)
       const build = yield* Effect.flatMap(Effect.service(BuildInfo.BuildInfo), (info) => info.get()).pipe(
-        Effect.provide(BuildInfo.layer({ commit: "9afd602", web: STAMP })),
+        Effect.provide(BuildInfo.layer({ commit: "9afd602", web })),
       )
       expect(build).toEqual({ version: APP_VERSION, commit: "9afd602", startedAt: 1_763_230_740_000, web: STAMP })
-    }))
+    }).pipe(Effect.scoped))
+
+  it.effect("follows a rebuild of the folder it serves (run from source, the files are read from disk live)", () =>
+    Effect.gen(function* () {
+      const dir = yield* tempDataDir
+      const folder = path.join(dir, "web")
+      const web = webDir(folder, JSON.stringify(STAMP))
+      const info = yield* Effect.service(BuildInfo.BuildInfo).pipe(Effect.provide(BuildInfo.layer({ commit: null, web })))
+      expect((yield* info.get()).web).toEqual(STAMP)
+
+      // `vite build` rewrites build.json in place; a later mtime marks the new one.
+      const rebuilt = { ...STAMP, commit: "bbbbbbb", builtAt: STAMP.builtAt + 60_000 }
+      const file = path.join(folder, "build.json")
+      fs.writeFileSync(file, JSON.stringify(rebuilt))
+      const later = new Date(fs.statSync(file).mtimeMs + 5_000)
+      fs.utimesSync(file, later, later)
+      expect((yield* info.get()).web).toEqual(rebuilt)
+
+      // Removed (a build in progress): no web stamp until it's back.
+      fs.rmSync(file)
+      expect((yield* info.get()).web).toBeNull()
+    }).pipe(Effect.scoped))
 })

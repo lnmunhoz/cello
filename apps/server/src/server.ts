@@ -58,7 +58,7 @@ export const layer = (options: ServerOptions) => {
   )
   const assets = AssetStore.layer({ dir: path.join(options.dataDir, AssetStore.ASSETS_DIR) })
   const backups = BackupService.layer({ dir: path.join(options.dataDir, BackupService.BACKUPS_DIR) })
-  const build = BuildInfo.layer({ commit: options.commit ?? null, web: BuildInfo.readWebBuild(options.web) })
+  const build = BuildInfo.layer({ commit: options.commit ?? null, web: options.web })
   const app = Layer.mergeAll(Services.layer, backups, build).pipe(Layer.provideMerge(storage), Layer.provideMerge(assets))
   const rpc = RpcServer.layer(CelloRpcs).pipe(
     Layer.provide(Handlers.layer),

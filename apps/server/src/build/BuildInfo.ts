@@ -32,15 +32,39 @@ export const readWebBuild = (files: WebFiles | undefined): WebBuild | null => {
   }
 }
 
+/** build.json's modification time and size, or null when it can't be read (missing mid-rebuild). */
+const versionOf = (file: string): string | null => {
+  try {
+    const stat = fs.statSync(file)
+    return `${stat.mtimeMs}:${stat.size}`
+  } catch {
+    return null
+  }
+}
+
 export interface BuildOptions {
   /** The commit the server was built from; null when unknown. */
   readonly commit: string | null
-  /** The web app's stamp (`readWebBuild`); null when it serves none. */
-  readonly web: WebBuild | null
+  /** The web app it serves; undefined when none. */
+  readonly web: WebFiles | undefined
 }
 
 export const layer = (options: BuildOptions) =>
   Layer.effect(BuildInfo, Effect.gen(function* () {
-    const build: ServerBuild = { version: APP_VERSION, commit: options.commit, startedAt: yield* Clock.currentTimeMillis, web: options.web }
-    return BuildInfo.of({ get: Effect.fn("BuildInfo.get")(function* () { return build }) })
+    const startedAt = yield* Clock.currentTimeMillis
+    const file = options.web?.get(WEB_BUILD_FILE)
+    // Run from source, the web files are read from disk on every request, so `vite build` can replace
+    // them under a running server: build.json is read again whenever its mtime or size changes.
+    let cached: { readonly version: string | null; readonly web: WebBuild | null } | null = null
+    const webBuild = (): WebBuild | null => {
+      if (file === undefined) return null
+      const version = versionOf(file)
+      if (cached === null || cached.version !== version) cached = { version, web: version === null ? null : readWebBuild(options.web) }
+      return cached.web
+    }
+    return BuildInfo.of({
+      get: Effect.fn("BuildInfo.get")(function* () {
+        return { version: APP_VERSION, commit: options.commit, startedAt, web: webBuild() } satisfies ServerBuild
+      }),
+    })
   }))
