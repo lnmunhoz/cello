@@ -1,5 +1,5 @@
 // Errors say what to do next, from one table keyed by error tag.
-import { HumanOnly, NotFound, ReviewRequired, TaskClaimed } from "@cello/contract/errors"
+import { HumanOnly, KeyTaken, NotFound, ReviewRequired, TaskClaimed } from "@cello/contract/errors"
 import { BackupFailed, RestoreBlocked, RestoreFailed } from "@cello/server/backup/offline"
 import { describe, expect, it } from "vitest"
 import { explain } from "./errors.ts"
@@ -20,9 +20,15 @@ describe("explain", () => {
     )
   })
 
-  it("an unknown folder points at --project", () => {
+  it("an unknown folder points at cello init and --project", () => {
     expect(explain(new NotFound({ entity: "project", id: "/tmp/elsewhere" }), where)).toBe(
-      "No project is linked to /tmp/elsewhere. Pass --project KEY (`cello init` comes later in M2).",
+      "No project is linked to /tmp/elsewhere. Run `cello init` to make this repo a Cello project, or pass --project KEY.",
+    )
+  })
+
+  it("a taken key names the project that has it and points at --key", () => {
+    expect(explain(new KeyTaken({ key: "THAI", projectName: "ThaiLookup" }), where)).toBe(
+      "The key THAI is taken by ThaiLookup. Pick another with --key, or leave --key out and Cello picks a free one.",
     )
     expect(explain(new NotFound({ entity: "task", id: "CEL-99" }), where)).toBe("No task CEL-99. Run `cello task list` to see open tasks.")
   })

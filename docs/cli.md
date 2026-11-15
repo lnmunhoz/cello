@@ -11,22 +11,32 @@ When Lucas says "use Cello in this repo", or `cello context` fails here, go thro
 ```mermaid
 flowchart TD
     A["① Is the cello CLI installed?<br/>cello --version"] --> B["② Is Cello running?<br/>cello whoami: server answers"]
-    B --> C{"③ Is this repo a Cello project?<br/>cello context"}
-    C -->|yes| E
-    C -->|"no: not linked"| D["Ask Lucas to create the project<br/>(name, key, this repo's path)"]
-    D --> E["④ Hooks: cello install claude"]
-    E --> F["⑤ Tell this repo's agents:<br/>a Cello section in AGENTS.md / CLAUDE.md"]
+    B --> C{"③ cello init<br/>Is this repo a Cello project yet?"}
+    C -->|"no: creates it<br/>(folder's name, a free key, this repo's path)"| E
+    C -->|"yes: says which one, changes nothing"| E
+    E["④ Hooks: cello install claude<br/>(or cello init --hooks)"] --> F["⑤ Tell this repo's agents: a Cello section<br/>in AGENTS.md / CLAUDE.md (or cello init --agents-md)"]
     F --> G(["⑥ Check: cello context shows the project"])
 ```
 
+Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
+
 1. **The CLI.** `cello --version` prints a version. If the command isn't found, stop and tell Lucas: `cello` is installed from his Cello repo (`apps/cli`, linked at `~/.local/bin/cello`). Never install it yourself.
 2. **The server.** `cello whoami` prints JSON with a `server` entry. If it says Cello isn't running, ask Lucas to open the Cello desktop app or run `cello start`. Don't start it yourself, since it serves his real data.
-3. **The project.** `cello context`, run inside this repo, shows the project and its key. If it says no project is linked to this folder, ask Lucas to create one:
-   - in Cello: **New project** in the sidebar, with a name, a short key (e.g. `THAI`) and this repo's path (`git rev-parse --show-toplevel`)
-   - an agent can't create projects from the CLI yet (CEL-41 adds `cello init`)
-4. **Hooks, so Lucas's comments reach your session.** Run `cello install claude`. It writes this machine's `.claude/settings.local.json` and makes sure git ignores it. It keeps a `.bak` of the old file; ignore that too if the repo's `.gitignore` doesn't cover it. Run it again any time; it changes nothing the second time.
-5. **Tell the repo's agents.** Add this section to the repo's AGENTS.md, or to CLAUDE.md if there's no AGENTS.md, replacing `KEY` with the project's key. Change nothing else in the file:
+3. **The project.** Run `cello init` inside this repo. It creates the project with this repo's path (the main checkout's when you're in a worktree), named after the repo's folder, with a key made from the name that no other project has, and prints the key and the board's URL. If the repo is already a project, it says which one and leaves the project as it is, however its path was typed in New project (`~/…`, a trailing `/`, a symlinked folder, a subfolder of the repo). It refuses a repo an archived project holds, naming it: ask Lucas then.
 
+   ```
+   $ cello init
+   Created project CEL · cello for /Users/lnmunhoz/projects/cello (tasks CEL-1, CEL-2, …)
+   http://127.0.0.1:4747/CEL
+   ```
+
+   - The defaults are fine unless Lucas named the project or its key: then pass `--name "Thai Lookup"` and `--key THAI`.
+   - If the key is taken, it says which project has it: pick another, or leave `--key` out and Cello picks a free one (CEL, then CELL, CELLO, CEL2…).
+   - `--workspace Work` puts it in another workspace, by name; the default is the first one.
+4. **Hooks, so Lucas's comments reach your session.** Run `cello install claude` (or `cello init --hooks`, which does the same). It writes this machine's `.claude/settings.local.json` and makes sure git ignores it. It keeps a `.bak` of the old file; ignore that too if the repo's `.gitignore` doesn't cover it. Run it again any time; it changes nothing the second time.
+5. **Tell the repo's agents.** `cello init --agents-md` adds this section, with the project's key in place of `KEY`, to the end of the AGENTS.md in the checkout you're in, or to CLAUDE.md if there's no AGENTS.md (creating it). It changes nothing else in the file, and nothing at all when the file already has a "Tracking work in Cello" heading. To add it by hand, copy it and replace `KEY` yourself:
+
+   <!-- agents-md:start -->
    ```markdown
    ## Tracking work in Cello
 
@@ -38,6 +48,9 @@ flowchart TD
    - Hand finished work to Lucas only with `cello task submit`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
    - Answer Lucas on the card with `cello task comment`. His comments come to your session by themselves.
    ```
+   <!-- agents-md:end -->
+
+   `cello init --agents-md` copies this block, so changing it here changes what the command writes.
 6. **Check.** `cello context` shows the project, its statuses and labels. Tell Lucas the repo is set up: the project key, that the hooks are installed, and that the AGENTS.md section was added (uncommitted, unless he asks you to commit it).
 
 ## Concepts
@@ -335,7 +348,11 @@ Every error is one sentence that says what to do next. The usual ones:
 | CEL-12 needs a review packet before it goes to In Review | You used `move` to hand work over. | Use `cello task submit`. |
 | Only Lucas can approve a review | Approving and sending back are his. | Leave the task in In Review. |
 | This folder isn't in a git repository | The CLI can't work out the project. | Pass `--project KEY`. |
-| No project is linked to /path | This repository isn't a Cello project yet. | Pass `--project KEY`, or ask Lucas. |
+| No project is linked to /path | This repository isn't a Cello project yet. | Set it up: `cello init` (see Set up a repo for Cello), or pass `--project KEY`. |
+| The key THAI is taken by ThaiLookup | `cello init --key` named a key another project has. | Pick another key, or leave `--key` out and Cello picks a free one. |
+| … is already used by Old Cello (archived), so it can't be linked again | An archived project holds this repo's folder. | Ask Lucas. |
+| Several projects use this folder (A, B) | More than one project was linked to this repo. | Pass `--project KEY`, and tell Lucas. |
+| Project CEL is set up, but the next step failed: … | `cello init` made or found the project; `--hooks` or `--agents-md` then failed. | Fix what the message says, then run the same `cello init` again: it skips what's done. |
 | Cello is running for …, and restore only runs while it's stopped | `cello restore` runs only while no server does. Nothing was changed. | Lucas stops Cello, then runs it again. |
 | No backup 20261115-120000 in … | That backup id doesn't exist. | `cello backup list` shows the real ones. |
 | The backup failed (…) | The disk is full, or a file in `assets/` can't be read. Nothing was saved. | Tell Lucas, with the message. |
@@ -358,6 +375,23 @@ cello context [flags]
 | --- | --- |
 | `--project string` | Project key, instead of the working folder's. |
 | `--json` | Print JSON for scripts. |
+
+### cello init
+
+Make the git repository you're in a Cello project: creates it with this repo's path (the main checkout's, from a worktree), named after the folder, with a free key made from the name, and prints its key and board URL. In a repo that's already a project it says which one and changes nothing. --hooks and --agents-md do the rest of the setup; each is safe to run again.
+
+```
+cello init [flags]
+```
+
+| | |
+| --- | --- |
+| `--name string` | The project's name. Default: the repository's folder name. |
+| `--key string` | Its task key: 2 to 10 letters or digits, starting with a letter (THAI gives THAI-1, THAI-2…). Default: one made from the name that no project has. |
+| `--workspace string` | The workspace to put it in, by name. Default: the first one. |
+| `--hooks` | Also install the Claude Code hooks for this machine, as `cello install claude` does. |
+| `--agents-md` | Also add the "Tracking work in Cello" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), once. |
+| `--json` | Print JSON: created, project, url, hooks and agentsMd ({ file, changed }, or null when not asked for or not reached), and error when --hooks or --agents-md failed. |
 
 ### cello task list
 

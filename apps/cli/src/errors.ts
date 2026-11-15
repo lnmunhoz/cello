@@ -27,7 +27,7 @@ export const explain = (error: unknown, where: Where): string => {
           return `No task ${e.id}. Run \`cello task list\` to see open tasks.`
         case "project":
           return String(e.id).startsWith("/")
-            ? `No project is linked to ${e.id}. Pass --project KEY (\`cello init\` comes later in M2).`
+            ? `No project is linked to ${e.id}. Run \`cello init\` to make this repo a Cello project, or pass --project KEY.`
             : `No project with key ${e.id}. Check the key, or run \`cello context\` inside a project's folder.`
         case "document":
           return `No document ${e.id}. Run \`cello doc list\` to see the project's documents.`
@@ -40,6 +40,8 @@ export const explain = (error: unknown, where: Where): string => {
       }
     case "Invalid":
       return `${capitalize(String(e.reason))}.`
+    case "KeyTaken":
+      return `The key ${e.key} is taken by ${e.projectName}. Pick another with --key, or leave --key out and Cello picks a free one.`
     case "VersionConflict":
       return `It was changed by ${e.changedBy} in the meantime. Run the command again.`
     case "ReviewRequired":

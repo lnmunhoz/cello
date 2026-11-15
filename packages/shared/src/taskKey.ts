@@ -12,6 +12,22 @@ export const suggestProjectKey = (name: string): string => {
   return key.slice(0, 10)
 }
 
+/**
+ * The key a new project named `name` gets when none is given: the suggestion if no project has it,
+ * else a longer start of the name (CEL → CELL → CELLO), else the suggestion with a number (CEL2, CEL3…).
+ */
+export const freeProjectKey = (name: string, taken: (key: string) => boolean): string => {
+  const base = suggestProjectKey(name)
+  const letters = name.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^[0-9]+/, "")
+  const longer = [...Array(11).keys()].filter((n) => n > base.length).map((n) => letters.slice(0, n))
+  const free = [base, ...longer].find((key) => isValidProjectKey(key) && !taken(key))
+  if (free) return free
+  for (let n = 2; ; n++) {
+    const key = `${base.slice(0, 10 - String(n).length)}${n}`
+    if (!taken(key)) return key
+  }
+}
+
 export const formatTaskKey = (projectKey: string, number: number): string => `${projectKey}-${number}`
 
 export const parseTaskKey = (key: string): { projectKey: string; number: number } | null => {

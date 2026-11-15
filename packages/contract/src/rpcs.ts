@@ -82,7 +82,8 @@ export const CelloRpcs = RpcGroup.make(
       commandId,
       workspaceId: Id,
       name: Schema.String,
-      key: Schema.String,
+      /** Without one, the server picks a free key made from the name. */
+      key: Schema.optionalKey(Schema.String),
       color: Schema.optionalKey(Schema.String),
       repoPath: Schema.optionalKey(Schema.String),
     },

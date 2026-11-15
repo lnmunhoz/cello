@@ -4,7 +4,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
-import { repoRootFor } from "./repo.ts"
+import { checkoutRootFor, repoRootFor } from "./repo.ts"
 
 const git = (cwd: string, ...args: string[]) => {
   const result = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" })
@@ -30,5 +30,11 @@ describe("repoRootFor", () => {
 
   it("is null outside a repository", () => {
     expect(repoRootFor(base)).toBeNull()
+    expect(checkoutRootFor(base)).toBeNull()
+  })
+
+  it("checkoutRootFor is the checkout itself: a linked worktree stays the worktree", () => {
+    expect(checkoutRootFor(path.join(main, "apps", "cli"))).toBe(main)
+    expect(checkoutRootFor(worktree)).toBe(worktree)
   })
 })

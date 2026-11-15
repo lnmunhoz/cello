@@ -20,6 +20,7 @@ import * as Predicate from "effect/Predicate"
 import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
+import { addAgentsSection, agentsFile } from "./agentsMd.ts"
 import { HOOK_EVENTS, type HookEvent, hookDeadline, hookResponse, hookSession, parseHookInput } from "./claudeHook.ts"
 import {
   addCelloHooks,
@@ -40,7 +41,7 @@ import { GUIDE } from "./guide.ts"
 import { type Env, IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
 import { deliveryText, inboxEntries } from "./inbox.ts"
 import { pageFiles } from "./pageFiles.ts"
-import { repoRootFor } from "./repo.ts"
+import { checkoutRootFor, repoRootFor } from "./repo.ts"
 import { start } from "./start.ts"
 
 export { CliEnv } from "./env.ts"
@@ -99,12 +100,14 @@ const bodyText = (inline: Option.Option<string>, bodyFile: Option.Option<string>
 const print = (text: string) => Console.log(text)
 const printJson = (value: unknown) => Console.log(JSON.stringify(value, null, 2))
 
+const KIND_LISTS = { status: "Statuses", label: "Labels", workspace: "Workspaces" } as const
+
 /** One id from a list by name, ignoring case, or a failure listing the real names. */
-const byName = <T extends { readonly id: string; readonly name: string }>(kind: string, rows: ReadonlyArray<T>, name: string) => {
+const byName = <T extends { readonly id: string; readonly name: string }>(kind: keyof typeof KIND_LISTS, rows: ReadonlyArray<T>, name: string) => {
   const found = rows.find((row) => row.name.trim().toLowerCase() === name.trim().toLowerCase())
   return found
     ? Effect.succeed(found)
-    : Effect.fail(new CliFailure({ message: `No ${kind} named "${name}". ${kind === "status" ? "Statuses" : "Labels"}: ${rows.map((r) => r.name).join(", ") || "none yet"}.` }))
+    : Effect.fail(new CliFailure({ message: `No ${kind} named "${name}". ${KIND_LISTS[kind]}: ${rows.map((r) => r.name).join(", ") || "none yet"}.` }))
 }
 
 const PRIORITIES: Record<string, Priority> = { none: 0, urgent: 1, high: 2, medium: 3, low: 4, "0": 0, "1": 1, "2": 2, "3": 3, "4": 4 }
@@ -144,6 +147,9 @@ const author = (
 }
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
+
+/** "a", "a and b", "a, b and c". */
+const andList = (items: ReadonlyArray<string>) => items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`
 
 const EVIDENCE_WORDS = { video: "video", image: "screenshot", file: "file", link: "link" } as const
 
@@ -829,6 +835,37 @@ const updateSettings = (file: string, change: (settings: unknown) => Merged) =>
 const gitEnv = (env: Env) =>
   Object.fromEntries(Object.entries({ PATH: process.env.PATH, HOME: env.HOME, XDG_CONFIG_HOME: env.XDG_CONFIG_HOME }).filter(([, v]) => v !== undefined))
 
+/**
+ * `cello install claude`'s work, also run by `cello init --hooks`: Cello's hooks merged into the
+ * scope's settings file and, for this machine's file, git told to ignore it. Returns what it did and
+ * the lines that say so.
+ */
+const installHooks = (scope: keyof typeof SCOPES) =>
+  Effect.gen(function* () {
+    const { env } = yield* CliEnv
+    const { projectRoot, paths } = yield* claudeSettings
+    const file = paths[scope]
+    if (file === null) return yield* new CliFailure({ message: "HOME isn't set, so there's no ~/.claude/settings.json to write." })
+    const { changed, backup } = yield* updateSettings(file, addCelloHooks)
+    const ignored = scope === "local" && projectRoot !== null ? ensureGitIgnored(projectRoot, ".claude/settings.local.json", gitEnv(env)) : null
+    const ignoredLine = ignored ? [`Added .claude/settings.local.json to ${ignored}, so it stays on this machine.`] : []
+    if (!changed) return { file, changed, lines: [`Cello's Claude Code hooks are already in ${file}.`, ...ignoredLine] }
+    const lines = [
+      `Installed Cello's Claude Code hooks in ${file} (${SCOPES[scope]}):`,
+      ...indent(columns(CELLO_HOOKS.map((h) => [h.event, h.command]))),
+      ...ignoredLine,
+      ...(backup ? [`Kept the old file as ${backup}.`] : []),
+      "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
+      "New Claude Code sessions pick them up.",
+    ]
+    if (Bun.which("cello", { PATH: env.PATH ?? "" }) === null) {
+      lines.push(
+        "`cello` isn't on your PATH, so Claude Code can't run the hooks. Put the cello binary on the PATH Claude Code starts with (e.g. ~/.local/bin).",
+      )
+    }
+    return { file, changed, lines }
+  })
+
 const installClaude = Command.make("claude", {
   user: Flag.Boolean("user").pipe(
     Flag.withDefault(false),
@@ -845,28 +882,7 @@ const installClaude = Command.make("claude", {
         message: "Pick one: --user (every project) or --shared (this project, committed). Without either it's this project on this machine.",
       })
     }
-    const scope = input.user ? "user" : input.shared ? "shared" : "local"
-    const { env } = yield* CliEnv
-    const { projectRoot, paths } = yield* claudeSettings
-    const file = paths[scope]
-    if (file === null) return yield* new CliFailure({ message: "HOME isn't set, so there's no ~/.claude/settings.json to write." })
-    const { changed, backup } = yield* updateSettings(file, addCelloHooks)
-    const ignored = scope === "local" && projectRoot !== null ? ensureGitIgnored(projectRoot, ".claude/settings.local.json", gitEnv(env)) : null
-    const ignoredLine = ignored ? [`Added .claude/settings.local.json to ${ignored}, so it stays on this machine.`] : []
-    if (!changed) return yield* print([`Cello's Claude Code hooks are already in ${file}.`, ...ignoredLine].join("\n"))
-    const lines = [
-      `Installed Cello's Claude Code hooks in ${file} (${SCOPES[scope]}):`,
-      ...indent(columns(CELLO_HOOKS.map((h) => [h.event, h.command]))),
-      ...ignoredLine,
-      ...(backup ? [`Kept the old file as ${backup}.`] : []),
-      "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
-      "New Claude Code sessions pick them up.",
-    ]
-    if (Bun.which("cello", { PATH: env.PATH ?? "" }) === null) {
-      lines.push(
-        "`cello` isn't on your PATH, so Claude Code can't run the hooks. Put the cello binary on the PATH Claude Code starts with (e.g. ~/.local/bin).",
-      )
-    }
+    const { lines } = yield* installHooks(input.user ? "user" : input.shared ? "shared" : "local")
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
     "Add Claude Code hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse, running " +
@@ -885,6 +901,126 @@ const uninstallClaude = Command.make("claude", {}, () =>
   })).pipe(Command.withDescription(
     "Take Cello's hooks out of Claude Code's settings: this project's .claude/settings.local.json and .claude/settings.json, and " +
       "~/.claude/settings.json. Every other hook and setting stays as it was.",
+  ))
+
+// ── setting up a repo (CEL-41) ──────────────────────────────────────────────────────────────────
+
+/** Where the board shows a project: the web app `cello start` serves on the same port. */
+const boardUrl = (env: Env, projectKey: string) => `http://127.0.0.1:${portOf(env)}/${projectKey}`
+
+const init = Command.make("init", {
+  name: Flag.String("name").pipe(Flag.optional, Flag.withDescription("The project's name. Default: the repository's folder name.")),
+  key: Flag.String("key").pipe(
+    Flag.optional,
+    Flag.withDescription("Its task key: 2 to 10 letters or digits, starting with a letter (THAI gives THAI-1, THAI-2…). Default: one made from the name that no project has."),
+  ),
+  workspace: Flag.String("workspace").pipe(Flag.optional, Flag.withDescription("The workspace to put it in, by name. Default: the first one.")),
+  hooks: Flag.Boolean("hooks").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Also install the Claude Code hooks for this machine, as `cello install claude` does."),
+  ),
+  agentsMd: Flag.Boolean("agents-md").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Also add the \"Tracking work in Cello\" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), once."),
+  ),
+  json: Flag.Boolean("json").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Print JSON: created, project, url, hooks and agentsMd ({ file, changed }, or null when not asked for or not reached), and error when --hooks or --agents-md failed."),
+  ),
+}, (input) =>
+  Effect.gen(function* () {
+    const { cwd, env } = yield* CliEnv
+    const repoPath = repoRootFor(cwd)
+    const checkout = checkoutRootFor(cwd)
+    if (repoPath === null || checkout === null) {
+      return yield* new CliFailure({
+        message: "This folder isn't in a git repository. Run `cello init` inside the repo you want to track (`git init` first for a new one).",
+      })
+    }
+    const { project, created } = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const linkedProject = Effect.map(client["whoami"]({ project: { repoPath } }), (w) => w.project)
+        const linked = yield* linkedProject
+        if (linked) return { project: linked, created: false }
+        const { workspaces } = yield* client["snapshot.get"]({})
+        const workspace = Option.isSome(input.workspace) ? yield* byName("workspace", workspaces, input.workspace.value) : workspaces[0]!
+        return yield* client["project.create"]({
+          commandId: newCommandId(),
+          workspaceId: workspace.id,
+          name: Option.getOrElse(input.name, () => path.basename(repoPath)),
+          repoPath,
+          ...(Option.isSome(input.key) ? { key: input.key.value } : {}),
+        }).pipe(
+          Effect.map((written) => ({ project: written.result, created: true })),
+          Effect.catchTag("Invalid", (e) =>
+            Effect.gen(function* () {
+              if (e.field === "key") {
+                return yield* new CliFailure({ message: `--key ${Option.getOrElse(input.key, () => "")} won't do: a key ${e.reason}.` })
+              }
+              if (e.field !== "repoPath") return yield* e
+              // Another `cello init` may have linked it a moment ago; otherwise an archived project holds the path.
+              const now = yield* linkedProject
+              if (now) return { project: now, created: false }
+              return yield* new CliFailure({ message: `${repoPath} is ${e.reason}, so it can't be linked again. Ask Lucas what to do with it.` })
+            })),
+        )
+      })
+    )
+    const url = boardUrl(env, project.key)
+    const ignored = (["key", "name", "workspace"] as const).filter((flag) => Option.isSome(input[flag])).map((flag) => `--${flag}`)
+    // Said first, so a failing --hooks or --agents-md still leaves the project's state on screen.
+    if (!input.json) {
+      yield* print([
+        created
+          ? `Created project ${project.key} · ${project.name} for ${repoPath} (tasks ${project.key}-1, ${project.key}-2, …)`
+          : `This repo is already project ${project.key} · ${project.name} (${project.repoPath ?? repoPath}); the project itself is unchanged.` +
+            (ignored.length ? ` ${andList(ignored)} only ${ignored.length === 1 ? "applies" : "apply"} to a new project.` : ""),
+        url,
+      ].join("\n"))
+    }
+    // The rest of the setup. What it did is kept even when a later step fails, so it can be reported.
+    const done: {
+      hooks: Effect.Success<ReturnType<typeof installHooks>> | null
+      agentsMd: ReturnType<typeof addAgentsSection> | null
+    } = { hooks: null, agentsMd: null }
+    const failure = yield* Effect.gen(function* () {
+      if (input.hooks) done.hooks = yield* installHooks("local")
+      if (input.agentsMd) {
+        done.agentsMd = yield* Effect.try({
+          try: () => addAgentsSection(checkout, GUIDE, project.key),
+          catch: (e) => new CliFailure({ message: `Can't add the Cello section to ${agentsFile(checkout)}: ${(e as Error).message}.` }),
+        })
+      }
+    }).pipe(
+      Effect.as(null),
+      Effect.catch((e) => Effect.succeed(new CliFailure({ message: `Project ${project.key} is set up, but the next step failed: ${e.message}` }))),
+    )
+    const { hooks, agentsMd } = done
+    if (input.json) {
+      yield* printJson({
+        created,
+        project,
+        url,
+        hooks: hooks && { file: hooks.file, changed: hooks.changed },
+        agentsMd,
+        ...(failure ? { error: failure.message } : {}),
+      })
+    } else {
+      const lines = [
+        ...(hooks?.lines ?? []),
+        ...(agentsMd === null
+          ? []
+          : agentsMd.changed
+          ? [`Added the "Tracking work in Cello" section to ${agentsMd.file} (uncommitted).`]
+          : [`${agentsMd.file} already has a "Tracking work in Cello" section; left it as it is.`]),
+      ]
+      if (lines.length) yield* print(lines.join("\n"))
+    }
+    if (failure) return yield* failure
+  })).pipe(Command.withDescription(
+    "Make the git repository you're in a Cello project: creates it with this repo's path (the main checkout's, from a worktree), " +
+      "named after the folder, with a free key made from the name, and prints its key and board URL. In a repo that's already a " +
+      "project it says which one and changes nothing. --hooks and --agents-md do the rest of the setup; each is safe to run again.",
   ))
 
 const install = Command.make("install").pipe(
@@ -912,7 +1048,7 @@ const startCommand = Command.make("start", {}, () => start).pipe(
 
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, task, inbox, doc, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand]),
+  Command.withSubcommands([context, init, task, inbox, doc, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand]),
 )
 
 /**
