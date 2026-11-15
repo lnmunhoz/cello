@@ -1,6 +1,8 @@
-import { Children, isValidElement, type ReactNode } from "react"
+import { Children, isValidElement, use, type ReactNode } from "react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { remarkLinkify } from "../components/ui/remarkLinkify.ts"
+import { linkifyTasks, MarkdownTaskKey, markdownTaskKey, TaskFinderContext } from "../task/TaskKey.tsx"
 import { Mermaid } from "./Mermaid.tsx"
 
 /** Links that leave the page (other sites, stored files) open in a new tab. */
@@ -14,9 +16,11 @@ const heading = (Tag: "h2" | "h3", id: string | undefined): Components["h2"] =>
 
 /**
  * One block of a page's markdown (GitHub-flavored: tables, task lists, strikethrough), styled by the
- * `.page-prose` around it. Raw HTML is never rendered; ```mermaid blocks become diagrams.
+ * `.page-prose` around it. Raw HTML is never rendered; ```mermaid blocks become diagrams; task keys
+ * the TaskFinderContext knows link to their task, with its status.
  */
 export function Prose({ markdown, headingId }: { markdown: string; headingId?: string | undefined }) {
+  const tasks = use(TaskFinderContext)
   const components: Components = {
     h2: heading("h2", headingId),
     h3: heading("h3", headingId),
@@ -38,7 +42,9 @@ export function Prose({ markdown, headingId }: { markdown: string; headingId?: s
         </div>
       )
     },
-    a({ href, children }) {
+    a({ href, children, node }) {
+      const taskKey = markdownTaskKey(node)
+      if (taskKey) return <MarkdownTaskKey taskKey={taskKey} />
       return (
         <a href={href} {...(opensElsewhere(href) ? { target: "_blank", rel: "noreferrer" } : {})}>
           {children}
@@ -55,7 +61,7 @@ export function Prose({ markdown, headingId }: { markdown: string; headingId?: s
     },
   }
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+    <ReactMarkdown remarkPlugins={[remarkGfm, [remarkLinkify, linkifyTasks(tasks)]]} components={components}>
       {markdown}
     </ReactMarkdown>
   )

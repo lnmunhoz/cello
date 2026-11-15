@@ -1,7 +1,9 @@
 // The viewer side panel's rules: what a URL is (image, video, Cello page, external site), where an
 // "open" goes (the desktop app's native panel, the board's viewer, or this page's own), and its width.
 // Pure, so the rules are tested once here; the components only map a decision to the DOM.
+import { embedUrl } from "@cello/shared/embed"
 import { shortUrl } from "@cello/shared/linkify"
+import { parseTaskKey } from "@cello/shared/taskKey"
 import type { CelloDesktop } from "../lib/desktop.ts"
 
 /** image and video: shown as such. page: the board's own origin, in an iframe. external: an iframe attempt. */
@@ -41,20 +43,37 @@ export const toViewerItem = (target: OpenTarget, origin: string): ViewerItem | n
   return { url: url.href, title: target.title?.trim() || shortUrl(url.href), kind }
 }
 
-/**
- * Cello pages shown in a panel (the web viewer's iframe, the desktop app's native panel) ask for the
- * app without its sidebar. Files the server serves, and other sites, load as they are.
- */
-export const frameSrc = (url: string, origin: string): string => {
-  const parsed = new URL(url)
-  if (parsed.origin !== new URL(origin).origin || parsed.pathname.startsWith("/attachments/")) return url
-  parsed.searchParams.set("embed", "1")
-  return parsed.href
-}
-
 /** This page is a Cello page inside a panel: framed, or opened with ?embed. It shows without the sidebar. */
 export const isEmbedded = (win: { readonly self: unknown; readonly top: unknown; readonly search: string }): boolean =>
   win.self !== win.top || new URLSearchParams(win.search).has("embed")
+
+/**
+ * What asks the board's window to open a task there: a Cello page framed in the viewer (postMessage
+ * to its parent), and the desktop app's preload for a task clicked in its native panel.
+ */
+export interface OpenTaskMessage {
+  readonly type: "cello:task"
+  readonly key: string
+}
+
+/** router: this is the board. parent: a Cello page framed in the viewer. link: a page alone in a panel (the desktop app's). */
+export type TaskRoute = "router" | "parent" | "link"
+
+/**
+ * How a click on a task key opens the task in the main window, wherever the key is shown: on the
+ * board, its router; from a page framed in the viewer, the board's window (an OpenTaskMessage); from a
+ * page alone in a panel (`?embed`, the desktop app's native panel), the link itself, which the app
+ * catches and opens on the board. In a browser tab with `?embed`, that link just opens the task there.
+ */
+export const taskRoute = (win: { readonly self: unknown; readonly top: unknown; readonly search: string }): TaskRoute =>
+  win.self !== win.top ? "parent" : new URLSearchParams(win.search).has("embed") ? "link" : "router"
+
+/** The task a message asks the board's window to open: only a well-formed key, only from the board's own origin. */
+export const openTaskFrom = (message: { readonly origin: string; readonly data: unknown }, origin: string): { projectKey: string; number: number } | null => {
+  const data = message.data as Partial<OpenTaskMessage> | null
+  if (message.origin !== origin || data?.type !== "cello:task" || typeof data.key !== "string") return null
+  return parseTaskKey(data.key)
+}
 
 export interface OpenEnv {
   /** The board's origin; relative URLs resolve against it. */
@@ -78,7 +97,7 @@ export const openTarget = (target: OpenTarget, env: OpenEnv): OpenRoute | null =
   const item = toViewerItem(target, env.origin)
   if (!item) return null
   if (env.desktop?.isDesktop) {
-    env.desktop.openPanel(frameSrc(item.url, env.origin), item.title)
+    env.desktop.openPanel(embedUrl(item.url, env.origin), item.title)
     return "desktop"
   }
   if (env.parent) {

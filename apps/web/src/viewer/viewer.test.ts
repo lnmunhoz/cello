@@ -3,13 +3,14 @@ import type { CelloDesktop } from "../lib/desktop.ts"
 import {
   clampWidth,
   dragWidth,
-  frameSrc,
   isEmbedded,
   isPlainClick,
   nextFrameState,
   openTarget,
+  openTaskFrom,
   readWidth,
   refusesFraming,
+  taskRoute,
   toViewerItem,
   VIEWER_WIDTH,
 } from "./viewer.ts"
@@ -116,15 +117,28 @@ describe("refusesFraming: sites known to forbid being shown in an iframe", () =>
   })
 })
 
-describe("frameSrc: Cello pages in a panel show without the sidebar", () => {
-  it("adds embed=1 to the board's own pages, keeping their search and hash", () => {
-    expect(frameSrc("http://localhost:4747/CEL/pages/notes", ORIGIN)).toBe("http://localhost:4747/CEL/pages/notes?embed=1")
-    expect(frameSrc("http://localhost:4747/CEL/issues?layout=list#x", ORIGIN)).toBe("http://localhost:4747/CEL/issues?layout=list&embed=1#x")
+describe("taskRoute: a task key always opens its task in the main window", () => {
+  const top = {}
+  it("on the board, through its router", () => {
+    expect(taskRoute({ self: top, top, search: "?layout=list" })).toBe("router")
   })
+  it("from a Cello page framed in the viewer, through the board's window", () => {
+    expect(taskRoute({ self: {}, top, search: "?embed=1" })).toBe("parent")
+  })
+  it("from a Cello page alone in a panel (the desktop app's), by following the link, which the app catches", () => {
+    expect(taskRoute({ self: top, top, search: "?embed=1" })).toBe("link")
+  })
+})
 
-  it("leaves served files and other sites alone", () => {
-    expect(frameSrc("http://localhost:4747/attachments/f1", ORIGIN)).toBe("http://localhost:4747/attachments/f1")
-    expect(frameSrc("https://example.com/", ORIGIN)).toBe("https://example.com/")
+describe("openTaskFrom: what the board's window accepts from a page asking it to open a task", () => {
+  it("a task key from a page on the board's own origin", () => {
+    expect(openTaskFrom({ origin: ORIGIN, data: { type: "cello:task", key: "CEL-12" } }, ORIGIN)).toEqual({ projectKey: "CEL", number: 12 })
+  })
+  it("nothing from another origin, another kind of message, or a malformed key", () => {
+    expect(openTaskFrom({ origin: "https://evil.dev", data: { type: "cello:task", key: "CEL-12" } }, ORIGIN)).toBeNull()
+    expect(openTaskFrom({ origin: ORIGIN, data: { type: "cello:open", key: "CEL-12" } }, ORIGIN)).toBeNull()
+    for (const key of ["CEL", "../../settings", 12, null]) expect(openTaskFrom({ origin: ORIGIN, data: { type: "cello:task", key } }, ORIGIN)).toBeNull()
+    expect(openTaskFrom({ origin: ORIGIN, data: null }, ORIGIN)).toBeNull()
   })
 })
 

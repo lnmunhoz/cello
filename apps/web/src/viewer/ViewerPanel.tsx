@@ -1,4 +1,5 @@
-import { useRouterState } from "@tanstack/react-router"
+import { embedUrl } from "@cello/shared/embed"
+import { useNavigate, useRouterState } from "@tanstack/react-router"
 import { ExternalLinkIcon, FileTextIcon, FilmIcon, GlobeIcon, GlobeLockIcon, ImageIcon, XIcon } from "lucide-react"
 import { useEffect, useLayoutEffect, useRef, useState, type SyntheticEvent } from "react"
 import { Button, ButtonLink } from "../components/ui/Button.tsx"
@@ -8,8 +9,8 @@ import {
   clampWidth,
   dragWidth,
   FRAME_TIMEOUT_MS,
-  frameSrc,
   nextFrameState,
+  openTaskFrom,
   readWidth,
   refusesFraming,
   toViewerItem,
@@ -26,9 +27,17 @@ import {
  */
 export function ViewerPanel() {
   const item = useViewerItem()
+  const navigate = useNavigate()
   useEffect(() => {
-    // A Cello page framed in the viewer opens its links here, not inside itself.
+    // A Cello page framed in the viewer opens its links here, not inside itself, and its task keys
+    // open the task here, in the main window (which closes the viewer). The desktop app's preload sends
+    // the same task message for a key clicked in its native panel.
     const onMessage = (e: MessageEvent) => {
+      const task = openTaskFrom(e, location.origin)
+      if (task) {
+        void navigate({ to: "/$projectKey/$number", params: { projectKey: task.projectKey, number: String(task.number) } })
+        return
+      }
       const data = e.data as Partial<OpenMessage> | null
       if (e.origin !== location.origin || data?.type !== "cello:open" || !data.item) return
       const { url, title, kind } = data.item
@@ -37,7 +46,7 @@ export function ViewerPanel() {
     }
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
-  }, [])
+  }, [navigate])
   return item ? <Viewer item={item} /> : null
 }
 
@@ -246,7 +255,7 @@ const closeOnEscapeIn = (e: SyntheticEvent<HTMLIFrameElement>) => {
 
 function PageView({ item }: { item: ViewerItem }) {
   // White like paper: a text file has no background of its own; Cello pages paint theirs.
-  return <iframe title={item.title} src={frameSrc(item.url, location.origin)} onLoad={closeOnEscapeIn} className="min-h-0 w-full flex-1 border-0 bg-white" />
+  return <iframe title={item.title} src={embedUrl(item.url, location.origin)} onLoad={closeOnEscapeIn} className="min-h-0 w-full flex-1 border-0 bg-white" />
 }
 
 /**
