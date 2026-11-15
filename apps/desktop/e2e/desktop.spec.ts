@@ -195,15 +195,47 @@ async function expectBoardFills(app: ElectronApplication, board: Page, size?: Si
 /** Resolves once the board has painted what's in the DOM now (two frames), so a capture shows it. */
 const painted = (board: Page) => board.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 
+/**
+ * Puts the window in full screen and resolves once the board view has followed it to the screen's
+ * width, checked in the main process on the change itself. The Docker run's Xvfb has no window
+ * manager to hold full screen: the window grows to the screen (1600×973, sometimes 1600×1000), then
+ * snaps back to its old outer size (1440×627, the menu bar hidden) while still flagged full screen.
+ * Which of those a later check sees is a race, so the grown state is caught as it happens, with
+ * the listeners in place before the change starts. Resolves with that content size.
+ */
+const boardFollowsFullScreen = (app: ElectronApplication) =>
+  app.evaluate(
+    ({ BaseWindow, screen }) =>
+      new Promise<Size>((resolve) => {
+        const window = BaseWindow.getAllWindows()[0]!
+        const board = window.contentView.children[0]!
+        const screenWidth = screen.getDisplayMatching(window.getBounds()).bounds.width
+        const windowEvents = ["resize", "resized", "enter-full-screen"] as const
+        const check = () => {
+          const content = window.getContentBounds()
+          const bounds = board.getBounds()
+          if (content.width !== screenWidth || bounds.width !== content.width || bounds.height !== content.height) return
+          for (const event of windowEvents) window.off(event as "resize", check)
+          window.contentView.off("bounds-changed", check)
+          board.off("bounds-changed", check)
+          resolve({ width: content.width, height: content.height })
+        }
+        for (const event of windowEvents) window.on(event as "resize", check)
+        window.contentView.on("bounds-changed", check)
+        board.on("bounds-changed", check)
+        window.setFullScreen(true)
+      }),
+  )
+
 /** Runs `change` on the main window and resolves on `event` (registered first, so a synchronous one isn't missed). */
-const windowChange = (app: ElectronApplication, event: "resize" | "enter-full-screen" | "leave-full-screen", change: "short" | "full" | "windowed") =>
+const windowChange = (app: ElectronApplication, event: "resize" | "leave-full-screen", change: "short" | "windowed") =>
   app.evaluate(
     ({ BaseWindow }, { event, change }) =>
       new Promise<void>((resolve) => {
         const window = BaseWindow.getAllWindows()[0]!
         window.once(event as "resize", () => resolve())
         if (change === "short") window.setContentSize(1440, 600)
-        else window.setFullScreen(change === "full")
+        else window.setFullScreen(false)
       }),
     { event, change },
   )
@@ -230,10 +262,8 @@ test("CEL-25: the board fills the window with a wide board: in a short window, i
   const short = await expectBoardFills(app, board)
 
   await video.caption("Full screen: the board grows with the window, no grey band under it")
-  await windowChange(app, "enter-full-screen", "full")
-  await expectBoardFills(app, board)
-  await painted(board)
-  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "board-fills-full-screen.png"))
+  const full = await boardFollowsFullScreen(app)
+  expect(full.width, "the board grew past the short window").toBeGreaterThan(short.width)
 
   await video.caption("Leave full screen: the board shrinks back with the window")
   await windowChange(app, "leave-full-screen", "windowed")

@@ -30,6 +30,7 @@ import * as ServerLock from "./server/ServerLock.ts"
 import * as Services from "./services.ts"
 import * as PresenceWatch from "./session/PresenceWatch.ts"
 import * as Attachments from "./web/Attachments.ts"
+import * as Uploads from "./web/Uploads.ts"
 import * as WebFiles from "./web/WebFiles.ts"
 
 export interface ServerOptions {
@@ -92,7 +93,7 @@ export const layer = (options: ServerOptions) => {
     Layer.provideMerge(RpcServer.layerProtocolWebsocket({ path: "/rpc" })),
     Layer.provide(RpcSerialization.layerJson),
   )
-  const api = Layer.mergeAll(rpc, Attachments.layer, AllowedOrigins.layer)
+  const api = Layer.mergeAll(rpc, Attachments.layer, Uploads.layer, AllowedOrigins.layer)
   const routes = options.web === undefined ? api : Layer.mergeAll(api, WebFiles.layer(options.web))
   const dailyBackup = options.autoBackup === false ? Layer.empty : BackupSchedule.layer
   return Layer.mergeAll(HttpRouter.serve(routes, { disableLogger: true }), recordPort, dailyBackup, PresenceWatch.layer).pipe(

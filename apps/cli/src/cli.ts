@@ -1,13 +1,15 @@
 // The `cello` command tree. Each command parses its arguments, makes one RPC call (two when it must
 // first turn a task key or a status name into an id, or mark what it shows read), and prints short
 // text, or JSON with --json.
+import * as fs from "node:fs"
+import * as os from "node:os"
 import * as path from "node:path"
 import * as BunSocket from "@effect/platform-bun/BunSocket"
 import { CelloClient, makeClientLayer, newCommandId } from "@cello/client/client"
 import { describeEvent } from "@cello/client/history"
 import { STAGE_IDS, stageInfo, TASK_STAGES } from "@cello/contract/stages"
 import type { Backup } from "@cello/contract/backups"
-import type { Actor, AgentSession, DocumentKind, Priority, ProjectRef, Review, Status, Task } from "@cello/contract/entities"
+import type { Actor, AgentSession, Ask, DocumentKind, InboxItem, Priority, ProjectRef, Review, Status, Task } from "@cello/contract/entities"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
 import { ACCEPTED } from "@cello/shared/attachment"
@@ -24,11 +26,23 @@ import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
 import { addAgentsSection, agentsFile } from "./agentsMd.ts"
+import { roundLabel } from "@cello/client/sync/asks"
+import { answerLines, answerScreenshots, askResultText, askSpecFromArgs, askSpecFromFile, roundsText } from "./ask.ts"
 import { buildsText } from "./builds.ts"
-import { HOOK_EVENTS, type HookEvent, hookAction, hookDeadline, hookResponse, hookSession, parseHookInput } from "./claudeHook.ts"
+import {
+  ALLOW_ARTIFACTS_VARIABLE,
+  artifactGuard,
+  HOOK_EVENTS,
+  type HookEvent,
+  hookAction,
+  hookDeadline,
+  hookResponse,
+  hookSession,
+  parseHookInput,
+} from "./claudeHook.ts"
 import {
   addCelloHooks,
-  CELLO_HOOKS,
+  celloHooksFor,
   ensureGitIgnored,
   formatSettings,
   type Merged,
@@ -178,6 +192,7 @@ const packetCounts = (review: Review) =>
 
 const DECISIONS = { approved: "approved", sent_back: "sent back", superseded: "superseded by a newer one" } as const
 
+
 /** One review in `task get`: state, who submitted it, summary, steps, evidence and Lucas's note. */
 const reviewLines = (
   names: Names & { readonly actors: ReadonlyArray<Actor> },
@@ -242,12 +257,14 @@ const context = Command.make("context", { project, json }, (input) =>
     ]
     if (ctx.inbox.length) {
       const sentBack = ctx.inbox.find((i) => i.kind === "send_back")
+      const answered = ctx.inbox.find((i) => i.kind === "answers")
       lines.push(
         "",
-        `New comments for you (${ctx.inbox.length})`,
-        ...indent(inboxEntries(ctx.inbox, now)),
+        `${answered ? "New for you" : "New comments for you"} (${ctx.inbox.length})`,
+        ...indent(inboxEntries(ctx.inbox, now, undefined, yield* saveScreenshots(answeredAsks(ctx.inbox)))),
         `  Answer on the card: \`cello task comment ${ctx.inbox[0]!.taskKey} "…"\`. They stay new until the hook or \`cello inbox\` hands them over.`,
         ...(sentBack ? [`  Sent back: fix it, then hand it in again with \`cello task submit ${sentBack.taskKey}\`.`] : []),
+        ...(answered ? [`  Answered: ${answered.taskKey} is back in progress; carry on with the answers.`] : []),
       )
     }
     lines.push(
@@ -343,6 +360,15 @@ const get = Command.make("get", { key, json }, (input) =>
     if (detail.reviews.length) {
       lines.push("", `Reviews (${detail.reviews.length})`)
       for (const r of [...detail.reviews].reverse()) lines.push(...reviewLines(detail, r, now))
+    }
+    if (detail.asks.length) {
+      lines.push("", `Questions for ${humanName(detail.actors)} (${detail.asks.length})`)
+      for (const a of [...detail.asks].reverse()) {
+        const when = a.state === "answered" ? ` ${ago(a.answeredAt!, now)}` : a.withdrawnAt ? ` ${ago(a.withdrawnAt, now)}` : ""
+        lines.push(`  ${roundLabel(detail.asks, a)}${when}: "${a.title}", asked by ${author(detail, a.actorId, a.sessionId)}, ${ago(a.createdAt, now)}`)
+        if (a.answers) lines.push(...answerLines(a, new Map()).map((l) => (l === "" ? "" : `    ${l}`)))
+        else lines.push(...a.questions.map((q, i) => `    ${i + 1}. ${q.prompt}`))
+      }
     }
     if (detail.comments.length) {
       lines.push("", `Comments (${detail.comments.length})`)
@@ -460,7 +486,7 @@ const stage = Command.make("stage", {
     yield* print(next === null ? `Cleared the stage of ${task.key}  ${where}` : `${task.key} is now ${stageInfo(next)!.label}  ${where}`)
   })).pipe(Command.withDescription(
     "Say where your claimed task is inside In Progress, so the board shows it: building, agent review, fixing findings, merged. " +
-      "Only the session holding the claim (or Lucas), only in In Progress. Moving the task to another status, or submitting it, clears it.",
+      "Only the session holding the claim (or Lucas), only in In Progress. Asking Lucas (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.",
   ))
 
 const move = Command.make("move", {
@@ -552,6 +578,164 @@ const submit = Command.make("submit", {
       `  ${human} reviews it at http://127.0.0.1:${portOf(env)}/review`,
     ].join("\n"))
   })).pipe(Command.withDescription("Hand finished work to Lucas: a review packet (summary, steps, evidence) that moves the task to In Review."))
+
+// ── needs input (CEL-47) ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Saves the screenshots Lucas pasted into answers to a temp folder (agents never read the data folder
+ * directly), fetched from the server: `<tmp>/cello-answers/<ask id>/q1-1.png`. Returns attachment id →
+ * path; one that can't be fetched is left out (the text then shows its URL path).
+ */
+const saveScreenshots = (asks: ReadonlyArray<Ask>) =>
+  Effect.gen(function* () {
+    const { env } = yield* CliEnv
+    const saved = new Map<string, string>()
+    for (const ask of asks) {
+      for (const { attachment, fileName } of answerScreenshots(ask)) {
+        const file = path.join(os.tmpdir(), "cello-answers", ask.id, fileName)
+        const ok = yield* Effect.promise(async () => {
+          try {
+            const response = await fetch(`http://127.0.0.1:${portOf(env)}/attachments/${attachment.id}`)
+            if (!response.ok) return false
+            fs.mkdirSync(path.dirname(file), { recursive: true })
+            await Bun.write(file, await response.arrayBuffer())
+            return true
+          } catch {
+            return false
+          }
+        })
+        if (ok) saved.set(attachment.id, file)
+      }
+    }
+    return saved as ReadonlyMap<string, string>
+  })
+
+const humanName = (actors: ReadonlyArray<Actor>) => actors.find((a) => a.kind === "human")?.name ?? "Lucas"
+
+/** Waits for the task's latest ask to close, then prints the answers (screenshots saved as files) or why there are none. */
+const waitAndPrint = (key: string, json: boolean) =>
+  Effect.gen(function* () {
+    const { ask, detail } = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const ask = yield* client["ask.wait"]({ key })
+        return { ask, detail: yield* client["task.get"]({ key }) }
+      })
+    )
+    const files = yield* saveScreenshots([ask])
+    if (json) return yield* printJson({ ask, files: Object.fromEntries(files) })
+    yield* print(askResultText(ask, detail.task.key, humanName(detail.actors), files, (yield* CliEnv).now()))
+  })
+
+const ask = Command.make("ask", {
+  key,
+  json,
+  file: Flag.String("file").pipe(
+    Flag.optional,
+    Flag.withDescription("Read the title, intro, questions and evidence from a JSON or YAML file (the format is in `cello guide`); paths in it are relative to the file."),
+  ),
+  title: Flag.String("title").pipe(Flag.optional, Flag.withDescription("What the decision is about, e.g. \"Search layout\". Overrides the file's.")),
+  intro: Flag.String("intro").pipe(Flag.optional, Flag.withDescription("Context in markdown, shown above the questions.")),
+  question: Flag.String("question").pipe(Flag.atLeast(0), Flag.withDescription("A question; the --kind, --option, --recommend and --because after it belong to it.")),
+  kind: Flag.String("kind").pipe(
+    Flag.atLeast(0),
+    Flag.withDescription("one (Lucas picks one option; the default with options), any (any number) or text (no options; the default without)."),
+  ),
+  option: Flag.String("option").pipe(Flag.atLeast(0), Flag.withDescription("An option: \"Label\" or \"Label|one-line description\"; repeat in order.")),
+  recommend: Flag.String("recommend").pipe(Flag.atLeast(0), Flag.withDescription("The label of the option you recommend; --because must follow.")),
+  because: Flag.String("because").pipe(Flag.atLeast(0), Flag.withDescription("Why you recommend it, right after --recommend.")),
+  attach: Flag.String("attach").pipe(Flag.atLeast(0), Flag.withDescription("A screenshot, video or text file to decide from; repeatable.")),
+  caption: Flag.String("caption").pipe(Flag.atLeast(0), Flag.withDescription("Describes the --attach or --link right before it.")),
+  link: Flag.String("link").pipe(Flag.atLeast(0), Flag.withDescription("A link to decide from, e.g. the scope page; repeatable.")),
+  wait: Flag.Boolean("wait").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Block until Lucas answers (or the ask is withdrawn), then print the answers. Run it in the background."),
+  ),
+  withdraw: Flag.Boolean("withdraw").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Take back the open ask instead: the task returns to In Progress."),
+  ),
+}, (input) =>
+  Effect.gen(function* () {
+    const { cwd, env } = yield* CliEnv
+    if (input.withdraw) {
+      const response = yield* withClient((client) => client["ask.withdraw"]({ commandId: newCommandId(), key: input.key }))
+      if (input.json) return yield* printJson(response)
+      return yield* print(`Withdrew the questions on ${response.result.task.key} ("${response.result.ask.title}"); it's back in progress.`)
+    }
+    const args = yield* CliArgs
+    const inline = askSpecFromArgs(args, cwd)
+    if ("error" in inline) return yield* new CliFailure({ message: inline.error })
+    let spec = inline
+    if (Option.isSome(input.file)) {
+      if (inline.questions.length) return yield* new CliFailure({ message: "Ask from --file or with --question flags, not both." })
+      const file = path.resolve(cwd, input.file.value)
+      const fromFile = askSpecFromFile(yield* readFile(file), file)
+      if ("error" in fromFile) return yield* new CliFailure({ message: fromFile.error })
+      spec = {
+        title: inline.title ?? fromFile.title,
+        intro: inline.intro ?? fromFile.intro,
+        questions: fromFile.questions,
+        files: [...fromFile.files, ...inline.files],
+        links: [...fromFile.links, ...inline.links],
+      }
+    }
+    if (spec.questions.length === 0) {
+      return yield* new CliFailure({ message: `Ask something: --question "…" with --option flags, or --file ask.json. See \`cello guide\`.` })
+    }
+    if (spec.title === null || spec.title.trim() === "") return yield* new CliFailure({ message: "Give the ask a --title (or a title: in the file)." })
+    const written = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const before = yield* client["task.get"]({ key: input.key })
+        const response = yield* client["ask.create"]({
+          commandId: newCommandId(),
+          key: input.key,
+          title: spec.title!,
+          ...(spec.intro ? { intro: spec.intro } : {}),
+          questions: spec.questions,
+          files: spec.files,
+          links: spec.links,
+        })
+        return { before, response }
+      })
+    )
+    const { before, response } = written
+    if (input.json && !input.wait) return yield* printJson(response)
+    const { ask: created, task } = response.result
+    const human = humanName(before.actors)
+    if (!input.json) {
+      yield* print([
+        `Asked ${human} on ${task.key}: "${created.title}" (${plural(created.questions.length, "question")})  ${statusName(before, before.task.statusId)} → ${statusName(before, task.statusId)}`,
+        `  ${human} answers at http://127.0.0.1:${portOf(env)}/review?open=${task.key}`,
+        input.wait
+          ? "  Waiting for the answers…"
+          : `  The answers reach this session through the hook, or run \`cello wait ${task.key}\`.`,
+      ].join("\n"))
+    }
+    if (input.wait) yield* waitAndPrint(task.key, input.json)
+  })).pipe(Command.withDescription(
+    "Ask Lucas to decide something, on the card: questions with options (one recommended, with a reason) and evidence. " +
+      "The task moves to Needs input until he answers; then it's back in In Progress and the answers reach you (hook, --wait or `cello wait`).",
+  ))
+
+const answers = Command.make("answers", {
+  key,
+  json,
+  all: Flag.Boolean("all").pipe(Flag.withDefault(false), Flag.withDescription("Every round of questions on the task, oldest first, not only the latest answers.")),
+}, (input) =>
+  Effect.gen(function* () {
+    // `task.get` carries every ask of the task, oldest first: one per round.
+    const detail = yield* withClient((client) => client["task.get"]({ key: input.key }))
+    const shown = input.all ? detail.asks : detail.asks.filter((a) => a.state === "answered").slice(-1)
+    const files = yield* saveScreenshots(shown)
+    if (input.json) return yield* printJson({ asks: shown, files: Object.fromEntries(files) })
+    yield* print(roundsText(detail.asks, { all: input.all, taskKey: detail.task.key, human: humanName(detail.actors), files, now: (yield* CliEnv).now() }))
+  })).pipe(Command.withDescription(
+    "Print Lucas's latest answers on a task again (--all: every round of questions); screenshots he pasted are saved to files and their paths printed.",
+  ))
+
+const waitCommand =Command.make("wait", { key, json }, (input) => waitAndPrint(input.key, input.json)).pipe(
+  Command.withDescription("Wait for Lucas to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered."),
+)
 
 // ── documents ───────────────────────────────────────────────────────────────────────────────────
 
@@ -842,23 +1026,24 @@ const inbox = Command.make("inbox", {
     const taken = yield* withClient((client) => client["inbox.take"](input.onlyNew ? { unreadOnly: true } : {}))
     if (input.json) return yield* printJson(taken)
     const now = (yield* CliEnv).now()
-    if (input.onlyNew) return taken.items.length ? yield* print(deliveryText(taken.items, now)) : undefined
+    const files = yield* saveScreenshots(answeredAsks([...taken.items, ...taken.earlier]))
+    if (input.onlyNew) return taken.items.length ? yield* print(deliveryText(taken.items, now, files)) : undefined
     if (taken.session === null) {
       return yield* print(
         "The human has no inbox: comments reach the agent session that claimed the task. Run this from an agent session (CLAUDE_CODE_SESSION_ID or CELLO_SESSION set).",
       )
     }
-    const lines = [taken.items.length ? deliveryText(taken.items, now) : `No new comments for ${sessionName(taken.session)}.`]
-    if (taken.earlier.length) lines.push("", "Earlier", ...indent(inboxEntries(taken.earlier, now)))
+    const lines = [taken.items.length ? deliveryText(taken.items, now, files) : `No new comments for ${sessionName(taken.session)}.`]
+    if (taken.earlier.length) lines.push("", "Earlier", ...indent(inboxEntries(taken.earlier, now, undefined, files)))
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
-    "Show the comments Lucas left on tasks this session claimed (Send back notes too) and mark them read; each one arrives once. " +
+    "Show the comments Lucas left on tasks this session claimed (Send back notes and answers to your asks too) and mark them read; each one arrives once. " +
       "Use it when `cello context` lists new ones, or to reread what he said. With `cello install claude` they arrive by themselves. " +
       "Not from a subagent: it shares its parent's session and would take the parent's comments.",
   ))
 
-/** What the hook does: takes the new comments for the session on stdin and prints them for Claude Code. */
-const deliverToClaude = (event: HookEvent) =>
+/** What the comment hooks do: take the new comments for the session on stdin and print them for Claude Code. */
+const deliverToClaude = (event: Exclude<HookEvent, "pre-tool-use">) =>
   Effect.gen(function* () {
     const { env, cwd, now, readStdin } = yield* CliEnv
     const hook = parseHookInput(yield* Effect.promise(readStdin))
@@ -871,24 +1056,39 @@ const deliverToClaude = (event: HookEvent) =>
     // Taken and marked read in one step: a comment is handed over once, even to hooks running at the
     // same time, and a Stop hook can't loop on it (stop_hook_active needs no special case).
     const { items } = yield* withClient((client) => client["inbox.take"]({ unreadOnly: true }), { headers })
-    if (items.length) yield* print(JSON.stringify(hookResponse(event, deliveryText(items, now()))))
+    if (items.length) yield* print(JSON.stringify(hookResponse(event, deliveryText(items, now(), yield* saveScreenshots(answeredAsks(items))))))
   })
+
+/** The asks whose answers are among these inbox items. */
+const answeredAsks = (items: ReadonlyArray<InboxItem>) => items.flatMap((i) => (i.kind === "answers" ? [i.ask] : []))
+
+/** What the artifact guard does (CEL-57): denies a Claude artifact publish, pointing to `cello doc publish`. No server needed. */
+const guardArtifacts = Effect.gen(function* () {
+  const { env, readStdin } = yield* CliEnv
+  const answer = artifactGuard(parseHookInput(yield* Effect.promise(readStdin)), env)
+  if (answer) yield* print(JSON.stringify(answer))
+})
 
 const hookClaude = Command.make("claude", {
   event: Argument.Literals("event", HOOK_EVENTS).pipe(
-    Argument.withDescription("The hook event Claude Code runs it for: stop (Stop) or post-tool-use (PostToolUse)."),
+    Argument.withDescription(
+      "The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse) or pre-tool-use (PreToolUse, the Artifact guard).",
+    ),
   ),
 }, (input) =>
   Effect.gen(function* () {
     const { env, exit } = yield* CliEnv
+    const work = input.event === "pre-tool-use" ? guardArtifacts : deliverToClaude(input.event)
     // It must never break or stall the session: a slow or missing server, bad input, anything, is silence and exit 0.
-    yield* deliverToClaude(input.event).pipe(Effect.timeout(hookDeadline(env)), Effect.catchCause(() => Effect.void))
+    yield* work.pipe(Effect.timeout(hookDeadline(env)), Effect.catchCause(() => Effect.void))
     // An explicit end: a stdin that never closes would otherwise keep the process alive.
     exit?.(0)
   })).pipe(Command.withDescription(
-    "Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin and hands new comments " +
-      "for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working. " +
-      "Prints nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds; always exits 0.",
+    "Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand " +
+      "new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing " +
+      "when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. pre-tool-use turns a Claude artifact publish " +
+      "away with a pointer to `cello doc publish`, and lets every other call through (all of them with CELLO_ALLOW_ARTIFACTS=1); it " +
+      "needs no server. Always exits 0.",
   ))
 
 const hook = Command.make("hook").pipe(
@@ -938,16 +1138,24 @@ const installHooks = (scope: keyof typeof SCOPES) =>
     const { projectRoot, paths } = yield* claudeSettings
     const file = paths[scope]
     if (file === null) return yield* new CliFailure({ message: "HOME isn't set, so there's no ~/.claude/settings.json to write." })
-    const { changed, backup } = yield* updateSettings(file, addCelloHooks)
+    // The artifact guard is for Cello projects, so the user's settings (every project) don't get it.
+    const wanted = celloHooksFor(scope === "user" ? "user" : "project")
+    const { changed, backup } = yield* updateSettings(file, (settings) => addCelloHooks(settings, wanted))
     const ignored = scope === "local" && projectRoot !== null ? ensureGitIgnored(projectRoot, ".claude/settings.local.json", gitEnv(env)) : null
     const ignoredLine = ignored ? [`Added .claude/settings.local.json to ${ignored}, so it stays on this machine.`] : []
     if (!changed) return { file, changed, lines: [`Cello's Claude Code hooks are already in ${file}.`, ...ignoredLine] }
     const lines = [
       `Installed Cello's Claude Code hooks in ${file} (${SCOPES[scope]}):`,
-      ...indent(columns(CELLO_HOOKS.map((h) => [h.event, h.command]))),
+      ...indent(columns(wanted.map((h) => [h.event, h.command]))),
       ...ignoredLine,
       ...(backup ? [`Kept the old file as ${backup}.`] : []),
       "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
+      ...(wanted.some((h) => h.projectOnly)
+        ? [
+          "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. " +
+          `Start Claude Code with ${ALLOW_ARTIFACTS_VARIABLE}=1 when you want one.`,
+        ]
+        : []),
       "New Claude Code sessions pick them up.",
     ]
     if (Bun.which("cello", { PATH: env.PATH ?? "" }) === null) {
@@ -977,8 +1185,9 @@ const installClaude = Command.make("claude", {
     const { lines } = yield* installHooks(input.user ? "user" : input.shared ? "shared" : "local")
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
-    "Add Claude Code hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse, running " +
-      "`cello hook claude`). Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main " +
+    "Add Claude Code hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), and one that " +
+      "turns Claude artifact publishes away in favour of Cello pages (PreToolUse on Artifact; not with --user), all running " +
+      "`cello hook claude`. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main " +
       "checkout's), merged with the hooks already there; running it again changes nothing. The old file is kept as .bak.",
   ))
 
@@ -1130,8 +1339,8 @@ const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(
 )
 
 const task = Command.make("task").pipe(
-  Command.withDescription("Tasks: list, get, create, claim, release, move, comment, submit."),
-  Command.withSubcommands([list, get, create, claim, release, stage, move, comment, submit]),
+  Command.withDescription("Tasks: list, get, create, claim, release, stage, move, comment, submit, ask, answers."),
+  Command.withSubcommands([list, get, create, claim, release, stage, move, comment, submit, ask, answers]),
 )
 
 const startCommand = Command.make("start", {}, () => start).pipe(
@@ -1140,7 +1349,7 @@ const startCommand = Command.make("start", {}, () => start).pipe(
 
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, init, task, inbox, doc, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand, buildsCommand]),
+  Command.withSubcommands([context, init, task, waitCommand, inbox, doc, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand, buildsCommand]),
 )
 
 /**

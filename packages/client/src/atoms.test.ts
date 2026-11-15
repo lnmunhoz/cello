@@ -32,6 +32,7 @@ const snapshot: Snapshot = {
   tasks: [task],
   sessions: [],
   reviews: [],
+  asks: [],
   documents: [],
 }
 

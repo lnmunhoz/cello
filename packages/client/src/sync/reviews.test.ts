@@ -16,7 +16,7 @@ const task = (id: string, statusId: string, extra: Partial<Task> = {}): Task => 
   createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
 })
 const attachment = (id: string, kind: Attachment["kind"], extra: Partial<Attachment> = {}): Attachment => ({
-  id, taskId: "t1", reviewId: "r1", kind, name: `${id}.bin`, url: null, caption: "", mime: null, bytes: 10, hasPoster: false,
+  id, taskId: "t1", reviewId: "r1", askId: null, kind, name: `${id}.bin`, url: null, caption: "", mime: null, bytes: 10, hasPoster: false,
   actorId: "agent", sessionId: "s1", createdAt: 1, deletedAt: null, ...extra,
 })
 const review = (id: string, taskId: string, createdAt: number, attachments: Attachment[] = []): Review => ({
@@ -51,6 +51,7 @@ const state: BoardState = {
     r4: review("r4", "t4", 20),
     rg: review("rg", "gone", 5),
   },
+  asks: {},
   documents: {},
 }
 
@@ -66,6 +67,15 @@ describe("the review queue", () => {
       ["t1", "r1", "CEL"],
       ["t3", null, "CEL"],
     ])
+  })
+
+  it("leaves out a task waiting on Lucas's answers: the Needs input group shows it first", () => {
+    const ask = {
+      id: "k1", taskId: "t4", title: "Which?", intro: "", questions: [], attachments: [], actorId: "agent", sessionId: "s1",
+      author: { name: "Claude Code", session: "2fd0505c" }, state: "open" as const, createdAt: 1, answeredAt: null, answers: null,
+      withdrawnAt: null, withdrawnBy: null,
+    }
+    expect(reviewQueue({ ...state, asks: { k1: ask } }, "w1").map((i) => i.task.id)).toEqual(["t2", "t1", "t3"])
   })
 
   it("finds a task's open review", () => {

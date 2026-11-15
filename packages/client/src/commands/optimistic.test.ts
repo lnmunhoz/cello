@@ -42,6 +42,7 @@ const state = (seq: number, tasks: Task[]): BoardState => ({
   tasks: Object.fromEntries(tasks.map((t) => [t.id, t])),
   sessions: {},
   reviews: {},
+  asks: {},
   documents: {},
 })
 

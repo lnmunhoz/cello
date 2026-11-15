@@ -1,6 +1,6 @@
 // Read models for the CLI (and later MCP): one RPC returns everything a command prints.
 import * as Schema from "effect/Schema"
-import { Actor, AgentSession, Comment, DocumentSummary, InboxItem, Label, Project, Review, Status, Task } from "./entities.ts"
+import { Actor, AgentSession, Ask, Comment, DocumentSummary, InboxItem, Label, Project, Review, Status, Task } from "./entities.ts"
 import { CelloEvent } from "./events.ts"
 
 /** Who the server sees: the actor, its agent session (null for the human), and the project if one resolved. */
@@ -62,6 +62,8 @@ export const TaskDetail = Schema.Struct({
   comments: Schema.Array(Comment),
   /** Every review packet, oldest first. */
   reviews: Schema.Array(Review),
+  /** Every ask (questions for Lucas, CEL-47) with its answers, oldest first. */
+  asks: Schema.Array(Ask),
   /** Documents linked to the task that aren't archived, newest first. */
   documents: Schema.Array(DocumentSummary),
   /** Every event about the task, oldest first. */

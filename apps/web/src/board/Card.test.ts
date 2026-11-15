@@ -27,6 +27,7 @@ const board: BoardState = {
   tasks: { t1: task("t1", 1, { title: "Plan the release" }) },
   sessions: {},
   reviews: {},
+  asks: {},
   documents: {},
 }
 

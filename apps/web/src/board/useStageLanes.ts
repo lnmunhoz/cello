@@ -1,9 +1,9 @@
 // Display → "Group In Progress by stage" (CEL-35): off unless turned on, remembered on this device like
-// "Show agent cursors". The board splits In Progress into lanes; the list shows a stage column there.
-import { useStored, writeStored } from "../lib/storage.ts"
+// the other Display switches. The board splits In Progress into lanes; the list shows a stage column there.
+import { displaySwitch } from "../lib/displaySwitch.ts"
 
-const KEY = "cello:stage-lanes"
+const lanes = displaySwitch("cello:stage-lanes", false)
 
-export const useStageLanes = (): boolean => useStored(KEY) === "on"
+export const useStageLanes = lanes.use
 
-export const showStageLanes = (on: boolean): void => writeStored(KEY, on ? "on" : "off")
+export const showStageLanes = lanes.set

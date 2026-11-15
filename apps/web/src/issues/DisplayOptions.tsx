@@ -6,6 +6,7 @@ import { SegmentedControl, SegmentedControlItem } from "../components/ui/Segment
 import { Select } from "../components/ui/Select.tsx"
 import { Switch } from "../components/ui/Switch.tsx"
 import { showAgentCursors, useAgentCursorsShown } from "../board/cursors/settings.ts"
+import { showNeedsInputColumn, useNeedsInputColumn } from "../board/needsInputColumn.ts"
 import { showStageLanes, useStageLanes } from "../board/useStageLanes.ts"
 import { layoutOf, searchFor, type Layout } from "./layout.ts"
 import { useOrdering } from "./useOrdering.ts"
@@ -61,11 +62,23 @@ export function DisplayOptions() {
               />
             </dd>
           </dl>
+          <NeedsInputColumnRow />
           <StageLanesRow />
           <AgentCursorsRow />
         </div>
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** Needs input as its own column and list group (CEL-47): off unless turned on on this device. */
+function NeedsInputColumnRow() {
+  const on = useNeedsInputColumn()
+  return (
+    <label className="flex items-center justify-between gap-3 border-t border-line pt-2 text-[13px]">
+      <span className="text-muted">Needs input column</span>
+      <Switch checked={on} onCheckedChange={(next) => showNeedsInputColumn(next)} />
+    </label>
   )
 }
 

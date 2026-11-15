@@ -54,6 +54,7 @@ const state: BoardState = {
   tasks: { t1: task("t1"), t2: task("t2") },
   sessions: {},
   reviews: {},
+  asks: {},
   documents: {},
 }
 

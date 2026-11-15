@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as EventStore from "../events/EventStore.ts"
 import * as Seed from "../persistence/Seed.ts"
+import * as AskService from "../ask/AskService.ts"
 import * as ReviewService from "../review/ReviewService.ts"
 import { cmd, setupProject } from "../testing/fixtures.ts"
 import { asAgent, asHuman, services } from "../testing/TestLayers.ts"
@@ -105,6 +106,36 @@ describe("a stage is cleared", () => {
       )
       expect(result.task.stage).toBeNull()
       expect((yield* tasks.byKey(task.key)).stage).toBeNull()
+    })))
+})
+
+describe("a stage stays", () => {
+  // Asking Lucas (CEL-47) pauses the work without changing where it is: the stage waits in Needs input
+  // and is still there when his answers bring the task back to In Progress.
+  it.effect("while the task waits in Needs input, and when the answers bring it back to In Progress", () =>
+    run(Effect.gen(function* () {
+      const { tasks, status, task } = yield* claimed
+      const asks = yield* AskService.AskService
+      yield* asAgent(builder)(tasks.setStage({ commandId: cmd(), key: task.key, stage: "review" }))
+      const { result: asked } = yield* asAgent(builder)(asks.create({
+        commandId: cmd(), key: task.key, title: "Which option?", questions: [{ prompt: "Ship it?" }], files: [], links: [],
+      }))
+      expect(asked.task).toMatchObject({ statusId: status["Needs input"]!.id, stage: "review" })
+
+      const { result: answered } = yield* asks.answer({
+        commandId: cmd(), askId: asked.ask.id, answers: [{ questionId: "q1", optionIds: [], comment: "Yes" }],
+      })
+      expect(answered.task).toMatchObject({ statusId: status["In Progress"]!.id, stage: "review" })
+    })))
+
+  it.effect("but not when Lucas moves a waiting task anywhere other than In Progress", () =>
+    run(Effect.gen(function* () {
+      const { tasks, status, task } = yield* claimed
+      const asks = yield* AskService.AskService
+      yield* asAgent(builder)(tasks.setStage({ commandId: cmd(), key: task.key, stage: "fixing" }))
+      yield* asAgent(builder)(asks.create({ commandId: cmd(), key: task.key, title: "Which?", questions: [{ prompt: "Ship it?" }], files: [], links: [] }))
+      const { result } = yield* tasks.move({ commandId: cmd(), id: task.id, statusId: status["Todo"]!.id })
+      expect(result.stage).toBeNull()
     })))
 })
 

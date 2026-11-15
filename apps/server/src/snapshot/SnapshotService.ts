@@ -10,6 +10,7 @@ import { SessionService } from "../session/SessionService.ts"
 import * as EventStore from "../events/EventStore.ts"
 import {
   selectActors,
+  selectAsks,
   selectDocuments,
   selectLabels,
   selectProjects,
@@ -65,6 +66,7 @@ const make = Effect.gen(function* () {
         tasks,
         sessions: yield* sessions.byIds(tasks.flatMap((t) => [t.createdBySessionId, t.assigneeSessionId, t.updatedBySessionId].filter((id) => id !== null))),
         reviews: yield* selectReviews(sql, sql`r.decided_at IS NULL AND ${projectFilter}`),
+        asks: yield* selectAsks(sql, sql`a.state = 'open' AND ${projectFilter}`),
         documents: yield* selectDocuments(sql, projectFilter),
       } satisfies Snapshot
     }))

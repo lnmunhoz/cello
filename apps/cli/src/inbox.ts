@@ -1,6 +1,9 @@
-// How an agent session reads the comments that reached it (CEL-15). `cello inbox`, `cello context` and
-// the Claude Code hook print items the same way, so the agent sees one format wherever they arrive.
+// How an agent session reads what reached it (CEL-15): Lucas's comments, Send back notes, his
+// answers to the questions it asked on a card and word that he withdrew one by moving the card (CEL-47).
+// `cello inbox`, `cello context` and the Claude Code hook print items the same way, so the agent sees one
+// format wherever they arrive.
 import type { InboxItem } from "@cello/contract/entities"
+import { answerLines } from "./ask.ts"
 import { ago } from "./format.ts"
 
 /**
@@ -9,52 +12,102 @@ import { ago } from "./format.ts"
  */
 export const MAX_DELIVERY = 9_500
 
-const who = (item: InboxItem) => item.kind === "send_back" ? `${item.author} sent it back` : `${item.author} commented`
+/** Where the screenshots in answers were saved: attachment id → local path. */
+export type SavedFiles = ReadonlyMap<string, string>
+
+const NO_FILES: SavedFiles = new Map()
+
+const who = (item: InboxItem) => {
+  switch (item.kind) {
+    case "answers":
+      return `${item.author} answered your questions "${item.ask.title}"`
+    case "withdrawn":
+      return `${item.author} moved it out of Needs input`
+    case "send_back":
+      return `${item.author} sent it back`
+    case "comment":
+      return `${item.author} commented`
+  }
+}
+
+const textOf = (item: InboxItem, files: SavedFiles) => {
+  switch (item.kind) {
+    case "answers":
+      return answerLines(item.ask, files).join("\n")
+    case "withdrawn":
+      return `${item.author} moved ${item.taskKey} to ${item.status}; your ask "${item.ask.title}" was withdrawn.`
+    default:
+      return item.comment.body.trim()
+  }
+}
+
+const readAll = (item: InboxItem) => item.kind === "answers" ? `cello task answers ${item.taskKey}` : `cello task get ${item.taskKey}`
 
 /** One item: its task, who wrote it and when, then its text, indented. `limit` cuts a long text. */
-const entry = (item: InboxItem, now: number, limit = Infinity): string[] => {
-  const body = item.comment.body.trim()
-  const text = body.length <= limit
-    ? body
-    : `${body.slice(0, limit).trimEnd()}…\n(cut short: read it all with \`cello task get ${item.taskKey}\`)`
-  return [`${item.taskKey}  ${item.taskTitle}`, `  ${who(item)}, ${ago(item.createdAt, now)}`, ...text.split("\n").map((l) => `    ${l}`)]
+const entry = (item: InboxItem, now: number, files: SavedFiles, limit = Infinity): string[] => {
+  const body = textOf(item, files)
+  const text = body.length <= limit ? body : `${body.slice(0, limit).trimEnd()}…\n(cut short: read it all with \`${readAll(item)}\`)`
+  return [`${item.taskKey}  ${item.taskTitle}`, `  ${who(item)}, ${ago(item.createdAt, now)}`, ...text.split("\n").map((l) => (l === "" ? "" : `    ${l}`))]
 }
 
 /** Items one after another, a blank line between them. */
-export const inboxEntries = (items: ReadonlyArray<InboxItem>, now: number, limit?: number): string[] =>
-  items.flatMap((item, i) => [...(i === 0 ? [] : [""]), ...entry(item, now, limit)])
+export const inboxEntries = (items: ReadonlyArray<InboxItem>, now: number, limit?: number, files: SavedFiles = NO_FILES): string[] =>
+  items.flatMap((item, i) => [...(i === 0 ? [] : [""]), ...entry(item, now, files, limit)])
 
 const unique = (keys: ReadonlyArray<string>) => [...new Set(keys)]
 
 /** "`cello task comment CEL-3 "…"`", plus the other tasks to answer on. */
-const answerHint = (items: ReadonlyArray<InboxItem>) => {
-  const [first, ...others] = unique(items.map((i) => i.taskKey))
+const answerHint = (keys: ReadonlyArray<string>) => {
+  const [first, ...others] = unique(keys)
   const command = `\`cello task comment ${first} "…"\``
   return others.length === 0
     ? `${command} (or \`--body-file -\` for markdown)`
     : `${command} (${others.join(", ")} the same way; \`--body-file -\` for markdown)`
 }
 
+const headOf = (items: ReadonlyArray<InboxItem>) => {
+  const answers = items.filter((i) => i.kind === "answers").length
+  const withdrawn = items.filter((i) => i.kind === "withdrawn").length
+  const comments = items.length - answers - withdrawn
+  const parts = [
+    ...(answers ? [answers === 1 ? "answers to the questions you asked" : `answers to ${answers} asks`] : []),
+    ...(withdrawn ? [withdrawn === 1 ? "an ask withdrawn" : `${withdrawn} asks withdrawn`] : []),
+    ...(comments ? [comments === 1 ? "a comment" : `${comments} comments`] : []),
+  ]
+  if (answers + withdrawn === 0) return comments === 1 ? "New Cello comment on a task you claimed:" : `${comments} new Cello comments on tasks you claimed:`
+  return `New in Cello for you: ${parts.join(" and ")}:`
+}
+
 /**
- * What the agent gets when new comments arrive: what they are, the comments, and how to answer on the
- * card (and, for a task Lucas sent back, how to hand it in again). At most MAX_DELIVERY characters.
+ * What the agent gets when new items arrive: what they are, the items, and what to do next: answer
+ * comments on the card, hand a sent-back task in again, carry on with Lucas's answers. At most
+ * MAX_DELIVERY characters. `files` says where the screenshots in answers were saved.
  */
-export const deliveryText = (items: ReadonlyArray<InboxItem>, now: number): string => {
+export const deliveryText = (items: ReadonlyArray<InboxItem>, now: number, files: SavedFiles = NO_FILES): string => {
   const count = items.length
-  const head = count === 1 ? "New Cello comment on a task you claimed:" : `${count} new Cello comments on tasks you claimed:`
+  const comments = items.filter((i) => i.kind === "comment" || i.kind === "send_back")
+  const answered = unique(items.filter((i) => i.kind === "answers").map((i) => i.taskKey))
+  const withdrawn = unique(items.filter((i) => i.kind === "withdrawn").map((i) => i.taskKey))
   const sentBack = unique(items.filter((i) => i.kind === "send_back").map((i) => i.taskKey))
-  const human = items.find((i) => i.kind === "send_back")?.author ?? "Lucas"
-  const author = items[0]?.author ?? "Lucas"
+  const human = items[0]?.author ?? "Lucas"
   const tail = [
-    `Act on ${count === 1 ? "it" : "them"} now, then answer on the card: ${answerHint(items)}, so ${author} sees your reply there.`,
+    ...(comments.length
+      ? [`Act on ${comments.length === 1 ? "it" : "them"} now, then answer on the card: ${answerHint(comments.map((i) => i.taskKey))}, so ${human} sees your reply there.`]
+      : []),
     ...(sentBack.length
       ? [`For a task ${human} sent back, fix what the note asks, then hand it in again with \`cello task submit ${sentBack[0]}\`${sentBack.length > 1 ? ` (${sentBack.slice(1).join(", ")} the same way)` : ""}.`]
       : []),
+    ...(answered.length
+      ? [`${answered.join(", ")} ${answered.length === 1 ? "is" : "are"} back in progress: carry on with ${human}'s answers (the screenshots are files you can open). If something is unclear, ask on the card again with \`cello task ask\`.`]
+      : []),
+    ...(withdrawn.length
+      ? [`Your claim on ${withdrawn.join(", ")} ended with the move. Check with \`cello task get ${withdrawn[0]}\`, and ask ${human} on the card before you carry on.`]
+      : []),
   ]
-  const build = (limit?: number) => [head, "", ...inboxEntries(items, now, limit), "", ...tail].join("\n")
+  const build = (limit?: number) => [headOf(items), "", ...inboxEntries(items, now, limit, files), "", ...tail].join("\n")
   const full = build()
   if (full.length <= MAX_DELIVERY) return full
-  // Share what's left after the fixed lines between the comments' texts.
+  // Share what's left after the fixed lines between the items' texts.
   const fixed = build(0).length + count * 120
   return build(Math.max(80, Math.floor((MAX_DELIVERY - fixed) / count))).slice(0, MAX_DELIVERY)
 }

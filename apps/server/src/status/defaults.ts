@@ -14,6 +14,7 @@ export const DEFAULT_STATUSES: ReadonlyArray<{
   { name: "Backlog", category: "backlog", color: "#9CA3AF", hidden: true },
   { name: "Todo", category: "unstarted", color: "#6B7280", hidden: false },
   { name: "In Progress", category: "started", color: "#F59E0B", hidden: false },
+  { name: "Needs input", category: "waiting", color: "#EC4899", hidden: false },
   { name: "In Review", category: "started", color: "#8B5CF6", hidden: false },
   { name: "Done", category: "completed", color: "#10B981", hidden: false },
   { name: "Canceled", category: "canceled", color: "#EF4444", hidden: true },

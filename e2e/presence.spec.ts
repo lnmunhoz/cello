@@ -193,6 +193,26 @@ test("CEL-35: Display → Group In Progress by stage splits the column into lane
     await page.screenshot({ path: path.join(SHOTS, `cel-5-35-words-list-${theme}.png`) })
   }
 
+  await caption(page, "The agent asks Lucas about the Fixing findings task: it waits under the lanes, in its own Needs input group, its stage kept")
+  await page.evaluate(() => document.documentElement.classList.remove("dark"))
+  await page.goto(`/${key}/issues`)
+  await groupByStage(page, true)
+  await agent.run((c) => c["ask.create"]({ commandId: newCommandId(), key: fixing, title: "Which fix?", questions: [{ prompt: "Ship the narrower drop zone?" }], files: [], links: [] }))
+  await expect(progress.locator("[data-lane]")).toHaveText([/Building\s*1/, /Agent review\s*1/, /No stage\s*1/, /Needs input\s*1/])
+  await expect(progress.locator("[data-task-key]").nth(3)).toHaveAttribute("data-task-key", fixing)
+  await expect(card(page, fixing).locator('[data-stage="fixing"]')).toBeVisible()
+
+  await caption(page, "With the Needs input column on too: Needs input is its own column, and In Progress keeps its lanes")
+  await display(page).click()
+  await page.getByRole("switch", { name: "Needs input column" }).click()
+  await expect(page.getByRole("switch", { name: "Needs input column" })).toHaveAttribute("aria-checked", "true")
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("dialog", { name: "Display options" })).toBeHidden()
+  await expect(column(page, "Needs input").locator(`[data-task-key="${fixing}"]`)).toBeVisible()
+  await expect(progress.locator("[data-lane]")).toHaveText([/Building\s*1/, /Agent review\s*1/, /No stage\s*1/])
+  await page.screenshot({ path: path.join(SHOTS, "cel-35-lanes-and-needs-input-light.png") })
+
+  await agent.run((c) => c["ask.withdraw"]({ commandId: newCommandId(), key: fixing }))
   for (const taskKey of keys) await agent.run((c) => c["task.release"]({ commandId: newCommandId(), key: taskKey }))
   await agent.close()
 })

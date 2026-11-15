@@ -1,5 +1,5 @@
 // Pure reducer from events to client state. Shared by the web app and any other client.
-import type { Actor, AgentSession, DocumentSummary, Label, Project, Review, Snapshot, Status, Task, Workspace } from "@cello/contract/entities"
+import type { Actor, AgentSession, Ask, DocumentSummary, Label, Project, Review, Snapshot, Status, Task, Workspace } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
 import { colorFromSeed } from "@cello/shared/color"
 
@@ -17,6 +17,8 @@ export interface BoardState {
   readonly sessions: ById<AgentSession>
   /** Open reviews only: a decided one leaves the board (the task panel loads a task's whole list). */
   readonly reviews: ById<Review>
+  /** Open asks only (Needs input): an answered or withdrawn one leaves the board (the task panel loads a task's list). */
+  readonly asks: ById<Ask>
   /** Documents without their bodies, archived ones included (the reader loads a body). */
   readonly documents: ById<DocumentSummary>
 }
@@ -34,6 +36,7 @@ export const fromSnapshot = (s: Snapshot): BoardState => ({
   tasks: byId(s.tasks),
   sessions: byId(s.sessions),
   reviews: byId(s.reviews),
+  asks: byId(s.asks),
   documents: byId(s.documents),
 })
 
@@ -137,6 +140,12 @@ const apply = (d: Draft, e: CelloEvent) => {
       return d.set("reviews", e.review.id, e.review)
     case "review.decided":
       return d.delete("reviews", e.id)
+    case "ask.created":
+      return d.set("asks", e.ask.id, e.ask)
+    case "ask.answered":
+      return d.delete("asks", e.ask.id)
+    case "ask.withdrawn":
+      return d.delete("asks", e.id)
     case "document.published":
       return d.set("documents", e.document.id, e.document)
     case "document.updated":

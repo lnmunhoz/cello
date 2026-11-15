@@ -2,6 +2,7 @@
 // already the contract's tagged errors.
 import { CelloRpcs } from "@cello/contract/rpcs"
 import * as Effect from "effect/Effect"
+import * as AskService from "../ask/AskService.ts"
 import * as BackupService from "../backup/BackupService.ts"
 import * as BuildHistory from "../build/BuildHistory.ts"
 import * as BuildInfo from "../build/BuildInfo.ts"
@@ -32,6 +33,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
   const documents = yield* DocumentService.DocumentService
   const backups = yield* BackupService.BackupService
   const inbox = yield* InboxService.InboxService
+  const asks = yield* AskService.AskService
   const build = yield* BuildInfo.BuildInfo
   const builds = yield* BuildHistory.BuildHistory
 
@@ -66,6 +68,12 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "review.approve": (input) => reviews.approve(input),
     "review.sendBack": (input) => reviews.sendBack(input),
     "review.list": ({ taskId }) => reviews.list(taskId),
+    "ask.create": (input) => asks.create(input),
+    "ask.answer": (input) => asks.answer(input),
+    "ask.withdraw": (input) => asks.withdraw(input),
+    "ask.get": ({ key }) => asks.latest(key),
+    "ask.list": ({ taskId }) => asks.list(taskId),
+    "ask.wait": ({ key }) => asks.wait(key),
     "document.publish": (input) => documents.publish(input),
     "document.get": (input) => documents.get(input),
     "document.list": (input) => documents.list(input),

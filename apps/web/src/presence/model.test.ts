@@ -31,6 +31,7 @@ const board = (tasks: Task[], sessions: AgentSession[]): BoardState => ({
   tasks: Object.fromEntries(tasks.map((t) => [t.id, t])),
   sessions: Object.fromEntries(sessions.map((s) => [s.id, s])),
   reviews: {},
+  asks: {},
   documents: {},
 })
 

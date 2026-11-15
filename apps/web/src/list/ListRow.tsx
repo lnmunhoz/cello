@@ -10,6 +10,7 @@ import { PriorityIcon } from "../components/ui/PriorityIcon.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { formatDue } from "../lib/format.ts"
 import { RowCreated, RowWork, StageChip } from "../presence/Presence.tsx"
+import { QuestionsBadge } from "../ask/QuestionsBadge.tsx"
 import { EvidenceBadge } from "../review/EvidenceBadge.tsx"
 
 const MAX_LABELS = 3
@@ -93,6 +94,7 @@ function RowBody({ task, board, keyChars, stageColumn }: { task: Task; board: Bo
       </span>
       <RowWork task={task} board={board} stage={!stageColumn} />
       <span className="flex shrink-0 items-center gap-1.5">
+        <QuestionsBadge task={task} board={board} />
         <EvidenceBadge task={task} board={board} />
         {labels.slice(0, MAX_LABELS).map((l) => (
           <Chip key={l.id} color={l.color}>

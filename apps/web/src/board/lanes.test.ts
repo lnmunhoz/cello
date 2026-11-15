@@ -60,6 +60,11 @@ describe("laneDrop: a drop in a column split into lanes", () => {
     expect(laneDrop({ key: "c", to: "prog", index: 3 }, ["a", "d", "b", "c"], "prog", "manual", column)).toBeNull()
   })
 
+  it("folded Needs input cards below the lanes belong to no lane: a card dropped among them snaps back", () => {
+    // "w" is a Needs input card shown at the bottom of In Progress; it isn't in the column's own tasks.
+    expect(laneDrop({ key: "b", to: "prog", index: 4 }, ["c", "a", "d", "w", "b"], "prog", "manual", column)).toBeNull()
+  })
+
   it("under a sorted order, a drop inside the column changes nothing", () => {
     expect(laneDrop({ key: "d", to: "prog", index: 1 }, ["c", "d", "a", "b"], "prog", "priority", column)).toBeNull()
   })

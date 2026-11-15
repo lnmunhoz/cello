@@ -1,5 +1,6 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { listGroups, type ListGroup } from "@cello/client/sync/list"
+import { useNeedsInputColumn } from "../board/needsInputColumn.ts"
 import { orderTasks, type Ordering } from "@cello/client/sync/ordering"
 import { projectByKey, taskByKey } from "@cello/client/sync/selectors"
 import type { Project, Task } from "@cello/contract/entities"
@@ -48,13 +49,17 @@ function TaskList({
   ordering: Ordering
   openNumber?: number
 }) {
-  // Display → "Group In Progress by stage" (CEL-35): that group's rows go lane by lane, with a stage column.
+  // Display → "Group In Progress by stage" (CEL-35): that group's own rows go lane by lane, with a stage
+  // column; folded Needs input rows stay below them.
   const lanesOn = useStageLanes()
-  const all = listGroups(board, workspaceId, project.id)
+  const needsInputColumn = useNeedsInputColumn()
+  const all = listGroups(board, workspaceId, project.id, { needsInputColumn })
   const lanedId = lanesOn ? (stageStatus(all.map((g) => g.status))?.id ?? null) : null
   const groups = all.map((g) => {
     const tasks = orderTasks(g.tasks, ordering)
-    return { ...g, tasks: g.status.id === lanedId ? stageLanes(tasks).flatMap((lane) => lane.tasks) : tasks }
+    if (g.status.id !== lanedId) return { ...g, tasks }
+    const own = tasks.filter((t) => t.statusId === g.status.id)
+    return { ...g, tasks: [...stageLanes(own).flatMap((lane) => lane.tasks), ...tasks.filter((t) => t.statusId !== g.status.id)] }
   })
   const open = openNumber === undefined ? undefined : taskByKey(board, project.key, openNumber)
   // Groups you folded or unfolded; the rest follow the default in `isCollapsed`.

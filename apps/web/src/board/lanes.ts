@@ -72,7 +72,11 @@ export const laneDrop = (
   column: ReadonlyArray<Staged>,
 ): Drop | null => {
   const crossing = move.to !== fromStatusId
-  const stageOf = (id: string) => column.find((t) => t.id === id)?.stage ?? null
+  // Cards not in the column itself (folded Needs input ones) belong to no lane: undefined matches none.
+  const stageOf = (id: string): string | null | undefined => {
+    const task = column.find((t) => t.id === id)
+    return task ? task.stage : undefined
+  }
   const own = crossing ? null : stageOf(move.key)
   const prev = next[move.index - 1]
   const after = next[move.index + 1]

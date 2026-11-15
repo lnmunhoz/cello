@@ -133,7 +133,7 @@ test("CEL-24: drag the sidebar's edge and reload: the width stays; ⌘B and the 
   await page.keyboard.press("ControlOrMeta+b")
   await expect(sidebar).toHaveCount(0)
   await page.goto("/NOSUCHKEY/issues")
-  await expect(page.getByText("No project with the key NOSUCHKEY.")).toBeVisible()
+  await expect(page.getByText("No project with the key NOSUCHKEY")).toBeVisible()
   await show.click()
   await expect(sidebar).toHaveAttribute("data-sidebar", "expanded")
   await caption(page, "Resized, collapsed to a rail, hidden and back")

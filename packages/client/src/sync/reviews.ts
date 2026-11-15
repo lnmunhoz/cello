@@ -19,8 +19,9 @@ export const openReviewOf = (state: BoardState, taskId: string): Review | undefi
   Object.values(state.reviews).find((r) => r.taskId === taskId)
 
 /**
- * Everything waiting on Lucas in a workspace: tasks with an open review (oldest packet first), then
- * tasks sitting in In Review without one. Archived tasks and projects are left out.
+ * Every packet waiting on Lucas in a workspace: tasks with an open review (oldest packet first), then
+ * tasks sitting in In Review without one. Archived tasks and projects are left out, and so are tasks
+ * waiting on his answers to an ask (CEL-47): the Needs input group shows those first.
  */
 export const reviewQueue = (state: BoardState, workspaceId: string): ReviewItem[] => {
   const projectOf = (task: Task) => {
@@ -28,11 +29,12 @@ export const reviewQueue = (state: BoardState, workspaceId: string): ReviewItem[
     return project && project.workspaceId === workspaceId && project.archivedAt === null ? project : undefined
   }
   const withPacket: ReviewItem[] = []
-  const reviewed = new Set<string>()
+  // Asked about: shown in the Needs input group instead.
+  const reviewed = new Set<string>(Object.values(state.asks).map((a) => a.taskId))
   for (const review of Object.values(state.reviews).sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1))) {
     const task = state.tasks[review.taskId]
     const project = task && task.archivedAt === null ? projectOf(task) : undefined
-    if (!task || !project) continue
+    if (!task || !project || reviewed.has(task.id)) continue
     reviewed.add(task.id)
     withPacket.push({ task, project, review })
   }

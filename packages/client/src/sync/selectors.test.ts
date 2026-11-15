@@ -31,6 +31,7 @@ const state: BoardState = {
   },
   sessions: {},
   reviews: {},
+  asks: {},
   documents: {},
 }
 

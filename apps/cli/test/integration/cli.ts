@@ -2,6 +2,7 @@
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
+import { tempDataDir } from "@cello/server/testing/servers"
 import * as BunServices from "@effect/platform-bun/BunServices"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
@@ -67,3 +68,30 @@ export const gitRepo = (dir: string, name: string) => {
   Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: repo })
   return fs.realpathSync(repo)
 }
+
+const BIN = path.resolve(import.meta.dirname, "../../src/bin.ts")
+
+/** `cello hook claude <event>` as a real process, as Claude Code runs it: its exit code, stdout and stderr. `stdin: null` leaves stdin open. */
+export const hookProcess = (event: string, env: Record<string, string>, stdin: string | null) =>
+  Effect.promise(async () => {
+    const proc = Bun.spawn(["bun", BIN, "hook", "claude", event], {
+      env: { PATH: process.env.PATH, ...env },
+      stdin: stdin === null ? "pipe" : new Blob([stdin]),
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+    return { exitCode, stdout, stderr }
+  })
+
+/** For `cello install claude` tests: a temp HOME, a fake `cello` on PATH, and a git repo "app" inside a temp `dir`. */
+export const installSetup = Effect.gen(function* () {
+  const dir = yield* tempDataDir
+  const repo = gitRepo(dir, "app")
+  const home = path.join(dir, "home")
+  const bin = path.join(dir, "bin")
+  fs.mkdirSync(bin)
+  fs.writeFileSync(path.join(bin, "cello"), "#!/bin/sh\n", { mode: 0o755 })
+  const run = (cwd: string, PATH = bin) => cello({ port: 1, env: { HOME: home, PATH }, cwd })
+  return { dir, repo, home, run }
+})

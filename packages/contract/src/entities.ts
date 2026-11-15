@@ -7,7 +7,8 @@ export const Id = Schema.String
 export const Millis = Schema.Number
 export const DueDate = Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/))
 
-export const StatusCategory = Schema.Literals(["backlog", "unstarted", "started", "completed", "canceled"])
+/** `waiting`: the task waits on the human's answers to an agent's questions (Needs input, CEL-47). */
+export const StatusCategory = Schema.Literals(["backlog", "unstarted", "started", "waiting", "completed", "canceled"])
 export type StatusCategory = typeof StatusCategory.Type
 
 /** 0 none, 1 urgent, 2 high, 3 medium, 4 low. */
@@ -132,31 +133,6 @@ export const Comment = Schema.Struct({
 })
 export type Comment = typeof Comment.Type
 
-/** Why a comment reached an agent's inbox: a comment on its task, or the note of a review Lucas sent back. */
-export const InboxKind = Schema.Literals(["comment", "send_back"])
-export type InboxKind = typeof InboxKind.Type
-
-/**
- * A human comment delivered to the agent session that held the task's claim when it was written (CEL-15).
- * The comment travels with it, as it is now (edits show; deleted comments drop out of the inbox).
- */
-export const InboxItem = Schema.Struct({
-  id: Id,
-  kind: InboxKind,
-  taskId: Id,
-  /** Keys and titles, so a hook can print the item without another call. */
-  taskKey: Schema.String,
-  taskTitle: Schema.String,
-  comment: Comment,
-  /** Who wrote it: the human's name. */
-  author: Schema.String,
-  /** When it was delivered: the comment's time. */
-  createdAt: Millis,
-  /** When the session read it (`cello inbox`, `cello context` or the hook); null while it's new. */
-  readAt: Schema.NullOr(Millis),
-})
-export type InboxItem = typeof InboxItem.Type
-
 export const AttachmentKind = Schema.Literals(["image", "video", "file", "link"])
 export type AttachmentKind = typeof AttachmentKind.Type
 
@@ -168,6 +144,11 @@ export const Attachment = Schema.Struct({
   id: Id,
   taskId: Id,
   reviewId: Schema.NullOr(Id),
+  /**
+   * The ask it's evidence for, or (Lucas's own screenshots) the ask whose answers it belongs to.
+   * Events stored before asks existed (CEL-47) have no key: they decode as null.
+   */
+  askId: Schema.NullOr(Id).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   kind: AttachmentKind,
   /** The original file name; for a link, its URL. */
   name: Schema.String,
@@ -222,6 +203,134 @@ export const Review = Schema.Struct({
   decisionNote: Schema.NullOr(Schema.String),
 })
 export type Review = typeof Review.Type
+
+/**
+ * What the agent expects: one pick, any number, or text only (no options). Lucas may pick several
+ * options on any question that has them (Nov 15), so `one` only says what the agent asked for.
+ */
+export const QuestionKind = Schema.Literals(["one", "any", "text"])
+export type QuestionKind = typeof QuestionKind.Type
+
+export const AskOption = Schema.Struct({
+  /** Stable within its ask: "q1o2" is question 1's second option. */
+  id: Schema.String,
+  label: Schema.String,
+  /** One line under the label; "" for none. */
+  description: Schema.String,
+  /** One of the ask's screenshots (an attachment id), shown as the option's thumbnail. */
+  imageId: Schema.NullOr(Id),
+  recommended: Schema.Boolean,
+  /** Why the agent recommends it; "" when it doesn't. */
+  because: Schema.String,
+})
+export type AskOption = typeof AskOption.Type
+
+export const AskQuestion = Schema.Struct({
+  /** Stable within its ask: "q1", "q2", … */
+  id: Schema.String,
+  prompt: Schema.String,
+  kind: QuestionKind,
+  /** Empty for a text-only question. */
+  options: Schema.Array(AskOption),
+})
+export type AskQuestion = typeof AskQuestion.Type
+
+/**
+ * One question answered: the options picked (by id; several are fine), or "None of these" (`none`,
+ * with the comment saying what instead), Lucas's comment, and the screenshots he pasted into it.
+ */
+export const AskAnswer = Schema.Struct({
+  questionId: Schema.String,
+  optionIds: Schema.Array(Schema.String),
+  none: Schema.Boolean,
+  comment: Schema.String,
+  attachments: Schema.Array(Attachment),
+})
+export type AskAnswer = typeof AskAnswer.Type
+
+/** Every question answered, plus the overall note and its screenshots. Saved as one record when Lucas sends them. */
+export const AskAnswers = Schema.Struct({
+  questions: Schema.Array(AskAnswer),
+  note: Schema.String,
+  noteAttachments: Schema.Array(Attachment),
+})
+export type AskAnswers = typeof AskAnswers.Type
+
+/**
+ * `open` until Lucas answers it (`answered`), the agent withdraws it or Lucas moves the card himself
+ * (`withdrawn`), or a newer ask on the same task replaces it (`superseded`).
+ */
+export const AskState = Schema.Literals(["open", "answered", "withdrawn", "superseded"])
+export type AskState = typeof AskState.Type
+
+/**
+ * An agent's request for decisions on one task (CEL-47): questions with options, plus evidence. A
+ * task has at most one open ask; while it's open the task sits in Needs input.
+ */
+export const Ask = Schema.Struct({
+  id: Id,
+  taskId: Id,
+  title: Schema.String,
+  /** Markdown; "" for none. */
+  intro: Schema.String,
+  questions: Schema.Array(AskQuestion),
+  /** The evidence: screenshots (option images among them), videos, files and links. */
+  attachments: Schema.Array(Attachment),
+  actorId: Id,
+  sessionId: Schema.NullOr(Id),
+  author: ReviewAuthor,
+  state: AskState,
+  createdAt: Millis,
+  answeredAt: Schema.NullOr(Millis),
+  answers: Schema.NullOr(AskAnswers),
+  /** When it was withdrawn or superseded, and by whom (the agent, or the human who moved the card). */
+  withdrawnAt: Schema.NullOr(Millis),
+  withdrawnBy: Schema.NullOr(Id),
+})
+export type Ask = typeof Ask.Type
+
+/**
+ * Why something reached an agent's inbox: a comment on its task, the note of a review Lucas sent back,
+ * his answers to the questions it asked on the card (CEL-47), or his moving that card himself, which
+ * withdrew the ask (`withdrawn`).
+ */
+export const InboxKind = Schema.Literals(["comment", "send_back", "answers", "withdrawn"])
+export type InboxKind = typeof InboxKind.Type
+
+const inboxFields = {
+  id: Id,
+  taskId: Id,
+  /** Keys and titles, so a hook can print the item without another call. */
+  taskKey: Schema.String,
+  taskTitle: Schema.String,
+  /** Who wrote it: the human's name. */
+  author: Schema.String,
+  /** When it was delivered: the comment's (or the answers') time. */
+  createdAt: Millis,
+  /** When the session read it (`cello inbox`, `cello context`, the hook, or `cello wait`); null while it's new. */
+  readAt: Schema.NullOr(Millis),
+}
+
+/** A human comment, or a Send back note, delivered to the agent session holding the task's claim (CEL-15). */
+export const InboxComment = Schema.Struct({
+  ...inboxFields,
+  kind: Schema.Literals(["comment", "send_back"]),
+  /** As it is now: edits show; deleted comments drop out of the inbox. */
+  comment: Comment,
+})
+export type InboxComment = typeof InboxComment.Type
+
+/** Lucas's answers to an ask, delivered to the session holding the claim (else the one that asked). */
+export const InboxAnswers = Schema.Struct({ ...inboxFields, kind: Schema.Literal("answers"), ask: Ask })
+export type InboxAnswers = typeof InboxAnswers.Type
+
+/** Lucas moved the card out of Needs input himself: the ask is withdrawn; `status` is where the card went. Delivered to the session that asked. */
+export const InboxWithdrawn = Schema.Struct({ ...inboxFields, kind: Schema.Literal("withdrawn"), ask: Ask, status: Schema.String })
+export type InboxWithdrawn = typeof InboxWithdrawn.Type
+
+/** Something delivered to an agent session's inbox: a comment (CEL-15), Lucas's answers or a withdrawn ask (CEL-47). */
+export const InboxItem = Schema.Union([InboxComment, InboxAnswers, InboxWithdrawn])
+export type InboxItem = typeof InboxItem.Type
 
 /** Docs, specs and pages share one table and one reader; `kind` says what a document is for. */
 export const DocumentKind = Schema.Literals(["doc", "spec", "page"])
@@ -336,6 +445,8 @@ export const Snapshot = Schema.Struct({
   sessions: Schema.Array(AgentSession),
   /** Open reviews of the tasks in scope: everything the Review page and the cards need. */
   reviews: Schema.Array(Review),
+  /** Open asks of the tasks in scope: the Needs input group, the sidebar count and the cards' badges. */
+  asks: Schema.Array(Ask),
   /** Documents of the projects in scope, archived ones included, without their bodies. */
   documents: Schema.Array(DocumentSummary),
 })

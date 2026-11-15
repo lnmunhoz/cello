@@ -9,6 +9,8 @@ const list = (words: string[]) => (words.length <= 1 ? words.join("") : `${words
 
 const DECIDED = { approved: "approved the review", sent_back: "sent it back", superseded: "replaced the open review" }
 
+const WITHDRAWN = { agent: "withdrew the questions", moved: "moved it out of Needs input, withdrawing the questions", superseded: "replaced the open questions" }
+
 const TAKEN_BECAUSE = { holder_exited: " (its session had exited)", holder_idle: " (its session was quiet for 2 hours)", human: "" }
 
 export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | "statuses" | "labels">): string => {
@@ -57,6 +59,14 @@ export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | 
       return `${who} submitted a review`
     case "review.decided":
       return `${who} ${DECIDED[e.decision]}`
+    case "ask.created": {
+      const count = e.ask.questions.length
+      return `${who} asked ${count === 1 ? "a question" : `${count} questions`}: “${e.ask.title}”`
+    }
+    case "ask.answered":
+      return `${who} answered “${e.ask.title}”`
+    case "ask.withdrawn":
+      return `${who} ${WITHDRAWN[e.reason]}`
     case "document.published":
       return `${who} published the ${e.document.kind} “${e.document.title}”`
     case "document.updated":

@@ -41,17 +41,20 @@ export function StageChip({ stage }: { stage: StageInfo }) {
   )
 }
 
-/** A lane's heading in the In Progress column: the stage, or "No stage", and how many cards it holds. */
-export function LaneHeading({ stage, count }: { stage: StageInfo | null; count: number }) {
+/**
+ * A lane's heading in the In Progress column: the stage, "No stage", or "Needs input" (`waiting`: the
+ * folded Needs input cards below the lanes), and how many cards it holds.
+ */
+export function LaneHeading({ stage, count, waiting = false }: { stage: StageInfo | null; count: number; waiting?: boolean }) {
   const Icon = stage ? (STAGE_ICONS[stage.icon] ?? CircleDotIcon) : null
   return (
     <p
-      data-lane={stage?.id ?? "none"}
+      data-lane={stage?.id ?? (waiting ? "needs-input" : "none")}
       className="flex h-6 shrink-0 items-center gap-1.5 px-1 pt-1 text-[11px] font-semibold text-muted"
       style={stage ? { color: stage.color } : undefined}
     >
       {Icon ? <Icon aria-hidden className="size-3" /> : null}
-      {stage?.label ?? "No stage"}
+      {stage?.label ?? (waiting ? "Needs input" : "No stage")}
       <span className="font-normal tabular-nums text-muted">{count}</span>
     </p>
   )

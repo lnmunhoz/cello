@@ -84,6 +84,8 @@ describe("decodeEvent", () => {
     }
     const submitted = decodeEvent({ ...envelope, schemaVersion: 1, type: "review.submitted", review })
     expect(submitted.type === "review.submitted" && submitted.review.attachments[0]?.kind).toBe("video")
+    // Stored before asks existed (CEL-47): the attachment has no askId, and decodes with null.
+    expect(submitted.type === "review.submitted" && submitted.review.attachments[0]?.askId).toBeNull()
     const decided = decodeEvent({ ...envelope, schemaVersion: 1, type: "review.decided", id: "r-1", taskId: "t-1", decision: "sent_back", note: "Fix the poster" })
     expect(decided).toMatchObject({ decision: "sent_back", note: "Fix the poster" })
     expect(() => decodeEvent({ ...envelope, schemaVersion: 1, type: "review.decided", id: "r-1", taskId: "t-1", decision: "maybe", note: null })).toThrow()
@@ -113,6 +115,32 @@ describe("decodeEvent", () => {
     expect(updated.type === "document.updated" && updated.document.tasks[0]?.key).toBe("CEL-12")
     expect(decodeEvent({ ...envelope, schemaVersion: 1, type: "document.archived", id: "d-1" }).type).toBe("document.archived")
     expect(() => decodeEvent({ ...envelope, schemaVersion: 1, type: "document.published", document: { ...document, kind: "memo" } })).toThrow()
+  })
+
+  it("decodes asks: created with questions, answered with the answers, withdrawn with a reason", () => {
+    const ask = {
+      id: "k-1",
+      taskId: "t-1",
+      title: "Search layout",
+      intro: "",
+      questions: [{ id: "q1", prompt: "Which?", kind: "one", options: [{ id: "q1o1", label: "Peek", description: "", imageId: null, recommended: true, because: "Long text" }] }],
+      attachments: [],
+      actorId: "actor-1",
+      sessionId: "s-1",
+      author: { name: "Claude Code", session: "2fd0505c" },
+      state: "open",
+      createdAt: 1,
+      answeredAt: null,
+      answers: null,
+      withdrawnAt: null,
+      withdrawnBy: null,
+    }
+    expect(decodeEvent({ ...envelope, schemaVersion: 1, type: "ask.created", ask })).toMatchObject({ ask: { questions: [{ kind: "one" }] } })
+    const answers = { questions: [{ questionId: "q1", optionIds: ["q1o1"], none: false, comment: "", attachments: [] }], note: "", noteAttachments: [] }
+    expect(decodeEvent({ ...envelope, schemaVersion: 1, type: "ask.answered", ask: { ...ask, state: "answered", answeredAt: 2, answers } }))
+      .toMatchObject({ ask: { answers: { questions: [{ optionIds: ["q1o1"] }] } } })
+    expect(decodeEvent({ ...envelope, schemaVersion: 1, type: "ask.withdrawn", id: "k-1", taskId: "t-1", reason: "moved" })).toMatchObject({ reason: "moved" })
+    expect(() => decodeEvent({ ...envelope, schemaVersion: 1, type: "ask.withdrawn", id: "k-1", taskId: "t-1", reason: "bored" })).toThrow()
   })
 
   it("fails loudly on an unknown schema version", () => {

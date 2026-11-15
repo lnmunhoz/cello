@@ -1,9 +1,10 @@
 // Tasks: numbered per project, ordered within (project, status), versioned on every change.
 import type { CelloEvent } from "@cello/contract/events"
 import type { Priority, Task } from "@cello/contract/entities"
+import { AskRequired, Invalid, NotFound, ReviewRequired, TaskClaimed, VersionConflict } from "@cello/contract/errors"
 import type { TaskStage } from "@cello/contract/stages"
-import { Invalid, NotFound, ReviewRequired, TaskClaimed, VersionConflict } from "@cello/contract/errors"
 import type { Caller } from "@cello/contract/rpcs"
+import { isNeedsInputStatus } from "@cello/shared/ask"
 import { isReviewStatus } from "@cello/shared/review"
 import { parseTaskKey } from "@cello/shared/taskKey"
 import * as Context from "effect/Context"
@@ -11,8 +12,10 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import type { SqlError } from "effect/sql/SqlError"
+import { withdrawOpenAsk } from "../ask/openAsk.ts"
 import * as Commands from "../commands/Commands.ts"
 import * as EventStore from "../events/EventStore.ts"
+import * as InboxService from "../inbox/InboxService.ts"
 import { newId } from "../persistence/ids.ts"
 import { selectTasks } from "../persistence/rows.ts"
 import * as Seed from "../persistence/Seed.ts"
@@ -76,8 +79,11 @@ type Write<E> = Effect.Effect<Commands.Written<Task>, E, Caller>
 export class TaskService extends Context.Service<TaskService, {
   readonly create: (input: CreateTask) => Write<NotFound | Invalid>
   readonly update: (input: UpdateTask) => Write<NotFound | Invalid | VersionConflict>
-  /** An agent can't move a task into In Review unless it has an open review (`ReviewRequired`). */
-  readonly move: (input: MoveTask) => Write<NotFound | Invalid | VersionConflict | ReviewRequired>
+  /**
+   * An agent can't move a task into In Review unless it has an open review (`ReviewRequired`); no one moves
+   * one into Needs input (`AskRequired`). Moving a task out of Needs input withdraws its open ask.
+   */
+  readonly move: (input: MoveTask) => Write<NotFound | Invalid | VersionConflict | ReviewRequired | AskRequired>
   readonly setLabels: (input: SetTaskLabels) => Write<NotFound | Invalid>
   readonly archive: (input: ById) => Write<NotFound>
   readonly unarchive: (input: ById) => Write<NotFound>
@@ -95,7 +101,7 @@ export class TaskService extends Context.Service<TaskService, {
   /**
    * Where the task is inside In Progress (CEL-35); null clears it. Only the session holding the claim,
    * or the human, and only while the task is in the stage status (In Progress). Moving the task to
-   * another status clears it.
+   * another status clears it, except to Needs input and back (an ask pauses the work, CEL-47).
    */
   readonly setStage: (input: SetStage) => Write<NotFound | Invalid>
   /**
@@ -110,6 +116,8 @@ export class TaskService extends Context.Service<TaskService, {
 
 /** Statuses whose tasks are finished: a claim on them no longer holds. */
 const FINISHED = new Set(["completed", "canceled"])
+/** Statuses a claim leaves the task in: work going on, or waiting on Lucas's answers. */
+const WORKING = new Set(["started", "waiting"])
 
 /** Fields `task.update` can change, and their columns. */
 const EDITABLE = {
@@ -126,6 +134,7 @@ const make = Effect.gen(function* () {
   const commands = yield* Commands.Commands
   const store = yield* EventStore.EventStore
   const sessions = yield* SessionService
+  const inbox = yield* InboxService.InboxService
   const human = yield* Seed.HumanActor
 
   const load = (id: string) =>
@@ -236,8 +245,19 @@ const make = Effect.gen(function* () {
   const holderOf = (task: Task) =>
     task.assigneeActorId === null ? null : { actorId: task.assigneeActorId, sessionId: task.assigneeSessionId }
 
-  const categoryOf = (statusId: string) =>
-    sql<{ category: string }>`SELECT category FROM statuses WHERE id = ${statusId}`.pipe(Effect.map((rows) => rows[0]!.category))
+  const statusOf = (statusId: string) =>
+    sql<{ name: string; category: string }>`SELECT name, category FROM statuses WHERE id = ${statusId}`.pipe(Effect.map((rows) => rows[0]!))
+
+  const categoryOf = (statusId: string) => Effect.map(statusOf(statusId), (s) => s.category)
+
+  /** Whether a stage survives a move: both ends are In Progress (the stage status) or Needs input. */
+  const stageCarries = (workspaceId: string, from: string, to: string) =>
+    Effect.gen(function* () {
+      const stageStatusId = yield* firstStarted(workspaceId)
+      const holds = (statusId: string) =>
+        statusId === stageStatusId ? Effect.succeed(true) : Effect.map(statusOf(statusId), isNeedsInputStatus)
+      return (yield* holds(from)) && (yield* holds(to))
+    })
 
   /**
    * A human change ends an agent's claim. Returns the columns that clear it (merged into the change's
@@ -339,9 +359,19 @@ const make = Effect.gen(function* () {
         }),
       )
       if (sameColumn && unchanged) return current
+      // Leaving Needs input any other way than an answer or a withdrawal (those close the ask first):
+      // the open ask goes with it.
+      if (!sameColumn && isNeedsInputStatus(yield* statusOf(current.statusId))) {
+        const withdrawn = yield* withdrawOpenAsk(sql, context, current, { workspaceId, projectId: current.projectId }, "moved")
+        // Lucas moving it himself: the agent that asked hears where the card went.
+        if (withdrawn !== null) yield* inbox.deliverWithdrawalWithin(context, withdrawn, (yield* statusOf(to.statusId)).name)
+      }
       const claim = to.keepClaim ? { columns: {}, after: (_version: number) => Effect.void } : humanEndsClaim(current, workspaceId, context)
-      // A stage says where the task is inside In Progress: leaving the column ends it (CEL-35).
-      const stage = sameColumn || current.stage === null ? {} : { stage: null }
+      // A stage says where the task is inside In Progress (CEL-35): leaving the column ends it, except a
+      // round trip through Needs input, where asking Lucas pauses the work without changing its step.
+      const stage = sameColumn || current.stage === null || (yield* stageCarries(workspaceId, current.statusId, to.statusId))
+        ? {}
+        : { stage: null }
       yield* bump(current, context, { status_id: to.statusId, position, ...stage, ...claim.columns })
       const task = yield* load(current.id)
       yield* context.emit(
@@ -359,12 +389,19 @@ const make = Effect.gen(function* () {
       return task
     })
 
-  /** An agent needs an open review packet to put a task in In Review (`cello task submit`). */
-  const checkReviewGate = (current: Task, statusId: string, caller: Caller["Service"]) =>
+  /**
+   * An agent needs an open review packet to put a task in In Review (`cello task submit`). No one, agent
+   * or human, puts one in Needs input by hand: an agent's `cello task ask` does that, with its questions.
+   */
+  const checkGates = (current: Task, statusId: string, caller: Caller["Service"]) =>
     Effect.gen(function* () {
-      if (caller.sessionId === null || statusId === current.statusId) return
-      const [status] = yield* sql<{ name: string }>`SELECT name FROM statuses WHERE id = ${statusId}`
-      if (!status || !isReviewStatus(status.name)) return
+      if (statusId === current.statusId) return
+      const [status] = yield* sql<{ name: string; category: string }>`SELECT name, category FROM statuses WHERE id = ${statusId}`
+      if (!status) return
+      // Only an ask puts a task in Needs input, for anyone: a card there with nothing to answer would be stuck.
+      if (isNeedsInputStatus(status)) return yield* new AskRequired({ key: current.key, status: status.name })
+      if (caller.sessionId === null) return
+      if (!isReviewStatus(status.name)) return
       const open = yield* sql<{ id: string }>`SELECT id FROM reviews WHERE task_id = ${current.id} AND decided_at IS NULL LIMIT 1`
       if (open.length === 0) return yield* new ReviewRequired({ key: current.key, status: status.name })
     })
@@ -374,7 +411,7 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const current = yield* load(input.id)
         yield* checkVersion(current, input.expectedVersion, context.caller)
-        yield* checkReviewGate(current, input.statusId, context.caller)
+        yield* checkGates(current, input.statusId, context.caller)
         return yield* moveIn(context, current, input)
       }))
   })
@@ -480,7 +517,8 @@ const make = Effect.gen(function* () {
         const current = yield* loadByKey(input.key)
         const workspaceId = yield* workspaceOf(current.projectId)
         const taken = yield* checkClaim(current, caller, now)
-        const started = (yield* categoryOf(current.statusId)) === "started"
+        // Needs input counts as started: a claim (a resumed session, a takeover) leaves the ask waiting.
+        const started = WORKING.has(yield* categoryOf(current.statusId))
         const statusId = started ? current.statusId : (yield* firstStarted(workspaceId))
         const holder = holderOf(current)
         const mine = holder !== null && holder.actorId === caller.actorId && holder.sessionId === caller.sessionId
