@@ -42,7 +42,10 @@ const board = {
     other: { ...label("other", "area", "w2"), name: "bug" },
   },
   actors: { me: actor("me", "human"), claude: actor("claude", "agent") },
-  reviews: { r1: { id: "r1", taskId: "c" } },
+  // c's packet waits in In Review; d's was left open when d moved on (before CEL-71): it isn't waiting.
+  statuses: { todo: { id: "todo", name: "Todo", category: "unstarted" }, review: { id: "review", name: "In Review", category: "started" } },
+  tasks: { c: { id: "c", statusId: "review" }, d: { id: "d", statusId: "todo" } },
+  reviews: { r1: { id: "r1", taskId: "c" }, r2: { id: "r2", taskId: "d" } },
   asks: { k1: { id: "k1", taskId: "a" } },
 } as unknown as BoardState
 const now = new Date(2026, 10, 15, 12).getTime()
@@ -53,7 +56,7 @@ const a = task("a", { labelIds: ["bug", "agents"], priority: 1, dueDate: "2026-1
 // b: a feature in agents and board, held by agent session s1, made by it.
 const b = task("b", { labelIds: ["feature", "agents", "board"], assigneeActorId: "claude", assigneeSessionId: "s1", createdByActorId: "claude", createdBySessionId: "s1" })
 // c: a bug on the board, in M2, held by Lucas, due this week, with a review packet.
-const cc = task("c", { labelIds: ["bug", "board", "m2"], assigneeActorId: "me", dueDate: "2026-11-18", title: "Drag cards" })
+const cc = task("c", { labelIds: ["bug", "board", "m2"], assigneeActorId: "me", dueDate: "2026-11-18", title: "Drag cards", statusId: "review" })
 // d: no labels, held by agent session S2.
 const d = task("d", { assigneeActorId: "claude", assigneeSessionId: "S2", updatedAt: now - 3_600_000 })
 const all = [a, b, cc, d]

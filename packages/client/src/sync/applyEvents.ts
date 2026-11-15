@@ -165,6 +165,7 @@ const apply = (d: Draft, e: CelloEvent) => {
     case "review.submitted":
       return d.set("reviews", e.review.id, e.review)
     case "review.decided":
+    case "review.withdrawn":
       return d.delete("reviews", e.id)
     case "ask.created":
       return d.set("asks", e.ask.id, e.ask)

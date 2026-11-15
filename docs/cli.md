@@ -94,8 +94,10 @@ Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
 - **Stage:** where a claimed task is inside In Progress: **building**, **review** (Agent review), **fixing** (Fixing findings) or **merged**. In Progress holds a task from the claim to the packet, so without a stage a task being built and one waiting for review look the same. The session holding the claim sets it with `cello task stage`; the board shows it on the card. Asking Lucas keeps it through Needs input; any other move out of In Progress, or submitting it, clears it. See Stages.
 - **Presence:** the board shows whether the session holding a claim is working right now: **active now** (it called Cello in the last 5 minutes), **seen 2h ago** (quiet, its process still running) or **ended** (its process exited). Every `cello` command and every hook run counts as a check-in; with the hooks installed that's every tool call, a subagent's included. A subagent checks in as itself too, so the card names the subagent working on it ("cello-builder · a13bfb89 active now") rather than its session. The board hears about each at most every 2 minutes, which keeps "active now" steady without filling the history. You don't do anything for it.
 - **Review packet:** how finished work reaches Lucas. It holds a summary, how-to-check steps and evidence (videos, screenshots, test output, links). `cello task submit` creates it and moves the task to In Review. Then Lucas decides:
-  - **Approve:** the task moves to Done and your claim ends.
+  - **Approve:** the task moves to Done and your claim ends. A note he typed with it shows under Reviews in `cello task get` (`Note: …`).
   - **Send back:** the task returns to In Progress with his note, and your claim stays. The note comes to your session (see Comments from Lucas reach your session), and `cello task get` shows it under Reviews.
+  - **Comment, without deciding yet:** the Review page shows the task's comments under the packet, with a comment box. A comment there leaves the task In Review and your claim in place, and comes to your session like any comment. Answer it on the card; if it asks for a change, move the task back to In Progress before you make it (that withdraws the packet), then submit again.
+  - **Moved out without a decision** (`cello task move`, or Lucas dragging the card): the packet is **withdrawn** and leaves the Review page. `cello task get` shows it as withdrawn, with who moved the task and where. To hand the work over again, submit a new packet.
 - **Ask (Needs input):** how you get a decision from Lucas: questions on the card, each with options (one recommended, with your reason), plus evidence. `cello task ask` moves the task to Needs input; he answers in Cello, next to the evidence; the task comes back to In Progress, still yours, and his answers reach your session. Never ask him in the terminal when the decision is his (see Questions for Lucas).
 - **Documents:** markdown published into the project's Docs tab with `cello doc publish`. There are three kinds:
   - a **page** reports on finished work (a snapshot to read now)
@@ -145,9 +147,9 @@ Run it first in every session, and again when you come back to a task.
 6. **If it's sent back,** his note comes to your session (by the hook, or `cello inbox`), and `cello task get CEL-12` shows it under Reviews. Fix it, then submit again.
    **Lucas's feedback in chat counts as a Send back.** When he reviews a task in your conversation instead of on the card (a screenshot, "this should be…", "I don't like…"), do both of these before you start fixing:
    - put his words on the card as a comment, quoted as he said them and marked as his (`**Lucas, in chat (review):** "…"`), so the review lives with the task;
-   - if the task is In Review, move it back with `cello task move CEL-12 "In Progress"`, so the board shows it's being worked on again.
+   - if the task is In Review, move it back with `cello task move CEL-12 "In Progress"`, so the board shows it's being worked on again. The move withdraws the open packet, so it leaves Lucas's Review page.
 
-   Then fix, and submit a new packet (it replaces the open one). The same goes for feedback on a task in Done: comment it, and move it back to In Progress, or open a new task if it's a new request.
+   Then fix, and submit a new packet. The same goes for feedback on a task in Done: comment it, and move it back to In Progress, or open a new task if it's a new request.
 7. **If you run a feature through builder and reviewer agents** (the orchestrator), mark each step with `cello task stage` (see Stages), so the card says where the work is. In Claude Code, `/cello:orchestrate APP-12 APP-14` sets a session up for this (see "The Claude Code plugin").
 8. **In Progress means someone is working on it right now.** When work stops before you submit, don't leave the card there: the board would show it as being built when nobody is on it.
    - **Waiting on Lucas** (a scope's options, a design choice, any decision that's his): ask on the card with `cello task ask` (see Questions for Lucas). The task moves to Needs input, your claim stays, and it comes back to In Progress when he answers.
@@ -269,6 +271,7 @@ cello task move CEL-31 backlog           # any case
 ```
 
 - **Moving into In Review is refused:** use `cello task submit`.
+- **Moving out of In Review withdraws the open packet:** it leaves the Review page, and coming back takes a new `cello task submit`.
 - **Moving into Needs input is refused,** to everyone, Lucas included: only `cello task ask` puts a task there, with your questions.
 - **Don't move tasks to Done or Canceled.**
 - **"It was changed by … in the meantime":** someone changed the task while you were acting. Run the command again.
@@ -512,6 +515,12 @@ cello task submit CEL-22 \
 - **`--link`** adds a URL: a PR, or a page you published.
 - **`--caption`** describes the `--attach` or `--link` right before it.
 - **Submitting again** while a packet is still open replaces it.
+- **A packet waits on Lucas only while its task is in In Review** (or in Needs input, when you asked from In Review). Approve and Send back close it with his decision. Any other move closes it as **withdrawn**: you or Lucas moving the task back to In Progress, to Todo or anywhere else, and his answers to an ask you made from In Review, which bring the task back to In Progress. A withdrawn packet leaves the Review page; it stays in the task's list, where `cello task get` shows it:
+
+  ```
+  Reviews (1)
+    Review (withdrawn 3m ago: Claude Code session 2fd0505c moved it to In Progress), submitted by Claude Code session 2fd0505c, 20m ago
+  ```
 
 What to bring, by kind of work:
 
@@ -542,7 +551,7 @@ cello task ask CEL-43 --title "Search layout" \
 What happens:
 
 1. The task moves to **Needs input** (your claim stays). It shows in the sidebar's Needs input count, first on Lucas's Review page, and in In Progress with a "Needs input" badge (or its own column, when he turns that on in Display).
-2. Lucas answers each question (a pick, several, or None of these with a comment; words for a text-only one) and sends. The task goes back to **In Progress**, still yours.
+2. Lucas answers each question (a pick, several, or None of these with a comment; words for a text-only one) and sends. The task goes back to **In Progress**, still yours. If you asked from In Review, the open packet is withdrawn then: submit a new one when the work is ready again.
 3. The answers reach you, once:
    - **with `--wait`:** the command blocks until he sends, then prints the answers and exits. Run it in the background (Claude Code: `run_in_background`), so your session wakes when they arrive.
    - **without it:** the hook delivers them like a comment (see Comments from Lucas reach your session), or `cello wait CEL-43` waits for them later (after a restart, say).

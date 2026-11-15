@@ -51,6 +51,9 @@ describe("describeEvent", () => {
     expect(decided("approved")).toBe("Lucas approved the review")
     expect(decided("sent_back")).toBe("Lucas sent it back")
     expect(decided("superseded")).toBe("Lucas replaced the open review")
+    expect(describeEvent(ev({ type: "review.withdrawn", id: "r", taskId: "t", to: "doing" }), state)).toBe(
+      "Lucas moved it to In Progress, withdrawing the open review",
+    )
   })
 
   it("describes claims", () => {

@@ -49,6 +49,7 @@ const taskIdOf = (e: CelloEvent): { readonly taskId: string } | { readonly comme
     case "review.submitted":
       return { taskId: e.review.taskId }
     case "review.decided":
+    case "review.withdrawn":
     case "ask.withdrawn":
       return { taskId: e.taskId }
     case "ask.created":

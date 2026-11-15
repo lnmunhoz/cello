@@ -1,5 +1,6 @@
 // Where review packets move a task: the server applies these, the web app uses the same names to
 // find the In Review column.
+import { isNeedsInputStatus } from "./ask.ts"
 
 interface StatusLike {
   readonly id: string
@@ -11,6 +12,14 @@ interface StatusLike {
 export const REVIEW_STATUS_NAME = "In Review"
 
 export const isReviewStatus = (name: string): boolean => name.trim().toLowerCase() === REVIEW_STATUS_NAME.toLowerCase()
+
+/**
+ * Whether a task in this status can have a packet waiting on Lucas: In Review, or Needs input when the
+ * agent asked from In Review (CEL-47). Anywhere else an open packet is stale (CEL-71): left from before
+ * moves withdrew packets, it counts as no packet, and the task's next move withdraws it.
+ */
+export const holdsPacket = (status: { readonly name: string; readonly category: string }): boolean =>
+  isReviewStatus(status.name) || isNeedsInputStatus(status)
 
 const sorted = <S extends StatusLike>(statuses: ReadonlyArray<S>): S[] =>
   [...statuses].sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
