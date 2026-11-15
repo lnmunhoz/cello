@@ -3,6 +3,7 @@
 import type { Ask, Comment, Document, DocumentVersion, Priority, Review, Scope } from "@cello/contract/entities"
 import type { AnswerInput } from "@cello/contract/rpcs"
 import type { CelloEvent } from "@cello/contract/events"
+import type { SearchResults } from "@cello/contract/search"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -398,11 +399,13 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
 
   /**
    * Search results (CEL-43) for a JSON key `{ query, workspaceId, limit }`: one request per query, so
-   * the ⌘K bar asks again as you type and keeps showing the last answer while the next one loads.
+   * the ⌘K bar asks again as you type and keeps showing the last answer while the next one loads. An
+   * empty query, or no workspace yet, answers nothing without asking the server.
    */
   const searchFamily = Atom.family((key: string) =>
     runtime.atom(Effect.gen(function* () {
-      const { query, workspaceId, limit } = JSON.parse(key) as { query: string; workspaceId: string; limit: number }
+      const { query, workspaceId, limit } = JSON.parse(key) as { query: string; workspaceId: string | null; limit: number }
+      if (query.trim() === "" || workspaceId === null) return { query, terms: [], key: null, jump: null, groups: [] } satisfies SearchResults
       return yield* (yield* CelloClient)["search.query"]({ query, workspaceId, limit })
     })))
 

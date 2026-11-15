@@ -53,7 +53,8 @@ const realisticBoard = Effect.gen(function* () {
     ('r-open', 't1', 'Search everything', '["Press ⌘K", "Type evidence"]', 'claude', 10, NULL, NULL, NULL),
     ('r-approved', 't2', 'Backups every day', '[]', 'claude', 11, 12, 'approved', NULL),
     ('r-sent', 't4', 'Stages on cards', '["Open the board"]', 'claude', 13, 14, 'sent_back', 'The stage chip is too loud'),
-    ('r-old', 't7', 'An older packet', '["Step"]', 'claude', 15, 16, 'superseded', NULL)`
+    ('r-old', 't7', 'An older packet', '["Step"]', 'claude', 15, 16, 'superseded', NULL),
+    ('r-bad', 't10', 'Broken steps', 'not json', 'claude', 17, NULL, NULL, NULL)`
   yield* sql`INSERT INTO documents (id, workspace_id, project_id, kind, slug, title, summary, body, created_by_actor_id, updated_by_actor_id, created_at, updated_at, archived_at) VALUES
     ('d-scope', 'personal', 'cel', 'spec', 'search-scope', 'Search scope', 'The bar and the index', '# Search scope\n\nFTS5 with porter stemming.', 'claude', 'claude', 20, 20, NULL),
     ('d-page', 'personal', 'thai', 'page', 'pricing', 'Baht prices', 'Checkout in baht', '---\ntitle: Baht prices\nsummary: Checkout in baht\n---\n\n# Baht prices', 'claude', 'claude', 21, 21, NULL),
@@ -106,10 +107,10 @@ describe("migration 0008_search", () => {
 
         const indexed = yield* entries
         const count = (kind: string) => indexed.filter((e) => e.kind === kind).length
-        // 300 tasks, 12 archived; 900 comments, 18 deleted; 4 packets, 1 superseded; 3 documents, 1 archived.
+        // 300 tasks, 12 archived; 900 comments, 18 deleted; 5 packets, 1 superseded; 3 documents, 1 archived.
         expect(count("task")).toBe(288)
         expect(count("comment")).toBe(882)
-        expect(indexed.filter((e) => e.kind === "packet").map((e) => e.ref_id)).toEqual(["r-approved", "r-open", "r-sent"])
+        expect(indexed.filter((e) => e.kind === "packet").map((e) => e.ref_id)).toEqual(["r-approved", "r-bad", "r-open", "r-sent"])
         expect(indexed.filter((e) => e.kind === "document").map((e) => e.ref_id)).toEqual(["d-page", "d-scope"])
         expect(indexed.some((e) => e.ref_id === "t25" || e.ref_id === "c50")).toBe(false)
 
@@ -117,6 +118,8 @@ describe("migration 0008_search", () => {
         expect(indexed.find((e) => e.ref_id === "t1")).toMatchObject({ task_key: "THAI-1", title: "Task 1: the video sidebar" })
         expect(indexed.find((e) => e.ref_id === "c1")).toMatchObject({ task_key: "OLD-2", title: "", body: "Re-recorded the search videos; see CEL-2." })
         expect(indexed.find((e) => e.ref_id === "r-open")?.body).toBe("Search everything\nPress ⌘K\nType evidence")
+        // Steps that aren't valid JSON don't fail the migration (or a later write): the packet keeps its summary.
+        expect(indexed.find((e) => e.ref_id === "r-bad")?.body).toBe("Broken steps")
         expect(indexed.find((e) => e.ref_id === "r-sent")?.body).toBe("Stages on cards\nOpen the board\nThe stage chip is too loud")
         expect(indexed.find((e) => e.ref_id === "d-scope")).toMatchObject({ task_key: "", title: "Search scope" })
         // A document's frontmatter is left out: its title and summary are indexed from their own columns.

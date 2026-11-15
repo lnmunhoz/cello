@@ -15,6 +15,7 @@ import {
   SunIcon,
   type LucideIcon,
 } from "lucide-react"
+import { SIDEBAR_SHORTCUT } from "../app/sidebarState.ts"
 import { LAYOUT_NAMES, type BarLayout } from "./layout.ts"
 
 export type ActionId =
@@ -78,7 +79,7 @@ export const actionSpecs = (ctx: ActionContext): ActionSpec[] => {
       : []),
     { id: "switch-project", label: "Switch project…", icon: FolderIcon, keywords: ["open", "project", "go"], opensList: true },
     ...(ctx.workspaces >= 2 ? [{ id: "switch-workspace" as const, label: "Switch workspace…", icon: FolderIcon, keywords: ["workspace"], opensList: true }] : []),
-    { id: "sidebar", label: "Toggle sidebar", icon: PanelLeftIcon, keywords: ["collapse", "expand", "hide", "show"], shortcut: "mod+b" },
+    { id: "sidebar", label: "Toggle sidebar", icon: PanelLeftIcon, keywords: ["collapse", "expand", "hide", "show"], shortcut: SIDEBAR_SHORTCUT },
     { id: "theme", label: ctx.dark ? "Switch to light theme" : "Switch to dark theme", icon: ctx.dark ? SunIcon : MoonIcon, keywords: ["appearance", "theme", "mode", "dark", "light"] },
     {
       id: "layout",

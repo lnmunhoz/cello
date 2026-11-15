@@ -15,14 +15,16 @@
 // - Triggers on tasks, comments, reviews and documents replace a thing's entry when its text or its
 //   archived/deleted state changes; triggers on `search_entries` keep both indexes in step with it.
 // - The existing rows are indexed once, here.
+// - A later migration that rebuilds tasks, comments, reviews or documents (drop and recreate) drops
+//   their search_* triggers with them: it must recreate those triggers, or the index stops following.
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/sql/SqlClient"
 
 const COLUMNS = "kind, ref_id, project_id, task_id, task_key, title, body"
 
-/** A packet's searchable text: its summary, each step on a line, and the decision note. */
+/** A packet's searchable text: its summary, each step on a line (when `steps` is valid JSON), and the decision note. */
 const packetBody = (r: string) =>
-  `${r}.summary || coalesce((SELECT char(10) || group_concat(value, char(10)) FROM json_each(${r}.steps)), '') || coalesce(char(10) || ${r}.decision_note, '')`
+  `${r}.summary || coalesce((SELECT char(10) || group_concat(value, char(10)) FROM json_each(CASE WHEN json_valid(${r}.steps) THEN ${r}.steps ELSE '[]' END)), '') || coalesce(char(10) || ${r}.decision_note, '')`
 
 /**
  * The entries to index for each kind, read from `n`: a trigger's `new` row, or with `from` the table

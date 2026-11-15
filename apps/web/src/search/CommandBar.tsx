@@ -16,7 +16,9 @@ import { useState, type ReactNode } from "react"
 import { Chip } from "../components/ui/Chip.tsx"
 import { Command, CommandEmpty, CommandGroup, CommandGroupLabel, CommandInput, CommandItem, CommandList, CommandShortcut, Kbd } from "../components/ui/Command.tsx"
 import { Dialog, DialogContent, DialogTitle } from "../components/ui/Dialog.tsx"
+import { SegmentedControl, SegmentedControlItem } from "../components/ui/SegmentedControl.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
+import { Tabs, TabsList, TabsTab } from "../components/ui/Tabs.tsx"
 import { KIND_LABELS, KindIcon } from "../docs/kinds.tsx"
 import { searchFamily, workspaceIdAtom } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
@@ -78,7 +80,8 @@ function Bar({ chosen, layout, onClose, onToggleSidebar }: { chosen: BarLayout; 
   const typed = page === null && !actionsOnly ? query.trim() : ""
   const actions = useActions({ board, workspaceId, layout: chosen, typed: page === "new-task" ? query.trim() : typed, onToggleSidebar })
 
-  // The server's answer for what's typed; the last one stays on screen while the next loads.
+  // The server's answer for what's typed (nothing is asked while it's empty); the last one stays on
+  // screen while the next loads.
   const result = useAtomValue(searchFamily(JSON.stringify({ query: workspaceId ? typed : "", workspaceId, limit: LIMIT })))
   const fresh = AsyncResult.isSuccess(result) ? result.value : null
   const [last, setLast] = useState<SearchResults | null>(null)
@@ -291,22 +294,19 @@ function Bar({ chosen, layout, onClose, onToggleSidebar }: { chosen: BarLayout; 
         <Kbd>esc</Kbd>
       </div>
       {peek && typed !== "" && page === null && results && results.key === null ? (
-        <div role="tablist" aria-label="Search in" className="flex items-center gap-1 border-b border-line px-3 py-1.5">
-          {SCOPES.map((s) =>
-            s.id !== "all" && counts[s.id] === 0 ? null : (
-              <button
-                key={s.id}
-                type="button"
-                role="tab"
-                aria-selected={scope === s.id}
-                onClick={() => setScope(s.id)}
-                className="flex h-6 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ring aria-selected:bg-selected aria-selected:text-ink"
-              >
-                {s.label}
-                <span className="text-faint tabular-nums">{counts[s.id]}</span>
-              </button>
-            ),
-          )}
+        <div className="flex items-center gap-1 border-b border-line px-3 py-1.5">
+          <Tabs value={scope} onValueChange={(value) => value && setScope(value as Scope)}>
+            <TabsList aria-label="Search in">
+              {SCOPES.map((s) =>
+                s.id !== "all" && counts[s.id] === 0 ? null : (
+                  <TabsTab key={s.id} value={s.id}>
+                    {s.label}
+                    <span className="ml-1.5 text-faint tabular-nums">{counts[s.id]}</span>
+                  </TabsTab>
+                ),
+              )}
+            </TabsList>
+          </Tabs>
           <span className="ml-auto flex items-center gap-1 text-[11px] text-faint">
             <Kbd>tab</Kbd> next
           </span>
@@ -499,20 +499,13 @@ function HitRow({ hit, board, compact, jump }: { hit: SearchHit; board: BoardSta
 function Footer({ chosen, openable }: { chosen: BarLayout; openable: boolean }) {
   return (
     <div className="flex h-10 items-center gap-4 border-t border-line bg-sunken px-3 text-[11px] text-muted">
-      <div role="radiogroup" aria-label="Search layout" className="flex items-center rounded-md border border-line bg-surface p-0.5">
+      <SegmentedControl size="sm" aria-label="Search layout" value={chosen} onValueChange={(value) => value && writeStored(BAR_LAYOUT_KEY, String(value))}>
         {(["peek", "palette"] as const).map((l) => (
-          <button
-            key={l}
-            type="button"
-            role="radio"
-            aria-checked={chosen === l}
-            onClick={() => writeStored(BAR_LAYOUT_KEY, l)}
-            className="h-5 rounded px-1.5 text-[11px] font-medium text-faint outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring aria-checked:bg-selected aria-checked:text-ink"
-          >
+          <SegmentedControlItem key={l} value={l}>
             {LAYOUT_NAMES[l]}
-          </button>
+          </SegmentedControlItem>
         ))}
-      </div>
+      </SegmentedControl>
       <span className="ml-auto flex items-center gap-1.5">
         <Kbd>↑</Kbd>
         <Kbd>↓</Kbd> move
