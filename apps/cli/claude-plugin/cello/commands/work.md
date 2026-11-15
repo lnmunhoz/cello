@@ -16,5 +16,6 @@ While you work:
 
 - **The person's decisions go on the card,** never in the terminal: `cello task ask <KEY> --file ask.yaml --wait`, run in the background.
 - **Their comments come to you** by themselves with the hooks (else `cello inbox`). Act on them, then answer on the card.
+- **Ending a turn while you hold the claim?** Start `cello inbox --wait` in the background first, so their comments wake you while you're idle.
 - **Stopping before you submit?** Put where it stands on the card, move it back to Todo and `cello task release` it.
 - More than one task, or work big enough for builder and reviewer agents? Use `/cello:orchestrate` instead.

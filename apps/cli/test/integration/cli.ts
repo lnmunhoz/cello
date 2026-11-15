@@ -33,6 +33,8 @@ export const cello = (options: {
   readonly stdin?: string
   /** The CLI's own build, as bin.ts or the compiled binary passes it. */
   readonly build?: { readonly commit: string | null }
+  /** Hears each line the command prints to stderr as it prints it (a waiter saying it's waiting). */
+  readonly onErr?: (line: string) => void
 }) =>
   (...args: string[]): Effect.Effect<Output> =>
     Effect.gen(function* () {
@@ -40,7 +42,10 @@ export const cello = (options: {
       const errors: string[] = []
       const console: Console.Console = Object.assign(Object.create(globalThis.console), {
         log: (...parts: ReadonlyArray<unknown>) => lines.push(parts.join(" ")),
-        error: (...parts: ReadonlyArray<unknown>) => errors.push(parts.join(" ")),
+        error: (...parts: ReadonlyArray<unknown>) => {
+          errors.push(parts.join(" "))
+          options.onErr?.(parts.join(" "))
+        },
       })
       const exit = yield* run(args).pipe(
         Effect.provideService(CliEnv, {

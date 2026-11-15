@@ -5,7 +5,9 @@
 // comments (their own or another session's) are never delivered, and nothing reaches a session after
 // its claim ends. `take` hands the new items over and marks them read in one statement, so each item
 // reaches the session once, even when several hooks ask at the same time. Read marks belong to the
-// session, not the board, so they write no events (like a session's `last_seen_at`).
+// session, not the board, so they write no events (like a session's `last_seen_at`). `wait` (CEL-74)
+// blocks until there is something to take, so an idle agent session (`cello inbox --wait` running in
+// its background) wakes when Lucas writes.
 import type { Ask, Comment, InboxItem } from "@cello/contract/entities"
 import { Caller } from "@cello/contract/rpcs"
 import type { Inbox } from "@cello/contract/views"
@@ -13,9 +15,13 @@ import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import * as Stream from "effect/Stream"
 import * as SqlClient from "effect/sql/SqlClient"
 import type { SqlError } from "effect/sql/SqlError"
+import { formatTaskKey } from "@cello/shared/taskKey"
 import type * as Commands from "../commands/Commands.ts"
+import * as EventLog from "../events/EventLog.ts"
 import { newId } from "../persistence/ids.ts"
 import { selectInboxItems } from "../persistence/rows.ts"
 import { SessionService } from "../session/SessionService.ts"
@@ -29,6 +35,12 @@ export class InboxService extends Context.Service<InboxService, {
    * one, never gets the same item. Also returns the latest read ones unless `unreadOnly`. Empty for the human.
    */
   readonly take: (query: { readonly unreadOnly?: boolean }) => Effect.Effect<Inbox, never, Caller>
+  /**
+   * Waits until the caller has new items, then takes them as `take({ unreadOnly: true })` does. At once
+   * when some are waiting, and for the human (empty). Every change on the board that commits wakes it
+   * to try again; items a live `handOverAnswers` holds stay with it, as they do for `take`.
+   */
+  readonly wait: Effect.Effect<Inbox, never, Caller>
   /** The caller's new items, oldest first, left new (for `context`, which subagents run too). */
   readonly unread: Effect.Effect<ReadonlyArray<InboxItem>, never, Caller>
   /**
@@ -56,6 +68,7 @@ export class InboxService extends Context.Service<InboxService, {
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const sessions = yield* SessionService
+  const log = yield* EventLog.EventLog
 
   /** Who gets a human comment: the task's claim holder, else for a Send back the packet's submitter. */
   const recipientOf = (context: Commands.WriteContext, comment: Comment, kind: "comment" | "send_back") =>
@@ -130,7 +143,7 @@ const make = Effect.gen(function* () {
   const take = Effect.fn("InboxService.take")(function* (query: { readonly unreadOnly?: boolean }) {
     const caller = yield* Caller
     const sessionId = caller.sessionId
-    if (sessionId === null) return { session: null, items: [], earlier: [] }
+    if (sessionId === null) return { session: null, items: [], earlier: [], claimed: [] }
     const [session] = yield* sessions.byIds([sessionId])
     const now = yield* Clock.currentTimeMillis
     return yield* sql.withTransaction(Effect.gen(function* () {
@@ -147,9 +160,26 @@ const make = Effect.gen(function* () {
           AND ${waitedOn.length === 0 ? sql`1 = 1` : sql`(ask_id IS NULL OR ask_id NOT IN ${sql.in(waitedOn)})`}
         RETURNING id`
       const items = taken.length === 0 ? [] : yield* selectInboxItems(sql, sql.in("i.id", taken.map((r) => r.id)))
-      return { session: session ?? null, items, earlier }
+      const held = yield* sql<{ project_key: string; number: number }>`
+        SELECT p.key AS project_key, t.number FROM tasks t JOIN projects p ON p.id = t.project_id
+        WHERE t.assignee_session_id = ${sessionId} AND t.archived_at IS NULL ORDER BY p.key, t.number`
+      return { session: session ?? null, items, earlier, claimed: held.map((t) => formatTaskKey(t.project_key, t.number)) }
     }))
   }, Effect.orDie)
+
+  const wait = Effect.gen(function* () {
+    // Joined before the first take: an item committed after that take publishes an event we get.
+    const events = yield* log.live
+    const first = yield* take({ unreadOnly: true })
+    if (first.session === null || first.items.length > 0) return first
+    // Each committed change may have delivered something; take again (a cheap update when it didn't).
+    const next = yield* events.pipe(
+      Stream.mapEffect(() => take({ unreadOnly: true })),
+      Stream.filter((taken) => taken.items.length > 0),
+      Stream.runHead,
+    )
+    return Option.getOrElse(next, () => first)
+  }).pipe(Effect.scoped, Effect.withSpan("InboxService.wait"))
 
   const unread = Effect.gen(function* () {
     const caller = yield* Caller
@@ -157,7 +187,7 @@ const make = Effect.gen(function* () {
     return yield* selectInboxItems(sql, sql`i.session_id = ${caller.sessionId} AND i.read_at IS NULL`)
   }).pipe(Effect.orDie, Effect.withSpan("InboxService.unread"))
 
-  return InboxService.of({ take, unread, deliverWithin, deliverAnswersWithin, deliverWithdrawalWithin, handOverAnswers })
+  return InboxService.of({ take, wait, unread, deliverWithin, deliverAnswersWithin, deliverWithdrawalWithin, handOverAnswers })
 })
 
 export const layer = Layer.effect(InboxService, make)

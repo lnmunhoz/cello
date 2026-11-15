@@ -58,6 +58,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    - In Progress means someone is on it right now. When you wait on Lucas's decision, ask on the card with \`cello task ask\` (the task waits in Needs input). When you stop, put the state on the card and move it back to Todo.
    - Hand finished work to Lucas only with \`cello task submit\`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
    - Answer Lucas on the card with \`cello task comment\`. His comments come to your session by themselves.
+   - When you end a turn while holding a claimed task, start \`cello inbox --wait\` in the background so Lucas's comments wake you.
    - When a decision is Lucas's (a design option, a scope, wording), ask on the card with \`cello task ask\` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. His answers come back to your session.
    - Show Lucas reports, plans and evidence as Cello pages (\`cello doc publish page.md --task KEY-n\`), opened in Cello's panel. Never as Claude artifacts or other outside pages, even if your global instructions say so: \`cello install claude\` enforces it with a hook that turns artifact publishes away.
    \`\`\`
@@ -384,7 +385,7 @@ cello uninstall claude          # takes them out of all three
 - **Once per project** (or once with \`--user\`). From inside a worktree it writes the main checkout's settings.
 - **It merges** with the hooks already there, and running it again changes nothing. The old file is kept as \`<file>.bak\`.
 - **The same command installs the Claude Code plugin** in the same settings file (see "The Claude Code plugin" below), and \`cello uninstall claude\` takes it out with the hooks.
-- **What runs:** Claude Code runs \`cello hook claude stop\` when you finish a turn, and \`cello hook claude post-tool-use\` after each tool call. New comments come in as context. If you were about to stop, they keep you going: the transcript shows them as "Stop hook feedback".
+- **What runs:** Claude Code runs \`cello hook claude stop\` when you finish a turn, and \`cello hook claude post-tool-use\` after each tool call. New comments come in as context. If you were about to stop, they keep you going: the transcript shows them as "Stop hook feedback". With nothing new, a stop while you hold a claim and nothing waits for you asks you once to start \`cello inbox --wait\` (below).
 - **A third hook, the guards:** \`cello hook claude pre-tool-use\` runs before each call to Claude Code's \`Artifact\`, \`Edit\`, \`Write\` and \`NotebookEdit\` tools. It turns artifact publishes away (see "Showing things to Lucas") and edits in the repo from a session that hasn't claimed a task (see "Edits need a claimed task"). It goes into the project's settings (\`.claude/settings.local.json\`, or \`.claude/settings.json\` with \`--shared\`), never into \`~/.claude/settings.json\` with \`--user\`, since not every project is a Cello project. Running \`cello install claude\` again in a project set up before the claim guard existed adds it.
 - **\`cello\` must be on the PATH** Claude Code starts with (\`~/.local/bin\`). When the server is down, the hook stays silent and your session carries on.
 
@@ -394,10 +395,11 @@ cello uninstall claude          # takes them out of all three
 cello context            # lists new comments and leaves them new
 cello inbox              # hands them over and marks them read, then lists what came earlier
 cello inbox --new        # only new ones; prints nothing when there are none
+cello inbox --wait       # blocks until a new one arrives, then hands it over (below)
 cello inbox --json
 \`\`\`
 
-**Each comment arrives once.** Whichever gets it first (the Stop hook, the PostToolUse hook or \`cello inbox\`) marks it read, so it never comes a second time, even when parallel tool calls run the hook at the same moment. \`cello context\` only shows them. What arrives looks like this:
+**Each comment arrives once.** Whichever gets it first (the Stop hook, the PostToolUse hook, \`cello inbox\` or \`cello inbox --wait\`) marks it read, so it never comes a second time, even when parallel tool calls run the hook at the same moment. \`cello context\` only shows them. What arrives looks like this:
 
 \`\`\`
 New Cello comment on a task you claimed:
@@ -410,11 +412,32 @@ Act on it now, then answer on the card: \`cello task comment CEL-22 "…"\` (or 
 For a task Lucas N. Munhoz sent back, fix what the note asks, then hand it in again with \`cello task submit CEL-22\`.
 \`\`\`
 
+**When you end a turn while holding a claimed task, start \`cello inbox --wait\` in the background so Lucas's comments wake you.** The hooks only fire while you work: after a tool call, or when you stop. Once your turn has ended and the session sits waiting for its human, nothing fires, and a comment Lucas leaves then stays unread until someone types to you. \`cello inbox --wait\` closes that gap:
+
+\`\`\`bash
+cello inbox --wait          # in Claude Code: the Bash tool with run_in_background: true
+cello inbox --wait --json   # the same as JSON: items, claimed
+\`\`\`
+
+- **It blocks until something new arrives for your session** (a comment, a Send back note, answers to your ask, an ask withdrawn), then takes it the way \`cello inbox --new\` does (marked read, each item once) and prints it. Run in the background, its end wakes you with the text, as if the hook had delivered it. It returns at once when something is already waiting.
+- **It doesn't poll:** it listens on the server's event stream. When the server restarts, it reconnects and carries on; if the server stays away for 2 minutes, it exits 1 with "The Cello server on port 4747 went away and didn't come back within 2 minutes, so this stopped waiting." Start it (\`cello start\`) and run \`--wait\` again.
+- **One per session.** While it waits it holds a lock file (\`$TMPDIR/cello-inbox-wait/<hash of port and session>\`, holding its pid) and says so on stderr: \`Waiting for Lucas's comments, Send back notes and answers for this session (pid 4242)…\`. A second \`cello inbox --wait\` for the same session leaves at once: \`\`Already waiting: a \`cello inbox --wait\` (pid 4242) is running for this session, and it wakes you when Lucas writes.\`\` The lock goes when it ends, however it ends; one left by a killed waiter (dead pid) is ignored.
+- **It shares nicely:** the hooks and \`cello inbox\` take from the same inbox, so whichever gets an item first hands it over and the others never see it. Answers a \`cello task ask --wait\` (or \`cello wait\`) is waiting for stay with that command.
+- **Start it again after it wakes you,** when you end that turn too: it hands over one batch and exits.
+
+**The Stop hook asks for it.** When you stop with nothing new, while you hold a claimed task and no waiter is running for your session (no lock, and no background shell running \`cello inbox --wait\`), the Stop hook keeps you going once with:
+
+\`\`\`
+Cello: you hold a claim on CEL-22, and nothing is waiting for Lucas's comments, so once this turn ends he can't reach you. Start \`cello inbox --wait\` in the background now (the Bash tool with run_in_background: true), then end your turn. It wakes you when he comments, sends a task back or answers your questions.
+\`\`\`
+
+Start it, then end your turn. The hook never loops: the stop you make right after it goes through whatever you did, and so does any stop it can't judge (no server, a lock it can't read, past its 2-second deadline).
+
 **Answer on the card.** Act on the comment, then reply with \`cello task comment CEL-22 "…"\` (\`--body-file -\` for markdown), so the conversation stays with the task and Lucas sees it there.
 
 **When a task is sent back,** it's in In Progress again and still yours. The note arrives the same way, marked "sent it back" (\`cello task get\` also shows it under Reviews). Fix what it asks, test, then hand the task in again with \`cello task submit CEL-22\` and new evidence.
 
-**Subagents share your session.** A subagent's \`CLAUDE_CODE_SESSION_ID\` is its parent's, so Cello can't tell them apart. Inside a subagent the hook hands nothing over, so comments reach the main conversation; it only checks the session in, so the board shows your task as being worked on while the subagent runs. Don't run \`cello inbox\` from a subagent: it would take the parent's comments. \`cello context\` is safe anywhere, since it takes nothing.
+**Subagents share your session.** A subagent's \`CLAUDE_CODE_SESSION_ID\` is its parent's, so Cello can't tell them apart. Inside a subagent the hook hands nothing over, so comments reach the main conversation; it only checks the session in, so the board shows your task as being worked on while the subagent runs. Don't run \`cello inbox\` (or \`cello inbox --wait\`) from a subagent: it would take the parent's comments. \`cello context\` is safe anywhere, since it takes nothing.
 
 ## The Claude Code plugin
 
@@ -1066,7 +1089,7 @@ cello wait [flags] <key>
 
 ### cello inbox
 
-Show the comments Lucas left on tasks this session claimed (Send back notes and answers to your asks too) and mark them read; each one arrives once. Use it when \`cello context\` lists new ones, or to reread what he said. With \`cello install claude\` they arrive by themselves. Not from a subagent: it shares its parent's session and would take the parent's comments.
+Show the comments Lucas left on tasks this session claimed (Send back notes and answers to your asks too) and mark them read; each one arrives once. Use it when \`cello context\` lists new ones, or to reread what he said. With \`cello install claude\` they arrive by themselves while you work; \`--wait\` in the background wakes you with them when you've ended your turn. Not from a subagent: it shares its parent's session and would take the parent's comments.
 
 \`\`\`
 cello inbox [flags]
@@ -1075,7 +1098,8 @@ cello inbox [flags]
 | | |
 | --- | --- |
 | \`--new\` | Only new comments, and print nothing (exit 0) when there are none. For scripts and hooks. |
-| \`--json\` | Print JSON: \`items\` (new, handed over now and marked read) and \`earlier\` (read before). |
+| \`--wait\` | Block until something new arrives for this session (a comment, a Send back note, answers, a withdrawn ask), then take it and print it, as --new does. Run it in the background when you end a turn holding a claim, so Lucas's comments wake you. A second one for the same session leaves at once. Rides out a server restart; exits 1 if the server stays away for 2 minutes. |
+| \`--json\` | Print JSON: \`items\` (new, handed over now and marked read), \`earlier\` (read before; empty with --new and --wait) and \`claimed\` (the keys of the tasks this session holds). |
 
 ### cello doc publish
 
@@ -1199,7 +1223,7 @@ cello uninstall claude [flags]
 
 ### cello hook claude
 
-Run by the hooks \`cello install claude\` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. pre-tool-use turns a Claude artifact publish away with a pointer to \`cello doc publish\`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a minute. Always exits 0.
+Run by the hooks \`cello install claude\` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that holds a claim going once to start \`cello inbox --wait\` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) or Claude is already continuing because of a Stop hook (stop_hook_active). pre-tool-use turns a Claude artifact publish away with a pointer to \`cello doc publish\`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a minute. Always exits 0.
 
 \`\`\`
 cello hook claude [flags] <event>

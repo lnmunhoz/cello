@@ -108,7 +108,8 @@ test("CEL-15: a comment typed in the task panel and a Send back on the Review pa
   await expect(page.getByLabel("Agent terminal")).toContainText("sent it back")
 
   await caption(page, "The next stop goes through: nothing new")
-  const quiet = celloAs(null, { stdin })("hook", "claude", "stop")
+  // The stop Claude makes after the hook kept it going (with nothing new and no waiter, a first stop would ask for `cello inbox --wait`, CEL-74).
+  const quiet = celloAs(null, { stdin: JSON.stringify({ ...JSON.parse(stdin), stop_hook_active: true }) })("hook", "claude", "stop")
   await showTerminal(page, "cello hook claude stop", quiet)
   expect(quiet).toBe("")
   await expect(page.getByLabel("Agent terminal")).toContainText("(prints nothing)")

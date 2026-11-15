@@ -24,6 +24,7 @@ import {
   type Status,
   type Task,
 } from "@cello/contract/entities"
+import { HUMAN_SESSION, IDENTITY_HEADERS } from "@cello/contract/rpcs"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
 import { ACCEPTED } from "@cello/shared/attachment"
@@ -61,6 +62,7 @@ import {
   type HookInput,
   insideAny,
   parseHookInput,
+  stopNudge,
 } from "./claudeHook.ts"
 import { CLAUDE_PLUGIN_FILES, pluginFolder, writePluginFolder } from "./claudePlugin.ts"
 import {
@@ -82,6 +84,17 @@ import { ago, andList, columns, localTime, plural, sessionName } from "./format.
 import { GUIDE } from "./guide.ts"
 import { type Env, IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
 import { deliveryText, inboxEntries } from "./inbox.ts"
+import {
+  acquireWaiter,
+  afterDown,
+  type Outage,
+  readWaiter,
+  reconnectGrace,
+  releaseWaiter,
+  waiterLockDir,
+  waiterLockFile,
+  WAITING,
+} from "./inboxWait.ts"
 import { groupWord, labelArgs, labelListText, labelNames, parseChanges, parseGroup, resolveChanges } from "./labels.ts"
 import { pageFiles } from "./pageFiles.ts"
 import { kindsOf, searchText } from "./search.ts"
@@ -1290,34 +1303,97 @@ const buildsCommand = Command.make("builds", {
 
 // ── comments for agents (CEL-15) ────────────────────────────────────────────────────────────────
 
+const NO_INBOX =
+  "The human has no inbox: comments reach the agent session that claimed the task. Run this from an agent session (CLAUDE_CODE_SESSION_ID or CELLO_SESSION set)."
+
+/** "1500 ms", "45 seconds", "2 minutes": the largest unit that says it exactly. */
+const spanText = (ms: number) =>
+  ms % 60_000 === 0 && ms >= 120_000 ? `${ms / 60_000} minutes` : ms % 1_000 === 0 && ms >= 2_000 ? `${ms / 1_000} seconds` : `${ms} ms`
+
+/**
+ * `inbox.wait` until it hands something over, reconnecting while the server restarts (CEL-74): a call
+ * that finds it down pauses and tries again, and after the grace it gives up.
+ */
+const waitForItems = Effect.gen(function* () {
+  const { env, now } = yield* CliEnv
+  const grace = reconnectGrace(env)
+  let outage: Outage | null = null
+  while (true) {
+    const started = now()
+    const taken = yield* withClient((client) => client["inbox.wait"]({}), { whenDown: Effect.succeed(null) })
+    if (taken !== null) return taken
+    const next = afterDown(outage, { started, ended: now() }, grace)
+    if (next === null) {
+      return yield* new CliFailure({
+        message: `The Cello server on port ${portOf(env)} went away and didn't come back within ${spanText(grace)}, so this stopped waiting. ` +
+          "Start it (`cello start`), then run `cello inbox --wait` again.",
+      })
+    }
+    outage = next.outage
+    yield* Effect.sleep(next.pause)
+  }
+})
+
+/**
+ * `cello inbox --wait`: holds the session's waiter lock (CEL-74; a second waiter leaves at once) while
+ * it waits for new items, then prints them as `--new` does. The lock goes when it ends, however it ends.
+ */
+const waitForInbox = (json: boolean) =>
+  Effect.gen(function* () {
+    const { env, cwd, now } = yield* CliEnv
+    const session = identityHeaders(env, cwd)[IDENTITY_HEADERS.session]
+    if (session === undefined || session === HUMAN_SESSION) return yield* new CliFailure({ message: NO_INBOX })
+    const file = waiterLockFile(waiterLockDir(env), { port: String(portOf(env)), session })
+    const me = { pid: process.pid, id: crypto.randomUUID() }
+    const lock = acquireWaiter(file, me)
+    if (!lock.acquired) {
+      return yield* print(`Already waiting: a \`cello inbox --wait\` (pid ${lock.pid}) is running for this session, and it wakes you when Lucas writes.`)
+    }
+    const taken = yield* Console.error(`${WAITING} (pid ${me.pid})…`).pipe(
+      Effect.andThen(waitForItems),
+      Effect.ensuring(Effect.sync(() => releaseWaiter(file, me.id))),
+    )
+    if (taken.session === null) return yield* new CliFailure({ message: NO_INBOX })
+    if (json) return yield* printJson(taken)
+    yield* print(deliveryText(taken.items, now(), yield* saveScreenshots(answeredAsks(taken.items))))
+  })
+
 const inbox = Command.make("inbox", {
   onlyNew: Flag.Boolean("new").pipe(
     Flag.withDefault(false),
     Flag.withDescription("Only new comments, and print nothing (exit 0) when there are none. For scripts and hooks."),
   ),
+  wait: Flag.Boolean("wait").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription(
+      "Block until something new arrives for this session (a comment, a Send back note, answers, a withdrawn ask), then take it and print it, " +
+        "as --new does. Run it in the background when you end a turn holding a claim, so Lucas's comments wake you. A second one for the same " +
+        "session leaves at once. Rides out a server restart; exits 1 if the server stays away for 2 minutes.",
+    ),
+  ),
   json: Flag.Boolean("json").pipe(
     Flag.withDefault(false),
-    Flag.withDescription("Print JSON: `items` (new, handed over now and marked read) and `earlier` (read before)."),
+    Flag.withDescription(
+      "Print JSON: `items` (new, handed over now and marked read), `earlier` (read before; empty with --new and --wait) and `claimed` (the keys of the tasks this session holds).",
+    ),
   ),
 }, (input) =>
   Effect.gen(function* () {
+    if (input.wait) return yield* waitForInbox(input.json)
     // One call takes the new comments and marks them read, so nothing else (the hook) gets them again.
     const taken = yield* withClient((client) => client["inbox.take"](input.onlyNew ? { unreadOnly: true } : {}))
     if (input.json) return yield* printJson(taken)
     const now = (yield* CliEnv).now()
     const files = yield* saveScreenshots(answeredAsks([...taken.items, ...taken.earlier]))
     if (input.onlyNew) return taken.items.length ? yield* print(deliveryText(taken.items, now, files)) : undefined
-    if (taken.session === null) {
-      return yield* print(
-        "The human has no inbox: comments reach the agent session that claimed the task. Run this from an agent session (CLAUDE_CODE_SESSION_ID or CELLO_SESSION set).",
-      )
-    }
+    if (taken.session === null) return yield* print(NO_INBOX)
     const lines = [taken.items.length ? deliveryText(taken.items, now, files) : `No new comments for ${sessionName(taken.session)}.`]
     if (taken.earlier.length) lines.push("", "Earlier", ...indent(inboxEntries(taken.earlier, now, undefined, files)))
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
     "Show the comments Lucas left on tasks this session claimed (Send back notes and answers to your asks too) and mark them read; each one arrives once. " +
-      "Use it when `cello context` lists new ones, or to reread what he said. With `cello install claude` they arrive by themselves. " +
+      "Use it when `cello context` lists new ones, or to reread what he said. With `cello install claude` they arrive by themselves while you work; " +
+      "`--wait` in the background wakes you with them when you've ended your turn. " +
       "Not from a subagent: it shares its parent's session and would take the parent's comments.",
   ))
 
@@ -1334,8 +1410,14 @@ const deliverToClaude = (event: Exclude<HookEvent, "pre-tool-use">) =>
     if (action === "check-in") return yield* withClient((client) => client["whoami"]({ project: {} }), { headers }).pipe(Effect.asVoid)
     // Taken and marked read in one step: a comment is handed over once, even to hooks running at the
     // same time, and a Stop hook can't loop on it (stop_hook_active needs no special case).
-    const { items } = yield* withClient((client) => client["inbox.take"]({ unreadOnly: true }), { headers })
-    if (items.length) yield* print(JSON.stringify(hookResponse(event, deliveryText(items, now(), yield* saveScreenshots(answeredAsks(items))))))
+    const { items, claimed } = yield* withClient((client) => client["inbox.take"]({ unreadOnly: true }), { headers })
+    if (items.length) return yield* print(JSON.stringify(hookResponse(event, deliveryText(items, now(), yield* saveScreenshots(answeredAsks(items))))))
+    if (event !== "stop") return
+    // Nothing new, and the session is about to go idle: if it holds a claim and nothing waits for it,
+    // keep it going once to start `cello inbox --wait` (CEL-74).
+    const lock = waiterLockFile(waiterLockDir(env), { port: String(portOf(env)), session: hookSession(hook, env)! })
+    const nudge = stopNudge(hook, { claimed, waiter: readWaiter(lock).state })
+    if (nudge) yield* print(JSON.stringify(nudge))
   })
 
 /** The asks whose answers are among these inbox items. */
@@ -1391,7 +1473,9 @@ const hookClaude = Command.make("claude", {
   })).pipe(Command.withDescription(
     "Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand " +
       "new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing " +
-      "when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. pre-tool-use turns a Claude artifact publish " +
+      "when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that " +
+      "holds a claim going once to start `cello inbox --wait` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) " +
+      "or Claude is already continuing because of a Stop hook (stop_hook_active). pre-tool-use turns a Claude artifact publish " +
       "away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); " +
       "this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and " +
       "denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the " +

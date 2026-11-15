@@ -5,6 +5,7 @@
 import type { InboxItem } from "@cello/contract/entities"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
 import * as CommentService from "../comment/CommentService.ts"
 import { ContextService } from "../context/ContextService.ts"
 import * as EventStore from "../events/EventStore.ts"
@@ -61,7 +62,7 @@ describe("InboxService: who gets what", () => {
       expect(yield* other(inbox.unread)).toEqual([])
       // The human has no inbox.
       expect(yield* inbox.unread).toEqual([])
-      expect(yield* inbox.take({})).toEqual({ session: null, items: [], earlier: [] })
+      expect(yield* inbox.take({})).toEqual({ session: null, items: [], earlier: [], claimed: [] })
     })))
 
   it.effect("the agent's own comments and other agents' comments aren't delivered", () =>
@@ -170,6 +171,57 @@ describe("InboxService.take", () => {
       expect(yield* store.latestSeq).toBe(before + 1)
       yield* agent(inbox.take({}))
       expect(yield* store.latestSeq).toBe(before + 1)
+    })))
+})
+
+describe("InboxService.take: what the session holds (CEL-74)", () => {
+  it.effect("says which tasks the session holds a claim on, so the Stop hook knows it has comments to wait for", () =>
+    run(Effect.gen(function* () {
+      const { inbox, tasks, one } = yield* setup
+      expect((yield* agent(inbox.take({ unreadOnly: true }))).claimed).toEqual(["CEL-1"])
+      expect((yield* other(inbox.take({ unreadOnly: true }))).claimed).toEqual(["CEL-2"])
+      yield* agent(tasks.release({ commandId: cmd(), key: one.key }))
+      expect((yield* agent(inbox.take({ unreadOnly: true }))).claimed).toEqual([])
+    })))
+})
+
+describe("InboxService.wait (CEL-74)", () => {
+  it.effect("blocks until a new item arrives, then takes it like take: marked read, handed over once", () =>
+    run(Effect.gen(function* () {
+      const { inbox, one, comment } = yield* setup
+      const waiting = yield* Effect.forkChild(agent(inbox.wait))
+      yield* Effect.yieldNow
+      yield* comment(one.id, "While you were idle")
+      const woken = yield* Fiber.join(waiting)
+      expect(woken.session?.externalId).toBe("session-x")
+      expect(bodies(woken.items)).toEqual(["While you were idle"])
+      expect(woken.earlier).toEqual([])
+      expect(woken.claimed).toEqual(["CEL-1"])
+      expect(yield* agent(inbox.unread)).toEqual([])
+    })))
+
+  it.effect("returns at once when items are already waiting", () =>
+    run(Effect.gen(function* () {
+      const { inbox, one, comment } = yield* setup
+      yield* comment(one.id, "Already here")
+      expect(bodies((yield* agent(inbox.wait)).items)).toEqual(["Already here"])
+    })))
+
+  it.effect("other sessions' items and the board's other changes don't wake it", () =>
+    run(Effect.gen(function* () {
+      const { inbox, tasks, one, two, comment } = yield* setup
+      const waiting = yield* Effect.forkChild(agent(inbox.wait))
+      yield* Effect.yieldNow
+      yield* comment(two.id, "For Y")
+      yield* tasks.create({ commandId: cmd(), projectId: one.projectId, title: "Unrelated" })
+      yield* comment(one.id, "For X")
+      expect(bodies((yield* Fiber.join(waiting)).items)).toEqual(["For X"])
+    })))
+
+  it.effect("the human has no inbox: it returns at once, empty", () =>
+    run(Effect.gen(function* () {
+      const { inbox } = yield* setup
+      expect(yield* inbox.wait).toEqual({ session: null, items: [], earlier: [], claimed: [] })
     })))
 })
 

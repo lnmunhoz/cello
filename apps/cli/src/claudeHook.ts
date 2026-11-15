@@ -3,19 +3,24 @@
 // https://code.claude.com/docs/en/hooks (checked 2026-11-15):
 //
 //   stdin   { session_id, cwd, hook_event_name, stop_hook_active (Stop), agent_id (inside a subagent),
-//             tool_name, tool_input (PreToolUse, PostToolUse), … }
+//             tool_name, tool_input (PreToolUse, PostToolUse),
+//             background_tasks: [{ id, type: "shell" | …, status, command (shell only) }] (Stop), … }
 //   both    { "hookSpecificOutput": { "hookEventName": "Stop" | "PostToolUse", "additionalContext": "…" } }
 //   pre     { "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "…" } }
 //
 // On Stop, additionalContext "keeps the conversation going through the same loop protections as
 // `decision: "block"` … but the transcript labels it `Stop hook feedback` and no hook error
 // notification is shown". Printing nothing and exiting 0 lets the session carry on as if there were no hook.
+// The Stop nudge to start `cello inbox --wait` (CEL-74) uses the same additionalContext form, since it is
+// guidance, not an error; `decision: "block"` with a `reason` would keep the session going the same way
+// but show as a hook error (checked 2026-11-16).
 // On PreToolUse, a deny "blocks the tool call, and shows Claude the reason" (CEL-57: the artifact
 // guard; CEL-61: the claim guard).
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { isObject } from "./claudeSettings.ts"
+import { andList } from "./format.ts"
 import type { Env } from "./identity.ts"
 
 export const HOOK_EVENTS = ["stop", "post-tool-use", "pre-tool-use"] as const
@@ -39,6 +44,8 @@ export interface HookInput {
   readonly toolName: string | null
   /** Its arguments, when they're an object. */
   readonly toolInput: Readonly<Record<string, unknown>> | null
+  /** Stop only: the commands of the shells the session runs in the background (`background_tasks`). */
+  readonly backgroundCommands: ReadonlyArray<string>
 }
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value.trim() : null)
@@ -61,6 +68,12 @@ export const parseHookInput = (raw: string): HookInput => {
     inSubagent: text(input.agent_id) !== null,
     toolName: text(input.tool_name),
     toolInput: record(input.tool_input),
+    backgroundCommands: Array.isArray(input.background_tasks)
+      ? input.background_tasks.flatMap((task) => {
+        const command = text(record(task)?.command)
+        return command === null ? [] : [command]
+      })
+      : [],
   }
 }
 
@@ -223,6 +236,35 @@ export const claimCache = (dir: string, key: { readonly port: string; readonly r
 
 /** Where the claim cache lives: a folder under the system's temp folder (TMPDIR when set). */
 export const claimCacheDir = (env: Env) => path.join(env.TMPDIR || os.tmpdir(), "cello-claims")
+
+// ── waiting while idle (CEL-74) ─────────────────────────────────────────────────────────────────
+// The hooks only fire while the session works, so a session that ended its turn never hears Lucas.
+// `cello inbox --wait`, run in the background, wakes it instead. When a session holding a claim stops
+// and nothing is waiting for it, the Stop hook keeps it going once to start one. It never loops: a
+// stop Claude makes because a Stop hook kept it going (`stop_hook_active`) goes through, and so does
+// any stop it can't judge (a lock it can't read, a subagent, no server, past the deadline).
+
+/** What the agent reads when it's asked to start a waiter: which claims, what to run, and how. */
+export const WAIT_NUDGE = (claimed: ReadonlyArray<string>) =>
+  `Cello: you hold ${claimed.length === 1 ? "a claim on" : "claims on"} ${andList(claimed)}, and nothing is waiting for Lucas's comments, ` +
+  "so once this turn ends he can't reach you. Start `cello inbox --wait` in the background now (the Bash tool with run_in_background: true), " +
+  "then end your turn. It wakes you when he comments, sends a task back or answers your questions."
+
+/** Whether one of the session's background shells (Stop's `background_tasks`) runs `cello inbox --wait`. */
+export const waitsInBackground = (input: HookInput): boolean =>
+  input.backgroundCommands.some((command) => /\bcello\b/.test(command) && /\binbox\b/.test(command) && /(^|\s)--wait\b/.test(command))
+
+/**
+ * The Stop hook's answer when nothing new arrived: keep the session going once to start a waiter, or
+ * null to let it stop. `claimed` are the tasks it holds; `waiter` is what its lock file says.
+ */
+export const stopNudge = (
+  input: HookInput,
+  facts: { readonly claimed: ReadonlyArray<string>; readonly waiter: "running" | "absent" | "unknown" },
+) =>
+  input.stopHookActive || input.inSubagent || facts.claimed.length === 0 || facts.waiter !== "absent" || waitsInBackground(input)
+    ? null
+    : hookResponse("stop", WAIT_NUDGE(facts.claimed))
 
 /** What the hook prints when comments arrived: context the agent acts on (on Stop, it keeps the agent going). */
 export const hookResponse = (event: Exclude<HookEvent, "pre-tool-use">, delivery: string) => ({

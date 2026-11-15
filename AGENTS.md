@@ -35,6 +35,7 @@ Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port
 - Lucas's comments and Send back notes on a task you claimed come to your session (CEL-15):
   - with the hooks installed (`cello install claude`, once per project on this machine; `--user` for every project), new ones arrive by themselves: when you stop, and after each tool call
   - without them, `cello inbox` hands them over; `cello context` lists them without taking them. Each arrives once
+  - the hooks only fire while you work, so **when you end a turn while holding a claimed task, start `cello inbox --wait` in the background** (Bash `run_in_background`): it wakes you when Lucas writes. The Stop hook asks for it once when none is running (CEL-74)
   - subagents share their parent's session: the hook skips them, and a subagent must not run `cello inbox`
   - act on them, then answer on the card with `cello task comment CEL-n "…"` (`--body-file -` for markdown); a sent-back task goes back to Lucas with `cello task submit`
   - `docs/cli.md`, "Comments from Lucas reach your session", has the details

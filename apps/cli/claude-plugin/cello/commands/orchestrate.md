@@ -44,6 +44,6 @@ flowchart TD
 
 - **Subagents share this session.** The claim is yours: builders and reviewers never claim, comment, stage, submit or run `cello inbox`. You do all of that.
 - **The person's decisions go on the card, never in the terminal.** Which design, which scope, what wording: `cello task ask <KEY> --file ask.yaml --wait`, run in the background. The task waits in Needs input and comes back to you with the answers.
-- **Their comments come to you.** With the hooks installed they arrive by themselves; without them, `cello inbox`. Act on them, then answer on the card with `cello task comment`.
+- **Their comments come to you.** With the hooks installed they arrive by themselves; without them, `cello inbox`. Act on them, then answer on the card with `cello task comment`. When you end a turn while holding claims (waiting on agents or the person), start `cello inbox --wait` in the background, so their comments wake you while you're idle.
 - **Keep the board honest.** Comment progress and decisions on the card. In Progress means someone is on it now: when you pause a task, put where it stands on the card, move it back to Todo and `cello task release` it.
 - **Report to the person per task:** its stage and what's next, in a line or two.

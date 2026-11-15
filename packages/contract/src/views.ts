@@ -50,6 +50,11 @@ export const Inbox = Schema.Struct({
   items: Schema.Array(InboxItem),
   /** The latest items read before, oldest first; empty when only new ones were asked for. */
   earlier: Schema.Array(InboxItem),
+  /**
+   * The keys of the tasks the session holds a claim on now (CEL-74): comments on them come to it, so
+   * the Stop hook asks it to wait for them when it goes idle. Empty for the human.
+   */
+  claimed: Schema.Array(Schema.String),
 })
 export type Inbox = typeof Inbox.Type
 

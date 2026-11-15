@@ -18,6 +18,9 @@ import {
   hookSession,
   insideAny,
   parseHookInput,
+  stopNudge,
+  WAIT_NUDGE,
+  waitsInBackground,
 } from "./claudeHook.ts"
 
 describe("parseHookInput", () => {
@@ -29,7 +32,15 @@ describe("parseHookInput", () => {
       hook_event_name: "Stop",
       stop_hook_active: true,
       last_assistant_message: "Done.",
-    }))).toEqual({ sessionId: "2fd0505c-417a", cwd: "/Users/me/projects/cello", stopHookActive: true, inSubagent: false, toolName: null, toolInput: null })
+    }))).toEqual({
+      sessionId: "2fd0505c-417a",
+      cwd: "/Users/me/projects/cello",
+      stopHookActive: true,
+      inSubagent: false,
+      toolName: null,
+      toolInput: null,
+      backgroundCommands: [],
+    })
   })
 
   it("knows a tool call inside a subagent by its agent_id", () => {
@@ -38,11 +49,70 @@ describe("parseHookInput", () => {
   })
 
   it("treats empty or broken input as no information, never as an error", () => {
-    const none = { sessionId: null, cwd: null, stopHookActive: false, inSubagent: false, toolName: null, toolInput: null }
+    const none = { sessionId: null, cwd: null, stopHookActive: false, inSubagent: false, toolName: null, toolInput: null, backgroundCommands: [] }
     expect(parseHookInput("")).toEqual(none)
     expect(parseHookInput("{not json")).toEqual(none)
     expect(parseHookInput("[1,2]")).toEqual(none)
     expect(parseHookInput(JSON.stringify({ session_id: 42, cwd: "" }))).toEqual(none)
+  })
+})
+
+describe("Stop's background_tasks (CEL-74)", () => {
+  const stop = (backgroundTasks: unknown) =>
+    parseHookInput(JSON.stringify({ session_id: "s", hook_event_name: "Stop", stop_hook_active: false, background_tasks: backgroundTasks }))
+
+  it("reads the commands of the shells running in the background", () => {
+    expect(stop([
+      { id: "t1", type: "shell", status: "running", description: "wait", command: "cello inbox --wait" },
+      { id: "t2", type: "subagent", status: "running", description: "builder", agent_type: "cello-builder" },
+      { id: "t3", type: "shell", status: "running", command: 42 },
+    ]).backgroundCommands).toEqual(["cello inbox --wait"])
+    expect(stop("nope").backgroundCommands).toEqual([])
+    expect(stop(undefined).backgroundCommands).toEqual([])
+  })
+
+  it("knows a `cello inbox --wait` among them, with or without other flags", () => {
+    expect(waitsInBackground(stop([{ type: "shell", command: "cello inbox --wait" }]))).toBe(true)
+    expect(waitsInBackground(stop([{ type: "shell", command: "cd /repo && cello inbox --json --wait" }]))).toBe(true)
+    expect(waitsInBackground(stop([{ type: "shell", command: "cello inbox --new" }]))).toBe(false)
+    expect(waitsInBackground(stop([{ type: "shell", command: "cello task ask CEL-1 --file ask.yaml --wait" }]))).toBe(false)
+    expect(waitsInBackground(stop([{ type: "shell", command: "tail -f log" }]))).toBe(false)
+    expect(waitsInBackground(stop([]))).toBe(false)
+  })
+})
+
+describe("stopNudge (CEL-74): an idle session must still hear Lucas", () => {
+  const stop = (extra: Record<string, unknown> = {}) =>
+    parseHookInput(JSON.stringify({ session_id: "s", hook_event_name: "Stop", stop_hook_active: false, ...extra }))
+  const claimed = ["CEL-74"]
+
+  it("holding a claim with no waiter running, the stop is blocked once with what to start", () => {
+    expect(stopNudge(stop(), { claimed, waiter: "absent" })).toEqual({
+      hookSpecificOutput: { hookEventName: "Stop", additionalContext: WAIT_NUDGE(claimed) },
+    })
+    expect(WAIT_NUDGE(claimed)).toContain("`cello inbox --wait`")
+    expect(WAIT_NUDGE(claimed)).toContain("run_in_background")
+    expect(WAIT_NUDGE(claimed)).toContain("CEL-74")
+    expect(WAIT_NUDGE(["CEL-1", "CEL-2"])).toContain("CEL-1 and CEL-2")
+  })
+
+  it("never twice in a row: when Claude is already continuing because of a Stop hook, the stop goes through", () => {
+    expect(stopNudge(stop({ stop_hook_active: true }), { claimed, waiter: "absent" })).toBeNull()
+  })
+
+  it("a waiter already running (its lock, or a background shell running it) lets the stop through", () => {
+    expect(stopNudge(stop(), { claimed, waiter: "running" })).toBeNull()
+    expect(stopNudge(stop({ background_tasks: [{ type: "shell", status: "running", command: "cello inbox --wait" }] }), { claimed, waiter: "absent" }))
+      .toBeNull()
+  })
+
+  it("no claim, nothing to wait for: the stop goes through", () => {
+    expect(stopNudge(stop(), { claimed: [], waiter: "absent" })).toBeNull()
+  })
+
+  it("fails open: a lock it can't read, or a subagent, lets the stop through", () => {
+    expect(stopNudge(stop(), { claimed, waiter: "unknown" })).toBeNull()
+    expect(stopNudge(stop({ agent_id: "a1" }), { claimed, waiter: "absent" })).toBeNull()
   })
 })
 
