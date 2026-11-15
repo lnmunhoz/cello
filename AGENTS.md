@@ -27,6 +27,12 @@ Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port
 - run `cello context` at the start of a session
 - **Todo or Backlog:** Todo is ready to build. **Backlog** holds ideas and requests that still need discussing. When Lucas says "add to the backlog", create the task with `--status Backlog`. A Backlog task moves to Todo once it's agreed what to build; nobody builds from Backlog.
 - `cello task claim CEL-n` before working on a task, and comment progress with `cello task comment`
+- Lucas's comments and Send back notes on a task you claimed come to your session (CEL-15):
+  - with the hooks installed (`cello install claude`, once per project on this machine; `--user` for every project), new ones arrive by themselves: when you stop, and after each tool call
+  - without them, `cello inbox` hands them over; `cello context` lists them without taking them. Each arrives once
+  - subagents share their parent's session: the hook skips them, and a subagent must not run `cello inbox`
+  - act on them, then answer on the card with `cello task comment CEL-n "…"` (`--body-file -` for markdown); a sent-back task goes back to Lucas with `cello task submit`
+  - `docs/cli.md`, "Comments from Lucas reach your session", has the details
 - put the task key in commit messages (`feat(cli): task claim (CEL-3)`)
 - hand finished work to Lucas **only with `cello task submit`**: a review packet (summary, how-to-check steps, evidence) that moves the task to **In Review**. `cello task move CEL-n "In Review"` is refused. Lucas approves it (Done) or sends it back with a note, on the Review page.
   - UI work: MP4 video(s) of the flow (the e2e videos) and screenshots, light and dark when it matters

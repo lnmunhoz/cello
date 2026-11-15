@@ -10,6 +10,8 @@ playwright-report/
 e2e/videos/
 apps/cli/.build/
 .claude/worktrees/
+# per-machine Claude Code settings, e.g. the hooks `cello install claude` adds (CEL-15)
+.claude/settings.local.json
 
 # promo render output (rebuild with art/promo/render.sh)
 art/promo/frames/

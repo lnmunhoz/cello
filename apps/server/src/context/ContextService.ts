@@ -12,6 +12,7 @@ import * as SqlClient from "effect/sql/SqlClient"
 import * as CommentService from "../comment/CommentService.ts"
 import * as DocumentService from "../document/DocumentService.ts"
 import * as EventStore from "../events/EventStore.ts"
+import * as InboxService from "../inbox/InboxService.ts"
 import { selectActors, selectLabels, selectProjects, selectReviews, selectStatuses, selectTasks } from "../persistence/rows.ts"
 import * as ProjectService from "../project/ProjectService.ts"
 import { SessionService } from "../session/SessionService.ts"
@@ -65,6 +66,7 @@ const make = Effect.gen(function* () {
   const sessions = yield* SessionService
   const store = yield* EventStore.EventStore
   const documents = yield* DocumentService.DocumentService
+  const inbox = yield* InboxService.InboxService
 
   const actorById = (id: string) =>
     Effect.map(selectActors(sql), (actors) => actors.find((a) => a.id === id)!)
@@ -139,6 +141,7 @@ const make = Effect.gen(function* () {
       claimed,
       recent: yield* withKeys(recent),
       lostClaims: yield* withKeys(lost),
+      inbox: yield* inbox.unread,
     }
   }, Effect.catchTag("SqlError", Effect.die))
 

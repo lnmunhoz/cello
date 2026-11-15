@@ -8,6 +8,7 @@ import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import type { SqlError } from "effect/sql/SqlError"
 import * as Commands from "../commands/Commands.ts"
+import * as InboxService from "../inbox/InboxService.ts"
 import { newId } from "../persistence/ids.ts"
 import { selectComments } from "../persistence/rows.ts"
 import { requireText } from "../validation.ts"
@@ -30,7 +31,10 @@ export class CommentService extends Context.Service<CommentService, {
     NotFound,
     Caller
   >
-  /** For another service's command: adds a comment inside that command's transaction, as its caller. */
+  /**
+   * For another service's command: adds a comment inside that command's transaction, as its caller.
+   * Delivering it to an agent's inbox is up to that command (`InboxService.deliverWithin`).
+   */
   readonly addWithin: (
     context: Commands.WriteContext,
     input: { readonly taskId: string; readonly body: string },
@@ -40,6 +44,7 @@ export class CommentService extends Context.Service<CommentService, {
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const commands = yield* Commands.Commands
+  const inbox = yield* InboxService.InboxService
 
   /** The task's project and workspace, which every comment event carries. */
   const placeOfTask = (taskId: string) =>
@@ -86,7 +91,13 @@ const make = Effect.gen(function* () {
     input: { readonly commandId: string; readonly taskId: string; readonly body: string },
   ) {
     yield* requireText("body", input.body)
-    return yield* commands.write({ commandId: input.commandId, rpc: "comment.add" }, (context) => addWithin(context, input))
+    return yield* commands.write({ commandId: input.commandId, rpc: "comment.add" }, (context) =>
+      Effect.gen(function* () {
+        const comment = yield* addWithin(context, input)
+        // A human comment on a claimed task waits for the claiming agent session.
+        yield* inbox.deliverWithin(context, comment, "comment")
+        return comment
+      }))
   })
 
   const edit = Effect.fn("CommentService.edit")(function* (

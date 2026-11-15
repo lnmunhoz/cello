@@ -122,6 +122,31 @@ export const Comment = Schema.Struct({
 })
 export type Comment = typeof Comment.Type
 
+/** Why a comment reached an agent's inbox: a comment on its task, or the note of a review Lucas sent back. */
+export const InboxKind = Schema.Literals(["comment", "send_back"])
+export type InboxKind = typeof InboxKind.Type
+
+/**
+ * A human comment delivered to the agent session that held the task's claim when it was written (CEL-15).
+ * The comment travels with it, as it is now (edits show; deleted comments drop out of the inbox).
+ */
+export const InboxItem = Schema.Struct({
+  id: Id,
+  kind: InboxKind,
+  taskId: Id,
+  /** Keys and titles, so a hook can print the item without another call. */
+  taskKey: Schema.String,
+  taskTitle: Schema.String,
+  comment: Comment,
+  /** Who wrote it: the human's name. */
+  author: Schema.String,
+  /** When it was delivered: the comment's time. */
+  createdAt: Millis,
+  /** When the session read it (`cello inbox`, `cello context` or the hook); null while it's new. */
+  readAt: Schema.NullOr(Millis),
+})
+export type InboxItem = typeof InboxItem.Type
+
 export const AttachmentKind = Schema.Literals(["image", "video", "file", "link"])
 export type AttachmentKind = typeof AttachmentKind.Type
 
