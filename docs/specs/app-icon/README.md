@@ -47,8 +47,9 @@ landing, a blink, once. Merged has happy eyes; a quiet or ended session keeps st
 loops run only while the session is active, entries play only for a change seen on screen, and
 `prefers-reduced-motion` stills it all. Body and eyes are two CSS colours (`--agent-body`,
 `--agent-eye`, or the `body` and `eye` props), so it draws in any colour. Only transform and opacity
-animate, each on its own HTML layer (`AgentMark.css`): 40 working agents on a board measured 60 fps
-with no long tasks. The extra geometry (spinner tip, happy eyes, the square frame) is in `agentMark.ts`.
+animate, each on its own HTML layer (`AgentMark.css`). `e2e/perf.spec.ts` holds 40 working agents on a
+board to at least 55 fps (60 measured), no long tasks, no more layout than the board standing still and
+under 1.5 ms of extra style work a frame. The extra geometry (spinner tip, happy eyes, the square frame) is in `agentMark.ts`.
 
 ## Where it ships (CEL-27)
 

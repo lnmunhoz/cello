@@ -21,6 +21,7 @@ import {
   type Who,
   workingSessions,
 } from "./model.ts"
+import { drawnMarks } from "./drawnMarks.ts"
 import { useNow } from "./useNow.ts"
 
 const STAGE_ICONS: Record<string, LucideIcon> = { hammer: HammerIcon, "scan-eye": ScanEyeIcon, wrench: WrenchIcon, "git-merge": GitMergeIcon }
@@ -108,20 +109,21 @@ const MARK_SIZE = 15
 const markBody = (session: AgentSession, presence: Presence) =>
   presence === "active" ? sessionColor(session) : presence === "idle" ? "var(--idle)" : "var(--faint)"
 
-/** Each task's mark as last drawn. A card that changes column is a new component, so this outlives it. */
-const drawnMarks = new Map<string, MarkSeen & { readonly session: AgentSession | null }>()
+/** Each task's mark as last drawn, outliving the card for a column move (./drawnMarks.ts). */
+const drawn = drawnMarks<MarkSeen & { readonly session: AgentSession | null }>()
 
 /**
  * The agent mark for a task's card or list row (CEL-69), in place of the presence dot: what its agent is
  * doing (agentMood), and the entry to play once when the task moves into In Review or Done, or starts
- * waiting in Needs input, while it's on screen. A page load plays nothing: the first value drawn is the
- * baseline. When Lucas approves and the claim ends, the session that held it stays for Done, then leaves.
+ * waiting in Needs input, while it's on screen. A page load, or coming back to a card that was off
+ * screen, plays nothing: what's drawn first is the baseline. When Lucas approves and the claim ends,
+ * the session that held it stays for Done, then leaves.
  */
 function useTaskMark(task: Task, board: BoardState, holder: AgentSession | null): { mark: ReactNode; leaving: boolean } {
   const now = useNow()
   const presence: Presence = holder ? presenceOf(holder, now) : "ended"
   const seen: MarkSeen = { mood: agentMood(task.stage, board.statuses[task.statusId], presence), statusId: task.statusId }
-  const [last, setLast] = useState(() => drawnMarks.get(task.id) ?? { ...seen, session: holder })
+  const [last, setLast] = useState(() => drawn.baseline(task.id, Date.now()) ?? { ...seen, session: holder })
   // The entry playing right now, if any; it clears once played.
   const [entry, setEntry] = useState<"done" | "waiting" | null>(null)
   // The session whose claim ended as the task finished (Lucas approved it): it stays to play Done.
@@ -130,11 +132,16 @@ function useTaskMark(task: Task, board: BoardState, holder: AgentSession | null)
     setLast({ ...seen, session: holder })
     const next = last.mood !== seen.mood || last.statusId !== seen.statusId ? markEntry(last, seen) : entry
     setEntry(next)
+    // The leaving mark relies on the approve moving the task and ending the claim in one change (one
+    // transaction, one event), so the card sees Done and no holder together. Were they to arrive
+    // separately, Done would play with the holder and, once over, a later claim end shows nothing more.
     setGone(next === "done" && holder === null ? (last.session ?? gone) : null)
   }
   useEffect(() => {
-    drawnMarks.set(task.id, { ...seen, session: holder })
+    drawn.seen(task.id, { ...seen, session: holder })
   })
+  // Leaving the screen (not each re-render) starts the baseline's short lifetime.
+  useEffect(() => () => drawn.left(task.id, Date.now()), [task.id])
   const session = holder ?? gone
   if (session === null) return { mark: null, leaving: false }
   const played = () => {

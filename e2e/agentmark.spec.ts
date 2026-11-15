@@ -3,13 +3,16 @@
 // starts waiting in Needs input, a jump for joy when it reaches In Review or Done. Nothing plays as the
 // board first draws, and reduced motion stills it all. Agents act through RPC as the CLI would; agent
 // cursors are off, so cards change in place, and Needs input is its own column. The board is shown at
-// 175% browser zoom with the sidebar hidden, so the 15 px mark reads in the video; the stills come
-// from a 3x page at 100%.
+// 140% browser zoom with the sidebar hidden, so the 15 px mark reads in the video, and the caption sits
+// bottom right, over empty column space; the stills come from a 3x page at 100%. Entries are caught by
+// their own animationstart events, so slow motion (review videos) can't make a check miss one.
 import * as path from "node:path"
 import type { Browser, Locator, Page } from "@playwright/test"
 import { newCommandId } from "../packages/client/test/support/promiseClient.ts"
 import { agentAs, caption, card, column, defaultWorkspace, expect, seedProject, test, uniqueKey } from "./fixtures.ts"
 import { SHOTS } from "./packets.ts"
+
+const ZOOM = "1.4"
 
 /** The animations playing in a mark (its layers included), by name, with how often each repeats. */
 const playing = (mark: Locator) =>
@@ -41,6 +44,65 @@ const freezeAt = (mark: Locator, ms: number) =>
   }, ms)
 const resume = (mark: Locator) => mark.evaluate((el) => el.getAnimations({ subtree: true }).forEach((a) => a.play()))
 
+/** An animation that started on a card's mark: its name, its iteration count, and whether the mark was leaving. */
+interface Started {
+  readonly name: string
+  readonly iterations: string
+  readonly leaving: boolean
+}
+
+/**
+ * Listens on `page` for the entry animations `names` to start on `key`'s mark. The returned function
+ * resolves, once every one has started, with all that started on that mark. (Chrome reports each
+ * composited animation as the compositor starts it, so they don't all arrive in one frame.)
+ */
+async function watchEntry(page: Page, key: string, names: ReadonlyArray<string>) {
+  await page.evaluate(
+    ([k, ns]) => {
+      const w = window as unknown as { __entry?: Promise<Started[]> }
+      w.__entry = new Promise((resolve) => {
+        const started: Started[] = []
+        const on = (e: AnimationEvent) => {
+          const el = e.target as Element
+          const mark = el.closest(`[data-task-key="${k}"] .agent-mark`)
+          if (!mark) return
+          started.push({ name: e.animationName, iterations: getComputedStyle(el).animationIterationCount, leaving: mark.hasAttribute("data-leaving") })
+          if (!ns.every((n) => started.some((a) => a.name === n))) return
+          document.removeEventListener("animationstart", on)
+          resolve(started)
+        }
+        document.addEventListener("animationstart", on)
+      })
+    },
+    [key, names] as const,
+  )
+  return () => page.evaluate(() => (window as unknown as { __entry: Promise<Started[]> }).__entry)
+}
+
+/** Arms `lens`: the moment `name` starts on `key`'s mark, every animation in it is held `ms` in, for stills. */
+async function freezeOnStart(lens: Page, key: string, name: string, ms: number) {
+  await lens.evaluate(
+    ([k, n, t]) => {
+      const w = window as unknown as { __frozen?: Promise<void> }
+      w.__frozen = new Promise((resolve) => {
+        const on = (e: AnimationEvent) => {
+          const mark = (e.target as Element).closest(`[data-task-key="${k}"] .agent-mark`)
+          if (!mark || e.animationName !== n) return
+          document.removeEventListener("animationstart", on)
+          for (const a of mark.getAnimations({ subtree: true })) {
+            a.pause()
+            a.currentTime = t
+          }
+          resolve()
+        }
+        document.addEventListener("animationstart", on)
+      })
+    },
+    [key, name, ms] as const,
+  )
+  return () => lens.evaluate(() => (window as unknown as { __frozen: Promise<void> }).__frozen)
+}
+
 /** The card's agent mark. */
 const markOf = (page: Page, key: string) => card(page, key).locator(".agent-mark")
 
@@ -70,15 +132,20 @@ const showFrom = (page: Page, name: string) =>
   })
 
 test.beforeEach(async ({ context }) => {
-  await context.addInitScript(() => {
+  await context.addInitScript((zoom) => {
     localStorage.setItem("cello:agent-cursors", "off")
     localStorage.setItem("cello:sidebar", JSON.stringify({ mode: "hidden", collapsed: "hidden" }))
     // Display → Needs input column: the waiting card hops at the top of its own column, in the video.
     localStorage.setItem("cello:needs-input-column", "on")
-    // 175% browser zoom, like ⌘+ three times: the mark is 26 px on screen in the video. Once the
-    // document has its root element: init scripts run before it exists.
-    addEventListener("DOMContentLoaded", () => (document.documentElement.style.zoom = "1.75"))
-  })
+    // Once the document has its root element (init scripts run before it exists): 140% browser zoom,
+    // and the caption at its usual size in the bottom right corner, over the columns' empty space.
+    addEventListener("DOMContentLoaded", () => {
+      document.documentElement.style.zoom = zoom
+      const style = document.createElement("style")
+      style.textContent = `#e2e-caption { zoom: calc(1 / ${zoom}); left: auto; right: 24px; translate: none; max-width: 520px; }`
+      document.head.append(style)
+    })
+  }, ZOOM)
 })
 
 test("CEL-69: each card's agent shows what its agent is doing: working, thinking, a hop for Needs input, a jump for Done; nothing plays on load or with reduced motion", async ({ page, browser, cello, baseURL }) => {
@@ -120,10 +187,10 @@ test("CEL-69: each card's agent shows what its agent is doing: working, thinking
     await page.evaluate(() => (document.documentElement.style.zoom = "1"))
     await column(page, "In Progress").screenshot({ path: path.join(SHOTS, `cel-69-column-${theme}.png`) })
   }
-  await page.evaluate(() => {
+  await page.evaluate((zoom) => {
     document.documentElement.classList.remove("dark")
-    document.documentElement.style.zoom = "1.75"
-  })
+    document.documentElement.style.zoom = zoom
+  }, ZOOM)
   await showFrom(page, "In Progress")
   const { lens, close } = await openLens(browser, baseURL!, key)
   await expect(markOf(lens, building)).toHaveAttribute("data-agent-mood", "working")
@@ -135,41 +202,45 @@ test("CEL-69: each card's agent shows what its agent is doing: working, thinking
   await stills(lens, shipping, "merged")
 
   await caption(page, "The agent asks Lucas about Pick the colours: Needs input. Its agent looks up with big eyes, hops twice and a ring goes out, once")
+  const hopped = await watchEntry(page, asking, ["agent-hop", "agent-hop-squash", "agent-ring"])
+  // On the 3x page: held at the top of the first hop, the ring on its way out.
+  const lensHopped = await freezeOnStart(lens, asking, "agent-ring", 230)
   await agent.run((c) =>
     c["ask.create"]({ commandId: newCommandId(), key: asking, title: "Which colours?", questions: [{ prompt: "Session colour for the body?" }], files: [], links: [] }),
   )
+  await lensHopped()
+  const hop = await hopped()
+  expect(hop.every((a) => a.iterations === "1")).toBe(true)
   const waiting = markOf(page, asking)
   await expect(waiting).toHaveAttribute("data-agent-mood", "waiting")
-  await expect(waiting).toHaveAttribute("data-play", "")
-  expect((await playing(waiting)).every((a) => a.iterations === 1)).toBe(true)
-  await expect(markOf(lens, asking)).toHaveAttribute("data-play", "")
-  // At the top of the first hop, the ring on its way out.
-  await freezeAt(markOf(lens, asking), 230)
   await stills(lens, asking, "needs-input-hop")
   await resume(markOf(lens, asking))
   await entryPlayed(waiting)
   expect(await playing(waiting)).toEqual([])
+  // Played: the entry clears, so nothing can start it again.
+  await expect(waiting).not.toHaveAttribute("data-play")
   await entryPlayed(markOf(lens, asking))
   await stills(lens, asking, "needs-input")
 
   await caption(page, "Then it rests, big eyes up: a card waiting on Lucas runs no animation")
-  await expect(waiting).toHaveAttribute("data-agent-mood", "waiting")
   await expect(column(page, "Needs input").locator(`[data-task-key="${asking}"]`)).toBeVisible()
   await showFrom(page, "Needs input")
 
   await caption(page, "Session 7c3e9a51 submits Ship the mark: In Review. Its agent squashes flat, leaps with happy eyes, lands wobbling, blinks")
+  const jumped = await watchEntry(page, shipping, ["agent-done-squash", "agent-done-rig", "agent-done-eyes", "agent-done-happy"])
+  // On the 3x page: held as a pancake, then airborne with happy eyes, then the landing wobble.
+  const lensJumped = await freezeOnStart(lens, shipping, "agent-done-rig", 380)
   await agent.run((c) =>
     c["review.submit"]({
       commandId: newCommandId(), key: shipping, summary: "The agent mark on cards.", steps: ["Open the board"], files: [],
       links: [{ url: "https://example.com/cel-69", caption: "The PR" }],
     }),
   )
+  await lensJumped()
+  const jump = await jumped()
+  expect(jump.every((a) => a.iterations === "1" && !a.leaving)).toBe(true)
   const done = column(page, "In Review").locator(`[data-task-key="${shipping}"] .agent-mark`)
   await expect(done).toHaveAttribute("data-agent-mood", "done")
-  await expect(done).toHaveAttribute("data-play", "")
-  expect((await playing(done)).map((a) => a.name)).toEqual(expect.arrayContaining(["agent-done-squash", "agent-done-rig", "agent-done-eyes", "agent-done-happy"]))
-  await expect(markOf(lens, shipping)).toHaveAttribute("data-play", "")
-  // The pancake, then airborne with happy eyes, then the landing wobble.
   for (const [ms, name] of [[380, "done-squash"], [760, "done-leap"], [1250, "done-wobble"]] as const) {
     await freezeAt(markOf(lens, shipping), ms)
     await stills(lens, shipping, name)
@@ -193,11 +264,11 @@ test("CEL-69: each card's agent shows what its agent is doing: working, thinking
 
   await caption(page, "Lucas approves it: the claim ends, so its agent jumps once more as the card lands in Done, then leaves the card")
   await showFrom(page, "In Review")
+  const landed = await watchEntry(page, shipping, ["agent-done-squash", "agent-done-rig"])
   await cello.run((c) => c["review.approve"]({ commandId: newCommandId(), key: shipping }))
-  const leaving = column(page, "Done").locator(`[data-task-key="${shipping}"] .agent-mark`)
-  await expect(leaving).toHaveAttribute("data-leaving", "")
-  await expect(leaving).toHaveAttribute("data-play", "")
-  await entryPlayed(leaving)
+  const landing = await landed()
+  // No holder any more: the mark that plays is the leaving one.
+  expect(landing.every((a) => a.leaving)).toBe(true)
   await expect(column(page, "Done").locator(`[data-task-key="${shipping}"] [data-card-work]`)).toHaveCount(0)
 
   await caption(page, "Reload: nothing plays as the board draws. Needs input rests with big eyes; only the agents at work move")

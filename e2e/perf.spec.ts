@@ -213,7 +213,7 @@ test("performance: a 200-task board with three agent cursors flying at once stay
   expect(await page.evaluate(() => document.getElementById("agent-cursor-styles")?.textContent ?? "")).toBe("")
 })
 
-test("performance: 40 working agents on the board keep 60 fps, and their spinning marks cost the main thread next to nothing (CEL-69)", async ({ page, cello, baseURL }, testInfo) => {
+test("performance: 40 working agents on the board stay near 60 fps (at least 55), with no long tasks, no extra layout and little extra style work (CEL-69)", async ({ page, cello, baseURL }, testInfo) => {
   test.setTimeout(Math.max(test.info().timeout, 90_000))
   const key = uniqueKey("PERFA")
   const project = await seedProject(cello, "Agent marks", key)
@@ -285,5 +285,10 @@ test("performance: 40 working agents on the board keep 60 fps, and their spinnin
   expect(still.animations).toBe(0)
   expect(spinning.averageFps).toBeGreaterThanOrEqual(55)
   expect(spinning.longTasks).toBe(0)
+  // The marks animate transform and opacity only, which the compositor runs: an animation of a layout
+  // property (width, top, margin…) would show up as layout every frame, and as much more style work.
+  expect(spinning.layoutMsPerFrame).toBeLessThanOrEqual(still.layoutMsPerFrame + 0.1)
+  // Chrome still updates the animated elements' styles each frame: 0.6–0.7 ms for 80 animations here.
+  expect(spinning.styleMsPerFrame).toBeLessThanOrEqual(still.styleMsPerFrame + 1.5)
   for (const agent of agents) await agent.close()
 })
