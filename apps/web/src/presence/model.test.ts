@@ -1,7 +1,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { agentMood, agentsWorkingCount, markEntry, provenanceLine, provenanceOf, whoOf, workingSessions } from "./model.ts"
+import { agentMood, agentsWorkingCount, markEntry, type MarkSeen, provenanceLine, provenanceOf, whoOf, workingSessions } from "./model.ts"
 
 const MIN = 60_000
 const now = Date.UTC(2026, 10, 15, 12)
@@ -154,22 +154,35 @@ describe("agentMood (CEL-69)", () => {
 })
 
 describe("markEntry (CEL-69)", () => {
+  const at = (mood: MarkSeen["mood"], statusId: string, checkIn: number | null = 100): MarkSeen => ({ mood, statusId, checkIn })
+
   it("plays Done when the card moves into In Review or Done while it's on screen, and again from In Review to Done", () => {
-    expect(markEntry({ mood: "working", statusId: "prog" }, { mood: "done", statusId: "review" })).toBe("done")
-    expect(markEntry({ mood: "still", statusId: "prog" }, { mood: "done", statusId: "done" })).toBe("done")
-    expect(markEntry({ mood: "done", statusId: "review" }, { mood: "done", statusId: "done" })).toBe("done")
+    expect(markEntry(at("working", "prog"), at("done", "review"))).toBe("done")
+    expect(markEntry(at("still", "prog"), at("done", "done", null))).toBe("done")
+    expect(markEntry(at("done", "review"), at("done", "done"))).toBe("done")
   })
 
   it("hops when the task arrives in Needs input", () => {
-    expect(markEntry({ mood: "thinking", statusId: "prog" }, { mood: "waiting", statusId: "needs" })).toBe("waiting")
+    expect(markEntry(at("thinking", "prog"), at("waiting", "needs"))).toBe("waiting")
   })
 
-  it("plays nothing when nothing arrived: the same mood and status, a loop starting or stopping, a stage changing", () => {
-    expect(markEntry({ mood: "done", statusId: "review" }, { mood: "done", statusId: "review" })).toBeNull()
-    expect(markEntry({ mood: "waiting", statusId: "needs" }, { mood: "waiting", statusId: "needs" })).toBeNull()
-    expect(markEntry({ mood: "thinking", statusId: "prog" }, { mood: "working", statusId: "prog" })).toBeNull()
-    expect(markEntry({ mood: "working", statusId: "prog" }, { mood: "still", statusId: "prog" })).toBeNull()
-    expect(markEntry({ mood: "waiting", statusId: "needs" }, { mood: "thinking", statusId: "prog" })).toBeNull()
+  it("bursts when the agent starts working or thinking, and again at each check-in while it does: a busy agent keeps moving", () => {
+    expect(markEntry(at("still", "prog"), at("working", "prog"))).toBe("burst")
+    expect(markEntry(at("thinking", "prog"), at("working", "prog"))).toBe("burst")
+    expect(markEntry(at("working", "prog"), at("thinking", "prog"))).toBe("burst")
+    expect(markEntry(at("waiting", "needs"), at("thinking", "prog"))).toBe("burst")
+    expect(markEntry(at("working", "prog", 100), at("working", "prog", 160))).toBe("burst")
+    expect(markEntry(at("thinking", "prog", 100), at("thinking", "prog", 160))).toBe("burst")
+  })
+
+  it("plays nothing when nothing arrived: the same mood, status and check-in, going still, a check-in while it waits or rests", () => {
+    expect(markEntry(at("working", "prog"), at("working", "prog"))).toBeNull()
+    expect(markEntry(at("done", "review"), at("done", "review"))).toBeNull()
+    expect(markEntry(at("waiting", "needs"), at("waiting", "needs"))).toBeNull()
+    expect(markEntry(at("working", "prog"), at("still", "prog"))).toBeNull()
+    expect(markEntry(at("waiting", "needs", 100), at("waiting", "needs", 160))).toBeNull()
+    expect(markEntry(at("done", "review", 100), at("done", "review", 160))).toBeNull()
+    expect(markEntry(at("merged", "prog", 100), at("merged", "prog", 160))).toBeNull()
   })
 })
 

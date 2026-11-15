@@ -15,20 +15,29 @@ import type { AnimationEvent, CSSProperties } from "react"
 import "./AgentMark.css"
 
 /**
- * still: at rest, no motion. working: the tip spins (loops). thinking: leans back, eyes up (loops).
- * waiting: big eyes looking up; its entry hops and rings. done: at rest; its entry jumps for joy.
- * merged: happy eyes, still.
+ * Each mood has a pose at rest and, with `play`, a motion that ends. still: no motion. working: eyes
+ * narrowed toward the tip; plays three spins of the tip. thinking: leans back, eyes up; plays one lean
+ * back and forward. waiting: big eyes looking up; plays a double hop and a ring. done: at rest; plays a
+ * jump for joy. merged: happy eyes, still.
  */
 export type AgentMood = "still" | "working" | "thinking" | "waiting" | "done" | "merged"
 
 const VIEW_BOX = `${AGENT_FRAME.x} ${AGENT_FRAME.y} ${AGENT_FRAME.size} ${AGENT_FRAME.size}`
 
-/** The last animation of each entry (AgentMark.css): when it ends, the entry has played. */
-const ENTRY_END: Partial<Record<AgentMood, string>> = { done: "agent-done-rig", waiting: "agent-ring" }
+/** The last animation of each mood's motion (AgentMark.css): when it ends, it has played. */
+const PLAY_END: Partial<Record<AgentMood, string>> = {
+  working: "agent-spin",
+  thinking: "agent-think-tilt",
+  done: "agent-done-rig",
+  waiting: "agent-ring",
+}
 
 export interface AgentMarkProps {
   readonly mood?: AgentMood
-  /** Play the mood's entry once (Done's jump, Needs input's hop). Only for a change seen on screen, never on page load. */
+  /**
+   * Play the mood's motion once: working's spins, thinking's lean, Done's jump, Needs input's hop. Only
+   * for an event seen on screen, never on page load. To play it again, remount the mark (a new `key`).
+   */
   readonly play?: boolean
   /** Width and height in px. The body fills the box; motion spills outside it. */
   readonly size?: number
@@ -36,7 +45,7 @@ export interface AgentMarkProps {
   readonly body?: string
   /** The eyes' colour. Unset, it inherits `--agent-eye`, else the surface colour. */
   readonly eye?: string
-  /** Called once the entry has played. */
+  /** Called once the motion has played. */
   readonly onPlayed?: () => void
   readonly [data: `data-${string}`]: string | undefined
 }
@@ -44,7 +53,7 @@ export interface AgentMarkProps {
 export function AgentMark({ mood = "still", play = false, size = 16, body, eye, onPlayed, ...data }: AgentMarkProps) {
   const style = { width: size, height: size, "--agent-body": body, "--agent-eye": eye } as CSSProperties
   const ended = (e: AnimationEvent) => {
-    if (e.animationName === ENTRY_END[mood]) onPlayed?.()
+    if (e.animationName === PLAY_END[mood]) onPlayed?.()
   }
   return (
     <span {...data} className="agent-mark" data-agent-mood={mood} data-play={play ? "" : undefined} style={style} aria-hidden onAnimationEnd={ended}>

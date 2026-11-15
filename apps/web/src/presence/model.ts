@@ -220,18 +220,23 @@ export const agentMood = (
   return "thinking"
 }
 
-/** A card's mark as it was drawn: its mood and the task's status. */
+/** A card's mark as it was drawn: its mood, the task's status, and its holder's last check-in. */
 export interface MarkSeen {
   readonly mood: AgentMood
   readonly statusId: string
+  /** The holder's `lastSeenAt` (the subagent's, else the session's); null with no holder. */
+  readonly checkIn: number | null
 }
 
 /**
  * What plays once when a card changes while it's on screen: Done when the task moves into In Review or
- * Done (In Review to Done included), the Needs input hop when it starts waiting; else nothing.
+ * Done (In Review to Done included), the Needs input hop when it starts waiting, and a short burst of
+ * working or thinking when the agent starts it or checks in while at it (so a busy agent keeps moving
+ * and a quiet one goes still); else nothing.
  */
-export const markEntry = (before: MarkSeen, now: MarkSeen): "done" | "waiting" | null => {
+export const markEntry = (before: MarkSeen, now: MarkSeen): "done" | "waiting" | "burst" | null => {
   if (now.mood === "done" && (before.mood !== "done" || before.statusId !== now.statusId)) return "done"
   if (now.mood === "waiting" && before.mood !== "waiting") return "waiting"
+  if ((now.mood === "working" || now.mood === "thinking") && (before.mood !== now.mood || before.checkIn !== now.checkIn)) return "burst"
   return null
 }

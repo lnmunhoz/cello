@@ -508,7 +508,9 @@ body {
   inset: 0;
   border-radius: 9999px;
   pointer-events: none;
-  animation: presence-ripple 0.9s ease-out forwards;
+  /* Invisible at rest, and no fill: once it ends nothing is left running or held (CEL-69, the idle check). */
+  opacity: 0;
+  animation: presence-ripple 0.9s ease-out;
 }
 @keyframes presence-ripple {
   from {
