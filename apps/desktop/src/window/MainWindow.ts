@@ -12,6 +12,7 @@ import {
   layoutViews,
   MIN_WINDOW_SIZE,
   parseWindowState,
+  RELAYOUT_EVENTS,
   restoreBounds,
   type WindowState,
 } from "./layout.ts"
@@ -99,13 +100,13 @@ export class MainWindow {
       })
     }
 
-    this.window.on("resize", () => {
-      this.relayout()
-      this.#scheduleSave()
-    })
-    for (const event of ["move", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"] as const) {
-      this.window.on(event as "move", () => this.#scheduleSave())
+    for (const event of RELAYOUT_EVENTS) {
+      this.window.on(event as "resize", () => {
+        this.relayout()
+        this.#scheduleSave()
+      })
     }
+    this.window.on("move", () => this.#scheduleSave())
     this.window.on("close", () => this.#save())
     this.window.on("closed", () => {
       clearTimeout(this.#saveTimer)

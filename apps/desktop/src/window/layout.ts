@@ -39,6 +39,13 @@ export const layoutViews = (options: {
   }
 }
 
+/**
+ * The window events after which the views are laid out again. "resize" alone isn't enough: on macOS,
+ * entering or leaving full screen emits "resized" and the full-screen events but no "resize", and the
+ * board kept its old size with the window's background showing under it (CEL-25).
+ */
+export const RELAYOUT_EVENTS = ["resize", "resized", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"] as const
+
 /** Both the panel and the board keep their minimum width; a window too narrow for both is split in half. */
 export const clampPanelWidth = (width: number, windowWidth: number): number => {
   const max = Math.max(windowWidth - MIN_BOARD_WIDTH, Math.floor(windowWidth / 2))
