@@ -1,4 +1,4 @@
-// The video overlay itself (e2e/fixtures.ts): the cursor and click ripple, also for clicks inside
+// The video overlay itself (e2e/fixtures.ts): the cursor (Cello's teardrop agent) and click ripple, also for clicks inside
 // iframes (the viewer frames pages), and captions that can show the URL and last through a reload.
 import { caption, captionWithUrl, expect, test } from "./fixtures.ts"
 
@@ -26,6 +26,13 @@ test("the overlay follows a click inside an iframe: one cursor, on the page, wit
   await expect(page.locator("#e2e-cursor")).toHaveAttribute("data-press", "500,300")
   await expect(page.locator("#e2e-cursor")).toHaveCSS("left", "500px")
   await expect(framed.locator("#e2e-cursor")).toHaveCount(0)
+  // The pointer is Cello's teardrop agent, its tip (where its body's path starts) on the click.
+  const tip = await page.evaluate(() => {
+    const body = document.querySelector<SVGPathElement>("#e2e-cursor [data-e2e-mark] path")!
+    const p = new DOMPoint(body.getPointAtLength(0).x, body.getPointAtLength(0).y).matrixTransform(body.getScreenCTM()!)
+    return { x: Math.round(p.x), y: Math.round(p.y) }
+  })
+  expect(tip).toEqual({ x: 500, y: 300 })
 })
 
 test("a caption can show the page's URL, follows in-app navigation, and stays through a reload", async ({ page }) => {
