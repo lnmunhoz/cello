@@ -195,10 +195,9 @@ export class Animator implements Player<CursorStep> {
     if (!at || !at.enabled || !prev) return
     if (prev.epoch !== synced.epoch) return this.reset()
     for (const e of synced.batch) {
-      let change: Change | null = null
       try {
-        change = changeOf(e, at.projectId, (id) => prev.state.tasks[id])
-        if (change) this.enqueue(change, synced.state)
+        const c = changeOf(e, at.projectId, (id) => prev.state.tasks[id])
+        if (c) this.enqueue(c, synced.state)
       } catch (err) {
         console.error(err)
       }
