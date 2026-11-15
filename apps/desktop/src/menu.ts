@@ -1,7 +1,8 @@
-// The macOS menu: the app menu, standard Edit, View with Reload and the panel toggle, and Window.
-// View commands act on what has focus (the panel page or the board), so they take a target getter
+// The macOS menu: the app menu, standard Edit, View with Reload and the panel toggle, History with
+// Back and Forward, and Window. View and History commands act on what has focus (the panel page or the board), so they take a target getter
 // instead of Electron's roles, which only know a BrowserWindow's own web contents.
 import { Menu, type MenuItemConstructorOptions, type WebContents } from "electron"
+import type { HistoryDirection } from "./window/history.ts"
 
 export interface MenuActions {
   /** The board, or the panel page when it has focus; null without a window. */
@@ -9,6 +10,8 @@ export interface MenuActions {
   readonly togglePanel: () => void
   readonly focusAddress: () => void
   readonly toggleFullScreen: () => void
+  /** Back or forward in the board, or in the panel page when it has focus. */
+  readonly go: (direction: HistoryDirection) => void
 }
 
 const ZOOM_STEP = 0.5
@@ -37,6 +40,14 @@ export const buildMenu = (appName: string, actions: MenuActions): Menu => {
         { label: "Open Location…", accelerator: "CmdOrCtrl+L", click: () => actions.focusAddress() },
         { type: "separator" },
         { label: "Toggle Full Screen", accelerator: "Ctrl+Cmd+F", click: () => actions.toggleFullScreen() },
+      ],
+    },
+    {
+      // ⌘[ and ⌘] also work while a page has focus: MainWindow catches them before the page does.
+      label: "History",
+      submenu: [
+        { id: "history-back", label: "Back", accelerator: "CmdOrCtrl+[", click: () => actions.go("back") },
+        { id: "history-forward", label: "Forward", accelerator: "CmdOrCtrl+]", click: () => actions.go("forward") },
       ],
     },
     { role: "windowMenu" },
