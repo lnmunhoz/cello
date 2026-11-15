@@ -282,6 +282,8 @@ test("CEL-12, CEL-44: a screenshot clicked on the board opens in the image modal
   const modal = board.getByRole("dialog", { name: "The board" })
   await expect(modal.locator("img[data-modal-image]")).toBeVisible()
   expect((await views(app)).page.visible).toBe(false)
+  // The still shows it after its fade-in has finished.
+  await modal.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)))
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "image-modal-badge.png"))
 
   await video.caption("Esc closes it; Open in viewer in the modal shows the screenshot in the native panel")
