@@ -15,10 +15,13 @@ const appManifest = async (page: Page) => {
 /** Width and height from a PNG's header (the IHDR chunk). */
 const pngSize = (bytes: Buffer) => `${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}`
 
-/** How many pixels of an image lie outside the centred circle of radius `radius` × width and aren't `colour`. */
-const pixelsOutsideCircle = (page: Page, src: string, radius: number, colour: string) =>
+/**
+ * Counts an icon's pixels against the centred circle of radius `radius` × width: those outside it that
+ * aren't the background `background`, and those inside it that are the ink `ink`.
+ */
+const pixelsAroundCircle = (page: Page, src: string, radius: number, background: string, ink: string) =>
   page.evaluate(
-    async ([src, radius, colour]) => {
+    async ([src, radius, background, ink]) => {
       const image = new Image()
       image.src = src
       await image.decode()
@@ -26,19 +29,22 @@ const pixelsOutsideCircle = (page: Page, src: string, radius: number, colour: st
       const context = canvas.getContext("2d")!
       context.drawImage(image, 0, 0)
       const { data, width, height } = context.getImageData(0, 0, canvas.width, canvas.height)
-      const want = [1, 3, 5].map((i) => parseInt(colour.slice(i, i + 2), 16))
+      const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+      const is = (i: number, colour: number[]) => colour.every((c, k) => Math.abs(data[i + k]! - c) <= 2)
+      const [bg, fg] = [rgb(background), rgb(ink)]
       const r = width * radius
-      let count = 0
+      const counts = { pixels: width * height, strayOutside: 0, inkInside: 0 }
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
-          if (Math.hypot(x + 0.5 - width / 2, y + 0.5 - height / 2) <= r) continue
           const i = (y * width + x) * 4
-          if (want.some((c, k) => Math.abs(data[i + k]! - c) > 2)) count++
+          if (Math.hypot(x + 0.5 - width / 2, y + 0.5 - height / 2) > r) {
+            if (!is(i, bg)) counts.strayOutside++
+          } else if (is(i, fg)) counts.inkInside++
         }
       }
-      return count
+      return counts
     },
-    [src, radius, colour] as const,
+    [src, radius, background, ink] as const,
   )
 
 test("the app is installable: Chrome finds a valid manifest and no installability errors", async ({ page }) => {
@@ -71,10 +77,13 @@ test("CEL-27: every icon is the teardrop agent: manifest icons at their sizes, a
     if (icon.type === "image/png") expect(pngSize(await response.body())).toBe(icon.sizes)
   }
 
-  // Maskable: the whole agent sits inside the 80% safe zone, so any mask shape keeps it whole. The plain
-  // icon's tip reaches past that circle, which shows the check can tell the two apart.
-  expect(await pixelsOutsideCircle(page, "/icons/icon-maskable-512.png", 0.4, ORANGE)).toBe(0)
-  expect(await pixelsOutsideCircle(page, "/icons/icon-512.png", 0.4, ORANGE)).toBeGreaterThan(0)
+  // Maskable: the whole agent sits inside the 80% safe zone, so any mask shape keeps it whole, and it is
+  // there (at least a tenth of the icon is ink inside the circle). The plain icon's tip reaches past that
+  // circle, which shows the check can tell the two apart.
+  const maskable = await pixelsAroundCircle(page, "/icons/icon-maskable-512.png", 0.4, ORANGE, INK)
+  expect(maskable.strayOutside).toBe(0)
+  expect(maskable.inkInside).toBeGreaterThan(maskable.pixels / 10)
+  expect((await pixelsAroundCircle(page, "/icons/icon-512.png", 0.4, ORANGE, INK)).strayOutside).toBeGreaterThan(0)
 
   // The page head: an SVG favicon with an .ico fallback, the touch icon and the theme colour.
   const head = await page.evaluate(() => ({
