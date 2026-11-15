@@ -85,17 +85,32 @@ const baseEnv = (): Record<string, string> => ({
 })
 
 /** Stops a process this test started, by its pid, and waits for it to exit. */
-const stopChild = (child: ChildProcess) =>
+const stopChild = (child: ChildProcess, signal: NodeJS.Signals = "SIGTERM") =>
   new Promise<void>((resolve) => {
     if (child.exitCode !== null || child.signalCode !== null) return resolve()
     child.once("exit", () => resolve())
-    process.kill(child.pid!, "SIGTERM")
+    process.kill(child.pid!, signal)
   })
 
+export interface StartOptions {
+  /** The port; 0 (the default) picks a free one. */
+  readonly port?: number
+  /** A web build to serve instead of the binary's own (CELLO_WEB_DIR). */
+  readonly webDir?: string
+}
+
 /** `cello start` (the compiled binary) on a free port with a temp data folder, as Lucas's terminal would run it. */
-export const startCello = async (dataDir: string): Promise<{ url: string; port: number; pid: number }> => {
+export const startCello = async (
+  dataDir: string,
+  options: StartOptions = {},
+): Promise<{ url: string; port: number; pid: number; kill: () => Promise<void> }> => {
   const child = spawn(CELLO_BIN, ["start"], {
-    env: { ...baseEnv(), CELLO_PORT: "0", CELLO_DATA_DIR: dataDir },
+    env: {
+      ...baseEnv(),
+      CELLO_PORT: String(options.port ?? 0),
+      CELLO_DATA_DIR: dataDir,
+      ...(options.webDir ? { CELLO_WEB_DIR: options.webDir } : {}),
+    },
     stdio: ["ignore", "pipe", "pipe"],
   })
   onCleanup(() => stopChild(child))
@@ -108,8 +123,25 @@ export const startCello = async (dataDir: string): Promise<{ url: string; port: 
     })
     child.once("exit", (code) => reject(new Error(`cello start exited (${code}): ${output}`)))
   })
-  return { url, port: Number(new URL(url).port), pid: child.pid! }
+  // SIGKILL, for a restart: with the board connected a SIGTERM'd server still takes 20 s to exit
+  // (CEL-17), and the next server takes over its stale lock either way.
+  return { url, port: Number(new URL(url).port), pid: child.pid!, kill: () => stopChild(child, "SIGKILL") }
 }
+
+/** A real web build into `outDir` (`vite build`), stamped with `commit` (CEL-37); returns `outDir`. */
+export const buildWeb = (outDir: string, commit: string): string => {
+  const result = spawnSync("bunx", ["vite", "build", "--outDir", outDir, "--emptyOutDir", "--logLevel", "error"], {
+    cwd: path.resolve(DESKTOP_DIR, "../web"),
+    encoding: "utf8",
+    env: { ...process.env, CELLO_BUILD_COMMIT: commit },
+  })
+  if (result.status !== 0) throw new Error(`vite build failed: ${result.stderr}`)
+  return outDir
+}
+
+/** The bundle a build's index.html loads ("/assets/index-Dk3….js"): which build a page runs. */
+export const entryOf = (dir: string): string =>
+  /<script type="module" crossorigin src="([^"]+)"/.exec(fs.readFileSync(path.join(dir, "index.html"), "utf8"))![1]!
 
 /** Runs the compiled `cello` CLI as a Claude Code session against the server on `port`, as an agent would. */
 export const celloAsAgent = (port: number, ...args: string[]): string => {

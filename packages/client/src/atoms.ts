@@ -73,6 +73,27 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
   /** What the screens show: synced state plus the live optimistic patches. */
   const boardAtom = Atom.make((get) => AsyncResult.map(get(currentAtom), (synced) => view(synced, get(pendingAtom))))
 
+  /** The connection's state as one value, so what depends on it reruns only when it changes. */
+  const connectionAtom = Atom.make((get) => {
+    const synced = get(syncedAtom)
+    return AsyncResult.isSuccess(synced) ? synced.value.connection : null
+  })
+
+  /**
+   * The server's build (CEL-37), asked for each time the connection goes live: a server restarted on a
+   * new build is noticed as soon as the tab reconnects to it. While reconnecting it waits, keeping the
+   * last answer.
+   */
+  const serverBuildAtom = runtime
+    .atom((get) => {
+      const live = get(connectionAtom) === "live"
+      return Effect.gen(function* () {
+        if (!live) return yield* Effect.never
+        return yield* (yield* CelloClient)["server.build"]({})
+      })
+    })
+    .pipe(Atom.keepAlive)
+
   const current = (registry: AtomRegistry.AtomRegistry) => {
     const synced = registry.get(syncedAtom)
     return AsyncResult.isSuccess(synced) ? synced.value : null
@@ -352,6 +373,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     currentAtom,
     pendingAtom,
     boardAtom,
+    serverBuildAtom,
     commands,
     commentsFamily,
     reviewsFamily,

@@ -38,7 +38,7 @@ flowchart TD
 
 So anything in In Review or Done is already in the Cello you're running, once you've reloaded. Two parts update differently:
 
-- **The board, the Review page, every screen** come from the server: a reload (⌘R) after a deploy shows them. CEL-37 makes the app say when a reload is needed, and shows the running build.
+- **The board, the Review page, every screen** come from the server. After a deploy, open tabs and the desktop app notice the new build when they reconnect: "Cello was updated · Reload", and they reload by themselves after 5 seconds unless you're typing (CEL-37). The sidebar's footer shows the build you're running ("Cello 0.2.0 · build c602f25 · live since 18:19"); a click lists what that build changed.
 - **The desktop app's own shell** (its icon, the side panel's browser) only changes when the app is repackaged. That happens only for desktop changes, and the packet says so.
 
 ## Who does what

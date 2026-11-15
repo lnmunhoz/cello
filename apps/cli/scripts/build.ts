@@ -1,8 +1,10 @@
 // Builds the `cello` binary: builds the web app, then compiles the CLI with every file of
 // apps/web/dist embedded (Bun's `with { type: "file" }` imports), so `cello start` serves the board
-// with nothing next to the binary. Output: apps/cli/dist/cello.
+// with nothing next to the binary, and the commit it's built from (CELLO_BUILD_COMMIT, else HEAD)
+// embedded as its build (CEL-37). Output: apps/cli/dist/cello.
 import * as fs from "node:fs"
 import * as path from "node:path"
+import { buildCommit } from "../../server/src/build/git.ts"
 
 const cli = path.join(import.meta.dir, "..")
 const web = path.join(cli, "../web")
@@ -34,7 +36,7 @@ const entry = [
   "const files = new Map<string, string>([",
   ...files.map((file, i) => `  [${JSON.stringify(`/${file}`)}, f${i}],`),
   "])",
-  "main(() => files)",
+  `main(() => files, { commit: ${JSON.stringify(buildCommit(process.env, cli))} })`,
   "",
 ].join("\n")
 fs.writeFileSync(path.join(buildDir, "entry.ts"), entry)

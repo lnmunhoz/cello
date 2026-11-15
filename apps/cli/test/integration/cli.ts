@@ -23,7 +23,14 @@ export interface Output {
  */
 export const TEST_HOME = path.join(os.tmpdir(), `cello-test-home-${process.pid}-never-created`)
 
-export const cello = (options: { readonly port: number; readonly env?: Env; readonly cwd: string; readonly stdin?: string }) =>
+export const cello = (options: {
+  readonly port: number
+  readonly env?: Env
+  readonly cwd: string
+  readonly stdin?: string
+  /** The CLI's own build, as bin.ts or the compiled binary passes it. */
+  readonly build?: { readonly commit: string | null }
+}) =>
   (...args: string[]): Effect.Effect<Output> =>
     Effect.gen(function* () {
       const lines: string[] = []
@@ -39,6 +46,7 @@ export const cello = (options: { readonly port: number; readonly env?: Env; read
           now: () => Date.now(),
           readStdin: () => Promise.resolve(options.stdin ?? ""),
           web: () => undefined,
+          ...(options.build ? { build: options.build } : {}),
         }),
         Effect.provideService(Console.Console, console),
         Effect.provide(BunServices.layer),

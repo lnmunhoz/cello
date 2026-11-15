@@ -17,6 +17,7 @@ export const cello = makeCelloAtoms(runtime, {
 
 export const {
   boardAtom,
+  serverBuildAtom,
   syncedAtom,
   currentAtom,
   workspaceIdAtom,

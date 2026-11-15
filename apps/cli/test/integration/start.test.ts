@@ -19,6 +19,8 @@ import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
+import { APP_VERSION } from "@cello/shared/version"
+import { connect } from "../../../server/test/integration/harness.ts"
 
 const MAIN = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../src/bin.ts")
 
@@ -214,4 +216,18 @@ describe("cello start", () => {
       yield* expectStops(proc, path.join(dataDir, "data"), "SIGTERM")
       expect(isAlive(pid)).toBe(false)
     }).pipe(Effect.scoped), TEST_TIMEOUT)
+  it.live("CEL-37: from source it reports CELLO_BUILD_COMMIT as its commit, and the stamp of the web app it serves", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* tempDataDir
+      const webDir = path.join(dataDir, "web")
+      fs.mkdirSync(webDir)
+      fs.writeFileSync(path.join(webDir, "index.html"), "<title>Cello board</title>")
+      const stamp = { version: APP_VERSION, commit: "bbbbbbb", builtAt: 1_763_230_000_000, changes: ["merge: the reload bar (CEL-37)"] }
+      fs.writeFileSync(path.join(webDir, "build.json"), JSON.stringify(stamp))
+      const proc = yield* spawnStart({ CELLO_DATA_DIR: path.join(dataDir, "data"), CELLO_PORT: "0", CELLO_WEB_DIR: webDir, CELLO_BUILD_COMMIT: "bbbbbbb" })
+      const running = /Cello is running at http:\/\/127\.0\.0\.1:(\d+) .*\n/
+      const port = Number(running.exec(yield* readUntil(proc.stdout, running))![1])
+      const build = yield* (yield* connect(port))["server.build"]({})
+      expect(build).toMatchObject({ version: APP_VERSION, commit: "bbbbbbb", web: stamp })
+    }).pipe(Effect.scoped))
 })

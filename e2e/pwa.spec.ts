@@ -56,6 +56,9 @@ test("the app is installable: Chrome finds a valid manifest and no installabilit
   expect(data).toMatchObject({ name: "Cello", short_name: "Cello", display: "standalone", start_url: "/" })
   const { installabilityErrors } = await cdp.send("Page.getInstallabilityErrors")
   expect(installabilityErrors).toEqual([])
+  // CEL-37: no service worker, so nothing can keep serving an old bundle after a new build; the
+  // installed app loads index.html from the server like a tab does.
+  expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)).toBe(0)
 })
 
 test("CEL-27: every icon is the teardrop agent: manifest icons at their sizes, a maskable one inside the safe zone, favicons and the touch icon", async ({ page }) => {

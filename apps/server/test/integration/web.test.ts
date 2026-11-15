@@ -3,6 +3,7 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { describe, expect, it } from "@effect/vitest"
+import { APP_VERSION } from "@cello/shared/version"
 import * as Effect from "effect/Effect"
 import * as WebFiles from "../../src/web/WebFiles.ts"
 import { connect, startServer, tempDataDir } from "./harness.ts"
@@ -62,5 +63,30 @@ describe("the server serves the web app", () => {
       expect(status).toBe(404)
       const client = yield* connect(port)
       expect((yield* client["snapshot.get"]({})).workspaces).toHaveLength(1)
+    }).pipe(Effect.scoped))
+
+  it.live("CEL-37: server.build reports the version, the commit, when the server started, and the web build it serves", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* tempDataDir
+      const dir = writeWebBuild(path.join(dataDir, "web"))
+      const stamp = { version: APP_VERSION, commit: "9afd602", builtAt: 1_763_230_000_000, changes: ["merge: the reload bar (CEL-37)"] }
+      fs.writeFileSync(path.join(dir, "build.json"), JSON.stringify(stamp))
+      const before = Date.now()
+      const { port } = yield* startServer(dataDir, { web: WebFiles.fromDirectory(dir), commit: "c602f25" })
+      const build = yield* (yield* connect(port))["server.build"]({})
+      expect(build).toMatchObject({ version: APP_VERSION, commit: "c602f25", web: stamp })
+      expect(build.startedAt).toBeGreaterThanOrEqual(before)
+      expect(build.startedAt).toBeLessThanOrEqual(Date.now())
+      // A reload always asks again for index.html and build.json; only the hashed bundles are cached.
+      const cacheOf = (pathname: string) =>
+        Effect.promise(() => fetch(`http://127.0.0.1:${port}${pathname}`).then((r) => r.headers.get("cache-control")))
+      expect(yield* cacheOf("/build.json")).toBe("no-cache")
+      expect(yield* cacheOf("/")).toBe("no-cache")
+    }).pipe(Effect.scoped))
+
+  it.live("CEL-37: without a web app the build has no web stamp, and an unknown commit is null", () =>
+    Effect.gen(function* () {
+      const { port } = yield* startServer(yield* tempDataDir)
+      expect(yield* (yield* connect(port))["server.build"]({})).toMatchObject({ version: APP_VERSION, commit: null, web: null })
     }).pipe(Effect.scoped))
 })
