@@ -141,23 +141,33 @@ const drawn = drawnMarks<MarkSeen & { readonly holder: LiveHolder | null }>()
 /**
  * The agent mark for a task's card or list row (CEL-69), in place of the presence dot. It follows whoever
  * the holder line names (a subagent, else the session: its colour and presence) and shows what it's
- * doing (agentMood), and the entry to play once when the task moves into In Review or Done, or starts
- * waiting in Needs input, while it's on screen. A page load, or coming back to a card that was off
- * screen, plays nothing: what's drawn first is the baseline. When Lucas approves and the claim ends,
- * the holder stays for Done, then leaves.
+ * doing (agentMood). It moves only for an event seen on screen (markEntry), and every motion ends:
+ * Done when the task moves into In Review or Done, the hop when it starts waiting in Needs input, and a
+ * short burst of working or thinking when the agent starts it or checks in while at it. A busy agent
+ * keeps moving, a quiet one goes still within seconds, and an idle board runs nothing. A page load, or
+ * coming back to a card that was off screen, plays nothing: what's drawn first is the baseline. When
+ * Lucas approves and the claim ends, the holder stays for Done, then leaves.
  */
 function useTaskMark(task: Task, board: BoardState, holder: LiveHolder | null): { mark: ReactNode; leaving: boolean } {
   const now = useNow()
   const presence: Presence = holder ? presenceOf(holder.subject, now) : "ended"
-  const seen: MarkSeen = { mood: agentMood(task.stage, board.statuses[task.statusId], presence), statusId: task.statusId }
+  const seen: MarkSeen = {
+    mood: agentMood(task.stage, board.statuses[task.statusId], presence),
+    statusId: task.statusId,
+    checkIn: holder ? holder.subject.lastSeenAt : null,
+  }
   const [last, setLast] = useState(() => drawn.baseline(task.id, Date.now()) ?? { ...seen, holder })
-  // The entry playing right now, if any; it clears once played.
-  const [entry, setEntry] = useState<"done" | "waiting" | null>(null)
+  // The motion playing right now, if any; it clears once played.
+  const [entry, setEntry] = useState<"done" | "waiting" | "burst" | null>(null)
+  // Counts the motions started: the mark's key, so a check-in mid-burst starts it again.
+  const [plays, setPlays] = useState(0)
   // The holder whose claim ended as the task finished (Lucas approved it): it stays to play Done.
   const [gone, setGone] = useState<LiveHolder | null>(null)
-  if (last.mood !== seen.mood || last.statusId !== seen.statusId || liveId(last.holder) !== liveId(holder)) {
+  const changed = last.mood !== seen.mood || last.statusId !== seen.statusId || last.checkIn !== seen.checkIn
+  if (changed || liveId(last.holder) !== liveId(holder)) {
     setLast({ ...seen, holder })
-    const next = last.mood !== seen.mood || last.statusId !== seen.statusId ? markEntry(last, seen) : entry
+    const next = changed ? markEntry(last, seen) : entry
+    if (changed && next !== null) setPlays(plays + 1)
     setEntry(next)
     // The leaving mark relies on the approve moving the task and ending the claim in one change (one
     // transaction, one event), so the card sees Done and no holder together. Were they to arrive
@@ -166,8 +176,8 @@ function useTaskMark(task: Task, board: BoardState, holder: LiveHolder | null): 
   }
   // Only when what the mark shows changes: a 200-card board re-renders every card on each event.
   useEffect(() => {
-    drawn.seen(task.id, { mood: seen.mood, statusId: seen.statusId, holder })
-  }, [task.id, seen.mood, seen.statusId, liveId(holder)])
+    drawn.seen(task.id, { mood: seen.mood, statusId: seen.statusId, checkIn: seen.checkIn, holder })
+  }, [task.id, seen.mood, seen.statusId, seen.checkIn, liveId(holder)])
   // Leaving the screen (not each re-render) starts the baseline's short lifetime.
   useEffect(() => () => drawn.left(task.id, Date.now()), [task.id])
   const shown = holder ?? gone
@@ -178,6 +188,7 @@ function useTaskMark(task: Task, board: BoardState, holder: LiveHolder | null): 
   }
   const mark = (
     <AgentMark
+      key={plays}
       mood={seen.mood}
       play={entry !== null}
       size={MARK_SIZE}

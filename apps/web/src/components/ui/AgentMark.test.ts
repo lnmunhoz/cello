@@ -65,6 +65,14 @@ describe("AgentMark.css", () => {
     expect(new Set(properties)).toEqual(new Set(["transform", "opacity"]))
   })
 
+  it("never runs forever, and moves only when told to play: an idle board runs no animation (CEL-69)", () => {
+    expect(css).not.toMatch(/\binfinite\b/)
+    // Every animation is switched on by data-play, which the board sets only for an event seen on screen.
+    const rules = [...css.matchAll(/([^{}]+)\{[^{}]*\banimation:[^{}]*\}/g)].map((m) => m[1]!.trim())
+    expect(rules.length).toBeGreaterThan(8)
+    for (const selector of rules) expect(selector).toContain("[data-play]")
+  })
+
   it("turns and squashes about the icon's own points: the circle's centre and the floor under it", () => {
     const center = agentFramePoint(AGENT_CENTER)
     expect(css).toContain(`--am-cx: ${center.x}%;`)

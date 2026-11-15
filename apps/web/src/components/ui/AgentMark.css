@@ -3,8 +3,9 @@
  * small SVG, so every moving part is an HTML box the compositor can move on its own: rig (hops) >
  * squash (scales on the floor) > tilt (leans) > body (spins) + face (eyes look about) > eyes (blink).
  * Only transform and opacity are animated (a test checks), so a board full of working agents costs the
- * main thread nothing per frame. Loops run only while the mark is in a looping mood; entries
- * (`data-play`) run once. Points come from @cello/shared/agentMark as percentages of AGENT_FRAME
+ * main thread nothing per frame. Nothing runs forever: every animation is switched on by `data-play`,
+ * which the board sets for an event seen on screen, and runs a set number of times (working spins three
+ * times, thinking leans back once, the entries play once). Points come from @cello/shared/agentMark as percentages of AGENT_FRAME
  * (agentFramePoint, checked by the test); one icon unit is 0.149% of the mark.
  */
 .agent-mark {
@@ -67,12 +68,18 @@
   transform-origin: center;
 }
 
-/* Working: the tip spins round the body like a spinner; the eyes, narrowed, follow the tip. */
-.agent-mark[data-agent-mood="working"] .am-body {
-  animation: agent-spin 1.4s linear infinite;
-}
+/*
+ * Working: at rest the narrowed eyes look toward the tip. A burst (the agent started working, or checked
+ * in while at it) spins the tip round the body three times like a spinner, the eyes following it.
+ */
 .agent-mark[data-agent-mood="working"] .am-face {
-  animation: agent-follow 1.4s linear infinite;
+  transform: translate(-3.13%, -3.28%);
+}
+.agent-mark[data-agent-mood="working"][data-play] .am-body {
+  animation: agent-spin 1.4s linear 3;
+}
+.agent-mark[data-agent-mood="working"][data-play] .am-face {
+  animation: agent-follow 1.4s linear 3;
 }
 .agent-mark[data-agent-mood="working"] .am-pose {
   transform: scaleY(0.8);
@@ -110,32 +117,49 @@
   }
 }
 
-/* Thinking: leans back, the eyes slant up toward the tip and drift, a blink now and then. */
+/*
+ * Thinking: at rest it leans back, the eyes slanted up toward the tip. A burst (it started thinking, or
+ * checked in while at it) leans further back and forward once, the eyes drifting with it, and blinks.
+ */
 .agent-mark[data-agent-mood="thinking"] .am-tilt {
-  animation: agent-think-tilt 2.2s ease-in-out infinite alternate;
+  transform: rotate(-9deg);
 }
 .agent-mark[data-agent-mood="thinking"] .am-face {
-  animation: agent-think-face 2.6s ease-in-out infinite alternate;
+  transform: translate(-4.93%, -9.25%);
 }
-.agent-mark[data-agent-mood="thinking"] .am-eyes {
-  animation: agent-blink 5s 1s infinite;
+.agent-mark[data-agent-mood="thinking"][data-play] .am-tilt {
+  animation: agent-think-tilt 4.2s ease-in-out;
+}
+.agent-mark[data-agent-mood="thinking"][data-play] .am-face {
+  animation: agent-think-face 4.2s ease-in-out;
+}
+.agent-mark[data-agent-mood="thinking"][data-play] .am-eyes {
+  animation: agent-blink 4.2s;
 }
 .agent-mark[data-agent-mood="thinking"] .am-pose {
   transform: skewX(-14deg) scaleY(0.88);
 }
 @keyframes agent-think-tilt {
-  from {
-    transform: rotate(-12deg);
+  0%,
+  100% {
+    transform: rotate(-9deg);
   }
-  to {
-    transform: rotate(-6deg);
+  30% {
+    transform: rotate(-14deg);
+  }
+  70% {
+    transform: rotate(-5deg);
   }
 }
 @keyframes agent-think-face {
-  from {
+  0%,
+  100% {
+    transform: translate(-4.93%, -9.25%);
+  }
+  30% {
     transform: translate(-6.57%, -8.96%);
   }
-  to {
+  70% {
     transform: translate(-3.28%, -9.55%);
   }
 }
