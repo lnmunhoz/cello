@@ -4,13 +4,17 @@ import { useState } from "react"
 import { useStoredWidth } from "../components/ui/ResizeHandle.tsx"
 import { Toaster } from "../components/ui/Toast.tsx"
 import { isEmbed } from "../lib/embed.ts"
-import { useWorkspaceId } from "../lib/hooks.ts"
+import { useMediaQuery, useWorkspaceId } from "../lib/hooks.ts"
+import { readStored, writeStored } from "../lib/storage.ts"
 import { NewProjectDialog } from "../project/NewProjectDialog.tsx"
 import { ViewerPanel } from "../viewer/ViewerPanel.tsx"
-import { Sidebar, SidebarContext } from "./Sidebar.tsx"
+import { ConnectionStatus } from "./ConnectionStatus.tsx"
+import { ShowSidebarButton, Sidebar, SidebarContext } from "./Sidebar.tsx"
 import {
+  NARROW_WIDTH,
   readSidebar,
   setSidebarMode,
+  shownSidebar,
   SIDEBAR_KEY,
   SIDEBAR_SHORTCUT,
   SIDEBAR_WIDTH,
@@ -20,29 +24,20 @@ import {
   type SidebarState,
 } from "./sidebarState.ts"
 
-const loadSidebar = () => {
-  try {
-    return readSidebar(localStorage.getItem(SIDEBAR_KEY))
-  } catch {
-    return readSidebar(null)
-  }
-}
-
-const saveSidebar = (state: SidebarState) => {
-  try {
-    localStorage.setItem(SIDEBAR_KEY, writeSidebar(state))
-  } catch {}
-}
-
 export function AppShell() {
   const workspaceId = useWorkspaceId()
   const [newProject, setNewProject] = useState(false)
-  const [sidebar, setSidebar] = useState(loadSidebar)
+  const [saved, setSaved] = useState(() => readSidebar(readStored(SIDEBAR_KEY)))
   const [width, resize] = useStoredWidth(SIDEBAR_WIDTH_KEY, SIDEBAR_WIDTH)
+  // In a narrow window the sidebar starts as the rail, without saving that, until expanded on purpose.
+  const narrow = useMediaQuery(`(max-width: ${NARROW_WIDTH - 1}px)`)
+  const [expandedHere, setExpandedHere] = useState(false)
+  const sidebar = shownSidebar(saved, { narrow, expandedHere })
   const embed = isEmbed(useSearch({ strict: false }))
   const change = (next: SidebarState) => {
-    setSidebar(next)
-    saveSidebar(next)
+    if (narrow && next.mode === "expanded") setExpandedHere(true)
+    setSaved(next)
+    writeStored(SIDEBAR_KEY, writeSidebar(next))
   }
   const setMode = (mode: SidebarState["mode"]) => change(setSidebarMode(sidebar, mode))
   useShortcut(embed ? null : SIDEBAR_SHORTCUT, () => change(toggleSidebar(sidebar)), { description: "Collapse or expand the sidebar" })
@@ -61,7 +56,7 @@ export function AppShell() {
   // own (screen-reader-only text in rows below the fold), and clips it, so the page never grows past
   // the window and never scrolls.
   return (
-    <SidebarContext value={{ mode: sidebar.mode, setMode }}>
+    <SidebarContext value={sidebar.mode}>
       <div className="relative flex h-dvh overflow-clip">
         {sidebar.mode !== "hidden" ? (
           <Sidebar mode={sidebar.mode} width={width} onResize={resize} onMode={setMode} onNewProject={() => setNewProject(true)} />
@@ -69,8 +64,15 @@ export function AppShell() {
 
         <main
           data-sidebar-mode={sidebar.mode}
-          className="my-2 mr-2 flex min-w-0 flex-1 overflow-clip rounded-lg border border-line bg-surface shadow-card data-[sidebar-mode=hidden]:ml-2"
+          className="relative my-2 mr-2 flex min-w-0 flex-1 overflow-clip rounded-lg border border-line bg-surface shadow-card data-[sidebar-mode=hidden]:ml-2"
         >
+          {/* Hidden, the sidebar leaves a way back on every page, and the connection status. */}
+          {sidebar.mode === "hidden" ? (
+            <>
+              <ShowSidebarButton onShow={() => setMode("expanded")} />
+              <ConnectionStatus look="pill" />
+            </>
+          ) : null}
           <div className="flex min-w-0 flex-1 flex-col">
             <Outlet />
           </div>

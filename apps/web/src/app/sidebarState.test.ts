@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { clampWidth, readWidth } from "../lib/resize.ts"
-import { DEFAULT_SIDEBAR, readSidebar, setSidebarMode, SIDEBAR_WIDTH, toggleSidebar, writeSidebar } from "./sidebarState.ts"
+import { DEFAULT_SIDEBAR, NARROW_WIDTH, readSidebar, setSidebarMode, shownSidebar, SIDEBAR_WIDTH, toggleSidebar, writeSidebar } from "./sidebarState.ts"
 
 describe("the sidebar's state, remembered on this device", () => {
   it("starts expanded, collapsing to the rail", () => {
@@ -48,6 +48,32 @@ describe("⌘B and the buttons", () => {
 
   it("expanding keeps what it collapses to", () => {
     expect(setSidebarMode({ mode: "hidden", collapsed: "hidden" }, "expanded")).toEqual({ mode: "expanded", collapsed: "hidden" })
+  })
+})
+
+describe("shownSidebar: in a narrow window it starts as the rail, without saving that", () => {
+  const narrow = { narrow: true, expandedHere: false }
+  it("a narrow window shows an expanded sidebar as the rail; the saved state is untouched", () => {
+    expect(NARROW_WIDTH).toBe(768)
+    expect(shownSidebar(DEFAULT_SIDEBAR, narrow)).toEqual({ mode: "rail", collapsed: "rail" })
+    expect(shownSidebar({ mode: "expanded", collapsed: "hidden" }, narrow)).toEqual({ mode: "rail", collapsed: "hidden" })
+  })
+
+  it("a sidebar collapsed on purpose stays as it was", () => {
+    expect(shownSidebar({ mode: "hidden", collapsed: "hidden" }, narrow)).toEqual({ mode: "hidden", collapsed: "hidden" })
+    expect(shownSidebar({ mode: "rail", collapsed: "rail" }, narrow)).toEqual({ mode: "rail", collapsed: "rail" })
+  })
+
+  it("expanded on purpose in the narrow window (⌘B, a button), it shows expanded", () => {
+    expect(shownSidebar(DEFAULT_SIDEBAR, { narrow: true, expandedHere: true })).toEqual(DEFAULT_SIDEBAR)
+  })
+
+  it("a wide window shows the saved state", () => {
+    expect(shownSidebar(DEFAULT_SIDEBAR, { narrow: false, expandedHere: false })).toEqual(DEFAULT_SIDEBAR)
+  })
+
+  it("⌘B in a narrow window acts on what's shown: from the automatic rail it expands", () => {
+    expect(toggleSidebar(shownSidebar(DEFAULT_SIDEBAR, narrow))).toEqual(DEFAULT_SIDEBAR)
   })
 })
 

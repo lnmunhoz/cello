@@ -1,4 +1,5 @@
 import {
+  createTooltipController,
   Tooltip as BaseTooltip,
   TooltipContent as BaseContent,
   TooltipShortcut as BaseShortcut,
@@ -6,8 +7,12 @@ import {
 } from "@ui-sdk/react/tooltip"
 import type { ComponentProps } from "react"
 
-/** Hover or focus names a control: `<Tooltip><TooltipTrigger render={<Link … />} /><TooltipContent>…</TooltipContent></Tooltip>`. */
+/**
+ * Hover or focus names a control: `<Tooltip><TooltipTrigger render={<Link … />} /><TooltipContent>…</TooltipContent></Tooltip>`.
+ * A row of controls (the sidebar's rail) shares one, through `createTooltipController`, so only one shows at a time.
+ */
 export const Tooltip = BaseTooltip
+export { createTooltipController }
 
 /** Renders the control it names (`render`), which keeps its own look. */
 export function TooltipTrigger(props: Omit<ComponentProps<typeof BaseTrigger>, "className">) {
@@ -25,7 +30,7 @@ export function TooltipContent(props: Omit<ComponentProps<typeof BaseContent>, "
   )
 }
 
-/** The tooltip's `shortcut` as the platform shows it (⌘B, Ctrl+B). */
-export function TooltipShortcut() {
-  return <BaseShortcut className="text-faint" />
+/** The keys of the tooltip's `shortcut`, or of its own, as the platform shows them (⌘B, Ctrl+B). */
+export function TooltipShortcut({ shortcut }: { shortcut?: string }) {
+  return <BaseShortcut shortcut={shortcut} className="text-faint" />
 }

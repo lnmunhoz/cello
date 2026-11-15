@@ -5,6 +5,7 @@ import { Link, useNavigate } from "@tanstack/react-router"
 import {
   ChevronDownIcon,
   ClipboardCheckIcon,
+  CloudOffIcon,
   MoonIcon,
   PanelLeftCloseIcon,
   PanelLeftDashedIcon,
@@ -13,29 +14,38 @@ import {
   SettingsIcon,
   SunIcon,
 } from "lucide-react"
-import { createContext, useContext, useState, type ReactElement, type ReactNode } from "react"
+import { useShortcutHint } from "@ui-sdk/react/shortcuts"
+import { createContext, useState, type ReactElement } from "react"
 import { Button } from "../components/ui/Button.tsx"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.tsx"
 import { ResizeHandle } from "../components/ui/ResizeHandle.tsx"
-import { Tooltip, TooltipContent, TooltipShortcut, TooltipTrigger } from "../components/ui/Tooltip.tsx"
+import { createTooltipController, Tooltip, TooltipContent, TooltipShortcut, TooltipTrigger } from "../components/ui/Tooltip.tsx"
 import { workspaceIdAtom } from "../lib/cello.ts"
-import { useBoard, useConnection, useWorkspaceId } from "../lib/hooks.ts"
+import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { widthLimits } from "../lib/resize.ts"
 import { isDark, toggleTheme } from "../lib/theme.ts"
+import { ConnectionStatus, useConnectionText } from "./ConnectionStatus.tsx"
 import { SIDEBAR_SHORTCUT, SIDEBAR_WIDTH, type SidebarMode } from "./sidebarState.ts"
 
-/** The sidebar's mode and how to change it, for the pieces outside it (the "Show sidebar" button). Null outside the app shell. */
-export const SidebarContext = createContext<{ readonly mode: SidebarMode; readonly setMode: (mode: SidebarMode) => void } | null>(null)
+/** The sidebar's mode as shown, for the pieces outside it (the breadcrumb makes room for "Show sidebar"). Null outside the app shell. */
+export const SidebarContext = createContext<SidebarMode | null>(null)
 
 const row =
   "flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium text-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-selected"
+/** What the rail's one tooltip says for the item under the pointer (or focused). */
+interface RailHint {
+  readonly label: string
+  readonly shortcut?: string | undefined
+}
+type RailTips = ReturnType<typeof createTooltipController<RailHint>>
+
 /** A rail item: an icon the size of an icon button, with its tooltip on the right. */
 const railItem =
   "relative flex size-7 shrink-0 items-center justify-center rounded-md text-muted outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-selected data-[status=active]:text-ink"
 
 /**
  * The left sidebar, expanded (resizable by its right edge) or as a rail of icons with tooltips. Hidden,
- * it isn't rendered; the breadcrumb shows a button to bring it back (`ShowSidebarButton`), and ⌘B works.
+ * it isn't rendered; the app shell shows a button to bring it back (`ShowSidebarButton`), and ⌘B works.
  */
 export function Sidebar({
   mode,
@@ -52,8 +62,12 @@ export function Sidebar({
 }) {
   const board = useBoard()
   const workspaceId = useWorkspaceId()
-  const connection = useConnection()
   const [dark, setDark] = useState(isDark)
+  // The rail's items share one tooltip: only one shows at a time, and a click closes it (a link's
+  // click is the router's, so the tooltip wouldn't close by itself).
+  const [tips] = useState(() => createTooltipController<RailHint>())
+  const shortcutHint = useShortcutHint(SIDEBAR_SHORTCUT)
+  const offline = useConnectionText()
   const setWorkspace = useAtomSet(workspaceIdAtom)
   const navigate = useNavigate()
 
@@ -76,12 +90,6 @@ export function Sidebar({
       {dark ? <SunIcon className="size-3.5" /> : <MoonIcon className="size-3.5" />}
     </Button>
   )
-  const status =
-    connection !== "live" ? (
-      <p role="status" className={mode === "rail" ? "sr-only" : "px-2 text-xs text-faint"}>
-        {connection === "connecting" ? "Connecting…" : "Reconnecting to the Cello server…"}
-      </p>
-    ) : null
   const reviewBadge =
     waiting > 0 ? (
       <span
@@ -99,9 +107,27 @@ export function Sidebar({
 
   if (mode === "rail") {
     return (
-      <aside aria-label="Sidebar" data-sidebar="rail" className="flex min-h-0 w-12 shrink-0 flex-col items-center gap-3 py-3">
-        <RailTip label="Expand sidebar" shortcut={SIDEBAR_SHORTCUT}>
-          <Button variant="ghost" size="iconMd" aria-label="Expand sidebar" onClick={() => onMode("expanded")}>
+      <aside
+        aria-label="Sidebar"
+        data-sidebar="rail"
+        onClickCapture={() => tips.close()}
+        className="flex min-h-0 w-12 shrink-0 flex-col items-center gap-3 py-3"
+      >
+        <Tooltip controller={tips}>
+          <TooltipContent>
+            {(state) => {
+              const hint = state.payload as RailHint | undefined
+              return (
+                <>
+                  {hint?.label}
+                  {hint?.shortcut ? <TooltipShortcut shortcut={hint.shortcut} /> : null}
+                </>
+              )
+            }}
+          </TooltipContent>
+        </Tooltip>
+        <RailTip tips={tips} label="Expand sidebar" shortcut={SIDEBAR_SHORTCUT}>
+          <Button variant="ghost" size="iconMd" aria-label="Expand sidebar" aria-keyshortcuts={shortcutHint.ariaKeyshortcuts} onClick={() => onMode("expanded")}>
             <PanelLeftOpenIcon className="size-4" />
           </Button>
         </RailTip>
@@ -119,7 +145,7 @@ export function Sidebar({
         )}
 
         <nav aria-label="Inbox" className="flex flex-col items-center">
-          <RailTip label={waiting > 0 ? `Review · ${waiting} waiting` : "Review"}>
+          <RailTip tips={tips} label={waiting > 0 ? `Review · ${waiting} waiting` : "Review"}>
             <Link to="/review" className={railItem}>
               <ClipboardCheckIcon aria-hidden className="size-4" />
               <span className="sr-only">Review</span>
@@ -130,7 +156,7 @@ export function Sidebar({
 
         <nav aria-label="Projects" className="flex min-h-0 flex-col items-center gap-1 overflow-y-auto py-0.5">
           {projects.map((p) => (
-            <RailTip key={p.id} label={p.name}>
+            <RailTip key={p.id} tips={tips} label={p.name}>
               <Link to="/$projectKey" params={{ projectKey: p.key }} activeOptions={{ exact: false }} aria-label={p.name} className={railItem}>
                 <span aria-hidden className="flex size-5 items-center justify-center rounded-md text-[11px] font-semibold text-white" style={{ background: p.color }}>
                   {p.name.slice(0, 1).toUpperCase()}
@@ -138,7 +164,7 @@ export function Sidebar({
               </Link>
             </RailTip>
           ))}
-          <RailTip label="New project">
+          <RailTip tips={tips} label="New project">
             <Button variant="ghost" size="iconMd" aria-label="New project" onClick={onNewProject} disabled={!workspaceId}>
               <PlusIcon className="size-3.5" />
             </Button>
@@ -146,19 +172,28 @@ export function Sidebar({
         </nav>
 
         <div className="mt-auto flex flex-col items-center gap-1">
-          <RailTip label="Settings">
+          {offline ? (
+            <RailTip tips={tips} label={offline}>
+              <span role="status" tabIndex={0} className={railItem}>
+                <CloudOffIcon aria-hidden className="size-4" />
+                <span className="sr-only">{offline}</span>
+              </span>
+            </RailTip>
+          ) : null}
+          <RailTip tips={tips} label="Settings">
             <Link to="/settings" aria-label="Settings" className={railItem}>
               <SettingsIcon className="size-3.5" />
             </Link>
           </RailTip>
-          <RailTip label={dark ? "Use light theme" : "Use dark theme"}>{theme}</RailTip>
-          <RailTip label="Hide sidebar">
+          <RailTip tips={tips} label={dark ? "Use light theme" : "Use dark theme"}>
+            {theme}
+          </RailTip>
+          <RailTip tips={tips} label="Hide sidebar">
             <Button variant="ghost" size="iconMd" aria-label="Hide sidebar" onClick={() => onMode("hidden")}>
               <PanelLeftDashedIcon className="size-4" />
             </Button>
           </RailTip>
         </div>
-        {status}
       </aside>
     )
   }
@@ -243,38 +278,33 @@ export function Sidebar({
         </Link>
         {theme}
       </div>
-      {status}
+      <ConnectionStatus look="row" />
     </aside>
   )
 }
 
-/** A rail item with its name in a tooltip on the right (and `shortcut`'s keys, when it has one). */
-function RailTip({ label, shortcut, children }: { label: string; shortcut?: string; children: ReactElement<Record<string, unknown>> }) {
-  return (
-    <Tooltip shortcut={shortcut}>
-      <TooltipTrigger render={children} />
-      <TooltipContent>
-        {label}
-        {shortcut ? <TooltipShortcut /> : null}
-      </TooltipContent>
-    </Tooltip>
-  )
+/** A rail item, named by the rail's shared tooltip (with `shortcut`'s keys, when it has one). */
+function RailTip({ tips, label, shortcut, children }: { tips: RailTips; label: string; shortcut?: string; children: ReactElement<Record<string, unknown>> }) {
+  return <TooltipTrigger controller={tips} payload={{ label, shortcut } satisfies RailHint} render={children} />
 }
 
-/** Brings the hidden sidebar back; shown at the start of the breadcrumb only while it's hidden. */
-export function ShowSidebarButton(): ReactNode {
-  const sidebar = useContext(SidebarContext)
-  if (sidebar?.mode !== "hidden") return null
+/**
+ * Brings the hidden sidebar back. The app shell shows it at the top left of the main panel on every
+ * page while the sidebar is hidden; the breadcrumb leaves room for it.
+ */
+export function ShowSidebarButton({ onShow }: { onShow: () => void }) {
   return (
-    <Tooltip shortcut={SIDEBAR_SHORTCUT}>
-      <TooltipTrigger render={<Button variant="ghost" size="iconMd" aria-label="Show sidebar" onClick={() => sidebar.setMode("expanded")} />}>
-        <PanelLeftOpenIcon className="size-4" />
-      </TooltipTrigger>
-      <TooltipContent side="bottom">
-        Show sidebar
-        <TooltipShortcut />
-      </TooltipContent>
-    </Tooltip>
+    <span className="absolute top-2 left-2 z-30 flex">
+      <Tooltip shortcut={SIDEBAR_SHORTCUT}>
+        <TooltipTrigger render={<Button variant="ghost" size="iconMd" aria-label="Show sidebar" onClick={onShow} />}>
+          <PanelLeftOpenIcon className="size-4" />
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          Show sidebar
+          <TooltipShortcut />
+        </TooltipContent>
+      </Tooltip>
+    </span>
   )
 }
 

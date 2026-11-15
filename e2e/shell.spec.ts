@@ -32,7 +32,8 @@ async function expectFills(page: Page, probe: Locator, { panels = [], sideways =
     return {
       window: { width: innerWidth, height: innerHeight },
       page: { scrollWidth: doc.scrollWidth, scrollHeight: doc.scrollHeight, x: scrollX, y: scrollY },
-      settingsBottom: document.querySelector('a[href="/settings"]')!.getBoundingClientRect().bottom,
+      // The group Settings sits in: the last row of the expanded sidebar, the bottom icons of the rail.
+      settingsBottom: document.querySelector('a[href="/settings"]')!.parentElement!.getBoundingClientRect().bottom,
       main: {
         bottom: mainBox.bottom,
         innerBottom: mainBox.top + main.clientTop + main.clientHeight,
@@ -92,11 +93,18 @@ test("CEL-25: with a wide board, the app fills the window: no page scroll, the s
   await expect(page.locator(`[data-task-key="${key}-24"]`)).toBeVisible()
   await expectFills(page, boardOf(page), { sideways: true })
 
-  await caption(page, "Scroll the board sideways and a column down: the page stays put")
+  await caption(page, "Scroll a column to its end and keep going, then the board sideways: the page stays put")
   await page.locator(`[data-task-key="${key}-3"]`).hover()
+  const todo = page.locator('section[data-column="Todo"] [role="list"]')
+  const scrolled = (el: Locator) => el.evaluate((node) => new Promise<number>((resolve) => node.addEventListener("scrollend", () => resolve(node.scrollTop + node.scrollLeft), { once: true })))
+  const columnEnd = scrolled(todo)
+  await page.mouse.wheel(0, 4000)
+  expect(await columnEnd, "the column scrolled").toBeGreaterThan(0)
+  // At the column's end the wheel has nowhere to go: the page can't scroll (it's exactly the window).
+  await page.mouse.wheel(0, 4000)
+  const boardEnd = scrolled(boardOf(page).locator("xpath=.."))
   await page.mouse.wheel(400, 0)
-  await page.mouse.wheel(0, 4000)
-  await page.mouse.wheel(0, 4000)
+  expect(await boardEnd, "the board scrolled sideways").toBeGreaterThan(0)
   await expectFills(page, boardOf(page), { sideways: true })
 
   await caption(page, "Open a task: the task panel stretches to the bottom too")
@@ -130,8 +138,10 @@ test("CEL-25: with a wide board, the app fills the window: no page scroll, the s
   await page.goto(`/${key}/issues`)
   await expect(page.locator(`[data-task-key="${key}-1"]`)).toBeVisible()
   await expectFills(page, boardOf(page), { sideways: true })
+  // In a narrow window the open task takes the board's place; its own area scrolls.
   await page.goto(`/${key}/1`)
-  await expectFills(page, boardOf(page), { panels: [taskPanel(page, `${key}-1`)] })
+  const narrowPanel = taskPanel(page, `${key}-1`)
+  await expectFills(page, narrowPanel.getByRole("textbox", { name: "Title" }), { panels: [narrowPanel] })
   await page.goto("/review")
   await expectFills(page, page.getByRole("heading", { level: 1, name: /^Review/ }))
   await caption(page, "The app fills the window everywhere")

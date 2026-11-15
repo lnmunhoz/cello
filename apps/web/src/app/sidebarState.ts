@@ -36,6 +36,17 @@ export const readSidebar = (stored: string | null): SidebarState => {
 
 export const writeSidebar = (state: SidebarState): string => JSON.stringify(state)
 
+/** Below this window width (px) the sidebar starts as the rail. */
+export const NARROW_WIDTH = 768
+
+/**
+ * What the sidebar shows. In a narrow window an expanded sidebar shows as the rail, unless it was
+ * expanded on purpose there (`expandedHere`); that rail is never saved, so a wide window shows the
+ * saved state again. Buttons and ⌘B act on what's shown.
+ */
+export const shownSidebar = (state: SidebarState, window: { readonly narrow: boolean; readonly expandedHere: boolean }): SidebarState =>
+  window.narrow && !window.expandedHere && state.mode === "expanded" ? { ...state, mode: "rail" } : state
+
 /** A button's choice. Collapsing one way makes that the way ⌘B collapses it next time. */
 export const setSidebarMode = (state: SidebarState, mode: SidebarMode): SidebarState =>
   mode === "expanded" ? { ...state, mode } : { mode, collapsed: mode }
