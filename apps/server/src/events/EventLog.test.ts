@@ -13,6 +13,7 @@ import * as LabelService from "../label/LabelService.ts"
 import * as ProjectService from "../project/ProjectService.ts"
 import * as RepoPaths from "../project/repoPath.ts"
 import * as SessionService from "../session/SessionService.ts"
+import * as AgentService from "../session/AgentService.ts"
 import * as TaskService from "../task/TaskService.ts"
 import { cmd, setupProject } from "../testing/fixtures.ts"
 import { asHuman, database, services } from "../testing/TestLayers.ts"
@@ -95,6 +96,7 @@ const racingServices = () =>
   Layer.mergeAll(TaskService.layer, ProjectService.layer, SnapshotService.layer).pipe(
     Layer.provideMerge(InboxService.layer),
     Layer.provideMerge(SessionService.layer),
+    Layer.provideMerge(AgentService.layer),
     Layer.provideMerge(RepoPaths.layer),
     Layer.provideMerge(Commands.layer),
     Layer.provideMerge(EventLog.layer),

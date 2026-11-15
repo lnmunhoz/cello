@@ -14,6 +14,7 @@ import {
   claimCheck,
   claimDenyReason,
   hookAction,
+  hookIdentity,
   hookResponse,
   hookSession,
   insideAny,
@@ -21,6 +22,7 @@ import {
   stopNudge,
   WAIT_NUDGE,
   waitsInBackground,
+  subagentContext,
 } from "./claudeHook.ts"
 
 describe("parseHookInput", () => {
@@ -37,19 +39,39 @@ describe("parseHookInput", () => {
       cwd: "/Users/me/projects/cello",
       stopHookActive: true,
       inSubagent: false,
+      agent: null,
+      launched: null,
       toolName: null,
       toolInput: null,
       backgroundCommands: [],
     })
   })
 
-  it("knows a tool call inside a subagent by its agent_id", () => {
-    expect(parseHookInput(JSON.stringify({ session_id: "s", hook_event_name: "PostToolUse", agent_id: "a1", agent_type: "Explore" })).inSubagent)
-      .toBe(true)
+  it("knows a tool call inside a subagent by its agent_id, and which agent it is (CEL-55)", () => {
+    const input = parseHookInput(JSON.stringify({ session_id: "s", hook_event_name: "PostToolUse", agent_id: "a1", agent_type: "Explore" }))
+    expect(input.inSubagent).toBe(true)
+    expect(input.agent).toEqual({ id: "a1", type: "Explore" })
+    expect(parseHookInput(JSON.stringify({ session_id: "s", agent_id: "a1" })).agent).toEqual({ id: "a1", type: null })
+  })
+
+  it("reads a subagent launch from the parent's Agent tool: its id from the response, its type, description and prompt (CEL-55)", () => {
+    const launch = (tool_name: string, tool_input: unknown, tool_response: unknown) =>
+      parseHookInput(JSON.stringify({ session_id: "s", hook_event_name: "PostToolUse", tool_name, tool_input, tool_response })).launched
+    const input = { description: "CEL-55 which agent is on each card", prompt: "You are a cello-builder building CEL-55", subagent_type: "cello-builder" }
+    expect(launch("Agent", input, { status: "async_launched", agentId: "add98dece6d9c7ec3", outputFile: "/tmp/x" })).toEqual({
+      agentId: "add98dece6d9c7ec3",
+      agentType: "cello-builder",
+      description: "CEL-55 which agent is on each card",
+      prompt: "You are a cello-builder building CEL-55",
+    })
+    // No subagent_type is Claude Code's general-purpose agent; the tool's older name is Task.
+    expect(launch("Task", { description: "Look around" }, { status: "completed", agentId: "a2" })).toMatchObject({ agentType: "general-purpose", prompt: null })
+    expect(launch("Agent", input, { status: "error" })).toBeNull()
+    expect(launch("Bash", { command: "ls" }, { agentId: "a3" })).toBeNull()
   })
 
   it("treats empty or broken input as no information, never as an error", () => {
-    const none = { sessionId: null, cwd: null, stopHookActive: false, inSubagent: false, toolName: null, toolInput: null, backgroundCommands: [] }
+    const none = { sessionId: null, cwd: null, stopHookActive: false, inSubagent: false, agent: null, launched: null, toolName: null, toolInput: null, backgroundCommands: [] }
     expect(parseHookInput("")).toEqual(none)
     expect(parseHookInput("{not json")).toEqual(none)
     expect(parseHookInput("[1,2]")).toEqual(none)
@@ -130,6 +152,27 @@ describe("hookAction", () => {
     expect(hookAction(parseHookInput(JSON.stringify({ session_id: "s" })), {})).toBe("deliver")
     expect(hookAction(parseHookInput(JSON.stringify({ session_id: "s", agent_id: "a1" })), {})).toBe("check-in")
     expect(hookAction(parseHookInput(""), {})).toBe("nothing")
+  })
+})
+
+// CEL-55: a hook inside a subagent calls as that agent, and hands it the CELLO_AGENT its cello commands need.
+describe("hookIdentity and subagentContext", () => {
+  it("inside a subagent the hook's calls carry the agent; in the main conversation they don't, whatever the environment says", () => {
+    const sub = parseHookInput(JSON.stringify({ session_id: "2fd0505c", agent_id: "a13bfb89", agent_type: "cello-builder" }))
+    expect(hookIdentity(sub, { CELLO_AGENT: "stale/x", CELLO_SESSION: "me" })).toEqual({
+      CLAUDE_CODE_SESSION_ID: "2fd0505c",
+      CELLO_AGENT: "cello-builder/a13bfb89",
+    })
+    const main = parseHookInput(JSON.stringify({ session_id: "2fd0505c" }))
+    expect(hookIdentity(main, { CELLO_AGENT: "stale/x", CLAUDE_PID: "1" })).toEqual({ CLAUDE_PID: "1", CLAUDE_CODE_SESSION_ID: "2fd0505c" })
+  })
+
+  it("SubagentStart: tells the subagent its CELLO_AGENT, as context, and that claims stay with the main conversation", () => {
+    const out = subagentContext({ id: "a13bfb89", type: "cello-builder" })
+    expect(out.hookSpecificOutput.hookEventName).toBe("SubagentStart")
+    expect(out.hookSpecificOutput.additionalContext).toContain("CELLO_AGENT=cello-builder/a13bfb89 cello task comment")
+    expect(out.hookSpecificOutput.additionalContext).toContain("cello inbox")
+    expect(subagentContext({ id: "a2", type: null }).hookSpecificOutput.additionalContext).toContain("CELLO_AGENT=a2 cello")
   })
 })
 

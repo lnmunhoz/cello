@@ -30,7 +30,7 @@ const snapshot: Snapshot = {
   statuses: [status("todo", "a0"), status("done", "a1")],
   labels: [],
   tasks: [task],
-  sessions: [],
+  sessions: [], agents: [],
   reviews: [],
   asks: [],
   documents: [],

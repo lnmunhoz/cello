@@ -15,6 +15,7 @@ import {
   Project,
   Review,
   ReviewDecision,
+  SessionAgent,
   Status,
   Task,
   Workspace,
@@ -29,6 +30,8 @@ const envelope = {
   commandId: Schema.String,
   actorId: Id,
   sessionId: Schema.NullOr(Id),
+  /** The session's subagent that caused it (CEL-55); absent (older events) or null when the session itself did. */
+  agentId: Schema.optionalKey(Schema.NullOr(Schema.String)),
   workspaceId: Id,
   projectId: Schema.NullOr(Id),
   schemaVersion: Schema.Literal(CURRENT_SCHEMA_VERSION),
@@ -95,6 +98,10 @@ export const CelloEvent = Schema.Union([
   // boards show who is working right now (CEL-35). Workspace-level (no projectId): one per workspace
   // the session holds claims in. Not a task change: the task's version stays.
   event("session.seen", { session: AgentSession }),
+  // A subagent of a session started, was launched on a task, checked in (at most once every 2 minutes)
+  // or stopped (CEL-55). Workspace-level like session.seen: one per workspace its task (else its
+  // session's claims) is in. Carries the whole agent; a board keeps the latest.
+  event("agent.seen", { agent: SessionAgent }),
   // A comment is activity on its task: the same command sets the task's last change and version (no
   // task event). Edits and deletes name their task so a board can follow; ones stored before don't. A
   // delete carries the task's new `lastCommentAt` (the latest remaining comment, or null).
@@ -105,6 +112,10 @@ export const CelloEvent = Schema.Union([
   event("review.submitted", { review: Review }),
   // Approved, sent back, or superseded by a newer review. `ts` is when.
   event("review.decided", { id: Id, taskId: Id, decision: ReviewDecision, note: Schema.NullOr(Schema.String) }),
+  // The task left In Review by a plain move (an agent's `cello task move`, Lucas dragging the card), so
+  // its open packet closed undecided (decision `withdrawn`, CEL-71). `to` is the status it was moved to;
+  // the envelope says who moved it. The same command then moves the task (task.moved).
+  event("review.withdrawn", { id: Id, taskId: Id, to: Id }),
   // Needs input (CEL-47). An ask with its questions and evidence; the same command moves the task to
   // Needs input (task.moved). Answered carries the whole ask with Lucas's answers; the same command
   // moves the task back to In Progress. Withdrawn: by the agent, by Lucas moving the card himself, or

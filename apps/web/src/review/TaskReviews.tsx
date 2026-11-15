@@ -24,7 +24,7 @@ export function PinnedReview({ board, task }: { board: BoardState; task: Task })
   )
 }
 
-const DECISIONS = { approved: "Approved", sent_back: "Sent back", superseded: "Replaced" } as const
+const DECISIONS = { approved: "Approved", sent_back: "Sent back", superseded: "Replaced", withdrawn: "Withdrawn" } as const
 
 /** Earlier packets, decided: newest first, each opening to the full packet. */
 export function EarlierReviews({ task }: { task: Task }) {

@@ -60,6 +60,15 @@ export const parseTaskKey = (key: string): { projectKey: string; number: number 
   return { projectKey: match[1]!, number: Number(match[2]) }
 }
 
+/**
+ * The task keys a piece of text mentions ("building CEL-55, after CEL-35"), each once, in the order
+ * they first appear. Only upper-case keys on word edges count, so "cel-55" or "XCEL-055x" don't.
+ */
+export const taskKeysIn = (text: string): string[] => {
+  const keys = [...text.matchAll(/(?<![A-Za-z0-9_-])([A-Z][A-Z0-9]{1,9})-([1-9][0-9]*)(?![A-Za-z0-9_])/g)].map((m) => `${m[1]}-${m[2]}`)
+  return [...new Set(keys)]
+}
+
 /** Where the board shows a task: `/CEL/3`. */
 export const taskPath = (projectKey: string, number: number): string => `/${projectKey}/${number}`
 

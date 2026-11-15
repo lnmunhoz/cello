@@ -107,6 +107,11 @@ describe("decodeEvent", () => {
     const decided = decodeEvent({ ...envelope, schemaVersion: 1, type: "review.decided", id: "r-1", taskId: "t-1", decision: "sent_back", note: "Fix the poster" })
     expect(decided).toMatchObject({ decision: "sent_back", note: "Fix the poster" })
     expect(() => decodeEvent({ ...envelope, schemaVersion: 1, type: "review.decided", id: "r-1", taskId: "t-1", decision: "maybe", note: null })).toThrow()
+    // A plain move out of In Review closes the packet undecided (CEL-71), saying where the task went.
+    const withdrawn = decodeEvent({ ...envelope, schemaVersion: 1, type: "review.withdrawn", id: "r-1", taskId: "t-1", to: "s-progress" })
+    expect(withdrawn).toMatchObject({ type: "review.withdrawn", id: "r-1", taskId: "t-1", to: "s-progress" })
+    expect(decodeEvent({ ...envelope, schemaVersion: 1, type: "review.submitted", review: { ...review, decision: "withdrawn", decidedAt: 2 } }))
+      .toMatchObject({ review: { decision: "withdrawn" } })
   })
 
   it("decodes document events, which carry the document without its body", () => {

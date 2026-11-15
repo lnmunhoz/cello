@@ -52,7 +52,7 @@ const state: BoardState = {
   statuses: { todo: status },
   labels: { bug: label },
   tasks: { t1: task("t1"), t2: task("t2") },
-  sessions: {},
+  sessions: {}, agents: {},
   reviews: {},
   asks: {},
   documents: {},

@@ -6,6 +6,7 @@ import * as path from "node:path"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import * as SqlClient from "effect/sql/SqlClient"
 import * as CommentService from "../comment/CommentService.ts"
 import * as EventStore from "../events/EventStore.ts"
 import * as Seed from "../persistence/Seed.ts"
@@ -282,10 +283,15 @@ describe("no In Review without a review", () => {
         key: task.key,
         status: "In Review",
       })
-      yield* agent(reviews.submit(packet(task.key, [{ path: writePng(files) }])))
+      const { result: submitted } = yield* agent(reviews.submit(packet(task.key, [{ path: writePng(files) }])))
+      expect(submitted.task.statusId).toBe(status["In Review"]!.id)
+      // Moving it out withdraws the packet (CEL-71), so coming back needs a new one.
       yield* agent(tasks.move({ commandId: cmd(), id: task.id, statusId: status["In Progress"]!.id }))
-      const { result } = yield* agent(tasks.move({ commandId: cmd(), id: task.id, statusId: status["In Review"]!.id }))
-      expect(result.statusId).toBe(status["In Review"]!.id)
+      expect(yield* Effect.flip(agent(tasks.move({ commandId: cmd(), id: task.id, statusId: status["In Review"]!.id })))).toMatchObject({
+        _tag: "ReviewRequired",
+      })
+      yield* agent(reviews.submit(packet(task.key, [{ path: writePng(files, "v2.png") }])))
+      expect((yield* tasks.byKey(task.key)).statusId).toBe(status["In Review"]!.id)
     })))
 
   it.effect("the human may move any task to In Review", () =>
@@ -293,5 +299,110 @@ describe("no In Review without a review", () => {
       const { tasks, status, task } = yield* setup
       const { result } = yield* tasks.move({ commandId: cmd(), id: task.id, statusId: status["In Review"]!.id })
       expect(result.statusId).toBe(status["In Review"]!.id)
+    })))
+})
+
+// CEL-71: an open packet belongs to a task in In Review (or waiting in Needs input, when the agent asked
+// from there). Approve and Send back close it with a decision; any other way out withdraws it, in the
+// move's own command, so the Review page never shows a packet for a task that isn't waiting on Lucas.
+describe("moving a task out of In Review withdraws its packet", () => {
+  it.effect("an agent's plain move: the packet closes as withdrawn, with an event saying where the task went", () =>
+    run(Effect.gen(function* () {
+      const { tasks, reviews, status, task, files } = yield* setup
+      const { result: submitted } = yield* agent(reviews.submit(packet(task.key, [{ path: writePng(files) }])))
+
+      const commandId = cmd()
+      const { result: moved } = yield* agent(tasks.move({ commandId, id: task.id, statusId: status["In Progress"]!.id }))
+      expect(moved.statusId).toBe(status["In Progress"]!.id)
+      // The agent keeps its claim: it moved its own task.
+      expect(moved.assigneeSessionId).toBe(task.assigneeSessionId)
+      const events = yield* eventsOf(commandId)
+      expect(events.map((e) => e.type)).toEqual(["review.withdrawn", "task.moved"])
+      expect(events[0]).toMatchObject({
+        id: submitted.review.id,
+        taskId: task.id,
+        to: status["In Progress"]!.id,
+        actorId: task.assigneeActorId,
+        sessionId: task.assigneeSessionId,
+      })
+
+      const [review] = yield* reviews.list(task.id)
+      expect(review).toMatchObject({ id: submitted.review.id, decision: "withdrawn", decisionNote: null, decidedAt: events[0]!.ts })
+      expect((yield* (yield* SnapshotService.SnapshotService).get()).reviews).toEqual([])
+      expect((yield* (yield* EventStore.EventStore).history(submitted.review.id)).map((e) => e.type)).toEqual(["review.submitted", "review.withdrawn"])
+    })))
+
+  it.effect("Lucas dragging the card out of In Review withdraws it too, and ends the agent's claim as before", () =>
+    run(Effect.gen(function* () {
+      const { tasks, reviews, status, task, files } = yield* setup
+      yield* agent(reviews.submit(packet(task.key, [{ path: writePng(files) }])))
+      const commandId = cmd()
+      yield* tasks.move({ commandId, id: task.id, statusId: status["Todo"]!.id })
+      const events = yield* eventsOf(commandId)
+      expect(events.map((e) => e.type)).toEqual(["review.withdrawn", "task.moved", "task.claim_ended"])
+      expect(events[0]).toMatchObject({ to: status["Todo"]!.id, actorId: (yield* Seed.HumanActor).id, sessionId: null })
+      expect((yield* reviews.list(task.id)).map((r) => r.decision)).toEqual(["withdrawn"])
+    })))
+
+  it.effect("reordering inside In Review, sending back and approving leave no withdrawal", () =>
+    run(Effect.gen(function* () {
+      const { tasks, reviews, status, task, files } = yield* setup
+      yield* agent(reviews.submit(packet(task.key, [{ path: writePng(files) }])))
+      const reorder = cmd()
+      yield* tasks.move({ commandId: reorder, id: task.id, statusId: status["In Review"]!.id, after: null })
+      expect((yield* reviews.list(task.id)).map((r) => r.decision)).toEqual([null])
+
+      const sendBack = cmd()
+      yield* reviews.sendBack({ commandId: sendBack, key: task.key, note: "Again" })
+      yield* agent(reviews.submit(packet(task.key, [{ path: writePng(files, "v2.png") }])))
+      const approve = cmd()
+      yield* reviews.approve({ commandId: approve, key: task.key })
+      const types = [...(yield* eventsOf(reorder)), ...(yield* eventsOf(sendBack)), ...(yield* eventsOf(approve))].map((e) => e.type)
+      expect(types).not.toContain("review.withdrawn")
+      expect((yield* reviews.list(task.id)).map((r) => r.decision)).toEqual(["sent_back", "approved"])
+    })))
+
+  it.effect("a packet left open on a task already out of In Review (before CEL-71) closes on the task's next move", () =>
+    run(Effect.gen(function* () {
+      const { tasks, reviews, status, task, files } = yield* setup
+      const { result: submitted } = yield* agent(reviews.submit(packet(task.key, [{ path: writePng(files) }])))
+      // How CEL-52's packet was left: the task moved on, the packet stayed open.
+      yield* (yield* SqlClient.SqlClient)`UPDATE tasks SET status_id = ${status["In Progress"]!.id} WHERE id = ${task.id}`
+      const commandId = cmd()
+      yield* agent(tasks.move({ commandId, id: task.id, statusId: status["Todo"]!.id }))
+      expect((yield* eventsOf(commandId))[0]).toMatchObject({ type: "review.withdrawn", id: submitted.review.id, to: status["Todo"]!.id })
+    })))
+
+  it.effect("a packet left open on a task out of In Review is no gate and no decision: an agent can't move the task back on it, Lucas can't approve or send it back", () =>
+    run(Effect.gen(function* () {
+      const { tasks, reviews, status, task, files } = yield* setup
+      const { result: submitted } = yield* agent(reviews.submit(packet(task.key, [{ path: writePng(files) }])))
+      yield* (yield* SqlClient.SqlClient)`UPDATE tasks SET status_id = ${status["In Progress"]!.id} WHERE id = ${task.id}`
+
+      expect(yield* Effect.flip(agent(tasks.move({ commandId: cmd(), id: task.id, statusId: status["In Review"]!.id })))).toMatchObject({
+        _tag: "ReviewRequired",
+      })
+      const refused = { _tag: "Invalid", reason: `${task.key} has no open review and isn't in In Review` }
+      expect(yield* Effect.flip(reviews.approve({ commandId: cmd(), key: task.key }))).toMatchObject(refused)
+      expect(yield* Effect.flip(reviews.sendBack({ commandId: cmd(), key: task.key, note: "No" }))).toMatchObject(refused)
+      expect((yield* tasks.byKey(task.key)).statusId).toBe(status["In Progress"]!.id)
+      expect((yield* reviews.list(task.id)).map((r) => r.decision)).toEqual([null])
+
+      // Lucas may put the task in In Review by hand: the stale packet doesn't come back with it.
+      const commandId = cmd()
+      yield* tasks.move({ commandId, id: task.id, statusId: status["In Review"]!.id })
+      expect((yield* eventsOf(commandId)).map((e) => e.type)).toEqual(["review.withdrawn", "task.moved", "task.claim_ended"])
+      expect((yield* eventsOf(commandId))[0]).toMatchObject({ id: submitted.review.id, to: status["In Review"]!.id })
+      expect((yield* (yield* SnapshotService.SnapshotService).get()).reviews).toEqual([])
+    })))
+
+  it.effect("submitting on a task with a stale packet replaces it, and the new packet waits in In Review", () =>
+    run(Effect.gen(function* () {
+      const { reviews, status, task, files } = yield* setup
+      const { result: first } = yield* agent(reviews.submit(packet(task.key, [{ path: writePng(files) }])))
+      yield* (yield* SqlClient.SqlClient)`UPDATE tasks SET status_id = ${status["In Progress"]!.id} WHERE id = ${task.id}`
+      const { result: second } = yield* agent(reviews.submit(packet(task.key, [{ path: writePng(files, "v2.png") }])))
+      expect(second.task.statusId).toBe(status["In Review"]!.id)
+      expect((yield* reviews.list(task.id)).map((r) => [r.id, r.decision])).toEqual([[first.review.id, "superseded"], [second.review.id, null]])
     })))
 })

@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import type * as Statement from "effect/sql/Statement"
+import { AgentService } from "../session/AgentService.ts"
 import { SessionService } from "../session/SessionService.ts"
 import * as EventStore from "../events/EventStore.ts"
 import {
@@ -33,6 +34,7 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const store = yield* EventStore.EventStore
   const sessions = yield* SessionService
+  const agents = yield* AgentService
 
   const get = Effect.fn("SnapshotService.get")(function* (scope?: Scope) {
     return yield* sql.withTransaction(Effect.gen(function* () {
@@ -56,6 +58,13 @@ const make = Effect.gen(function* () {
         projectFilter = sql`p.id = ${scope.projectId}`
       }
       const tasks = yield* selectTasks(sql, projectFilter)
+      const sessionIds = tasks.flatMap((t) => [t.createdBySessionId, t.assigneeSessionId, t.updatedBySessionId].filter((id) => id !== null))
+      // Subagents (CEL-55): the ones on these tasks, the ones that changed them last, and the live ones
+      // of their sessions; their sessions come along, so a card can name the parent.
+      const onBoard = yield* agents.forBoard(tasks.map((t) => t.id), sessionIds)
+      const lastChanged = yield* agents.byRefs(tasks.flatMap((t) =>
+        t.updatedBySessionId !== null && t.updatedByAgentId ? [{ sessionId: t.updatedBySessionId, agentId: t.updatedByAgentId }] : []))
+      const boardAgents = [...onBoard, ...lastChanged.filter((a) => !onBoard.some((b) => b.sessionId === a.sessionId && b.agentId === a.agentId))]
       return {
         seq: yield* store.latestSeq,
         actors: yield* selectActors(sql),
@@ -64,7 +73,8 @@ const make = Effect.gen(function* () {
         statuses: yield* selectStatuses(sql, sql`s.workspace_id = ${workspaceId}`),
         labels: yield* selectLabels(sql, sql`l.workspace_id = ${workspaceId}`),
         tasks,
-        sessions: yield* sessions.byIds(tasks.flatMap((t) => [t.createdBySessionId, t.assigneeSessionId, t.updatedBySessionId].filter((id) => id !== null))),
+        sessions: yield* sessions.byIds([...sessionIds, ...boardAgents.map((a) => a.sessionId)]),
+        agents: boardAgents,
         reviews: yield* selectReviews(sql, sql`r.decided_at IS NULL AND ${projectFilter}`),
         asks: yield* selectAsks(sql, sql`a.state = 'open' AND ${projectFilter}`),
         documents: yield* selectDocuments(sql, projectFilter),

@@ -1,23 +1,30 @@
 // Read models for the CLI (and later MCP): one RPC returns everything a command prints.
+import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { Actor, AgentSession, Ask, Comment, DocumentSummary, InboxItem, Label, Project, Review, Status, Task } from "./entities.ts"
+import { Actor, AgentSession, Ask, Comment, DocumentSummary, InboxItem, Label, Project, Review, SessionAgent, Status, Task } from "./entities.ts"
 import { CelloEvent } from "./events.ts"
 
-/** Who the server sees: the actor, its agent session (null for the human), and the project if one resolved. */
+/**
+ * Who the server sees: the actor, its agent session (null for the human), the session's subagent making
+ * the call when it said so (CEL-55), and the project if one resolved.
+ */
 export const Whoami = Schema.Struct({
   actor: Actor,
   session: Schema.NullOr(AgentSession),
+  agent: Schema.NullOr(SessionAgent).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   project: Schema.NullOr(Project),
 })
 export type Whoami = typeof Whoami.Type
 
-/** A project with the names a command needs to print ids: statuses, labels, actors and sessions. */
+/** A project with the names a command needs to print ids: statuses, labels, actors, sessions and their subagents. */
 const projectFields = {
   project: Project,
   statuses: Schema.Array(Status),
   labels: Schema.Array(Label),
   actors: Schema.Array(Actor),
   sessions: Schema.Array(AgentSession),
+  /** The subagents the tasks, comments and events name (CEL-55); their sessions are in `sessions`. */
+  agents: Schema.Array(SessionAgent),
 }
 
 /** An event with the key of the task it's about (null for non-task events). */

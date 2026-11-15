@@ -84,8 +84,8 @@ const make = Effect.gen(function* () {
       const body = yield* requireText("body", input.body)
       const where = yield* placeOfTask(input.taskId)
       const id = newId(now)
-      yield* sql`INSERT INTO comments (id, task_id, body, actor_id, session_id, created_at, updated_at)
-        VALUES (${id}, ${input.taskId}, ${body}, ${caller.actorId}, ${caller.sessionId}, ${now}, ${now})`
+      yield* sql`INSERT INTO comments (id, task_id, body, actor_id, session_id, agent_id, created_at, updated_at)
+        VALUES (${id}, ${input.taskId}, ${body}, ${caller.actorId}, ${caller.sessionId}, ${caller.agentId ?? null}, ${now}, ${now})`
       yield* tasks.touchWithin(context, input.taskId)
       const comment = yield* load(id)
       yield* emit({ type: "comment.added", comment }, where)

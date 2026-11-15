@@ -13,7 +13,7 @@
 // - Nothing runs on an idle board: every animation starts from an event and ends.
 import type { Synced } from "@cello/client/sync/follow"
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import type { AgentSession } from "@cello/contract/entities"
+import { type AgentSession, agentKey, type SessionAgent } from "@cello/contract/entities"
 import { AGENT_COLORS, colorFromSeed } from "@cello/shared/color"
 import { animate, type AnimationPlaybackControls } from "motion"
 import { useSyncExternalStore } from "react"
@@ -86,8 +86,8 @@ interface Cursor {
   labelWidth: number
 }
 
-/** Asks the server who a session is (task.get lists the sessions a task's history names). */
-export type Lookup = (taskKey: string) => Promise<{ readonly sessions: ReadonlyArray<AgentSession> }>
+/** Asks the server who a session or subagent is (task.get lists the sessions and agents a task names). */
+export type Lookup = (taskKey: string) => Promise<{ readonly sessions: ReadonlyArray<AgentSession>; readonly agents?: ReadonlyArray<SessionAgent> }>
 
 export interface Attachment {
   readonly projectId: string
@@ -315,11 +315,13 @@ export class Animator implements Player<CursorStep> {
     this.attachment
       .lookup(taskKey)
       .then((detail) => {
-        const session = detail.sessions.find((s) => s.id === lane)
+        // A subagent's lane is `<session>/<agent>` (CEL-55): "cello-builder · a13bfb89".
+        const agent = detail.agents?.find((a) => agentKey(a.sessionId, a.agentId) === lane)
+        const session = detail.sessions.find((s) => s.id === (agent?.sessionId ?? lane))
         if (!session) return void this.asked.delete(lane)
         const actor = this.last?.state.actors[session.actorId]?.name ?? session.clientName
         const short = (session.externalId ?? session.id).slice(0, 8)
-        this.labels.set(lane, `${actor} · ${short}`)
+        this.labels.set(lane, agent ? `${agent.agentType ?? "agent"} · ${agent.agentId.slice(0, 8)}` : `${actor} · ${short}`)
         const label = this.cursors.get(lane)?.el.querySelector("span")
         if (label) label.textContent = this.labels.get(lane)!
         const cursor = this.cursors.get(lane)

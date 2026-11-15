@@ -1,10 +1,11 @@
 // Which board events get an agent cursor, and what kind of step each one plays. Pure.
+import { agentKey } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
 import type { StepKind } from "./pacing.ts"
 
 /** What an agent session did to a card, before the board decides how to show it. */
 export interface Change {
-  /** The agent session: its cursor and its lane in the queue. */
+  /** The agent session, or `<session>/<agent>` for its subagent (CEL-55): its cursor and its lane in the queue. */
   readonly lane: string
   readonly actorId: string
   /** The task. */
@@ -25,7 +26,9 @@ const claimNote = { "task.claimed": "Claimed", "task.claim_taken": "Took over", 
  */
 export const changeOf = (e: CelloEvent, projectId: string, before: Before): Change | null => {
   if (e.sessionId === null || e.projectId !== projectId) return null
-  const change = (card: string, kind: StepKind, note: string | null = null): Change => ({ lane: e.sessionId!, actorId: e.actorId, card, kind, note })
+  // Each subagent of a session gets its own cursor (CEL-55): `<session>/<agent>`, as agentKey.
+  const lane = e.agentId ? agentKey(e.sessionId, e.agentId) : e.sessionId
+  const change = (card: string, kind: StepKind, note: string | null = null): Change => ({ lane, actorId: e.actorId, card, kind, note })
   switch (e.type) {
     case "task.created":
       return change(e.task.id, "create")

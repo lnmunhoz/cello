@@ -89,15 +89,18 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
 
   Hidden statuses are folded on the board and left out of \`cello task list\` unless you ask for them.
 - **Agent session:** one agent conversation. Cello credits every change to the session that made it ("Claude Code session 2fd0505c"), from \`CLAUDE_CODE_SESSION_ID\`, which Claude Code sets.
+- **Subagent:** an agent the session started with Claude Code's Agent tool (a builder, a reviewer, an \`Explore\`). It works under its parent's session, with the same \`CLAUDE_CODE_SESSION_ID\`, so Cello names it on its own: its type and a short id, "cello-builder · a13bfb89", with the session as its parent. The board shows which subagent is on each card and counts each one in "Agents working". Claims and Lucas's comments stay with the session. See Subagents.
 - **Claim:** "this session is working on this task". \`cello task claim\` assigns the task to your session and moves it to In Progress.
   - While your session is alive, other agents can't claim it.
   - If your session has exited, another session can claim the task and takes the claim over.
   - Lucas always wins: when he changes a task you've claimed (moves it, approves it), your claim ends, and \`cello context\` lists it under "Claims you lost".
 - **Stage:** where a claimed task is inside In Progress: **building**, **review** (Agent review), **fixing** (Fixing findings) or **merged**. In Progress holds a task from the claim to the packet, so without a stage a task being built and one waiting for review look the same. The session holding the claim sets it with \`cello task stage\`; the board shows it on the card. Asking Lucas keeps it through Needs input; any other move out of In Progress, or submitting it, clears it. See Stages.
-- **Presence:** the board shows whether the session holding a claim is working right now: **active now** (it called Cello in the last 5 minutes), **seen 2h ago** (quiet, its process still running) or **ended** (its process exited). Every \`cello\` command and every hook run counts as a check-in; with the hooks installed that's every tool call, a subagent's included. The board hears about it at most every 2 minutes, which keeps "active now" steady without filling the history. You don't do anything for it.
+- **Presence:** the board shows whether the session holding a claim is working right now: **active now** (it called Cello in the last 5 minutes), **seen 2h ago** (quiet, its process still running) or **ended** (its process exited). Every \`cello\` command and every hook run counts as a check-in; with the hooks installed that's every tool call, a subagent's included. A subagent checks in as itself too, so the card names the subagent working on it ("cello-builder · a13bfb89 active now") rather than its session. The board hears about each at most every 2 minutes, which keeps "active now" steady without filling the history. You don't do anything for it.
 - **Review packet:** how finished work reaches Lucas. It holds a summary, how-to-check steps and evidence (videos, screenshots, test output, links). \`cello task submit\` creates it and moves the task to In Review. Then Lucas decides:
-  - **Approve:** the task moves to Done and your claim ends.
+  - **Approve:** the task moves to Done and your claim ends. A note he typed with it shows under Reviews in \`cello task get\` (\`Note: …\`).
   - **Send back:** the task returns to In Progress with his note, and your claim stays. The note comes to your session (see Comments from Lucas reach your session), and \`cello task get\` shows it under Reviews.
+  - **Comment, without deciding yet:** the Review page shows the task's comments under the packet, with a comment box. A comment there leaves the task In Review and your claim in place, and comes to your session like any comment. Answer it on the card; if it asks for a change, move the task back to In Progress before you make it (that withdraws the packet), then submit again.
+  - **Moved out without a decision** (\`cello task move\`, or Lucas dragging the card): the packet is **withdrawn** and leaves the Review page. \`cello task get\` shows it as withdrawn, with who moved the task and where. To hand the work over again, submit a new packet.
 - **Ask (Needs input):** how you get a decision from Lucas: questions on the card, each with options (one recommended, with your reason), plus evidence. \`cello task ask\` moves the task to Needs input; he answers in Cello, next to the evidence; the task comes back to In Progress, still yours, and his answers reach your session. Never ask him in the terminal when the decision is his (see Questions for Lucas).
 - **Documents:** markdown published into the project's Docs tab with \`cello doc publish\`. There are three kinds:
   - a **page** reports on finished work (a snapshot to read now)
@@ -147,9 +150,9 @@ Run it first in every session, and again when you come back to a task.
 6. **If it's sent back,** his note comes to your session (by the hook, or \`cello inbox\`), and \`cello task get CEL-12\` shows it under Reviews. Fix it, then submit again.
    **Lucas's feedback in chat counts as a Send back.** When he reviews a task in your conversation instead of on the card (a screenshot, "this should be…", "I don't like…"), do both of these before you start fixing:
    - put his words on the card as a comment, quoted as he said them and marked as his (\`**Lucas, in chat (review):** "…"\`), so the review lives with the task;
-   - if the task is In Review, move it back with \`cello task move CEL-12 "In Progress"\`, so the board shows it's being worked on again.
+   - if the task is In Review, move it back with \`cello task move CEL-12 "In Progress"\`, so the board shows it's being worked on again. The move withdraws the open packet, so it leaves Lucas's Review page.
 
-   Then fix, and submit a new packet (it replaces the open one). The same goes for feedback on a task in Done: comment it, and move it back to In Progress, or open a new task if it's a new request.
+   Then fix, and submit a new packet. The same goes for feedback on a task in Done: comment it, and move it back to In Progress, or open a new task if it's a new request.
 7. **If you run a feature through builder and reviewer agents** (the orchestrator), mark each step with \`cello task stage\` (see Stages), so the card says where the work is. In Claude Code, \`/cello:orchestrate APP-12 APP-14\` sets a session up for this (see "The Claude Code plugin").
 8. **In Progress means someone is working on it right now.** When work stops before you submit, don't leave the card there: the board would show it as being built when nobody is on it.
    - **Waiting on Lucas** (a scope's options, a design choice, any decision that's his): ask on the card with \`cello task ask\` (see Questions for Lucas). The task moves to Needs input, your claim stays, and it comes back to In Progress when he answers.
@@ -271,6 +274,7 @@ cello task move CEL-31 backlog           # any case
 \`\`\`
 
 - **Moving into In Review is refused:** use \`cello task submit\`.
+- **Moving out of In Review withdraws the open packet:** it leaves the Review page, and coming back takes a new \`cello task submit\`.
 - **Moving into Needs input is refused,** to everyone, Lucas included: only \`cello task ask\` puts a task there, with your questions.
 - **Don't move tasks to Done or Canceled.**
 - **"It was changed by … in the meantime":** someone changed the task while you were acting. Run the command again.
@@ -387,6 +391,7 @@ cello uninstall claude          # takes them out of all three
 - **The same command installs the Claude Code plugin** in the same settings file (see "The Claude Code plugin" below), and \`cello uninstall claude\` takes it out with the hooks.
 - **What runs:** Claude Code runs \`cello hook claude stop\` when you finish a turn, and \`cello hook claude post-tool-use\` after each tool call. New comments come in as context. If you were about to stop, they keep you going: the transcript shows them as "Stop hook feedback". With nothing new, a stop while you hold a claim and nothing waits for you asks you once to start \`cello inbox --wait\` (below).
 - **A third hook, the guards:** \`cello hook claude pre-tool-use\` runs before each call to Claude Code's \`Artifact\`, \`Edit\`, \`Write\` and \`NotebookEdit\` tools. It turns artifact publishes away (see "Showing things to Lucas") and edits in the repo from a session that hasn't claimed a task (see "Edits need a claimed task"). It goes into the project's settings (\`.claude/settings.local.json\`, or \`.claude/settings.json\` with \`--shared\`), never into \`~/.claude/settings.json\` with \`--user\`, since not every project is a Cello project. Running \`cello install claude\` again in a project set up before the claim guard existed adds it.
+- **Two more, for subagents:** \`cello hook claude subagent-start\` and \`cello hook claude subagent-stop\` run when a subagent starts and finishes (see Subagents). The start hook only goes into the project's settings, like the guards; the stop hook goes everywhere. Running \`cello install claude\` again in a project set up before them adds them.
 - **\`cello\` must be on the PATH** Claude Code starts with (\`~/.local/bin\`). When the server is down, the hook stays silent and your session carries on.
 
 **Without the hooks:**
@@ -437,7 +442,38 @@ Start it, then end your turn. The hook never loops: the stop you make right afte
 
 **When a task is sent back,** it's in In Progress again and still yours. The note arrives the same way, marked "sent it back" (\`cello task get\` also shows it under Reviews). Fix what it asks, test, then hand the task in again with \`cello task submit CEL-22\` and new evidence.
 
-**Subagents share your session.** A subagent's \`CLAUDE_CODE_SESSION_ID\` is its parent's, so Cello can't tell them apart. Inside a subagent the hook hands nothing over, so comments reach the main conversation; it only checks the session in, so the board shows your task as being worked on while the subagent runs. Don't run \`cello inbox\` (or \`cello inbox --wait\`) from a subagent: it would take the parent's comments. \`cello context\` is safe anywhere, since it takes nothing.
+**Subagents share your session.** A subagent's \`CLAUDE_CODE_SESSION_ID\` is its parent's. Inside a subagent the hook hands nothing over, so comments reach the main conversation; it only checks the subagent in, under your session, so the board shows who is working on your task while it runs. Don't run \`cello inbox\` (or \`cello inbox --wait\`) from a subagent: it would take the parent's comments. \`cello context\` is safe anywhere, since it takes nothing.
+
+## Subagents
+
+When you run builders and reviewers with Claude Code's Agent tool, they all carry your \`CLAUDE_CODE_SESSION_ID\`. Cello still tells them apart: each is a **subagent** of your session, named by its type and the first 8 characters of its id ("cello-builder · a13bfb89", "general-purpose · add98dec"). The card it works on says "cello-builder · a13bfb89 active now", with your session in the hover and in the task panel; its comments and changes name it; and "Agents working" in the sidebar counts each working subagent and lists them under your session, each with its task.
+
+**How Cello learns about them (with the hooks installed):**
+
+- **The launch names the task.** When the Agent tool returns, the PostToolUse hook in your conversation tells Cello the subagent's id and type, and the task the launch's **description** (else its prompt) names: of the keys there that are real tasks, the one your session has claimed, else the first. A foreground subagent's launch arrives after it finished; it links the task and leaves the subagent finished. So put the task key first in the description: \`"CEL-55 which agent is on each card"\`. A launch that names no task leaves the subagent under your session with no task.
+- **Its tool calls check it in.** Every tool call inside the subagent runs the PostToolUse hook, which checks it in as itself, under your session.
+- **SubagentStart hands it its name.** A subagent's shell can't see its own id, so \`cello hook claude subagent-start\` tells it, as context: "put \`CELLO_AGENT=cello-builder/a13bfb89\` before every \`cello\` command you run".
+- **SubagentStop marks it finished,** so it leaves "Agents working". A resumed subagent comes back.
+
+**Inside a subagent,** put the \`CELLO_AGENT\` you were given before each \`cello\` command, so the board credits it to you rather than to the main conversation:
+
+\`\`\`bash
+CELLO_AGENT=cello-code-reviewer/b77d0e11aa22bb33 cello task comment CEL-55 "Review: two findings, see below"
+CELLO_AGENT=cello-code-reviewer/b77d0e11aa22bb33 cello whoami     # "x-cello-agent" and the server's "agent" say who you are
+\`\`\`
+
+A command without it is credited to the session, as before. So a subagent's comments and changes are credited to it **only where \`subagent-start\` is installed** (a project's settings: \`cello install claude\` or \`--shared\`, not \`--user\`) **and only when the subagent follows that instruction**: it's context the model reads, not something Cello enforces. Its presence and the task it was launched on don't depend on either: the PostToolUse hook reports them. Nothing else changes: **claims and Lucas's comments stay with the session.** A subagent's claim is the session's claim, the main conversation keeps holding it, and comments are delivered there (never \`cello inbox\` from a subagent).
+
+**What \`cello task get\` shows:** the subagents launched on the task, and who did what.
+
+\`\`\`
+Subagents on it (1)
+  cello-builder · a13bfb89 (under Claude Code session 2fd0505c): working, seen 1m ago
+
+Comments (1)
+  cello-builder · a13bfb89 (under Claude Code session 2fd0505c) · just now
+    Built; tests pass
+\`\`\`
 
 ## The Claude Code plugin
 
@@ -504,6 +540,12 @@ cello task submit CEL-22 \\
 - **\`--link\`** adds a URL: a PR, or a page you published.
 - **\`--caption\`** describes the \`--attach\` or \`--link\` right before it.
 - **Submitting again** while a packet is still open replaces it.
+- **A packet waits on Lucas only while its task is in In Review** (or in Needs input, when you asked from In Review). Approve and Send back close it with his decision. Any other move closes it as **withdrawn**: you or Lucas moving the task back to In Progress, to Todo or anywhere else, and his answers to an ask you made from In Review, which bring the task back to In Progress. A withdrawn packet leaves the Review page; it stays in the task's list, where \`cello task get\` shows it:
+
+  \`\`\`
+  Reviews (1)
+    Review (withdrawn 3m ago: Claude Code session 2fd0505c moved it to In Progress), submitted by Claude Code session 2fd0505c, 20m ago
+  \`\`\`
 
 What to bring, by kind of work:
 
@@ -534,7 +576,7 @@ cello task ask CEL-43 --title "Search layout" \\
 What happens:
 
 1. The task moves to **Needs input** (your claim stays). It shows in the sidebar's Needs input count, first on Lucas's Review page, and in In Progress with a "Needs input" badge (or its own column, when he turns that on in Display).
-2. Lucas answers each question (a pick, several, or None of these with a comment; words for a text-only one) and sends. The task goes back to **In Progress**, still yours.
+2. Lucas answers each question (a pick, several, or None of these with a comment; words for a text-only one) and sends. The task goes back to **In Progress**, still yours. If you asked from In Review, the open packet is withdrawn then: submit a new one when the work is ready again.
 3. The answers reach you, once:
    - **with \`--wait\`:** the command blocks until he sends, then prints the answers and exits. Run it in the background (Claude Code: \`run_in_background\`), so your session wakes when they arrive.
    - **without it:** the hook delivers them like a comment (see Comments from Lucas reach your session), or \`cello wait CEL-43\` waits for them later (after a restart, say).
@@ -723,6 +765,7 @@ cello builds
 | Variable | What it does |
 | --- | --- |
 | \`CLAUDE_CODE_SESSION_ID\` | Set by Claude Code. Your agent session: your changes are credited to it, your claims belong to it, and Lucas's comments on them come to it. Subagents get their parent's. |
+| \`CELLO_AGENT\` | Which subagent of the session is calling, as \`<type>/<id>\` (\`cello-builder/a13bfb89\`) or just the id. The SubagentStart hook tells each subagent its value; put it before your \`cello\` commands. Your changes and comments are then credited to that subagent, under the session; claims stay with the session. See Subagents. |
 | \`CLAUDE_PID\` | Set by Claude Code. Lets Cello tell whether your session is still alive, so a dead session's claim can be taken over. |
 | \`CELLO_SESSION\` | Overrides the session. An agent that isn't Claude Code sets a stable id for its conversation here. \`CELLO_SESSION=me\` acts as Lucas: only when he asks you to. |
 | \`CELLO_PORT\` | The server's port, 4747 by default. Dev servers and tests use other ports. |
@@ -1223,7 +1266,7 @@ cello uninstall claude [flags]
 
 ### cello hook claude
 
-Run by the hooks \`cello install claude\` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that holds a claim going once to start \`cello inbox --wait\` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) or Claude is already continuing because of a Stop hook (stop_hook_active). pre-tool-use turns a Claude artifact publish away with a pointer to \`cello doc publish\`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a minute. Always exits 0.
+Run by the hooks \`cello install claude\` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that holds a claim going once to start \`cello inbox --wait\` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) or Claude is already continuing because of a Stop hook (stop_hook_active). pre-tool-use turns a Claude artifact publish away with a pointer to \`cello doc publish\`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start prints context telling the new subagent to put CELLO_AGENT=<type>/<id> before its cello commands, and subagent-stop marks it finished. Always exits 0.
 
 \`\`\`
 cello hook claude [flags] <event>
@@ -1231,7 +1274,7 @@ cello hook claude [flags] <event>
 
 | | |
 | --- | --- |
-| \`event choice\` | The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse) or pre-tool-use (PreToolUse: the artifact and claim guards). |
+| \`event choice\` | The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse), pre-tool-use (PreToolUse: the artifact and claim guards), subagent-start (SubagentStart) or subagent-stop (SubagentStop). |
 
 ### cello start
 

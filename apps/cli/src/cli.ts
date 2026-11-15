@@ -9,6 +9,7 @@ import { CelloClient, makeClientLayer, newCommandId } from "@cello/client/client
 import { describeEvent } from "@cello/client/history"
 import { STAGE_IDS, stageInfo, TASK_STAGES } from "@cello/contract/stages"
 import type { Backup } from "@cello/contract/backups"
+import type { TaskDetail } from "@cello/contract/views"
 import {
   type Actor,
   type AgentSession,
@@ -21,9 +22,11 @@ import {
   type Priority,
   type ProjectRef,
   type Review,
+  type SessionAgent,
   type Status,
   type Task,
 } from "@cello/contract/entities"
+import type { CelloEvent, EventOf } from "@cello/contract/events"
 import { HUMAN_SESSION, IDENTITY_HEADERS } from "@cello/contract/rpcs"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
@@ -53,16 +56,18 @@ import {
   claimCache,
   claimCacheDir,
   claimCheck,
+  type DeliveryEvent,
   HOOK_EVENTS,
-  type HookEvent,
   hookAction,
   hookDeadline,
+  hookIdentity,
   hookResponse,
-  hookSession,
   type HookInput,
+  hookSession,
   insideAny,
   parseHookInput,
   stopNudge,
+  subagentContext,
 } from "./claudeHook.ts"
 import { CLAUDE_PLUGIN_FILES, pluginFolder, writePluginFolder } from "./claudePlugin.ts"
 import {
@@ -80,7 +85,7 @@ import { CliEnv, dataDirOf, portOf } from "./env.ts"
 import { CliFailure, explain } from "./errors.ts"
 import { editFields, priorityOf } from "./edit.ts"
 import { evidenceFromArgs } from "./evidence.ts"
-import { ago, andList, columns, localTime, plural, sessionName } from "./format.ts"
+import { agentName, ago, andList, columns, localTime, plural, sessionName } from "./format.ts"
 import { GUIDE } from "./guide.ts"
 import { type Env, IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
 import { deliveryText, inboxEntries } from "./inbox.ts"
@@ -177,6 +182,8 @@ const PRIORITY_NAMES = ["None", "Urgent", "High", "Medium", "Low"]
 interface Names {
   readonly statuses: ReadonlyArray<Status>
   readonly sessions: ReadonlyArray<AgentSession>
+  /** The subagents the rows name (CEL-55). */
+  readonly agents?: ReadonlyArray<SessionAgent>
 }
 
 const statusName = (names: Names, id: string) => names.statuses.find((s) => s.id === id)?.name ?? "?"
@@ -201,13 +208,20 @@ const taskRows = (names: Names, tasks: ReadonlyArray<Task>) =>
 
 const taskLine = (names: Names, task: Task) => `${task.key}  ${statusWithStage(names, task)}  ${task.title}`
 
-/** Who did something: "Claude Code session 2fd0505c", or the actor's name. */
+/**
+ * Who did something: "Claude Code session 2fd0505c", a subagent under it ("cello-builder · a13bfb89
+ * (under Claude Code session 2fd0505c)", CEL-55), or the actor's name.
+ */
 const author = (
   names: Names & { readonly actors: ReadonlyArray<{ readonly id: string; readonly name: string }> },
   actorId: string,
   sessionId: string | null,
+  agentId?: string | null,
 ) => {
   const session = names.sessions.find((s) => s.id === sessionId)
+  if (sessionId !== null && agentId) {
+    return agentName(names.agents?.find((a) => a.sessionId === sessionId && a.agentId === agentId) ?? { agentId, agentType: null }, session)
+  }
   return session ? sessionName(session) : names.actors.find((a) => a.id === actorId)?.name ?? "Someone"
 }
 
@@ -224,16 +238,32 @@ const packetCounts = (review: Review) =>
     }),
   ].join(" · ")
 
-const DECISIONS = { approved: "approved", sent_back: "sent back", superseded: "superseded by a newer one" } as const
+const DECISIONS = { approved: "approved", sent_back: "sent back", superseded: "superseded by a newer one", withdrawn: "withdrawn" } as const
 
+/**
+ * Who withdrew a packet, and where to: the move that closed it, in the same command (same time), as
+ * "Claude Code session 2fd0505c moved it to In Progress" (CEL-71).
+ */
+const withdrawal = (
+  names: Names & { readonly actors: ReadonlyArray<Actor> },
+  review: Review,
+  history: ReadonlyArray<CelloEvent>,
+) => {
+  const move = history.find((e): e is EventOf<"task.moved"> =>
+    e.type === "task.moved" && e.ts === review.decidedAt && e.from.statusId !== e.to.statusId)
+  return move ? `: ${author(names, move.actorId, move.sessionId)} moved it to ${statusName(names, move.to.statusId)}` : ""
+}
 
 /** One review in `task get`: state, who submitted it, summary, steps, evidence and Lucas's note. */
 const reviewLines = (
   names: Names & { readonly actors: ReadonlyArray<Actor> },
   review: Review,
+  history: ReadonlyArray<CelloEvent>,
   now: number,
 ): string[] => {
-  const state = review.decision === null ? "open" : `${DECISIONS[review.decision]} ${ago(review.decidedAt!, now)}`
+  const state = review.decision === null
+    ? "open"
+    : `${DECISIONS[review.decision]} ${ago(review.decidedAt!, now)}${review.decision === "withdrawn" ? withdrawal(names, review, history) : ""}`
   const indent = (text: string) => text.split("\n").map((l) => `    ${l}`)
   return [
     `  Review (${state}), submitted by ${author(names, review.actorId, review.sessionId)}, ${ago(review.createdAt, now)}`,
@@ -309,7 +339,7 @@ const context = Command.make("context", { project, json }, (input) =>
     if (ctx.lostClaims.length) {
       lines.push("", "Claims you lost")
       for (const { event, taskKey } of ctx.lostClaims) {
-        const who = author(ctx, event.actorId, event.sessionId)
+        const who = author(ctx, event.actorId, event.sessionId, event.agentId)
         const how = event.type === "task.claim_ended" ? `ended when ${who} changed it` : `taken over by ${who}`
         lines.push(`  ${taskKey ?? "?"}  ${how}, ${ago(event.ts, now)}`)
       }
@@ -318,7 +348,7 @@ const context = Command.make("context", { project, json }, (input) =>
     lines.push(...columns(ctx.recent.map(({ event, taskKey }) => [
       ago(event.ts, now),
       taskKey ?? "",
-      describeEvent(event, { ...byIds(ctx), actors: actorsWithSessions(ctx, event) }),
+      describeEvent(event, { ...byIds(ctx), actors: {} }, author(ctx, event.actorId, event.sessionId, event.agentId)),
     ])).map((l) => `  ${l}`))
     if (ctx.recent.length === 0) lines.push("  none yet")
     yield* print(lines.join("\n"))
@@ -333,11 +363,18 @@ const byIds = (names: { readonly statuses: ReadonlyArray<Status>; readonly label
   labels: Object.fromEntries(names.labels.map((l) => [l.id, l])) as never,
 })
 
-/** describeEvent names the actor; for agents, name the session instead ("Claude Code session 2fd0505c"). */
-const actorsWithSessions = (
-  names: Names & { readonly actors: ReadonlyArray<Actor> },
-  event: { readonly actorId: string; readonly sessionId: string | null },
-) => Object.fromEntries(names.actors.map((a) => [a.id, a.id === event.actorId ? { ...a, name: author(names, a.id, event.sessionId) } : a]))
+/**
+ * The agents on a task (CEL-55), freshest first: "cello-builder · a13bfb89 (under Claude Code session
+ * 2fd0505c): working, seen 1m ago" or "…: finished 2h ago".
+ */
+const agentLines = (detail: TaskDetail, now: number) =>
+  (detail.agents ?? [])
+    .filter((a) => a.taskId === detail.task.id)
+    .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+    .map((a) => {
+      const state = a.endedAt === null ? `working, seen ${ago(a.lastSeenAt, now)}` : `finished ${ago(a.endedAt, now)}`
+      return `  ${agentName(a, detail.sessions.find((s) => s.id === a.sessionId))}: ${state}`
+    })
 
 const list = Command.make("list", {
   project,
@@ -373,7 +410,7 @@ const get = Command.make("get", { key, json }, (input) =>
     const labels = labelNames(task, detail.labels)
     const claim = claimOf(detail, task)
     const stage = task.stage === null ? undefined : stageInfo(task.stage)
-    const changed = task.updatedByActorId === null ? null : author(detail, task.updatedByActorId, task.updatedBySessionId)
+    const changed = task.updatedByActorId === null ? null : author(detail, task.updatedByActorId, task.updatedBySessionId, task.updatedByAgentId)
     const lines = [
       `${task.key}  ${task.title}`,
       `Status: ${statusName(detail, task.statusId)}${stage ? ` · Stage: ${stage.label}` : ""} · Priority: ${PRIORITY_NAMES[task.priority]}` +
@@ -383,6 +420,8 @@ const get = Command.make("get", { key, json }, (input) =>
       ...(changed && task.version > 1 ? [`Last changed by ${changed}, ${ago(task.updatedAt, now)}`] : []),
     ]
     if (task.description.trim()) lines.push("", task.description.trim())
+    const agents = agentLines(detail, now)
+    if (agents.length) lines.push("", `Subagents on it (${agents.length})`, ...agents)
     if (detail.documents.length) {
       const { env } = yield* CliEnv
       lines.push("", `Pages (${detail.documents.length})`)
@@ -393,7 +432,7 @@ const get = Command.make("get", { key, json }, (input) =>
     }
     if (detail.reviews.length) {
       lines.push("", `Reviews (${detail.reviews.length})`)
-      for (const r of [...detail.reviews].reverse()) lines.push(...reviewLines(detail, r, now))
+      for (const r of [...detail.reviews].reverse()) lines.push(...reviewLines(detail, r, detail.history, now))
     }
     if (detail.asks.length) {
       lines.push("", `Questions for ${humanName(detail.actors)} (${detail.asks.length})`)
@@ -407,12 +446,12 @@ const get = Command.make("get", { key, json }, (input) =>
     if (detail.comments.length) {
       lines.push("", `Comments (${detail.comments.length})`)
       for (const c of detail.comments) {
-        lines.push(`  ${author(detail, c.actorId, c.sessionId)} · ${ago(c.createdAt, now)}`)
+        lines.push(`  ${author(detail, c.actorId, c.sessionId, c.agentId)} · ${ago(c.createdAt, now)}`)
         lines.push(...c.body.split("\n").map((l) => `    ${l}`))
       }
     }
     lines.push("", "History")
-    lines.push(...columns(detail.history.map((e) => [ago(e.ts, now), describeEvent(e, { ...byIds(detail), actors: actorsWithSessions(detail, e) })]))
+    lines.push(...columns(detail.history.map((e) => [ago(e.ts, now), describeEvent(e, { ...byIds(detail), actors: {} }, author(detail, e.actorId, e.sessionId, e.agentId))]))
       .map((l) => `  ${l}`))
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription("One task in full: description, labels, claim, pages, review packets with Lucas's notes, comments, history."))
@@ -1398,16 +1437,35 @@ const inbox = Command.make("inbox", {
   ))
 
 /** What the comment hooks do: take the new comments for the session on stdin and print them for Claude Code. */
-const deliverToClaude = (event: Exclude<HookEvent, "pre-tool-use">) =>
+const deliverToClaude = (event: DeliveryEvent) =>
   Effect.gen(function* () {
     const { env, cwd, now, readStdin } = yield* CliEnv
     const hook = parseHookInput(yield* Effect.promise(readStdin))
     const action = hookAction(hook, env)
     if (action === "nothing") return
-    const headers = identityHeaders({ ...env, CELLO_SESSION: undefined, CLAUDE_CODE_SESSION_ID: hookSession(hook, env)! }, hook.cwd ?? cwd)
-    // A subagent's tool calls carry its parent's session: check the session in (any call does) and
-    // leave the comments for the main conversation.
-    if (action === "check-in") return yield* withClient((client) => client["whoami"]({ project: {} }), { headers }).pipe(Effect.asVoid)
+    // Inside a subagent the call is that agent's (CEL-55): the server checks it in under the session.
+    const headers = identityHeaders(hookIdentity(hook, env), hook.cwd ?? cwd)
+    // The Agent tool just launched a subagent: the board learns it, and the task its launch names.
+    const launched = hook.launched
+    if (launched !== null) {
+      yield* withClient((client) =>
+        client["agent.report"]({
+          agentId: launched.agentId,
+          agentType: launched.agentType,
+          state: "launched",
+          ...(launched.description ? { description: launched.description } : {}),
+          ...(launched.prompt ? { prompt: launched.prompt } : {}),
+        }), { headers }).pipe(
+        // Telling the board is a nicety: if it fails, the comments below are still handed over.
+        Effect.catch(() => Effect.void),
+      )
+    }
+    // A subagent's tool calls carry its parent's session: check it in (any call does) and leave the
+    // comments for the main conversation.
+    if (action === "check-in") {
+      if (launched === null) yield* withClient((client) => client["whoami"]({ project: {} }), { headers })
+      return
+    }
     // Taken and marked read in one step: a comment is handed over once, even to hooks running at the
     // same time, and a Stop hook can't loop on it (stop_hook_active needs no special case).
     const { items, claimed } = yield* withClient((client) => client["inbox.take"]({ unreadOnly: true }), { headers })
@@ -1456,16 +1514,44 @@ const guardToolUse = Effect.gen(function* () {
   yield* guardClaims(input)
 })
 
+/**
+ * SubagentStart and SubagentStop (CEL-55): a subagent of the session started (or was resumed) or
+ * finished. Start first prints the context that tells it its CELLO_AGENT (no server needed), then
+ * both tell the board, as the session.
+ */
+const subagentHook = (state: "started" | "stopped") =>
+  Effect.gen(function* () {
+    const { env, cwd, readStdin } = yield* CliEnv
+    const hook = parseHookInput(yield* Effect.promise(readStdin))
+    const agent = hook.agent
+    if (agent === null) return
+    if (state === "started") yield* print(JSON.stringify(subagentContext(agent)))
+    const session = hookIdentity({ ...hook, agent: null }, env)
+    if (!session.CLAUDE_CODE_SESSION_ID) return
+    yield* withClient((client) => client["agent.report"]({ agentId: agent.id, agentType: agent.type, state }), {
+      headers: identityHeaders(session, hook.cwd ?? cwd),
+    })
+  })
+
+const HOOK_WORK = {
+  "stop": deliverToClaude("stop"),
+  "post-tool-use": deliverToClaude("post-tool-use"),
+  "pre-tool-use": guardToolUse,
+  "subagent-start": subagentHook("started"),
+  "subagent-stop": subagentHook("stopped"),
+} as const
+
 const hookClaude = Command.make("claude", {
   event: Argument.Literals("event", HOOK_EVENTS).pipe(
     Argument.withDescription(
-      "The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse) or pre-tool-use (PreToolUse: the artifact and claim guards).",
+      "The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse), pre-tool-use (PreToolUse: the artifact and claim guards), " +
+        "subagent-start (SubagentStart) or subagent-stop (SubagentStop).",
     ),
   ),
 }, (input) =>
   Effect.gen(function* () {
     const { env, exit } = yield* CliEnv
-    const work = input.event === "pre-tool-use" ? guardToolUse : deliverToClaude(input.event)
+    const work = HOOK_WORK[input.event]
     // It must never break or stall the session: a slow or missing server, bad input, anything, is silence and exit 0.
     yield* work.pipe(Effect.timeout(hookDeadline(env)), Effect.catchCause(() => Effect.void))
     // An explicit end: a stdin that never closes would otherwise keep the process alive.
@@ -1480,7 +1566,10 @@ const hookClaude = Command.make("claude", {
       "this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and " +
       "denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the " +
       "edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a " +
-      "minute. Always exits 0.",
+      "minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; " +
+      "post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start " +
+      "prints context telling the new subagent to put CELLO_AGENT=<type>/<id> before its cello commands, and subagent-stop marks it finished. " +
+      "Always exits 0.",
   ))
 
 const hook = Command.make("hook").pipe(
@@ -1596,6 +1685,7 @@ const installHooks = (scope: keyof typeof SCOPES) =>
       ...(hooksChanged
         ? [
           "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
+          "The board names each subagent working under a session (a builder, a reviewer) and the task it was launched on: it hears them start, work and finish.",
           ...(wanted.some((h) => h.projectOnly)
             ? [
               "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. " +

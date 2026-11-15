@@ -38,7 +38,7 @@ const snapshot = (tasks: Task[], seq = 10): Snapshot => ({
   statuses: [],
   labels: [],
   tasks,
-  sessions: [],
+  sessions: [], agents: [],
   reviews: [],
   asks: [],
   documents: [],
@@ -127,6 +127,12 @@ describe("applyEvents: reviews", () => {
     ])
     expect(Object.keys(next.reviews)).toEqual(["r2"])
     expect(next.tasks).toBe(state.tasks)
+  })
+
+  it("a packet withdrawn by a move out of In Review leaves too (CEL-71)", () => {
+    const state = fromSnapshot({ ...snapshot([task("t1")]), reviews: [review("r1")] })
+    const next = applyEvents(state, [ev(11, { type: "review.withdrawn", id: "r1", taskId: "t1", to: "s2" })])
+    expect(next.reviews).toEqual({})
   })
 })
 
@@ -239,5 +245,35 @@ describe("applyEvents: stage, last change and presence (CEL-5, CEL-35)", () => {
     const state = fromSnapshot(snapshot([task("t1")]))
     const next = applyEvents(state, [ev(12, { type: "comment.deleted", id: "c1" })])
     expect(next.tasks).toBe(state.tasks)
+  })
+
+  // CEL-55: subagents under a session.
+  const builder = {
+    sessionId: "s1", agentId: "a13bfb89", agentType: "cello-builder", taskId: "t1", description: "CEL-1 build it",
+    startedAt: 1, lastSeenAt: 5, endedAt: null,
+  }
+  const byBuilder = (seq: number, body: EventBody): CelloEvent => ({ ...agent(seq, body), agentId: "a13bfb89" }) as CelloEvent
+
+  it("the snapshot's agents load by session and id; an agent check-in adds or replaces one, and two of a session both stay", () => {
+    const state = fromSnapshot({ ...snapshot([task("t1")]), agents: [builder] })
+    expect(state.agents["s1/a13bfb89"]?.lastSeenAt).toBe(5)
+    const reviewer = { ...builder, agentId: "b77d0e11", agentType: "cello-code-reviewer", lastSeenAt: 12 }
+    const next = applyEvents(state, [
+      byBuilder(11, { type: "agent.seen", agent: { ...builder, lastSeenAt: 11 } }),
+      agent(12, { type: "agent.seen", agent: reviewer }),
+    ])
+    expect(Object.keys(next.agents)).toEqual(["s1/a13bfb89", "s1/b77d0e11"])
+    expect(next.agents["s1/a13bfb89"]?.lastSeenAt).toBe(11)
+    expect(next.tasks).toBe(state.tasks)
+  })
+
+  it("a change or comment by an agent records it as the task's last change; the session's own change clears it", () => {
+    const state = fromSnapshot(snapshot([task("t1", { version: 3 })]))
+    const staged = applyEvents(state, [byBuilder(11, { type: "task.stage_changed", id: "t1", version: 4, before: null, after: "building" })])
+    expect(staged.tasks["t1"]).toMatchObject({ updatedBySessionId: "s1", updatedByAgentId: "a13bfb89" })
+    const commented = applyEvents(state, [byBuilder(11, { type: "comment.added", comment: { ...comment("c1", 11), agentId: "a13bfb89" } })])
+    expect(commented.tasks["t1"]).toMatchObject({ updatedBySessionId: "s1", updatedByAgentId: "a13bfb89", commentCount: 1 })
+    const own = applyEvents(staged, [agent(12, { type: "task.stage_changed", id: "t1", version: 5, before: "building", after: "review" })])
+    expect(own.tasks["t1"]).toMatchObject({ updatedBySessionId: "s1", updatedByAgentId: null })
   })
 })

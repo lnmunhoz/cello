@@ -13,7 +13,7 @@ const HEADINGS: Record<SearchKind, string> = {
   label: "Labels",
 }
 
-const DECISIONS = { approved: "approved", sent_back: "sent back", superseded: "superseded" } as const
+const DECISIONS = { approved: "approved", sent_back: "sent back", superseded: "superseded", withdrawn: "withdrawn" } as const
 
 /** `--kind` names: documents answer to page, doc or spec. */
 const KIND_NAMES: Record<string, SearchKind> = {
