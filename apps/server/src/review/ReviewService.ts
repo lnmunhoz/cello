@@ -7,7 +7,7 @@ import * as path from "node:path"
 import type { Review, Task } from "@cello/contract/entities"
 import { HumanOnly, Invalid, NotFound } from "@cello/contract/errors"
 import type { Caller, EvidenceFile, EvidenceLink } from "@cello/contract/rpcs"
-import { approveTarget, isReviewStatus, reviewTarget, sendBackTarget } from "@cello/shared/review"
+import { approveTarget, holdsPacket, isReviewStatus, reviewTarget, sendBackTarget } from "@cello/shared/review"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -133,7 +133,7 @@ const make = Effect.gen(function* () {
         const review = (yield* openReviewOf(task.id))!
         yield* emit({ type: "review.submitted", review }, where)
         // The submitting agent keeps its claim while Lucas reviews.
-        const moved = yield* tasks.moveWithin(context, { id: task.id, statusId: target.id, keepClaim: true })
+        const moved = yield* tasks.moveWithin(context, { id: task.id, statusId: target.id, keepClaim: true, keepPacket: true })
         return { review, task: moved }
       })).pipe(Effect.onError(() => assets.remove(copied)))
   }, Effect.scoped)
@@ -150,11 +150,13 @@ const make = Effect.gen(function* () {
           return yield* new HumanOnly({ action: decision === "approved" ? "approve a review" : "send back a review", human: human.name })
         }
         const task = yield* tasks.byKey(input.key)
-        const open = yield* openReviewOf(task.id)
+        const status = (yield* statusesOf(task)).find((s) => s.id === task.statusId)
+        // A packet left open on a task that moved on (before CEL-71) isn't waiting on Lucas: not his to decide.
+        const open = status !== undefined && holdsPacket(status) ? yield* openReviewOf(task.id) : null
         if (open === null) {
-          const statuses = yield* statusesOf(task)
-          const inReview = statuses.some((s) => s.id === task.statusId && isReviewStatus(s.name))
-          if (!inReview) return yield* new Invalid({ field: "key", reason: `${task.key} has no open review and isn't in In Review` })
+          if (status === undefined || !isReviewStatus(status.name)) {
+            return yield* new Invalid({ field: "key", reason: `${task.key} has no open review and isn't in In Review` })
+          }
         } else {
           const note = input.note?.trim() || null
           yield* sql`UPDATE reviews SET decided_at = ${context.now}, decision = ${decision}, decision_note = ${note} WHERE id = ${open.id}`

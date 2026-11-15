@@ -92,6 +92,18 @@ describe("the review queue", () => {
     expect(openReviewOf(state, "t1")?.id).toBe("r1")
     expect(openReviewOf(state, "t5")).toBeUndefined()
   })
+
+  // CEL-71: a packet left open before the fix, on a task that moved on, isn't waiting: no badge, no
+  // pinned packet with Approve, no "waiting: review" match. It is while the task waits in Needs input.
+  it("an open review counts only while its task is in In Review or Needs input", () => {
+    expect(openReviewOf(state, "t4")).toBeUndefined()
+    const asking = {
+      ...state,
+      statuses: { ...state.statuses, input: status("input", "Needs input", "waiting", "a25") },
+      tasks: { ...state.tasks, t4: task("t4", "input") },
+    }
+    expect(openReviewOf(asking, "t4")?.id).toBe("r4")
+  })
 })
 
 describe("evidence", () => {

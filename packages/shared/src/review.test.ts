@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { approveTarget, isReviewStatus, reviewTarget, sendBackTarget, stageStatus } from "./review.ts"
+import { approveTarget, holdsPacket, isReviewStatus, reviewTarget, sendBackTarget, stageStatus } from "./review.ts"
 
 const status = (id: string, name: string, category: string, position: string) => ({ id, name, category, position })
 
@@ -17,6 +17,14 @@ describe("the review status", () => {
     expect(isReviewStatus("In Review")).toBe(true)
     expect(isReviewStatus(" in review ")).toBe(true)
     expect(isReviewStatus("Review")).toBe(false)
+  })
+
+  // CEL-71: a packet waits on Lucas only in In Review, or in Needs input when the agent asked from there.
+  it("holds an open packet in In Review or Needs input, nowhere else", () => {
+    expect(holdsPacket({ name: "In Review", category: "started" })).toBe(true)
+    expect(holdsPacket({ name: "Needs input", category: "waiting" })).toBe(true)
+    expect(holdsPacket({ name: "Waiting on Lucas", category: "waiting" })).toBe(true)
+    expect(DEFAULTS.filter((s) => s.id !== "review").map(holdsPacket)).toEqual([false, false, false, false, false])
   })
 
   it("a submitted review moves the task to the first status named In Review", () => {

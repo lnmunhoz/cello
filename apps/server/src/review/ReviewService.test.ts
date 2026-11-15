@@ -372,4 +372,37 @@ describe("moving a task out of In Review withdraws its packet", () => {
       yield* agent(tasks.move({ commandId, id: task.id, statusId: status["Todo"]!.id }))
       expect((yield* eventsOf(commandId))[0]).toMatchObject({ type: "review.withdrawn", id: submitted.review.id, to: status["Todo"]!.id })
     })))
+
+  it.effect("a packet left open on a task out of In Review is no gate and no decision: an agent can't move the task back on it, Lucas can't approve or send it back", () =>
+    run(Effect.gen(function* () {
+      const { tasks, reviews, status, task, files } = yield* setup
+      const { result: submitted } = yield* agent(reviews.submit(packet(task.key, [{ path: writePng(files) }])))
+      yield* (yield* SqlClient.SqlClient)`UPDATE tasks SET status_id = ${status["In Progress"]!.id} WHERE id = ${task.id}`
+
+      expect(yield* Effect.flip(agent(tasks.move({ commandId: cmd(), id: task.id, statusId: status["In Review"]!.id })))).toMatchObject({
+        _tag: "ReviewRequired",
+      })
+      const refused = { _tag: "Invalid", reason: `${task.key} has no open review and isn't in In Review` }
+      expect(yield* Effect.flip(reviews.approve({ commandId: cmd(), key: task.key }))).toMatchObject(refused)
+      expect(yield* Effect.flip(reviews.sendBack({ commandId: cmd(), key: task.key, note: "No" }))).toMatchObject(refused)
+      expect((yield* tasks.byKey(task.key)).statusId).toBe(status["In Progress"]!.id)
+      expect((yield* reviews.list(task.id)).map((r) => r.decision)).toEqual([null])
+
+      // Lucas may put the task in In Review by hand: the stale packet doesn't come back with it.
+      const commandId = cmd()
+      yield* tasks.move({ commandId, id: task.id, statusId: status["In Review"]!.id })
+      expect((yield* eventsOf(commandId)).map((e) => e.type)).toEqual(["review.withdrawn", "task.moved", "task.claim_ended"])
+      expect((yield* eventsOf(commandId))[0]).toMatchObject({ id: submitted.review.id, to: status["In Review"]!.id })
+      expect((yield* (yield* SnapshotService.SnapshotService).get()).reviews).toEqual([])
+    })))
+
+  it.effect("submitting on a task with a stale packet replaces it, and the new packet waits in In Review", () =>
+    run(Effect.gen(function* () {
+      const { reviews, status, task, files } = yield* setup
+      const { result: first } = yield* agent(reviews.submit(packet(task.key, [{ path: writePng(files) }])))
+      yield* (yield* SqlClient.SqlClient)`UPDATE tasks SET status_id = ${status["In Progress"]!.id} WHERE id = ${task.id}`
+      const { result: second } = yield* agent(reviews.submit(packet(task.key, [{ path: writePng(files, "v2.png") }])))
+      expect(second.task.statusId).toBe(status["In Review"]!.id)
+      expect((yield* reviews.list(task.id)).map((r) => [r.id, r.decision])).toEqual([[first.review.id, "superseded"], [second.review.id, null]])
+    })))
 })

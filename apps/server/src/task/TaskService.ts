@@ -5,7 +5,7 @@ import { AskRequired, Invalid, NotFound, ReviewRequired, TaskClaimed, VersionCon
 import type { TaskStage } from "@cello/contract/stages"
 import type { Caller } from "@cello/contract/rpcs"
 import { isNeedsInputStatus } from "@cello/shared/ask"
-import { isReviewStatus } from "@cello/shared/review"
+import { holdsPacket, isReviewStatus } from "@cello/shared/review"
 import { parseTaskKey } from "@cello/shared/taskKey"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -77,6 +77,13 @@ type ById = { readonly commandId: string; readonly id: string }
 type ByKey = { readonly commandId: string; readonly key: string }
 type Write<E> = Effect.Effect<Commands.Written<Task>, E, Caller>
 
+interface MoveWithin {
+  readonly id: string
+  readonly statusId: string
+  readonly keepClaim?: boolean
+  readonly keepPacket?: boolean
+}
+
 export class TaskService extends Context.Service<TaskService, {
   readonly create: (input: CreateTask) => Write<NotFound | Invalid>
   readonly update: (input: UpdateTask) => Write<NotFound | Invalid | VersionConflict>
@@ -109,10 +116,11 @@ export class TaskService extends Context.Service<TaskService, {
   /**
    * For another service's command: moves a task to the top of a status inside that command's
    * transaction, with the same events as `move`. A human move ends an agent's claim unless `keepClaim`.
+   * `keepPacket`: the command just submitted the task's open packet (review.submit), so it moves with it.
    */
   readonly moveWithin: (
     context: Commands.WriteContext,
-    input: { readonly id: string; readonly statusId: string; readonly keepClaim?: boolean },
+    input: MoveWithin,
   ) => Effect.Effect<Task, NotFound | Invalid | SqlError>
   /**
    * For another service's command: activity on a task that isn't a change to its fields (a comment
@@ -354,7 +362,7 @@ const make = Effect.gen(function* () {
   const moveIn = (
     context: Commands.WriteContext,
     current: Task,
-    to: Neighbors & { readonly statusId: string; readonly keepClaim?: boolean },
+    to: Neighbors & { readonly statusId: string; readonly keepClaim?: boolean; readonly keepPacket?: boolean },
   ) =>
     Effect.gen(function* () {
       const workspaceId = yield* workspaceOf(current.projectId)
@@ -377,10 +385,12 @@ const make = Effect.gen(function* () {
       }
       // An open packet waits on Lucas in In Review, or in Needs input when the agent asked from there
       // (CEL-47). Approve and Send back close it before they move the task; any other move to another
-      // status withdraws it (CEL-71), so the Review page never lists a task that has moved on.
+      // status withdraws it (CEL-71), so the Review page never lists a task that has moved on. So does
+      // any move of a task holding a stale one (left open out of In Review before CEL-71), unless this
+      // command just submitted it.
       if (!sameColumn) {
-        const target = yield* statusOf(to.statusId)
-        if (!isReviewStatus(target.name) && !isNeedsInputStatus(target)) {
+        const stale = !to.keepPacket && !holdsPacket(yield* statusOf(current.statusId))
+        if (stale || !holdsPacket(yield* statusOf(to.statusId))) {
           yield* withdrawOpenReview(sql, context, current, { workspaceId, projectId: current.projectId }, to.statusId)
         }
       }
@@ -420,8 +430,11 @@ const make = Effect.gen(function* () {
       if (isNeedsInputStatus(status)) return yield* new AskRequired({ key: current.key, status: status.name })
       if (caller.sessionId === null) return
       if (!isReviewStatus(status.name)) return
+      // Only a packet waiting on Lucas counts: one left open on a task that moved on (before CEL-71) is stale.
       const open = yield* sql<{ id: string }>`SELECT id FROM reviews WHERE task_id = ${current.id} AND decided_at IS NULL LIMIT 1`
-      if (open.length === 0) return yield* new ReviewRequired({ key: current.key, status: status.name })
+      if (open.length === 0 || !holdsPacket(yield* statusOf(current.statusId))) {
+        return yield* new ReviewRequired({ key: current.key, status: status.name })
+      }
     })
 
   const move = Effect.fn("TaskService.move")(function* (input: MoveTask) {
@@ -434,7 +447,7 @@ const make = Effect.gen(function* () {
       }))
   })
 
-  const moveWithin = (context: Commands.WriteContext, input: { readonly id: string; readonly statusId: string; readonly keepClaim?: boolean }) =>
+  const moveWithin = (context: Commands.WriteContext, input: MoveWithin) =>
     Effect.gen(function* () {
       const current = yield* load(input.id)
       if (current.statusId === input.statusId) return current
@@ -443,7 +456,12 @@ const make = Effect.gen(function* () {
         (min, t) => (min === null || t.position < min.position ? t : min),
         null,
       )
-      return yield* moveIn(context, current, { statusId: input.statusId, after: top?.id ?? null, keepClaim: input.keepClaim ?? false })
+      return yield* moveIn(context, current, {
+        statusId: input.statusId,
+        after: top?.id ?? null,
+        keepClaim: input.keepClaim ?? false,
+        keepPacket: input.keepPacket ?? false,
+      })
     })
 
   const setLabels = Effect.fn("TaskService.setLabels")(function* (input: SetTaskLabels) {
