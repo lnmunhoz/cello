@@ -1,6 +1,6 @@
 // Labels in the CLI (CEL-56): `cello task label CEL-12 +board -ui` and `cello label list`. The pure parts:
-// reading the changes, matching names (with close matches for a typo) and the list's text.
-import type { Label } from "@cello/contract/entities"
+// reading the changes, matching names (with close matches for a typo), label groups (CEL-52) and the list's text.
+import { type Label, LABEL_GROUPS, type LabelGroup } from "@cello/contract/entities"
 import type { LabelList } from "@cello/contract/views"
 import { andList, columns, plural } from "./format.ts"
 
@@ -104,13 +104,38 @@ const counts = (key: string, tasks: number, otherProjects: number) => {
   return parts.join(" · ")
 }
 
-/** `cello label list`: live labels with colour and counts, then the archived ones on one line. */
+/** `--group area`, in any case; a string is the reason it can't be read. */
+export const parseGroup = (value: string): LabelGroup | string => {
+  const group = LABEL_GROUPS.find((g) => g === value.trim().toLowerCase())
+  return group ?? `No group named "${value}". Groups: ${LABEL_GROUPS.join(", ")}. Nothing was changed.`
+}
+
+/** How a group reads after a label's colour: "kind", or "no group". */
+export const groupWord = (group: LabelGroup): string => (group === "none" ? "no group" : group)
+
+const GROUP_HEADINGS: Record<LabelGroup, string> = { kind: "Kind", area: "Area", milestone: "Milestone", none: "No group" }
+
+/**
+ * `cello label list`: live labels with colour and counts, then the archived ones on one line. Once any
+ * label has a group (CEL-52), each group gets a heading, in LABEL_GROUPS' order, the ungrouped last.
+ */
 export const labelListText = (list: LabelList): string => {
   const key = list.project.key
   if (list.labels.length === 0) return `No labels yet in ${key}'s workspace. Make one with \`cello label create <name> --color #3B82F6\`.`
-  const live = list.labels.filter((l) => l.label.archivedAt === null)
   const archived = list.labels.filter((l) => l.label.archivedAt !== null)
-  const lines = columns(live.map((l) => [l.label.name, l.label.color, counts(key, l.tasks, l.otherProjects) || "no tasks"]))
+  const live = list.labels
+    .filter((l) => l.label.archivedAt === null)
+    .sort((a, b) => LABEL_GROUPS.indexOf(a.label.group) - LABEL_GROUPS.indexOf(b.label.group))
+  const rows = columns(live.map((l) => [l.label.name, l.label.color, counts(key, l.tasks, l.otherProjects) || "no tasks"]))
+  const grouped = live.some((l) => l.label.group !== "none")
+  const lines = grouped
+    ? live.flatMap((l, i) => {
+      const heading = i === 0 || live[i - 1]!.label.group !== l.label.group
+        ? [...(i === 0 ? [] : [""]), GROUP_HEADINGS[l.label.group]]
+        : []
+      return [...heading, `  ${rows[i]}`]
+    })
+    : rows
   if (archived.length) {
     const names = archived.map((l) => {
       const n = counts(key, l.tasks, l.otherProjects)

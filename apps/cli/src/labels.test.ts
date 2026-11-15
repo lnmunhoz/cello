@@ -1,13 +1,14 @@
 // Labels in the CLI (CEL-56): `task label`'s +name/-name changes, close matches for a typo, and `label list`'s text.
 import type { Label } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { closeMatches, labelArgs, labelListText, parseChanges, resolveChanges } from "./labels.ts"
+import { closeMatches, labelArgs, labelListText, parseChanges, parseGroup, resolveChanges } from "./labels.ts"
 
 const label = (name: string, color = "#3B82F6", archivedAt: number | null = null): Label => ({
   id: `id-${name}`,
   workspaceId: "w",
   name,
   color,
+  group: "none",
   createdAt: 0,
   updatedAt: 0,
   archivedAt,
@@ -96,5 +97,35 @@ describe("labelListText", () => {
     expect(labelListText({ project: { key: "CEL" } as never, labels: [] })).toBe(
       "No labels yet in CEL's workspace. Make one with `cello label create <name> --color #3B82F6`.",
     )
+  })
+
+  it("heads each group once any label has one (CEL-52): kind, area, milestone, then the rest, columns lined up across them", () => {
+    const grouped = (name: string, group: Label["group"]) => ({ label: { ...label(name), group }, tasks: 1, otherProjects: 0 })
+    const text = labelListText({
+      project: { key: "CEL" } as never,
+      labels: [grouped("M2", "milestone"), grouped("agents", "area"), grouped("bug", "kind"), grouped("feature", "kind"), grouped("misc", "none")],
+    })
+    expect(text).toBe([
+      "Kind",
+      "  bug      #3B82F6  1 task in CEL",
+      "  feature  #3B82F6  1 task in CEL",
+      "",
+      "Area",
+      "  agents   #3B82F6  1 task in CEL",
+      "",
+      "Milestone",
+      "  M2       #3B82F6  1 task in CEL",
+      "",
+      "No group",
+      "  misc     #3B82F6  1 task in CEL",
+    ].join("\n"))
+  })
+})
+
+describe("parseGroup", () => {
+  it("reads a group in any case, and names the groups for anything else", () => {
+    expect(parseGroup("Area")).toBe("area")
+    expect(parseGroup(" kind ")).toBe("kind")
+    expect(parseGroup("theme")).toBe(`No group named "theme". Groups: kind, area, milestone, none. Nothing was changed.`)
   })
 })

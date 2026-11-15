@@ -64,13 +64,20 @@ const STATUSES = ["Backlog", "Todo", "In Progress", "Done"]
  */
 const fakeBoard = (
   init: {
-    readonly labels: ReadonlyArray<{ readonly name: string; readonly color: string; readonly otherProjects?: number }>
+    readonly labels: ReadonlyArray<{ readonly name: string; readonly color: string; readonly group?: string; readonly otherProjects?: number }>
     readonly tasks: ReadonlyArray<{ readonly key: string; readonly status: string; readonly labels: ReadonlyArray<string> }>
   },
   fail: (args: ReadonlyArray<string>) => string | null = () => null,
 ) => {
   let next = 0
-  const labels = init.labels.map((l) => ({ id: `l${++next}`, name: l.name, color: l.color, archivedAt: null as number | null, otherProjects: l.otherProjects ?? 0 }))
+  const labels = init.labels.map((l) => ({
+    id: `l${++next}`,
+    name: l.name,
+    color: l.color,
+    group: l.group ?? "none",
+    archivedAt: null as number | null,
+    otherProjects: l.otherProjects ?? 0,
+  }))
   const find = (name: string) => labels.find((l) => l.name.toLowerCase() === name.toLowerCase())!
   const tasks = init.tasks.map((t) => ({ key: t.key, status: t.status, labelIds: t.labels.map((name) => find(name).id) }))
   const calls: string[][] = []
@@ -92,10 +99,14 @@ const fakeBoard = (
     }
     if (noun === "context") return ok({ statuses: STATUSES.map((name) => ({ name })) })
     if (noun === "task" && verb === "list") return ok({ tasks: tasks.filter((t) => t.status === option("--status")) })
+    const has = (flag: string) => args.includes(flag)
     if (noun === "label" && verb === "create") {
-      labels.push({ id: `l${++next}`, name: args[2]!, color: option("--color"), archivedAt: null, otherProjects: 0 })
-    } else if (noun === "label" && verb === "update") find(args[2]!).color = option("--color")
-    else if (noun === "label" && verb === "archive") find(args[2]!).archivedAt = 1
+      labels.push({ id: `l${++next}`, name: args[2]!, color: option("--color"), group: has("--group") ? option("--group") : "none", archivedAt: null, otherProjects: 0 })
+    } else if (noun === "label" && verb === "update") {
+      const label = find(args[2]!)
+      if (has("--color")) label.color = option("--color")
+      if (has("--group")) label.group = option("--group")
+    } else if (noun === "label" && verb === "archive") find(args[2]!).archivedAt = 1
     else if (noun === "task" && verb === "label") {
       const task = tasks.find((t) => t.key === args[2])!
       for (const change of args.slice(3)) {
@@ -127,6 +138,24 @@ const before = (uiElsewhere = 0) => ({
 const CEL = { project: "CEL", dryRun: false }
 
 describe("apply, with a fake cello", () => {
+  it("puts a board labelled before CEL-52 in groups: kinds, areas, M2 and M3 as milestones; again, nothing (CEL-52)", async () => {
+    const board = fakeBoard({
+      labels: [...LABELS, { name: "M2", color: "#26B5CE" }, { name: "M3", color: "#26B5CE" }, { name: "someday", color: "#999999" }],
+      tasks: [{ key: "CEL-3", status: "Todo", labels: ["feature", "cli"] }],
+    })
+    const lines = await apply(board.cli, CEL)
+    expect(lines.slice(0, 3)).toEqual(["put label feature in kind", "put label bug in kind", "put label polish in kind"])
+    expect(lines).toContain("put label board in area")
+    expect(lines.slice(-2)).toEqual(["put label M2 in milestone", "put label M3 in milestone"])
+    expect(board.writes()).toHaveLength(22)
+    expect(board.writes()[0]).toEqual(["label", "update", "feature", "--group", "kind", "--project", "CEL"])
+    expect(board.writes().some((c) => c.includes("someday"))).toBe(false)
+
+    board.calls.length = 0
+    expect(await apply(board.cli, CEL)).toEqual(["Nothing to change: CEL's labels already match the CEL-56 table."])
+    expect(board.writes()).toEqual([])
+  })
+
   it("--dry-run makes no write calls, and says the archive can't be undone", async () => {
     const board = fakeBoard(before())
     const lines = await apply(board.cli, { ...CEL, dryRun: true })
@@ -232,7 +261,11 @@ describe("apply-cel56-labels against a real server", () => {
 
       const first = yield* Effect.promise(() => run())
       expect(first).toEqual([
-        ...LABELS.map((l) => l.name === "server" ? "recoloured label server #22C55E → #8D7B68" : `created label ${l.name} ${l.color}`),
+        ...LABELS.map((l) => {
+          const group = l.name in KIND_COLORS ? "kind" : "area"
+          return l.name === "server" ? "recoloured label server #22C55E → #8D7B68 and put it in area" : `created label ${l.name} ${l.color} in ${group}`
+        }),
+        "put label M2 in milestone",
         "CEL-1 +chore +agents +board +server -ui",
         "CEL-2 +feature +board",
         "CEL-3 +feature +cli -ui",
@@ -251,6 +284,8 @@ describe("apply-cel56-labels against a real server", () => {
       expect(snapshot.labels.find((l) => l.name === "ui")!.archivedAt).not.toBeNull()
       expect(snapshot.labels.find((l) => l.name === "server")!.color).toBe("#8D7B68")
       expect(snapshot.labels.find((l) => l.name === "M2")!.color).toBe("#F59E0B")
+      const groupOf = (name: string) => snapshot.labels.find((l) => l.name === name)!.group
+      expect([groupOf("bug"), groupOf("server"), groupOf("cli"), groupOf("M2"), groupOf("ui")]).toEqual(["kind", "area", "area", "milestone", "none"])
       // Credited to the agent session that ran it.
       const relabel = (yield* human["task.history"]({ id: snapshot.tasks.find((t) => t.key === "CEL-3")!.id })).at(-1)!
       expect(relabel).toMatchObject({ type: "task.labels_changed" })

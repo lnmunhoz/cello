@@ -16,6 +16,7 @@ import {
   DueDate,
   Id,
   Label,
+  LabelGroup,
   Priority,
   Project,
   ProjectRef,
@@ -152,12 +153,18 @@ export const CelloRpcs = RpcGroup.make(
   }),
 
   Rpc.make("label.create", {
-    payload: { commandId, workspaceId: Id, name: Schema.String, color: Schema.String },
+    payload: { commandId, workspaceId: Id, name: Schema.String, color: Schema.String, group: Schema.optionalKey(LabelGroup) },
     success: write(Label),
     error: Schema.Union([NotFound, Invalid]),
   }),
   Rpc.make("label.update", {
-    payload: { commandId, id: Id, name: Schema.optionalKey(Schema.String), color: Schema.optionalKey(Schema.String) },
+    payload: {
+      commandId,
+      id: Id,
+      name: Schema.optionalKey(Schema.String),
+      color: Schema.optionalKey(Schema.String),
+      group: Schema.optionalKey(LabelGroup),
+    },
     success: write(Label),
     error: Schema.Union([NotFound, Invalid]),
   }),

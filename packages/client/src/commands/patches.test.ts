@@ -42,7 +42,7 @@ const status: Status = {
   updatedAt: 1,
 }
 
-const label: Label = { id: "bug", workspaceId: "w1", name: "Bug", color: "#f00", createdAt: 1, updatedAt: 1, archivedAt: null }
+const label: Label = { id: "bug", workspaceId: "w1", name: "Bug", color: "#f00", group: "kind", createdAt: 1, updatedAt: 1, archivedAt: null }
 
 const state: BoardState = {
   seq: 1,

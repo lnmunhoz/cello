@@ -16,6 +16,7 @@ import documents from "./migrations/0003_documents.ts"
 import inbox from "./migrations/0004_inbox.ts"
 import builds from "./migrations/0005_builds.ts"
 import asks from "./migrations/0006_asks.ts"
+import taskStage from "./migrations/0007_task_stage.ts"
 import * as Sqlite from "./Sqlite.ts"
 
 const untilReviews = SqliteMigrator.run({
@@ -306,5 +307,74 @@ describe("migration 0006_asks", () => {
       const second = yield* Effect.exit(sql`INSERT INTO asks (id, task_id, actor_id, title, questions, state, created_at)
         VALUES ('k3', 't7', 'claude', 'And again', '[]', 'open', 12)`)
       expect(second._tag).toBe("Failure")
+    }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
+})
+
+/** Up to 0007: what the live board has run before CEL-52. */
+const untilTaskStage = SqliteMigrator.run({
+  loader: SqliteMigrator.fromRecord({
+    "0001_init": init,
+    "0002_reviews": reviews,
+    "0003_documents": documents,
+    "0004_inbox": inbox,
+    "0005_builds": builds,
+    "0006_asks": asks,
+    "0007_task_stage": taskStage,
+  }),
+  table: "migrations",
+}).pipe(Effect.orDie)
+
+const CEL_AREAS = ["board", "list", "task-panel", "review", "pages", "sidebar", "search", "viewer", "agents", "cli", "server", "data", "desktop", "tests", "release"]
+
+// CEL-52: labels get a group (kind, area, milestone or none). Additive: one column with a default, then
+// CEL-56's labels put in their groups by name, in any case. Nothing else changes.
+describe("migration 0009_label_group", () => {
+  it.effect("adds the group, fills it from CEL-56's names, and leaves every other row and column as it was", () =>
+    Effect.gen(function* () {
+      yield* untilTaskStage
+      yield* realisticBoard
+      const sql = yield* SqlClient.SqlClient
+      const labels: ReadonlyArray<readonly [string, string, string, number | null]> = [
+        ["l-feature", "personal", "feature", null],
+        ["l-bug", "personal", "Bug", null],
+        ["l-polish", "personal", "polish", null],
+        ["l-chore", "personal", "chore", null],
+        ["l-docs", "personal", "docs", null],
+        ["l-m2", "personal", "M2", null],
+        ["l-m3", "personal", "m3", null],
+        ...CEL_AREAS.map((name) => [`l-${name}`, "personal", name, null] as const),
+        ["l-ui", "personal", "ui", 9],
+        ["l-later", "personal", "someday", null],
+        ["w-bug", "work", "bug", null],
+      ]
+      for (const [id, ws, name, archived] of labels) {
+        yield* sql`INSERT INTO labels (id, workspace_id, name, color, created_at, updated_at, archived_at)
+          VALUES (${id}, ${ws}, ${name}, '#999999', 1, 2, ${archived})`
+      }
+      yield* sql`INSERT INTO task_labels (task_id, label_id, created_at) VALUES ('t1', 'l-bug', 1), ('t1', 'l-board', 1), ('t2', 'l-m2', 1)`
+      const taskLabels = sql`SELECT * FROM task_labels ORDER BY task_id, label_id`
+      const labelsBefore = yield* sql<Record<string, unknown>>`SELECT * FROM labels ORDER BY id`
+      const before = { ...(yield* everything), taskLabels: yield* taskLabels }
+
+      yield* Migrations.run
+      const after = yield* sql<Record<string, unknown>>`SELECT * FROM labels ORDER BY id`
+      expect(after.map(({ label_group: _, ...rest }) => rest)).toEqual(labelsBefore)
+      expect({ ...(yield* everything), taskLabels: yield* taskLabels }).toEqual(before)
+
+      const group = Object.fromEntries(after.map((l) => [l["id"], l["label_group"]]))
+      expect(["l-feature", "l-bug", "l-polish", "l-chore", "l-docs", "w-bug"].map((id) => group[id])).toEqual(Array(6).fill("kind"))
+      expect([group["l-m2"], group["l-m3"]]).toEqual(["milestone", "milestone"])
+      expect(after.filter((l) => l["label_group"] === "area").map((l) => l["name"]).sort()).toEqual([...CEL_AREAS].sort())
+      expect([group["l-ui"], group["l-later"]]).toEqual(["none", "none"])
+
+      // A label made without a group is in none.
+      yield* sql`INSERT INTO labels (id, workspace_id, name, color, created_at, updated_at) VALUES ('l-new', 'personal', 'new', '#999999', 3, 3)`
+      expect(yield* sql`SELECT label_group FROM labels WHERE id = 'l-new'`).toEqual([{ label_group: "none" }])
+
+      // The next start runs the migrations again: nothing changes.
+      const migrated = yield* sql`SELECT * FROM labels ORDER BY id`
+      yield* Migrations.run
+      expect(yield* sql`SELECT * FROM labels ORDER BY id`).toEqual(migrated)
+      expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
     }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
 })

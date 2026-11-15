@@ -73,8 +73,44 @@ describe("cello label", () => {
       expect((yield* agent("label", "update", "bord", "--color", "#000000")).failure).toBe(
         `No label named "bord". Labels: server, ui. \`cello label list\` shows them all.`,
       )
-      expect((yield* agent("label", "update", "ui")).failure).toBe("Say what to change: --color #3B82F6, --name new-name, or both.")
+      expect((yield* agent("label", "update", "ui")).failure).toBe("Say what to change: --color #3B82F6, --name new-name, --group area, or several.")
       expect((yield* agent("label", "list")).out).not.toContain("UI ")
+    }).pipe(Effect.scoped))
+
+  it.live("--group puts a label in kind, area or milestone (CEL-52); the list shows the groups; an unknown group is refused", () =>
+    Effect.gen(function* () {
+      const { agent } = yield* setup
+      expect(yield* agent("label", "create", "bug", "--color", "#EF4444", "--group", "kind")).toEqual({ out: "Created label bug  #EF4444  kind", failure: null })
+      expect(yield* agent("label", "create", "M2", "--color", "#26B5CE", "--group", "Milestone")).toEqual({ out: "Created label M2  #26B5CE  milestone", failure: null })
+      expect(yield* agent("label", "update", "server", "--group", "area")).toEqual({ out: "Updated label server  #22C55E  area", failure: null })
+      expect(yield* agent("label", "update", "server", "--group", "area")).toEqual({ out: "Label server is already in area.", failure: null })
+      expect(yield* agent("label", "update", "bug", "--group", "kind", "--color", "#EF4444")).toEqual({ out: "Label bug is already #EF4444, in kind.", failure: null })
+
+      expect(yield* agent("label", "list")).toEqual({
+        out: [
+          "Kind",
+          "  bug     #EF4444  no tasks",
+          "",
+          "Area",
+          "  server  #22C55E  no tasks",
+          "",
+          "Milestone",
+          "  M2      #26B5CE  no tasks",
+          "",
+          "No group",
+          "  ui      #3B82F6  1 task in CEL",
+        ].join("\n"),
+        failure: null,
+      })
+      const list = json(yield* agent("label", "list", "--json"))
+      expect(list.labels.map((l: any) => [l.label.name, l.label.group])).toEqual([["M2", "milestone"], ["bug", "kind"], ["server", "area"], ["ui", "none"]])
+
+      // Back to none, and refused names change nothing.
+      expect(yield* agent("label", "update", "server", "--group", "none")).toEqual({ out: "Updated label server  #22C55E  no group", failure: null })
+      const unknown = `No group named "theme". Groups: kind, area, milestone, none. Nothing was changed.`
+      expect((yield* agent("label", "update", "server", "--group", "theme")).failure).toBe(unknown)
+      expect((yield* agent("label", "create", "docs", "--group", "theme")).failure).toBe(unknown)
+      expect((yield* agent("label", "list")).out).not.toContain("docs")
     }).pipe(Effect.scoped))
 
   it.live("archive hides a label from cards, pickers and new tasks; tasks keep the link, and the name stays taken", () =>
