@@ -123,14 +123,53 @@ test("joins a running server: the board loads, openPanel shows a local page, ⌘
   expect((await views(app)).page.visible).toBe(false)
 })
 
+interface Size {
+  readonly width: number
+  readonly height: number
+}
+
 /**
- * The board view is exactly the window's content area, and the web app inside fills it: the page
- * doesn't scroll, Settings sits at the bottom of the sidebar, and the main panel reaches the bottom.
+ * Resolves with the window's content size once the board view covers it, and once that size is `size`
+ * when given. A window change settles in steps on Linux: `leave-full-screen` fires before the menu bar
+ * takes its row back, so the content area is briefly 27px taller than where it ends up, and the board
+ * view follows a moment later (CEL-16, CEL-50). Checked now and on every window, content view and board
+ * view change, never on a timer.
  */
-async function expectBoardFills(app: ElectronApplication, board: Page) {
-  const content = await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.getContentBounds())
+const boardSettled = (app: ElectronApplication, size?: Size) =>
+  app.evaluate(
+    ({ BaseWindow }, size) =>
+      new Promise<Size>((resolve) => {
+        const window = BaseWindow.getAllWindows()[0]!
+        const board = window.contentView.children[0]!
+        const windowEvents = ["resize", "resized", "enter-full-screen", "leave-full-screen"] as const
+        const check = () => {
+          const content = window.getContentBounds()
+          const bounds = board.getBounds()
+          const covers = bounds.width === content.width && bounds.height === content.height
+          const wanted = size === undefined || (content.width === size.width && content.height === size.height)
+          if (!covers || !wanted) return
+          for (const event of windowEvents) window.off(event as "resize", check)
+          window.contentView.off("bounds-changed", check)
+          board.off("bounds-changed", check)
+          resolve({ width: content.width, height: content.height })
+        }
+        for (const event of windowEvents) window.on(event as "resize", check)
+        window.contentView.on("bounds-changed", check)
+        board.on("bounds-changed", check)
+        check()
+      }),
+    size,
+  )
+
+/**
+ * The board view is exactly the window's content area (once it settles, at `size` when given), and
+ * the web app inside fills it: the page doesn't scroll, Settings sits at the bottom of the sidebar,
+ * and the main panel reaches the bottom. Returns the content size.
+ */
+async function expectBoardFills(app: ElectronApplication, board: Page, size?: Size): Promise<Size> {
+  const content = await boardSettled(app, size)
   const { bounds } = (await views(app)).board
-  expect({ width: bounds.width, height: bounds.height }, "the board view covers the window").toEqual({ width: content.width, height: content.height })
+  expect({ width: bounds.width, height: bounds.height }, "the board view covers the window").toEqual(content)
   // The page hears about its new size with a resize event; wait for that, not a timer.
   await board.evaluate(
     (height) =>
@@ -150,6 +189,7 @@ async function expectBoardFills(app: ElectronApplication, board: Page) {
   expect(fit.scrollHeight, "the page doesn't scroll").toBe(fit.height)
   expect(fit.height - fit.main, "the main panel reaches the bottom, less its margin").toBe(8)
   expect(fit.height - fit.settings, "Settings sits at the bottom of the sidebar").toBeLessThanOrEqual(16)
+  return content
 }
 
 /** Resolves once the board has painted what's in the DOM now (two frames), so a capture shows it. */
@@ -187,7 +227,7 @@ test("CEL-25: the board fills the window with a wide board: in a short window, i
 
   await video.caption("Make the window short: the board follows it")
   await windowChange(app, "resize", "short")
-  await expectBoardFills(app, board)
+  const short = await expectBoardFills(app, board)
 
   await video.caption("Full screen: the board grows with the window, no grey band under it")
   await windowChange(app, "enter-full-screen", "full")
@@ -197,7 +237,7 @@ test("CEL-25: the board fills the window with a wide board: in a short window, i
 
   await video.caption("Leave full screen: the board shrinks back with the window")
   await windowChange(app, "leave-full-screen", "windowed")
-  await expectBoardFills(app, board)
+  await expectBoardFills(app, board, short)
 })
 
 test("CEL-24: ⌘B in the board collapses the sidebar to a rail and expands it again; the app's menus don't take it", async ({}, testInfo) => {
