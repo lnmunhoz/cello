@@ -514,14 +514,19 @@ export class Animator implements Player<CursorStep> {
             held.ghost?.remove()
           }
           this.release(step, held?.holeId ?? null)
-          const el = this.targetOf(step) ?? (await nextFrame(), this.targetOf(step))
-          if (el) {
-            const at = grab(el.getBoundingClientRect())
-            this.moveCursor(cursor, at.x, at.y)
-            trail(el, color)
-          }
+          // The step may start the moment the event arrives, before React has drawn the change: wait a
+          // frame, so the cursor shows at the card's new place, not its old one.
+          await nextFrame()
+          if (run.cancelled) return
+          const el = this.targetOf(step)
+          if (el) trail(el, color)
           await this.phase(run, p.ms, (t) => {
-            cursor.el.style.opacity = String(Math.min(1, t * 4))
+            const target = this.targetOf(step)
+            if (target) {
+              const at = grab(target.getBoundingClientRect())
+              this.moveCursor(cursor, at.x, at.y)
+            }
+            cursor.el.style.opacity = String(target ? Math.min(1, t * 4) : 0)
           })
           break
         }
@@ -721,7 +726,7 @@ export class Animator implements Player<CursorStep> {
           width: `${held.g.w}px`,
           height: `${held.g.h}px`,
           margin: "0",
-          zIndex: "40",
+          zIndex: "1",
           willChange: "transform",
           transformOrigin: "50% 50%",
           boxSizing: "border-box",

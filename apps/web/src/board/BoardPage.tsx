@@ -218,7 +218,8 @@ function HoleCard({ hole, task, board }: { hole: Hole; task: Task; board: BoardS
       onPointerDown={() => animator.grab(hole.card)}
       className={CARD}
     >
-      <CardBody task={task} board={board} />
+      {/* As it was: its old column's status, until it lands in the new one. */}
+      <CardBody task={{ ...task, statusId: hole.statusId }} board={board} />
     </motion.div>
   )
 }

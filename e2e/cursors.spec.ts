@@ -5,10 +5,11 @@
 //
 // A recorder in the page notes everything the animation layer draws (cursors, carried copies, holes,
 // bubbles, titles typing out), so the tests check what appeared without racing the animation.
+import * as path from "node:path"
 import type { Page } from "@playwright/test"
 import { openClient, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
 import { caption, card, column, defaultWorkspace, expect, newCommandId, seedProject, test, uniqueKey } from "./fixtures.ts"
-import { celloAs } from "./packets.ts"
+import { celloAs, SHOTS } from "./packets.ts"
 
 interface Seen {
   /** Every cursor label seen, and the most cursors on screen at once. */
@@ -173,9 +174,14 @@ test("CEL-6: two agents at once: each has its own cursor, name and colour, both 
 
   await caption(page, "Two agent sessions move cards at the same moment: two cursors, two colours")
   await Promise.all([move(a, ids[0]!, "In Progress"), move(b, ids[2]!, "Done")])
-  await until(page, (s) => s.maxCursors >= 2)
-  await caption(page, "Each session's next move plays in its own lane, in order")
+  // Both carry their card at once: a still of it, in light, then the next pair in dark.
+  await expect(page.locator("[data-agent-ghost]")).toHaveCount(2)
+  await page.screenshot({ path: path.join(SHOTS, "cel-6-two-agents-light.png") })
+  await caption(page, "In dark: each session's next move plays in its own lane, in order")
+  await page.evaluate(() => document.documentElement.classList.add("dark"))
   await Promise.all([move(a, ids[1]!, "In Progress"), move(b, ids[3]!, "Done")])
+  await expect(page.locator("[data-agent-ghost]")).toHaveCount(2)
+  await page.screenshot({ path: path.join(SHOTS, "cel-6-two-agents-dark.png") })
   await until(page, (s) => s.carried.length >= 4)
 
   await expectIdle(page)
