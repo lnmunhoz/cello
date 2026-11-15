@@ -23,7 +23,10 @@ import { useViewerItem } from "../viewer/store.ts"
  * one grid either way, so the panel stays mounted (drafts, scroll) when it moves.
  */
 export function ProjectLayout() {
-  const { projectKey, number, slug } = useParams({ strict: false }) as { projectKey: string; number?: string; slug?: string }
+  const params = useParams({ strict: false }) as { projectKey: string; number?: string; slug?: string }
+  const { projectKey, slug } = params
+  // Only a number is a task; anything else there (`/CEL/demo.mp4`) is the router's Not found.
+  const number = params.number !== undefined && /^\d+$/.test(params.number) ? params.number : undefined
   const board = useBoard()
   const workspaceId = useWorkspaceId()
   const embed = isEmbed(useSearch({ strict: false }))

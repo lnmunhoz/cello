@@ -22,11 +22,13 @@ export function RouteNotFound() {
  */
 export function NotFound({ title, detail, projectKey }: { title: ReactNode; detail?: ReactNode; projectKey?: string | undefined }) {
   const router = useRouter()
-  const canGoBack = useCanGoBack()
+  // The router only counts its own steps; a link that loaded this address as a new document (the
+  // way a dead file link did) still has the page it came from behind it in the tab's history.
+  const canGoBack = useCanGoBack() || window.history.length > 1
   return (
     <Centered>
-      <div role="status" className="flex max-w-md flex-col items-center gap-1 px-6 text-center">
-        <p className="text-[15px] font-medium text-ink">{title}</p>
+      <section aria-label="Not found" className="flex max-w-md flex-col items-center gap-1 px-6 text-center">
+        <h1 className="text-[15px] font-medium text-ink">{title}</h1>
         {detail ? <p>{detail}</p> : null}
         <div className="mt-3 flex items-center gap-2">
           {canGoBack ? (
@@ -45,7 +47,7 @@ export function NotFound({ title, detail, projectKey }: { title: ReactNode; deta
             </LinkButton>
           )}
         </div>
-      </div>
+      </section>
     </Centered>
   )
 }
