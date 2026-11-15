@@ -5,6 +5,7 @@
 //
 // Cello adds its own matcher group per event and recognises its handlers by their command
 // (`cello hook claude …`), so installing twice changes nothing and uninstalling takes out only Cello's.
+// The same goes for its Claude Code plugin's two entries (CEL-64, below).
 // The file keeps its key order and indentation, and is replaced atomically: a temp file in the same
 // folder, fsynced, then renamed over it, with the old bytes kept in `<file>.bak`. A settings file that
 // is a symlink (dotfiles, chezmoi) stays one; the file it points at is the one replaced.
@@ -52,13 +53,15 @@ const hooksOf = (settings: unknown): Json => {
 
 const groupHandlers = (group: unknown): ReadonlyArray<unknown> => (isObject(group) && Array.isArray(group.hooks) ? group.hooks : [])
 
-/** `settings` with `hooks` replaced where it is (or added at the end), or removed with `undefined`; other keys keep their order. */
-const withHooks = (settings: Json, hooks: Json | undefined): Json => {
-  if (!("hooks" in settings)) return hooks === undefined ? settings : { ...settings, hooks }
+/** `settings` with `key` replaced where it is (or added at the end), or removed with `undefined`; other keys keep their order. */
+const withKey = (settings: Json, key: string, value: Json | undefined): Json => {
+  if (!(key in settings)) return value === undefined ? settings : { ...settings, [key]: value }
   return Object.fromEntries(
-    Object.entries(settings).flatMap(([key, value]) => (key !== "hooks" ? [[key, value]] : hooks === undefined ? [] : [[key, hooks]])),
+    Object.entries(settings).flatMap(([k, v]) => (k !== key ? [[k, v]] : value === undefined ? [] : [[k, value]])),
   )
 }
+
+const withHooks = (settings: Json, hooks: Json | undefined): Json => withKey(settings, "hooks", hooks)
 
 export interface Merged {
   readonly settings: Json
@@ -108,6 +111,103 @@ export const removeCelloHooks = (settings: unknown): Merged => {
   }
   if (!changed) return { settings: settings as Json, changed }
   return { settings: withHooks(settings as Json, Object.keys(next).length === 0 ? undefined : next), changed }
+}
+
+// ── the Claude Code plugin (CEL-64) ─────────────────────────────────────────────────────────────
+//
+// Cello's plugin is enabled through settings, like its hooks (https://code.claude.com/docs/en/settings-reference):
+//
+//   { "extraKnownMarketplaces": { "cello": { "source": { "source": "directory", "path": "<folder>" } } },
+//     "enabledPlugins": { "cello@cello": true } }
+//
+// Claude Code loads a plugin from a local-folder marketplace in place at session start, and records the
+// marketplace in its own state in the background, with no prompt. `claude plugin marketplace add` and
+// `claude plugin install` write the same two keys, but they reformat the whole file (indentation, key
+// order), so Cello merges them itself with the same keep-everything-else machinery as the hooks.
+
+/** The marketplace's name and the plugin's id in `enabledPlugins`. */
+export const CELLO_MARKETPLACE = "cello"
+export const CELLO_PLUGIN_ID = "cello@cello"
+
+/** `extraKnownMarketplaces.cello` when it is Cello's own: a local folder `…/cello/claude-plugin` (pluginFolder). */
+const isCelloMarketplace = (entry: unknown) => {
+  if (!isObject(entry) || !isObject(entry.source)) return false
+  const { source, path: folder } = entry.source
+  return source === "directory" && typeof folder === "string" && path.basename(folder) === "claude-plugin" &&
+    path.basename(path.dirname(folder)) === "cello"
+}
+
+/** `settings[key]`, checked: missing is `{}`, anything but an object is an error (a sentence), never overwritten. */
+const objectAt = (settings: unknown, key: string): Json => {
+  if (!isObject(settings)) throw new Error("it isn't a JSON object")
+  const value = settings[key]
+  if (value === undefined) return {}
+  if (!isObject(value)) throw new Error(`"${key}" isn't an object`)
+  return value
+}
+
+export interface PluginWanted {
+  /** The folder to declare as the `cello` marketplace; null leaves the marketplace out (--shared's committed file). */
+  readonly marketplace: string | null
+  /** Whether to enable cello@cello here. */
+  readonly enable: boolean
+}
+
+/**
+ * Settings with Cello's marketplace declared at `marketplace` and cello@cello enabled, as asked.
+ * A marketplace called cello that isn't Cello's folder is refused, not replaced. Doesn't change its input.
+ */
+export const addCelloPlugin = (settings: unknown, wanted: PluginWanted): Merged => {
+  const marketplaces = objectAt(settings, "extraKnownMarketplaces")
+  const plugins = objectAt(settings, "enabledPlugins")
+  let next = settings as Json
+  if (wanted.marketplace !== null) {
+    const current = marketplaces[CELLO_MARKETPLACE]
+    if (current !== undefined && !isCelloMarketplace(current)) {
+      throw new Error(`"extraKnownMarketplaces.${CELLO_MARKETPLACE}" is another marketplace, not Cello's folder`)
+    }
+    const entry = { source: { source: "directory", path: wanted.marketplace } }
+    if (JSON.stringify(current) !== JSON.stringify(entry)) next = withKey(next, "extraKnownMarketplaces", { ...marketplaces, [CELLO_MARKETPLACE]: entry })
+  }
+  if (wanted.enable && plugins[CELLO_PLUGIN_ID] !== true) next = withKey(next, "enabledPlugins", { ...plugins, [CELLO_PLUGIN_ID]: true })
+  return { settings: next, changed: next !== settings }
+}
+
+/** Settings without cello@cello and Cello's own marketplace, and without the keys that leaves empty. */
+export const removeCelloPlugin = (settings: unknown): Merged => {
+  const marketplaces = objectAt(settings, "extraKnownMarketplaces")
+  const plugins = objectAt(settings, "enabledPlugins")
+  let next = settings as Json
+  const without = (object: Json, key: string) => {
+    const { [key]: _, ...rest } = object
+    return Object.keys(rest).length === 0 ? undefined : rest
+  }
+  if (isCelloMarketplace(marketplaces[CELLO_MARKETPLACE])) next = withKey(next, "extraKnownMarketplaces", without(marketplaces, CELLO_MARKETPLACE))
+  if (CELLO_PLUGIN_ID in plugins) next = withKey(next, "enabledPlugins", without(plugins, CELLO_PLUGIN_ID))
+  return { settings: next, changed: next !== settings }
+}
+
+/** A settings change that says what it changed: Cello's hooks, its plugin, or both. */
+export interface CelloMerged extends Merged {
+  readonly hooks: boolean
+  readonly plugin: boolean
+}
+
+/** What `cello install claude` puts in one settings file: the hooks it wants and the plugin entries. */
+export const installCello = (
+  settings: unknown,
+  wanted: { readonly hooks: ReadonlyArray<CelloHook>; readonly plugin: PluginWanted },
+): CelloMerged => {
+  const hooks = wanted.hooks.length === 0 ? { settings: settings as Json, changed: false } : addCelloHooks(settings, wanted.hooks)
+  const plugin = addCelloPlugin(hooks.settings, wanted.plugin)
+  return { settings: plugin.settings, changed: hooks.changed || plugin.changed, hooks: hooks.changed, plugin: plugin.changed }
+}
+
+/** What `cello uninstall claude` takes out of one settings file: Cello's hooks and its plugin entries. */
+export const uninstallCello = (settings: unknown): CelloMerged => {
+  const hooks = removeCelloHooks(settings)
+  const plugin = removeCelloPlugin(hooks.settings)
+  return { settings: plugin.settings, changed: hooks.changed || plugin.changed, hooks: hooks.changed, plugin: plugin.changed }
 }
 
 /** How a settings file is laid out, so writing it back changes as little as possible. */

@@ -191,7 +191,8 @@ describe("cello install claude: the claim guard", () => {
       expect(JSON.parse(fs.readFileSync(file, "utf8")).hooks.PreToolUse).toEqual([GUARD])
 
       const after = fs.readFileSync(file, "utf8")
-      expect(yield* run(repo)("install", "claude")).toEqual({ out: `Cello's Claude Code hooks are already in ${file}.`, failure: null })
+      // The second line is the plugin's (CEL-64).
+      expect((yield* run(repo)("install", "claude")).out.split("\n")[0]).toBe(`Cello's Claude Code hooks are already in ${file}.`)
       expect(fs.readFileSync(file, "utf8")).toBe(after)
 
       expect((yield* run(repo)("uninstall", "claude")).failure).toBeNull()

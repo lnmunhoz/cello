@@ -8,12 +8,16 @@ import * as path from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   addCelloHooks,
+  addCelloPlugin,
   CELLO_HOOKS,
   celloHooksFor,
   detectFormat,
   formatSettings,
+  installCello,
   readSettingsFile,
   removeCelloHooks,
+  removeCelloPlugin,
+  uninstallCello,
   settingsPaths,
   writeFileAtomically,
 } from "./claudeSettings.ts"
@@ -157,6 +161,93 @@ describe("removeCelloHooks", () => {
   it("leaves no empty hooks object behind, and does nothing when Cello isn't installed", () => {
     expect(removeCelloHooks(addCelloHooks({ model: "opus" }).settings)).toEqual({ changed: true, settings: { model: "opus" } })
     expect(removeCelloHooks({ model: "opus" })).toEqual({ changed: false, settings: { model: "opus" } })
+  })
+})
+
+describe("addCelloPlugin (CEL-64)", () => {
+  const folder = "/home/me/.local/share/cello/claude-plugin"
+  const marketplace = { cello: { source: { source: "directory", path: folder } } }
+
+  it("declares Cello's marketplace (a folder on this machine) and enables cello@cello", () => {
+    expect(addCelloPlugin({}, { marketplace: folder, enable: true })).toEqual({
+      changed: true,
+      settings: { extraKnownMarketplaces: marketplace, enabledPlugins: { "cello@cello": true } },
+    })
+  })
+
+  it("can do just one of the two: --shared enables it in the committed file and declares the folder in the local one", () => {
+    expect(addCelloPlugin({}, { marketplace: null, enable: true }).settings).toEqual({ enabledPlugins: { "cello@cello": true } })
+    expect(addCelloPlugin({}, { marketplace: folder, enable: false }).settings).toEqual({ extraKnownMarketplaces: marketplace })
+  })
+
+  it("keeps every other marketplace, plugin and setting; installing again changes nothing", () => {
+    const mine = {
+      model: "opus",
+      enabledPlugins: { "formatter@team": true, "noisy@team": false },
+      extraKnownMarketplaces: { team: { source: { source: "github", repo: "acme/plugins" } } },
+    }
+    const once = addCelloPlugin(mine, { marketplace: folder, enable: true })
+    expect(once.settings).toEqual({
+      model: "opus",
+      enabledPlugins: { "formatter@team": true, "noisy@team": false, "cello@cello": true },
+      extraKnownMarketplaces: { team: { source: { source: "github", repo: "acme/plugins" } }, ...marketplace },
+    })
+    expect(mine.enabledPlugins).not.toHaveProperty("cello@cello")
+    expect(addCelloPlugin(once.settings, { marketplace: folder, enable: true })).toEqual({ changed: false, settings: once.settings })
+  })
+
+  it("points the marketplace at the new folder when it moved (XDG_DATA_HOME changed), and turns a disabled plugin back on", () => {
+    const old = { extraKnownMarketplaces: { cello: { source: { source: "directory", path: "/old/cello/claude-plugin" } } }, enabledPlugins: { "cello@cello": false } }
+    expect(addCelloPlugin(old, { marketplace: folder, enable: true })).toEqual({
+      changed: true,
+      settings: { extraKnownMarketplaces: marketplace, enabledPlugins: { "cello@cello": true } },
+    })
+  })
+
+  it("refuses a marketplace called cello that isn't Cello's folder, and settings it can't merge into", () => {
+    expect(() => addCelloPlugin({ extraKnownMarketplaces: { cello: { source: { source: "github", repo: "someone/cello" } } } }, { marketplace: folder, enable: true }))
+      .toThrow("\"extraKnownMarketplaces.cello\" is another marketplace")
+    expect(() => addCelloPlugin({ enabledPlugins: [] }, { marketplace: folder, enable: true })).toThrow("\"enabledPlugins\" isn't an object")
+    expect(() => addCelloPlugin({ extraKnownMarketplaces: "x" }, { marketplace: folder, enable: true })).toThrow("\"extraKnownMarketplaces\" isn't an object")
+    expect(() => addCelloPlugin([], { marketplace: folder, enable: true })).toThrow("isn't a JSON object")
+  })
+})
+
+describe("removeCelloPlugin", () => {
+  const folder = "/home/me/.local/share/cello/claude-plugin"
+
+  it("takes out cello@cello and Cello's marketplace, and the keys they leave empty; anything else stays", () => {
+    const installed = addCelloPlugin({ model: "opus", enabledPlugins: { "formatter@team": true } }, { marketplace: folder, enable: true }).settings
+    expect(removeCelloPlugin(installed)).toEqual({ changed: true, settings: { model: "opus", enabledPlugins: { "formatter@team": true } } })
+    expect(removeCelloPlugin({ model: "opus" })).toEqual({ changed: false, settings: { model: "opus" } })
+  })
+
+  it("leaves a marketplace called cello alone when it isn't Cello's folder", () => {
+    const theirs = { extraKnownMarketplaces: { cello: { source: { source: "github", repo: "someone/cello" } } } }
+    expect(removeCelloPlugin(theirs)).toEqual({ changed: false, settings: theirs })
+  })
+
+  it("install, then uninstall, gives back the same bytes", () => {
+    const raw = `${JSON.stringify({ $schema: "s", enabledPlugins: { "a@b": true }, model: "opus" }, null, 4)}\n`
+    const format = detectFormat(raw)
+    const installed = formatSettings(installCello(JSON.parse(raw), { hooks: CELLO_HOOKS, plugin: { marketplace: folder, enable: true } }).settings, format)
+    expect(Object.keys(JSON.parse(installed))).toEqual(["$schema", "enabledPlugins", "model", "hooks", "extraKnownMarketplaces"])
+    expect(formatSettings(uninstallCello(JSON.parse(installed)).settings, format)).toBe(raw)
+  })
+})
+
+describe("installCello / uninstallCello", () => {
+  const folder = "/home/me/.local/share/cello/claude-plugin"
+
+  it("merges the hooks and the plugin in one go and says which of them changed", () => {
+    const both = installCello({}, { hooks: CELLO_HOOKS, plugin: { marketplace: folder, enable: true } })
+    expect(both).toMatchObject({ changed: true, hooks: true, plugin: true })
+    // A file with the hooks from before the plugin existed: only the plugin is new.
+    const hooksOnly = addCelloHooks({}).settings
+    expect(installCello(hooksOnly, { hooks: CELLO_HOOKS, plugin: { marketplace: folder, enable: true } })).toMatchObject({ changed: true, hooks: false, plugin: true })
+    expect(installCello(both.settings, { hooks: CELLO_HOOKS, plugin: { marketplace: folder, enable: true } })).toEqual({ changed: false, hooks: false, plugin: false, settings: both.settings })
+    expect(uninstallCello(both.settings)).toEqual({ changed: true, hooks: true, plugin: true, settings: {} })
+    expect(uninstallCello(hooksOnly)).toMatchObject({ changed: true, hooks: true, plugin: false })
   })
 })
 
