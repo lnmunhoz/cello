@@ -22,3 +22,4 @@ art/promo/v2/frames/
 # design explorations and promo renders stay on disk (future: Cello media library), not in git
 art/variations/
 art/promo/
+.claude/settings.local.json.bak
