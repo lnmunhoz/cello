@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatTaskKey, isValidProjectKey, parseTaskKey, suggestProjectKey } from "./taskKey.ts"
+import { formatTaskKey, isValidProjectKey, parseTaskKey, parseTaskPath, suggestProjectKey, taskPath } from "./taskKey.ts"
 
 describe("project keys", () => {
   it.each([
@@ -33,6 +33,20 @@ describe("task keys", () => {
   it("rejects malformed keys", () => {
     for (const bad of ["THAI", "THAI-", "THAI-0", "THAI-1.5", "-12", "TH AI-1"]) {
       expect(parseTaskKey(bad)).toBeNull()
+    }
+  })
+})
+
+describe("task paths", () => {
+  it("the board's path for a task", () => {
+    expect(taskPath("CEL", 3)).toBe("/CEL/3")
+  })
+
+  it("reads a task's path back, and no other path", () => {
+    expect(parseTaskPath("/CEL/3")).toEqual({ projectKey: "CEL", number: 3 })
+    expect(parseTaskPath("/thai/12")).toEqual({ projectKey: "THAI", number: 12 })
+    for (const bad of ["/CEL/issues", "/CEL/pages/notes", "/CEL/docs", "/review", "/", "/CEL/0", "/CEL/3/x", "/C/3", "CEL/3", "/attachments/3"]) {
+      expect(parseTaskPath(bad)).toBeNull()
     }
   })
 })

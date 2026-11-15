@@ -11,9 +11,20 @@ export interface Flash {
 /**
  * A page's content, one `<section>` per `##`/`###` heading (plus the intro), so a republish redraws
  * only what changed and a changed section can be flashed on its own. Link reference definitions go
- * to every section, so `[the PR][pr]` resolves wherever its definition sits.
+ * to every section, so `[the PR][pr]` resolves wherever its definition sits. Task keys of
+ * `projectKeys` ("CEL THAI") link to their task, each key reading its task's status from the board.
  */
-export function PageBody({ content, flash, onFlashEnd }: { content: string; flash: Flash | null; onFlashEnd: (id: string) => void }) {
+export function PageBody({
+  content,
+  flash,
+  onFlashEnd,
+  projectKeys,
+}: {
+  content: string
+  flash: Flash | null
+  onFlashEnd: (id: string) => void
+  projectKeys?: string | undefined
+}) {
   const references = referenceDefinitions(content)
   const tail = references.length === 0 ? "" : `\n\n${references.join("\n")}`
   return (
@@ -31,7 +42,7 @@ export function PageBody({ content, flash, onFlashEnd }: { content: string; flas
                 onAnimationEnd={() => onFlashEnd(block.id)}
               />
             ) : null}
-            <Prose markdown={block.markdown + tail} headingId={block.level === null ? undefined : block.id} />
+            <Prose markdown={block.markdown + tail} headingId={block.level === null ? undefined : block.id} projectKeys={projectKeys} />
           </section>
         )
       })}

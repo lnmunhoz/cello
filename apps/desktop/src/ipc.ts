@@ -5,6 +5,11 @@
 export const PANEL_OPEN = "cello:panel-open"
 /** Board → main: close the panel. */
 export const PANEL_CLOSE = "cello:panel-close"
+/**
+ * Main → board: a task key (`CEL-3`) clicked in the panel; open that task on the board. The preload
+ * hands it to the web app as the `cello:task` message a page framed in its viewer would send.
+ */
+export const BOARD_OPEN_TASK = "cello:board-open-task"
 
 /** Toolbar → main: a button or the address field. */
 export const CHROME_COMMAND = "cello:chrome-command"

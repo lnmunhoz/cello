@@ -70,3 +70,35 @@ export const taskByKey = (state: BoardState, projectKey: string, number: number)
   if (!project) return undefined
   return Object.values(state.tasks).find((t) => t.projectId === project.id && t.number === number)
 }
+
+/** A task with its status, as a task key in rendered text shows it. */
+export interface KeyedTask {
+  readonly task: Task
+  readonly status: Status | undefined
+}
+
+const byKey = new WeakMap<BoardState["tasks"], ReadonlyMap<string, Task>>()
+
+/** The board's tasks by their key ("CEL-3"), built once per board state (every change makes a new `tasks`). */
+export const tasksByKey = (state: BoardState): ReadonlyMap<string, Task> => {
+  let index = byKey.get(state.tasks)
+  if (!index) {
+    index = new Map(Object.values(state.tasks).map((t) => [t.key, t]))
+    byKey.set(state.tasks, index)
+  }
+  return index
+}
+
+/** A task by its whole key ("CEL-3"): what a task key in rendered text links to. */
+export const taskOfKey = (state: BoardState, key: string): Task | undefined => tasksByKey(state).get(key)
+
+/**
+ * The project keys task keys in rendered text can name, sorted, as one string ("CEL THAI"): a value
+ * that only changes when a project's key does, so markdown parsed with it isn't parsed again on every
+ * board change.
+ */
+export const projectKeysOf = (state: BoardState): string =>
+  Object.values(state.projects)
+    .map((p) => p.key)
+    .sort()
+    .join(" ")

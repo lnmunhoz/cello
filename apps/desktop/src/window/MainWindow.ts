@@ -3,7 +3,7 @@
 // window-state.json; the panel's URL lives only as long as the app runs.
 import * as fs from "node:fs"
 import { BaseWindow, nativeTheme, screen, shell, WebContentsView, type WebContents } from "electron"
-import { PANEL_CLOSE, PANEL_OPEN } from "../ipc.ts"
+import { BOARD_OPEN_TASK, PANEL_CLOSE, PANEL_OPEN } from "../ipc.ts"
 import { Panel } from "../panel/Panel.ts"
 import { boardNavigationAction, boardWindowOpenAction } from "../panel/urls.ts"
 import {
@@ -81,6 +81,8 @@ export class MainWindow {
           if (persist) this.#scheduleSave()
         },
         focusBoard: () => this.board.webContents.focus(),
+        boardOrigin: () => this.#origin,
+        openTask: (key) => this.#openTask(key),
       },
       { chromePreload: options.chromePreload, chromeHtml: options.chromeHtml },
       canvasColor(),
@@ -171,6 +173,12 @@ export class MainWindow {
       event.preventDefault()
       this.#route(url, action)
     })
+  }
+
+  /** A task clicked in the panel: the board opens it (its router, no reload) and takes the focus; the panel stays. */
+  #openTask(key: string): void {
+    this.board.webContents.send(BOARD_OPEN_TASK, key)
+    this.board.webContents.focus()
   }
 
   #route(url: string, action: "panel" | "external" | "deny"): void {

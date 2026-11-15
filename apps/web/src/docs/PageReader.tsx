@@ -4,10 +4,9 @@
 // the changed sections flash in the publisher's color and the scroll position stays.
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { documentBySlug } from "@cello/client/sync/documents"
-import { projectByKey } from "@cello/client/sync/selectors"
+import { projectByKey, projectKeysOf } from "@cello/client/sync/selectors"
 import type { Document, DocumentTask, Project } from "@cello/contract/entities"
 import { changedSections, pagePath, readerContent, type Section, sectionsOf, splitFrontmatter, summaryOf } from "@cello/shared/document"
-import { parseTaskKey } from "@cello/shared/taskKey"
 import { useAtomValue } from "@effect/atom-react"
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
@@ -20,22 +19,23 @@ import { toast } from "../components/ui/Toast.tsx"
 import { documentHistoryFamily, pageFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
 import { useBoard } from "../lib/hooks.ts"
+import { TaskLink } from "../task/TaskKey.tsx"
 import { KIND_LABELS } from "./kinds.tsx"
 import { type Flash, PageBody } from "./PageBody.tsx"
 
 export function PageReader() {
   const { projectKey, slug } = useParams({ from: "/$projectKey/pages/$slug" })
-  const { version, embed } = useSearch({ from: "/$projectKey/pages/$slug" })
+  const { version } = useSearch({ from: "/$projectKey/pages/$slug" })
   const board = useBoard()
   const project = board ? projectByKey(board, projectKey) : undefined
   if (!board || !project) return null
-  return <PageLoader key={`${project.key}/${slug}`} board={board} project={project} slug={slug} pinned={version} embed={embed === 1} />
+  return <PageLoader key={`${project.key}/${slug}`} board={board} project={project} slug={slug} pinned={version} />
 }
 
-function PageLoader({ board, project, slug, pinned, embed }: { board: BoardState; project: Project; slug: string; pinned: number | undefined; embed: boolean }) {
+function PageLoader({ board, project, slug, pinned }: { board: BoardState; project: Project; slug: string; pinned: number | undefined }) {
   const ref = `${project.key}/${slug}`
   const result = useAtomValue(pageFamily(pinned === undefined ? ref : `${ref}@${pinned}`))
-  if (AsyncResult.isSuccess(result)) return <Reader board={board} project={project} document={result.value} pinned={pinned} embed={embed} />
+  if (AsyncResult.isSuccess(result)) return <Reader board={board} project={project} document={result.value} pinned={pinned} />
   if (AsyncResult.isFailure(result)) {
     return (
       <Centered>
@@ -55,7 +55,7 @@ interface Seen {
   readonly content: string
 }
 
-function Reader({ board, project, document, pinned, embed }: { board: BoardState; project: Project; document: Document; pinned: number | undefined; embed: boolean }) {
+function Reader({ board, project, document, pinned }: { board: BoardState; project: Project; document: Document; pinned: number | undefined }) {
   const scroller = useRef<HTMLDivElement>(null)
   const latest = documentBySlug(board, project.id, document.slug)
   const content = readerContent(document.body, document.title)
@@ -162,7 +162,7 @@ function Reader({ board, project, document, pinned, embed }: { board: BoardState
               </li>
             </ul>
             {lead ? <p className="mt-5 text-[19px] leading-relaxed text-ink">{lead}</p> : null}
-            {tasks.length > 0 ? <TaskChips board={board} tasks={tasks} embed={embed} /> : null}
+            {tasks.length > 0 ? <TaskChips board={board} tasks={tasks} /> : null}
             <p role="status" className="empty:hidden">
               {notice ? (
                 <span
@@ -190,7 +190,7 @@ function Reader({ board, project, document, pinned, embed }: { board: BoardState
             </div>
           ) : null}
 
-          <PageBody content={content} flash={flash} onFlashEnd={endFlash} />
+          <PageBody content={content} flash={flash} onFlashEnd={endFlash} projectKeys={projectKeysOf(board)} />
         </article>
       </div>
     </div>
@@ -201,7 +201,7 @@ function Reader({ board, project, document, pinned, embed }: { board: BoardState
 function SectionMenu({ sections, current, onPick }: { sections: ReadonlyArray<Section>; current: string | null; onPick: (id: string) => void }) {
   const title = sections.find((s) => s.id === current)?.title ?? sections[0]!.title
   return (
-    <div className="sticky top-0 z-10 -mx-4 hidden items-center gap-2 border-b border-line bg-surface/95 px-4 py-2 backdrop-blur @max-[900px]:flex">
+    <div className="sticky top-0 z-10 -mx-4 mb-6 hidden items-center gap-2 border-b border-line bg-surface/95 px-4 py-2 backdrop-blur @max-[900px]:flex">
       <Menu onAction={(id) => onPick(String(id))}>
         <MenuTrigger variant="chip" aria-label="On this page">
           <ListIcon aria-hidden className="size-3.5 text-muted" />
@@ -264,37 +264,24 @@ function Versions({ documentId, shown, latest }: { documentId: string; shown: nu
   ))
 }
 
-/** The tasks a page links to; in a panel they open in the whole window, where the board is. */
-function TaskChips({ board, tasks, embed }: { board: BoardState; tasks: ReadonlyArray<DocumentTask>; embed: boolean }) {
+/** The tasks a page links to; in a panel they open in the main window, where the board is. */
+function TaskChips({ board, tasks }: { board: BoardState; tasks: ReadonlyArray<DocumentTask> }) {
   return (
     <div aria-label="Linked tasks" role="group" className="mt-5 flex flex-wrap items-center gap-2">
       <span className="text-xs font-semibold tracking-[0.08em] text-muted uppercase">Tasks</span>
       {tasks.map((t) => {
-        const key = parseTaskKey(t.key)
         const task = board.tasks[t.id]
-        const look = "inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-line bg-raised px-2.5 text-[13px] shadow-card"
-        const label = (
-          <>
-            <span className="font-medium text-ink">{t.key}</span>
-            {task ? <span className="truncate text-muted">{task.title}</span> : null}
-          </>
-        )
-        return key ? (
-          <Link
+        return (
+          <TaskLink
             key={t.id}
-            to="/$projectKey/$number"
-            params={{ projectKey: key.projectKey, number: String(key.number) }}
-            {...(embed ? { target: "_top" } : {})}
+            taskKey={t.key}
             aria-label={task ? `${t.key} ${task.title}` : t.key}
             data-task-chip={t.key}
-            className={`${look} outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring`}
+            className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-line bg-raised px-2.5 text-[13px] shadow-card outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {label}
-          </Link>
-        ) : (
-          <span key={t.id} className={look}>
-            {label}
-          </span>
+            <span className="font-medium text-ink">{t.key}</span>
+            {task ? <span className="truncate text-muted">{task.title}</span> : null}
+          </TaskLink>
         )
       })}
     </div>

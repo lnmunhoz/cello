@@ -1,7 +1,7 @@
 import type { Project, Status, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import type { BoardState } from "./applyEvents.ts"
-import { boardColumns, byPosition, placement, placementAtEnd, projectsOf, taskByKey } from "./selectors.ts"
+import { boardColumns, byPosition, placement, placementAtEnd, projectKeysOf, projectsOf, taskByKey, taskOfKey, tasksByKey } from "./selectors.ts"
 
 const status = (id: string, position: string, hidden = false): Status => ({
   id, workspaceId: "w1", name: id, category: "unstarted", position, color: "#999", hidden, createdAt: 1, updatedAt: 1,
@@ -75,5 +75,20 @@ describe("selectors", () => {
     expect(taskByKey(state, "ZED", 4)?.id).toBe("other")
     expect(taskByKey(state, "zed", 4)?.id).toBe("other")
     expect(taskByKey(state, "CEL", 99)).toBeUndefined()
+  })
+
+  it("finds a task by its whole key, from an index built once per board state", () => {
+    expect(taskOfKey(state, "ZED-4")).toBe(state.tasks["other"])
+    expect(taskOfKey(state, "ZED-5")).toBeUndefined()
+    expect(taskOfKey(state, "not a key")).toBeUndefined()
+    expect(tasksByKey(state)).toBe(tasksByKey(state))
+    const next: BoardState = { ...state, tasks: { ...state.tasks, new: task("new", "todo", "a9", { projectId: "p2", key: "ZED-5", number: 5 }) } }
+    expect(tasksByKey(next)).not.toBe(tasksByKey(state))
+    expect(taskOfKey(next, "ZED-5")?.id).toBe("new")
+  })
+
+  it("lists the project keys task keys can name, as one string that only changes when they do", () => {
+    expect(projectKeysOf(state)).toBe("CEL OLD ZED")
+    expect(projectKeysOf({ ...state, tasks: {} })).toBe("CEL OLD ZED")
   })
 })

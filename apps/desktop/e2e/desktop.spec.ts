@@ -175,6 +175,49 @@ test("CEL-12: evidence clicked on the board opens in the native panel, not the w
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "panel-evidence-link.png"))
 })
 
+test("CEL-20: a task key clicked in a page shown in the native panel opens the task in the main window; the page stays in the panel", async ({}, testInfo) => {
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const server = await startCello(dataDir)
+  const env = { CELLO_PORT: String(server.port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-") }
+  const app = await launchApp(env)
+  const video = record(app, testInfo.title)
+  const { board, panel } = await appPages(app, server.url)
+
+  await video.caption("Create a project on the board")
+  await board.getByRole("button", { name: "New project" }).first().click()
+  await board.getByLabel("Name").fill("Desktop keys")
+  await board.getByLabel("Key").fill("DSK")
+  await board.getByRole("button", { name: "Create project" }).click()
+  await board.waitForURL(`${server.url}/DSK/issues`)
+
+  await video.caption("An agent creates two tasks and publishes a page with a task table")
+  celloAsAgent(server.port, "task", "create", "Keys in the native panel", "--project", "DSK", "--status", "Todo")
+  celloAsAgent(server.port, "task", "create", "Live status on pages", "--project", "DSK", "--status", "Todo")
+  const file = path.join(tempDir("cello-desktop-page-"), "progress.md")
+  fs.writeFileSync(file, ["# Desktop progress", "", "| Task | What |", "| --- | --- |", "| DSK-1 | Keys in the native panel |", "| DSK-2 | Live status on pages |", ""].join("\n"))
+  const pageUrl = celloAsAgent(server.port, "doc", "publish", file, "--project", "DSK").split("\n").at(-1)!
+  expect(pageUrl).toBe(`${server.url}/DSK/pages/desktop-progress`)
+
+  await video.caption("open cello://open?url=<the page>: it shows in the native panel, without the sidebar")
+  expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(pageUrl)}`])).toBe(0)
+  await panel.waitForURL(`${pageUrl}?embed=1`)
+  await expect(panel.getByRole("heading", { level: 1, name: "Desktop progress" })).toBeVisible()
+  await expect(panel.getByRole("navigation", { name: "Projects" })).toHaveCount(0)
+  const key = panel.locator('[data-task-link="DSK-2"]')
+  await expect(key).toHaveAttribute("href", "/DSK/2")
+  await expect(key.locator("[data-task-status]")).toHaveText("Todo")
+
+  await video.caption("Click DSK-2 in the panel: the task opens in the main window, and the page stays in the panel")
+  // The link starts a navigation that the panel cancels (it opens the task on the board instead), so
+  // the click mustn't wait for that navigation to finish: it never does.
+  await key.click({ noWaitAfter: true })
+  await board.waitForURL(`${server.url}/DSK/2`)
+  await expect(board.getByRole("complementary", { name: "DSK-2 details" })).toBeVisible()
+  expect(panel.url()).toBe(`${pageUrl}?embed=1`)
+  expect((await views(app)).page.visible).toBe(true)
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "panel-task-key.png"))
+})
+
 test("starts the bundled cello when no server is running, and stops it on quit", async ({}, testInfo) => {
   const dataDir = tempDir("cello-desktop-e2e-")
   const userData = tempDir("cello-desktop-user-")

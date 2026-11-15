@@ -7,9 +7,9 @@ import { ReviewActions } from "./ReviewActions.tsx"
 
 /**
  * What an agent handed in: the summary, numbered "How to check" steps, the evidence, who submitted it
- * and when. With `decide`, Approve and Send back sit at the bottom.
+ * and when. With `decide`, Approve and Send back sit at the bottom; `onDecided` runs after either.
  */
-export function ReviewPacket({ task, review, decide }: { task: Task; review: Review; decide: boolean }) {
+export function ReviewPacket({ task, review, decide, onDecided }: { task: Task; review: Review; decide: boolean; onDecided?: (() => void) | undefined }) {
   return (
     <div className="flex flex-col gap-5">
       <Markdown source={review.summary} />
@@ -39,7 +39,7 @@ export function ReviewPacket({ task, review, decide }: { task: Task; review: Rev
           {" · "}
           {relativeTime(review.createdAt)}
         </span>
-        {decide ? <ReviewActions task={task} /> : null}
+        {decide ? <ReviewActions task={task} onDecided={onDecided} /> : null}
       </footer>
     </div>
   )

@@ -1,6 +1,8 @@
 import { linkify } from "@cello/shared/linkify"
 import type { ReactNode } from "react"
 import { openInPanel } from "../lib/desktop.ts"
+import { useProjectKeys } from "../lib/hooks.ts"
+import { LiveTaskKey, linkifyTasks } from "../task/TaskKey.tsx"
 import { isPlainClick } from "./viewer.ts"
 
 /**
@@ -23,19 +25,20 @@ export function ViewerLink({ href, title, children }: { href: string; title?: st
   )
 }
 
-/** Plain text with its web addresses as viewer links. */
+/** Plain text with its web addresses as viewer links, and its task keys as links to the task with its live status. */
 export function Linkified({ text }: { text: string }) {
+  const projectKeys = useProjectKeys()
   return (
     <>
-      {linkify(text).map((part, i) =>
-        part.type === "text" ? (
-          part.text
-        ) : (
+      {linkify(text, linkifyTasks(projectKeys)).map((part, i) => {
+        if (part.type === "text") return part.text
+        if (part.type === "task") return <LiveTaskKey key={i} taskKey={part.key} />
+        return (
           <ViewerLink key={i} href={part.url}>
             {part.text}
           </ViewerLink>
-        ),
-      )}
+        )
+      })}
     </>
   )
 }

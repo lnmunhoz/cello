@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { closeViewer, viewerItem } from "../viewer/store.ts"
-import { openInPanel } from "./desktop.ts"
+import { openInPanel, openTask } from "./desktop.ts"
 
 const ORIGIN = "http://localhost:4747"
 /** A top-level page on the board's origin, plus whatever the test adds. */
@@ -51,5 +51,35 @@ describe("openInPanel", () => {
     stubWindow()
     expect(openInPanel("mailto:me@x.dev")).toBe(false)
     expect(viewerItem()).toBeNull()
+  })
+})
+
+describe("openTask", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("on the board, opens the task with the router", () => {
+    stubWindow()
+    const navigate = vi.fn()
+    expect(openTask("CEL-12", navigate)).toBe(true)
+    expect(navigate).toHaveBeenCalledWith({ projectKey: "CEL", number: 12 })
+  })
+
+  it("from a Cello page framed in the viewer, asks the board's window to open it", () => {
+    const postMessage = vi.fn()
+    const win: Record<string, unknown> = { location: { origin: ORIGIN, search: "?embed=1" }, parent: { postMessage } }
+    win.self = win
+    win.top = win.parent
+    vi.stubGlobal("window", win)
+    const navigate = vi.fn()
+    expect(openTask("CEL-12", navigate)).toBe(true)
+    expect(postMessage).toHaveBeenCalledWith({ type: "cello:task", key: "CEL-12" }, ORIGIN)
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it("from a page alone in a panel (the desktop app's), lets the link navigate so the app can catch it", () => {
+    stubWindow({ location: { origin: ORIGIN, search: "?embed=1" } })
+    const navigate = vi.fn()
+    expect(openTask("CEL-12", navigate)).toBe(false)
+    expect(navigate).not.toHaveBeenCalled()
   })
 })
