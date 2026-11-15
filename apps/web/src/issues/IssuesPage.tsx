@@ -4,13 +4,14 @@ import { BoardPage } from "../board/BoardPage.tsx"
 import { Button } from "../components/ui/Button.tsx"
 import { ListPage } from "../list/ListPage.tsx"
 import { FacetPanel } from "./FacetPanel.tsx"
+import { usePanelShortcut } from "./FilterRail.tsx"
 import { filterSummary } from "./facets.ts"
 import { layoutOf } from "./layout.ts"
 import { projectTasks, useFilter, useKeepLinkedFilter, useProjectBoard } from "./useFilter.ts"
 
 /**
  * The Issues tab, with or without a task open (`/:projectKey/issues`, `/:projectKey/:number`), in the
- * layout the URL names, with the filter panel on its left (CEL-52). Both routes use this one component,
+ * layout the URL names, with the filter panel on its left (CEL-52), open or folded to a rail (⌘⇧F). Both routes use this one component,
  * so opening or closing a task keeps the page as it was (folded groups, row focus, the panel) instead
  * of mounting it again.
  */
@@ -19,6 +20,7 @@ export function IssuesPage() {
   const layout = layoutOf(useSearch({ from: "/$projectKey" }))
   const openNumber = number === undefined ? undefined : Number(number)
   useKeepLinkedFilter()
+  usePanelShortcut()
   return (
     <div className="flex min-h-0 flex-1">
       <FacetPanel />
