@@ -1,7 +1,8 @@
 // Builds every icon the apps ship from the app icon's sources in this folder (docs/specs/app-icon).
 //   bun art/icon/build-app-icons.mjs           write them
 //   bun art/icon/build-app-icons.mjs --check   exit 1 if a committed file differs from a fresh build
-// Needs resvg (brew install resvg) and macOS's iconutil. The same sources give the same bytes.
+// Needs resvg 0.47.0 (brew install resvg; another version may rasterise edges differently) and macOS's
+// iconutil. The same sources and resvg version give the same bytes.
 //
 //   favicon.svg → apps/web/public/icons/icon.svg           the tab icon, and the manifest's SVG icon
 //               → apps/web/public/favicon.ico              16, 32 and 48 px, for browsers that skip the SVG
@@ -129,7 +130,9 @@ for (const [file, bytes] of Object.entries(outputs)) {
 }
 if (check) {
   if (stale.length > 0) {
+    const resvg = spawnSync("resvg", ["--version"], { encoding: "utf8" }).stdout.trim()
     console.error(`Out of date (run bun art/icon/build-app-icons.mjs):\n  ${stale.join("\n  ")}`)
+    console.error(`Built with resvg ${resvg}; the committed icons were made with resvg 0.47.0.`)
     process.exit(1)
   }
   console.log(`All ${Object.keys(outputs).length} icons match their sources.`)

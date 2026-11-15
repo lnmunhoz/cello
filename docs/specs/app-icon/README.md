@@ -34,9 +34,10 @@ waiting, done): see `art/variations/round12-face/S-*.svg`.
 
 ## Where it ships (CEL-27)
 
-`art/icon/build-app-icons.mjs` builds every icon the apps use from `icon.svg` and `favicon.svg` (resvg, plus
-iconutil for the `.icns`). Edit a source, then run `bun art/icon/build-app-icons.mjs`; `--check` fails if a
-committed icon is out of date. The same sources give the same bytes.
+`art/icon/build-app-icons.mjs` builds every icon the apps use from `icon.svg` and `favicon.svg` (resvg 0.47.0,
+plus iconutil for the `.icns`). Edit a source, then run `bun art/icon/build-app-icons.mjs`; `--check` fails if a
+committed icon is out of date and prints the resvg version it used. The same sources and resvg version give
+the same bytes.
 
 | Built file | From | Used by |
 |---|---|---|
