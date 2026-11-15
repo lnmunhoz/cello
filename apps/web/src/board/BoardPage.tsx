@@ -65,7 +65,8 @@ function Board({ board, workspaceId, project, openNumber }: { board: BoardState;
   return (
     <MotionConfig reducedMotion="user">
       <LayoutGroup>
-        <div className="flex min-w-0 flex-1 gap-3 overflow-x-auto px-3 pb-3">
+        {/* Its sideways scroll stays inside (no back swipe from its edge). In a narrow window an open task takes its place. */}
+        <div className={`flex min-w-0 flex-1 gap-3 overflow-x-auto overscroll-x-contain px-3 pb-3 ${openNumber !== undefined ? "max-md:hidden" : ""}`}>
           <Kanban
             lists={lists}
             onListsChange={onListsChange}

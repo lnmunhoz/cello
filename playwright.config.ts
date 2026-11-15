@@ -5,7 +5,7 @@ import { defineConfig, devices } from "@playwright/test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { slowMo, VIDEO_SIZE } from "./e2e/recording.ts"
+import { slowMo, testTimeoutMs, VIDEO_SIZE } from "./e2e/recording.ts"
 
 // Ports come from the environment so parallel runs (worktrees, a running dev app) don't clash.
 const SERVER_PORT = Number(process.env.CELLO_E2E_SERVER_PORT ?? 4791)
@@ -22,6 +22,8 @@ export default defineConfig({
   outputDir: "test-results/playwright",
   fullyParallel: false,
   workers: 1,
+  // Longer in review mode (CELLO_E2E_REVIEW=1), where captions hold and actions wait by design.
+  timeout: testTimeoutMs(process.env),
   forbidOnly: true,
   reporter: [["list"]],
   globalTeardown: "./e2e/teardown.ts",

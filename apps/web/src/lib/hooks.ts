@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react"
 import type * as Atom from "effect/reactivity/Atom"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
+import { useSyncExternalStore } from "react"
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { type KeyedTask, projectKeysOf, taskOfKey } from "@cello/client/sync/selectors"
 import { boardAtom, currentAtom, syncedAtom } from "./cello.ts"
@@ -35,6 +36,22 @@ export const useKeyedTask = (key: string): KeyedTask | undefined => {
 export const useWorkspaceId = (): string | null => {
   const result = useAtomValue(currentAtom)
   return AsyncResult.isSuccess(result) && "workspaceId" in result.value.scope ? result.value.scope.workspaceId : null
+}
+
+const subscribeTo = new Map<string, (onChange: () => void) => () => void>()
+
+/** Whether a CSS media query matches, following the window as it changes (`(max-width: 767px)`). */
+export const useMediaQuery = (query: string): boolean => {
+  let subscribe = subscribeTo.get(query)
+  if (!subscribe) {
+    subscribe = (onChange) => {
+      const list = matchMedia(query)
+      list.addEventListener("change", onChange)
+      return () => list.removeEventListener("change", onChange)
+    }
+    subscribeTo.set(query, subscribe)
+  }
+  return useSyncExternalStore(subscribe, () => matchMedia(query).matches)
 }
 
 export const useConnection = () => {

@@ -3,15 +3,14 @@ import { useNavigate, useRouterState } from "@tanstack/react-router"
 import { ExternalLinkIcon, FileTextIcon, FilmIcon, GlobeIcon, GlobeLockIcon, ImageIcon, XIcon } from "lucide-react"
 import { useEffect, useLayoutEffect, useRef, useState, type SyntheticEvent } from "react"
 import { Button, ButtonLink } from "../components/ui/Button.tsx"
+import { ResizeHandle, useStoredWidth } from "../components/ui/ResizeHandle.tsx"
 import type { OpenMessage } from "../lib/desktop.ts"
+import { widthLimits } from "../lib/resize.ts"
 import { closeViewer, showInViewer, useViewerItem } from "./store.ts"
 import {
-  clampWidth,
-  dragWidth,
   FRAME_TIMEOUT_MS,
   nextFrameState,
   openTaskFrom,
-  readWidth,
   refusesFraming,
   toViewerItem,
   VIEWER_WIDTH,
@@ -52,20 +51,6 @@ export function ViewerPanel() {
   return item ? <Viewer item={item} /> : null
 }
 
-const loadWidth = () => {
-  try {
-    return readWidth(localStorage.getItem(WIDTH_KEY))
-  } catch {
-    return VIEWER_WIDTH.initial
-  }
-}
-
-const saveWidth = (width: number) => {
-  try {
-    localStorage.setItem(WIDTH_KEY, String(width))
-  } catch {}
-}
-
 /** Esc closes the viewer, unless you're typing or a dialog or menu is open (Esc closes that first). */
 const closesOnEscape = (e: KeyboardEvent, doc: Document) => {
   if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return false
@@ -77,8 +62,7 @@ const closesOnEscape = (e: KeyboardEvent, doc: Document) => {
 const KIND_ICON = { image: ImageIcon, video: FilmIcon, page: FileTextIcon, external: GlobeIcon } satisfies Record<ViewerKind, unknown>
 
 function Viewer({ item }: { item: ViewerItem }) {
-  const [width, setWidth] = useState(loadWidth)
-  const [drag, setDrag] = useState<{ width: number; x: number } | null>(null)
+  const [width, resize] = useStoredWidth(WIDTH_KEY, VIEWER_WIDTH)
   const ref = useRef<HTMLElement>(null)
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const [openedOn] = useState(pathname)
@@ -112,52 +96,16 @@ function Viewer({ item }: { item: ViewerItem }) {
     return () => window.removeEventListener("keydown", onKeyDown, true)
   }, [])
 
-  const container = () => ref.current?.parentElement?.clientWidth ?? window.innerWidth
-
   return (
     <aside
       ref={ref}
       aria-label="Viewer"
       tabIndex={-1}
       data-viewer={item.kind}
-      style={{ width }}
-      className="relative flex max-w-[calc(100%-360px)] min-w-[320px] shrink-0 flex-col border-l border-line bg-surface outline-none"
+      style={{ width, ...widthLimits(VIEWER_WIDTH) }}
+      className="relative flex shrink-0 flex-col border-l border-line bg-surface outline-none"
     >
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize viewer"
-        aria-valuenow={width}
-        aria-valuemin={VIEWER_WIDTH.min}
-        tabIndex={0}
-        data-resizing={drag ? "" : undefined}
-        onPointerDown={(e) => {
-          if (e.button !== 0) return
-          e.preventDefault()
-          e.currentTarget.setPointerCapture(e.pointerId)
-          setDrag({ width, x: e.clientX })
-        }}
-        onPointerMove={(e) => {
-          if (drag) setWidth(dragWidth(drag, e.clientX, container()))
-        }}
-        onPointerUp={(e) => {
-          if (!drag) return
-          const next = dragWidth(drag, e.clientX, container())
-          setWidth(next)
-          saveWidth(next)
-          setDrag(null)
-        }}
-        onLostPointerCapture={() => setDrag(null)}
-        onKeyDown={(e) => {
-          const step = e.key === "ArrowLeft" ? VIEWER_WIDTH.step : e.key === "ArrowRight" ? -VIEWER_WIDTH.step : 0
-          if (step === 0) return
-          e.preventDefault()
-          const next = clampWidth(width + step, container())
-          setWidth(next)
-          saveWidth(next)
-        }}
-        className="absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize outline-none hover:bg-accent/30 focus-visible:bg-accent/40 data-resizing:bg-accent/40"
-      />
+      <ResizeHandle edge="left" label="Resize viewer" rule={VIEWER_WIDTH} width={width} onResize={resize} />
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
         <Icon aria-hidden className="size-3.5 shrink-0 text-muted" />
         <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium" title={item.url}>
@@ -172,8 +120,6 @@ function Viewer({ item }: { item: ViewerItem }) {
       </header>
       <div className="relative flex min-h-0 flex-1 flex-col">
         <Body key={item.url} item={item} />
-        {/* Over an iframe, the pointer would leave the page mid-drag: this keeps it here. */}
-        {drag ? <div aria-hidden className="absolute inset-0 z-10 cursor-col-resize" /> : null}
       </div>
     </aside>
   )

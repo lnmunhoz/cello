@@ -1,156 +1,88 @@
-import { useAtomSet } from "@effect/atom-react"
-import { projectsOf } from "@cello/client/sync/selectors"
-import { Link, Outlet, useNavigate, useSearch } from "@tanstack/react-router"
-import { reviewQueue } from "@cello/client/sync/reviews"
-import { ChevronDownIcon, ClipboardCheckIcon, MoonIcon, PlusIcon, SettingsIcon, SunIcon } from "lucide-react"
+import { Outlet, useSearch } from "@tanstack/react-router"
+import { useShortcut } from "@ui-sdk/react/shortcuts"
 import { useState } from "react"
-import { Button } from "../components/ui/Button.tsx"
-import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.tsx"
+import { useStoredWidth } from "../components/ui/ResizeHandle.tsx"
 import { Toaster } from "../components/ui/Toast.tsx"
-import { workspaceIdAtom } from "../lib/cello.ts"
 import { isEmbed } from "../lib/embed.ts"
-import { useBoard, useConnection, useWorkspaceId } from "../lib/hooks.ts"
-import { isDark, toggleTheme } from "../lib/theme.ts"
+import { useMediaQuery, useWorkspaceId } from "../lib/hooks.ts"
+import { readStored, writeStored } from "../lib/storage.ts"
 import { NewProjectDialog } from "../project/NewProjectDialog.tsx"
 import { ViewerPanel } from "../viewer/ViewerPanel.tsx"
-import { byPosition } from "@cello/client/sync/selectors"
+import { ConnectionStatus } from "./ConnectionStatus.tsx"
+import { ShowSidebarButton, Sidebar, SidebarContext } from "./Sidebar.tsx"
+import {
+  NARROW_WIDTH,
+  readSidebar,
+  setSidebarMode,
+  shownSidebar,
+  SIDEBAR_KEY,
+  SIDEBAR_SHORTCUT,
+  SIDEBAR_WIDTH,
+  SIDEBAR_WIDTH_KEY,
+  toggleSidebar,
+  writeSidebar,
+  type SidebarState,
+} from "./sidebarState.ts"
 
 export function AppShell() {
-  const board = useBoard()
   const workspaceId = useWorkspaceId()
-  const connection = useConnection()
   const [newProject, setNewProject] = useState(false)
-  const [dark, setDark] = useState(isDark)
-  const setWorkspace = useAtomSet(workspaceIdAtom)
-  const navigate = useNavigate()
+  const [saved, setSaved] = useState(() => readSidebar(readStored(SIDEBAR_KEY)))
+  const [width, resize] = useStoredWidth(SIDEBAR_WIDTH_KEY, SIDEBAR_WIDTH)
+  // In a narrow window the sidebar starts as the rail, without saving that, until expanded on purpose.
+  const narrow = useMediaQuery(`(max-width: ${NARROW_WIDTH - 1}px)`)
+  const [expandedHere, setExpandedHere] = useState(false)
+  const sidebar = shownSidebar(saved, { narrow, expandedHere })
   const embed = isEmbed(useSearch({ strict: false }))
+  const change = (next: SidebarState) => {
+    if (narrow && next.mode === "expanded") setExpandedHere(true)
+    setSaved(next)
+    writeStored(SIDEBAR_KEY, writeSidebar(next))
+  }
+  const setMode = (mode: SidebarState["mode"]) => change(setSidebarMode(sidebar, mode))
+  useShortcut(embed ? null : SIDEBAR_SHORTCUT, () => change(toggleSidebar(sidebar)), { description: "Collapse or expand the sidebar" })
 
   // In a panel (`?embed=1`): just the page, no sidebar.
   if (embed) {
     return (
-      <div className="flex h-full flex-col bg-surface">
+      <div className="relative flex h-dvh flex-col overflow-clip bg-surface">
         <Outlet />
         <Toaster />
       </div>
     )
   }
 
-  const workspaces = board ? byPosition(Object.values(board.workspaces).filter((w) => w.archivedAt === null)) : []
-  const workspace = workspaceId && board ? board.workspaces[workspaceId] : undefined
-  const projects = board && workspaceId ? projectsOf(board, workspaceId) : []
-  const waiting = board && workspaceId ? reviewQueue(board, workspaceId).length : 0
-
+  // Exactly the window: the shell is the containing block for anything positioned without one of its
+  // own (screen-reader-only text in rows below the fold), and clips it, so the page never grows past
+  // the window and never scrolls.
   return (
-    <div className="flex h-full">
-      <aside className="flex w-60 shrink-0 flex-col gap-4 px-3 py-3">
-        <div className="flex h-8 items-center gap-1">
-          {workspaces.length >= 2 ? (
-            <Menu
-              onAction={(id) => {
-                setWorkspace(String(id))
-                void navigate({ to: "/" })
-              }}
-            >
-              <MenuTrigger variant="row" aria-label="Switch workspace">
-                <WorkspaceMark name={workspace?.name ?? ""} />
-                <span className="truncate">{workspace?.name}</span>
-                <ChevronDownIcon className="size-3.5 text-muted" />
-              </MenuTrigger>
-              <MenuContent>
-                {workspaces.map((w) => (
-                  <MenuItem key={w.id} value={w.id}>
-                    <WorkspaceMark name={w.name} />
-                    {w.name}
-                  </MenuItem>
-                ))}
-              </MenuContent>
-            </Menu>
-          ) : (
-            <div className="flex h-7 items-center gap-2 px-2 text-[13px] font-semibold">
-              <WorkspaceMark name={workspace?.name ?? "Cello"} />
-              <span className="truncate">{workspace?.name ?? "Cello"}</span>
-            </div>
-          )}
-        </div>
-
-        <nav aria-label="Inbox" className="flex flex-col gap-0.5">
-          <Link
-            to="/review"
-            className="flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium text-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-selected"
-          >
-            <ClipboardCheckIcon aria-hidden className="size-3.5 text-muted" />
-            Review
-            {waiting > 0 ? (
-              <span
-                data-review-count
-                className="ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-semibold tabular-nums text-accent-ink"
-              >
-                {waiting}
-                <span className="sr-only"> waiting</span>
-              </span>
-            ) : null}
-          </Link>
-        </nav>
-
-        <nav aria-label="Projects" className="flex flex-col gap-0.5">
-          <div className="flex h-7 items-center justify-between px-2 text-xs font-medium text-muted">
-            Projects
-            <Button variant="ghost" size="icon" aria-label="New project" onClick={() => setNewProject(true)} disabled={!workspaceId}>
-              <PlusIcon className="size-3.5" />
-            </Button>
-          </div>
-          {projects.map((p) => (
-            <Link
-              key={p.id}
-              to="/$projectKey"
-              params={{ projectKey: p.key }}
-              className="flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium text-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-selected"
-              activeOptions={{ exact: false }}
-            >
-              <i className="size-2.5 rounded-[3px]" style={{ background: p.color }} />
-              <span className="truncate">{p.name}</span>
-            </Link>
-          ))}
-          <button
-            type="button"
-            onClick={() => setNewProject(true)}
-            disabled={!workspaceId}
-            className="flex h-7 items-center gap-2 rounded-md px-2 text-[13px] text-muted outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-          >
-            <PlusIcon className="size-3.5" />
-            New project
-          </button>
-        </nav>
-
-        <div className="mt-auto flex items-center gap-1">
-          <Link
-            to="/settings"
-            className="flex h-7 flex-1 items-center gap-2 rounded-md px-2 text-[13px] text-muted outline-none hover:bg-hover hover:text-ink data-[status=active]:bg-selected data-[status=active]:text-ink"
-          >
-            <SettingsIcon className="size-3.5" />
-            Settings
-          </Link>
-          <Button variant="ghost" size="iconMd" aria-label={dark ? "Use light theme" : "Use dark theme"} onClick={() => setDark(toggleTheme())}>
-            {dark ? <SunIcon className="size-3.5" /> : <MoonIcon className="size-3.5" />}
-          </Button>
-        </div>
-        {connection !== "live" ? (
-          <p role="status" className="px-2 text-xs text-faint">
-            {connection === "connecting" ? "Connecting…" : "Reconnecting to the Cello server…"}
-          </p>
+    <SidebarContext value={sidebar.mode}>
+      <div className="relative flex h-dvh overflow-clip">
+        {sidebar.mode !== "hidden" ? (
+          <Sidebar mode={sidebar.mode} width={width} onResize={resize} onMode={setMode} onNewProject={() => setNewProject(true)} />
         ) : null}
-      </aside>
 
-      <main className="my-2 mr-2 flex min-w-0 flex-1 overflow-hidden rounded-lg border border-line bg-surface shadow-card">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Outlet />
-        </div>
-        <ViewerPanel />
-      </main>
+        <main
+          data-sidebar-mode={sidebar.mode}
+          className="relative my-2 mr-2 flex min-w-0 flex-1 overflow-clip rounded-lg border border-line bg-surface shadow-card data-[sidebar-mode=hidden]:ml-2"
+        >
+          {/* Hidden, the sidebar leaves a way back on every page, and the connection status. */}
+          {sidebar.mode === "hidden" ? (
+            <>
+              <ShowSidebarButton onShow={() => setMode("expanded")} />
+              <ConnectionStatus look="pill" />
+            </>
+          ) : null}
+          <div className="flex min-w-0 flex-1 flex-col">
+            <Outlet />
+          </div>
+          <ViewerPanel />
+        </main>
 
-      {workspaceId ? <NewProjectDialog open={newProject} onOpenChange={setNewProject} workspaceId={workspaceId} /> : null}
-      <Toaster />
-    </div>
+        {workspaceId ? <NewProjectDialog open={newProject} onOpenChange={setNewProject} workspaceId={workspaceId} /> : null}
+        <Toaster />
+      </div>
+    </SidebarContext>
   )
 }
 
@@ -160,20 +92,12 @@ export function AppShell() {
  */
 export function EmbeddedShell() {
   return (
-    <div className="flex h-full bg-surface">
+    <div className="relative flex h-dvh overflow-clip bg-surface">
       <div className="flex min-w-0 flex-1 flex-col">
         <Outlet />
       </div>
       <ViewerPanel />
       <Toaster />
     </div>
-  )
-}
-
-function WorkspaceMark({ name }: { name: string }) {
-  return (
-    <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-md bg-accent text-[11px] font-semibold text-accent-ink">
-      {name.slice(0, 1).toUpperCase()}
-    </span>
   )
 }

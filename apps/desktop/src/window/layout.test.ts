@@ -6,6 +6,7 @@ import {
   isTogglePanelShortcut,
   layoutViews,
   parseWindowState,
+  RELAYOUT_EVENTS,
   restoreBounds,
   TOOLBAR_HEIGHT,
 } from "./layout.ts"
@@ -24,6 +25,14 @@ describe("layoutViews", () => {
     expect(board).toEqual({ x: 0, y: 0, width: 780, height: 800 })
     expect(chrome).toEqual({ x: 780, y: 0, width: 500, height: 800 })
     expect(page).toEqual({ x: 780 + EDGE_WIDTH, y: TOOLBAR_HEIGHT, width: 500 - EDGE_WIDTH, height: 800 - TOOLBAR_HEIGHT })
+  })
+})
+
+describe("RELAYOUT_EVENTS", () => {
+  it("lays the views out again on every change of the window's size, full screen included (CEL-25)", () => {
+    // On macOS, entering or leaving full screen emits "resized" and "enter-full-screen" but no
+    // "resize": the board kept its old size and the window's grey background showed under it.
+    expect([...RELAYOUT_EVENTS].sort()).toEqual(["enter-full-screen", "leave-full-screen", "maximize", "resize", "resized", "unmaximize"])
   })
 })
 

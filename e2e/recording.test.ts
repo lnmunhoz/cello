@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { cropFor, holdMs, isReview, slowMo, VIDEO_SIZE } from "./recording.ts"
+import { cropFor, holdMs, isReview, slowMo, testTimeoutMs, VIDEO_SIZE } from "./recording.ts"
 
 describe("review recording switches", () => {
   it("is off unless CELLO_E2E_REVIEW=1, and then holds each state about 1.5 s", () => {
@@ -15,6 +15,11 @@ describe("review recording switches", () => {
     expect(slowMo({ CELLO_E2E_SLOWMO: "250" })).toBe(250)
     expect(slowMo({ CELLO_E2E_REVIEW: "1" })).toBe(400)
     expect(slowMo({ CELLO_E2E_REVIEW: "1", CELLO_E2E_SLOWMO: "600" })).toBe(600)
+  })
+
+  it("gives each test longer in review mode, where every caption holds 3 s and every action waits 400 ms", () => {
+    expect(testTimeoutMs({})).toBe(30_000)
+    expect(testTimeoutMs({ CELLO_E2E_REVIEW: "1" })).toBe(300_000)
   })
 })
 

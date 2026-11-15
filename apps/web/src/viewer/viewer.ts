@@ -1,10 +1,11 @@
 // The viewer side panel's rules: what a URL is (image, video, Cello page, external site), where an
-// "open" goes (the desktop app's native panel, the board's viewer, or this page's own), and its width.
+// "open" goes (the desktop app's native panel, the board's viewer, or this page's own), and its width rule.
 // Pure, so the rules are tested once here; the components only map a decision to the DOM.
 import { embedUrl } from "@cello/shared/embed"
 import { shortUrl } from "@cello/shared/linkify"
 import { parseTaskKey } from "@cello/shared/taskKey"
 import type { CelloDesktop } from "../lib/desktop.ts"
+import type { WidthRule } from "../lib/resize.ts"
 
 /** image and video: shown as such. page: the board's own origin, in an iframe. external: an iframe attempt. */
 export type ViewerKind = "image" | "video" | "page" | "external"
@@ -135,20 +136,6 @@ export const isPlainClick = (e: {
 }): boolean => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.defaultPrevented
 
 /** In px. It starts as wide as the task panel, so the board keeps its width when one replaces the other. */
-export const VIEWER_WIDTH = { initial: 560, min: 320, minPage: 360, step: 32 } as const
+export const VIEWER_WIDTH: WidthRule = { initial: 560, min: 320, minRest: 360, step: 32 }
 
 export const WIDTH_KEY = "cello:viewer-width"
-
-/** The width saved in localStorage, or the initial one. */
-export const readWidth = (stored: string | null): number => {
-  const width = Number(stored)
-  return stored !== null && Number.isFinite(width) && width > 0 ? Math.round(width) : VIEWER_WIDTH.initial
-}
-
-/** Between the minimum and what leaves `minPage` for the page beside it (the minimum wins in a narrow window). */
-export const clampWidth = (width: number, container: number): number =>
-  Math.round(Math.max(VIEWER_WIDTH.min, Math.min(width, container - VIEWER_WIDTH.minPage)))
-
-/** The width while its left edge is dragged from `start.x` to `x`. */
-export const dragWidth = (start: { readonly width: number; readonly x: number }, x: number, container: number): number =>
-  clampWidth(start.width + start.x - x, container)

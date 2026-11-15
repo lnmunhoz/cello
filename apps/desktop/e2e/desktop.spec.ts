@@ -2,7 +2,7 @@
 // data folders on free ports. Each test records an MP4 of the whole window (test-results/videos).
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { expect, test } from "@playwright/test"
+import { expect, test, type ElectronApplication, type Page } from "@playwright/test"
 import { recordWindow, screenshotWindow, type Recording } from "./recorder.ts"
 import {
   appPages,
@@ -119,6 +119,129 @@ test("joins a running server: the board loads, openPanel shows a local page, ⌘
   await chrome.getByRole("button", { name: "Close panel" }).click()
   await expect(toolbar).toHaveAttribute("data-panel", "closed")
   expect((await views(app)).page.visible).toBe(false)
+})
+
+/**
+ * The board view is exactly the window's content area, and the web app inside fills it: the page
+ * doesn't scroll, Settings sits at the bottom of the sidebar, and the main panel reaches the bottom.
+ */
+async function expectBoardFills(app: ElectronApplication, board: Page) {
+  const content = await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.getContentBounds())
+  const { bounds } = (await views(app)).board
+  expect({ width: bounds.width, height: bounds.height }, "the board view covers the window").toEqual({ width: content.width, height: content.height })
+  // The page hears about its new size with a resize event; wait for that, not a timer.
+  await board.evaluate(
+    (height) =>
+      new Promise<void>((resolve) => {
+        const check = () => window.innerHeight === height && resolve()
+        window.addEventListener("resize", check)
+        check()
+      }),
+    content.height,
+  )
+  const fit = await board.evaluate(() => ({
+    height: window.innerHeight,
+    scrollHeight: document.documentElement.scrollHeight,
+    settings: document.querySelector('a[href="/settings"]')!.getBoundingClientRect().bottom,
+    main: document.querySelector("main")!.getBoundingClientRect().bottom,
+  }))
+  expect(fit.scrollHeight, "the page doesn't scroll").toBe(fit.height)
+  expect(fit.height - fit.main, "the main panel reaches the bottom, less its margin").toBe(8)
+  expect(fit.height - fit.settings, "Settings sits at the bottom of the sidebar").toBeLessThanOrEqual(16)
+}
+
+/** Resolves once the board has painted what's in the DOM now (two frames), so a capture shows it. */
+const painted = (board: Page) => board.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+
+/** Runs `change` on the main window and resolves on `event` (registered first, so a synchronous one isn't missed). */
+const windowChange = (app: ElectronApplication, event: "resize" | "enter-full-screen" | "leave-full-screen", change: "short" | "full" | "windowed") =>
+  app.evaluate(
+    ({ BaseWindow }, { event, change }) =>
+      new Promise<void>((resolve) => {
+        const window = BaseWindow.getAllWindows()[0]!
+        window.once(event as "resize", () => resolve())
+        if (change === "short") window.setContentSize(1440, 600)
+        else window.setFullScreen(change === "full")
+      }),
+    { event, change },
+  )
+
+test("CEL-25: the board fills the window with a wide board: in a short window, in full screen, and back", async ({}, testInfo) => {
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const server = await startCello(dataDir)
+  const app = await launchApp({ CELLO_PORT: String(server.port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-") })
+  const video = record(app, testInfo.title)
+  const { board } = await appPages(app, server.url)
+
+  await video.caption("A project with a full column: the board is wider than the window")
+  await board.getByRole("button", { name: "New project" }).first().click()
+  await board.getByLabel("Name").fill("Wide board")
+  await board.getByLabel("Key").fill("WIDE")
+  await board.getByRole("button", { name: "Create project" }).click()
+  await board.waitForURL(`${server.url}/WIDE/issues`)
+  for (let i = 1; i <= 16; i++) celloAsAgent(server.port, "task", "create", `Task ${i}`, "--project", "WIDE")
+  await expect(board.locator('[data-task-key="WIDE-16"]')).toBeVisible()
+  await expectBoardFills(app, board)
+
+  await video.caption("Make the window short: the board follows it")
+  await windowChange(app, "resize", "short")
+  await expectBoardFills(app, board)
+
+  await video.caption("Full screen: the board grows with the window, no grey band under it")
+  await windowChange(app, "enter-full-screen", "full")
+  await expectBoardFills(app, board)
+  await painted(board)
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "board-fills-full-screen.png"))
+
+  await video.caption("Leave full screen: the board shrinks back with the window")
+  await windowChange(app, "leave-full-screen", "windowed")
+  await expectBoardFills(app, board)
+})
+
+test("CEL-24: ⌘B in the board collapses the sidebar to a rail and expands it again; the app's menus don't take it", async ({}, testInfo) => {
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const server = await startCello(dataDir)
+  const app = await launchApp({ CELLO_PORT: String(server.port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-") })
+  const video = record(app, testInfo.title)
+  const { board } = await appPages(app, server.url)
+  const sidebar = board.getByRole("complementary", { name: "Sidebar" })
+  // ⌘ on a Mac, Ctrl elsewhere (the web app's "mod").
+  const mod = process.platform === "darwin" ? "meta" : "control"
+
+  await video.caption("A project on the board; the sidebar starts expanded")
+  await board.getByRole("button", { name: "New project" }).first().click()
+  await board.getByLabel("Name").fill("Sidebar")
+  await board.getByLabel("Key").fill("SIDE")
+  await board.getByRole("button", { name: "Create project" }).click()
+  await board.waitForURL(`${server.url}/SIDE/issues`)
+  celloAsAgent(server.port, "task", "create", "Collapse the sidebar with ⌘B", "--project", "SIDE")
+  await expect(board.locator('[data-task-key="SIDE-1"]')).toBeVisible()
+  await expect(sidebar).toHaveAttribute("data-sidebar", "expanded")
+  // No menu item claims ⌘B (⌘\ is the panel's), so the key reaches the board.
+  const accelerators = await app.evaluate(({ Menu }) => {
+    const all: string[] = []
+    const walk = (items: Electron.MenuItem[]) => {
+      for (const item of items) {
+        if (item.accelerator) all.push(item.accelerator)
+        if (item.submenu) walk(item.submenu.items)
+      }
+    }
+    walk(Menu.getApplicationMenu()?.items ?? [])
+    return all
+  })
+  // Every spelling Electron takes for ⌘B or Ctrl+B.
+  expect(accelerators.filter((a) => /^(cmdorctrl|commandorcontrol|cmd|command|ctrl|control|super|meta)\+b$/i.test(a.replace(/\s/g, "")))).toEqual([])
+
+  await video.caption("⌘B: the sidebar collapses to a rail of icons")
+  await pressKey(app, VIEW.board, "b", [mod])
+  await expect(sidebar).toHaveAttribute("data-sidebar", "rail")
+  await painted(board)
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "sidebar-rail.png"))
+
+  await video.caption("⌘B again: expanded")
+  await pressKey(app, VIEW.board, "b", [mod])
+  await expect(sidebar).toHaveAttribute("data-sidebar", "expanded")
+  await expectBoardFills(app, board)
 })
 
 test("CEL-12: evidence clicked on the board opens in the native panel, not the web viewer: the card's badge, then a packet link beside the task", async ({}, testInfo) => {

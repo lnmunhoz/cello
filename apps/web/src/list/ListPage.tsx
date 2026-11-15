@@ -58,7 +58,7 @@ function TaskList({ board, workspaceId, project, openNumber }: { board: BoardSta
   }
 
   return (
-    <div ref={listRef} data-layout="list" aria-label={`${project.name} list`} role="region" className="min-w-0 flex-1 overflow-y-auto px-3 pb-3">
+    <div ref={listRef} data-layout="list" aria-label={`${project.name} list`} role="region" className={`min-w-0 flex-1 overflow-y-auto px-3 pb-3 ${openNumber !== undefined ? "max-md:hidden" : ""}`}>
       {groups.map((group) => {
         const { status, tasks } = group
         const folded = collapsed(group)

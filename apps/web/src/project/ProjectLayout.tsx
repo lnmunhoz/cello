@@ -46,7 +46,8 @@ export function ProjectLayout() {
           ...last,
         ]}
       />
-      <div className="flex h-11 shrink-0 items-center gap-1 px-3">
+      {/* In a narrow window the tabs scroll sideways here instead of overflowing the main panel. */}
+      <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto px-3 [scrollbar-width:none]">
         <TabLink to="/$projectKey/overview" params={{ projectKey: project.key }}>
           Overview
         </TabLink>
