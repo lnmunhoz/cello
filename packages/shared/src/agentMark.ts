@@ -6,8 +6,11 @@
 
 /** The icon's coordinates (its 1024 canvas): the tip, and the circle the body is round around. */
 export const AGENT_TIP = { x: 205, y: 185 } as const
-const CENTER = { x: 575, y: 570 } as const
-const RADIUS = 270
+/** The circle the body is round around; the eyes sit across its centre line. */
+export const AGENT_CENTER = { x: 575, y: 570 } as const
+export const AGENT_RADIUS = 270
+const CENTER = AGENT_CENTER
+const RADIUS = AGENT_RADIUS
 
 const f = (n: number) => +n.toFixed(1)
 
@@ -27,6 +30,37 @@ export const AGENT_BODY = teardrop(AGENT_TIP, CENTER, RADIUS)
 
 /** The two eyes: pills of 80 × 124, side by side across the circle's centre line. */
 export const AGENT_EYES = [CENTER.x - 65, CENTER.x + 65].map((cx) => ({ x: cx - 40, y: CENTER.y + 5 - 62, w: 80, h: 124 }))
+
+/**
+ * The body as a spinner (CEL-69, the Working state): the same circle with its tip pulled in along the
+ * same axis, to 79% of the way out, so it turns like a spinner's head without sweeping far past the mark.
+ */
+export const AGENT_SPINNER_BODY = teardrop(
+  { x: f(CENTER.x + (AGENT_TIP.x - CENTER.x) * 0.79), y: f(CENTER.y + (AGENT_TIP.y - CENTER.y) * 0.79) },
+  CENTER,
+  RADIUS,
+)
+
+/** Happy eyes (Done, Merged): an arch over each pill, as wide as it, drawn as a round-capped stroke. */
+export const AGENT_HAPPY_EYES = AGENT_EYES.map((e) => {
+  const base = CENTER.y + 34
+  return `M${e.x - 2} ${base} Q${e.x + e.w / 2} ${base - 78} ${e.x + e.w + 2} ${base}`
+}).join(" ")
+/** The happy eyes' stroke width, in the icon's units: the icon's thinnest line (docs/specs/app-icon), so it holds at 16 px. */
+export const AGENT_HAPPY_STROKE = 64
+
+/**
+ * The square the animated mark draws in, in the icon's coordinates: tight round the body (tip to the
+ * far side of the circle), so a mark sized like a 16 px icon is the body at about that size and lines
+ * up with the text beside it. Motion (a hop, a spinning tip, a ring) spills outside it.
+ */
+export const AGENT_FRAME = { x: 190, y: 178, size: 670 } as const
+
+/** A point of the icon as a percentage of AGENT_FRAME: what CSS transform origins and translations use. */
+export const agentFramePoint = (p: { readonly x: number; readonly y: number }) => ({
+  x: +(((p.x - AGENT_FRAME.x) / AGENT_FRAME.size) * 100).toFixed(2),
+  y: +(((p.y - AGENT_FRAME.y) / AGENT_FRAME.size) * 100).toFixed(2),
+})
 
 /** The mark's own box in the icon's coordinates: the body's bounds, plus room for an outline. */
 const PAD = 56

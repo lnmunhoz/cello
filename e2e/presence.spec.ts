@@ -4,13 +4,9 @@
 import { spawnSync } from "node:child_process"
 import * as path from "node:path"
 import type { Page } from "@playwright/test"
-import { newCommandId, openClient, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
-import { caption, card, column, defaultWorkspace, expect, seedProject, taskPanel, test, uniqueKey } from "./fixtures.ts"
+import { newCommandId, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
+import { agentAs, caption, card, column, defaultWorkspace, expect, seedProject, taskPanel, test, uniqueKey } from "./fixtures.ts"
 import { SHOTS } from "./packets.ts"
-
-/** An agent session over RPC, as the CLI would call: its session id, and its process's pid. */
-const agentAs = (baseURL: string, session: string, pid: number) =>
-  openClient(`${baseURL.replace(/^http/, "ws")}/rpc`, { "x-cello-session": session, "x-cello-client": "Claude Code", "x-cello-pid": String(pid) })
 
 const display = (page: Page) => page.getByRole("button", { name: /^Display/ })
 
@@ -45,7 +41,7 @@ test.beforeEach(async ({ context }) => {
   })
 })
 
-test("CEL-5, CEL-35: an agent claims, checks in and moves through the stages: card, panel and sidebar follow live; an ended session comes back with one ripple", async ({ page, cello, baseURL }) => {
+test("CEL-5, CEL-35: an agent claims, checks in and moves through the stages: card, panel and sidebar follow live; an ended session comes back to life", async ({ page, cello, baseURL }) => {
   // The server's sweep notices an exited process within 30 s: this test waits for it once.
   test.setTimeout(Math.max(test.info().timeout, 90_000))
   const { key, keys } = await seed(cello, "WHO", ["Presence on cards", "Restore asks before overwriting"])
@@ -95,16 +91,14 @@ test("CEL-5, CEL-35: an agent claims, checks in and moves through the stages: ca
 
   await caption(page, "Within 30 s the server notices the process is gone: the card says ended, in grey, with no reload")
   await expect(secondCard.locator("[data-card-work]")).toContainText("c1d2e3f4 ended", { timeout: 45_000 })
-  await expect(secondCard.locator('[data-presence="ended"]')).toBeVisible()
-  await expect(secondCard.locator("[data-ripple]")).toHaveCount(0)
+  // CEL-69: the card's agent mark keeps still once its session has ended.
+  await expect(secondCard.locator('[data-presence="ended"]')).toHaveAttribute("data-agent-mood", "still")
 
-  await caption(page, "The session is resumed with a new process and calls Cello: active again, with one ripple from its dot")
+  await caption(page, "The session is resumed with a new process and calls Cello: active again, its agent thinking (no stage yet)")
   const resumed = await agentAs(baseURL!, "c1d2e3f4-presence-gone", process.pid)
   await resumed.run((c) => c["whoami"]({ project: {} }))
   await expect(secondCard.locator("[data-card-work]")).toContainText("c1d2e3f4 active now")
-  await expect(secondCard.locator("[data-ripple]")).toHaveCount(1)
-  // One ripple, not a loop: it plays once.
-  await expect(secondCard.locator("[data-ripple]")).toHaveCSS("animation-iteration-count", "1")
+  await expect(secondCard.locator('[data-presence="active"]')).toHaveAttribute("data-agent-mood", "thinking")
 
   await live.run((c) => c["task.release"]({ commandId: newCommandId(), key: first }))
   await resumed.run((c) => c["task.release"]({ commandId: newCommandId(), key: second }))

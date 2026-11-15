@@ -1,0 +1,345 @@
+/*
+ * The agent mark's states (CEL-69), for ./AgentMark.tsx. The mark is a stack of spans, each holding one
+ * small SVG, so every moving part is an HTML box the compositor can move on its own: rig (hops) >
+ * squash (scales on the floor) > tilt (leans) > body (spins) + face (eyes look about) > eyes (blink).
+ * Only transform and opacity are animated (a test checks), so a board full of working agents costs the
+ * main thread nothing per frame. Loops run only while the mark is in a looping mood; entries
+ * (`data-play`) run once. Points come from @cello/shared/agentMark as percentages of AGENT_FRAME
+ * (agentFramePoint, checked by the test); one icon unit is 0.149% of the mark.
+ */
+.agent-mark {
+  --am-cx: 57.46%;
+  --am-cy: 58.51%;
+  --am-eyes-y: 59.25%;
+  --am-floor: 98.81%;
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.agent-mark span {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.agent-mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.am-body,
+.am-tilt,
+.am-face,
+.am-ring {
+  transform-origin: var(--am-cx) var(--am-cy);
+}
+.am-squash {
+  transform-origin: var(--am-cx) var(--am-floor);
+}
+.am-eyes,
+.am-happy {
+  transform-origin: var(--am-cx) var(--am-eyes-y);
+}
+.am-body path {
+  fill: var(--agent-body, currentColor);
+}
+.am-eyes svg {
+  fill: var(--agent-eye, var(--surface));
+}
+.am-happy path {
+  fill: none;
+  stroke: var(--agent-eye, var(--surface));
+  stroke-linecap: round;
+}
+.am-ring {
+  opacity: 0;
+}
+.am-ring circle {
+  fill: none;
+  stroke: var(--agent-body, currentColor);
+}
+.am-happy {
+  opacity: 0;
+}
+/* Each eye's pose (narrowed, slanted, wide) turns about its own middle. Static: poses never animate. */
+.am-pose {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Working: the tip spins round the body like a spinner; the eyes, narrowed, follow the tip. */
+.agent-mark[data-agent-mood="working"] .am-body {
+  animation: agent-spin 1.4s linear infinite;
+}
+.agent-mark[data-agent-mood="working"] .am-face {
+  animation: agent-follow 1.4s linear infinite;
+}
+.agent-mark[data-agent-mood="working"] .am-pose {
+  transform: scaleY(0.8);
+}
+@keyframes agent-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes agent-follow {
+  0%,
+  100% {
+    transform: translate(-3.13%, -3.28%);
+  }
+  12.5% {
+    transform: translate(0, -4.48%);
+  }
+  25% {
+    transform: translate(3.28%, -3.13%);
+  }
+  37.5% {
+    transform: translate(4.48%, 0);
+  }
+  50% {
+    transform: translate(3.13%, 3.28%);
+  }
+  62.5% {
+    transform: translate(0, 4.48%);
+  }
+  75% {
+    transform: translate(-3.28%, 3.13%);
+  }
+  87.5% {
+    transform: translate(-4.48%, 0);
+  }
+}
+
+/* Thinking: leans back, the eyes slant up toward the tip and drift, a blink now and then. */
+.agent-mark[data-agent-mood="thinking"] .am-tilt {
+  animation: agent-think-tilt 2.2s ease-in-out infinite alternate;
+}
+.agent-mark[data-agent-mood="thinking"] .am-face {
+  animation: agent-think-face 2.6s ease-in-out infinite alternate;
+}
+.agent-mark[data-agent-mood="thinking"] .am-eyes {
+  animation: agent-blink 5s 1s infinite;
+}
+.agent-mark[data-agent-mood="thinking"] .am-pose {
+  transform: skewX(-14deg) scaleY(0.88);
+}
+@keyframes agent-think-tilt {
+  from {
+    transform: rotate(-12deg);
+  }
+  to {
+    transform: rotate(-6deg);
+  }
+}
+@keyframes agent-think-face {
+  from {
+    transform: translate(-6.57%, -8.96%);
+  }
+  to {
+    transform: translate(-3.28%, -9.55%);
+  }
+}
+@keyframes agent-blink {
+  0%,
+  90%,
+  100% {
+    transform: scaleY(1);
+  }
+  93% {
+    transform: scaleY(0.1);
+  }
+}
+
+/* Needs input: big eyes looking up at you. Arriving, it hops twice and a ring goes out, once. */
+.agent-mark[data-agent-mood="waiting"] .am-face {
+  transform: translate(0, -3.88%);
+}
+.agent-mark[data-agent-mood="waiting"] .am-pose {
+  transform: scale(1.12);
+}
+.agent-mark[data-agent-mood="waiting"][data-play] .am-rig {
+  animation: agent-hop 1s cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+.agent-mark[data-agent-mood="waiting"][data-play] .am-squash {
+  animation: agent-hop-squash 1s;
+}
+.agent-mark[data-agent-mood="waiting"][data-play] .am-ring {
+  animation: agent-ring 1.2s ease-out;
+}
+@keyframes agent-hop {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+  }
+  22% {
+    transform: translateY(-14%);
+  }
+  44% {
+    transform: translateY(0);
+  }
+  62% {
+    transform: translateY(-7%);
+  }
+}
+@keyframes agent-hop-squash {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  12% {
+    transform: scale(0.94, 1.08);
+  }
+  44% {
+    transform: scale(1.1, 0.9);
+  }
+  54% {
+    transform: scale(1, 1);
+  }
+  80% {
+    transform: scale(1.06, 0.94);
+  }
+}
+@keyframes agent-ring {
+  0% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.55);
+  }
+}
+
+/*
+ * Done (after ElevenLabs' take): it squashes into a pancake, springs up stretched and leaning with happy
+ * arches for eyes, lands with a squash, wobbles side to side as it settles, then its eyes come back and
+ * blink. Once; at rest it's the still mark.
+ */
+.agent-mark[data-agent-mood="done"][data-play] .am-rig {
+  animation: agent-done-rig 1.9s ease-in-out;
+}
+.agent-mark[data-agent-mood="done"][data-play] .am-squash {
+  animation: agent-done-squash 1.9s ease-in-out;
+}
+.agent-mark[data-agent-mood="done"][data-play] .am-eyes {
+  animation: agent-done-eyes 1.9s linear;
+}
+.agent-mark[data-agent-mood="done"][data-play] .am-happy {
+  animation: agent-done-happy 1.9s linear;
+}
+@keyframes agent-done-rig {
+  0%,
+  24% {
+    transform: translateY(0);
+  }
+  34% {
+    transform: translateY(-24%);
+  }
+  42% {
+    transform: translateY(-27%);
+  }
+  48% {
+    transform: translateY(-16%);
+  }
+  54%,
+  100% {
+    transform: translateY(0);
+  }
+}
+@keyframes agent-done-squash {
+  0% {
+    transform: rotate(0) scale(1, 1);
+  }
+  14%,
+  24% {
+    transform: rotate(0) scale(1.45, 0.45);
+  }
+  32% {
+    transform: rotate(-10deg) scale(0.82, 1.22);
+  }
+  44% {
+    transform: rotate(-6deg) scale(0.95, 1.05);
+  }
+  54% {
+    transform: rotate(0) scale(1.18, 0.84);
+  }
+  61% {
+    transform: rotate(6deg) scale(0.97, 1.03);
+  }
+  69% {
+    transform: rotate(-4.5deg) scale(1, 1);
+  }
+  77% {
+    transform: rotate(2.5deg) scale(1, 1);
+  }
+  85% {
+    transform: rotate(-1deg) scale(1, 1);
+  }
+  91%,
+  100% {
+    transform: rotate(0) scale(1, 1);
+  }
+}
+/* Each property eases between the keyframes that name it: the pills hide while airborne, then blink. */
+@keyframes agent-done-eyes {
+  0% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+  28% {
+    opacity: 1;
+  }
+  30%,
+  80% {
+    opacity: 0;
+  }
+  82% {
+    opacity: 1;
+  }
+  88% {
+    transform: scaleY(1);
+  }
+  92% {
+    transform: scaleY(0.1);
+  }
+  96%,
+  100% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+@keyframes agent-done-happy {
+  0%,
+  28% {
+    opacity: 0;
+  }
+  30%,
+  80% {
+    opacity: 1;
+  }
+  82%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Merged: happy arches for eyes, still. */
+.agent-mark[data-agent-mood="merged"] .am-eyes {
+  opacity: 0;
+}
+.agent-mark[data-agent-mood="merged"] .am-happy {
+  opacity: 1;
+}
+
+/*
+ * Reduced motion: nothing moves. Every animation runs once for 1 ms and ends where it started (no fill),
+ * which also ends an entry at once, so a card waiting for Done to finish moves on.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .agent-mark span {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+  }
+}
