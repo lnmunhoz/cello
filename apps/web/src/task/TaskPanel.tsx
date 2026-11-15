@@ -9,33 +9,49 @@ import { useShortcut, useShortcutHint } from "@ui-sdk/react/shortcuts"
 import { ChevronRightIcon, Maximize2Icon, Minimize2Icon, MoreHorizontalIcon, XIcon } from "lucide-react"
 import { useState } from "react"
 import { Centered } from "../app/Home.tsx"
+import { NARROW_WIDTH } from "../app/sidebarState.ts"
 import { Button } from "../components/ui/Button.tsx"
 import { Input, Textarea } from "../components/ui/Input.tsx"
 import { Markdown } from "../components/ui/Markdown.tsx"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.tsx"
 import { PRIORITY_LABELS, PriorityIcon } from "../components/ui/PriorityIcon.tsx"
+import { ResizeHandle } from "../components/ui/ResizeHandle.tsx"
 import { Select } from "../components/ui/Select.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "../components/ui/Tabs.tsx"
 import { commands } from "../lib/cello.ts"
 import { SAVES_ON_BLUR } from "../lib/editing.ts"
+import { useMediaQuery } from "../lib/hooks.ts"
 import { EarlierReviews, PinnedReview } from "../review/TaskReviews.tsx"
 import { EarlierAsks, PinnedAsk } from "../ask/TaskAsks.tsx"
 import { useViewerItem } from "../viewer/store.ts"
 import { Comments } from "./Comments.tsx"
 import { History } from "./History.tsx"
 import { TaskPages } from "./TaskPages.tsx"
-import { searchForView, TASK_VIEW_SHORTCUT, taskViewOf, toggledView, type TaskSearch, type TaskView } from "./view.ts"
+import { searchForView, TASK_PANEL_WIDTH, TASK_VIEW_SHORTCUT, taskPlacement, taskViewOf, toggledView, type TaskSearch, type TaskView } from "./view.ts"
 
 /** How the open task shows (`?view=full`, view.ts); the board and the list hide behind a full page. */
 export const useTaskView = (): TaskView => taskViewOf(useSearch({ strict: false }) as TaskSearch)
 
 /**
- * The open task: a side panel beside the board, or, expanded, a full page in the main area, where the
- * open packet has room for its two columns. Expand and collapse sit left of the ••• menu; F toggles,
- * and Esc on the full page goes back to the panel.
+ * The open task: a side panel docked on the right of the main area at full height, `width` wide and
+ * resized by its left edge, or, expanded, a full page under the tabs, where the open packet has room
+ * for its two columns. project/ProjectLayout.tsx places it in its grid. Expand and collapse sit left
+ * of the ••• menu; F toggles, and Esc on the full page goes back to the panel.
  */
-export function TaskPanel({ board, project, number }: { board: BoardState; project: Project; number: number }) {
+export function TaskPanel({
+  board,
+  project,
+  number,
+  width,
+  onResize,
+}: {
+  board: BoardState
+  project: Project
+  number: number
+  width: number
+  onResize: (width: number, persist: boolean) => void
+}) {
   const task = taskByKey(board, project.key, number)
   const parent = task?.parentId ? board.tasks[task.parentId] : undefined
   const navigate = useNavigate()
@@ -44,6 +60,9 @@ export function TaskPanel({ board, project, number }: { board: BoardState; proje
   // Beside the board, the viewer takes this panel's place while it's open; the panel stays mounted
   // (scroll, drafts) and comes back as it was. A full page keeps its place, the viewer beside it.
   const covered = useViewerItem() !== null
+  const placement = taskPlacement(true, view, covered)
+  // Below 768 px the panel takes the board's place, so there's no edge to drag.
+  const narrow = useMediaQuery(`(max-width: ${NARROW_WIDTH - 1}px)`)
   const close = () => void navigate({ to: "/$projectKey/issues", params: { projectKey: project.key } })
   const show = (next: TaskView) =>
     void navigate({ to: "/$projectKey/$number", params: { projectKey: project.key, number: String(number) }, search: (prev) => ({ ...prev, ...searchForView(next) }) })
@@ -52,14 +71,15 @@ export function TaskPanel({ board, project, number }: { board: BoardState; proje
   useShortcut(full ? "escape" : null, () => show("panel"), { when: () => !covered, description: "Back to the board with the side panel" })
   return (
     <aside
-      hidden={covered && !full}
+      hidden={placement === "covered"}
       aria-label={task ? `${task.key} details` : "Task details"}
       data-view={view}
-      className={`flex min-w-0 flex-col bg-surface ${full ? "flex-1" : "w-[560px] border-l border-line"}`}
+      className={`relative col-start-1 row-start-3 flex min-h-0 min-w-0 flex-col bg-surface ${full ? "" : "border-line md:col-start-2 md:row-span-full md:border-l"}`}
       onKeyDown={(e) => {
         if (e.key === "Escape" && e.target === e.currentTarget && !full) close()
       }}
     >
+      {placement === "side" && !narrow ? <ResizeHandle edge="left" label="Resize task panel" rule={TASK_PANEL_WIDTH} width={width} onResize={onResize} /> : null}
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line px-4">
         <span className="flex min-w-0 items-center gap-1 text-[13px] font-medium text-muted">
           {parent ? (
