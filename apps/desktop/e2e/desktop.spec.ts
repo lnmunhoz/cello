@@ -150,6 +150,9 @@ async function expectBoardFills(app: ElectronApplication, board: Page) {
   expect(fit.height - fit.settings, "Settings sits at the bottom of the sidebar").toBeLessThanOrEqual(16)
 }
 
+/** Resolves once the board has painted what's in the DOM now (two frames), so a capture shows it. */
+const painted = (board: Page) => board.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+
 /** Runs `change` on the main window and resolves on `event` (registered first, so a synchronous one isn't missed). */
 const windowChange = (app: ElectronApplication, event: "resize" | "enter-full-screen" | "leave-full-screen", change: "short" | "full" | "windowed") =>
   app.evaluate(
@@ -187,6 +190,7 @@ test("CEL-25: the board fills the window with a wide board: in a short window, i
   await video.caption("Full screen: the board grows with the window, no grey band under it")
   await windowChange(app, "enter-full-screen", "full")
   await expectBoardFills(app, board)
+  await painted(board)
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "board-fills-full-screen.png"))
 
   await video.caption("Leave full screen: the board shrinks back with the window")
@@ -231,6 +235,7 @@ test("CEL-24: ⌘B in the board collapses the sidebar to a rail and expands it a
   await video.caption("⌘B: the sidebar collapses to a rail of icons")
   await pressKey(app, VIEW.board, "b", [mod])
   await expect(sidebar).toHaveAttribute("data-sidebar", "rail")
+  await painted(board)
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "sidebar-rail.png"))
 
   await video.caption("⌘B again: expanded")
