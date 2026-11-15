@@ -1,30 +1,17 @@
 import { useState } from "react"
 import { dragWidth, keyWidth, readWidth, type Edge, type WidthRule } from "../../lib/resize.ts"
+import { readStored, writeStored } from "../../lib/storage.ts"
 import { variants } from "./variants.ts"
-
-const load = (key: string, rule: WidthRule) => {
-  try {
-    return readWidth(localStorage.getItem(key), rule)
-  } catch {
-    return rule.initial
-  }
-}
-
-const save = (key: string, width: number) => {
-  try {
-    localStorage.setItem(key, String(width))
-  } catch {}
-}
 
 /**
  * A panel's width that the person resizes, remembered on this device under `key`. The setter saves
  * when asked (at the end of a drag, on a key press), not on every move.
  */
 export function useStoredWidth(key: string, rule: WidthRule): readonly [number, (width: number, persist: boolean) => void] {
-  const [width, setWidth] = useState(() => load(key, rule))
+  const [width, setWidth] = useState(() => readWidth(readStored(key), rule))
   const resize = (next: number, persist: boolean) => {
     setWidth(next)
-    if (persist) save(key, next)
+    if (persist) writeStored(key, String(next))
   }
   return [width, resize]
 }
