@@ -62,7 +62,7 @@ The session running the work (the orchestrator) claims the task, then (the whole
    - Reviewers run only the tests the change touches. The orchestrator runs the whole suite at merge.
 3. **Fix.** Findings go back to the same builder agent, so it keeps its context. Only blockers get a re-check, by the same reviewer resumed. If one round of fixes doesn't settle a blocker, or it's a design question the task doesn't answer, ask Lucas. Comment the review's result on the card.
 4. **Merge.** The orchestrator merges into main (`merge: <what> (CEL-n)`) and runs the whole suite (unit, integration, typecheck, e2e). If the server or web app changed, it rebuilds `cello` and restarts the live server, backing up first when a migration ships.
-5. **Submit.** `cello task submit` with the evidence, recorded once, at the end, in review mode. The summary says what the review found and what was fixed, and which models built and reviewed it.
+5. **Submit, right after the merge.** Don't batch merges or hold packets for a later deploy: deploying takes under a minute, and a merged task left in In Progress looks stuck on the board. `cello task submit` with the evidence, recorded once, at the end, in review mode. The summary says what the review found and what was fixed, and which models built and reviewed it.
 
 Small changes (docs, a one-line fix) skip steps 1–3: the orchestrator makes them directly, still test first. Later, these roles move into Cello itself (CEL-28).
 
