@@ -1,14 +1,12 @@
 import { describe, expect, it, vi } from "vitest"
 import type { CelloDesktop } from "../lib/desktop.ts"
+import { clampWidth, readWidth } from "../lib/resize.ts"
 import {
-  clampWidth,
-  dragWidth,
   frameSrc,
   isEmbedded,
   isPlainClick,
   nextFrameState,
   openTarget,
-  readWidth,
   refusesFraming,
   toViewerItem,
   VIEWER_WIDTH,
@@ -149,25 +147,14 @@ describe("isPlainClick: a plain click opens the viewer; a modified one does what
   })
 })
 
-describe("the viewer's width", () => {
+describe("the viewer's width (the rules are lib/resize.ts's)", () => {
   it("starts as wide as the task panel, so the board keeps its width when one replaces the other", () => {
-    expect(VIEWER_WIDTH.initial).toBe(560)
-    expect(readWidth(null)).toBe(560)
-    expect(readWidth("abc")).toBe(560)
-    expect(readWidth("720")).toBe(720)
+    expect(readWidth(null, VIEWER_WIDTH)).toBe(560)
   })
 
-  it("stays between its minimum and what leaves the page beside it usable", () => {
-    expect(clampWidth(700, 1200)).toBe(700)
-    expect(clampWidth(100, 1200)).toBe(VIEWER_WIDTH.min)
-    expect(clampWidth(1100, 1200)).toBe(1200 - VIEWER_WIDTH.minPage)
-    expect(clampWidth(500, 500)).toBe(VIEWER_WIDTH.min)
-  })
-
-  it("dragging its left edge left makes it wider", () => {
-    expect(dragWidth({ width: 560, x: 800 }, 600, 1200)).toBe(760)
-    expect(dragWidth({ width: 560, x: 800 }, 900, 1200)).toBe(460)
-    expect(dragWidth({ width: 560, x: 800 }, 0, 1200)).toBe(1200 - VIEWER_WIDTH.minPage)
+  it("stays between 320px and what leaves 360px for the page beside it", () => {
+    expect(clampWidth(100, VIEWER_WIDTH, 1200)).toBe(320)
+    expect(clampWidth(1100, VIEWER_WIDTH, 1200)).toBe(1200 - 360)
   })
 })
 
