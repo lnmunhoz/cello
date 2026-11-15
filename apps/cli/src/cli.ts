@@ -65,15 +65,16 @@ import {
   parseHookInput,
   subagentContext,
 } from "./claudeHook.ts"
+import { CLAUDE_PLUGIN_FILES, pluginFolder, writePluginFolder } from "./claudePlugin.ts"
 import {
-  addCelloHooks,
   celloHooksFor,
   ensureGitIgnored,
   formatSettings,
+  installCello,
   type Merged,
   readSettingsFile,
-  removeCelloHooks,
   settingsPaths,
+  uninstallCello,
   writeFileAtomically,
 } from "./claudeSettings.ts"
 import { CliEnv, dataDirOf, portOf } from "./env.ts"
@@ -1484,74 +1485,134 @@ const claudeSettings = Effect.gen(function* () {
   return { projectRoot, paths: settingsPaths({ projectRoot: projectRoot ?? cwd, home: env.HOME }) }
 })
 
-/** Reads a settings file, changes it with `change`, and replaces it atomically (old bytes in .bak) if anything changed. */
-const updateSettings = (file: string, change: (settings: unknown) => Merged) =>
+/** Reads a settings file and works out `change` without writing anything, so a refusal comes before any file is touched. */
+const planSettings = <M extends Merged>(file: string, change: (settings: unknown) => M) =>
   Effect.gen(function* () {
     const refused = (e: unknown) => new CliFailure({ message: `Can't update ${file}: ${(e as Error).message}. Fix it first; Cello won't overwrite it.` })
     const current = yield* Effect.try({ try: () => readSettingsFile(file), catch: refused })
     const merged = yield* Effect.try({ try: () => change(current.settings), catch: refused })
-    if (!merged.changed) return { changed: false, backup: null }
+    return { file, merged, format: current.format }
+  })
+
+/** Writes a planned change, if it changes anything, atomically (old bytes in .bak). */
+const writeSettings = <M extends Merged>(plan: Effect.Success<ReturnType<typeof planSettings<M>>>) =>
+  Effect.gen(function* () {
+    const { file, merged, format } = plan
+    if (!merged.changed) return { merged, backup: null }
     const written = yield* Effect.try({
-      try: () => writeFileAtomically(file, formatSettings(merged.settings, current.format)),
+      try: () => writeFileAtomically(file, formatSettings(merged.settings, format)),
       catch: (e) => new CliFailure({ message: `Can't write ${file}: ${(e as Error).message}.` }),
     })
-    return { changed: true, backup: written.backup }
+    return { merged, backup: written.backup }
   })
+
+/** Reads a settings file, changes it with `change`, and replaces it atomically (old bytes in .bak) if anything changed. */
+const updateSettings = <M extends Merged>(file: string, change: (settings: unknown) => M) =>
+  Effect.flatMap(planSettings(file, change), writeSettings)
 
 /** What git runs with when it checks ignores: HOME (and XDG_CONFIG_HOME) decide the user's global excludes. */
 const gitEnv = (env: Env) =>
   Object.fromEntries(Object.entries({ PATH: process.env.PATH, HOME: env.HOME, XDG_CONFIG_HOME: env.XDG_CONFIG_HOME }).filter(([, v]) => v !== undefined))
 
+/** What the plugin gives a session, said after installing or updating it. */
+const PLUGIN_GIVES =
+  "The plugin gives new sessions /cello:orchestrate (run tasks through builder and reviewer agents), /cello:work (do one task in this thread) and the cello skill."
+
 /**
- * `cello install claude`'s work, also run by `cello init --hooks`: Cello's hooks merged into the
- * scope's settings file and, for this machine's file, git told to ignore it. Returns what it did and
- * the lines that say so.
+ * `cello install claude`'s work, also run by `cello init --hooks`: writes Cello's Claude Code plugin to
+ * its folder (pluginFolder), then merges Cello's hooks and the plugin's two settings into the scope's
+ * settings file and, for this machine's file, tells git to ignore it. With --shared the marketplace (a
+ * folder on this machine) goes into this machine's file instead, and only the enabling is committed.
+ * Returns what it did and the lines that say so.
  */
 const installHooks = (scope: keyof typeof SCOPES) =>
   Effect.gen(function* () {
     const { env } = yield* CliEnv
     const { projectRoot, paths } = yield* claudeSettings
     const file = paths[scope]
-    if (file === null) return yield* new CliFailure({ message: "HOME isn't set, so there's no ~/.claude/settings.json to write." })
+    const folder = pluginFolder(env)
+    if (file === null || folder === null) return yield* new CliFailure({ message: "HOME isn't set, so there's no ~/.claude/settings.json to write." })
+    if (insideAny(folder, [dataDirOf(env)])) {
+      return yield* new CliFailure({ message: `The plugin's folder ${folder} is inside Cello's data folder; set XDG_DATA_HOME to somewhere else.` })
+    }
     // The artifact guard is for Cello projects, so the user's settings (every project) don't get it.
     const wanted = celloHooksFor(scope === "user" ? "user" : "project")
-    const { changed, backup } = yield* updateSettings(file, (settings) => addCelloHooks(settings, wanted))
-    const ignored = scope === "local" && projectRoot !== null ? ensureGitIgnored(projectRoot, ".claude/settings.local.json", gitEnv(env)) : null
-    const ignoredLine = ignored ? [`Added .claude/settings.local.json to ${ignored}, so it stays on this machine.`] : []
-    if (!changed) return { file, changed, lines: [`Cello's Claude Code hooks are already in ${file}.`, ...ignoredLine] }
+    // Both settings files are read and checked before anything is written: with --shared, a refusal on
+    // this machine's file must not leave the committed one enabling cello@cello.
+    const mainPlan = yield* planSettings(file, (settings) =>
+      installCello(settings, { hooks: wanted, plugin: { folder, declare: scope !== "shared", enable: true } }))
+    const localPlan = scope === "shared"
+      ? yield* planSettings(paths.local, (settings) => installCello(settings, { hooks: [], plugin: { folder, declare: true, enable: false } }))
+      : null
+    // Then the plugin's files, so the settings never point at a folder that isn't there; then the
+    // marketplace before the file that enables it.
+    const files = yield* Effect.try({
+      try: () => writePluginFolder(folder, CLAUDE_PLUGIN_FILES),
+      catch: (e) => new CliFailure({ message: `Can't write Cello's Claude Code plugin to ${folder}: ${(e as Error).message}.` }),
+    })
+    const local = localPlan === null ? null : yield* writeSettings(localPlan)
+    const main = yield* writeSettings(mainPlan)
+    const { hooks: hooksChanged, plugin: enabled, off } = main.merged
+    const pluginChanged = !off && (enabled || files.changed || (local?.merged.changed ?? false))
+    const ignored = (scope === "local" || local !== null) && projectRoot !== null
+      ? ensureGitIgnored(projectRoot, ".claude/settings.local.json", gitEnv(env))
+      : null
     const lines = [
-      `Installed Cello's Claude Code hooks in ${file} (${SCOPES[scope]}):`,
-      ...indent(columns(wanted.map((h) => [h.event, h.command]))),
-      ...ignoredLine,
-      ...(backup ? [`Kept the old file as ${backup}.`] : []),
-      "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
-      "The board names each subagent working under a session (a builder, a reviewer) and the task it was launched on: it hears them start, work and finish.",
-      ...(wanted.some((h) => h.projectOnly)
+      ...(hooksChanged
+        ? [`Installed Cello's Claude Code hooks in ${file} (${SCOPES[scope]}):`, ...indent(columns(wanted.map((h) => [h.event, h.command])))]
+        : [`Cello's Claude Code hooks are already in ${file}.`]),
+      off
+        ? `Cello's Claude Code plugin is turned off in ${file} ("cello@cello": false), so Cello left it off; its files in ${folder} are ` +
+          `${files.changed ? "updated" : "current"}. Set it to true, or delete that line, to turn it on.`
+        : enabled
+        ? `Enabled Cello's Claude Code plugin in ${file}; its files are in ${folder}.`
+        : pluginChanged
+        ? `Updated Cello's Claude Code plugin in ${folder}; it's already enabled in ${file}.`
+        : `Cello's Claude Code plugin is already enabled in ${file}, and its files in ${folder} are current.`,
+      ...(local?.merged.changed
         ? [
-          "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. " +
-          `Start Claude Code with ${ALLOW_ARTIFACTS_VARIABLE}=1 when you want one.`,
-          "Agents here can't edit files in the repo until their session has claimed a Cello task: they're told to create or claim one first. " +
-          `Start Claude Code with ${ALLOW_UNTRACKED_VARIABLE}=1 to turn that off.`,
+          `Its marketplace is a folder on this machine, so it's declared in ${paths.local}, which isn't committed: ` +
+          "others who clone the repo get the plugin once they run `cello install claude` themselves.",
         ]
         : []),
-      "New Claude Code sessions pick them up.",
+      ...(ignored ? [`Added .claude/settings.local.json to ${ignored}, so it stays on this machine.`] : []),
+      ...[main.backup, local?.backup].flatMap((backup) => (backup ? [`Kept the old file as ${backup}.`] : [])),
+      ...(hooksChanged
+        ? [
+          "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
+          "The board names each subagent working under a session (a builder, a reviewer) and the task it was launched on: it hears them start, work and finish.",
+          ...(wanted.some((h) => h.projectOnly)
+            ? [
+              "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. " +
+              `Start Claude Code with ${ALLOW_ARTIFACTS_VARIABLE}=1 when you want one.`,
+              "Agents here can't edit files in the repo until their session has claimed a Cello task: they're told to create or claim one first. " +
+              `Start Claude Code with ${ALLOW_UNTRACKED_VARIABLE}=1 to turn that off.`,
+            ]
+            : []),
+        ]
+        : []),
+      ...(pluginChanged ? [PLUGIN_GIVES] : []),
+      ...(hooksChanged || pluginChanged ? ["New Claude Code sessions pick them up."] : []),
     ]
-    if (Bun.which("cello", { PATH: env.PATH ?? "" }) === null) {
+    if (hooksChanged && Bun.which("cello", { PATH: env.PATH ?? "" }) === null) {
       lines.push(
         "`cello` isn't on your PATH, so Claude Code can't run the hooks. Put the cello binary on the PATH Claude Code starts with (e.g. ~/.local/bin).",
       )
     }
-    return { file, changed, lines }
+    return { file, changed: main.merged.changed || pluginChanged, pluginFolder: folder, lines }
   })
 
 const installClaude = Command.make("claude", {
   user: Flag.Boolean("user").pipe(
     Flag.withDefault(false),
-    Flag.withDescription("Write ~/.claude/settings.json instead: every project on this machine."),
+    Flag.withDescription("Write ~/.claude/settings.json instead: every project on this machine gets the comment hooks (not the guards) and the plugin."),
   ),
   shared: Flag.Boolean("shared").pipe(
     Flag.withDefault(false),
-    Flag.withDescription("Write this project's .claude/settings.json instead, committed with the repo: everyone who clones it gets the hooks and needs cello."),
+    Flag.withDescription(
+      "Write this project's .claude/settings.json instead, committed with the repo: everyone who clones it gets the hooks and needs cello. " +
+        "The plugin is enabled there too; its marketplace, a folder on this machine, goes into .claude/settings.local.json.",
+    ),
   ),
 }, (input) =>
   Effect.gen(function* () {
@@ -1563,24 +1624,39 @@ const installClaude = Command.make("claude", {
     const { lines } = yield* installHooks(input.user ? "user" : input.shared ? "shared" : "local")
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
-    "Add Claude Code hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), and one that " +
-      "turns Claude artifact publishes away in favour of Cello pages and edits away until the session has claimed a task " +
-      "(PreToolUse on Artifact, Edit, Write and NotebookEdit; not with --user), all running " +
-      "`cello hook claude`. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main " +
-      "checkout's), merged with the hooks already there; running it again changes nothing. The old file is kept as .bak.",
+    "Connect Claude Code to Cello. Adds hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), " +
+      "and one that turns Claude artifact publishes away in favour of Cello pages and edits away until the session has claimed a task " +
+      "(PreToolUse on Artifact, Edit, Write and NotebookEdit; not with --user), all running `cello hook claude`. Installs Cello's " +
+      "Claude Code plugin too (/cello:orchestrate, /cello:work, the cello skill, and builder and reviewer agents): writes its files to " +
+      "$XDG_DATA_HOME/cello/claude-plugin (default ~/.local/share/cello/claude-plugin), rewritten on every run so a new Cello " +
+      "updates it, and enables it. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, " +
+      "the main checkout's), merged with what's already there; running it again changes nothing. The old file is kept as .bak.",
   ))
 
 const uninstallClaude = Command.make("claude", {}, () =>
   Effect.gen(function* () {
+    const { env } = yield* CliEnv
     const { paths } = yield* claudeSettings
     const files = [...new Set([paths.local, paths.shared, paths.user].filter((f): f is string => f !== null))]
-    const removed: string[] = []
-    for (const file of files) if ((yield* updateSettings(file, removeCelloHooks)).changed) removed.push(file)
-    if (removed.length) return yield* print(removed.map((f) => `Removed Cello's Claude Code hooks from ${f}.`).join("\n"))
-    yield* print(`No Cello hooks in ${files.slice(0, -1).join(", ")}${files.length > 1 ? " or " : ""}${files.at(-1)}.`)
+    const lines: string[] = []
+    const folder = pluginFolder(env)
+    let plugin = false
+    for (const file of files) {
+      const { merged } = yield* updateSettings(file, (settings) => uninstallCello(settings, folder))
+      if (!merged.changed) continue
+      plugin ||= merged.plugin
+      lines.push(`Removed Cello's Claude Code ${merged.hooks && merged.plugin ? "hooks and plugin" : merged.hooks ? "hooks" : "plugin"} from ${file}.`)
+    }
+    // Other projects' settings may still enable the plugin from this folder, so it stays.
+    if (plugin && folder !== null && fs.existsSync(folder)) {
+      lines.push(`The plugin's files stay in ${folder}, for other projects that still enable it; delete that folder when none do.`)
+    }
+    if (lines.length) return yield* print(lines.join("\n"))
+    yield* print(`No Cello hooks or plugin in ${files.slice(0, -1).join(", ")}${files.length > 1 ? " or " : ""}${files.at(-1)}.`)
   })).pipe(Command.withDescription(
-    "Take Cello's hooks out of Claude Code's settings: this project's .claude/settings.local.json and .claude/settings.json, and " +
-      "~/.claude/settings.json. Every other hook and setting stays as it was.",
+    "Take Cello's hooks and plugin out of Claude Code's settings: this project's .claude/settings.local.json and .claude/settings.json, " +
+      "and ~/.claude/settings.json. Every other hook, plugin and setting stays as it was. The plugin's files stay in their folder, " +
+      "since other projects may still enable it.",
   ))
 
 // ── setting up a repo (CEL-41) ──────────────────────────────────────────────────────────────────
@@ -1634,7 +1710,7 @@ const init = Command.make("init", {
   workspace: Flag.String("workspace").pipe(Flag.optional, Flag.withDescription("The workspace to put it in, by name. Default: the first one.")),
   hooks: Flag.Boolean("hooks").pipe(
     Flag.withDefault(false),
-    Flag.withDescription("Also install the Claude Code hooks for this machine, as `cello install claude` does."),
+    Flag.withDescription("Also install the Claude Code hooks and plugin for this machine, as `cello install claude` does."),
   ),
   agentsMd: Flag.Boolean("agents-md").pipe(
     Flag.withDefault(false),
@@ -1652,7 +1728,7 @@ const init = Command.make("init", {
   json: Flag.Boolean("json").pipe(
     Flag.withDefault(false),
     Flag.withDescription(
-      "Print JSON: created, project, url, hooks ({ file, changed }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged, " +
+      "Print JSON: created, project, url, hooks ({ file, changed, pluginFolder }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged, " +
         "customised or foreign, backup, diff }), each null when not asked for or not reached, and error when --hooks or --agents-md failed.",
     ),
   ),
@@ -1730,7 +1806,7 @@ const init = Command.make("init", {
         created,
         project,
         url,
-        hooks: hooks && { file: hooks.file, changed: hooks.changed },
+        hooks: hooks && { file: hooks.file, changed: hooks.changed, pluginFolder: hooks.pluginFolder },
         agentsMd,
         ...(failure ? { error: failure.message } : {}),
       })
@@ -1749,12 +1825,12 @@ const init = Command.make("init", {
   ))
 
 const install = Command.make("install").pipe(
-  Command.withDescription("Connect an agent host to Cello: `cello install claude` adds the Claude Code hooks."),
+  Command.withDescription("Connect an agent host to Cello: `cello install claude` adds the Claude Code hooks and the cello plugin."),
   Command.withSubcommands([installClaude]),
 )
 
 const uninstall = Command.make("uninstall").pipe(
-  Command.withDescription("Undo `cello install`: `cello uninstall claude` removes the Claude Code hooks."),
+  Command.withDescription("Undo `cello install`: `cello uninstall claude` removes the Claude Code hooks and the cello plugin."),
   Command.withSubcommands([uninstallClaude]),
 )
 

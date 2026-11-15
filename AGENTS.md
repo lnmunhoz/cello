@@ -65,7 +65,7 @@ The server backs up `<dataDir>` into `<dataDir>/backups/<YYYYMMDD-HHMMSS>/` (cel
 
 ## How a task flows: build, review, merge, submit
 
-The session running the work (the orchestrator) claims the task, then (the whole path, with diagrams: [docs/feature-lifecycle.md](docs/feature-lifecycle.md), also in Cello's Docs tab):
+The session running the work (the orchestrator) claims the task, then (the whole path, with diagrams: [docs/feature-lifecycle.md](docs/feature-lifecycle.md), also in Cello's Docs tab). With the Claude Code plugin installed (`cello install claude`), `/cello:orchestrate CEL-n …` puts a thread in this role; see [docs/claude-plugin.md](docs/claude-plugin.md):
 
 At each step it marks the task's **stage** with `cello task stage CEL-n building|review|fixing|merged`, so the In Progress card says where the work is instead of looking stuck. Submitting clears it.
 

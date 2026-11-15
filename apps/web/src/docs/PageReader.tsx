@@ -16,7 +16,7 @@ import { Centered } from "../app/Home.tsx"
 import { NotFound } from "../app/NotFound.tsx"
 import { Button } from "../components/ui/Button.tsx"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.tsx"
-import { toast } from "../components/ui/Toast.tsx"
+import { copyText } from "../lib/clipboard.ts"
 import { documentHistoryFamily, pageFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
 import { useBoard } from "../lib/hooks.ts"
@@ -184,7 +184,7 @@ function Reader({ board, project, document, pinned, place }: { board: BoardState
                   size="sm"
                   onClick={() => {
                     const url = new URL(pagePath(project.key, document.slug), location.origin).href
-                    void navigator.clipboard?.writeText(url).then(() => toast("Link copied"))
+                    copyText(url, "Link copied")
                   }}
                 >
                   <LinkIcon aria-hidden className="size-3.5" />
