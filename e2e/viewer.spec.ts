@@ -37,7 +37,7 @@ async function dragEdge(page: Page, dx: number) {
 async function screenshotViewer(browser: Browser, key: string, colorScheme: "light" | "dark") {
   const context = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height: 900 }, colorScheme })
   const page = await context.newPage()
-  await page.goto("/review")
+  await page.goto(`/review?open=${key}-1`)
   const item = page.getByRole("article", { name: new RegExp(`${key}-1`) })
   const viewer = viewerOf(page)
   await item.getByRole("button", { name: "Open The board" }).click()
@@ -55,6 +55,7 @@ test("CEL-12: a packet's screenshot, video and PR link open in the viewer beside
   const { dir } = await submitPacket(page, key)
   await page.getByRole("navigation", { name: "Inbox" }).getByRole("link", { name: /^Review/ }).click()
   const item = page.getByRole("article", { name: new RegExp(`${key}-1`) })
+  await item.getByRole("button", { name: new RegExp(`^${key}-1`) }).click()
   const viewer = viewerOf(page)
   await expect(viewer).toHaveCount(0)
   const feedWidth = (await item.boundingBox())!.width

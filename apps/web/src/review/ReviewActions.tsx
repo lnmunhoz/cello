@@ -7,8 +7,11 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } fr
 import { Textarea } from "../components/ui/Input.tsx"
 import { commands } from "../lib/cello.ts"
 
-/** Approve (to Done) or send back with a note (to In Progress). The page updates when the events arrive. */
-export function ReviewActions({ task }: { task: Task }) {
+/**
+ * Approve (to Done) or send back with a note (to In Progress). The page updates when the events
+ * arrive; `onDecided` runs once the server took the decision (the Review page opens the next packet).
+ */
+export function ReviewActions({ task, onDecided }: { task: Task; onDecided?: (() => void) | undefined }) {
   const approve = useAtomSet(commands.approveReview, { mode: "promiseExit" })
   const sendBack = useAtomSet(commands.sendBackReview, { mode: "promiseExit" })
   const [busy, setBusy] = useState(false)
@@ -19,6 +22,7 @@ export function ReviewActions({ task }: { task: Task }) {
     setBusy(true)
     const exit = await action()
     setBusy(false)
+    if (exit._tag === "Success") onDecided?.()
     return exit._tag === "Success"
   }
 

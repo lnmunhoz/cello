@@ -7,6 +7,7 @@ import { parseIssuesSearch, type IssuesSearch } from "../issues/layout.ts"
 import { ComingSoon } from "../project/ComingSoon.tsx"
 import { Overview } from "../project/Overview.tsx"
 import { ProjectLayout } from "../project/ProjectLayout.tsx"
+import { parseReviewSearch } from "../review/queue.ts"
 import { ReviewPage } from "../review/ReviewPage.tsx"
 import { Settings } from "../settings/Settings.tsx"
 import { isEmbedded } from "../viewer/viewer.ts"
@@ -19,7 +20,8 @@ const root = createRootRoute({ component: embedded ? EmbeddedShell : AppShell })
 
 const home = createRoute({ getParentRoute: () => root, path: "/", component: Home })
 const settings = createRoute({ getParentRoute: () => root, path: "/settings", component: Settings })
-const review = createRoute({ getParentRoute: () => root, path: "/review", component: ReviewPage })
+// `?open=CEL-12`: the packet open on the Review page, so a reload or a link keeps it.
+const review = createRoute({ getParentRoute: () => root, path: "/review", component: ReviewPage, validateSearch: parseReviewSearch })
 
 // `?layout=list` picks the Issues layout; every link inside the project keeps it, so opening and closing tasks stays in the list.
 const project = createRoute({

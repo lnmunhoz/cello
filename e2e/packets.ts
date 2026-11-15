@@ -60,3 +60,26 @@ export async function submitPacket(page: Page, key: string): Promise<{ dir: stri
   expect(out).toContain(`Submitted ${key}-1 for review  In Progress → In Review`)
   return { dir }
 }
+
+/**
+ * One task per title in `key` (KEY-1, KEY-2…), each submitted in order with a small packet: a summary
+ * and a step naming the task, a real screenshot of the board and a link. Remove `dir` when done.
+ */
+export async function submitPackets(page: Page, key: string, titles: ReadonlyArray<string>): Promise<{ dir: string }> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-evidence-"))
+  const screenshot = path.join(dir, "board.png")
+  await page.screenshot({ path: screenshot })
+  titles.forEach((title, i) => {
+    const task = `${key}-${i + 1}`
+    cello("task", "create", title, "--project", key)
+    cello("task", "claim", task)
+    cello(
+      "task", "submit", task,
+      "--summary", `${title}: the packet for ${task}.`,
+      "--step", `Open ${task} on the Review page`,
+      "--attach", screenshot, "--caption", "The board",
+      "--link", "https://github.com/lnmunhoz/cello/pull/22", "--caption", "The PR",
+    )
+  })
+  return { dir }
+}
