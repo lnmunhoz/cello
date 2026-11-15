@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { clampWidth, dragWidth, keyWidth, readWidth, widthLimits, type WidthRule } from "./resize.ts"
+import { clampWidth, dragWidth, keyWidth, readWidth, widthLimits, widthTrack, type WidthRule } from "./resize.ts"
 
 /** Like the viewer: no maximum of its own, it leaves 360px for the page beside it. */
 const VIEWER: WidthRule = { initial: 560, min: 320, minRest: 360, step: 32 }
@@ -72,5 +72,12 @@ describe("widthLimits: the same limits in CSS, so a narrower window keeps them b
   it("the minimum (or the whole container when it's smaller), up to the maximum and the room left for the rest", () => {
     expect(widthLimits(SIDEBAR)).toEqual({ minWidth: "min(200px, 100%)", maxWidth: "max(min(200px, 100%), min(400px, calc(100% - 480px)))" })
     expect(widthLimits(VIEWER)).toEqual({ minWidth: "min(320px, 100%)", maxWidth: "max(min(320px, 100%), calc(100% - 360px))" })
+  })
+})
+
+describe("widthTrack: a grid column at the stored width, within the same limits as CSS", () => {
+  it("clamps the width between widthLimits' minimum and maximum, against the grid's width", () => {
+    expect(widthTrack(560, SIDEBAR)).toBe("clamp(min(200px, 100%), 560px, max(min(200px, 100%), min(400px, calc(100% - 480px))))")
+    expect(widthTrack(600, VIEWER)).toBe("clamp(min(320px, 100%), 600px, max(min(320px, 100%), calc(100% - 360px)))")
   })
 })

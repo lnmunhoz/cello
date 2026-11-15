@@ -14,7 +14,7 @@ import { commands } from "../lib/cello.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { readStored, writeStored } from "../lib/storage.ts"
 import { useOrdering } from "../issues/useOrdering.ts"
-import { TaskPanel, useTaskView } from "../task/TaskPanel.tsx"
+import { useTaskView } from "../task/TaskPanel.tsx"
 import { behindTask } from "../task/view.ts"
 import { CardBody } from "./Card.tsx"
 import { animator, useCursorVisual } from "./cursors/animator.ts"
@@ -43,7 +43,6 @@ export function BoardPage({ openNumber }: { openNumber?: number }) {
   return (
     <div className="flex min-h-0 flex-1">
       <Board key={project.id} board={board} workspaceId={workspaceId} project={project} ordering={ordering} openNumber={openNumber} />
-      {openNumber !== undefined ? <TaskPanel board={board} project={project} number={openNumber} /> : null}
     </div>
   )
 }
