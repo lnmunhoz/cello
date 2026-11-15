@@ -24,6 +24,12 @@ interface Seen {
   bubbles: string[]
   /** Titles seen typing out. */
   typed: string[]
+  /**
+   * While a card is carried: how far the cursor's tip (the teardrop's sharp corner) was from the spot
+   * it holds the card by, at most, and how many times that was measured.
+   */
+  tipOff: number
+  tipChecks: number
 }
 
 declare global {
@@ -35,7 +41,7 @@ declare global {
 /** Starts noting what the animation layer draws. */
 const record = (page: Page) =>
   page.evaluate(() => {
-    const seen: Seen = { labels: [], colors: [], maxCursors: 0, carried: [], waiting: [], holes: 0, bubbles: [], typed: [] }
+    const seen: Seen = { labels: [], colors: [], maxCursors: 0, carried: [], waiting: [], holes: 0, bubbles: [], typed: [], tipOff: 0, tipChecks: 0 }
     window.__seen = seen
     const add = (list: string[], value: string | null | undefined) => {
       if (value && !list.includes(value)) list.push(value)
@@ -50,6 +56,22 @@ const record = (page: Page) =>
       for (const g of document.querySelectorAll<HTMLElement>("[data-agent-ghost]")) {
         const key = document.querySelector(`[data-card-id="${g.dataset.agentGhost}"]`)?.getAttribute("data-task-key")
         add(seen.carried, key)
+      }
+      // With one cursor carrying one card, its tip is on the spot it holds the card by: 30% across and
+      // 55% down the card. The copy turns and grows about its centre, so that spot is measured from there.
+      const ghosts = document.querySelectorAll<HTMLElement>("[data-agent-ghost]")
+      const body = document.querySelector<SVGPathElement>("[data-agent-cursor] [data-agent-mark] path")
+      const eyes = document.querySelector("[data-agent-cursor] [data-agent-mark] [data-agent-eyes]")
+      if (ghosts.length === 1 && cursors.length === 1 && body && eyes) {
+        const g = ghosts[0]!
+        const r = g.getBoundingClientRect()
+        const w = parseFloat(g.style.width)
+        const h = parseFloat(g.style.height)
+        const start = body.getPointAtLength(0)
+        const tip = new DOMPoint(start.x, start.y).matrixTransform(body.getScreenCTM()!)
+        const hold = { x: r.left + r.width / 2 - 0.2 * w, y: r.top + r.height / 2 + 0.05 * h }
+        seen.tipOff = Math.max(seen.tipOff, Math.hypot(tip.x - hold.x, tip.y - hold.y))
+        seen.tipChecks++
       }
       for (const w of document.querySelectorAll<HTMLElement>("[data-task-key]")) if (getComputedStyle(w).display === "none") add(seen.waiting, w.dataset.taskKey)
       seen.holes = Math.max(seen.holes, document.querySelectorAll("[data-agent-hole]").length)
@@ -156,6 +178,9 @@ test("CEL-6: an agent moves, creates, comments, claims and renames cards while t
   await expect(column(page, "Todo").locator(`[data-task-key="${key}-1"]`)).toHaveCount(0)
   expect((await seen(page)).carried).toContain(`${key}-1`)
   expect((await seen(page)).holes).toBeGreaterThan(0)
+  // The cursor is the teardrop agent, and its tip holds the card through the lift, the carry and the landing.
+  expect((await seen(page)).tipChecks).toBeGreaterThan(0)
+  expect((await seen(page)).tipOff).toBeLessThan(1.5)
   // The cursor names the agent and its session (the first 8 characters of CLAUDE_CODE_SESSION_ID).
   await until(page, (s) => s.labels.some((l) => l.includes("·")))
   expect((await seen(page)).labels).toContain("Claude Code · 4f1c2a9e")
@@ -247,7 +272,8 @@ test("CEL-6: Lucas drags a card while an agent moves another: nothing shifts und
 
   await caption(page, `The agent moves ${key}-1, the card Lucas is holding, to Done: its cursor marks the card, which stays in his hand`)
   await agent.run((c) => c["task.move"]({ commandId: newCommandId(), id: held, statusId: statuses.Done!.id }))
-  await expect(page.locator("[data-agent-cursor]")).toBeVisible()
+  // The cursor element is only its point (no size); the teardrop drawn on it is what shows.
+  await expect(page.locator("[data-agent-cursor] [data-agent-mark]")).toBeVisible()
   await expect(page.locator("[data-dragging]")).toHaveCount(1)
   // The next caption first holds this moment in a review video.
   await caption(page, "Lucas drops it on In Review")
@@ -364,3 +390,38 @@ test("CEL-6: with reduced motion nothing flies, only a highlight; Display → Sh
   await expect(page.getByRole("switch", { name: "Show agent cursors" })).toBeChecked()
   await agent.close()
 })
+
+// Close-ups of the cursor for the review packet, at 1× and 2×, in light and dark: the teardrop agent in
+// the session's colour, over a card, with its pill. The page runs on Playwright's clock, so the still
+// is taken with the cursor held in place (the clock paused mid-comment) instead of racing it.
+for (const scale of [1, 2]) {
+  test.describe(`at ${scale}×`, () => {
+    test.use({ deviceScaleFactor: scale })
+
+    test(`CEL-6: the cursor is Cello's teardrop agent, legible over a card in light and dark (close-ups at ${scale}×)`, async ({ page, cello, baseURL }) => {
+      await page.clock.install()
+      const { key } = await boardWith(page, cello, `MARK${scale}`, ["Wire the event stream", "Draft the cursor label", "Polish the landing"])
+      const agent = await agentClient(baseURL!, SESSION)
+      const idOf = async (n: number) => (await cello.run((c) => c["task.get"]({ key: `${key}-${n}` }))).task.id
+
+      for (const theme of ["light", "dark"] as const) {
+        await caption(page, `${theme === "light" ? "Light" : "Dark"}: the agent comments on a card; its cursor sits on the card while the bubble shows`)
+        if (theme === "dark") await page.evaluate(() => document.documentElement.classList.add("dark"))
+        const id = await idOf(theme === "light" ? 1 : 2)
+        await agent.run((c) => c["comment.add"]({ commandId: newCommandId(), taskId: id, body: "Picked this up: starting with the queue" }))
+        await expect(page.locator("[data-agent-bubble]")).toHaveCount(1)
+        await page.clock.pauseAt(Date.now() + 300)
+        const mark = (await page.locator("[data-agent-cursor] [data-agent-mark]").boundingBox())!
+        const clip = { x: Math.max(0, mark.x - 72), y: Math.max(0, mark.y - 36), width: 340, height: 104 }
+        await page.screenshot({ path: path.join(SHOTS, `cel-6-cursor-closeup-${theme}@${scale}x.png`), clip })
+        // The mark is drawn at its size, with the label beside it.
+        expect(Math.round(mark.width)).toBeGreaterThanOrEqual(22)
+        expect(Math.round(mark.width)).toBeLessThanOrEqual(28)
+        await expect(page.locator("[data-agent-cursor] span")).toBeVisible()
+        await page.clock.resume()
+        await expect(page.locator("[data-agent-cursor]")).toHaveCount(0)
+      }
+      await agent.close()
+    })
+  })
+}

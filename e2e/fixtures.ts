@@ -6,6 +6,7 @@ import * as fs from "node:fs"
 import { expect, test as base, type Page, type Video } from "@playwright/test"
 import type { Label, Project, Status } from "../packages/contract/src/entities.ts"
 import { defaultWorkspaceId } from "../packages/client/src/sync/follow.ts"
+import { AGENT_SQUASH, agentMarkBox, agentMarkSvg } from "../packages/shared/src/agentMark.ts"
 import { newCommandId, openClient, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
 import { cropFor, holdMs } from "./recording.ts"
 
@@ -17,7 +18,19 @@ declare global {
 }
 
 /**
- * Draws the pointer, a ripple on each press, and a caption box. Runs in every page and frame, but
+ * The pointer the overlay draws: Cello's teardrop agent as in the icon (ink body, orange eyes), with
+ * where its tip is and its click squash. Handed to the page script as data: it can't import anything.
+ */
+const POINTER_WIDTH = 24
+const pointer = {
+  svg: agentMarkSvg({ width: POINTER_WIDTH, body: "#141416", eyes: "#FF7A2F", outline: "white" }),
+  tip: agentMarkBox(POINTER_WIDTH).tip,
+  squash: AGENT_SQUASH.map((k) => ({ ...k })),
+}
+
+/**
+ * Draws the pointer (the teardrop agent, its tip on the mouse; it squashes on a press), a ripple on
+ * each press, and a caption box. Runs in every page and frame, but
  * draws only in the top page: a frame hands its pointer to its parent (postMessage, which works
  * across origins), each window adds the frame's position on its own page, and the top page draws
  * it, so clicks inside iframes (the viewer frames pages) show the cursor and ripple too. The
@@ -25,7 +38,7 @@ declare global {
  * raised to the top of the top layer whenever the page changes, so they stay above a modal dialog
  * (the image modal) too.
  */
-const overlay = () => {
+const overlay = (mark: typeof pointer) => {
   type Point = { kind: "move" | "press"; x: number; y: number }
   const isTop = window === window.top
   let show = (_point: Point) => {}
@@ -79,10 +92,11 @@ const overlay = () => {
     style.textContent = `
       #e2e-layer { position: fixed; inset: 0; width: auto; height: auto; margin: 0; padding: 0; border: 0; background: transparent;
         overflow: visible; pointer-events: none; color: inherit; }
-      #e2e-cursor { position: fixed; z-index: 2147483647; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%;
-        background: rgb(94 106 210 / .35); border: 2px solid rgb(94 106 210); pointer-events: none; left: -50px; top: -50px; }
+      #e2e-cursor { position: fixed; z-index: 2147483647; width: 0; height: 0; pointer-events: none; left: -50px; top: -50px; }
+      #e2e-cursor svg { position: absolute; left: ${-mark.tip.x}px; top: ${-mark.tip.y}px; overflow: visible;
+        transform-origin: ${mark.tip.x}px ${mark.tip.y}px; filter: drop-shadow(0 1px 1.5px rgb(15 23 42 / .35)) drop-shadow(0 3px 6px rgb(15 23 42 / .18)); }
       .e2e-ripple { position: fixed; z-index: 2147483646; width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%;
-        border: 2px solid rgb(94 106 210); pointer-events: none; animation: e2e-ripple .5s ease-out forwards; }
+        border: 2px solid rgb(255 122 47); pointer-events: none; animation: e2e-ripple .5s ease-out forwards; }
       @keyframes e2e-ripple { from { transform: scale(.3); opacity: 1 } to { transform: scale(1.4); opacity: 0 } }
       #e2e-caption { position: fixed; z-index: 2147483647; left: 50%; bottom: 28px; translate: -50% 0; padding: 8px 14px; border-radius: 8px;
         background: rgb(20 20 24 / .88); color: white; font: 500 15px system-ui; pointer-events: none; max-width: calc(100vw - 48px); }
@@ -91,6 +105,9 @@ const overlay = () => {
     document.head.append(style)
     const cursor = document.createElement("div")
     cursor.id = "e2e-cursor"
+    cursor.innerHTML = mark.svg
+    const markEl = cursor.querySelector("svg")!
+    markEl.setAttribute("data-e2e-mark", "")
     const caption = document.createElement("div")
     caption.id = "e2e-caption"
     const layer = document.createElement("div")
@@ -121,6 +138,7 @@ const overlay = () => {
       cursor.style.top = `${y}px`
       if (kind !== "press") return
       cursor.dataset.press = `${Math.round(x)},${Math.round(y)}`
+      markEl.animate(mark.squash, { duration: 260, easing: "ease-out" })
       const ripple = document.createElement("div")
       ripple.className = "e2e-ripple"
       ripple.style.left = `${x}px`
@@ -178,7 +196,7 @@ export const test = base.extend<{ cello: PromiseClient }>({
     await client.close()
   },
   context: async ({ context }, use, testInfo) => {
-    await context.addInitScript(overlay)
+    await context.addInitScript(overlay, pointer)
     // Each tab's video, and the viewport sizes it showed, so teardown can crop away the grey
     // Playwright draws around a page smaller than the video (a phone width, a short window).
     const tabs: Array<{ video: Video | null; viewports: Array<{ width: number; height: number } | null> }> = []

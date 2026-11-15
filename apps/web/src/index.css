@@ -125,20 +125,32 @@ body {
 #agent-layer [data-agent-ghost] {
   pointer-events: none;
 }
-/* An arrow in the session's colour with a pill naming the agent and session. */
+/*
+ * The teardrop agent from Cello's icon in the session's colour, with a pill naming the agent and
+ * session. The element is the cursor's point: the mark's tip sits on it (board/cursors/mark.ts places
+ * the mark), and the pill hangs below and right of it.
+ */
 .agent-cursor {
   position: fixed;
   left: 0;
   top: 0;
   z-index: 3;
-  display: flex;
-  align-items: flex-start;
+  width: 0;
+  height: 0;
   will-change: transform;
+}
+.agent-cursor [data-agent-mark] {
+  position: absolute;
+  overflow: visible;
+  /* Its own layer: the shadow is drawn once, and the click's squash runs off the main thread. */
+  will-change: transform;
+  filter: drop-shadow(0 1.5px 2.5px rgb(15 23 42 / 0.4));
 }
 .agent-cursor span {
   position: absolute;
-  top: 14px;
-  left: 16px;
+  /* left: LABEL_OFFSET in board/cursors/mark.ts, which decides when to flip it. */
+  top: 21px;
+  left: 22px;
   padding: 3px 8px;
   border-radius: 999px;
   white-space: nowrap;
@@ -148,10 +160,10 @@ body {
   font-weight: 600;
   box-shadow: 0 2px 6px rgb(15 23 42 / 0.2);
 }
-/* Near the board's right edge: the pill on the arrow's left. */
+/* Near the board's right edge: the pill on the mark's left. */
 .agent-cursor[data-flip] span {
   left: auto;
-  right: 14px;
+  right: 4px;
 }
 /* "Claude Code made 23 changes" when a session's burst skips to the end: at the foot of the board. */
 #agent-notices {

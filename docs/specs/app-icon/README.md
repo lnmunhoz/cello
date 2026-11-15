@@ -32,6 +32,11 @@ Files in `art/icon/`:
 The same face is meant for agent avatars in the UI, with state shown by the eyes (idle, working, thinking,
 waiting, done): see `art/variations/round12-face/S-*.svg`.
 
+The agent on its own, without the tile, is `packages/shared/src/agentMark.ts` (CEL-6): the same body path
+and eyes, drawn at any size, with its tip as the hotspot. The board's agent cursors draw it in the
+session's colour with white eyes, and the e2e videos' pointer draws it in ink with orange eyes. A test there
+compares it with `icon.svg` and `favicon.svg`, so a change to the icon has to change the mark too.
+
 ## Where it ships (CEL-27)
 
 `art/icon/build-app-icons.mjs` builds every icon the apps use from `icon.svg` and `favicon.svg` (resvg 0.47.0).
