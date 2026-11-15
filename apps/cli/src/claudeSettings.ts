@@ -14,10 +14,22 @@ import * as path from "node:path"
 /** Seconds Claude Code waits for a hook before cancelling it; the hook itself gives up much sooner. */
 export const HOOK_TIMEOUT = 10
 
+/**
+ * Cello's hooks: the comment hooks (CEL-15) and the artifact guard (CEL-57). The guard is
+ * `projectOnly`: it's for Cello projects, so user settings (every project, Cello or not) don't get it.
+ * Its matcher has only letters, so Claude Code matches it against the tool name exactly.
+ */
 export const CELLO_HOOKS = [
-  { event: "Stop", matcher: undefined, command: "cello hook claude stop" },
-  { event: "PostToolUse", matcher: "*", command: "cello hook claude post-tool-use" },
+  { event: "Stop", matcher: undefined, command: "cello hook claude stop", projectOnly: false },
+  { event: "PostToolUse", matcher: "*", command: "cello hook claude post-tool-use", projectOnly: false },
+  { event: "PreToolUse", matcher: "Artifact", command: "cello hook claude pre-tool-use", projectOnly: true },
 ] as const
+
+export type CelloHook = (typeof CELLO_HOOKS)[number]
+
+/** The hooks a settings file gets: a project's (local or shared) all of them, the user's all but the project-only ones. */
+export const celloHooksFor = (scope: "project" | "user"): ReadonlyArray<CelloHook> =>
+  CELLO_HOOKS.filter((hook) => scope === "project" || !hook.projectOnly)
 
 type Json = Record<string, unknown>
 
@@ -52,11 +64,11 @@ export interface Merged {
   readonly changed: boolean
 }
 
-/** Settings with Cello's hooks added where they're missing. Doesn't change its input. */
-export const addCelloHooks = (settings: unknown): Merged => {
+/** Settings with Cello's hooks (`wanted`, all of them by default) added where they're missing. Doesn't change its input. */
+export const addCelloHooks = (settings: unknown, wanted: ReadonlyArray<CelloHook> = CELLO_HOOKS): Merged => {
   const hooks = { ...hooksOf(settings) }
   let changed = false
-  for (const { event, matcher, command } of CELLO_HOOKS) {
+  for (const { event, matcher, command } of wanted) {
     const groups = (hooks[event] ?? []) as ReadonlyArray<unknown>
     const present = groups.some((group) => groupHandlers(group).some((h) => isCelloHandler(h) && (h as Json).command === command))
     if (present) continue

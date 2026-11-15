@@ -23,10 +23,19 @@ import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
 import { addAgentsSection, agentsFile } from "./agentsMd.ts"
 import { buildsText } from "./builds.ts"
-import { HOOK_EVENTS, type HookEvent, hookDeadline, hookResponse, hookSession, parseHookInput } from "./claudeHook.ts"
+import {
+  ALLOW_ARTIFACTS_VARIABLE,
+  artifactGuard,
+  HOOK_EVENTS,
+  type HookEvent,
+  hookDeadline,
+  hookResponse,
+  hookSession,
+  parseHookInput,
+} from "./claudeHook.ts"
 import {
   addCelloHooks,
-  CELLO_HOOKS,
+  celloHooksFor,
   ensureGitIgnored,
   formatSettings,
   type Merged,
@@ -805,8 +814,8 @@ const inbox = Command.make("inbox", {
       "Not from a subagent: it shares its parent's session and would take the parent's comments.",
   ))
 
-/** What the hook does: takes the new comments for the session on stdin and prints them for Claude Code. */
-const deliverToClaude = (event: HookEvent) =>
+/** What the comment hooks do: take the new comments for the session on stdin and print them for Claude Code. */
+const deliverToClaude = (event: Exclude<HookEvent, "pre-tool-use">) =>
   Effect.gen(function* () {
     const { env, cwd, now, readStdin } = yield* CliEnv
     const hook = parseHookInput(yield* Effect.promise(readStdin))
@@ -820,21 +829,33 @@ const deliverToClaude = (event: HookEvent) =>
     if (items.length) yield* print(JSON.stringify(hookResponse(event, deliveryText(items, now()))))
   })
 
+/** What the artifact guard does (CEL-57): denies a Claude artifact publish, pointing to `cello doc publish`. No server needed. */
+const guardArtifacts = Effect.gen(function* () {
+  const { env, readStdin } = yield* CliEnv
+  const answer = artifactGuard(parseHookInput(yield* Effect.promise(readStdin)), env)
+  if (answer) yield* print(JSON.stringify(answer))
+})
+
 const hookClaude = Command.make("claude", {
   event: Argument.Literals("event", HOOK_EVENTS).pipe(
-    Argument.withDescription("The hook event Claude Code runs it for: stop (Stop) or post-tool-use (PostToolUse)."),
+    Argument.withDescription(
+      "The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse) or pre-tool-use (PreToolUse, the Artifact guard).",
+    ),
   ),
 }, (input) =>
   Effect.gen(function* () {
     const { env, exit } = yield* CliEnv
+    const work = input.event === "pre-tool-use" ? guardArtifacts : deliverToClaude(input.event)
     // It must never break or stall the session: a slow or missing server, bad input, anything, is silence and exit 0.
-    yield* deliverToClaude(input.event).pipe(Effect.timeout(hookDeadline(env)), Effect.catchCause(() => Effect.void))
+    yield* work.pipe(Effect.timeout(hookDeadline(env)), Effect.catchCause(() => Effect.void))
     // An explicit end: a stdin that never closes would otherwise keep the process alive.
     exit?.(0)
   })).pipe(Command.withDescription(
-    "Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin and hands new comments " +
-      "for its session back to the agent as context (on Stop it keeps the agent going). Prints nothing when there are none, " +
-      "inside a subagent, or when the server doesn't answer within 2 seconds; always exits 0.",
+    "Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand " +
+      "new comments for its session back to the agent as context (on Stop it keeps the agent going); they print nothing when there " +
+      "are none, inside a subagent, or when the server doesn't answer within 2 seconds. pre-tool-use turns a Claude artifact publish " +
+      "away with a pointer to `cello doc publish`, and lets every other call through (all of them with CELLO_ALLOW_ARTIFACTS=1); it " +
+      "needs no server. Always exits 0.",
   ))
 
 const hook = Command.make("hook").pipe(
@@ -884,16 +905,24 @@ const installHooks = (scope: keyof typeof SCOPES) =>
     const { projectRoot, paths } = yield* claudeSettings
     const file = paths[scope]
     if (file === null) return yield* new CliFailure({ message: "HOME isn't set, so there's no ~/.claude/settings.json to write." })
-    const { changed, backup } = yield* updateSettings(file, addCelloHooks)
+    // The artifact guard is for Cello projects, so the user's settings (every project) don't get it.
+    const wanted = celloHooksFor(scope === "user" ? "user" : "project")
+    const { changed, backup } = yield* updateSettings(file, (settings) => addCelloHooks(settings, wanted))
     const ignored = scope === "local" && projectRoot !== null ? ensureGitIgnored(projectRoot, ".claude/settings.local.json", gitEnv(env)) : null
     const ignoredLine = ignored ? [`Added .claude/settings.local.json to ${ignored}, so it stays on this machine.`] : []
     if (!changed) return { file, changed, lines: [`Cello's Claude Code hooks are already in ${file}.`, ...ignoredLine] }
     const lines = [
       `Installed Cello's Claude Code hooks in ${file} (${SCOPES[scope]}):`,
-      ...indent(columns(CELLO_HOOKS.map((h) => [h.event, h.command]))),
+      ...indent(columns(wanted.map((h) => [h.event, h.command]))),
       ...ignoredLine,
       ...(backup ? [`Kept the old file as ${backup}.`] : []),
       "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
+      ...(wanted.some((h) => h.projectOnly)
+        ? [
+          "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. " +
+          `Start Claude Code with ${ALLOW_ARTIFACTS_VARIABLE}=1 when you want one.`,
+        ]
+        : []),
       "New Claude Code sessions pick them up.",
     ]
     if (Bun.which("cello", { PATH: env.PATH ?? "" }) === null) {
@@ -923,8 +952,9 @@ const installClaude = Command.make("claude", {
     const { lines } = yield* installHooks(input.user ? "user" : input.shared ? "shared" : "local")
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
-    "Add Claude Code hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse, running " +
-      "`cello hook claude`). Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main " +
+    "Add Claude Code hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), and one that " +
+      "turns Claude artifact publishes away in favour of Cello pages (PreToolUse on Artifact; not with --user), all running " +
+      "`cello hook claude`. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main " +
       "checkout's), merged with the hooks already there; running it again changes nothing. The old file is kept as .bak.",
   ))
 
