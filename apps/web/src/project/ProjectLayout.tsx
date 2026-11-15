@@ -7,6 +7,7 @@ import { Centered } from "../app/Home.tsx"
 import { NotFound } from "../app/NotFound.tsx"
 import { useStoredWidth } from "../components/ui/ResizeHandle.tsx"
 import { TabLink } from "../components/ui/TabLink.tsx"
+import { FilterButton } from "../issues/CollapseScope.tsx"
 import { DisplayOptions } from "../issues/DisplayOptions.tsx"
 import { isEmbed } from "../lib/embed.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
@@ -98,7 +99,8 @@ export function ProjectLayout() {
         </TabLink>
         </div>
         {onIssues ? (
-          <span className="shrink-0">
+          <span className="flex shrink-0 items-center gap-2">
+            <FilterButton />
             <DisplayOptions />
           </span>
         ) : null}

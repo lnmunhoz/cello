@@ -3,6 +3,7 @@ import { useParams, useSearch } from "@tanstack/react-router"
 import { BoardPage } from "../board/BoardPage.tsx"
 import { Button } from "../components/ui/Button.tsx"
 import { ListPage } from "../list/ListPage.tsx"
+import { FilterChips, usePanelShortcut } from "./CollapseScope.tsx"
 import { FacetPanel } from "./FacetPanel.tsx"
 import { filterSummary } from "./facets.ts"
 import { layoutOf } from "./layout.ts"
@@ -19,10 +20,12 @@ export function IssuesPage() {
   const layout = layoutOf(useSearch({ from: "/$projectKey" }))
   const openNumber = number === undefined ? undefined : Number(number)
   useKeepLinkedFilter()
+  usePanelShortcut()
   return (
     <div className="flex min-h-0 flex-1">
       <FacetPanel />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col pl-1">
+        <FilterChips />
         <FilterNotice />
         {layout === "list" ? <ListPage openNumber={openNumber} /> : <BoardPage openNumber={openNumber} />}
       </div>

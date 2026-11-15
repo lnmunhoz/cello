@@ -11,12 +11,24 @@ export type Layout = "board" | "list"
 export interface IssuesSearch extends FilterSearch {
   readonly layout?: "list"
   readonly order?: Ordering
+  /** CEL-52 scope only (removed in the real build): which way the filter panel collapses. */
+  readonly collapse?: CollapseMode
 }
+
+/** CEL-52 scope: A rail, B button + chips, C folding sections, BC both B and C. */
+export type CollapseMode = "a" | "b" | "c" | "bc"
+const COLLAPSE_MODES: ReadonlyArray<unknown> = ["a", "b", "c", "bc"]
 
 /** The project route's `validateSearch`: keeps `layout=list`, a known `order` and the filter's params, and drops anything it doesn't know. */
 export const parseIssuesSearch = (search: Record<string, unknown>): IssuesSearch => {
   const order = parseOrdering(search["order"])
-  return { ...(search["layout"] === "list" ? { layout: "list" as const } : {}), ...(order ? { order } : {}), ...parseFilterSearch(search) }
+  const collapse = COLLAPSE_MODES.includes(search["collapse"]) ? (search["collapse"] as CollapseMode) : undefined
+  return {
+    ...(search["layout"] === "list" ? { layout: "list" as const } : {}),
+    ...(order ? { order } : {}),
+    ...parseFilterSearch(search),
+    ...(collapse ? { collapse } : {}),
+  }
 }
 
 export const layoutOf = (search: IssuesSearch): Layout => search.layout ?? "board"

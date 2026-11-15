@@ -37,6 +37,7 @@ import { PRIORITY_LABELS, PriorityIcon } from "../components/ui/PriorityIcon.tsx
 import { sessionWho } from "../presence/model.ts"
 import { PresenceDot } from "../presence/Presence.tsx"
 import { useNow } from "../presence/useNow.ts"
+import { FilterRail, HidePanelButton, useChips, useCollapseMode, useFolded, usePanelOpen, usesButton, usesFolds, usesRail } from "./CollapseScope.tsx"
 import { agentBox, claimSessions, labelSections, toggleAgent, toggleSession, TOP_AREAS } from "./facets.ts"
 import { type FilterState, projectTasks, useFilter, useProjectBoard } from "./useFilter.ts"
 
@@ -49,6 +50,13 @@ interface PanelProps {
   readonly board: BoardState
   readonly tasks: ReadonlyArray<Task>
   readonly ctx: MatchContext
+  /** CEL-52 scope (C): which sections are folded, and how to fold one; null when sections don't fold. */
+  readonly folds: Folds | null
+}
+
+interface Folds {
+  readonly folded: ReadonlyArray<string>
+  readonly toggle: (key: string) => void
 }
 
 /** The filter panel, or nothing while the board loads. */
@@ -57,12 +65,21 @@ export function FacetPanel() {
   const loaded = useProjectBoard()
   const now = useNow()
   const [sessionsOpen, setSessionsOpen] = useState(state.filter.sessions.length > 0)
+  // CEL-52 scope: ?collapse=a|b|c|bc.
+  const mode = useCollapseMode()
+  const [open] = usePanelOpen()
+  const [folded, toggleFold] = useFolded()
+  const chips = useChips()
   if (!loaded) return null
+  if (usesRail(mode) && !open) return <FilterRail filter={state.filter} count={chips?.chips.length ?? 0} />
+  if (usesButton(mode) && !open) return null
+  const folds: Folds | null = usesFolds(mode) ? { folded, toggle: toggleFold } : null
+  const summary = (field: FilterField) => (chips?.chips ?? []).filter((c) => c.facet === field).map((c) => c.name)
   const { board, workspaceId, project } = loaded
   // Real tasks only: one still being created has no number yet.
   const tasks = projectTasks(board, workspaceId, project.id).filter((t) => t.number > 0)
   const ctx = matchContext(board, workspaceId, now)
-  const props: PanelProps = { state, board, tasks, ctx }
+  const props: PanelProps = { state, board, tasks, ctx, folds }
   const shown = state.active ? applyFilter(tasks, state.filter, ctx).length : tasks.length
   const labels = Object.values(board.labels).filter((l) => l.workspaceId === workspaceId && l.archivedAt === null)
   const me = Object.values(board.actors).find((a) => a.kind === "human")?.name.split(" ")[0] ?? "Lucas"
@@ -78,45 +95,48 @@ export function FacetPanel() {
         <span className="text-xs font-medium text-muted tabular-nums" data-filter-result>
           {state.active ? `${shown} of ${tasks.length} tasks` : `${tasks.length} tasks`}
         </span>
-        {state.active ? (
-          <Button variant="ghost" size="sm" onClick={state.clear}>
-            Clear all
-          </Button>
-        ) : null}
+        <span className="flex items-center gap-1">
+          {state.active ? (
+            <Button variant="ghost" size="sm" onClick={state.clear}>
+              Clear all
+            </Button>
+          ) : null}
+          {usesRail(mode) || usesButton(mode) ? <HidePanelButton /> : null}
+        </span>
       </div>
       <TextFilter state={state} />
-      <Section name="Label" field="labels" filter={state.filter}>
+      <Section name="Label" field="labels" filter={state.filter} folds={folds} summary={summary("labels")}>
         <LabelFacet props={props} labels={labels} />
       </Section>
-      <Section name="Working on it" field="holder" filter={state.filter}>
+      <Section name="Working on it" field="holder" filter={state.filter} folds={folds} summary={summary("holder")}>
         <WhoFacet props={props} me={me} open={sessionsOpen} onOpen={setSessionsOpen} now={now} />
       </Section>
-      <Section name="Priority" field="priority" filter={state.filter}>
+      <Section name="Priority" field="priority" filter={state.filter} folds={folds} summary={summary("priority")}>
         {([1, 2, 3, 4, 0] as Priority[]).map((p) => (
           <Value key={p} props={props} field="priority" id={`priority-${p}`} name={PRIORITY_LABELS[p]} icon={<PriorityIcon priority={p} />}
             checked={on(state.filter.priority.includes(p))} toggle={(f) => ({ ...f, priority: toggled(f.priority, p) })} probe={{ priority: [p] }} />
         ))}
       </Section>
-      <Section name="Waiting on you" field="waiting" filter={state.filter}>
+      <Section name="Waiting on you" field="waiting" filter={state.filter} folds={folds} summary={summary("waiting")}>
         {WAITING.map((w) => (
           <Value key={w.id} props={props} field="waiting" id={`waiting-${w.id}`} name={w.name} icon={w.icon}
             checked={on(state.filter.waiting.includes(w.id))} toggle={(f) => ({ ...f, waiting: toggled(f.waiting, w.id) })} probe={{ waiting: [w.id] }} />
         ))}
       </Section>
-      <Section name="Created by" field="maker" filter={state.filter}>
+      <Section name="Created by" field="maker" filter={state.filter} folds={folds} summary={summary("maker")}>
         {(["agent", "human"] as Maker[]).map((m) => (
           <Value key={m} props={props} field="maker" id={`by-${m}`} name={m === "agent" ? "An agent" : me}
             icon={m === "agent" ? <BotIcon aria-hidden className={icon} /> : <UserIcon aria-hidden className={icon} />}
             checked={on(state.filter.maker.includes(m))} toggle={(f) => ({ ...f, maker: toggled(f.maker, m) })} probe={{ maker: [m] }} />
         ))}
       </Section>
-      <Section name="Due date" field="due" filter={state.filter}>
+      <Section name="Due date" field="due" filter={state.filter} folds={folds} summary={summary("due")}>
         {DUE.map((d) => (
           <Value key={d.id} props={props} field="due" id={`due-${d.id}`} name={d.name} icon={d.icon}
             checked={on(state.filter.due.includes(d.id))} toggle={(f) => ({ ...f, due: toggled(f.due, d.id) })} probe={{ due: [d.id] }} />
         ))}
       </Section>
-      <Section name="Updated" field="updated" filter={state.filter}>
+      <Section name="Updated" field="updated" filter={state.filter} folds={folds} summary={summary("updated")}>
         {UPDATED.map((u) => (
           <Value key={u.id} props={props} field="updated" id={`updated-${u.id}`} name={u.name} icon={<ClockIcon aria-hidden className={icon} />}
             checked={on(state.filter.updated === u.id)} toggle={(f) => ({ ...f, updated: f.updated === u.id ? null : u.id })} probe={{ updated: u.id }} />
@@ -166,12 +186,62 @@ function TextFilter({ state }: { state: FilterState }) {
 }
 
 /** A property's heading and its values; the heading reads darker while it filters. */
-function Section({ name, field, filter, children }: { name: string; field: FilterField; filter: TaskFilter; children: ReactNode }) {
+function Section({ name, field, filter, folds, summary, children }: {
+  name: string
+  field: FilterField
+  filter: TaskFilter
+  folds: Folds | null
+  summary: ReadonlyArray<string>
+  children: ReactNode
+}) {
+  const tone = isActive(filter, field) ? "text-ink" : "text-muted"
+  if (!folds) {
+    return (
+      <section aria-label={name} data-facet={field} className="flex shrink-0 flex-col gap-0.5">
+        <h3 className={`flex h-6 items-center px-2 text-xs font-medium ${tone}`}>{name}</h3>
+        {children}
+      </section>
+    )
+  }
+  const folded = folds.folded.includes(field)
   return (
-    <section aria-label={name} data-facet={field} className="flex shrink-0 flex-col gap-0.5">
-      <h3 className={`flex h-6 items-center px-2 text-xs font-medium ${isActive(filter, field) ? "text-ink" : "text-muted"}`}>{name}</h3>
-      {children}
+    <section aria-label={name} data-facet={field} data-folded={folded ? "" : undefined} className="flex shrink-0 flex-col gap-0.5">
+      <h3>
+        <FoldHeading name={name} folded={folded} summary={summary} tone={tone} onToggle={() => folds.toggle(field)} size="section" />
+      </h3>
+      {folded ? null : children}
     </section>
+  )
+}
+
+/**
+ * CEL-52 scope (C): a heading that folds what's under it. Folded, it still says what it filters
+ * ("Area · agents"), so a folded section never hides a filter.
+ */
+function FoldHeading({ name, folded, summary, tone, onToggle, size }: {
+  name: string
+  folded: boolean
+  summary: ReadonlyArray<string>
+  tone: string
+  onToggle: () => void
+  size: "section" | "group"
+}) {
+  return (
+    <button
+      type="button"
+      aria-expanded={!folded}
+      data-fold={name}
+      onClick={onToggle}
+      className={`flex h-6 w-full min-w-0 items-center gap-1 rounded-md px-2 text-left outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring ${size === "section" ? `text-xs font-medium ${tone}` : "text-[11px] tracking-wide text-faint uppercase"}`}
+    >
+      <ChevronDownIcon aria-hidden className={`size-3 shrink-0 text-faint ${folded ? "-rotate-90" : ""}`} />
+      <span className="shrink-0">{name}</span>
+      {folded && summary.length > 0 ? (
+        <span className="ml-auto min-w-0 truncate pl-2 text-xs font-normal tracking-normal text-ink normal-case" data-fold-summary>
+          {summary.join(", ")}
+        </span>
+      ) : null}
+    </button>
   )
 }
 
@@ -205,15 +275,24 @@ function LabelFacet({ props, labels }: { props: PanelProps; labels: ReadonlyArra
     <>
       {sections.map((section) => (
         <div key={section.group} className="flex flex-col" data-label-group={section.group}>
-          {section.heading ? <span className="flex h-6 items-center px-2 text-[11px] tracking-wide text-faint uppercase">{section.heading}</span> : null}
-          {section.rows.map((l) => {
+          {section.heading && props.folds ? (
+            <FoldHeading
+              name={section.heading}
+              folded={props.folds.folded.includes(`group-${section.group}`)}
+              summary={section.rows.filter((l) => picked.includes(l.name.toLowerCase())).map((l) => l.name)}
+              tone=""
+              onToggle={() => props.folds?.toggle(`group-${section.group}`)}
+              size="group"
+            />
+          ) : section.heading ? <span className="flex h-6 items-center px-2 text-[11px] tracking-wide text-faint uppercase">{section.heading}</span> : null}
+          {props.folds?.folded.includes(`group-${section.group}`) ? null : section.rows.map((l) => {
             const name = l.name.toLowerCase()
             return (
               <FacetOption key={l.id} id={`label-${name}`} name={l.name} icon={dot(l.color)} checked={on(picked.includes(name))}
                 count={labelCount(tasks, state.filter, ctx, name)} onToggle={() => state.patch({ labels: toggled(picked, name) })} />
             )
           })}
-          {section.group === "area" && section.size > TOP_AREAS ? (
+          {section.group === "area" && section.size > TOP_AREAS && !props.folds?.folded.includes("group-area") ? (
             <Button variant="more" size="row" aria-expanded={showAll} onClick={() => setShowAll(!showAll)}>
               <ChevronDownIcon aria-hidden className={`size-3.5 ${showAll ? "rotate-180" : ""}`} />
               {showAll ? "Show fewer" : `Show all ${section.size}`}
