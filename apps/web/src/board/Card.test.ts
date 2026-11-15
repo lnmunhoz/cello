@@ -14,7 +14,7 @@ const label = (id: string, name: string, extra: Partial<Label> = {}): Label => (
 const task = (id: string, number: number, extra: Partial<Task> = {}): Task => ({
   id, projectId: "p1", number, key: `CEL-${number}`, title: `Task ${number}`, description: "", statusId: "todo", priority: 0,
   position: "a0", dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null,
-  createdByActorId: "me", createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
+  createdByActorId: "me", createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, commentCount: 0, lastCommentAt: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
 })
 
 const board: BoardState = {
@@ -102,6 +102,16 @@ describe("CardBody", () => {
       expect(quiet).toMatch(/8a41c9e2<\/span> seen 2h ago/)
       const ended = renderIn({ ...staffed, sessions: { s1: { ...session, endedAt: now - 60_000 } } }, held)
       expect(ended).toMatch(/8a41c9e2<\/span> ended/)
+    })
+
+    it("a fresh comment: the line says who commented and when, next to how many comments it has", () => {
+      const commented = { ...held, version: 4, updatedAt: now - 5_000, commentCount: 3, lastCommentAt: now - 5_000 }
+      const html = renderIn(staffed, commented)
+      expect(textAt(html, "data-provenance")).toBe("Lucas created · 8a41c9e2 commented just now")
+      expect(html).toContain('data-comment-count="3"')
+      expect(html).toContain('aria-label="3 comments"')
+      expect(renderIn(staffed, { ...commented, commentCount: 1 })).toContain('aria-label="1 comment"')
+      expect(renderIn(staffed, held)).not.toContain("data-comment-count")
     })
 
     it("in a laned column the lane says the stage, so the card doesn't; nobody on it means no work line", () => {

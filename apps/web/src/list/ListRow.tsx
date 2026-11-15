@@ -12,6 +12,7 @@ import { formatDue } from "../lib/format.ts"
 import { RowCreated, RowWork, StageChip } from "../presence/Presence.tsx"
 import { QuestionsBadge } from "../ask/QuestionsBadge.tsx"
 import { EvidenceBadge } from "../review/EvidenceBadge.tsx"
+import { CommentCount } from "../task/CommentCount.tsx"
 
 const MAX_LABELS = 3
 
@@ -96,6 +97,7 @@ function RowBody({ task, board, keyChars, stageColumn }: { task: Task; board: Bo
       <span className="flex shrink-0 items-center gap-1.5">
         <QuestionsBadge task={task} board={board} />
         <EvidenceBadge task={task} board={board} />
+        <CommentCount task={task} />
         {labels.slice(0, MAX_LABELS).map((l) => (
           <Chip key={l.id} color={l.color}>
             {l.name}

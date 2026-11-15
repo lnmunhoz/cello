@@ -1,4 +1,5 @@
-// Comments on a task. Deleting sets `deleted_at`; nothing is hard-deleted.
+// Comments on a task. Deleting sets `deleted_at`; nothing is hard-deleted. Adding, editing or deleting
+// one is activity on its task: the task's last change becomes the commenter's, in the same transaction.
 import type { Comment } from "@cello/contract/entities"
 import { Invalid, NotFound } from "@cello/contract/errors"
 import type { Caller } from "@cello/contract/rpcs"
@@ -11,6 +12,7 @@ import * as Commands from "../commands/Commands.ts"
 import * as InboxService from "../inbox/InboxService.ts"
 import { newId } from "../persistence/ids.ts"
 import { selectComments } from "../persistence/rows.ts"
+import { TaskService } from "../task/TaskService.ts"
 import { requireText } from "../validation.ts"
 
 export class CommentService extends Context.Service<CommentService, {
@@ -45,6 +47,7 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const commands = yield* Commands.Commands
   const inbox = yield* InboxService.InboxService
+  const tasks = yield* TaskService
 
   /** The task's project and workspace, which every comment event carries. */
   const placeOfTask = (taskId: string) =>
@@ -73,15 +76,17 @@ const make = Effect.gen(function* () {
   }, Effect.catchTag("SqlError", Effect.die))
 
   const addWithin = (
-    { now, caller, emit }: Commands.WriteContext,
+    context: Commands.WriteContext,
     input: { readonly taskId: string; readonly body: string },
   ) =>
     Effect.gen(function* () {
+      const { now, caller, emit } = context
       const body = yield* requireText("body", input.body)
       const where = yield* placeOfTask(input.taskId)
       const id = newId(now)
       yield* sql`INSERT INTO comments (id, task_id, body, actor_id, session_id, created_at, updated_at)
         VALUES (${id}, ${input.taskId}, ${body}, ${caller.actorId}, ${caller.sessionId}, ${now}, ${now})`
+      yield* tasks.touchWithin(context, input.taskId)
       const comment = yield* load(id)
       yield* emit({ type: "comment.added", comment }, where)
       return comment
@@ -104,13 +109,15 @@ const make = Effect.gen(function* () {
     input: { readonly commandId: string; readonly id: string; readonly body: string },
   ) {
     const body = yield* requireText("body", input.body)
-    return yield* commands.write({ commandId: input.commandId, rpc: "comment.edit" }, ({ now, emit }) =>
+    return yield* commands.write({ commandId: input.commandId, rpc: "comment.edit" }, (context) =>
       Effect.gen(function* () {
+        const { now, emit } = context
         const current = yield* load(input.id)
         if (current.body === body) return current
         yield* sql`UPDATE comments SET body = ${body}, updated_at = ${now} WHERE id = ${current.id}`
+        yield* tasks.touchWithin(context, current.taskId)
         yield* emit(
-          { type: "comment.edited", id: current.id, before: { body: current.body }, after: { body } },
+          { type: "comment.edited", id: current.id, taskId: current.taskId, before: { body: current.body }, after: { body } },
           yield* placeOfTask(current.taskId),
         )
         return yield* load(current.id)
@@ -118,11 +125,13 @@ const make = Effect.gen(function* () {
   })
 
   const remove = Effect.fn("CommentService.remove")(function* (input: { readonly commandId: string; readonly id: string }) {
-    return yield* commands.write({ commandId: input.commandId, rpc: "comment.delete" }, ({ now, emit }) =>
+    return yield* commands.write({ commandId: input.commandId, rpc: "comment.delete" }, (context) =>
       Effect.gen(function* () {
+        const { now, emit } = context
         const current = yield* load(input.id)
         yield* sql`UPDATE comments SET deleted_at = ${now}, updated_at = ${now} WHERE id = ${current.id}`
-        yield* emit({ type: "comment.deleted", id: current.id }, yield* placeOfTask(current.taskId))
+        yield* tasks.touchWithin(context, current.taskId)
+        yield* emit({ type: "comment.deleted", id: current.id, taskId: current.taskId }, yield* placeOfTask(current.taskId))
         return { ...current, deletedAt: now, updatedAt: now }
       }))
   })

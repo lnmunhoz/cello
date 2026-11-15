@@ -27,9 +27,11 @@ export interface Holder {
 export interface Provenance {
   readonly createdBy: Who
   readonly createdAt: number
-  /** Null until someone changes the task after creating it. */
+  /** Null until someone changes the task (or comments on it) after creating it. */
   readonly changedBy: Who | null
   readonly changedAt: number
+  /** "commented" when the latest activity was a comment (added or edited), else "changed". */
+  readonly changeVerb: "changed" | "commented"
   readonly holder: Holder | null
   readonly stage: StageInfo | null
 }
@@ -64,6 +66,7 @@ export const provenanceOf = (board: BoardState, task: Task): Provenance => {
     createdAt: task.createdAt,
     changedBy: changed ? whoOf(board, task.updatedByActorId!, task.updatedBySessionId) : null,
     changedAt: task.updatedAt,
+    changeVerb: task.lastCommentAt !== null && task.lastCommentAt >= task.updatedAt ? "commented" : "changed",
     holder: task.assigneeActorId === null
       ? null
       : { who: session ? sessionWho(session) : whoOf(board, task.assigneeActorId, task.assigneeSessionId), session },
@@ -71,11 +74,14 @@ export const provenanceOf = (board: BoardState, task: Task): Provenance => {
   }
 }
 
-/** "Lucas created · 8a41c9e2 changed 4m ago", "Lucas created · changed 2h ago", "Lucas created Nov 14". */
+/**
+ * "Lucas created · 8a41c9e2 changed 4m ago", "Lucas created · 2fd0505c commented just now",
+ * "Lucas created · changed 2h ago", "Lucas created Nov 14".
+ */
 export const provenanceLine = (p: Provenance, now: number): string => {
   if (p.changedBy === null) return `${p.createdBy.short} created ${formatDay(p.createdAt, now)}`
   const by = p.changedBy.name === p.createdBy.name ? "" : `${p.changedBy.short} `
-  return `${p.createdBy.short} created · ${by}changed ${agoShort(p.changedAt, now)}`
+  return `${p.createdBy.short} created · ${by}${p.changeVerb} ${agoShort(p.changedAt, now)}`
 }
 
 export interface Working {

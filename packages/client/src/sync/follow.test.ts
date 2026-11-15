@@ -37,7 +37,7 @@ const task = (id: string): Task => ({
   createdBySessionId: null,
   updatedByActorId: null,
   updatedBySessionId: null,
-  stage: null,
+  stage: null, commentCount: 0, lastCommentAt: null,
   version: 1,
   createdAt: 1,
   updatedAt: 1,

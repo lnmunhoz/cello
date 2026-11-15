@@ -186,6 +186,8 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
           updatedByActorId: null,
           updatedBySessionId: null,
           stage: null,
+          commentCount: 0,
+          lastCommentAt: null,
           version: 0,
           createdAt: now,
           updatedAt: now,

@@ -14,7 +14,7 @@ const session = (id: string, extra: Partial<AgentSession> = {}): AgentSession =>
 const task = (id: string, extra: Partial<Task> = {}): Task => ({
   id, projectId: "p1", number: 1, key: "CEL-1", title: id, description: "", statusId: "prog", priority: 0, position: "a0",
   dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null, createdByActorId: "lucas",
-  createdBySessionId: null, updatedByActorId: "lucas", updatedBySessionId: null, stage: null, version: 1,
+  createdBySessionId: null, updatedByActorId: "lucas", updatedBySessionId: null, stage: null, commentCount: 0, lastCommentAt: null, version: 1,
   createdAt: Date.UTC(2026, 10, 14), updatedAt: Date.UTC(2026, 10, 14), archivedAt: null, ...extra,
 })
 
@@ -47,6 +47,16 @@ describe("provenanceLine", () => {
     expect(provenanceLine(provenanceOf(board([own], []), own), now)).toBe("Lucas created · changed 2h ago")
     const untouched = task("u")
     expect(provenanceLine(provenanceOf(board([untouched], []), untouched), now)).toBe("Lucas created Nov 14")
+  })
+
+  it("says commented when the latest activity is a comment, and changed once something else follows it", () => {
+    const commented = task("t", {
+      version: 5, updatedByActorId: "claude", updatedBySessionId: "2fd0505c", updatedAt: now - 10_000, commentCount: 1, lastCommentAt: now - 10_000,
+    })
+    const state = board([commented], [session("2fd0505c")])
+    expect(provenanceLine(provenanceOf(state, commented), now)).toBe("Lucas created · 2fd0505c commented just now")
+    const changedSince = { ...commented, updatedAt: now - 5_000 }
+    expect(provenanceLine(provenanceOf(state, changedSince), now)).toBe("Lucas created · 2fd0505c changed just now")
   })
 
   it("an agent creator is its session; a session the board doesn't have yet falls back to the client's name", () => {

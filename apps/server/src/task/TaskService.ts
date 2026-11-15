@@ -112,6 +112,13 @@ export class TaskService extends Context.Service<TaskService, {
     context: Commands.WriteContext,
     input: { readonly id: string; readonly statusId: string; readonly keepClaim?: boolean },
   ) => Effect.Effect<Task, NotFound | Invalid | SqlError>
+  /**
+   * For another service's command: activity on a task that isn't a change to its fields (a comment
+   * added, edited or deleted). Records the caller and the time as its last change, with a new version,
+   * inside that command's transaction. No task event (the command's own event is the change), and it
+   * never ends a claim: Lucas commenting on an agent's task isn't him taking it over.
+   */
+  readonly touchWithin: (context: Commands.WriteContext, taskId: string) => Effect.Effect<void, NotFound | SqlError>
 }>()("cello/TaskService") {}
 
 /** Statuses whose tasks are finished: a claim on them no longer holds. */
@@ -600,7 +607,11 @@ const make = Effect.gen(function* () {
       }))
   })
 
+  const touchWithin = (context: Commands.WriteContext, taskId: string) =>
+    Effect.flatMap(load(taskId), (current) => bump(current, context, {})).pipe(Effect.asVoid)
+
   return TaskService.of({
+    touchWithin,
     setStage,
     byKey,
     claim,

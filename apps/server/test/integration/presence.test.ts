@@ -1,6 +1,7 @@
 // Presence, stage and "last changed" over a real server (CEL-5, CEL-35): a board subscribed to the
 // workspace hears an agent session check in, sees its stage change, and gets the sessions in the snapshot.
 import { newCommandId } from "@cello/client/client"
+import { applyEvents, fromSnapshot } from "@cello/client/sync/applyEvents"
 import type { CelloEvent } from "@cello/contract/events"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -41,6 +42,33 @@ describe("presence over a real server", () => {
       const fresh = yield* human["snapshot.get"]({ scope })
       expect(fresh.sessions.map((s) => s.externalId)).toEqual(["8a41c9e2-presence"])
       expect(fresh.tasks[0]).toMatchObject({ stage: "building", updatedBySessionId: claimed!.sessionId })
+    }).pipe(Effect.scoped))
+
+  it.live("an agent's comment is activity: the board's task counts it and names the session as its last change, as a fresh snapshot does", () =>
+    Effect.gen(function* () {
+      const { port } = yield* startServer(yield* tempDataDir)
+      const human = yield* connect(port)
+      const agent = yield* connect(port, AGENT)
+      const workspace = (yield* human["snapshot.get"]({})).workspaces[0]!
+      const scope = { workspaceId: workspace.id }
+      const { result: project } = yield* human["project.create"]({ commandId: newCommandId(), workspaceId: workspace.id, name: "Cello", key: "CEL" })
+      const { result: task } = yield* human["task.create"]({ commandId: newCommandId(), projectId: project.id, title: "Talk to me" })
+      yield* agent["task.claim"]({ commandId: newCommandId(), key: task.key })
+      const before = yield* human["snapshot.get"]({ scope })
+
+      const board = yield* Effect.forkChild(next(human["events.subscribe"]({ scope, afterSeq: before.seq }), 2))
+      const { result: comment } = yield* agent["comment.add"]({ commandId: newCommandId(), taskId: task.id, body: "Halfway there" })
+      yield* human["comment.edit"]({ commandId: newCommandId(), id: comment.id, body: "Halfway there, tests pass" })
+      const events = yield* Fiber.join(board)
+      expect(events.map((e) => e.type)).toEqual(["comment.added", "comment.edited"])
+
+      const live = applyEvents(fromSnapshot(before), events).tasks[task.id]!
+      const fresh = (yield* human["snapshot.get"]({ scope })).tasks.find((t) => t.id === task.id)!
+      expect(live).toMatchObject({ commentCount: 1, lastCommentAt: events[1]!.ts, updatedAt: events[1]!.ts, updatedBySessionId: null })
+      // The live board and a reload agree on everything, the version included.
+      expect(fresh).toEqual(live)
+      // The agent still holds its claim: Lucas editing a comment isn't him taking the task over.
+      expect(fresh.assigneeSessionId).toBe(events[0]!.sessionId)
     }).pipe(Effect.scoped))
 
   it.live("the human's own calls never check anyone in", () =>

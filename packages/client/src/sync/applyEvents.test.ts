@@ -22,7 +22,7 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   createdBySessionId: null,
   updatedByActorId: null,
   updatedBySessionId: null,
-  stage: null,
+  stage: null, commentCount: 0, lastCommentAt: null,
   version: 1,
   createdAt: 1,
   updatedAt: 1,
@@ -210,5 +210,31 @@ describe("applyEvents: stage, last change and presence (CEL-5, CEL-35)", () => {
     }
     const next = applyEvents(fromSnapshot(snapshot([])), [agent(11, { type: "session.seen", session })])
     expect(next.actors["codex"]).toMatchObject({ id: "codex", kind: "agent", name: "Codex", client: "Codex" })
+  })
+
+  const comment = (id: string, at: number) => ({
+    id, taskId: "t1", body: "Hi", actorId: "claude", sessionId: "s1", createdAt: at, updatedAt: at, deletedAt: null,
+  })
+
+  it("a comment is activity on its task: counted, its time is the last change, by the commenter, with the server's new version", () => {
+    const state = fromSnapshot(snapshot([task("t1", { version: 3 })]))
+    const added = applyEvents(state, [agent(11, { type: "comment.added", comment: comment("c1", 11) })])
+    expect(added.tasks["t1"]).toMatchObject({
+      commentCount: 1, lastCommentAt: 11, updatedAt: 11, updatedByActorId: "claude", updatedBySessionId: "s1", version: 4,
+    })
+    const edited = applyEvents(added, [ev(12, { type: "comment.edited", id: "c1", taskId: "t1", before: { body: "Hi" }, after: { body: "Hello" } })])
+    expect(edited.tasks["t1"]).toMatchObject({ commentCount: 1, lastCommentAt: 12, updatedAt: 12, updatedByActorId: "me", version: 5 })
+  })
+
+  it("deleting a comment drops the count and is a change, not a comment", () => {
+    const state = fromSnapshot(snapshot([task("t1", { commentCount: 2, lastCommentAt: 5, updatedAt: 5, version: 3 })]))
+    const deleted = applyEvents(state, [ev(12, { type: "comment.deleted", id: "c1", taskId: "t1" })])
+    expect(deleted.tasks["t1"]).toMatchObject({ commentCount: 1, lastCommentAt: 5, updatedAt: 12, updatedByActorId: "me", version: 4 })
+  })
+
+  it("an edit or delete stored before it named its task changes no task", () => {
+    const state = fromSnapshot(snapshot([task("t1")]))
+    const next = applyEvents(state, [ev(12, { type: "comment.deleted", id: "c1" })])
+    expect(next.tasks).toBe(state.tasks)
   })
 })

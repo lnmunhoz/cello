@@ -8,7 +8,7 @@ import { agoShort, type Presence, presenceOf, presenceWords } from "@cello/share
 import { BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, type LucideIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
 import { useState } from "react"
 import { formatDay } from "../lib/format.ts"
-import { type Holder, provenanceLine, provenanceOf, sessionColor, type Who, workingSessions } from "./model.ts"
+import { type Holder, type Provenance, provenanceLine, provenanceOf, sessionColor, type Who, workingSessions } from "./model.ts"
 import { useNow } from "./useNow.ts"
 
 const STAGE_ICONS: Record<string, LucideIcon> = { hammer: HammerIcon, "scan-eye": ScanEyeIcon, wrench: WrenchIcon, "git-merge": GitMergeIcon }
@@ -133,19 +133,20 @@ export function CardWork({ task, board, stage = true }: { task: Task; board: Boa
   )
 }
 
-/** "Lucas created · 8a41c9e2 changed 4m ago". */
+/** "Lucas created · 8a41c9e2 changed 4m ago", or "commented" when the latest activity is a comment. */
 export function ProvenanceLine({ task, board }: { task: Task; board: BoardState }) {
   const now = useNow()
   const p = provenanceOf(board, task)
   return (
-    <span className="truncate text-xs text-faint" data-provenance title={fullProvenance(p.createdBy, p.createdAt, p.changedBy, p.changedAt, now)}>
+    <span className="truncate text-xs text-faint" data-provenance title={fullProvenance(p, now)}>
       {provenanceLine(p, now)}
     </span>
   )
 }
 
-const fullProvenance = (createdBy: Who, createdAt: number, changedBy: Who | null, changedAt: number, now: number) =>
-  `Created by ${createdBy.name}, ${formatDay(createdAt, now)}` + (changedBy ? ` · last changed by ${changedBy.name}, ${agoShort(changedAt, now)}` : "")
+const fullProvenance = (p: Provenance, now: number) =>
+  `Created by ${p.createdBy.name}, ${formatDay(p.createdAt, now)}` +
+  (p.changedBy ? ` · last ${p.changeVerb} by ${p.changedBy.name}, ${agoShort(p.changedAt, now)}` : "")
 
 /** The list row's work: the holder and its presence, and the stage unless the stage column shows it. */
 export function RowWork({ task, board, stage = true }: { task: Task; board: BoardState; stage?: boolean }) {
@@ -173,7 +174,7 @@ export function RowCreated({ task, board }: { task: Task; board: BoardState }) {
     <span
       className="w-28 shrink-0 truncate text-right text-xs text-muted"
       data-provenance
-      title={fullProvenance(p.createdBy, p.createdAt, p.changedBy, p.changedAt, now)}
+      title={fullProvenance(p, now)}
     >
       <span className="sr-only">Created by </span>
       {p.createdBy.short} · {formatDay(p.createdAt, now)}
@@ -230,7 +231,10 @@ export function ProvenanceRows({ task, board }: { task: Task; board: BoardState 
           <>
             <Avatar who={p.changedBy} />
             <span className="truncate">{p.changedBy.name}</span>
-            <span className="shrink-0 text-faint">· {agoShort(p.changedAt, now)}</span>
+            <span className="shrink-0 text-faint">
+              · {p.changeVerb === "commented" ? "commented " : ""}
+              {agoShort(p.changedAt, now)}
+            </span>
           </>
         ) : (
           <span className="text-muted">Not since it was created</span>

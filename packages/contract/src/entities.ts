@@ -114,6 +114,13 @@ export const Task = Schema.Struct({
   updatedBySessionId: Schema.NullOr(Id).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   /** Where it is inside In Progress (CEL-35), set with `cello task stage`; null outside it. */
   stage: Schema.NullOr(TaskStage).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
+  /**
+   * Its comments that aren't deleted, and when the latest of them was written or edited. Not columns:
+   * read with the task. A comment is activity on the task, so it also sets `updatedAt` and `updatedBy*`;
+   * when `lastCommentAt` is at or after `updatedAt`, the task's latest activity was a comment.
+   */
+  commentCount: Schema.Number.pipe(Schema.withDecodingDefaultKey(Effect.succeed(0))),
+  lastCommentAt: Schema.NullOr(Millis).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   version: Schema.Number,
   createdAt: Millis,
   updatedAt: Millis,
