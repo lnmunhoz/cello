@@ -2,8 +2,9 @@
 // its agent is doing: working (the tip spins), thinking (leans back, eyes up), a hop when the task
 // starts waiting in Needs input, a jump for joy when it reaches In Review or Done. Nothing plays as the
 // board first draws, and reduced motion stills it all. Agents act through RPC as the CLI would; agent
-// cursors are off, so cards change in place. The board is shown at 175% browser zoom with the sidebar
-// hidden, so the 15 px mark reads in the video; the stills come from a 3x page at 100%.
+// cursors are off, so cards change in place, and Needs input is its own column. The board is shown at
+// 175% browser zoom with the sidebar hidden, so the 15 px mark reads in the video; the stills come
+// from a 3x page at 100%.
 import * as path from "node:path"
 import type { Browser, Locator, Page } from "@playwright/test"
 import { newCommandId } from "../packages/client/test/support/promiseClient.ts"
@@ -72,6 +73,8 @@ test.beforeEach(async ({ context }) => {
   await context.addInitScript(() => {
     localStorage.setItem("cello:agent-cursors", "off")
     localStorage.setItem("cello:sidebar", JSON.stringify({ mode: "hidden", collapsed: "hidden" }))
+    // Display → Needs input column: the waiting card hops at the top of its own column, in the video.
+    localStorage.setItem("cello:needs-input-column", "on")
     // 175% browser zoom, like ⌘+ three times: the mark is 26 px on screen in the video. Once the
     // document has its root element: init scripts run before it exists.
     addEventListener("DOMContentLoaded", () => (document.documentElement.style.zoom = "1.75"))
@@ -151,6 +154,8 @@ test("CEL-69: each card's agent shows what its agent is doing: working, thinking
 
   await caption(page, "Then it rests, big eyes up: a card waiting on Lucas runs no animation")
   await expect(waiting).toHaveAttribute("data-agent-mood", "waiting")
+  await expect(column(page, "Needs input").locator(`[data-task-key="${asking}"]`)).toBeVisible()
+  await showFrom(page, "Needs input")
 
   await caption(page, "Session 7c3e9a51 submits Ship the mark: In Review. Its agent squashes flat, leaps with happy eyes, lands wobbling, blinks")
   await agent.run((c) =>
