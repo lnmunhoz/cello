@@ -5,7 +5,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { APP_VERSION } from "@cello/shared/version"
 import { afterAll, describe, expect, it } from "vitest"
-import { buildCommit, commitOf, subjectsBetween, webBuildStamp } from "./git.ts"
+import { buildCommit, commitOf, isCommit, subjectsBetween, webBuildStamp } from "./git.ts"
 
 const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cello-build-git-")))
 afterAll(() => fs.rmSync(base, { recursive: true, force: true }))
@@ -43,6 +43,11 @@ describe("a build's commit", () => {
     expect(buildCommit({}, repo)).toBe(last)
     expect(buildCommit({ CELLO_BUILD_COMMIT: " " }, outside)).toBeNull()
   })
+
+  it("ignores a CELLO_BUILD_COMMIT that isn't a commit hash, so it never reaches git as an option", () => {
+    expect(buildCommit({ CELLO_BUILD_COMMIT: "--output=/tmp/x" }, repo)).toBe(last)
+    expect(buildCommit({ CELLO_BUILD_COMMIT: "main" }, outside)).toBeNull()
+  })
 })
 
 describe("the changes since the previous build", () => {
@@ -53,6 +58,14 @@ describe("the changes since the previous build", () => {
   it("are empty when git can't tell (an unknown commit, no checkout)", () => {
     expect(subjectsBetween(repo, "0000000", last)).toEqual([])
     expect(subjectsBetween(outside, first, last)).toEqual([])
+  })
+
+  it("are empty for anything that isn't a commit hash (a build.json written by hand), without running git on it", () => {
+    expect(subjectsBetween(repo, "--output=/tmp/cello-x", last)).toEqual([])
+    expect(subjectsBetween(repo, first, "HEAD; rm -rf /")).toEqual([])
+    expect(isCommit("c602f25")).toBe(true)
+    expect(isCommit("C602F25")).toBe(false)
+    expect(isCommit("c602f2")).toBe(false)
   })
 })
 

@@ -6,9 +6,12 @@ import { spawnSync } from "node:child_process"
 import type { WebBuild } from "@cello/contract/build"
 import { APP_VERSION } from "@cello/shared/version"
 
+/** A full or abbreviated commit hash, the only thing that reaches git from build.json or the environment. */
+export const isCommit = (value: string): boolean => /^[0-9a-f]{7,40}$/.test(value)
+
 const git = (dir: string, args: ReadonlyArray<string>): string | null => {
   try {
-    const result = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+    const result = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5_000 })
     return result.status === 0 ? result.stdout.trim() : null
   } catch {
     return null
@@ -18,13 +21,16 @@ const git = (dir: string, args: ReadonlyArray<string>): string | null => {
 /** The short HEAD of the checkout `dir` is in, or null outside one (or without git). */
 export const commitOf = (dir: string): string | null => git(dir, ["rev-parse", "--short", "HEAD"]) || null
 
-/** The build's commit: CELLO_BUILD_COMMIT when set (builds outside a checkout, like Docker's), else `dir`'s HEAD. */
-export const buildCommit = (env: Readonly<Record<string, string | undefined>>, dir: string): string | null =>
-  env.CELLO_BUILD_COMMIT?.trim() || commitOf(dir)
+/** The build's commit: CELLO_BUILD_COMMIT when it's a commit hash (builds outside a checkout, like Docker's), else `dir`'s HEAD. */
+export const buildCommit = (env: Readonly<Record<string, string | undefined>>, dir: string): string | null => {
+  const given = env.CELLO_BUILD_COMMIT?.trim() ?? ""
+  return isCommit(given) ? given : commitOf(dir)
+}
 
 /** First-parent commit subjects in `from..to`, newest first, at most `limit`; empty when git can't tell. */
 export const subjectsBetween = (dir: string, from: string, to: string, limit = 50): ReadonlyArray<string> => {
-  const out = git(dir, ["log", "--first-parent", `--max-count=${limit}`, "--format=%s", `${from}..${to}`])
+  if (!isCommit(from) || !isCommit(to)) return []
+  const out = git(dir, ["log", "--first-parent", `--max-count=${limit}`, "--format=%s", "--end-of-options", `${from}..${to}`])
   return out ? out.split("\n").filter((line) => line !== "") : []
 }
 
