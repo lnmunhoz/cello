@@ -917,7 +917,7 @@ const task = Command.make("task").pipe(
 )
 
 const startCommand = Command.make("start", {}, () => start).pipe(
-  Command.withDescription("Run the Cello server on 127.0.0.1:4747 with data in ~/.cello (CELLO_PORT, CELLO_DATA_DIR)."),
+  Command.withDescription("Run the Cello server on 127.0.0.1:4747 with data in ~/.cello (CELLO_PORT, CELLO_DATA_DIR), serving its built-in web app, or every file in CELLO_WEB_DIR when that folder has an index.html."),
 )
 
 export const cello = Command.make("cello").pipe(

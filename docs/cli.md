@@ -336,8 +336,8 @@ git merge-base --is-ancestor <merge commit> c602f25 && echo "it's in"
 | `CELLO_SESSION` | Overrides the session. An agent that isn't Claude Code sets a stable id for its conversation here. `CELLO_SESSION=me` acts as Lucas: only when he asks you to. |
 | `CELLO_PORT` | The server's port, 4747 by default. Dev servers and tests use other ports. |
 | `CELLO_DATA_DIR` | `cello start`'s data folder, `~/.cello` by default. |
-| `CELLO_WEB_DIR` | A built web app (`vite build`'s folder) for `cello start` to serve instead of its own. Tests use it to serve two builds. |
-| `CELLO_BUILD_COMMIT` | The commit a build records, when it's made outside a git checkout (Docker). `vite build`, `bun run build` and `cello` from source otherwise read the checkout's HEAD. |
+| `CELLO_WEB_DIR` | A built web app (`vite build`'s folder) for `cello start` to serve instead of its own. It serves **every file in that folder** to anything that can reach the port, so point it only at a build. Without an `index.html` there, `cello start` says so on stderr and serves its own app. Tests use it to serve two builds. |
+| `CELLO_BUILD_COMMIT` | The commit a build records, when it's made outside a git checkout (Docker): a commit hash (7 to 40 lowercase hex characters); anything else is ignored. `vite build`, `bun run build` and `cello` from source otherwise read the checkout's HEAD. |
 
 With no session at all, changes are recorded as Lucas. When something gets credited to the wrong person, `cello whoami` prints what Cello sees.
 
@@ -634,7 +634,7 @@ cello hook claude [flags] <event>
 
 ### cello start
 
-Run the Cello server on 127.0.0.1:4747 with data in ~/.cello (CELLO_PORT, CELLO_DATA_DIR).
+Run the Cello server on 127.0.0.1:4747 with data in ~/.cello (CELLO_PORT, CELLO_DATA_DIR), serving its built-in web app, or every file in CELLO_WEB_DIR when that folder has an index.html.
 
 ```
 cello start [flags]

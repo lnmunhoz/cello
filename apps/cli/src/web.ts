@@ -9,9 +9,19 @@ import type { Env } from "./identity.ts"
 const fromDirectory = (dir: string): WebFiles.WebFiles | undefined =>
   fs.existsSync(path.join(dir, "index.html")) ? WebFiles.fromDirectory(dir) : undefined
 
-/** CELLO_WEB_DIR's build when it has an index.html, else `builtIn`'s. */
-export const webFor = (env: Env, builtIn: () => WebFiles.WebFiles | undefined): WebFiles.WebFiles | undefined =>
-  (env.CELLO_WEB_DIR ? fromDirectory(env.CELLO_WEB_DIR) : undefined) ?? builtIn()
+/** CELLO_WEB_DIR's build when it has an index.html, else `builtIn`'s, after `warn`ing that it was skipped. */
+export const webFor = (
+  env: Env,
+  builtIn: () => WebFiles.WebFiles | undefined,
+  warn: (message: string) => void,
+): WebFiles.WebFiles | undefined => {
+  if (env.CELLO_WEB_DIR) {
+    const files = fromDirectory(env.CELLO_WEB_DIR)
+    if (files) return files
+    warn(`CELLO_WEB_DIR has no index.html (${path.resolve(env.CELLO_WEB_DIR)}); serving the built-in web app instead.`)
+  }
+  return builtIn()
+}
 
 /** The built-in web app when run from source: apps/web/dist. */
 export const webFromSource = (): WebFiles.WebFiles | undefined => fromDirectory(path.join(import.meta.dir, "../../web/dist"))

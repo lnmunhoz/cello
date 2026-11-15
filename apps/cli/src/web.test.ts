@@ -16,11 +16,19 @@ describe("the web app cello start serves", () => {
     const dir = path.join(base, "build-b")
     fs.mkdirSync(dir)
     fs.writeFileSync(path.join(dir, "index.html"), "<title>B</title>")
-    expect(webFor({ CELLO_WEB_DIR: dir }, () => builtIn)?.get("/index.html")).toBe(path.join(dir, "index.html"))
+    const warnings: string[] = []
+    expect(webFor({ CELLO_WEB_DIR: dir }, () => builtIn, (m) => warnings.push(m))?.get("/index.html")).toBe(path.join(dir, "index.html"))
+    expect(warnings).toEqual([])
   })
 
-  it("is the built-in one otherwise, or when CELLO_WEB_DIR has no index.html", () => {
-    expect(webFor({}, () => builtIn)).toBe(builtIn)
-    expect(webFor({ CELLO_WEB_DIR: path.join(base, "missing") }, () => builtIn)).toBe(builtIn)
+  it("is the built-in one without CELLO_WEB_DIR", () => {
+    expect(webFor({}, () => builtIn, () => {})).toBe(builtIn)
+  })
+
+  it("is the built-in one, with a warning, when CELLO_WEB_DIR has no index.html", () => {
+    const warnings: string[] = []
+    const missing = path.join(base, "missing")
+    expect(webFor({ CELLO_WEB_DIR: missing }, () => builtIn, (m) => warnings.push(m))).toBe(builtIn)
+    expect(warnings).toEqual([`CELLO_WEB_DIR has no index.html (${missing}); serving the built-in web app instead.`])
   })
 })

@@ -15,7 +15,9 @@ export const start = Effect.gen(function* () {
   const { env, web, build } = yield* CliEnv
   const port = portOf(env)
   const dataDir = dataDirOf(env)
-  const files = webFor(env, web)
+  const warnings: string[] = []
+  const files = webFor(env, web, (message) => warnings.push(message))
+  for (const warning of warnings) yield* Console.error(warning)
   yield* Effect.scoped(Effect.gen(function* () {
     const context = yield* Layer.build(Server.layer({ dataDir, port, humanName: gitUserName(), web: files, commit: build?.commit ?? null }))
     const address = Context.get(context, HttpServer.HttpServer).address
