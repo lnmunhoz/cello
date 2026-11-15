@@ -17,7 +17,7 @@
   "mac": {
     "target": [{ "target": "dir", "arch": ["arm64"] }],
     "category": "public.app-category.developer-tools",
-    "icon": "resources/icon.icns",
+    "icon": "resources/Cello.icon",
     "identity": null,
     "hardenedRuntime": false
   }

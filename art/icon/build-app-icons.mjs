@@ -1,8 +1,8 @@
 // Builds every icon the apps ship from the app icon's sources in this folder (docs/specs/app-icon).
 //   bun art/icon/build-app-icons.mjs           write them
 //   bun art/icon/build-app-icons.mjs --check   exit 1 if a committed file differs from a fresh build
-// Needs resvg 0.47.0 (brew install resvg; another version may rasterise edges differently) and macOS's
-// iconutil. The same sources and resvg version give the same bytes.
+// Needs resvg 0.47.0 (brew install resvg; another version may rasterise edges differently). The same
+// sources and resvg version give the same bytes.
 //
 //   favicon.svg → apps/web/public/icons/icon.svg           the tab icon, and the manifest's SVG icon
 //               → apps/web/public/favicon.ico              16, 32 and 48 px, for browsers that skip the SVG
@@ -11,7 +11,9 @@
 //               → apps/web/public/icons/icon-maskable-512.png   the agent at 80%, inside the safe zone
 //               → apps/web/public/icons/apple-touch-icon.png    180 px, full bleed (iOS rounds the corners)
 //               → apps/desktop/resources/icon.png          1024 px in the macOS shape: the Dock icon in dev
-//               → apps/desktop/resources/icon.icns         the same at every size: the packaged Cello.app
+//               → apps/desktop/resources/Cello.icon/       an Icon Composer document (icon.json and the agent
+//                                                          layer): the packaged Cello.app, compiled by
+//                                                          electron-builder with Xcode's actool
 import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
@@ -55,6 +57,40 @@ const macos = canvas(
     `<g clip-path="url(#body)"><g transform="translate(${INSET} ${INSET}) scale(${BODY / 1024})">${icon.agent}</g></g>`,
 )
 
+// The packaged app's icon is an Icon Composer document, so macOS 26 draws it flat instead of redrawing a
+// plain .icns as glass (decided 2026-11-15, docs/specs/app-icon). One layer: the agent, its eyes cut out
+// so the fill shows through. Glass, shadow, specular and translucency are off. The orange fill is pinned
+// for the dark appearance too: without it macOS's dark icon style draws a black tile and the ink agent
+// all but vanishes.
+const roundedRect = (x, y, w, h, r) =>
+  `M${x + r} ${y} H${x + w - r} A${r} ${r} 0 0 1 ${x + w} ${y + r} V${y + h - r} A${r} ${r} 0 0 1 ${x + w - r} ${y + h} ` +
+  `H${x + r} A${r} ${r} 0 0 1 ${x} ${y + h - r} V${y + r} A${r} ${r} 0 0 1 ${x + r} ${y} Z`
+const iconComposer = (() => {
+  const match = icon.agent.match(/^<g transform="([^"]+)"><path d="([^"]+)" fill="(#[0-9A-Fa-f]{6})"\/><g fill="(#[0-9A-Fa-f]{6})">((?:<rect [^>]*\/>)+)<\/g><\/g>$/)
+  const holes = match ? [...match[5].matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="([\d.]+)"\/>/g)] : []
+  if (!match || match[4] !== icon.background || holes.length !== match[5].split("<rect").length - 1) {
+    throw new Error("icon.svg: expected the agent as <g transform><path fill=ink/><g fill=background>eye <rect>s</g></g>; update the .icon layer here")
+  }
+  const [, transform, body, ink] = match
+  const eyes = holes.map(([, ...values]) => roundedRect(...values.map(Number)))
+  const layer = canvas(`<g transform="${transform}"><path fill="${ink}" fill-rule="evenodd" d="${body} ${eyes.join(" ")}"/></g>`)
+  const srgb = (hex) => `srgb:${[1, 3, 5].map((i) => (parseInt(hex.slice(i, i + 2), 16) / 255).toFixed(5)).join(",")},1.00000`
+  const fill = { solid: srgb(icon.background) }
+  const iconJson = {
+    "fill-specializations": [{ value: fill }, { appearance: "dark", value: fill }],
+    groups: [
+      {
+        layers: [{ glass: false, "image-name": "agent.svg", name: "agent" }],
+        shadow: { kind: "none", opacity: 0 },
+        specular: false,
+        translucency: { enabled: false, value: 0 },
+      },
+    ],
+    "supported-platforms": { squares: "shared" },
+  }
+  return { json: `${JSON.stringify(iconJson, null, 2)}\n`, layer }
+})()
+
 const run = (cmd, args) => {
   const result = spawnSync(cmd, args, { encoding: "utf8" })
   if (result.error) throw new Error(`${cmd}: ${result.error.message} (is it installed?)`)
@@ -92,19 +128,6 @@ const ico = (images) => {
   return Buffer.concat([header, ...images.map((image) => image.bytes)])
 }
 
-/** A .icns from iconutil, with every size of an .iconset rendered from the SVG (not scaled down from 1024). */
-const icns = (svg) => {
-  const set = path.join(temp, "icon.iconset")
-  fs.mkdirSync(set)
-  for (const size of [16, 32, 128, 256, 512]) {
-    fs.writeFileSync(path.join(set, `icon_${size}x${size}.png`), png(svg, size))
-    fs.writeFileSync(path.join(set, `icon_${size}x${size}@2x.png`), png(svg, size * 2))
-  }
-  const output = path.join(temp, "icon.icns")
-  run("iconutil", ["-c", "icns", set, "-o", output])
-  return fs.readFileSync(output)
-}
-
 const outputs = {
   "apps/web/public/icons/icon.svg": Buffer.from(favicon.svg),
   "apps/web/public/favicon.ico": ico([16, 32, 48].map((size) => ({ size, bytes: png(favicon.svg, size) }))),
@@ -113,7 +136,8 @@ const outputs = {
   "apps/web/public/icons/icon-maskable-512.png": png(maskable, 512),
   "apps/web/public/icons/apple-touch-icon.png": png(icon.svg, 180),
   "apps/desktop/resources/icon.png": png(macos, 1024),
-  "apps/desktop/resources/icon.icns": icns(macos),
+  "apps/desktop/resources/Cello.icon/icon.json": Buffer.from(iconComposer.json),
+  "apps/desktop/resources/Cello.icon/Assets/agent.svg": Buffer.from(iconComposer.layer),
 }
 fs.rmSync(temp, { recursive: true, force: true })
 
@@ -125,7 +149,10 @@ for (const [file, bytes] of Object.entries(outputs)) {
     if (!same) stale.push(file)
     continue
   }
-  if (!same) fs.writeFileSync(target, bytes)
+  if (!same) {
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(target, bytes)
+  }
   console.log(`${same ? "unchanged" : "wrote    "} ${file}`)
 }
 if (check) {
