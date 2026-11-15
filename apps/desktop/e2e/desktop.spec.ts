@@ -208,7 +208,9 @@ test("CEL-20: a task key clicked in a page shown in the native panel opens the t
   await expect(key.locator("[data-task-status]")).toHaveText("Todo")
 
   await video.caption("Click DSK-2 in the panel: the task opens in the main window, and the page stays in the panel")
-  await key.click()
+  // The link starts a navigation that the panel cancels (it opens the task on the board instead), so
+  // the click mustn't wait for that navigation to finish: it never does.
+  await key.click({ noWaitAfter: true })
   await board.waitForURL(`${server.url}/DSK/2`)
   await expect(board.getByRole("complementary", { name: "DSK-2 details" })).toBeVisible()
   expect(panel.url()).toBe(`${pageUrl}?embed=1`)
