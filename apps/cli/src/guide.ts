@@ -173,6 +173,26 @@ cello task create "Restore refuses while a server runs" --parent CEL-23 --label 
 - **Priority:** \`urgent\`, \`high\`, \`medium\`, \`low\` or \`none\`.
 - **Long descriptions:** use \`--body-file -\` with a heredoc, or \`--body-file notes.md\`.
 
+## Editing tasks
+
+\`\`\`bash
+cello task edit CEL-12 --title "Sidebar: collapse, resize and remember the width"
+# Edited CEL-12  Sidebar: collapse, resize and remember the width
+
+# Replace the description with markdown from stdin
+cello task edit CEL-12 --body-file - <<'EOF'
+Drag the sidebar's edge to resize it; ⌘B collapses it to an icon rail.
+The width is kept per project.
+EOF
+
+cello task edit CEL-12 --priority urgent --description "Short and new."
+\`\`\`
+
+- **Only the flags you give change.** \`--title\`, \`--description\` (or \`--body-file\`, a file or \`-\` for stdin) and \`--priority\` (\`urgent\`, \`high\`, \`medium\`, \`low\`, \`none\`), in any mix; together they're one change, one line in the history. With none of them it refuses and changes nothing. The same values again change nothing and say so ("Nothing to change on CEL-12  …").
+- **The description is replaced, not added to.** To add a note, comment instead. To keep part of the old text, read it first: \`cello task get CEL-12 --json | jq -r '.task.description'\`.
+- **Who edits:** you, on any task, claimed or not; editing isn't guarded by a claim, and another session's claim stays. When Lucas edits a task you hold, your claim ends, as with any change he makes to it (see Claim in Concepts).
+- **If someone changes the task at the same moment,** it fails with "It was changed by … in the meantime"; run it again.
+
 ## Reading tasks
 
 \`\`\`bash
@@ -729,6 +749,23 @@ cello task create [flags] <title>
 | \`--priority string\` | urgent, high, medium, low or none. |
 | \`--label string\` | A label name; repeat it, or separate names with commas. |
 | \`--parent string\` | Parent task key. |
+
+### cello task edit
+
+Change a task's title, description or priority; only the flags you give change. Any task, claimed or not; Lucas's edits end a claim as his other changes do.
+
+\`\`\`
+cello task edit [flags] <key>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`key string\` | A task key, e.g. CEL-3. |
+| \`--title string\` | A new title. |
+| \`--description string\` | A new description, in markdown; replaces the old one. |
+| \`--body-file string\` | Read the new description from a file; - is stdin. |
+| \`--priority string\` | urgent, high, medium, low or none. |
+| \`--json\` | Print JSON for scripts. |
 
 ### cello task claim
 
