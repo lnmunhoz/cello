@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { clipAround, fromMarked, matchesAll, MARK_CLOSE, MARK_OPEN, searchTerms, segments, wordPrefixRanges } from "./search.ts"
+import { clipAround, fromMarked, matchesAll, MARK_CLOSE, MARK_OPEN, oneLine, searchTerms, segments, wordPrefixRanges } from "./search.ts"
 
 describe("search terms", () => {
   it("are the query's words, lower-cased, whatever separates them", () => {
@@ -56,6 +56,14 @@ describe("clipping long text around its first match", () => {
     const clipped = clipAround({ text, ranges: [[0, 6], [text.length - 6, text.length]] }, 40)
     expect(clipped.text.startsWith("needle")).toBe(true)
     expect(clipped.ranges).toEqual([[0, 6]])
+  })
+})
+
+describe("one line", () => {
+  it("collapses whitespace and newlines to single spaces, moving the ranges", () => {
+    const marked = { text: "  The\n\n- evidence   video\n", ranges: [[9, 17], [20, 25]] as const }
+    expect(oneLine(marked)).toEqual({ text: "The - evidence video", ranges: [[6, 14], [15, 20]] })
+    expect(oneLine({ text: "plain", ranges: [] })).toEqual({ text: "plain", ranges: [] })
   })
 })
 

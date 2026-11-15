@@ -86,6 +86,28 @@ export const clipAround = (marked: Marked, max: number): Marked => {
   }
 }
 
+/** `marked` on one line: every run of whitespace (newlines too) one space, trimmed, the ranges moved with it. */
+export const oneLine = (marked: Marked): Marked => {
+  // Where each character of the input lands in the output (and where the output ends).
+  const at: number[] = []
+  let text = ""
+  for (let i = 0; i < marked.text.length; i++) {
+    const char = marked.text[i]!
+    at.push(text.length)
+    if (/\s/.test(char)) {
+      if (text.length > 0 && !text.endsWith(" ")) text += " "
+    } else text += char
+  }
+  at.push(text.length)
+  const trimmed = text.trimEnd()
+  return {
+    text: trimmed,
+    ranges: marked.ranges
+      .map(([s, e]) => [Math.min(at[s]!, trimmed.length), Math.min(at[e]!, trimmed.length)] as const)
+      .filter(([s, e]) => e > s),
+  }
+}
+
 /** Splits `text` into plain and matched pieces, for drawing <mark> or [brackets]. */
 export const segments = (text: string, ranges: ReadonlyArray<Range>): Array<{ text: string; match: boolean }> => {
   const out: Array<{ text: string; match: boolean }> = []

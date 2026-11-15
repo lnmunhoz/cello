@@ -257,5 +257,12 @@ describe("SearchService.query", () => {
       expect(marked(hit.text, hit.textRanges)).toEqual(["needle"])
       expect(hit.snippet.length).toBeLessThan(260)
       expect(marked(hit.snippet, hit.snippetRanges)).toEqual(["needle"])
+
+      // A snippet is one line, whatever the markdown's line breaks; the text keeps them.
+      yield* task("Lines", "## Why\n\nThe **thimble**\n- goes here")
+      const lines = (yield* find("thimble")).groups[0]!.hits[0]!
+      expect(lines.snippet).toBe("## Why The **thimble** - goes here")
+      expect(marked(lines.snippet, lines.snippetRanges)).toEqual(["thimble"])
+      expect(lines.text).toBe("## Why\n\nThe **thimble**\n- goes here")
     })))
 })

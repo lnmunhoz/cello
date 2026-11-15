@@ -13,7 +13,7 @@
 import type { DocumentKind, Project, ProjectRef, ReviewDecision, StatusCategory } from "@cello/contract/entities"
 import { Invalid, NotFound } from "@cello/contract/errors"
 import { SEARCH_KINDS, type SearchGroup, type SearchHit, type SearchKind, type SearchResults } from "@cello/contract/search"
-import { clipAround, fromMarked, MARK_CLOSE, MARK_OPEN, matchesAll, searchTerms, wordPrefixRanges, type Marked } from "@cello/shared/search"
+import { clipAround, fromMarked, MARK_CLOSE, MARK_OPEN, matchesAll, oneLine, searchTerms, wordPrefixRanges, type Marked } from "@cello/shared/search"
 import { formatTaskKey, parseTaskKey } from "@cello/shared/taskKey"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -196,7 +196,7 @@ const make = Effect.gen(function* () {
         const packet = c.kind === "packet" ? more.packets.get(c.refId) : undefined
         const document = c.kind === "document" ? more.documents.get(c.refId) : undefined
         const title = c.kind === "task" || c.kind === "document" ? m.title : plain(task?.title ?? "")
-        const snippet = clipAround(m.snippet, SNIPPET_MAX)
+        const snippet = clipAround(oneLine(m.snippet), SNIPPET_MAX)
         const text = clipAround(m.body, TEXT_MAX)
         return {
           kind: c.kind,
@@ -253,7 +253,7 @@ const make = Effect.gen(function* () {
         SELECT t.id, t.title, t.description, t.updated_at, s.name AS status FROM tasks t JOIN statuses s ON s.id = t.status_id
         WHERE t.project_id = ${project.id} AND t.number = ${key.number} AND t.archived_at IS NULL`
       if (!task) return null
-      const snippet = clipAround(plain(task.description.replace(/\s+/g, " ").trim()), SNIPPET_MAX)
+      const snippet = clipAround(oneLine(plain(task.description)), SNIPPET_MAX)
       return {
         kind: "task",
         id: task.id,
