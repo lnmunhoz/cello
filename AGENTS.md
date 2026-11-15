@@ -31,6 +31,7 @@ Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port
   - a report you published as a page: `--link <page url>`
   - `cello guide` has the full command
 - publish reports, plans, comparisons and summaries **as pages in Cello** with `cello doc publish report.md --task CEL-n`, not as Claude artifacts. It prints the page's URL; Lucas reads it next to the task. Republishing the same file updates the page (the link stays, old versions are kept); `cello doc get <slug>` reads one back
+  - pick the kind by what it's for: `--kind page` for a report on finished work (a snapshot to read now), `--kind doc` for an explanation of how something works (kept up to date when it changes), `--kind spec` for a plan before the work (linked to its tasks). When in doubt: a page is about a moment, a doc is about the system. The Docs tab's *Docs, specs and pages* doc explains it.
 - to show Lucas a page, video or artifact, open it **inside Cello**: `open "cello://open?url=<url-encoded link>"` opens it in the desktop app's browser panel (claude.ai artifacts included). Use his browser only when the app isn't running.
 
 ## How to work
