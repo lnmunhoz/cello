@@ -141,8 +141,10 @@ describe("cello commands against a real server", () => {
       const guide = (yield* agent("guide")).out
       expect(guide).toContain("cello context")
       // Reports go into Cello as pages, and a page can travel in a review packet.
-      expect(guide).toContain("cello doc publish report.md --task CEL-3")
+      expect(guide).toContain("cello doc publish report.md --task CEL-13")
       expect(guide).toContain("--link <page url>")
+      // The guide is docs/cli.md, command reference included.
+      expect(guide).toContain("### cello task submit")
     }).pipe(Effect.scoped))
 
   it.live("errors say what to do next: unknown folder, unknown task, unknown status, no server", () =>

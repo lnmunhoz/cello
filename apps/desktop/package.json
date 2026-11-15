@@ -11,7 +11,8 @@
     "build": "bun scripts/build.ts",
     "dev": "bun scripts/dev.ts",
     "package": "bun scripts/package.ts",
-    "test:e2e": "bun scripts/build.ts && playwright test -c playwright.config.ts"
+    "test:e2e": "bun ../../scripts/test-in-docker.ts desktop",
+    "test:e2e:local": "bun scripts/build.ts && playwright test -c playwright.config.ts"
   },
   "devDependencies": {
     "@cello/server": "workspace:*",
