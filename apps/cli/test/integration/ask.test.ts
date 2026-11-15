@@ -108,7 +108,7 @@ describe("cello task ask", () => {
       expect(ask!.attachments.map((a) => a.name)).toEqual(["peek.png", "palette.png", "http://127.0.0.1:4747/CEL/pages/cel-43-scope"])
       expect(ask!.questions[0]!.options.map((o) => o.imageId)).toEqual([ask!.attachments[0]!.id, ask!.attachments[1]!.id])
       const text = (yield* x("task", "get", "CEL-1")).out
-      expect(text).toContain("Questions for Lucas (1)\n  \"Search layout\" (open), asked by Claude Code session 2fd0505c, just now\n    1. Which layout?\n    2. Anything else?")
+      expect(text).toContain("Questions for Lucas (1)\n  Round 1 · open: \"Search layout\", asked by Claude Code session 2fd0505c, just now\n    1. Which layout?\n    2. Anything else?")
     }).pipe(Effect.scoped))
 
   it.live("inline flags ask one question; mistakes are explained", () =>
@@ -217,7 +217,7 @@ describe("cello task ask", () => {
 
   it.live("Lucas moving the card out of Needs input withdraws the ask; an agent can't move a task into it by hand", () =>
     Effect.gen(function* () {
-      const { x, human, repo, statusId } = yield* setup
+      const { x, human, repo, statusId, hook } = yield* setup
       expect((yield* x("task", "move", "CEL-1", "Needs input")).failure).toBe(
         "CEL-1 goes to Needs input only with questions for Lucas. Ask them instead: " +
           "`cello task ask CEL-1 --title \"what to decide\" --question \"…\" --option \"A\" --option \"B\"` (or --file ask.json). See `cello guide`.",
@@ -226,9 +226,37 @@ describe("cello task ask", () => {
       yield* x("task", "ask", "CEL-1", "--file", "ask.json")
       const { task } = JSON.parse((yield* x("task", "get", "CEL-1", "--json")).out)
       yield* human["task.move"]({ commandId: newCommandId(), id: task.id, statusId: statusId("Todo") })
+      // The session that asked hears it, once.
+      const context = JSON.parse((yield* hook("stop")).out).hookSpecificOutput.additionalContext as string
+      expect(context).toContain("CEL-1  Search layout\n  Lucas moved it out of Needs input, just now\n    Lucas moved CEL-1 to Todo; your ask \"Search layout\" was withdrawn.")
+      expect(yield* hook("stop")).toEqual({ out: "", failure: null })
       expect((yield* x("task", "answers", "CEL-1")).out).toMatch(/^CEL-1's questions "Search layout" were withdrawn/)
-      // The claim ended, as with any move Lucas makes.
+      // The claim ended, as with any move Lucas makes; the questions stay in the task's history.
       expect((yield* x("context")).out).toContain("CEL-1  ended when Lucas changed it")
+      expect((yield* x("task", "get", "CEL-1")).out).toContain("Round 1 · withdrawn just now: \"Search layout\"")
+    }).pipe(Effect.scoped))
+
+  it.live("rounds: a follow-up after Lucas's answers; `task answers` prints the latest, --all every round", () =>
+    Effect.gen(function* () {
+      const { x, human, repo } = yield* setup
+      fs.writeFileSync(path.join(repo, "ask.json"), JSON.stringify(ASK_FILE))
+      const first = JSON.parse((yield* x("task", "ask", "CEL-1", "--file", "ask.json", "--json")).out).result.ask as Ask
+      yield* human["ask.answer"]({
+        commandId: newCommandId(),
+        askId: first.id,
+        answers: [
+          { questionId: "q1", optionIds: ["q1o1", "q1o2"], comment: "Both, behind a toggle" },
+          { questionId: "q2", optionIds: [], comment: "Ship it" },
+        ],
+      })
+      yield* x("task", "ask", "CEL-1", "--title", "The toggle", "--question", "Where does the toggle go?", "--option", "Header", "--option", "Footer")
+      const latest = (yield* x("task", "answers", "CEL-1")).out
+      expect(latest.split("\n").slice(0, 2)).toEqual(["Round 1 · answered", "Lucas answered \"Search layout\" on CEL-1, just now:"])
+      expect(latest).toContain("   Picked: Peek (your recommendation), Palette")
+      expect(latest).toContain("Round 2 · open: \"The toggle\" is still open; `cello wait CEL-1` waits for the answers.")
+      const all = (yield* x("task", "answers", "CEL-1", "--all")).out
+      expect(all).toContain("Round 1 · answered: \"Search layout\", asked just now\n  1. Which layout?\n     Picked: Peek (your recommendation), Palette")
+      expect(all).toContain("Round 2 · open: \"The toggle\", asked just now\n  1. Where does the toggle go?")
     }).pipe(Effect.scoped))
 
   it.live("an agent can't paste screenshots into answers", () =>

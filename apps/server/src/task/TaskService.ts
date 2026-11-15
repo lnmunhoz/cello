@@ -14,6 +14,7 @@ import type { SqlError } from "effect/sql/SqlError"
 import { withdrawOpenAsk } from "../ask/openAsk.ts"
 import * as Commands from "../commands/Commands.ts"
 import * as EventStore from "../events/EventStore.ts"
+import * as InboxService from "../inbox/InboxService.ts"
 import { newId } from "../persistence/ids.ts"
 import { selectTasks } from "../persistence/rows.ts"
 import * as Seed from "../persistence/Seed.ts"
@@ -120,6 +121,7 @@ const make = Effect.gen(function* () {
   const commands = yield* Commands.Commands
   const store = yield* EventStore.EventStore
   const sessions = yield* SessionService
+  const inbox = yield* InboxService.InboxService
   const human = yield* Seed.HumanActor
 
   const load = (id: string) =>
@@ -331,7 +333,9 @@ const make = Effect.gen(function* () {
       // Leaving Needs input any other way than an answer or a withdrawal (those close the ask first):
       // the open ask goes with it.
       if (!sameColumn && isNeedsInputStatus(yield* statusOf(current.statusId))) {
-        yield* withdrawOpenAsk(sql, context, current, { workspaceId, projectId: current.projectId }, "moved")
+        const withdrawn = yield* withdrawOpenAsk(sql, context, current, { workspaceId, projectId: current.projectId }, "moved")
+        // Lucas moving it himself: the agent that asked hears where the card went.
+        if (withdrawn !== null) yield* inbox.deliverWithdrawalWithin(context, withdrawn, (yield* statusOf(to.statusId)).name)
       }
       const claim = to.keepClaim ? { columns: {}, after: (_version: number) => Effect.void } : humanEndsClaim(current, workspaceId, context)
       yield* bump(current, context.now, { status_id: to.statusId, position, ...claim.columns })

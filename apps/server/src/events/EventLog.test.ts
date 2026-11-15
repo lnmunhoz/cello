@@ -18,6 +18,7 @@ import { cmd, setupProject } from "../testing/fixtures.ts"
 import { asHuman, database, services } from "../testing/TestLayers.ts"
 import * as EventLog from "./EventLog.ts"
 import * as EventStore from "./EventStore.ts"
+import * as InboxService from "../inbox/InboxService.ts"
 
 const run = <A, E>(effect: Effect.Effect<A, E, any>) => asHuman(effect).pipe(Effect.provide(services())) as Effect.Effect<A, E>
 
@@ -92,6 +93,7 @@ const racingStore = Layer.effect(EventStore.EventStore, Effect.gen(function* () 
 
 const racingServices = () =>
   Layer.mergeAll(TaskService.layer, ProjectService.layer, SnapshotService.layer).pipe(
+    Layer.provideMerge(InboxService.layer),
     Layer.provideMerge(SessionService.layer),
     Layer.provideMerge(RepoPaths.layer),
     Layer.provideMerge(Commands.layer),

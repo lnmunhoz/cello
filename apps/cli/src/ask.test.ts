@@ -139,9 +139,9 @@ const ask: Ask = {
   answeredAt: NOW - 120_000,
   answers: {
     questions: [
-      { questionId: "q1", optionIds: ["q1o1"], comment: "Narrower preview.\nAnd a border.", attachments: [shot("a1", "image.png")] },
-      { questionId: "q2", optionIds: [], comment: "Neither for now", attachments: [] },
-      { questionId: "q3", optionIds: [], comment: "Ship it", attachments: [] },
+      { questionId: "q1", optionIds: ["q1o1"], none: false, comment: "Narrower preview.\nAnd a border.", attachments: [shot("a1", "image.png")] },
+      { questionId: "q2", optionIds: [], none: true, comment: "Neither for now", attachments: [] },
+      { questionId: "q3", optionIds: [], none: false, comment: "Ship it", attachments: [] },
     ],
     note: "Thanks",
     noteAttachments: [shot("a2", "drop.webp")],
@@ -165,7 +165,7 @@ describe("Lucas's answers, as the agent reads them", () => {
       "   Screenshot: /tmp/cello-answers/k1/q1-1.png",
       "",
       "2. Which extras?",
-      "   Picked: none of the options",
+      "   Picked: None of these",
       "   Comment: Neither for now",
       "",
       "3. Anything else?",

@@ -1,6 +1,7 @@
 // Needs input (CEL-47): where an ask moves a task, where the status goes in a workspace that doesn't
 // have it yet, and when a question counts as answered. The server applies these; the web app uses the
-// same rules for its column and its Send answers button.
+// same rules for its column and its Send answers button. Answering follows what Lucas decided on Nov 15:
+// several picks on any question with options, or "None of these" with a comment.
 
 interface StatusLike {
   readonly id: string
@@ -44,25 +45,34 @@ export const needsInputNeighbors = (statuses: ReadonlyArray<StatusLike>): { befo
 interface QuestionLike {
   readonly id: string
   readonly kind: "one" | "any" | "text"
-  readonly options: ReadonlyArray<{ readonly id: string }>
+  readonly options: ReadonlyArray<{ readonly id: string; readonly recommended?: boolean }>
 }
 
 interface AnswerLike {
   readonly optionIds: ReadonlyArray<string>
+  /** "None of these": no option fits; the comment says what instead. */
+  readonly none: boolean
   readonly comment: string
   readonly attachmentIds: ReadonlyArray<string>
 }
 
 /**
- * What's wrong with an answer, or null. A question is answered by a pick, or (when no option fits)
- * by a comment or a screenshot; choose-one takes one option at most.
+ * What's wrong with an answer, or null. A question with options takes one pick or several (its kind
+ * only says what the agent expects), or "None of these" with a comment; a text-only one takes words.
  */
 export const answerProblem = (question: QuestionLike, answer: AnswerLike): string | null => {
   const stranger = answer.optionIds.find((id) => !question.options.some((o) => o.id === id))
   if (stranger !== undefined) return `no option ${stranger}`
-  if (question.kind === "one" && answer.optionIds.length > 1) return "one option only"
-  const said = answer.comment.trim() !== "" || answer.attachmentIds.length > 0
-  return answer.optionIds.length > 0 || said ? null : "unanswered"
+  const said = answer.comment.trim() !== ""
+  if (question.options.length === 0) {
+    if (answer.none) return "no options to refuse"
+    return said ? null : "unanswered"
+  }
+  if (answer.none) {
+    if (answer.optionIds.length > 0) return "none of these, or picks, not both"
+    return said ? null : "say why none of these"
+  }
+  return answer.optionIds.length > 0 ? null : "unanswered"
 }
 
 /** The ids of the questions without a valid answer, in order. */
@@ -74,3 +84,7 @@ export const unanswered = (
     const answer = answers[q.id]
     return answer === undefined || answerProblem(q, answer) !== null
   }).map((q) => q.id)
+
+/** What a question starts with picked: the options the agent recommends. Lucas can change them. */
+export const recommendedPicks = (question: QuestionLike): string[] => question.options.filter((o) => o.recommended).map((o) => o.id)
+

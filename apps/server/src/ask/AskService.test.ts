@@ -4,12 +4,14 @@
 // it; Lucas moving the card out withdraws it too; an agent can't move a task into Needs input by hand.
 import * as fs from "node:fs"
 import * as path from "node:path"
+import type { AnswerInput } from "@cello/contract/rpcs"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as TestClock from "effect/testing/TestClock"
 import * as EventStore from "../events/EventStore.ts"
 import * as InboxService from "../inbox/InboxService.ts"
+import * as Seed from "../persistence/Seed.ts"
 import * as AssetStore from "../review/AssetStore.ts"
 import * as ReviewService from "../review/ReviewService.ts"
 import * as SnapshotService from "../snapshot/SnapshotService.ts"
@@ -187,8 +189,14 @@ describe("AskService.answer", () => {
       const partial = { ...answers(ask.id), answers: answers(ask.id).answers.slice(0, 2) }
       expect(yield* Effect.flip(asks.answer(partial))).toMatchObject({ _tag: "Invalid", reason: "answer every question: \"Anything else?\" has no answer" })
       expect(yield* Effect.flip(asks.answer(answers(ask.id, "q2o1")))).toMatchObject({ reason: "\"Which layout?\": no option q2o1" })
-      const two = { ...answers(ask.id), answers: [{ questionId: "q1", optionIds: ["q1o1", "q1o2"] }, ...answers(ask.id).answers.slice(1)] }
-      expect(yield* Effect.flip(asks.answer(two))).toMatchObject({ reason: "\"Which layout?\": one option only" })
+      const withFirst = (first: AnswerInput) => ({ ...answers(ask.id), answers: [first, ...answers(ask.id).answers.slice(1)] })
+      // A comment alone doesn't answer a question with options; None of these needs one.
+      expect(yield* Effect.flip(asks.answer(withFirst({ questionId: "q1", optionIds: [], comment: "Hmm" }))))
+        .toMatchObject({ reason: "answer every question: \"Which layout?\" has no answer" })
+      expect(yield* Effect.flip(asks.answer(withFirst({ questionId: "q1", optionIds: [], none: true }))))
+        .toMatchObject({ reason: "\"Which layout?\": say why none of these" })
+      expect(yield* Effect.flip(asks.answer(withFirst({ questionId: "q1", optionIds: ["q1o1"], none: true, comment: "x" }))))
+        .toMatchObject({ reason: "\"Which layout?\": none of these, or picks, not both" })
       const stranger = { ...answers(ask.id), answers: [...answers(ask.id).answers, { questionId: "q9", optionIds: [] }] }
       expect(yield* Effect.flip(asks.answer(stranger))).toMatchObject({ reason: "this ask has no question q9" })
       expect((yield* asks.latest("CEL-1")).state).toBe("open")
@@ -206,9 +214,9 @@ describe("AskService.answer", () => {
       expect(result.ask).toMatchObject({ state: "answered", answeredAt: expect.any(Number) })
       expect(result.ask.answers).toEqual({
         questions: [
-          { questionId: "q1", optionIds: ["q1o1"], comment: "Narrower preview, please", attachments: [] },
-          { questionId: "q2", optionIds: ["q2o1", "q2o2"], comment: "", attachments: [] },
-          { questionId: "q3", optionIds: [], comment: "Ship it after the e2e passes", attachments: [] },
+          { questionId: "q1", optionIds: ["q1o1"], none: false, comment: "Narrower preview, please", attachments: [] },
+          { questionId: "q2", optionIds: ["q2o1", "q2o2"], none: false, comment: "", attachments: [] },
+          { questionId: "q3", optionIds: [], none: false, comment: "Ship it after the e2e passes", attachments: [] },
         ],
         note: "Thanks",
         noteAttachments: [],
@@ -221,6 +229,39 @@ describe("AskService.answer", () => {
       expect(yield* other(inbox.unread)).toEqual([])
       // Answered is final.
       expect(yield* Effect.flip(asks.answer(answers(ask.id)))).toMatchObject({ _tag: "Invalid", reason: "this ask is answered, so it can't be answered" })
+    })))
+
+  it.effect("takes several picks on any question, or None of these with a comment (Lucas, Nov 15)", () =>
+    run(Effect.gen(function* () {
+      const { asks, files } = yield* setup
+      const { ask } = (yield* agent(asks.create(question(files)))).result
+      const input = answers(ask.id)
+      const { result } = yield* asks.answer({
+        ...input,
+        answers: [
+          { questionId: "q1", optionIds: ["q1o1", "q1o2"], comment: "Both, behind a toggle" },
+          { questionId: "q2", optionIds: [], none: true, comment: "Neither: a saved-search list" },
+          input.answers[2]!,
+        ],
+      })
+      expect(result.ask.answers!.questions.map((a) => [a.optionIds, a.none, a.comment])).toEqual([
+        [["q1o1", "q1o2"], false, "Both, behind a toggle"],
+        [[], true, "Neither: a saved-search list"],
+        [[], false, "Ship it after the e2e passes"],
+      ])
+    })))
+
+  it.effect("rounds: after Lucas answers, the agent asks a follow-up on the same card; the answered ask stays", () =>
+    run(Effect.gen(function* () {
+      const { asks, status, task, files } = yield* setup
+      const first = (yield* agent(asks.create(question(files)))).result.ask
+      yield* asks.answer(answers(first.id))
+      const { result } = yield* agent(asks.create({ ...question(files), title: "Search layout, round 2" }))
+      expect(result.task.statusId).toBe(status["Needs input"]!.id)
+      expect((yield* asks.list(task.id)).map((a) => [a.title, a.state])).toEqual([
+        ["Search layout", "answered"],
+        ["Search layout, round 2", "open"],
+      ])
     })))
 
   it.effect("when another session took over the claim, the answers go to it", () =>
@@ -349,17 +390,30 @@ describe("Needs input and moves", () => {
       expect((yield* tasks.move({ ...move, commandId: cmd() })).result.statusId).toBe(status["Needs input"]!.id)
     })))
 
-  it.effect("Lucas moving the card out of Needs input withdraws the ask, and ends the claim as any human move does", () =>
+  it.effect("Lucas moving the card out of Needs input withdraws the ask, ends the claim, and tells the session that asked where it went", () =>
     run(Effect.gen(function* () {
       const { asks, tasks, status, task, files } = yield* setup
+      const inbox = yield* InboxService.InboxService
+      const human = yield* Seed.HumanActor
       const { ask } = (yield* agent(asks.create(question(files)))).result
       const input = { commandId: cmd(), id: task.id, statusId: status["Todo"]!.id }
       const { result } = yield* tasks.move(input)
       expect(result.assigneeSessionId).toBeNull()
-      expect((yield* asks.latest(task.key))).toMatchObject({ id: ask.id, state: "withdrawn" })
+      // Withdrawn by the human, and kept in the task's list of asks.
+      expect((yield* asks.list(task.id)).map((a) => [a.id, a.state, a.withdrawnBy])).toEqual([[ask.id, "withdrawn", human.id]])
       const events = yield* eventsOf(input.commandId)
       expect(events.map((e) => e.type)).toEqual(["ask.withdrawn", "task.moved", "task.claim_ended"])
-      expect(events[0]).toMatchObject({ reason: "moved" })
+      expect(events[0]).toMatchObject({ reason: "moved", actorId: human.id })
+      expect(yield* agent(inbox.unread)).toMatchObject([{ kind: "withdrawn", taskKey: "CEL-1", status: "Todo", author: "Lucas", ask: { id: ask.id } }])
+    })))
+
+  it.effect("an agent moving its own card out tells no one", () =>
+    run(Effect.gen(function* () {
+      const { asks, tasks, status, task, files } = yield* setup
+      yield* agent(asks.create(question(files)))
+      yield* agent(tasks.move({ commandId: cmd(), id: task.id, statusId: status["Todo"]!.id }))
+      expect((yield* asks.latest(task.key)).state).toBe("withdrawn")
+      expect(yield* agent((yield* InboxService.InboxService).unread)).toEqual([])
     })))
 
   it.effect("reordering within Needs input keeps the ask", () =>

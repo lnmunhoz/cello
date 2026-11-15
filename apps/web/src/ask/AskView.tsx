@@ -20,15 +20,20 @@ import {
   draftKey,
   missing,
   pick,
+  pickNone,
   readDraft,
   removeScreenshot,
   screenshotsFrom,
   setComment,
+  startDraft,
   type Target,
   toAnswers,
 } from "./draft.ts"
 
-const KIND_HINTS = { one: "Pick one", any: "Pick any", text: "Your answer" } as const
+/** What the agent expects; Lucas may still pick several options on any question (Nov 15). */
+const KIND_HINTS = { one: "Pick one or more", any: "Pick any", text: "Your answer" } as const
+/** The "None of these" choice among a question's options. */
+const NONE = "none"
 
 /** Uploads a pasted or dropped screenshot to the ask's drafts; the server answers with its attachment. */
 const upload = async (askId: string, file: Blob, name: string): Promise<Attachment> => {
@@ -39,8 +44,9 @@ const upload = async (askId: string, file: Blob, name: string): Promise<Attachme
 }
 
 /** The draft for an ask, kept in this device's storage on every change. */
-const useDraft = (askId: string) => {
-  const [draft, setDraft] = useState<AskDraft>(() => readDraft(readStored(draftKey(askId))))
+const useDraft = (ask: Ask) => {
+  const askId = ask.id
+  const [draft, setDraft] = useState<AskDraft>(() => readDraft(readStored(draftKey(askId))) ?? startDraft(ask.questions))
   const update = (change: (d: AskDraft) => AskDraft) =>
     setDraft((current) => {
       const next = change(current)
@@ -60,7 +66,7 @@ const useDraft = (askId: string) => {
  */
 export function AskForm({ task, ask, onAnswered }: { task: Task; ask: Ask; onAnswered?: (() => void) | undefined }) {
   const answer = useAtomSet(commands.answerAsk, { mode: "promiseExit" })
-  const [draft, update] = useDraft(ask.id)
+  const [draft, update] = useDraft(ask)
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(0)
   const left = missing(ask.questions, draft)
@@ -116,7 +122,8 @@ export function AskForm({ task, ask, onAnswered }: { task: Task; ask: Ask; onAns
               ask={ask}
               draft={draft}
               unanswered={left.includes(question.id)}
-              onPick={(optionId) => update((d) => pick(d, question, optionId))}
+              onPick={(optionId) => update((d) => pick(d, question.id, optionId))}
+              onNone={() => update((d) => pickNone(d, question.id))}
               onComment={(text) => update((d) => setComment(d, question.id, text))}
               onAttach={(files) => void attach({ questionId: question.id }, files)}
               onRemove={(id) => update((d) => removeScreenshot(d, { questionId: question.id }, id))}
@@ -173,18 +180,21 @@ interface QuestionCardProps {
   readonly draft: AskDraft
   readonly unanswered: boolean
   readonly onPick: (optionId: string) => void
+  readonly onNone: () => void
   readonly onComment: (text: string) => void
   readonly onAttach: (files: ReadonlyArray<File>) => void
   readonly onRemove: (attachmentId: string) => void
 }
 
-function QuestionCard({ number, question, ask, draft, unanswered, onPick, onComment, onAttach, onRemove }: QuestionCardProps) {
+function QuestionCard({ number, question, ask, draft, unanswered, onPick, onNone, onComment, onAttach, onRemove }: QuestionCardProps) {
   const answer = answerOf(draft, question.id)
   const optionsRef = useRef<HTMLDivElement>(null)
   const promptId = `ask-${ask.id}-${question.id}`
-  // One option in the Tab order (the picked one, else the first); the arrows move between them.
-  const tabbable = question.options.find((o) => answer.optionIds.includes(o.id))?.id ?? question.options[0]?.id
-  const focusOption = (index: number) => optionsRef.current?.querySelectorAll<HTMLElement>("[data-option]")[index]?.focus()
+  // The options and "None of these", in order: one of them in the Tab order (the first picked, else the
+  // first); the arrows move between them.
+  const choices = question.options.length > 0 ? [...question.options.map((o) => o.id), NONE] : []
+  const tabbable = choices.find((id) => (id === NONE ? answer.none : answer.optionIds.includes(id))) ?? choices[0]
+  const focusChoice = (index: number) => optionsRef.current?.querySelectorAll<HTMLElement>("[data-option]")[index]?.focus()
 
   const onKeyDown = (e: KeyboardEvent<HTMLLIElement>) => {
     const target = e.target as HTMLElement
@@ -193,15 +203,16 @@ function QuestionCard({ number, question, ask, draft, unanswered, onPick, onComm
     if (Number.isInteger(digit) && digit >= 1 && digit <= question.options.length) {
       e.preventDefault()
       onPick(question.options[digit - 1]!.id)
-      focusOption(digit - 1)
+      focusChoice(digit - 1)
     }
   }
-  const onOptionKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
+  const onChoiceKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const step = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0
     if (step === 0) return
     e.preventDefault()
-    focusOption((index + step + question.options.length) % question.options.length)
+    focusChoice((index + step + choices.length) % choices.length)
   }
+  const needsWhy = answer.none && answer.comment.trim() === ""
 
   return (
     <li
@@ -220,36 +231,57 @@ function QuestionCard({ number, question, ask, draft, unanswered, onPick, onComm
         <span className="shrink-0 text-xs text-faint">{KIND_HINTS[question.kind]}</span>
       </div>
       {question.options.length > 0 ? (
-        <div
-          ref={optionsRef}
-          role={question.kind === "one" ? "radiogroup" : "group"}
-          aria-labelledby={promptId}
-          className="flex flex-col gap-1.5"
-        >
+        <div ref={optionsRef} role="group" aria-labelledby={promptId} className="flex flex-col gap-1.5">
           {question.options.map((option, i) => (
             <OptionButton
               key={option.id}
               index={i}
               option={option}
               ask={ask}
-              kind={question.kind}
               picked={answer.optionIds.includes(option.id)}
               tabbable={option.id === tabbable}
               onPick={() => onPick(option.id)}
-              onKeyDown={(e) => onOptionKeyDown(e, i)}
+              onKeyDown={(e) => onChoiceKeyDown(e, i)}
             />
           ))}
+          <button
+            type="button"
+            data-option={NONE}
+            role="checkbox"
+            aria-checked={answer.none}
+            tabIndex={tabbable === NONE ? 0 : -1}
+            onClick={onNone}
+            onKeyDown={(e) => onChoiceKeyDown(e, question.options.length)}
+            data-picked={answer.none ? "" : undefined}
+            className="flex items-center gap-2.5 rounded-md border border-dashed border-line px-3 py-2 text-left text-[13px] text-muted outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring data-picked:border-accent data-picked:text-ink"
+          >
+            <span
+              aria-hidden
+              className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${answer.none ? "border-accent bg-accent text-accent-ink" : "border-line-strong bg-surface"}`}
+            >
+              {answer.none ? <CheckIcon className="size-3" strokeWidth={3} /> : null}
+            </span>
+            None of these
+            <span className="text-xs text-faint">· say what instead below</span>
+          </button>
         </div>
       ) : null}
       <CommentBox
         label={`Comment on question ${number}`}
-        placeholder={question.kind === "text" ? "Your answer. Paste or drop screenshots to show what you mean." : "Why, or what you'd change (optional). Paste or drop screenshots."}
+        placeholder={
+          question.options.length === 0
+            ? "Your answer. Paste or drop screenshots to show what you mean."
+            : answer.none
+            ? "None of these fits: say what you want instead (needed)."
+            : "Why, or what you'd change (optional). Paste or drop screenshots."
+        }
         value={answer.comment}
         screenshots={answer.attachments}
         onChange={onComment}
         onAttach={onAttach}
         onRemove={onRemove}
       />
+      {needsWhy ? <p className="-mt-1 text-xs text-danger">“None of these” needs a comment that says what instead.</p> : null}
     </li>
   )
 }
@@ -258,14 +290,13 @@ interface OptionButtonProps {
   readonly index: number
   readonly option: AskOption
   readonly ask: Ask
-  readonly kind: AskQuestion["kind"]
   readonly picked: boolean
   readonly tabbable: boolean
   readonly onPick: () => void
   readonly onKeyDown: (e: KeyboardEvent<HTMLButtonElement>) => void
 }
 
-function OptionButton({ index, option, ask, kind, picked, tabbable, onPick, onKeyDown }: OptionButtonProps) {
+function OptionButton({ index, option, ask, picked, tabbable, onPick, onKeyDown }: OptionButtonProps) {
   const image = option.imageId ? ask.attachments.find((a) => a.id === option.imageId) : undefined
   return (
     <div
@@ -275,7 +306,7 @@ function OptionButton({ index, option, ask, kind, picked, tabbable, onPick, onKe
       <button
         type="button"
         data-option={option.id}
-        role={kind === "one" ? "radio" : "checkbox"}
+        role="checkbox"
         aria-checked={picked}
         tabIndex={tabbable ? 0 : -1}
         onClick={onPick}
@@ -284,7 +315,7 @@ function OptionButton({ index, option, ask, kind, picked, tabbable, onPick, onKe
       >
         <span
           aria-hidden
-          className={`mt-0.5 flex size-4 shrink-0 items-center justify-center border transition-colors ${kind === "one" ? "rounded-full" : "rounded-[4px]"} ${picked ? "border-accent bg-accent text-accent-ink" : "border-line-strong bg-surface"}`}
+          className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${picked ? "border-accent bg-accent text-accent-ink" : "border-line-strong bg-surface"}`}
         >
           {picked ? <CheckIcon className="size-3" strokeWidth={3} /> : null}
         </span>

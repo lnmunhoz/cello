@@ -195,7 +195,10 @@ export const Review = Schema.Struct({
 })
 export type Review = typeof Review.Type
 
-/** choose one (radio), choose any (checkboxes), or text only (no options). */
+/**
+ * What the agent expects: one pick, any number, or text only (no options). Lucas may pick several
+ * options on any question that has them (Nov 15), so `one` only says what the agent asked for.
+ */
 export const QuestionKind = Schema.Literals(["one", "any", "text"])
 export type QuestionKind = typeof QuestionKind.Type
 
@@ -223,10 +226,14 @@ export const AskQuestion = Schema.Struct({
 })
 export type AskQuestion = typeof AskQuestion.Type
 
-/** One question answered: the options picked (by id), Lucas's comment, and the screenshots he pasted into it. */
+/**
+ * One question answered: the options picked (by id; several are fine), or "None of these" (`none`,
+ * with the comment saying what instead), Lucas's comment, and the screenshots he pasted into it.
+ */
 export const AskAnswer = Schema.Struct({
   questionId: Schema.String,
   optionIds: Schema.Array(Schema.String),
+  none: Schema.Boolean,
   comment: Schema.String,
   attachments: Schema.Array(Attachment),
 })
@@ -275,9 +282,10 @@ export type Ask = typeof Ask.Type
 
 /**
  * Why something reached an agent's inbox: a comment on its task, the note of a review Lucas sent back,
- * or his answers to the questions it asked on the card (CEL-47).
+ * his answers to the questions it asked on the card (CEL-47), or his moving that card himself, which
+ * withdrew the ask (`withdrawn`).
  */
-export const InboxKind = Schema.Literals(["comment", "send_back", "answers"])
+export const InboxKind = Schema.Literals(["comment", "send_back", "answers", "withdrawn"])
 export type InboxKind = typeof InboxKind.Type
 
 const inboxFields = {
@@ -307,8 +315,12 @@ export type InboxComment = typeof InboxComment.Type
 export const InboxAnswers = Schema.Struct({ ...inboxFields, kind: Schema.Literal("answers"), ask: Ask })
 export type InboxAnswers = typeof InboxAnswers.Type
 
-/** Something delivered to an agent session's inbox: a comment (CEL-15) or Lucas's answers (CEL-47). */
-export const InboxItem = Schema.Union([InboxComment, InboxAnswers])
+/** Lucas moved the card out of Needs input himself: the ask is withdrawn; `status` is where the card went. Delivered to the session that asked. */
+export const InboxWithdrawn = Schema.Struct({ ...inboxFields, kind: Schema.Literal("withdrawn"), ask: Ask, status: Schema.String })
+export type InboxWithdrawn = typeof InboxWithdrawn.Type
+
+/** Something delivered to an agent session's inbox: a comment (CEL-15), Lucas's answers or a withdrawn ask (CEL-47). */
+export const InboxItem = Schema.Union([InboxComment, InboxAnswers, InboxWithdrawn])
 export type InboxItem = typeof InboxItem.Type
 
 /** Docs, specs and pages share one table and one reader; `kind` says what a document is for. */

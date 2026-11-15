@@ -111,7 +111,7 @@ describe("decodeEvent", () => {
       withdrawnBy: null,
     }
     expect(decodeEvent({ ...envelope, schemaVersion: 1, type: "ask.created", ask })).toMatchObject({ ask: { questions: [{ kind: "one" }] } })
-    const answers = { questions: [{ questionId: "q1", optionIds: ["q1o1"], comment: "", attachments: [] }], note: "", noteAttachments: [] }
+    const answers = { questions: [{ questionId: "q1", optionIds: ["q1o1"], none: false, comment: "", attachments: [] }], note: "", noteAttachments: [] }
     expect(decodeEvent({ ...envelope, schemaVersion: 1, type: "ask.answered", ask: { ...ask, state: "answered", answeredAt: 2, answers } }))
       .toMatchObject({ ask: { answers: { questions: [{ optionIds: ["q1o1"] }] } } })
     expect(decodeEvent({ ...envelope, schemaVersion: 1, type: "ask.withdrawn", id: "k-1", taskId: "t-1", reason: "moved" })).toMatchObject({ reason: "moved" })

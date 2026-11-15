@@ -38,8 +38,8 @@ const setup = Effect.gen(function* () {
   return { tasks, comments, inbox, status, project, one, two, comment }
 })
 
-/** What each item says: a comment's body, or the title of the ask an answers item is for. */
-const bodies = (items: ReadonlyArray<InboxItem>) => items.map((i) => (i.kind === "answers" ? `answers: ${i.ask.title}` : i.comment.body))
+/** What each item says: a comment's body, or the kind and title of the ask an answers or withdrawn item is about. */
+const bodies = (items: ReadonlyArray<InboxItem>) => items.map((i) => (i.kind === "answers" || i.kind === "withdrawn" ? `${i.kind}: ${i.ask.title}` : i.comment.body))
 
 describe("InboxService: who gets what", () => {
   it.effect("a human comment on a task goes to the session holding its claim, and to no one else", () =>

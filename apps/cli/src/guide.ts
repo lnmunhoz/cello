@@ -667,7 +667,7 @@ cello task ask [flags] <key>
 
 ### cello task answers
 
-Print Lucas's answers to the task's latest ask again; screenshots he pasted are saved to files and their paths printed.
+Print Lucas's latest answers on a task again (--all: every round of questions); screenshots he pasted are saved to files and their paths printed.
 
 \`\`\`
 cello task answers [flags] <key>
@@ -677,6 +677,7 @@ cello task answers [flags] <key>
 | --- | --- |
 | \`key string\` | A task key, e.g. CEL-3. |
 | \`--json\` | Print JSON for scripts. |
+| \`--all\` | Every round of questions on the task, oldest first, not only the latest answers. |
 
 ### cello wait
 

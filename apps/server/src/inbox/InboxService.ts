@@ -6,7 +6,7 @@
 // its claim ends. `take` hands the new items over and marks them read in one statement, so each item
 // reaches the session once, even when several hooks ask at the same time. Read marks belong to the
 // session, not the board, so they write no events (like a session's `last_seen_at`).
-import type { Ask, Comment, InboxItem, InboxKind } from "@cello/contract/entities"
+import type { Ask, Comment, InboxItem } from "@cello/contract/entities"
 import { Caller } from "@cello/contract/rpcs"
 import type { Inbox } from "@cello/contract/views"
 import * as Clock from "effect/Clock"
@@ -35,12 +35,17 @@ export class InboxService extends Context.Service<InboxService, {
    * For the command that adds a comment: delivers it, in that command's transaction, to whoever should
    * get it (see the top of this file). `send_back` is a review's note, added by the same command.
    */
-  readonly deliverWithin: (context: Commands.WriteContext, comment: Comment, kind: Exclude<InboxKind, "answers">) => Effect.Effect<void, SqlError>
+  readonly deliverWithin: (context: Commands.WriteContext, comment: Comment, kind: "comment" | "send_back") => Effect.Effect<void, SqlError>
   /**
    * For the command that answers an ask (CEL-47): delivers the answers, in that command's
    * transaction, to the session holding the task's claim, else to the session that asked.
    */
   readonly deliverAnswersWithin: (context: Commands.WriteContext, ask: Ask) => Effect.Effect<void, SqlError>
+  /**
+   * For the command in which Lucas moved a card out of Needs input himself (CEL-47): tells the session
+   * that asked that its ask was withdrawn, and where the card went (`status`). Agents' moves tell no one.
+   */
+  readonly deliverWithdrawalWithin: (context: Commands.WriteContext, ask: Ask, status: string) => Effect.Effect<void, SqlError>
   /** Marks the caller's item for an ask's answers read: `cello wait` handed them over, so the hook won't. */
   readonly markAnswersRead: (askId: string) => Effect.Effect<void, never, Caller>
 }>()("cello/InboxService") {}
@@ -50,7 +55,7 @@ const make = Effect.gen(function* () {
   const sessions = yield* SessionService
 
   /** Who gets a human comment: the task's claim holder, else for a Send back the packet's submitter. */
-  const recipientOf = (context: Commands.WriteContext, comment: Comment, kind: Exclude<InboxKind, "answers">) =>
+  const recipientOf = (context: Commands.WriteContext, comment: Comment, kind: "comment" | "send_back") =>
     Effect.gen(function* () {
       const [task] = yield* sql<{ assignee_session_id: string | null }>`SELECT assignee_session_id FROM tasks WHERE id = ${comment.taskId}`
       if (task?.assignee_session_id) return task.assignee_session_id
@@ -62,7 +67,7 @@ const make = Effect.gen(function* () {
       return review?.session_id ?? null
     })
 
-  const deliverWithin = (context: Commands.WriteContext, comment: Comment, kind: Exclude<InboxKind, "answers">) =>
+  const deliverWithin = (context: Commands.WriteContext, comment: Comment, kind: "comment" | "send_back") =>
     Effect.gen(function* () {
       if (context.caller.sessionId !== null) return
       const sessionId = yield* recipientOf(context, comment, kind)
@@ -81,6 +86,14 @@ const make = Effect.gen(function* () {
         VALUES (${newId(context.now)}, ${sessionId}, ${ask.id}, ${ask.taskId}, 'answers', ${context.now})
         ON CONFLICT (session_id, ask_id) DO NOTHING`
     }).pipe(Effect.withSpan("InboxService.deliverAnswersWithin"))
+
+  const deliverWithdrawalWithin = (context: Commands.WriteContext, ask: Ask, status: string) =>
+    Effect.gen(function* () {
+      if (context.caller.sessionId !== null || ask.sessionId === null) return
+      yield* sql`INSERT INTO inbox_items (id, session_id, ask_id, task_id, kind, detail, created_at)
+        VALUES (${newId(context.now)}, ${ask.sessionId}, ${ask.id}, ${ask.taskId}, 'withdrawn', ${status}, ${context.now})
+        ON CONFLICT (session_id, ask_id) DO NOTHING`
+    }).pipe(Effect.withSpan("InboxService.deliverWithdrawalWithin"))
 
   const markAnswersRead = (askId: string) =>
     Effect.gen(function* () {
@@ -116,7 +129,7 @@ const make = Effect.gen(function* () {
     return yield* selectInboxItems(sql, sql`i.session_id = ${caller.sessionId} AND i.read_at IS NULL`)
   }).pipe(Effect.orDie, Effect.withSpan("InboxService.unread"))
 
-  return InboxService.of({ take, unread, deliverWithin, deliverAnswersWithin, markAnswersRead })
+  return InboxService.of({ take, unread, deliverWithin, deliverAnswersWithin, deliverWithdrawalWithin, markAnswersRead })
 })
 
 export const layer = Layer.effect(InboxService, make)

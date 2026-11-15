@@ -10,7 +10,8 @@
 //   right before In Review. Existing statuses and tasks don't move.
 // - `asks` holds the questions and Lucas's answers; `attachments.ask_id` links evidence and his pasted
 //   screenshots to an ask, and `attachments.answer_to` his screenshots to what they answer.
-// - `inbox_items` is rebuilt so an item holds a comment or an ask's answers (nothing references it).
+// - `inbox_items` is rebuilt so an item holds a comment, or an ask's answers or its withdrawal (`detail`:
+//   the status Lucas moved the card to). Nothing references it.
 import { needsInputNeighbors, NEEDS_INPUT_STATUS_NAME } from "@cello/shared/ask"
 import { positionBetween } from "@cello/shared/position"
 import * as Clock from "effect/Clock"
@@ -92,7 +93,8 @@ export default Effect.gen(function* () {
     comment_id TEXT REFERENCES comments(id),
     ask_id TEXT REFERENCES asks(id),
     task_id TEXT NOT NULL REFERENCES tasks(id),
-    kind TEXT NOT NULL CHECK (kind IN ('comment', 'send_back', 'answers')),
+    kind TEXT NOT NULL CHECK (kind IN ('comment', 'send_back', 'answers', 'withdrawn')),
+    detail TEXT,
     created_at INTEGER NOT NULL,
     read_at INTEGER,
     CHECK ((comment_id IS NULL) <> (ask_id IS NULL)),

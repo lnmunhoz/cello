@@ -1,12 +1,16 @@
-// Lucas's answers while he writes them (CEL-47): picks, comments and pasted screenshots, kept on this
-// device until he sends, so a reload or a closed panel loses nothing. The screenshots are uploaded
-// as soon as they're pasted; the draft keeps their attachments.
+// Lucas's answers while he writes them (CEL-47): picks, "None of these", comments and pasted
+// screenshots, kept on this device until he sends, so a reload or a closed panel loses nothing. A new
+// draft starts with the recommended options picked (Lucas, Nov 15); he can change them, pick several,
+// or pick none of them and say why. The screenshots are uploaded as soon as they're pasted; the draft
+// keeps their attachments.
 import type { AskQuestion, Attachment } from "@cello/contract/entities"
 import type { AnswerInput } from "@cello/contract/rpcs"
-import { unanswered } from "@cello/shared/ask"
+import { recommendedPicks, unanswered } from "@cello/shared/ask"
 
 export interface DraftAnswer {
   readonly optionIds: ReadonlyArray<string>
+  /** "None of these": no option fits; the comment says what instead. */
+  readonly none: boolean
   readonly comment: string
   readonly attachments: ReadonlyArray<Attachment>
 }
@@ -18,7 +22,13 @@ export interface AskDraft {
 }
 
 export const EMPTY_DRAFT: AskDraft = { answers: {}, note: "", noteAttachments: [] }
-const EMPTY_ANSWER: DraftAnswer = { optionIds: [], comment: "", attachments: [] }
+const EMPTY_ANSWER: DraftAnswer = { optionIds: [], none: false, comment: "", attachments: [] }
+
+/** A fresh draft: each question's recommended options picked. */
+export const startDraft = (questions: ReadonlyArray<AskQuestion>): AskDraft => ({
+  ...EMPTY_DRAFT,
+  answers: Object.fromEntries(questions.map((q) => [q.id, { ...EMPTY_ANSWER, optionIds: recommendedPicks(q) }])),
+})
 
 /** Where a draft is kept: one per ask. */
 export const draftKey = (askId: string): string => `cello:ask-draft:${askId}`
@@ -27,22 +37,29 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [])
 const files = (v: unknown): Attachment[] => (Array.isArray(v) ? v.filter((a): a is Attachment => isRecord(a) && typeof a.id === "string") : [])
 
-/** A saved draft, or an empty one when there's none or it can't be read. */
-export const readDraft = (raw: string | null): AskDraft => {
-  if (raw === null) return EMPTY_DRAFT
+/** A saved draft, or null when there's none or it can't be read (then a fresh one starts). */
+export const readDraft = (raw: string | null): AskDraft | null => {
+  if (raw === null || raw === "") return null
   try {
     const value: unknown = JSON.parse(raw)
-    if (!isRecord(value)) return EMPTY_DRAFT
+    if (!isRecord(value)) return null
     const answers = isRecord(value.answers) ? value.answers : {}
     return {
       answers: Object.fromEntries(Object.entries(answers).flatMap(([id, a]) =>
-        isRecord(a) ? [[id, { optionIds: strings(a.optionIds), comment: typeof a.comment === "string" ? a.comment : "", attachments: files(a.attachments) }]] : []
+        isRecord(a)
+          ? [[id, {
+            optionIds: strings(a.optionIds),
+            none: a.none === true,
+            comment: typeof a.comment === "string" ? a.comment : "",
+            attachments: files(a.attachments),
+          }]]
+          : []
       )),
       note: typeof value.note === "string" ? value.note : "",
       noteAttachments: files(value.noteAttachments),
     }
   } catch {
-    return EMPTY_DRAFT
+    return null
   }
 }
 
@@ -53,13 +70,17 @@ const withAnswer = (draft: AskDraft, questionId: string, change: (a: DraftAnswer
   answers: { ...draft.answers, [questionId]: change(answerOf(draft, questionId)) },
 })
 
-/** Picking an option: choose-one replaces the pick (picking it again clears it); choose-any toggles it. */
-export const pick = (draft: AskDraft, question: Pick<AskQuestion, "id" | "kind">, optionId: string): AskDraft =>
-  withAnswer(draft, question.id, (a) => {
-    const picked = a.optionIds.includes(optionId)
-    if (question.kind === "one") return { ...a, optionIds: picked ? [] : [optionId] }
-    return { ...a, optionIds: picked ? a.optionIds.filter((id) => id !== optionId) : [...a.optionIds, optionId] }
-  })
+/** Picking an option toggles it, on any question (several picks are fine); it clears "None of these". */
+export const pick = (draft: AskDraft, questionId: string, optionId: string): AskDraft =>
+  withAnswer(draft, questionId, (a) => ({
+    ...a,
+    none: false,
+    optionIds: a.optionIds.includes(optionId) ? a.optionIds.filter((id) => id !== optionId) : [...a.optionIds, optionId],
+  }))
+
+/** "None of these" toggles, and clears the picks: the comment then says what instead. */
+export const pickNone = (draft: AskDraft, questionId: string): AskDraft =>
+  withAnswer(draft, questionId, (a) => ({ ...a, none: !a.none, optionIds: [] }))
 
 export const setComment = (draft: AskDraft, questionId: string, comment: string): AskDraft =>
   withAnswer(draft, questionId, (a) => ({ ...a, comment }))
@@ -77,22 +98,22 @@ export const removeScreenshot = (draft: AskDraft, target: Target, attachmentId: 
     ? { ...draft, noteAttachments: draft.noteAttachments.filter((a) => a.id !== attachmentId) }
     : withAnswer(draft, target.questionId, (a) => ({ ...a, attachments: a.attachments.filter((f) => f.id !== attachmentId) }))
 
+const asAnswer = (a: DraftAnswer) => ({ optionIds: a.optionIds, none: a.none, comment: a.comment, attachmentIds: a.attachments.map((f) => f.id) })
+
 /** The questions still unanswered (ids, in order), by the server's own rule. */
 export const missing = (questions: ReadonlyArray<AskQuestion>, draft: AskDraft): string[] =>
-  unanswered(questions, Object.fromEntries(questions.map((q) => {
-    const a = answerOf(draft, q.id)
-    return [q.id, { optionIds: a.optionIds, comment: a.comment, attachmentIds: a.attachments.map((f) => f.id) }]
-  })))
+  unanswered(questions, Object.fromEntries(questions.map((q) => [q.id, asAnswer(answerOf(draft, q.id))])))
 
 /** What `ask.answer` takes. */
 export const toAnswers = (questions: ReadonlyArray<AskQuestion>, draft: AskDraft) => ({
   answers: questions.map((q): AnswerInput => {
     const a = answerOf(draft, q.id)
-    return { questionId: q.id, optionIds: [...a.optionIds], comment: a.comment.trim(), attachmentIds: a.attachments.map((f) => f.id) }
+    return { questionId: q.id, optionIds: [...a.optionIds], none: a.none, comment: a.comment.trim(), attachmentIds: a.attachments.map((f) => f.id) }
   }),
   note: draft.note.trim(),
   noteAttachmentIds: draft.noteAttachments.map((f) => f.id),
 })
+
 
 /** The image types Lucas can paste or drop (the server accepts the same), and the extension for a nameless one. */
 export const SCREENSHOT_TYPES: Readonly<Record<string, string>> = {

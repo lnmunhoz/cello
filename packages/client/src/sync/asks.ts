@@ -1,6 +1,8 @@
 // Needs input on the client (CEL-47): the open asks waiting on Lucas, the Review page's first group,
+// where the Needs input column folds while it's off,
 // and a task's loaded list of asks kept current from the event stream.
-import type { Ask, Project, Task } from "@cello/contract/entities"
+import type { Ask, Project, Status, Task } from "@cello/contract/entities"
+import { isNeedsInputStatus } from "@cello/shared/ask"
 import type { CelloEvent } from "@cello/contract/events"
 import type { BoardState } from "./applyEvents.ts"
 
@@ -40,6 +42,21 @@ export const applyAskEvents = (asks: ReadonlyArray<Ask>, taskId: string, events:
     }
   }
   return next
+}
+
+/**
+ * Where Needs input goes while its board column is off (the default, Lucas, Nov 15): its tasks show in
+ * the first started status (In Progress), with a Needs input badge. Null when the column is on, or
+ * there's no waiting status or started one to fold it into. `statuses` in board order.
+ */
+export const needsInputFold = (
+  statuses: ReadonlyArray<Pick<Status, "id" | "name" | "category">>,
+  column: boolean,
+): { readonly from: string; readonly into: string } | null => {
+  if (column) return null
+  const from = statuses.find((s) => isNeedsInputStatus(s))
+  const into = statuses.find((s) => s.category === "started" && !isNeedsInputStatus(s))
+  return from && into ? { from: from.id, into: into.id } : null
 }
 
 /** "3 questions". */

@@ -70,7 +70,7 @@ export const AskOptionInput = Schema.Struct({
   /** An image file (an absolute path on this machine), stored with the ask's evidence and shown as the option's thumbnail. */
   image: Schema.optionalKey(Schema.String),
   recommended: Schema.optionalKey(Schema.Boolean),
-  /** Why it's recommended; required when `recommended` is set. */
+  /** Why it's recommended; required when `recommended` is set. A recommended option comes picked for Lucas. */
   because: Schema.optionalKey(Schema.String),
 })
 export type AskOptionInput = typeof AskOptionInput.Type
@@ -83,10 +83,12 @@ export const AskQuestionInput = Schema.Struct({
 })
 export type AskQuestionInput = typeof AskQuestionInput.Type
 
-/** One question answered: option ids from the ask, a comment, and screenshots uploaded for it (attachment ids). */
+/** One question answered: option ids from the ask (several are fine) or None of these, a comment, and screenshots uploaded for it (attachment ids). */
 export const AnswerInput = Schema.Struct({
   questionId: Schema.String,
   optionIds: Schema.Array(Schema.String),
+  /** "None of these": no option fits; the comment says what instead. */
+  none: Schema.optionalKey(Schema.Boolean),
   comment: Schema.optionalKey(Schema.String),
   attachmentIds: Schema.optionalKey(Schema.Array(Id)),
 })

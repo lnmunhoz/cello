@@ -210,6 +210,7 @@ const make = Effect.gen(function* () {
           const entry = {
             questionId: question.id,
             optionIds: [...new Set(given[0]?.optionIds ?? [])],
+            none: given[0]?.none === true,
             comment: given[0]?.comment?.trim() ?? "",
             attachmentIds: yield* takeScreenshots(given[0]?.attachmentIds ?? []),
           }

@@ -24,7 +24,7 @@ import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
 import { addAgentsSection, agentsFile } from "./agentsMd.ts"
-import { answerLines, answerScreenshots, askResultText, askSpecFromArgs, askSpecFromFile } from "./ask.ts"
+import { answerLines, answerScreenshots, askResultText, askSpecFromArgs, askSpecFromFile, roundLabel, roundsText } from "./ask.ts"
 import { HOOK_EVENTS, type HookEvent, hookDeadline, hookResponse, hookSession, parseHookInput } from "./claudeHook.ts"
 import {
   addCelloHooks,
@@ -172,7 +172,6 @@ const packetCounts = (review: Review) =>
 
 const DECISIONS = { approved: "approved", sent_back: "sent back", superseded: "superseded by a newer one" } as const
 
-const ASK_STATES = { open: "open", answered: "answered", withdrawn: "withdrawn", superseded: "replaced by a newer one" } as const
 
 /** One review in `task get`: state, who submitted it, summary, steps, evidence and Lucas's note. */
 const reviewLines = (
@@ -342,7 +341,7 @@ const get = Command.make("get", { key, json }, (input) =>
       lines.push("", `Questions for ${humanName(detail.actors)} (${detail.asks.length})`)
       for (const a of [...detail.asks].reverse()) {
         const when = a.state === "answered" ? ` ${ago(a.answeredAt!, now)}` : a.withdrawnAt ? ` ${ago(a.withdrawnAt, now)}` : ""
-        lines.push(`  "${a.title}" (${ASK_STATES[a.state]}${when}), asked by ${author(detail, a.actorId, a.sessionId)}, ${ago(a.createdAt, now)}`)
+        lines.push(`  ${roundLabel(detail.asks, a)}${when}: "${a.title}", asked by ${author(detail, a.actorId, a.sessionId)}, ${ago(a.createdAt, now)}`)
         if (a.answers) lines.push(...answerLines(a, new Map()).map((l) => (l === "" ? "" : `    ${l}`)))
         else lines.push(...a.questions.map((q, i) => `    ${i + 1}. ${q.prompt}`))
       }
@@ -658,23 +657,23 @@ const ask = Command.make("ask", {
       "The task moves to Needs input until he answers; then it's back in In Progress and the answers reach you (hook, --wait or `cello wait`).",
   ))
 
-const answers = Command.make("answers", { key, json }, (input) =>
+const answers = Command.make("answers", {
+  key,
+  json,
+  all: Flag.Boolean("all").pipe(Flag.withDefault(false), Flag.withDescription("Every round of questions on the task, oldest first, not only the latest answers.")),
+}, (input) =>
   Effect.gen(function* () {
-    const { ask: latest, detail } = yield* withClient((client) =>
-      Effect.gen(function* () {
-        const ask = yield* client["ask.get"]({ key: input.key })
-        return { ask, detail: yield* client["task.get"]({ key: input.key }) }
-      })
-    )
-    const files = yield* saveScreenshots([latest])
-    if (input.json) return yield* printJson({ ask: latest, files: Object.fromEntries(files) })
-    if (latest.state === "open") {
-      return yield* print(`${detail.task.key}'s questions "${latest.title}" are still open. \`cello wait ${detail.task.key}\` waits for the answers.`)
-    }
-    yield* print(askResultText(latest, detail.task.key, humanName(detail.actors), files, (yield* CliEnv).now()))
-  })).pipe(Command.withDescription("Print Lucas's answers to the task's latest ask again; screenshots he pasted are saved to files and their paths printed."))
+    // `task.get` carries every ask of the task, oldest first: one per round.
+    const detail = yield* withClient((client) => client["task.get"]({ key: input.key }))
+    const shown = input.all ? detail.asks : detail.asks.filter((a) => a.state === "answered").slice(-1)
+    const files = yield* saveScreenshots(shown)
+    if (input.json) return yield* printJson({ asks: shown, files: Object.fromEntries(files) })
+    yield* print(roundsText(detail.asks, { all: input.all, taskKey: detail.task.key, human: humanName(detail.actors), files, now: (yield* CliEnv).now() }))
+  })).pipe(Command.withDescription(
+    "Print Lucas's latest answers on a task again (--all: every round of questions); screenshots he pasted are saved to files and their paths printed.",
+  ))
 
-const waitCommand = Command.make("wait", { key, json }, (input) => waitAndPrint(input.key, input.json)).pipe(
+const waitCommand =Command.make("wait", { key, json }, (input) => waitAndPrint(input.key, input.json)).pipe(
   Command.withDescription("Wait for Lucas to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered."),
 )
 

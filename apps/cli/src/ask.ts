@@ -191,7 +191,7 @@ export const answerLines = (ask: Ask, files: ReadonlyMap<string, string>): strin
     const answer = ask.answers.questions.find((a) => a.questionId === question.id)
     lines.push(`${i + 1}. ${question.prompt}`)
     if (answer && answer.optionIds.length) lines.push(`   Picked: ${pickedLine(question, answer.optionIds)}`)
-    else if (question.kind !== "text") lines.push("   Picked: none of the options")
+    else if (answer?.none) lines.push("   Picked: None of these")
     if (answer?.comment) lines.push(...indented(`Comment: ${answer.comment}`, "   "))
     for (const a of answer?.attachments ?? []) lines.push(`   ${shot(a)}`)
     lines.push("")
@@ -216,4 +216,35 @@ export const askResultText = (ask: Ask, taskKey: string, human: string, files: R
     "",
     `${taskKey} is back in progress: carry on with these answers. Reply on the card with \`cello task comment ${taskKey} "…"\` if something is unclear.`,
   ].join("\n")
+}
+
+const ROUND_STATES = { open: "open", answered: "answered", withdrawn: "withdrawn", superseded: "replaced" } as const
+
+/** "Round 2 · answered": a task's asks are rounds of one conversation, oldest first. */
+export const roundLabel = (asks: ReadonlyArray<Ask>, ask: Ask): string => `Round ${asks.indexOf(ask) + 1} · ${ROUND_STATES[ask.state]}`
+
+/**
+ * `cello task answers`: the latest answered round (and the round still open after it, if any);
+ * with `all`, every round, oldest first, each with its answers or its questions.
+ */
+export const roundsText = (
+  asks: ReadonlyArray<Ask>,
+  options: { readonly all: boolean; readonly taskKey: string; readonly human: string; readonly files: ReadonlyMap<string, string>; readonly now: number },
+): string => {
+  const { taskKey, human, files, now } = options
+  if (asks.length === 0) return `${taskKey} has no questions for ${human} yet. Ask with \`cello task ask ${taskKey}\`.`
+  const latest = asks.at(-1)!
+  const stillOpen = latest.state === "open"
+    ? [`${roundLabel(asks, latest)}: "${latest.title}" is still open; \`cello wait ${taskKey}\` waits for the answers.`]
+    : []
+  if (!options.all) {
+    const answered = asks.filter((a) => a.state === "answered").at(-1)
+    if (!answered) return stillOpen[0] ?? askResultText(latest, taskKey, human, files, now)
+    return [roundLabel(asks, answered), askResultText(answered, taskKey, human, files, now), ...(stillOpen.length ? ["", ...stillOpen] : [])].join("\n")
+  }
+  return asks.flatMap((ask, i) => [
+    ...(i === 0 ? [] : [""]),
+    `${roundLabel(asks, ask)}: "${ask.title}", asked ${ago(ask.createdAt, now)}`,
+    ...(ask.answers ? answerLines(ask, files) : ask.questions.map((q, n) => `${n + 1}. ${q.prompt}`)).map((l) => (l === "" ? "" : `  ${l}`)),
+  ]).join("\n")
 }
