@@ -49,7 +49,7 @@ So anything in In Review or Done is already in the Cello you're running, once yo
 | **The orchestrator** (the main Claude session) | Turns requests into tasks, writes briefs, starts agents, merges, deploys, submits packets | Opus 5.5 |
 | **Builder** (`cello-builder`) | Writes the code and tests in its own git worktree, records the evidence | Opus 5.5, high |
 | **Code reviewer** (`cello-code-reviewer`) | Reads the diff against the task and AGENTS.md, checks the videos | Sonnet 5.5, medium |
-| **Data reviewer** (`cello-data-reviewer`) | The same, plus failure cases, for anything touching Lucas's data | Opus 5.5, high |
+| **Data reviewer** (`cello-data-reviewer`) | Only the data paths (migrations, deletes, settings writes), reproducing failure cases | Sonnet 5.5, high |
 
 Models and effort are explained in *When to use which model and effort* (docs/models.md).
 
@@ -94,7 +94,7 @@ Rules the builder follows (from AGENTS.md):
 ```mermaid
 flowchart TD
     A["Builder reports done"] --> B{"Touches Lucas's data?<br/>migrations, backups, settings files,<br/>deleting files, security"}
-    B -->|yes| DR["cello-data-reviewer<br/>Opus, high: reproduces failure cases"]
+    B -->|yes| DR["cello-data-reviewer<br/>Sonnet, high: the data paths only,<br/>reproduces failure cases"]
     B -->|no| CR["cello-code-reviewer<br/>Sonnet, medium"]
     DR --> V{"Verdict"}
     CR --> V
