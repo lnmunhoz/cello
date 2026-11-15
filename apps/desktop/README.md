@@ -21,6 +21,10 @@ bun run test:e2e   # Playwright's Electron tests, in Docker (same as test:docker
 - **`bun run package`** makes `dist/mac-arm64/Cello.app` (Apple silicon, about 355 MB), with the
   compiled `cello` binary, web app included, at `Contents/Resources/cello`. `--skip-cli` reuses
   the binary as it is. The app isn't signed: the first time, open it with right-click → Open.
+  - The Mac that packages needs **Xcode 26** (`xcrun --find actool`). electron-builder compiles the
+    icon (`resources/Cello.icon`) with actool into `Assets.car`, so macOS 26 draws it flat instead of
+    redrawing it as glass, and it adds an `icon.icns` for older macOS. Without Xcode 26 the package
+    step fails.
 - **`bun run test:e2e`** runs the tests in a throwaway Linux container (`scripts/test-in-docker.ts`,
   OrbStack must be running), with the app under Xvfb, so no window opens on the Mac. Arguments
   after `--` go to `playwright test`. Videos and screenshots land in
@@ -91,4 +95,6 @@ running app.
 - `src/server/`: finding or starting the server (`plan.ts` decides, `sidecar.ts` does it)
 - `src/preload.ts`: `window.celloDesktop`
 - `scripts/`: bundling with Bun (`dist-electron/`), dev, packaging (electron-builder)
+- `resources/Cello.icon/` (the packaged app, an Icon Composer document) and `resources/icon.png` (the
+  Dock in dev): built by `bun art/icon/build-app-icons.mjs` from `art/icon/icon.svg`; don't edit them by hand
 - `e2e/`: Playwright Electron tests (run in Docker); `recorder.ts` composes the whole window into videos and screenshots
