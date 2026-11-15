@@ -17,7 +17,6 @@ import type { AgentSession } from "@cello/contract/entities"
 import { AGENT_COLORS, colorFromSeed } from "@cello/shared/color"
 import { animate, type AnimationPlaybackControls } from "motion"
 import { useSyncExternalStore } from "react"
-import { toast } from "../../components/ui/Toast.tsx"
 import type { Hole } from "./holes.ts"
 import { glideMs, PACING, type Phase } from "./pacing.ts"
 import { CursorQueue, realScheduler, type Playback, type Player, type QueueStep } from "./queue.ts"
@@ -384,7 +383,37 @@ export class Animator implements Player<CursorStep> {
     this.cursors.get(lane)?.el.remove()
     this.cursors.delete(lane)
     const name = this.nameOf(lane, this.laneActors.get(lane) ?? "").split(" · ")[0]
-    toast({ id: `agent-burst-${lane}`, title: `${name} made ${count} changes`, duration: PACING.toastMs })
+    this.notice(lane, `${name} made ${count} changes`)
+  }
+
+  /**
+   * "Claude Code made 23 changes", at the foot of the board in the session's colour, updated in place
+   * while the burst lasts, then gone. Its own small notice rather than the app's toast: a toast showing
+   * while the desktop app enters full screen left the board view at its old size under Xvfb.
+   */
+  private notice(lane: string, text: string) {
+    let box = document.getElementById("agent-notices")
+    if (!box) {
+      box = document.createElement("div")
+      box.id = "agent-notices"
+      box.setAttribute("role", "status")
+      document.body.append(box)
+    }
+    let el = box.querySelector<HTMLElement>(`[data-agent-notice="${esc(lane)}"]`)
+    if (!el) {
+      el = document.createElement("div")
+      el.className = "agent-notice"
+      el.dataset.agentNotice = lane
+      el.style.setProperty("--agent", this.colorOf(lane))
+      box.append(el)
+    }
+    el.textContent = text
+    const b = boardRect()
+    if (b) box.style.left = `${b.left + b.width / 2}px`
+    for (const a of el.getAnimations()) a.cancel()
+    const shown = el
+    el.animate([{ opacity: 0 }, { opacity: 1, offset: 0.06 }, { opacity: 1, offset: 0.92 }, { opacity: 0 }], { duration: PACING.toastMs }).onfinish = () =>
+      shown.remove()
   }
 
   // ---- Drawing ----------------------------------------------------------------
