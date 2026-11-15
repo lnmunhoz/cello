@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { layoutOf, parseIssuesSearch, searchFor } from "./layout.ts"
+import { layoutOf, orderingKey, orderingOf, orderSearch, parseIssuesSearch, searchFor } from "./layout.ts"
 
 describe("issues layout in the URL", () => {
   it("reads ?layout=list, and anything else as the board", () => {
@@ -19,7 +19,37 @@ describe("issues layout in the URL", () => {
   })
 
   it("writes the board as no param, so a plain link opens the board", () => {
-    expect(searchFor("list")).toEqual({ layout: "list" })
-    expect(searchFor("board")).toEqual({ layout: undefined })
+    expect(searchFor("list")).toMatchObject({ layout: "list" })
+    expect(searchFor("board")).toMatchObject({ layout: undefined })
+  })
+
+  it("drops ?order when switching layout, so the other layout shows its own saved ordering", () => {
+    expect(searchFor("list")).toEqual({ layout: "list", order: undefined })
+    expect(searchFor("board")).toEqual({ layout: undefined, order: undefined })
+  })
+})
+
+describe("issues ordering: the URL, then this device's choice for the project and layout", () => {
+  it("reads a known ?order and drops anything else", () => {
+    expect(parseIssuesSearch({ order: "newest" })).toEqual({ order: "newest" })
+    expect(parseIssuesSearch({ layout: "list", order: "priority" })).toEqual({ layout: "list", order: "priority" })
+    expect(parseIssuesSearch({ order: "random" })).toEqual({})
+  })
+
+  it("the URL wins, then the saved choice, then manual", () => {
+    expect(orderingOf({ order: "due" }, "newest")).toBe("due")
+    expect(orderingOf({}, "newest")).toBe("newest")
+    expect(orderingOf({}, "garbage")).toBe("manual")
+    expect(orderingOf({}, null)).toBe("manual")
+  })
+
+  it("is saved per project and layout", () => {
+    expect(orderingKey("cel", "board")).toBe("cello:order:CEL:board")
+    expect(orderingKey("CEL", "list")).toBe("cello:order:CEL:list")
+  })
+
+  it("writes manual as no param, so a plain link shows the drag order", () => {
+    expect(orderSearch("newest")).toEqual({ order: "newest" })
+    expect(orderSearch("manual")).toEqual({ order: undefined })
   })
 })
