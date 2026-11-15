@@ -196,6 +196,29 @@ describe("DocumentService.publish", () => {
       expect((yield* reviews.file(ids[0]!, "original")).bytes).toBe(fs.statSync(png).size - 1)
     })))
 
+  it.effect("a document carries its files with their kinds, every version's, so the reader can play a linked video (CEL-54)", () =>
+    run(Effect.gen(function* () {
+      const { documents, files } = yield* setup
+      const video = writeText(files, "a-palette-typing.mp4", "frames")
+      const log = writeText(files, "vitest.log", "Tests  12 passed")
+      const source = path.join(files, "scope.md")
+      const body = "# Scope\n\nTyping: [a-palette-typing.mp4](a-palette-typing.mp4)."
+      const { result } = yield* agent(documents.publish(publish({ body, sourcePath: source, files: [video] })))
+      const [videoId] = [...result.body.matchAll(/\/attachments\/(\w+)/g)].map((m) => m[1]!)
+      const videoFile = { id: videoId!, kind: "video", name: "a-palette-typing.mp4", mime: "video/mp4", hasPoster: false }
+      expect(result.files).toEqual([videoFile])
+      expect((yield* documents.get({ project: CEL, slug: "scope" })).files).toEqual([videoFile])
+      // Republishing the same thing returns it too.
+      expect((yield* agent(documents.publish(publish({ body, sourcePath: source, files: [video] })))).result.files).toEqual([videoFile])
+
+      // Version 2 swaps the video for a log; reading version 1 still knows the video.
+      const next = yield* agent(documents.publish(publish({ body: "# Scope\n\n[The log](vitest.log)", sourcePath: source, files: [log] })))
+      const logId = /\/attachments\/(\w+)/.exec(next.result.body)![1]!
+      const logFile = { id: logId, kind: "file", name: "vitest.log", mime: "text/plain; charset=utf-8", hasPoster: false }
+      expect(next.result.files).toEqual([videoFile, logFile])
+      expect((yield* documents.get({ project: CEL, slug: "scope", version: 1 })).files).toEqual([videoFile, logFile])
+    })))
+
   it.effect("refuses bad input and writes nothing", () =>
     run(Effect.gen(function* () {
       const { documents, files } = yield* setup
