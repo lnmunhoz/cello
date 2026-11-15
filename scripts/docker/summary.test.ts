@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { countsFrom, duration, parseSteps, summarize } from "./summary.ts"
+import { countsFrom, duration, parseSteps, resultFolders, stopReason, summarize } from "./summary.ts"
 
 const vitestLog = `
  RUN  v5.1.0 /work
@@ -71,6 +71,8 @@ describe("summarize", () => {
     limits: "4 CPUs, 6g memory",
     env: { CELLO_E2E_SLOWMO: "400" },
     files: { "web/videos": 3, "desktop/videos": 4, "desktop/screenshots": 3 },
+    stop: null,
+    exit: 1,
   }
 
   it("lists each step with its result, time and totals, then the overall result and where the files are", () => {
@@ -102,5 +104,36 @@ describe("summarize", () => {
     const stopped = summarize({ ...e2e, steps: [{ name: "install", code: 1, seconds: 3 }], logs: {} })
     expect(stopped).toContain("FAILED: install (logs/install.log); didn't run: web-e2e")
     expect(summarize({ ...base, steps: [], logs: {} })).toContain("didn't run: install, unit, typecheck, web-e2e, desktop-e2e")
+  })
+
+  it("says where a stopped run stopped, instead of listing the step it was in as didn't run", () => {
+    const desktop = { ...base, mode: "desktop" as const, steps: [{ name: "install", code: 0, seconds: 1 }], logs: {} }
+    const interrupted = summarize({ ...desktop, stop: "interrupted", exit: 137 })
+    expect(interrupted).toMatch(/^STOP {2}desktop-e2e {2}interrupted$/m)
+    expect(interrupted).toContain("INTERRUPTED (exit 137) in desktop-e2e")
+    expect(interrupted).not.toContain("didn't run")
+    const full = summarize({ ...base, steps: [{ name: "install", code: 0, seconds: 1 }], logs: {}, stop: "interrupted", exit: 130 })
+    expect(full).toContain("INTERRUPTED (exit 130) in unit; didn't run: typecheck, web-e2e, desktop-e2e")
+    const killed = summarize({ ...desktop, stop: "killed", exit: 137 })
+    expect(killed).toContain("KILLED (exit 137: out of memory? TEST_MEMORY raises the cap) in desktop-e2e")
+  })
+})
+
+describe("stopReason", () => {
+  it("is an interruption when the runner got Ctrl+C or the run exited 130, a kill when docker says 137 without one", () => {
+    expect(stopReason({ signalled: true, exit: 137 })).toBe("interrupted")
+    expect(stopReason({ signalled: false, exit: 130 })).toBe("interrupted")
+    expect(stopReason({ signalled: false, exit: 137 })).toBe("killed")
+    expect(stopReason({ signalled: false, exit: 1 })).toBeNull()
+    expect(stopReason({ signalled: false, exit: 0 })).toBeNull()
+  })
+})
+
+describe("resultFolders", () => {
+  it("lists only the folders the mode's own suites fill", () => {
+    expect(resultFolders("desktop").map((folder) => folder.label)).toEqual(["desktop/videos", "desktop/screenshots"])
+    expect(resultFolders("e2e").map((folder) => folder.label)).toEqual(["web/videos", "web/videos PNGs"])
+    expect(resultFolders("all").map((folder) => folder.label)).toEqual(["web/videos", "web/videos PNGs", "desktop/videos", "desktop/screenshots"])
+    expect(resultFolders("desktop")[0]).toEqual({ label: "desktop/videos", dir: "desktop/videos", ext: ".mp4" })
   })
 })

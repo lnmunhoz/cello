@@ -1,12 +1,15 @@
 // One results folder per Docker test run, test-results/docker/<time>-<label>-<pid>/, so two runs at
 // once (two agents, two worktrees' worth of habits) never empty or overwrite each other's videos.
-// test-results/docker/latest points at the newest run; the newest few finished runs are kept and a
-// running one is never removed. Follows focus-extension's scripts/run-folders.mjs.
+// test-results/docker/latest points at the newest run; the newest few finished runs of each label
+// (the mode, or CELLO_TEST_LABEL) are kept, so quick reruns of one spec never push out a full run's
+// evidence, and a running one is never removed. Follows focus-extension's scripts/run-folders.mjs.
 import { mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
 import * as path from "node:path"
+import { isAlive } from "../../apps/server/src/process/isAlive.ts"
 
 export const KEEP_RUNS = 5
-const RUN_NAME = /^\d{4}-\d{2}-\d{2}_\d{6}-/
+/** `<time>-<label>-<pid>`: the label is everything between the time and the pid. */
+const RUN_NAME = /^\d{4}-\d{2}-\d{2}_\d{6}-(.+)-\d+$/
 /** A run that started this long ago is finished even if its pid is alive again (reused). */
 const LONGEST_RUN_MS = 3 * 60 * 60 * 1000
 const RUNNING = ".running"
@@ -19,24 +22,25 @@ export const runName = (label: string, date = new Date(), pid = process.pid): st
   return `${stamp}-${safe}-${pid}`
 }
 
-/** The runs to delete: every run folder but the newest `keep`, never one still running. */
-export const runsToPrune = (names: ReadonlyArray<string>, running: ReadonlySet<string>, keep = KEEP_RUNS): string[] =>
-  names.filter((name) => RUN_NAME.test(name)).sort().reverse().slice(keep).filter((name) => !running.has(name))
-
-const alive = (pid: number) => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM"
-  }
+/** The runs to delete: all but the newest `keep` run folders of each label, never one still running. */
+export const runsToPrune = (names: ReadonlyArray<string>, running: ReadonlySet<string>, keep = KEEP_RUNS): string[] => {
+  const seen = new Map<string, number>()
+  return names
+    .filter((name) => RUN_NAME.test(name))
+    .sort()
+    .reverse()
+    .filter((name) => {
+      const label = name.match(RUN_NAME)![1]!
+      seen.set(label, (seen.get(label) ?? 0) + 1)
+      return seen.get(label)! > keep && !running.has(name)
+    })
 }
 
 const isRunning = async (folder: string) => {
   const marker = path.join(folder, RUNNING)
   const [text, info] = await Promise.all([readFile(marker, "utf8").catch(() => ""), stat(marker).catch(() => null)])
   const pid = Number.parseInt(text, 10)
-  return Boolean(pid && info && Date.now() - info.mtimeMs < LONGEST_RUN_MS && alive(pid))
+  return Boolean(pid && info && Date.now() - info.mtimeMs < LONGEST_RUN_MS && isAlive(pid))
 }
 
 /** Makes this run's folder under `base`, points `latest` at it and removes old finished runs. Returns the folder. */

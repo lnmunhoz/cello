@@ -24,6 +24,12 @@ describe("runsToPrune", () => {
     expect(runsToPrune([...names, "latest", "notes.txt"], running, 3)).toEqual(names.slice(1, 5).reverse())
   })
 
+  it("counts each label (mode) on its own, so quick reruns of one spec don't push out a full run's evidence", () => {
+    const full = ["2026-11-15_080000-all-11", "2026-11-15_081000-all-12"]
+    const quick = Array.from({ length: 6 }, (_, i) => `2026-11-15_09${i}000-e2e-${20 + i}`)
+    expect(runsToPrune([...full, ...quick, "2026-11-15_100000-cel-29-docker-e2e-31"], new Set(), 3)).toEqual(quick.slice(0, 3).reverse())
+  })
+
   it("keeps a few runs by default", () => {
     expect(KEEP_RUNS).toBeGreaterThanOrEqual(3)
     expect(runsToPrune(names.slice(0, KEEP_RUNS), new Set())).toEqual([])
@@ -59,7 +65,7 @@ describe("startRun and finishRun", () => {
     for (const name of old) fs.mkdirSync(path.join(root, name))
     // The oldest is still running in this process (alive pid, fresh marker).
     fs.writeFileSync(path.join(root, old[0]!, ".running"), `${process.pid}\n`)
-    const folder = await startRun(root, "e2e")
+    const folder = await startRun(root, "all")
     const left = fs.readdirSync(root).filter((name) => name !== "latest").sort()
     expect(left).toContain(old[0])
     expect(left).toContain(path.basename(folder))

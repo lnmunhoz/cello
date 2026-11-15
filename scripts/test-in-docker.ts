@@ -18,7 +18,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import { buildArgs, dockerArgs, imageTag, parseCommand, passedEnv, versions } from "./docker/container.ts"
 import { finishRun, startRun } from "./docker/runFolders.ts"
-import { duration, parseSteps, summarize } from "./docker/summary.ts"
+import { duration, parseSteps, resultFolders, stopReason, summarize } from "./docker/summary.ts"
 
 const repo = path.resolve(import.meta.dir, "..")
 
@@ -79,7 +79,11 @@ console.log(`Running ${[mode, ...args].join(" ")} in ${image} (${cpus} CPUs, ${m
 
 // Ctrl+C (or a kill) stops the container by its name; this process stays to write the summary.
 const name = `cello-test-${path.basename(out)}`
-const stop = () => spawnSync("docker", ["kill", name], { stdio: "ignore" })
+let signalled = false
+const stop = () => {
+  signalled = true
+  spawnSync("docker", ["kill", name], { stdio: "ignore" })
+}
 process.on("SIGINT", stop)
 process.on("SIGTERM", stop)
 const status = await new Promise<number | null>((resolve) => {
@@ -101,13 +105,9 @@ const summary = summarize({
   env: passedEnv(process.env),
   steps,
   logs: Object.fromEntries(steps.map((step) => [step.name, read(path.join(out, "logs", `${step.name}.log`))])),
-  files: {
-    "web/videos": countFiles(path.join(out, "web/videos"), ".mp4"),
-    // The web e2e saves its screenshots beside its videos (e2e/videos).
-    "web/videos PNGs": countFiles(path.join(out, "web/videos"), ".png"),
-    "desktop/videos": countFiles(path.join(out, "desktop/videos"), ".mp4"),
-    "desktop/screenshots": countFiles(path.join(out, "desktop/screenshots"), ".png"),
-  },
+  files: Object.fromEntries(resultFolders(mode).map(({ label, dir, ext }) => [label, countFiles(path.join(out, dir), ext)])),
+  stop: stopReason({ signalled, exit: status }),
+  exit: status,
 })
 fs.writeFileSync(path.join(out, "summary.txt"), summary)
 await finishRun(out)

@@ -97,7 +97,7 @@ cello task submit CEL-12 \
 - The CLI passes the local file paths; the server **copies** each file into `~/.cello/assets/<task>/` (up to 50 MB each; images, videos and text files only).
 - For each video the server grabs a **poster frame** with ffmpeg, if ffmpeg is installed.
 - Files are served at `/attachments/<id>` with seeking support, and play on the Review page, in the task panel and in the viewer side panel.
-- The copy in `~/.cello/assets` is the one that's kept. The raw recordings in `test-results/docker/` (the last five runs) and in agents' worktrees are temporary.
+- The copy in `~/.cello/assets` is the one that's kept. The raw recordings in `test-results/docker/` (the last five runs of each mode) and in agents' worktrees are temporary.
 
 ## Rendered in Linux
 

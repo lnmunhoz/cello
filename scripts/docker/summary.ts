@@ -28,6 +28,33 @@ export const countsFrom = (log: string): string => {
   return lines.map((line) => line.match(PLAYWRIGHT_TOTAL)?.[1]).filter(Boolean).join(", ")
 }
 
+/** Why a run stopped before its steps finished: Ctrl+C (or exit 130), or a kill (137) nobody asked for. */
+export type StopReason = "interrupted" | "killed" | null
+
+export const stopReason = ({ signalled, exit }: { signalled: boolean; exit: number | null }): StopReason =>
+  signalled || exit === 130 ? "interrupted" : exit === 137 ? "killed" : null
+
+const STOPPED: Record<Exclude<StopReason, null>, (exit: number | null) => string> = {
+  interrupted: (exit) => `INTERRUPTED (exit ${exit})`,
+  killed: (exit) => `KILLED (exit ${exit}: out of memory? TEST_MEMORY raises the cap)`,
+}
+
+/** The folders each suite fills in the run's folder, and the files counted in them. */
+const SUITE_FOLDERS: Readonly<Record<string, ReadonlyArray<{ label: string; dir: string; ext: string }>>> = {
+  "web-e2e": [
+    { label: "web/videos", dir: "web/videos", ext: ".mp4" },
+    // The web e2e saves its screenshots beside its videos (e2e/videos).
+    { label: "web/videos PNGs", dir: "web/videos", ext: ".png" },
+  ],
+  "desktop-e2e": [
+    { label: "desktop/videos", dir: "desktop/videos", ext: ".mp4" },
+    { label: "desktop/screenshots", dir: "desktop/screenshots", ext: ".png" },
+  ],
+}
+
+/** The folders the mode's own suites fill, for the summary's Files line. */
+export const resultFolders = (mode: Mode) => MODE_STEPS[mode].flatMap((step) => SUITE_FOLDERS[step] ?? [])
+
 export const duration = (seconds: number): string =>
   seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`
 
@@ -52,6 +79,10 @@ export interface SummaryInput {
   readonly logs: Readonly<Record<string, string>>
   /** Files copied out, by folder: { "desktop/videos": 4 }. */
   readonly files: Readonly<Record<string, number>>
+  /** Set when the run stopped before its steps finished; the step it was in is the first one missing. */
+  readonly stop: StopReason
+  /** docker run's exit status. */
+  readonly exit: number | null
 }
 
 export const summarize = (input: SummaryInput): string => {
@@ -59,7 +90,12 @@ export const summarize = (input: SummaryInput): string => {
     `${step.code === 0 ? "PASS" : "FAIL"}  ${step.name.padEnd(13)}${duration(step.seconds).padEnd(9)}${countsFrom(input.logs[step.name] ?? "")}`.trimEnd())
   const failed = input.steps.filter((step) => step.code !== 0).map((step) => `${step.name} (logs/${step.name}.log)`)
   const missing = MODE_STEPS[input.mode].filter((name) => !input.steps.some((step) => step.name === name))
-  const problems = [failed.join(", "), missing.length > 0 ? `didn't run: ${missing.join(", ")}` : ""].filter(Boolean)
+  const [stoppedIn, ...notRun] = input.stop ? missing : [undefined, ...missing]
+  if (input.stop && stoppedIn) rows.push(`STOP  ${stoppedIn.padEnd(13)}${input.stop}`)
+  const problems = [failed.join(", "), notRun.length > 0 ? `didn't run: ${notRun.join(", ")}` : ""].filter(Boolean)
+  const result = input.stop
+    ? [`${STOPPED[input.stop](input.exit)}${stoppedIn ? ` in ${stoppedIn}` : ""}`, ...problems].join("; ")
+    : problems.length === 0 ? "PASSED" : `FAILED: ${problems.join("; ")}`
   const files = Object.entries(input.files).map(([folder, count]) => `${folder}: ${count}`).join(", ")
   const env = Object.entries(input.env).map(([name, value]) => `${name}=${value}`).join(" ")
   return [
@@ -71,7 +107,7 @@ export const summarize = (input: SummaryInput): string => {
     "",
     ...rows,
     "",
-    problems.length === 0 ? "PASSED" : `FAILED: ${problems.join("; ")}`,
+    result,
     `Files: ${files || "none"}`,
     "",
   ].join("\n")
