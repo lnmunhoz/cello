@@ -77,6 +77,11 @@ describe("the server serves the web app", () => {
       expect(build).toMatchObject({ version: APP_VERSION, commit: "c602f25", web: stamp })
       expect(build.startedAt).toBeGreaterThanOrEqual(before)
       expect(build.startedAt).toBeLessThanOrEqual(Date.now())
+      // A reload always asks again for index.html and build.json; only the hashed bundles are cached.
+      const cacheOf = (pathname: string) =>
+        Effect.promise(() => fetch(`http://127.0.0.1:${port}${pathname}`).then((r) => r.headers.get("cache-control")))
+      expect(yield* cacheOf("/build.json")).toBe("no-cache")
+      expect(yield* cacheOf("/")).toBe("no-cache")
     }).pipe(Effect.scoped))
 
   it.live("CEL-37: without a web app the build has no web stamp, and an unknown commit is null", () =>

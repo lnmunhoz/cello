@@ -25,6 +25,7 @@ import { workspaceIdAtom } from "../lib/cello.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { widthLimits } from "../lib/resize.ts"
 import { isDark, toggleTheme } from "../lib/theme.ts"
+import { BuildFooter } from "./BuildFooter.tsx"
 import { ConnectionStatus, useConnectionText } from "./ConnectionStatus.tsx"
 import { SIDEBAR_SHORTCUT, SIDEBAR_WIDTH, type SidebarMode } from "./sidebarState.ts"
 
@@ -269,15 +270,19 @@ export function Sidebar({
         </button>
       </nav>
 
-      <div className="mt-auto flex items-center gap-1">
-        <Link
-          to="/settings"
-          className="flex h-7 flex-1 items-center gap-2 rounded-md px-2 text-[13px] text-muted outline-none hover:bg-hover hover:text-ink data-[status=active]:bg-selected data-[status=active]:text-ink"
-        >
-          <SettingsIcon className="size-3.5" />
-          Settings
-        </Link>
-        {theme}
+      {/* The running build sits just above Settings, which stays at the very bottom. */}
+      <div className="mt-auto flex flex-col gap-1">
+        <BuildFooter />
+        <div className="flex items-center gap-1">
+          <Link
+            to="/settings"
+            className="flex h-7 flex-1 items-center gap-2 rounded-md px-2 text-[13px] text-muted outline-none hover:bg-hover hover:text-ink data-[status=active]:bg-selected data-[status=active]:text-ink"
+          >
+            <SettingsIcon className="size-3.5" />
+            Settings
+          </Link>
+          {theme}
+        </div>
       </div>
       <ConnectionStatus look="row" />
     </aside>

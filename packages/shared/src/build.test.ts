@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildKey, buildLine, liveSince, reloadAction, sameBuild, shortCommit, type BuildStamp } from "./build.ts"
+import { buildKey, buildLine, buildParts, liveSince, reloadAction, sameBuild, shortCommit, type BuildStamp } from "./build.ts"
 
 const A: BuildStamp = { version: "0.2.0", commit: "c602f25", builtAt: 1_000 }
 const B: BuildStamp = { version: "0.2.0", commit: "9afd602", builtAt: 2_000 }
@@ -54,6 +54,13 @@ describe("the running build as one line", () => {
     expect(buildLine({ version: "0.2.0", commit: "c602f25a1b2", startedAt: at(15, 18, 19) }, at(15, 21, 0))).toBe(
       "Cello 0.2.0 · build c602f25 · live since 18:19",
     )
+  })
+
+  it("splits in two halves for a narrow place", () => {
+    expect(buildParts({ version: "0.2.0", commit: "c602f25", startedAt: at(15, 18, 19) }, at(15, 21, 0))).toEqual({
+      name: "Cello 0.2.0 · build c602f25",
+      since: "live since 18:19",
+    })
   })
 
   it("adds the day when the server started on another day", () => {

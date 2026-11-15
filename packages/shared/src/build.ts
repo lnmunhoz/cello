@@ -61,6 +61,20 @@ export const liveSince = (startedAt: number, now: number): string => {
     : `${at.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${time}`
 }
 
+export interface RunningBuild {
+  readonly version: string
+  readonly commit: string | null
+  readonly startedAt: number
+}
+
+/** The line's two halves, for a narrow place that shows them on two lines: "Cello 0.2.0 · build c602f25", "live since 18:19". */
+export const buildParts = (build: RunningBuild, now: number): { readonly name: string; readonly since: string } => ({
+  name: `Cello ${build.version} · build ${shortCommit(build.commit)}`,
+  since: `live since ${liveSince(build.startedAt, now)}`,
+})
+
 /** "Cello 0.2.0 · build c602f25 · live since 18:19" */
-export const buildLine = (build: { readonly version: string; readonly commit: string | null; readonly startedAt: number }, now: number): string =>
-  `Cello ${build.version} · build ${shortCommit(build.commit)} · live since ${liveSince(build.startedAt, now)}`
+export const buildLine = (build: RunningBuild, now: number): string => {
+  const { name, since } = buildParts(build, now)
+  return `${name} · ${since}`
+}
