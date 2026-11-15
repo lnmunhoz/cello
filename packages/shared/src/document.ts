@@ -41,9 +41,10 @@ const FENCE = /^ {0,3}(`{3,}|~{3,})/
 
 /**
  * Walks lines, telling `visit` whether each one is inside a fenced code block (fence lines count as
- * inside). A fence closes with the same character, at least as long as the one that opened it.
+ * inside). A fence closes with the same character, at least as long as the one that opened it; one
+ * that never closes runs to the end. The one fence rule for documents and for linkify.
  */
-const eachLine = (lines: ReadonlyArray<string>, visit: (line: string, index: number, inCode: boolean) => void) => {
+export const eachLine = (lines: ReadonlyArray<string>, visit: (line: string, index: number, inCode: boolean) => void) => {
   let open: string | null = null
   lines.forEach((line, index) => {
     const fence = FENCE.exec(line)?.[1]

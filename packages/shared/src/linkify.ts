@@ -8,6 +8,7 @@
 // "CEL-3a" and "CEL-3.5" don't), outside code spans and fenced code blocks, and only those the caller
 // knows exist (`isTask`). A key inside an address stays part of the address.
 
+import { eachLine } from "./document.ts"
 import { parseTaskKey } from "./taskKey.ts"
 
 export type TextPart =
@@ -16,7 +17,11 @@ export type TextPart =
   | { readonly type: "task"; readonly text: string; readonly key: string; readonly projectKey: string; readonly number: number }
 
 export interface LinkifyOptions {
-  /** Whether a task with this key ("CEL-12") exists. Without it, task keys stay text. */
+  /**
+   * Whether to link this key ("CEL-12"). Without it, task keys stay text. A caller may answer for the
+   * project only and check the task when it renders the link (the web app does, so its parse doesn't
+   * change whenever a task does).
+   */
   readonly isTask?: ((key: string) => boolean) | undefined
 }
 
@@ -26,8 +31,6 @@ const OPENER: Record<string, string> = { ")": "(", "]": "[", "}": "{" }
 
 /** Not after a letter, digit, `_` or `-`; not before one, nor before `-`/`.` and one (`CEL-3-fix`, `CEL-3.md`). */
 const TASK_KEY = /(?<![\w-])[A-Z][A-Z0-9]{1,9}-[1-9][0-9]*(?!\w|[-.]\w)/g
-/** A fence line: up to three spaces, then three or more backticks or tildes. */
-const FENCE = /^ {0,3}(`{3,}|~{3,})/
 /** An inline code span: a run of backticks, up to the next run of the same length. */
 const CODE_SPAN = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g
 
@@ -52,21 +55,14 @@ type Range = readonly [start: number, end: number]
 
 const inside = (ranges: ReadonlyArray<Range>, index: number) => ranges.some(([start, end]) => index >= start && index < end)
 
-/** Where the code is: fenced blocks (to their closing fence, or the end), then inline spans outside them. */
+/** Where the code is: the lines of fenced blocks (document.ts's fence rule), then inline spans outside them. */
 const codeRanges = (text: string): Range[] => {
   const ranges: Range[] = []
-  let open: { readonly fence: string; readonly start: number } | null = null
   let offset = 0
-  for (const line of text.split("\n")) {
-    const fence = FENCE.exec(line)?.[1]
-    if (open === null && fence) open = { fence, start: offset }
-    else if (open && fence && fence[0] === open.fence[0] && fence.length >= open.fence.length && line.trim() === fence) {
-      ranges.push([open.start, offset + line.length])
-      open = null
-    }
+  eachLine(text.split("\n"), (line, _index, inCode) => {
+    if (inCode) ranges.push([offset, offset + line.length + 1])
     offset += line.length + 1
-  }
-  if (open) ranges.push([open.start, text.length])
+  })
   for (const span of text.matchAll(CODE_SPAN)) if (!inside(ranges, span.index)) ranges.push([span.index, span.index + span[0].length])
   return ranges
 }
