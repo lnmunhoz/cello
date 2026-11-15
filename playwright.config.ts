@@ -43,7 +43,10 @@ export default defineConfig({
       stdout: "pipe",
     },
     {
-      command: "bunx vite preview",
+      // On 127.0.0.1, not "localhost" (which Node binds to ::1 when it lists that first, as in the Docker
+      // image): Node 26's fetch and WebSocket, which the tests' RPC client uses, dial only 127.0.0.1 for
+      // localhost. The browser still opens http://localhost and falls back to 127.0.0.1.
+      command: "bunx vite preview --host 127.0.0.1",
       cwd: "apps/web",
       env: { CELLO_SERVER: `127.0.0.1:${SERVER_PORT}`, CELLO_WEB_PORT: String(WEB_PORT) },
       url: `http://localhost:${WEB_PORT}`,
