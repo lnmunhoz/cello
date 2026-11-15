@@ -82,6 +82,8 @@ test("CEL-5, CEL-35: an agent claims, checks in and moves through the stages: ca
   await expect(panel.locator("[data-last-changed]")).toContainText("Claude Code session 5e7a91c2")
   await expect(panel.locator("[data-working-on-it]")).toContainText("Claude Code session 5e7a91c2 active now")
   await expect(panel.locator('section[aria-labelledby="history-heading"]')).toContainText("Claude Code set the stage to Agent review")
+  // Its own caption, so the panel stays open under the one above until it's closed.
+  await caption(page, "Back to the board")
   await panel.getByRole("button", { name: "Close task" }).click()
 
   await caption(page, "A second session claims the other task, but its process has already exited")
