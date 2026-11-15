@@ -36,7 +36,7 @@ const setup = Effect.gen(function* () {
   fs.writeFileSync(path.join(bin, "cello"), "#!/bin/sh\n", { mode: 0o755 })
   const agent = (cwd: string) => cello({ port, env: { ...claude, HOME: home, PATH: bin }, cwd })
   const projects = Effect.map(human["snapshot.get"]({}), (s) => s.projects)
-  return { port, dataDir, human, agent, projects, url: (key: string) => `http://127.0.0.1:${port}/${key}` }
+  return { port, dataDir, home, human, agent, projects, url: (key: string) => `http://127.0.0.1:${port}/${key}` }
 })
 
 describe("cello init", () => {
@@ -168,11 +168,12 @@ describe("cello init", () => {
       expect(yield* projects).toEqual([])
     }).pipe(Effect.scoped))
 
-  it.live("--hooks also installs the Claude Code hooks, in the main checkout's settings.local.json", () =>
+  it.live("--hooks also installs the Claude Code hooks and plugin, in the main checkout's settings.local.json", () =>
     Effect.gen(function* () {
-      const { dataDir, agent, url } = yield* setup
+      const { dataDir, home, agent, url } = yield* setup
       const repo = gitRepo(dataDir, "cello")
       const file = path.join(repo, ".claude", "settings.local.json")
+      const folder = path.join(home, ".local", "share", "cello", "claude-plugin")
       expect(yield* agent(repo)("init", "--hooks")).toEqual({
         out: [
           `Created project CEL · cello for ${repo} (tasks CEL-1, CEL-2, …)`,
@@ -181,24 +182,30 @@ describe("cello init", () => {
           "  Stop         cello hook claude stop",
           "  PostToolUse  cello hook claude post-tool-use",
           "  PreToolUse   cello hook claude pre-tool-use",
+          `Enabled Cello's Claude Code plugin in ${file}; its files are in ${folder}.`,
           `Added .claude/settings.local.json to ${path.join(repo, ".gitignore")}, so it stays on this machine.`,
           "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
           "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. Start Claude Code with CELLO_ALLOW_ARTIFACTS=1 when you want one.",
           "Agents here can't edit files in the repo until their session has claimed a Cello task: they're told to create or claim one first. Start Claude Code with CELLO_ALLOW_UNTRACKED=1 to turn that off.",
+          "The plugin gives new sessions /cello:orchestrate (run tasks through builder and reviewer agents), /cello:work (do one task in this thread) and the cello skill.",
           "New Claude Code sessions pick them up.",
         ].join("\n"),
         failure: null,
       })
-      const hooks = JSON.parse(fs.readFileSync(file, "utf8")).hooks
-      expect(hooks.Stop[0].hooks[0].command).toBe("cello hook claude stop")
+      const settings = JSON.parse(fs.readFileSync(file, "utf8"))
+      expect(settings.hooks.Stop[0].hooks[0].command).toBe("cello hook claude stop")
       // The artifact guard (CEL-57) and the claim guard (CEL-61) come with it.
-      expect(hooks.PreToolUse).toEqual([{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }])
+      expect(settings.hooks.PreToolUse).toEqual([{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }])
+      // And the plugin (CEL-64).
+      expect(settings.enabledPlugins).toEqual({ "cello@cello": true })
       // Already linked and already installed: both say so.
       expect((yield* agent(repo)("init", "--hooks")).out).toBe([
         `This repo is already project CEL · cello (${repo}); the project itself is unchanged.`,
         url("CEL"),
         `Cello's Claude Code hooks are already in ${file}.`,
+        `Cello's Claude Code plugin is already enabled in ${file}, and its files in ${folder} are current.`,
       ].join("\n"))
+      expect(JSON.parse((yield* agent(repo)("init", "--hooks", "--json")).out).hooks).toEqual({ file, changed: false, pluginFolder: folder })
     }).pipe(Effect.scoped))
 
   it.live("when --hooks fails after the project was created, the output still says the project exists", () =>

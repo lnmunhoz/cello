@@ -78,10 +78,11 @@ describe("cello install claude: the artifact guard", () => {
       const installed = fs.readFileSync(file, "utf8")
       expect(JSON.parse(installed).hooks.PreToolUse).toEqual([GUARD])
 
-      expect(yield* run(repo)("install", "claude")).toEqual({ out: `Cello's Claude Code hooks are already in ${file}.`, failure: null })
+      // The second line is the plugin's (CEL-64).
+      expect((yield* run(repo)("install", "claude")).out.split("\n")[0]).toBe(`Cello's Claude Code hooks are already in ${file}.`)
       expect(fs.readFileSync(file, "utf8")).toBe(installed)
 
-      expect(yield* run(repo)("uninstall", "claude")).toEqual({ out: `Removed Cello's Claude Code hooks from ${file}.`, failure: null })
+      expect((yield* run(repo)("uninstall", "claude")).out.split("\n")[0]).toBe(`Removed Cello's Claude Code hooks and plugin from ${file}.`)
       expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({})
     }).pipe(Effect.scoped))
 

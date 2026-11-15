@@ -92,6 +92,6 @@ export const installSetup = Effect.gen(function* () {
   const bin = path.join(dir, "bin")
   fs.mkdirSync(bin)
   fs.writeFileSync(path.join(bin, "cello"), "#!/bin/sh\n", { mode: 0o755 })
-  const run = (cwd: string, PATH = bin) => cello({ port: 1, env: { HOME: home, PATH }, cwd })
+  const run = (cwd: string, PATH = bin, env: Env = {}) => cello({ port: 1, env: { HOME: home, PATH, ...env }, cwd })
   return { dir, repo, home, run }
 })

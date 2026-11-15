@@ -18,7 +18,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type SyntheticEvent } from "react"
 import { Button, ButtonLink } from "../components/ui/Button.tsx"
 import { ResizeHandle, useStoredWidth } from "../components/ui/ResizeHandle.tsx"
-import { toast } from "../components/ui/Toast.tsx"
+import { copyText } from "../lib/clipboard.ts"
 import { PageBody } from "../docs/PageBody.tsx"
 import { DocumentReader } from "../docs/PageReader.tsx"
 import { openInPanel, type OpenMessage } from "../lib/desktop.ts"
@@ -332,7 +332,7 @@ function TextView({ item }: { item: ViewerItem }) {
           size="sm"
           disabled={file.state !== "shown"}
           title={clipped ? `Copies the first ${MAX_SHOWN_LABEL}, as shown` : undefined}
-          onClick={() => void navigator.clipboard?.writeText(shown).then(() => toast(clipped ? `Copied the first ${MAX_SHOWN_LABEL}` : "Copied"))}
+          onClick={() => copyText(shown, clipped ? `Copied the first ${MAX_SHOWN_LABEL}` : "Copied")}
         >
           <CopyIcon aria-hidden className="size-3.5" />
           Copy
