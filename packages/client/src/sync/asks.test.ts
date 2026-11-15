@@ -10,7 +10,7 @@ const project = (id: string, workspaceId = "w1", archivedAt: number | null = nul
 const task = (id: string, projectId = "p1", archivedAt: number | null = null): Task => ({
   id, projectId, number: 1, key: `CEL-${id}`, title: id, description: "", statusId: "input", priority: 0, position: "a0",
   dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null, createdByActorId: "me",
-  createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt,
+  createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, commentCount: 0, lastCommentAt: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt,
 })
 const ask = (id: string, taskId: string, createdAt: number): Ask => ({
   id, taskId, title: `Ask ${id}`, intro: "", questions: [{ id: "q1", prompt: "Which?", kind: "text", options: [] }], attachments: [],

@@ -9,7 +9,7 @@ const status = (id: string, hidden = false): Status => ({
 const task = (id: string, extra: Partial<Task> = {}): Task => ({
   id, projectId: "p1", number: 1, key: `CEL-${id}`, title: id, description: "", statusId: "s", priority: 0, position: "a0",
   dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null, createdByActorId: "me",
-  createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
+  createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, commentCount: 0, lastCommentAt: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
 })
 
 const todo: ListGroup = { status: status("todo"), tasks: [task("1"), task("2")] }

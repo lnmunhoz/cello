@@ -63,13 +63,14 @@ describe("cello search", () => {
       yield* agent("task", "comment", "CEL-1", "Stage chips are loud")
 
       const limited = (yield* agent("search", "stage", "--limit", "2")).out.split("\n")
-      expect(limited.slice(0, 3)).toEqual(["Tasks (2 of 7)", "  CEL-7  Todo  [Stage] 7", "  CEL-6  Todo  [Stage] 6"])
+      // Most recent activity first: the comment on CEL-1 counts (CEL-5), then the newest task.
+      expect(limited.slice(0, 3)).toEqual(["Tasks (2 of 7)", "  CEL-1  Todo  [Stage] 1", "  CEL-7  Todo  [Stage] 7"])
       expect(limited.at(-1)).toBe("More: `--limit 20` shows more per kind; `--kind task` shows only one kind.")
       expect((yield* agent("search", "stage", "--kind", "comment")).out.split("\n")[0]).toBe("Comments (1)")
 
       const json = JSON.parse((yield* agent("search", "stage", "--json", "--kind", "task", "--limit", "1")).out) as SearchResults
       expect(json).toMatchObject({ query: "stage", terms: ["stage"], key: null, jump: null })
-      expect(json.groups).toEqual([expect.objectContaining({ kind: "task", total: 7, hits: [expect.objectContaining({ taskKey: "CEL-7", titleRanges: [[0, 5]] })] })])
+      expect(json.groups).toEqual([expect.objectContaining({ kind: "task", total: 7, hits: [expect.objectContaining({ taskKey: "CEL-1", titleRanges: [[0, 5]] })] })])
 
       expect((yield* agent("search", "zebra")).out).toBe(
         "Nothing in this project matches \"zebra\". Search looks at task keys, titles and descriptions, comments, review packets, docs, projects and labels.",

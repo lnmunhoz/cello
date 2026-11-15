@@ -1,11 +1,12 @@
 import type { Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
+import { applyEvents, fromSnapshot } from "./applyEvents.ts"
 import { ORDERINGS, orderTasks, parseOrdering } from "./ordering.ts"
 
 const task = (id: string, extra: Partial<Task> = {}): Task => ({
   id, projectId: "p1", number: 1, key: `CEL-${id}`, title: id, description: "", statusId: "todo", priority: 0, position: "a0",
   dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null, createdByActorId: "me",
-  createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
+  createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, commentCount: 0, lastCommentAt: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
 })
 const ids = (tasks: ReadonlyArray<Task>) => tasks.map((t) => t.id)
 
@@ -46,6 +47,15 @@ describe("orderTasks: the order cards show in inside a column or group", () => {
 
   it("last updated puts the most recently changed first", () => {
     expect(ids(orderTasks(column, "updated"))).toEqual(["c", "a", "b"])
+  })
+
+  it("last updated counts a comment: a fresh one moves its card up", () => {
+    const board = fromSnapshot({ seq: 1, actors: [], workspaces: [], projects: [], statuses: [], labels: [], tasks: column, sessions: [], reviews: [], asks: [], documents: [] })
+    const comment = { id: "k1", taskId: "b", body: "Hi", actorId: "me", sessionId: null, createdAt: 70, updatedAt: 70, deletedAt: null }
+    const next = applyEvents(board, [{
+      seq: 2, ts: 70, commandId: "c2", actorId: "me", sessionId: null, workspaceId: "w1", projectId: "p1", schemaVersion: 1, type: "comment.added", comment,
+    }])
+    expect(ids(orderTasks(Object.values(next.tasks), "updated"))).toEqual(["b", "c", "a"])
   })
 
   it("breaks ties with the drag order, so equal cards keep a stable order", () => {

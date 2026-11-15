@@ -13,7 +13,7 @@ const project = (id: string, key: string, workspaceId = "w1"): Project => ({
 const task = (id: string, statusId: string, extra: Partial<Task> = {}): Task => ({
   id, projectId: "p1", number: 1, key: `CEL-${id}`, title: id, description: "", statusId, priority: 0, position: "a0",
   dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null, createdByActorId: "me",
-  createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
+  createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, commentCount: 0, lastCommentAt: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
 })
 const attachment = (id: string, kind: Attachment["kind"], extra: Partial<Attachment> = {}): Attachment => ({
   id, taskId: "t1", reviewId: "r1", askId: null, kind, name: `${id}.bin`, url: null, caption: "", mime: null, bytes: 10, hasPoster: false,

@@ -22,7 +22,7 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   createdBySessionId: "s1",
   updatedByActorId: null,
   updatedBySessionId: null,
-  stage: null,
+  stage: null, commentCount: 0, lastCommentAt: null,
   version: 2,
   createdAt: 1,
   updatedAt: 1,

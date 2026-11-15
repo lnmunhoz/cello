@@ -9,7 +9,7 @@ const status = (id: string, position: string, hidden = false): Status => ({
 const task = (id: string, statusId: string, position: string, extra: Partial<Task> = {}): Task => ({
   id, projectId: "p1", number: 1, key: "CEL-1", title: id, description: "", statusId, priority: 0, position,
   dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null, createdByActorId: "me",
-  createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
+  createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, commentCount: 0, lastCommentAt: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
 })
 const project = (id: string, key: string, name: string, extra: Partial<Project> = {}): Project => ({
   id, workspaceId: "w1", name, key, color: "#000", description: "", repoPath: null, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,

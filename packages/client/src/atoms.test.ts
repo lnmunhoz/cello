@@ -20,7 +20,7 @@ const status = (id: string, position: string): Status => ({
 const task: Task = {
   id: "t1", projectId: "p1", number: 1, key: "CEL-1", title: "First", description: "", statusId: "todo", priority: 0,
   position: "a0", dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null,
-  createdByActorId: "me", createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 2, createdAt: 1, updatedAt: 1, archivedAt: null,
+  createdByActorId: "me", createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, commentCount: 0, lastCommentAt: null, version: 2, createdAt: 1, updatedAt: 1, archivedAt: null,
 }
 const snapshot: Snapshot = {
   seq: 5,

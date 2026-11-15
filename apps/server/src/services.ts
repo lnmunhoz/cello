@@ -26,7 +26,8 @@ const domain = Layer.mergeAll(
   StatusService.layer,
   LabelService.layer,
   TaskService.layer,
-  CommentService.layer,
+  // A comment is activity on its task (TaskService.touchWithin).
+  CommentService.layer.pipe(Layer.provide(TaskService.layer)),
   SnapshotService.layer,
 ).pipe(
   // Comments and reviews deliver into agents' inboxes, which read sessions.

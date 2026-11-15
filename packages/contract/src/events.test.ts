@@ -34,7 +34,14 @@ describe("decodeEvent", () => {
     }
     const event = decodeEvent({ ...envelope, schemaVersion: 1, type: "task.created", task })
     if (event.type !== "task.created") throw new Error(event.type)
-    expect(event.task).toMatchObject({ stage: null, updatedByActorId: null, updatedBySessionId: null })
+    expect(event.task).toMatchObject({ stage: null, updatedByActorId: null, updatedBySessionId: null, commentCount: 0, lastCommentAt: null })
+  })
+
+  it("comment edits and deletes name their task; ones stored before they did still decode", () => {
+    const edited = decodeEvent({ ...envelope, schemaVersion: 1, type: "comment.edited", id: "c-1", taskId: "t-1", before: { body: "a" }, after: { body: "b" } })
+    expect(edited.type === "comment.edited" && edited.taskId).toBe("t-1")
+    const old = decodeEvent({ ...envelope, schemaVersion: 1, type: "comment.deleted", id: "c-1" })
+    expect(old.type === "comment.deleted" && old.taskId).toBeUndefined()
   })
 
   it("decodes a stage change and a session check-in, and refuses a stage that isn't in the list", () => {

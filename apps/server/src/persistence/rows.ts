@@ -202,6 +202,11 @@ export const selectTasks = (sql: Sql, where: Where) =>
       SELECT tl.task_id, tl.label_id FROM task_labels tl
       JOIN tasks t ON t.id = tl.task_id JOIN projects p ON p.id = t.project_id
       WHERE ${where} ORDER BY tl.created_at, tl.label_id`
+    const commentRows = yield* sql<{ task_id: string; count: number; last_at: number }>`
+      SELECT c.task_id, COUNT(*) AS count, MAX(c.updated_at) AS last_at FROM comments c
+      JOIN tasks t ON t.id = c.task_id JOIN projects p ON p.id = t.project_id
+      WHERE ${where} AND c.deleted_at IS NULL GROUP BY c.task_id`
+    const comments = new Map(commentRows.map((c) => [c.task_id, c]))
     const labelIds = new Map<string, string[]>()
     for (const link of links) {
       const list = labelIds.get(link.task_id)
@@ -229,6 +234,8 @@ export const selectTasks = (sql: Sql, where: Where) =>
       updatedBySessionId: r.updated_by_session_id,
       // Only stages from the list are ever written (TaskService.setStage).
       stage: r.stage as TaskStage | null,
+      commentCount: comments.get(r.id)?.count ?? 0,
+      lastCommentAt: comments.get(r.id)?.last_at ?? null,
       version: r.version,
       createdAt: r.created_at,
       updatedAt: r.updated_at,

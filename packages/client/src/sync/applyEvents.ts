@@ -75,6 +75,14 @@ class Draft {
   }
 }
 
+/** Activity on a task that isn't a task event (a comment): its author and time are the last change. */
+const activity = (e: CelloEvent, t: Task) => ({
+  version: t.version + 1,
+  updatedAt: e.ts,
+  updatedByActorId: e.actorId,
+  updatedBySessionId: e.sessionId,
+})
+
 const apply = (d: Draft, e: CelloEvent) => {
   switch (e.type) {
     case "workspace.created":
@@ -132,10 +140,22 @@ const apply = (d: Draft, e: CelloEvent) => {
         })
       }
       return d.set("sessions", e.session.id, e.session)
+    // Comments load per task; the board keeps each task's count and latest comment time. A comment is
+    // activity: the server set the task's last change and bumped its version in the same command.
     case "comment.added":
+      return d.update("tasks", e.comment.taskId, (t) => ({ ...t, ...activity(e, t), commentCount: t.commentCount + 1, lastCommentAt: e.ts }))
     case "comment.edited":
+      if (e.taskId === undefined) return // stored before edits named their task
+      return d.update("tasks", e.taskId, (t) => ({ ...t, ...activity(e, t), lastCommentAt: e.ts }))
     case "comment.deleted":
-      return // comments load per task, not in board state
+      if (e.taskId === undefined) return
+      return d.update("tasks", e.taskId, (t) => ({
+        ...t,
+        ...activity(e, t),
+        commentCount: Math.max(0, t.commentCount - 1),
+        // The latest remaining comment, from the server; older events didn't say, so it stays.
+        lastCommentAt: e.lastCommentAt === undefined ? t.lastCommentAt : e.lastCommentAt,
+      }))
     case "review.submitted":
       return d.set("reviews", e.review.id, e.review)
     case "review.decided":
