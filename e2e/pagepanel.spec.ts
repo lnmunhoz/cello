@@ -49,7 +49,7 @@ const notes = (key: string) =>
     "",
     "## Findings",
     "",
-    "Pages render in the page reader, in the side panel, the way the task panel docks. The test run is in [the test log](run.log). See [the task it was built under](/${key}/1).",
+    `Pages render in the page reader, in the side panel, the way the task panel docks. The test run is in [the test log](run.log). See [the task it was built under](/${key}/1).`,
     "",
     "## Next steps",
     "",
