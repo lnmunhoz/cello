@@ -1,6 +1,7 @@
 // Read-only views over client state, shared by every screen.
 import type { Project, Status, Task } from "@cello/contract/entities"
 import { positionBetween } from "@cello/shared/position"
+import { parseTaskKey } from "@cello/shared/taskKey"
 import type { BoardState } from "./applyEvents.ts"
 
 export const byPosition = <T extends { readonly position: string }>(rows: Iterable<T>): T[] =>
@@ -70,3 +71,18 @@ export const taskByKey = (state: BoardState, projectKey: string, number: number)
   if (!project) return undefined
   return Object.values(state.tasks).find((t) => t.projectId === project.id && t.number === number)
 }
+
+/** A task with its status, as a task key in rendered text shows it. */
+export interface KeyedTask {
+  readonly task: Task
+  readonly status: Status | undefined
+}
+
+/** Finds tasks on the board by their whole key ("CEL-3"): what task keys in rendered text link to. */
+export const taskFinder =
+  (state: BoardState) =>
+  (key: string): KeyedTask | undefined => {
+    const ref = parseTaskKey(key)
+    const task = ref ? taskByKey(state, ref.projectKey, ref.number) : undefined
+    return task ? { task, status: state.statuses[task.statusId] } : undefined
+  }

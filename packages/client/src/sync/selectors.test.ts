@@ -1,7 +1,7 @@
 import type { Project, Status, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import type { BoardState } from "./applyEvents.ts"
-import { boardColumns, byPosition, placement, placementAtEnd, projectsOf, taskByKey } from "./selectors.ts"
+import { boardColumns, byPosition, placement, placementAtEnd, projectsOf, taskByKey, taskFinder } from "./selectors.ts"
 
 const status = (id: string, position: string, hidden = false): Status => ({
   id, workspaceId: "w1", name: id, category: "unstarted", position, color: "#999", hidden, createdAt: 1, updatedAt: 1,
@@ -75,5 +75,13 @@ describe("selectors", () => {
     expect(taskByKey(state, "ZED", 4)?.id).toBe("other")
     expect(taskByKey(state, "zed", 4)?.id).toBe("other")
     expect(taskByKey(state, "CEL", 99)).toBeUndefined()
+  })
+
+  it("finds a task and its status by its whole key, for task keys in rendered text", () => {
+    const find = taskFinder(state)
+    expect(find("ZED-4")).toEqual({ task: state.tasks["other"], status: state.statuses["todo"] })
+    expect(find("ZED-5")).toBeUndefined()
+    expect(find("NOPE-1")).toBeUndefined()
+    expect(find("not a key")).toBeUndefined()
   })
 })

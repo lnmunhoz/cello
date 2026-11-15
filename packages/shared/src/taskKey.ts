@@ -19,3 +19,12 @@ export const parseTaskKey = (key: string): { projectKey: string; number: number 
   if (!match) return null
   return { projectKey: match[1]!, number: Number(match[2]) }
 }
+
+/** Where the board shows a task: `/CEL/3`. */
+export const taskPath = (projectKey: string, number: number): string => `/${projectKey}/${number}`
+
+/** The task a board path shows (`/CEL/3`, `/cel/3`), or null for any other path. */
+export const parseTaskPath = (pathname: string): { projectKey: string; number: number } | null => {
+  const match = /^\/([^/]+)\/([^/]+)$/.exec(pathname)
+  return match ? parseTaskKey(`${match[1]}-${match[2]}`) : null
+}
