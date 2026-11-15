@@ -1,9 +1,10 @@
 // M1 "Done when": a board with 200 tasks keeps 60 fps while dragging. Seeds 200 tasks through the RPC
 // client, drags a card across the columns for about 2 seconds, and counts animation frames meanwhile.
 // CEL-6 adds the same board with three agent sessions moving cards, so three cursors fly at once.
+// CEL-69 puts 40 working agents on a board: their marks spin while the main thread stays idle.
 import type { Page } from "@playwright/test"
 import { openClient } from "../packages/client/test/support/promiseClient.ts"
-import { card, caption, column, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, test, uniqueKey } from "./fixtures.ts"
+import { agentAs, card, caption, column, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, test, uniqueKey } from "./fixtures.ts"
 
 const COLUMNS = ["Todo", "In Progress", "In Review", "Done"]
 const AGENT_COLUMNS = ["Todo", "In Progress", "Done"]
@@ -210,4 +211,84 @@ test("performance: a 200-task board with three agent cursors flying at once stay
   await expect(page.locator("[data-agent-cursor]")).toHaveCount(0)
   await expect(page.locator("[data-agent-ghost], [data-agent-hole]")).toHaveCount(0)
   expect(await page.evaluate(() => document.getElementById("agent-cursor-styles")?.textContent ?? "")).toBe("")
+})
+
+test("performance: 40 working agents on the board stay near 60 fps (at least 55), with no long tasks, no extra layout and little extra style work (CEL-69)", async ({ page, cello, baseURL }, testInfo) => {
+  test.setTimeout(Math.max(test.info().timeout, 90_000))
+  const key = uniqueKey("PERFA")
+  const project = await seedProject(cello, "Agent marks", key)
+  const { statuses } = await defaultWorkspace(cello)
+  const agents = await Promise.all(
+    ["4a1b2c3d-perf-mark-one", "5b2c3d4e-perf-mark-two", "6c3d4e5f-perf-mark-three", "7d4e5f60-perf-mark-four"].map((s) => agentAs(baseURL!, s, process.pid)),
+  )
+  for (let i = 0; i < 40; i++) {
+    await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title: `${TITLES[i % TITLES.length]} (${i + 1})`, statusId: statuses.Todo!.id }))
+    const agent = agents[i % agents.length]!
+    await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: `${key}-${i + 1}` }))
+    await agent.run((c) => c["task.stage"]({ commandId: newCommandId(), key: `${key}-${i + 1}`, stage: "building" }))
+  }
+  await page.goto(`/${key}/issues`)
+  await expect(page.locator('[data-agent-mood="working"]')).toHaveCount(40)
+  await caption(page, "40 tasks with an agent building each: 40 marks spinning. Counting 180 frames, then again with reduced motion (nothing moving)")
+
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send("Performance.enable")
+  const metrics = async () => Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map((m) => [m.name, m.value]))
+
+  /** 180 animation frames: their timing, long tasks meanwhile, and the main thread's busy time from Chrome. */
+  const measure = async () => {
+    const before = await metrics()
+    const frames = await page.evaluate(
+      () =>
+        new Promise<{ gaps: number[]; longTasks: number; animations: number }>((resolve) => {
+          let longTasks = 0
+          const observer = new PerformanceObserver((list) => (longTasks += list.getEntries().length))
+          observer.observe({ type: "longtask" })
+          const times: number[] = []
+          const tick = (t: number) => {
+            times.push(t)
+            if (times.length <= 180) return void requestAnimationFrame(tick)
+            observer.disconnect()
+            const running = document.getAnimations().filter((a) => a.playState === "running").length
+            resolve({ gaps: times.slice(1).map((x, i) => x - times[i]!), longTasks, animations: running })
+          }
+          requestAnimationFrame(tick)
+        }),
+    )
+    const after = await metrics()
+    const durationMs = frames.gaps.reduce((a, b) => a + b, 0)
+    const sorted = [...frames.gaps].sort((a, b) => a - b)
+    return {
+      animations: frames.animations,
+      averageFps: Math.round((frames.gaps.length / durationMs) * 1000 * 10) / 10,
+      p95FrameMs: Math.round(sorted[Math.floor(sorted.length * 0.95)]! * 10) / 10,
+      worstFrameMs: Math.round(sorted.at(-1)! * 10) / 10,
+      slowFrames: frames.gaps.filter((g) => g > 20).length,
+      longTasks: frames.longTasks,
+      // Main-thread time per frame, in ms: all of it, then style recalculation and layout.
+      taskMsPerFrame: Math.round(((after.TaskDuration! - before.TaskDuration!) * 1000 * 100) / frames.gaps.length) / 100,
+      styleMsPerFrame: Math.round(((after.RecalcStyleDuration! - before.RecalcStyleDuration!) * 1000 * 100) / frames.gaps.length) / 100,
+      layoutMsPerFrame: Math.round(((after.LayoutDuration! - before.LayoutDuration!) * 1000 * 100) / frames.gaps.length) / 100,
+    }
+  }
+
+  const spinning = await measure()
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  const still = await measure()
+  console.log(`[perf] agent marks spinning ${JSON.stringify(spinning)}`)
+  console.log(`[perf] agent marks still ${JSON.stringify(still)}`)
+  testInfo.annotations.push({ type: "perf", description: JSON.stringify({ spinning, still }) })
+  await caption(page, `Spinning: ${spinning.averageFps} fps, ${spinning.taskMsPerFrame} ms main thread a frame. Still: ${still.averageFps} fps, ${still.taskMsPerFrame} ms`)
+
+  // Two layers spin in each working mark: the body and the face.
+  expect(spinning.animations).toBe(80)
+  expect(still.animations).toBe(0)
+  expect(spinning.averageFps).toBeGreaterThanOrEqual(55)
+  expect(spinning.longTasks).toBe(0)
+  // The marks animate transform and opacity only, which the compositor runs: an animation of a layout
+  // property (width, top, margin…) would show up as layout every frame, and as much more style work.
+  expect(spinning.layoutMsPerFrame).toBeLessThanOrEqual(still.layoutMsPerFrame + 0.1)
+  // Chrome still updates the animated elements' styles each frame: 0.6–0.7 ms for 80 animations here.
+  expect(spinning.styleMsPerFrame).toBeLessThanOrEqual(still.styleMsPerFrame + 1.5)
+  for (const agent of agents) await agent.close()
 })

@@ -2,9 +2,9 @@
 // some claimed by agent sessions (two live, one whose process is gone) and one by Lucas.
 import { spawnSync } from "node:child_process"
 import type { LabelGroup } from "../packages/contract/src/entities.ts"
-import { newCommandId, openClient, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
+import { newCommandId, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
 import { AREA_GROUPS, KIND_COLORS } from "../scripts/apply-cel56-labels.ts"
-import { defaultWorkspace, seedProject, uniqueKey } from "./fixtures.ts"
+import { agentAs, defaultWorkspace, seedProject, uniqueKey } from "./fixtures.ts"
 
 /** CEL-56's labels with their colours and groups, and the milestones. */
 const LABELS: ReadonlyArray<{ name: string; color: string; group: LabelGroup }> = [
@@ -47,10 +47,6 @@ export const TASKS: ReadonlyArray<readonly [title: string, status: "Done" | "Tod
   ["Filter the board and list by label and more", "Todo", ["feature", "board", "list"]],
   ["Diagrams open in the zoomable image modal", "Todo", ["polish", "pages"]],
 ]
-
-/** An agent session over RPC, as the CLI would call: its session id, and its process's pid. */
-const agentAs = (baseURL: string, session: string, pid: number) =>
-  openClient(`${baseURL.replace(/^http/, "ws")}/rpc`, { "x-cello-session": session, "x-cello-client": "Claude Code", "x-cello-pid": String(pid) })
 
 /** The labels in the default workspace, in their groups: reused when another test made one (in any case). */
 async function seedGroupedLabels(cello: PromiseClient) {

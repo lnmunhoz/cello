@@ -241,6 +241,13 @@ export const test = base.extend<{ cello: PromiseClient }>({
 
 export { expect }
 
+/**
+ * An agent session over RPC, as the CLI calls: its session id and its process's pid (x-cello-pid, so
+ * the server can tell whether the process is alive; an exited pid makes a session that ends).
+ */
+export const agentAs = (baseURL: string, session: string, pid: number) =>
+  openClient(`${baseURL.replace(/^http/, "ws")}/rpc`, { "x-cello-session": session, "x-cello-client": "Claude Code", "x-cello-pid": String(pid) })
+
 export const column = (page: Page, name: string) => page.locator(`section[data-column="${name}"]`)
 export const card = (page: Page, key: string) => page.locator(`[data-task-key="${key}"]`)
 

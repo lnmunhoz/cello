@@ -5,8 +5,11 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { type AgentSession, agentKey, type SessionAgent, type Task } from "@cello/contract/entities"
 import { type StageInfo, stageInfo } from "@cello/contract/stages"
+import { isNeedsInputStatus } from "@cello/shared/ask"
 import { colorFromSeed } from "@cello/shared/color"
 import { agoShort, type Presence, presenceOf, type SessionLike } from "@cello/shared/presence"
+import { isReviewStatus } from "@cello/shared/review"
+import type { AgentMood } from "../components/ui/AgentMark.tsx"
 import { formatDay } from "../lib/format.ts"
 
 /** A person, an agent session, or a session's subagent, as the board names it. */
@@ -196,3 +199,39 @@ export const workingSessions = (board: BoardState, workspaceId: string, now: num
 /** "Agents working N": each active session, and each active subagent under it. */
 export const agentsWorkingCount = (working: ReadonlyArray<Working>): number =>
   working.reduce((n, w) => n + (w.presence === "active" ? 1 : 0) + w.agents.filter((a) => a.presence === "active").length, 0)
+
+/**
+ * What the agent mark on a card shows (CEL-69). The task's status speaks first: waiting on Lucas in
+ * Needs input, done once it's In Review or Done. Otherwise the session holding it: still while it's
+ * quiet or has ended (nothing loops on an idle board), working while it builds or fixes findings,
+ * thinking with no stage yet or in Agent review, happy and still once merged.
+ */
+export const agentMood = (
+  stage: string | null,
+  status: { readonly name: string; readonly category: string } | undefined,
+  presence: Presence,
+): AgentMood => {
+  if (status === undefined || status.category === "canceled") return "still"
+  if (isNeedsInputStatus(status)) return "waiting"
+  if (isReviewStatus(status.name) || status.category === "completed") return "done"
+  if (presence !== "active") return "still"
+  if (stage === "building" || stage === "fixing") return "working"
+  if (stage === "merged") return "merged"
+  return "thinking"
+}
+
+/** A card's mark as it was drawn: its mood and the task's status. */
+export interface MarkSeen {
+  readonly mood: AgentMood
+  readonly statusId: string
+}
+
+/**
+ * What plays once when a card changes while it's on screen: Done when the task moves into In Review or
+ * Done (In Review to Done included), the Needs input hop when it starts waiting; else nothing.
+ */
+export const markEntry = (before: MarkSeen, now: MarkSeen): "done" | "waiting" | null => {
+  if (now.mood === "done" && (before.mood !== "done" || before.statusId !== now.statusId)) return "done"
+  if (now.mood === "waiting" && before.mood !== "waiting") return "waiting"
+  return null
+}
