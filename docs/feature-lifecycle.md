@@ -64,7 +64,9 @@ The task's description holds what Lucas said, why, and what "done" looks like.
 
 ## ③ UI scope, for anything he'll see
 
-For a visible change, the first step is a scope, not code: where it shows up and what it looks like, built as **real screens in the app** (rough sketches are labelled as mocks). It's published as a page and opened in Cello's side panel. Building starts only after Lucas approves it.
+For a visible change, the first step is a scope, not code: where it shows up and what it looks like, built as **real screens in the app** (rough sketches are labelled as mocks). It's published as a page and opened in Cello's side panel, and the decisions go on the card. Building starts only after Lucas approves it.
+
+Making the scope is work on the task, so the task is claimed (In Progress) while the scope is built. **Once the scope is published and the questions are on the card, the task goes back to Todo** until Lucas picks: In Progress only ever means someone is working on it right now.
 
 ## ④ Claim, and ⑤ Build
 

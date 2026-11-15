@@ -47,6 +47,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    - Before your first \`cello\` command in a session, run \`cello guide\` once: it's the full reference (concepts, workflow, every command, what each error means). Don't guess.
    - Run \`cello context\` at the start of each session.
    - Claim a task before working on it (\`cello task claim KEY-n\`), and put the key in commit messages (\`fix(api): rate limit (KEY-12)\`).
+   - In Progress means someone is on it right now. When you stop, or wait on Lucas's decision, put the questions or the state on the card and move it back to Todo.
    - Hand finished work to Lucas only with \`cello task submit\`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
    - Answer Lucas on the card with \`cello task comment\`. His comments come to your session by themselves.
    \`\`\`
@@ -132,7 +133,11 @@ Run it first in every session, and again when you come back to a task.
    - if the task is In Review, move it back with \`cello task move CEL-12 "In Progress"\`, so the board shows it's being worked on again.
 
    Then fix, and submit a new packet (it replaces the open one). The same goes for feedback on a task in Done: comment it, and move it back to In Progress, or open a new task if it's a new request.
-7. **If you stop without finishing,** \`cello task release CEL-12\`. The task keeps its status, and someone else can claim it.
+7. **In Progress means someone is working on it right now.** When work stops before you submit, don't leave the card there: the board would show it as being built when nobody is on it.
+   - **Waiting on Lucas** (a scope's options, a design choice, any decision that's his): put the questions on the card, move it back with \`cello task move CEL-12 Todo\`, and release it. Claim it again when he answers.
+   - **Stopping or pausing:** comment where it stands, move it back to Todo, and \`cello task release CEL-12\`.
+   - A **scope** is part of its task. Claim the task to make the scope; once the scope is published and the questions are on the card, the task goes back to Todo until he picks.
+   - \`cello task release\` alone keeps the status, so only use it on its own when another session takes over the work straight away.
 
 Never move a task to Done or Canceled yourself: Lucas decides.
 
