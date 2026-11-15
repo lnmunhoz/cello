@@ -1,6 +1,7 @@
 // Pure reducer from events to client state. Shared by the web app and any other client.
 import type { Actor, AgentSession, DocumentSummary, Label, Project, Review, Snapshot, Status, Task, Workspace } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
+import { colorFromSeed } from "@cello/shared/color"
 
 type ById<T> = Readonly<Record<string, T>>
 
@@ -116,6 +117,17 @@ const apply = (d: Draft, e: CelloEvent) => {
     case "task.stage_changed":
       return d.update("tasks", e.id, (t) => ({ ...t, stage: e.after, version: e.version, updatedAt: e.ts }))
     case "session.seen":
+      // An agent that appeared after the snapshot: known by its client's name until a reload brings the actor.
+      if (!(e.session.actorId in d.get("actors"))) {
+        d.set("actors", e.session.actorId, {
+          id: e.session.actorId,
+          kind: "agent",
+          name: e.session.clientName,
+          client: e.session.clientName,
+          color: colorFromSeed(e.session.externalId ?? e.session.id),
+          createdAt: e.ts,
+        })
+      }
       return d.set("sessions", e.session.id, e.session)
     case "comment.added":
     case "comment.edited":

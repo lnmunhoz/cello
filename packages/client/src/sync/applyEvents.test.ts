@@ -201,4 +201,13 @@ describe("applyEvents: stage, last change and presence (CEL-5, CEL-35)", () => {
     expect(next.sessions["s1"]?.lastSeenAt).toBe(11)
     expect(next.tasks).toBe(state.tasks)
   })
+
+  it("a session whose agent the board doesn't know yet brings it in, named after its client, so history can name it", () => {
+    const session = {
+      id: "s9", actorId: "codex", externalId: "9f9f9f9f-1", clientName: "Codex", entrypoint: null, cwd: null, pid: null,
+      startedAt: 1, lastSeenAt: 5, endedAt: null,
+    }
+    const next = applyEvents(fromSnapshot(snapshot([])), [agent(11, { type: "session.seen", session })])
+    expect(next.actors["codex"]).toMatchObject({ id: "codex", kind: "agent", name: "Codex", client: "Codex" })
+  })
 })
