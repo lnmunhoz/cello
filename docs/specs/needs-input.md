@@ -34,7 +34,7 @@ Task: CEL-47. Related: CEL-15 (inbox and hooks), CEL-22 and CEL-38 (the Review p
 
 **Non-goals (for now)**
 
-- Annotating screenshots (drawing on them). A later step; the free-text answer covers it for now.
+- Annotating screenshots (drawing on them). A later step. Lucas can already paste or drop his own screenshots into an answer (below).
 - Asking anyone other than Lucas: one human per board.
 - Questions that aren't about a task. Every ask belongs to a task (a scope task, if need be).
 - Replacing review packets. A packet says "it's done, check it"; an ask says "I need you to decide before I continue".
@@ -47,9 +47,9 @@ Task: CEL-47. Related: CEL-15 (inbox and hooks), CEL-22 and CEL-38 (the Review p
   - **choose any** (checkboxes)
   - **text only**: no options, just Lucas's words
 
-  Every question also has an optional comment box, so Lucas can say why, or what he'd change.
+  Every question also has an optional comment box, so Lucas can say why, or what he'd change. **He can paste or drop screenshots into any comment box and into the overall note** (⌘V from the clipboard, or drag files in), so he can show what he means.
 - **Option:** a label, an optional one-line description, an optional image (one of the ask's screenshots) and an optional **recommended** mark with the agent's reason.
-- **Answers:** for each question, the options picked and the comment, plus an overall note. Saved as one record when Lucas sends them.
+- **Answers:** for each question, the options picked, the comment and any screenshots Lucas pasted, plus an overall note (which can hold screenshots too). Saved as one record when Lucas sends them.
 
 ## Statuses and the board
 
@@ -78,7 +78,8 @@ flowchart TD
 - **Layout:** the same two-column packet layout as CEL-38. Questions on the left, evidence on the right, sticky. One column when narrow.
 - **An option with an image** shows it as a thumbnail; clicking opens the image modal (CEL-44).
 - **Recommended options** carry a small "Recommended" tag and the agent's reason under it. Nothing is pre-selected: Lucas picks.
-- **Drafts:** picks and comments are kept on this device until sent, so a reload or a closed panel loses nothing.
+- **Pasting screenshots:** ⌘V in a comment box or the note uploads the image and shows it as a thumbnail under the text (opens in the image modal; × removes it). Dragging image files in works the same. Images only (PNG, JPEG, GIF, WebP), up to 20 MB each.
+- **Drafts:** picks, comments and pasted screenshots are kept until sent (the images upload right away and stay attached to the draft), so a reload or a closed panel loses nothing.
 - **Keyboard:** 1-9 picks an option in the focused question, Tab moves between questions, ⌘Enter sends.
 - **Sending is final** for that ask. To change his mind, Lucas comments on the card (which also reaches the agent), or the agent asks again.
 
@@ -100,13 +101,14 @@ cello task ask CEL-43 --title "Search layout" \
 
 - `--file` takes JSON (or YAML) with the title, intro, questions and evidence: the format is in docs/cli.md. Inline flags cover the one-question case.
 - **`--wait`** blocks until Lucas sends the answers (or the ask is withdrawn), then prints them and exits 0. An agent runs it in the background, so the session wakes when the answer arrives. Without `--wait`, the answers arrive through the hooks (CEL-15) like a comment.
-- `cello task answers CEL-n` prints the latest answers again, as text or `--json`.
+- `cello task answers CEL-n` prints the latest answers again, as text or `--json`. **Screenshots Lucas pasted** are saved to a temp folder and their paths printed next to the comment they belong to, so the agent can look at them (agents never read `~/.cello` directly). `--wait` and the hook delivery print the same paths.
 - `cello wait CEL-n` waits on an existing open ask (after a restart, say).
 - **Rules for agents** (AGENTS.md and docs/cli.md): ask on the card, never in the terminal, when a decision is Lucas's; one ask per task at a time; scopes always attach their screenshots and page; a recommended option always says why.
 
 ## Data and API
 
-- **Table `asks`:** id, task_id, actor_id, session_id, title, intro (markdown), questions (JSON), state, created_at, answered_at, answers (JSON), note, withdrawn_at, withdrawn_by. Evidence reuses the attachments store (CEL-10), linked to the ask.
+- **Table `asks`:** id, task_id, actor_id, session_id, title, intro (markdown), questions (JSON), state, created_at, answered_at, answers (JSON), note, withdrawn_at, withdrawn_by. Evidence, and the screenshots Lucas pastes into his answers, reuse the attachments store (CEL-10), linked to the ask (and, for Lucas's, to the question they answer).
+- **Upload:** `attachment.upload` (human only) takes an image pasted in the browser and returns its id; answers reference those ids. Unreferenced uploads from abandoned drafts are cleaned up after a day.
 - **Events:** `ask.created`, `ask.answered`, `ask.withdrawn`, in the same transaction as the task's status change. Every change is an event.
 - **RPCs:** `ask.create` (agent; moves the task), `ask.answer` (human only, like approve), `ask.withdraw`, `ask.get`. Thin handlers over an `AskService`.
 - **Inbox (CEL-15):** a new item kind, `answers`, delivered once to the asking session, formatted as the questions with the picked options and comments.
