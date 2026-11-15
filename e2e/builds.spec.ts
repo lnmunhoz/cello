@@ -53,6 +53,7 @@ test("CEL-50: after deploying A then B, the footer's popover opens the Builds pa
   await footer.click()
   const seeAll = page.getByRole("link", { name: "See all builds →" })
   await expect(seeAll).toBeVisible()
+  await still(page, "builds-footer-popover")
   await seeAll.click()
 
   await caption(page, "The Builds page: newest first, grouped by day, the running build marked and open")
@@ -89,6 +90,8 @@ test("CEL-50: after deploying A then B, the footer's popover opens the Builds pa
   await page.goto(`http://127.0.0.1:${port}/settings`)
   const section = page.getByRole("region", { name: "Builds" })
   await expect(section).toContainText("build bbbbbbb")
+  await section.scrollIntoViewIfNeeded()
+  await still(page, "builds-settings-section")
   await section.getByRole("link", { name: "See all builds →" }).click()
   await expect(page).toHaveURL(/\/builds$/)
   await expect(page.locator("[data-build-row]")).toHaveCount(2)
