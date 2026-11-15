@@ -9,6 +9,7 @@ import type { Actor, AgentSession, DocumentKind, Priority, ProjectRef, Review, S
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
 import { pagePath } from "@cello/shared/document"
+import { formatBytes } from "@cello/shared/bytes"
 import { APP_VERSION } from "@cello/shared/version"
 import * as Console from "effect/Console"
 import * as Context from "effect/Context"
@@ -21,7 +22,7 @@ import * as Flag from "effect/cli/Flag"
 import { CliEnv, dataDirOf, portOf } from "./env.ts"
 import { CliFailure, explain } from "./errors.ts"
 import { evidenceFromArgs } from "./evidence.ts"
-import { ago, bytes, columns, localTime, sessionName } from "./format.ts"
+import { ago, columns, localTime, sessionName } from "./format.ts"
 import { GUIDE } from "./guide.ts"
 import { type Env, IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
 import { pageFiles } from "./pageFiles.ts"
@@ -588,11 +589,11 @@ const doc = Command.make("doc").pipe(
 
 const backupLines = (backup: Backup) => [
   `Backed up to ${backup.path}`,
-  `  database  ${bytes(backup.dbBytes)}`,
+  `  database  ${formatBytes(backup.dbBytes)}`,
   backup.assets.files === 0
     ? "  assets    none yet"
-    : `  assets    ${plural(backup.assets.files, "file")}, ${bytes(backup.assets.bytes)}: ${backup.assets.linked} linked to the previous backup, ` +
-      `${backup.assets.copied} copied (${bytes(backup.assets.copiedBytes)} new)`,
+    : `  assets    ${plural(backup.assets.files, "file")}, ${formatBytes(backup.assets.bytes)}: ${backup.assets.linked} linked to the previous backup, ` +
+      `${backup.assets.copied} copied (${formatBytes(backup.assets.copiedBytes)} new)`,
 ]
 
 const backupJson = Flag.Boolean("json").pipe(Flag.withDefault(false), Flag.withDescription("Print the backup as JSON (id, path, sizes, file counts) for scripts."))
@@ -643,7 +644,7 @@ const backupList = Command.make("list", {
       b.id,
       localTime(b.createdAt),
       b.kind,
-      bytes(b.dbBytes + b.assets.bytes),
+      formatBytes(b.dbBytes + b.assets.bytes),
       plural(b.assets.files, "file"),
       ...(noted ? [b.note ?? ""] : []),
     ])).join("\n"))
@@ -675,8 +676,8 @@ const restoreCommand = Command.make("restore", {
     const { backup, safety, assets } = restored
     yield* print([
       `Restored backup ${backup.id} (${backup.kind}, taken ${localTime(backup.createdAt)})`,
-      `  database  ${bytes(backup.dbBytes)}, schema level ${backup.schemaLevel}`,
-      `  assets    ${plural(assets.files, "file")}, ${bytes(assets.bytes)}`,
+      `  database  ${formatBytes(backup.dbBytes)}, schema level ${backup.schemaLevel}`,
+      `  assets    ${plural(assets.files, "file")}, ${formatBytes(assets.bytes)}`,
       ...(assets.files < assets.expected
         ? [`  warning   the backup's manifest lists ${assets.expected} evidence files but only ${assets.files} were there to restore ` +
           "(was its assets/ folder changed by hand?); reviews and pages may show missing files."]
