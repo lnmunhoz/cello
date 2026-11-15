@@ -11,7 +11,7 @@ describe("agentsSection", () => {
   it("is the snippet between docs/cli.md's agents-md markers, unindented, without its fence, with KEY replaced", () => {
     const section = agentsSection(GUIDE, "THAI")
     expect(section.startsWith(`${AGENTS_HEADING}\n\nThis repo's tasks live in Cello, project **THAI** on Lucas's board.`)).toBe(true)
-    expect(section).toContain("`cello task create \"<title>\"` with his words quoted in the description, then `cello task claim THAI-n`")
+    expect(section).toContain("`cello task claim THAI-n`, then do it.")
     expect(section).toContain("(THAI-12)")
     expect(section).not.toMatch(/\bKEY\b/)
     expect(section).not.toContain("```")
