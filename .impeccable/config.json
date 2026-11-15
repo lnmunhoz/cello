@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "apps/web/src/components/ui/Markdown.tsx"
+        ],
+        "createdAt": "2026-11-15T12:44:54.088Z",
+        "reason": "Claude: the only side border here is the markdown blockquote's 2px neutral border-line (standard quote styling, not a colored accent card)"
+      }
+    ]
+  }
+}
