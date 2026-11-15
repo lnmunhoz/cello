@@ -60,7 +60,7 @@ async function screenshotZoomedDiagram(browser: Browser, key: string, colorSchem
   const context = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height: 900 }, colorScheme })
   const page = await context.newPage()
   await page.goto(`/${key}/pages/diagram-check`)
-  await page.getByRole("button", { name: "Diagram: Click a diagram" }).click()
+  await page.getByRole("button", { name: "Open Diagram: Click a diagram" }).click()
   const modal = modalOf(page)
   await expect(sheetOf(modal).locator("svg")).toBeVisible()
   await expect(sheetOf(modal)).toHaveAttribute("data-theme", colorScheme)
@@ -87,7 +87,7 @@ test("CEL-48: a diagram in a page opens in the image modal: crisp vector in the 
   const article = page.getByRole("article")
 
   await caption(page, "The diagram is a button named by its first label; the broken one only says it didn't render")
-  const diagram = article.getByRole("button", { name: "Diagram: Click a diagram" })
+  const diagram = article.getByRole("button", { name: "Open Diagram: Click a diagram" })
   await expect(diagram.locator("svg")).toBeVisible()
   const broken = article.locator("figure[data-mermaid]").filter({ hasText: "didn’t render" })
   await expect(broken).toBeVisible()

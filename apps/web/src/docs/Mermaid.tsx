@@ -103,13 +103,13 @@ export function Mermaid({ source }: { source: string }) {
         // Click or Enter: the image modal, fitted, with the page's or packet's other images and diagrams.
         <button
           type="button"
-          aria-label={rendered.title}
+          aria-label={`Open ${rendered.title}`}
           title="Open the diagram large"
           {...zoomable({ kind: "diagram", source, title: rendered.title })}
           onClick={(e) => openGallery(e.currentTarget)}
           className="block w-full cursor-zoom-in rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <div dangerouslySetInnerHTML={{ __html: rendered.svg }} />
+          <span className="block" dangerouslySetInnerHTML={{ __html: rendered.svg }} />
         </button>
       ) : null}
       {rendered !== null && "error" in rendered ? (
