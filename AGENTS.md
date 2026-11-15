@@ -87,7 +87,7 @@ bun run docs:cli             # rewrite docs/cli.md's command reference and `cell
 ```
 
 - The Docker runs (`scripts/test-in-docker.ts`) need OrbStack running. They test the worktree they're run from: it's mounted read-only and copied into the container, which installs with a cached Bun store and has its own network, so the tests' default ports never meet the Mac's.
-- Each run gets `test-results/docker/<time>-<label>-<pid>/`, and `test-results/docker/latest` points at the newest; two runs at once don't clash, and the last five of each mode (or `CELLO_TEST_LABEL`) are kept. `CELLO_E2E_SLOWMO=400` is passed in for review videos; `TEST_CPUS` and `TEST_MEMORY` change the 4 CPU and 6 GB caps.
+- Each run gets `test-results/docker/<time>-<label>-<pid>/`, and `test-results/docker/latest` points at the newest; two runs at once don't clash, and the last five of each mode (or `CELLO_TEST_LABEL`) are kept. `CELLO_E2E_REVIEW=1` records review videos (slow motion, each step held; see `docs/evidence-videos.md`) and is passed in, as is `CELLO_E2E_SLOWMO`; `TEST_CPUS` and `TEST_MEMORY` change the 4 CPU and 6 GB caps.
 - The image (`docker/test.Dockerfile`: Playwright's image for the pinned `@playwright/test`, Bun, ffmpeg) builds on the first run and again only when the Dockerfile or those versions change.
 
 Versions are pinned: Bun 1.4.4, Effect 4.1.4 (every `effect` and `@effect/*` package on the same version).

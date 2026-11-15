@@ -48,16 +48,29 @@ test-results/docker/latest/
 - **Setup per run:** Playwright starts a real Cello server (`apps/server`) with a temporary data folder, plus `vite preview` serving the built web app. Each run uses its own ports (`CELLO_E2E_SERVER_PORT`, `CELLO_WEB_PORT`), so it never touches your board on 4747.
 - **Recording:** every test is recorded (`video: { mode: "on", size: 1440×900 }`), as a WebM per browser tab.
 - **What makes it readable:** `e2e/fixtures.ts` injects a small overlay into every page:
-  - a dot that follows the mouse (headless browsers draw no cursor)
-  - a ripple on every click
-  - a caption box at the bottom; tests call `caption(page, "Open it")` before each step
-- **Slow motion for review videos:** `CELLO_E2E_SLOWMO=400` slows every browser action by 400 ms, so each step is visible. Tests never depend on it; it's only for recording.
+  - a dot that follows the mouse (headless browsers draw no cursor), also over iframes such as the viewer's framed pages
+  - a ripple on every click, inside iframes too
+  - a caption box at the bottom; tests call `caption(page, "Open it")` before each step. It stays through a reload.
+  - `captionWithUrl(page, "Reload: the panel stays open")` adds the page's URL under the caption, kept up to date as the app navigates
+- **Size:** a test that shrinks the viewport (a phone width, a short window) gets its MP4 cropped to the page in teardown, so there's no grey padding around it. A test that changes size midway keeps the largest size it used.
 - **After the run:** `e2e/teardown.ts` converts each WebM to MP4 with ffmpeg (`-c:v libx264 -pix_fmt yuv420p -movflags +faststart -an`) into `e2e/videos/`, and deletes the temporary data folder.
 
+### Review videos: `CELLO_E2E_REVIEW=1`
+
+At normal speed each state is on screen for a fraction of a second, too fast to follow. Record the videos you attach in review mode:
+
 ```bash
-CELLO_E2E_SLOWMO=400 bun run test:docker:e2e -- e2e/review.spec.ts
+CELLO_E2E_REVIEW=1 bun run test:docker:e2e -- e2e/board.spec.ts
 # → test-results/docker/latest/web/videos/<test name>.mp4
 ```
+
+- It slows every browser action by 400 ms (`CELLO_E2E_SLOWMO` still sets it alone when given) and holds each state about 1.5 s: the previous step's result before a new caption, the new caption before its step, the page before and after each `page.reload()`, and the final state.
+- It's a recording aid. Without it nothing waits, and the tests never rely on the holds, so the no-sleeps rule still holds for them.
+- What each step needs to read well in the video:
+  - **a caption** before it, saying what happens and what to look for ("Drag the card to Done: it moves in tab 2 too")
+  - **a hold**, which review mode adds after each caption; split a long step into captioned steps so each result gets its own
+  - **the URL** when the step is about it (`?open=` surviving a reload, a redirect): use `captionWithUrl`
+  - **a reload caption** of its own before `page.reload()` ("Reload: the width stays"), so the reloaded state is labelled
 
 - The container has its own network, so the default ports (server 4791, web 5199) are its own and never meet the Mac's.
 - These tests open no window, so `bun run test:e2e:local` can run them on the Mac too (headless Chromium, videos in `e2e/videos/`) when Docker isn't an option. Use free ports there: `CELLO_WEB_PORT=5491 CELLO_E2E_SERVER_PORT=4791`.
@@ -72,7 +85,7 @@ CELLO_E2E_SLOWMO=400 bun run test:docker:e2e -- e2e/review.spec.ts
   - `--no-sandbox`, because the container runs as root, which Chromium's sandbox refuses
   - `--force-device-scale-factor=2`, so screenshots are 2× like a Retina Mac's (2880 px wide)
   - `--hide-scrollbars`, as headless Chromium does, since Linux would draw classic scrollbars in every frame
-- **Pace:** each step's result is held for 1.2 s, so these videos are watchable without `CELLO_E2E_SLOWMO` (which only slows the web tests).
+- **Pace:** each step's result is held for 1.2 s, so these videos are watchable as they are; `CELLO_E2E_REVIEW` and `CELLO_E2E_SLOWMO` only change the web tests.
 
 ```bash
 bun run test:docker:desktop
@@ -114,7 +127,7 @@ Checks that only macOS can do (the Dock icon, `cello://` through LaunchServices,
 ## Known limits
 
 - **Headless runs:** frame rates are measured in a headless browser, not on a real display.
-- **Short videos:** at full speed a test finishes in seconds; use `CELLO_E2E_SLOWMO` when recording for review.
+- **Short videos:** at full speed a test finishes in seconds; record the videos you attach with `CELLO_E2E_REVIEW=1`.
 - **First frame:** some posters show a white frame because recording starts while the page is still loading.
 - **Codecs:** Playwright's Chromium can't play H.264, so the one test that plays a video in the browser attaches a VP9 file; everything else is H.264.
 - **Backups:** evidence lives only in `~/.cello` on this Mac (CEL-23 adds automatic local backups).

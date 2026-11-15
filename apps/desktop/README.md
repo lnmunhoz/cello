@@ -35,8 +35,8 @@ bun run test:e2e   # Playwright's Electron tests, in Docker (same as test:docker
     pick the right one). In the container Electron gets `--no-sandbox` (it runs as root),
     `--force-device-scale-factor=2` (Retina-sharp screenshots) and `--hide-scrollbars`
     (`e2e/support.ts` says why).
-  - `CELLO_E2E_ONLINE=1` adds the claude.ai test, which needs the internet;
-    `CELLO_E2E_SLOWMO=400` slows the steps for review videos. Both are passed into the container.
+  - `CELLO_E2E_ONLINE=1` adds the claude.ai test, which needs the internet; it's passed into the
+    container. The recorder holds each step's result 1.2 s, so these videos need no slow motion.
 
 ## The server
 

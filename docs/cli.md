@@ -142,7 +142,7 @@ cello task submit CEL-22 \
   --step "Open the Review page" \
   --step "Press j twice, then Enter: the third packet opens and the first closes" \
   --step "Approve it: the next packet opens by itself" \
-  --attach e2e/videos/review-rows.mp4 --caption "Going through the queue with the keyboard" \
+  --attach test-results/docker/latest/web/videos/review-rows.mp4 --caption "Going through the queue with the keyboard" \
   --attach shots/review-dark.png --caption "Dark mode" \
   --link http://127.0.0.1:4747/CEL/pages/review-rows --caption "The report"
 ```
