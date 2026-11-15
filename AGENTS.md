@@ -27,6 +27,7 @@ Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port
 - put the task key in commit messages (`feat(cli): task claim (CEL-3)`)
 - hand finished work to Lucas **only with `cello task submit`**: a review packet (summary, how-to-check steps, evidence) that moves the task to **In Review**. `cello task move CEL-n "In Review"` is refused. Lucas approves it (Done) or sends it back with a note, on the Review page.
   - UI work: MP4 video(s) of the flow (the e2e videos) and screenshots, light and dark when it matters
+  - how videos and screenshots are made (tools, overlay, slow motion, ffmpeg, submit): `docs/evidence-videos.md`, also in Cello's Docs tab
   - CLI or server work: a terminal recording or a test-output file, plus steps he can run
   - a report you published as a page: `--link <page url>`
   - `cello guide` has the full command
