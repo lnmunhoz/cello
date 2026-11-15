@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildKey, buildLine, buildParts, liveSince, reloadAction, sameBuild, shortCommit, type BuildStamp } from "./build.ts"
+import { buildDay, buildKey, buildLine, buildParts, byDay, liveFor, liveSince, reloadAction, sameBuild, shortCommit, type BuildStamp } from "./build.ts"
 
 const A: BuildStamp = { version: "0.2.0", commit: "c602f25", builtAt: 1_000 }
 const B: BuildStamp = { version: "0.2.0", commit: "9afd602", builtAt: 2_000 }
@@ -71,5 +71,37 @@ describe("the running build as one line", () => {
   it("says dev for a build without a commit (outside a git checkout)", () => {
     expect(shortCommit(null)).toBe("dev")
     expect(shortCommit("9afd6021234")).toBe("9afd602")
+  })
+})
+
+describe("the build history's words (CEL-50)", () => {
+  const at = (day: number, hours: number, minutes: number) => new Date(2026, 10, day, hours, minutes).getTime()
+  const MIN = 60_000
+
+  it("says how long a build was live, in the two largest units", () => {
+    expect(liveFor(20_000)).toBe("under a minute")
+    expect(liveFor(45 * MIN)).toBe("45 min")
+    expect(liveFor(60 * MIN)).toBe("1 h")
+    expect(liveFor(200 * MIN)).toBe("3 h 20 min")
+    expect(liveFor((2 * 24 * 60 + 4 * 60 + 7) * MIN)).toBe("2 d 4 h")
+    expect(liveFor(-5)).toBe("under a minute")
+  })
+
+  it("names a build's day: Today, Yesterday, else the date (with the year when it isn't this one)", () => {
+    const now = at(15, 21, 0)
+    expect(buildDay(at(15, 0, 5), now)).toBe("Today")
+    expect(buildDay(at(14, 23, 59), now)).toBe("Yesterday")
+    expect(buildDay(at(3, 9, 0), now)).toBe("Tuesday, Nov 3")
+    expect(buildDay(new Date(2025, 11, 31, 12).getTime(), now)).toBe("Wednesday, Dec 31, 2025")
+  })
+
+  it("groups builds, newest first, by the day each went live, keeping their order", () => {
+    const now = at(15, 21, 0)
+    const builds = [{ n: 4, startedAt: at(15, 18, 0) }, { n: 3, startedAt: at(15, 9, 0) }, { n: 2, startedAt: at(13, 22, 0) }, { n: 1, startedAt: at(13, 8, 0) }]
+    expect(byDay(builds, now).map((g) => [g.day, g.builds.map((b) => b.n)])).toEqual([
+      ["Today", [4, 3]],
+      ["Friday, Nov 13", [2, 1]],
+    ])
+    expect(byDay([], now)).toEqual([])
   })
 })

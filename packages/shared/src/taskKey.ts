@@ -3,6 +3,29 @@ const TASK_KEY = /^([A-Z][A-Z0-9]{1,9})-([1-9][0-9]*)$/
 
 export const isValidProjectKey = (key: string): boolean => PROJECT_KEY.test(key)
 
+/**
+ * Words the board uses at the top of its address space, which a project key would collide with: a
+ * project's pages are `/<KEY>/…`, and the router matches without case, so a project keyed BUILDS would be
+ * hidden behind the Builds page. The board's top-level routes (apps/web/src/app/router.tsx) and the
+ * server's own paths. Add a word here with every new top-level route.
+ */
+const RESERVED_KEYS: Readonly<Record<string, string>> = {
+  BUILDS: "Builds page",
+  SETTINGS: "Settings page",
+  REVIEW: "Review page",
+  ASSETS: "app files",
+  ICONS: "app icons",
+  ATTACHMENTS: "evidence files",
+  RPC: "server connection",
+}
+
+/** Why `key` can't be a project key ("can't be BUILDS, the address of…"), when a page of Cello's has that address; null when it can. */
+export const reservedKeyProblem = (key: string): string | null => {
+  const upper = key.toUpperCase()
+  const what = RESERVED_KEYS[upper]
+  return what === undefined ? null : `can't be ${upper}, the address of Cello's ${what} (/${upper.toLowerCase()})`
+}
+
 /** First letters of each word for multi-word names, else the first four letters (min 3). */
 export const suggestProjectKey = (name: string): string => {
   const words = name.toUpperCase().replace(/[^A-Z0-9 ]/g, " ").split(/\s+/).filter(Boolean)
@@ -20,11 +43,12 @@ export const freeProjectKey = (name: string, taken: (key: string) => boolean): s
   const base = suggestProjectKey(name)
   const letters = name.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^[0-9]+/, "")
   const longer = [...Array(11).keys()].filter((n) => n > base.length).map((n) => letters.slice(0, n))
-  const free = [base, ...longer].find((key) => isValidProjectKey(key) && !taken(key))
+  const usable = (key: string) => !taken(key) && reservedKeyProblem(key) === null
+  const free = [base, ...longer].find((key) => isValidProjectKey(key) && usable(key))
   if (free) return free
   for (let n = 2; ; n++) {
     const key = `${base.slice(0, 10 - String(n).length)}${n}`
-    if (!taken(key)) return key
+    if (usable(key)) return key
   }
 }
 

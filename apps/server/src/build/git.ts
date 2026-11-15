@@ -27,12 +27,19 @@ export const buildCommit = (env: Readonly<Record<string, string | undefined>>, d
   return isCommit(given) ? given : commitOf(dir)
 }
 
-/** First-parent commit subjects in `from..to`, newest first, at most `limit`; empty when git can't tell. */
-export const subjectsBetween = (dir: string, from: string, to: string, limit = 50): ReadonlyArray<string> => {
-  if (!isCommit(from) || !isCommit(to)) return []
+/**
+ * First-parent commit subjects in `from..to`, newest first, at most `limit`; null when git can't tell (no
+ * checkout at `dir`, a commit it doesn't have), which is not the same as nothing in between (empty).
+ */
+export const commitsBetween = (dir: string, from: string, to: string, limit = 50): ReadonlyArray<string> | null => {
+  if (!isCommit(from) || !isCommit(to)) return null
   const out = git(dir, ["log", "--first-parent", `--max-count=${limit}`, "--format=%s", "--end-of-options", `${from}..${to}`])
-  return out ? out.split("\n").filter((line) => line !== "") : []
+  return out === null ? null : out.split("\n").filter((line) => line !== "")
 }
+
+/** `commitsBetween`, empty when git can't tell. */
+export const subjectsBetween = (dir: string, from: string, to: string, limit = 50): ReadonlyArray<string> =>
+  commitsBetween(dir, from, to, limit) ?? []
 
 /**
  * The stamp for a web build made now in checkout `dir`. Its changes are what happened since `previous`,

@@ -347,6 +347,25 @@ git merge-base --is-ancestor <merge commit> c602f25 && echo "it's in"
 - After a new build is started, open tabs and the desktop app notice it the next time they reconnect: they show "Cello was updated · Reload" and reload by themselves after a few seconds, unless Lucas is typing.
 - \`build dev\` means the commit is unknown: a build made outside a git checkout without \`CELLO_BUILD_COMMIT\`.
 
+### Every build so far
+
+The server records each build the first time it starts on it, so the board keeps a history of every deploy. \`cello builds\` lists it, newest first; Lucas sees the same on the **Builds** page (Settings → Builds, or "See all builds →" in the footer's popover).
+
+\`\`\`bash
+cello builds
+# #14  build 9afd602  Cello 0.2.0  live since 2026-11-15 18:19, for 2 h 41 min  running
+#     merge: needs input on a task (CEL-47)
+#     merge: build history, one click from the footer (CEL-50)
+# #13  build c602f25  Cello 0.2.0  live since 2026-11-15 12:02, for 6 h 17 min
+#     merge: the task panel's layout (CEL-49)
+\`\`\`
+
+- Each build has a number (#1 is the first one this data folder recorded), its commit, when it went live and how long it was live (until the next build went live). \`running\` marks the one the server runs now.
+- Under each build are the commits merged since the build before it: the first-parent subjects, so merges, which name their tasks. Use it to answer "is CEL-47 deployed yet?" or "what did the last deploy bring in?".
+- Restarting the same build adds nothing; a rebuild at the same commit is a new build with no changes.
+- The changes come from git when the server can read the checkout it was built from; otherwise from the list the web build carries (what changed since the build before it in the same folder).
+- A dev server (Vite serving the app) records no builds. \`--limit\` and \`--before\` page through a long history; \`--json\` gives \`builds\`, \`running\` and \`next\`.
+
 ## Identity and environment
 
 | Variable | What it does |
@@ -379,6 +398,7 @@ Every error is one sentence that says what to do next. The usual ones:
 | This folder isn't in a git repository | The CLI can't work out the project. | Pass \`--project KEY\`. |
 | No project is linked to /path | This repository isn't a Cello project yet. | Set it up: \`cello init\` (see Set up a repo for Cello), or pass \`--project KEY\`. |
 | The key THAI is taken by ThaiLookup | \`cello init --key\` named a key another project has. | Pick another key, or leave \`--key\` out and Cello picks a free one. |
+| --key builds won't do: a key can't be BUILDS, the address of Cello's Builds page | The key is a word the board uses for its own pages (BUILDS, SETTINGS, REVIEW, ASSETS, ICONS, ATTACHMENTS, RPC), so the project's board would be hidden. | Pick another key, or leave \`--key\` out. |
 | … is already used by Old Cello (archived), so it can't be linked again | An archived project holds this repo's folder. | Ask Lucas. |
 | Several projects use this folder (A, B) | More than one project was linked to this repo. | Pass \`--project KEY\`, and tell Lucas. |
 | Project CEL is set up, but the next step failed: … | \`cello init\` made or found the project; \`--hooks\` or \`--agents-md\` then failed. | Fix what the message says, then run the same \`cello init\` again: it skips what's done. |
@@ -718,6 +738,20 @@ cello restore [flags] <id>
 | --- | --- |
 | \`id string\` | The backup to restore: its id from \`cello backup list\`, e.g. 20261115-120000. |
 | \`--json\` | Print what was restored, and the safety backup, as JSON. |
+
+### cello builds
+
+List the builds of Cello the server has run, newest first: each build's number, commit and version, when it went live and for how long (until the next build went live), which one is running now, and the commits merged since the build before it (merge subjects name their tasks). The server records a build the first time it starts on it; restarting the same build adds nothing. Use it to tell whether a merged task is deployed yet, or what a deploy brought in.
+
+\`\`\`
+cello builds [flags]
+\`\`\`
+
+| | |
+| --- | --- |
+| \`--limit integer\` | How many builds to list, newest first (1 to 200). |
+| \`--before integer\` | List the builds older than this build number: the number the previous list's "Older builds" line gives. |
+| \`--json\` | Print the page as JSON (builds, running, next) for scripts. |
 
 ### Flags every command takes
 

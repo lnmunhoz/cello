@@ -1,6 +1,8 @@
 import { placement, statusesOf } from "@cello/client/sync/selectors"
 import type { Label, Status } from "@cello/contract/entities"
+import { buildLine } from "@cello/shared/build"
 import { useAtomSet } from "@effect/atom-react"
+import { Link } from "@tanstack/react-router"
 import { ArrowDownIcon, ArrowUpIcon, ArchiveIcon, EyeIcon, EyeOffIcon } from "lucide-react"
 import { useState } from "react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
@@ -9,6 +11,7 @@ import { Button } from "../components/ui/Button.tsx"
 import { ColorPicker, PALETTE } from "../components/ui/ColorPicker.tsx"
 import { Input } from "../components/ui/Input.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
+import { runningBuild, useServerBuild } from "../lib/build.ts"
 import { commands } from "../lib/cello.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { SAVES_ON_BLUR } from "../lib/editing.ts"
@@ -43,6 +46,9 @@ export function Settings() {
           </Section>
           <Section title="Workspaces" description="A second workspace adds a switcher at the top of the sidebar.">
             <NewWorkspace />
+          </Section>
+          <Section title="Builds" description="Which build of Cello is running, and every build before it with what changed.">
+            <RunningBuild />
           </Section>
         </div>
       </div>
@@ -158,6 +164,20 @@ function NewLabel({ workspaceId }: { workspaceId: string }) {
       </div>
       <Button type="submit">Add label</Button>
     </form>
+  )
+}
+
+function RunningBuild() {
+  const build = useServerBuild()
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-line px-3 py-2.5 text-[13px]">
+      <span className="min-w-0 flex-1 truncate text-muted tabular-nums">
+        {build ? buildLine(runningBuild(build), Date.now()) : "Asking the server…"}
+      </span>
+      <Link to="/builds" className="shrink-0 font-medium text-ink hover:underline">
+        See all builds →
+      </Link>
+    </div>
   )
 }
 
