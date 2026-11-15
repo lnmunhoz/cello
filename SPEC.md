@@ -501,6 +501,10 @@ Docs, Specs and Pages share one table, one reader and **one Docs tab** with a ki
 - No comments on paragraphs yet. Comments go on the linked task.
 - Pages are local like the rest of Cello. Sharing a page with someone else means exporting the markdown.
 
+## Needs input: decisions on the card
+
+When an agent needs Lucas to decide something, it asks **on the card**, never in the terminal (Lucas, Nov 15). `cello task ask CEL-n` posts questions with options (one may be recommended, with a reason) and evidence (screenshots, videos, a scope page). The card moves to a **Needs input** column, counted in the sidebar and shown first on the Review page. Lucas answers next to the evidence; the answers reach the asking session through the inbox and hooks, the card returns to In Progress, and an agent waiting with `--wait` wakes up. Every question and answer stays in the task's history. Full spec: [docs/specs/needs-input.md](docs/specs/needs-input.md) (CEL-47).
+
 ## Linking commits
 
 1. **CLI**: the agent runs `cello task link THAI-12 <sha>`. The guide asks for this.
@@ -841,6 +845,7 @@ Proposed; Lucas to confirm.
 9. Test first. Unit tests sit next to the code in each domain module; integration tests in `test/integration/` run real pieces together; end-to-end tests in `e2e/` run the built binary with a real browser and record videos.
 10. Write a function once. Shared logic lives in one module (`packages/shared`, `packages/contract` or the owning service) with its own unit tests, and every caller uses it.
 11. v1 is M0 to M3 plus search and a basic list; everything else waits for two weeks of real use. Pages come first after v1. No two-way folder sync: `cello export` is the way out.
+12. Decisions that are Lucas's are asked on the card (`cello task ask`, the Needs input column) and answered in Cello, next to the evidence, never in the terminal. The answer reaches the agent the way a Send back does.
 
 ## Open questions for Lucas
 
