@@ -15,6 +15,7 @@ import { useStageLanes } from "../board/useStageLanes.ts"
 import { Button } from "../components/ui/Button.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { useOrdering } from "../issues/useOrdering.ts"
+import { type Filtered, useFiltered } from "../issues/useFilter.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { useTaskView } from "../task/TaskPanel.tsx"
 import { behindTask } from "../task/view.ts"
@@ -27,10 +28,11 @@ export function ListPage({ openNumber }: { openNumber?: number }) {
   const workspaceId = useWorkspaceId()
   const project = board ? projectByKey(board, projectKey) : undefined
   const { ordering } = useOrdering()
+  const filtered = useFiltered()
   if (!board || !workspaceId || !project) return <Centered>Loading…</Centered>
   return (
     <div className="flex min-h-0 flex-1">
-      <TaskList board={board} workspaceId={workspaceId} project={project} ordering={ordering} openNumber={openNumber} />
+      <TaskList board={board} workspaceId={workspaceId} project={project} ordering={ordering} openNumber={openNumber} filtered={filtered} />
     </div>
   )
 }
@@ -42,12 +44,15 @@ function TaskList({
   project,
   ordering,
   openNumber,
+  filtered,
 }: {
   board: BoardState
   workspaceId: string
   project: Project
   ordering: Ordering
   openNumber?: number
+  /** The filter (CEL-52): only the rows it keeps, and only the groups with one. */
+  filtered: Filtered
 }) {
   // Display → "Group In Progress by stage" (CEL-35): that group's own rows go lane by lane, with a stage
   // column; folded Needs input rows stay below them.
@@ -55,11 +60,14 @@ function TaskList({
   const needsInputColumn = useNeedsInputColumn()
   const all = listGroups(board, workspaceId, project.id, { needsInputColumn })
   const lanedId = lanesOn ? (stageStatus(all.map((g) => g.status))?.id ?? null) : null
-  const groups = all.map((g) => {
-    const tasks = orderTasks(g.tasks, ordering)
-    if (g.status.id !== lanedId) return { ...g, tasks }
+  const totals = Object.fromEntries(all.map((g) => [g.status.id, g.tasks]))
+  const groups = all.flatMap((g) => {
+    const tasks = orderTasks(filtered.keep(g.tasks), ordering)
+    // While filtering, a group with no match is left out.
+    if (filtered.active && tasks.length === 0) return []
+    if (g.status.id !== lanedId) return [{ ...g, tasks }]
     const own = tasks.filter((t) => t.statusId === g.status.id)
-    return { ...g, tasks: [...stageLanes(own).flatMap((lane) => lane.tasks), ...tasks.filter((t) => t.statusId !== g.status.id)] }
+    return [{ ...g, tasks: [...stageLanes(own).flatMap((lane) => lane.tasks), ...tasks.filter((t) => t.statusId !== g.status.id)] }]
   })
   const open = openNumber === undefined ? undefined : taskByKey(board, project.key, openNumber)
   // Groups you folded or unfolded; the rest follow the default in `isCollapsed`.
@@ -113,8 +121,13 @@ function TaskList({
                     <span className="truncate">{status.name}</span>
                   </button>
                 </h2>
-                <span className="text-[13px] tabular-nums text-muted" aria-label={`${tasks.length} tasks`}>
+                <span
+                  className="text-[13px] tabular-nums text-muted"
+                  aria-label={filtered.active ? `${tasks.length} of ${totals[status.id]?.length ?? 0} tasks` : `${tasks.length} tasks`}
+                  data-group-count
+                >
                   {tasks.length}
+                  {filtered.active ? <span className="text-faint"> / {totals[status.id]?.length ?? 0}</span> : null}
                 </span>
                 {status.hidden ? (
                   <span title="Hidden on the board" className="flex text-faint">
@@ -138,7 +151,7 @@ function TaskList({
             </header>
             {composing === status.id ? (
               <div className="py-1.5 pr-2 pl-8">
-                <InlineCreate project={project} status={status} tasks={tasks} onDone={() => setComposing(null)} />
+                <InlineCreate project={project} status={status} tasks={totals[status.id] ?? tasks} onDone={() => setComposing(null)} />
               </div>
             ) : null}
             {folded || tasks.length === 0 ? null : (

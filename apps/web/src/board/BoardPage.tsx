@@ -17,6 +17,7 @@ import { commands } from "../lib/cello.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { readStored, writeStored } from "../lib/storage.ts"
 import { useOrdering } from "../issues/useOrdering.ts"
+import { type Filtered, useFiltered } from "../issues/useFilter.ts"
 import { useTaskView } from "../task/TaskPanel.tsx"
 import { behindTask } from "../task/view.ts"
 import { CardBody } from "./Card.tsx"
@@ -29,7 +30,7 @@ import { laneDrop, laneHeadings, stageLanes } from "./lanes.ts"
 import { useStageLanes } from "./useStageLanes.ts"
 import { useNeedsInputColumn } from "./needsInputColumn.ts"
 import { Kanban, KanbanCard, KanbanColumn } from "./kanban.tsx"
-import { dropOf, findMove } from "./moves.ts"
+import { dropOf, findMove, indexAmong } from "./moves.ts"
 import { readUnfolded, unfoldedKey } from "./unfolded.ts"
 
 /** The lane key of folded Needs input cards in a column split by stage. */
@@ -49,10 +50,11 @@ export function BoardPage({ openNumber }: { openNumber?: number }) {
   const workspaceId = useWorkspaceId()
   const project = board ? projectByKey(board, projectKey) : undefined
   const { ordering } = useOrdering()
+  const filtered = useFiltered()
   if (!board || !workspaceId || !project) return <Centered>Loading…</Centered>
   return (
     <div className="flex min-h-0 flex-1">
-      <Board key={project.id} board={board} workspaceId={workspaceId} project={project} ordering={ordering} openNumber={openNumber} />
+      <Board key={project.id} board={board} workspaceId={workspaceId} project={project} ordering={ordering} openNumber={openNumber} filtered={filtered} />
     </div>
   )
 }
@@ -63,13 +65,17 @@ function Board({
   project,
   ordering,
   openNumber,
+  filtered,
 }: {
   board: BoardState
   workspaceId: string
   project: Project
   ordering: Ordering
   openNumber?: number
+  /** The filter (CEL-52): every column stays, showing only the cards it keeps. */
+  filtered: Filtered
 }) {
+  const { keep } = filtered
   const columns = boardColumns(board, workspaceId, project.id)
   // The hidden columns you unfolded, remembered on this device so a reload keeps them open.
   const [unfolded, setUnfoldedState] = useState<ReadonlyArray<string>>(() => readUnfolded(readStored(unfoldedKey(project.key))))
@@ -93,13 +99,15 @@ function Board({
   const folded = columns.hidden.filter((s) => !unfolded.includes(s.id) && s.id !== fold?.from)
   // Each column's cards as shown: in the ordering. `columns.tasks` stays in the drag order, which placements need.
   const ordered = Object.fromEntries(shown.map((s) => {
-    const own = orderTasks(columns.tasks[s.id] ?? [], ordering)
+    const own = orderTasks(keep(columns.tasks[s.id] ?? []), ordering)
     return [s.id, [
       // In the laned column (Display → Group In Progress by stage) its own cards go lane by lane (CEL-35).
       ...(s.id === lanedId ? stageLanes(own).flatMap((lane) => lane.tasks) : own),
-      ...(s.id === fold?.into ? orderTasks(columns.tasks[fold.from] ?? [], ordering) : []),
+      ...(s.id === fold?.into ? orderTasks(keep(columns.tasks[fold.from] ?? []), ordering) : []),
     ]]
   }))
+  // How many cards a column holds without the filter, for "2 / 8".
+  const totalOf = (id: string) => (columns.tasks[id]?.length ?? 0) + (id === fold?.into ? (columns.tasks[fold.from]?.length ?? 0) : 0)
   const lists = Object.fromEntries(shown.map((s) => [s.id, ordered[s.id]!.map((t) => t.id)]))
   const labels = Object.fromEntries(shown.map((s) => [s.id, s.name]))
 
@@ -117,9 +125,10 @@ function Board({
     const target = (columns.tasks[found.to] ?? []).filter((t) => t.id !== task.id)
     // In the laned column a card stays in its stage's lane: a drop among another lane snaps back.
     // Folded cards sit below In Progress's own, which are all the placement counts.
+    // The drop's index is among the cards shown; a filter (CEL-52) may hide some of the column's.
     const drop = found.to === lanedId
       ? laneDrop(found, next[found.to] ?? [], task.statusId, ordering, columns.tasks[found.to] ?? [])
-      : dropOf({ ...found, index: Math.min(found.index, target.length) }, task.statusId, ordering, target)
+      : dropOf({ ...found, index: indexAmong(next[found.to] ?? [], found, target) }, task.statusId, ordering, target)
     if (drop) move({ id: task.id, ...drop })
   }
 
@@ -154,8 +163,13 @@ function Board({
                       <h2 id={`col-${status.id}`} className="text-[13px] font-medium">
                         {status.name}
                       </h2>
-                      <span className="text-[13px] tabular-nums text-muted" aria-label={`${tasks.length} tasks`}>
+                      <span
+                        className="text-[13px] tabular-nums text-muted"
+                        aria-label={filtered.active ? `${tasks.length} of ${totalOf(status.id)} tasks` : `${tasks.length} tasks`}
+                        data-column-count
+                      >
                         {tasks.length}
+                        {filtered.active ? <span className="text-faint"> / {totalOf(status.id)}</span> : null}
                       </span>
                       <span className="ml-auto flex items-center">
                         {status.hidden ? (
@@ -254,7 +268,7 @@ function Board({
                 >
                   <StatusIcon category={s.category} color={s.color} />
                   <span className="flex-1 truncate">{s.name}</span>
-                  <span className="tabular-nums text-muted">{columns.tasks[s.id]?.length ?? 0}</span>
+                  <span className="tabular-nums text-muted">{keep(columns.tasks[s.id] ?? []).length}</span>
                 </button>
               ))}
             </aside>

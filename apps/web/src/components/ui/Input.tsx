@@ -1,5 +1,6 @@
 import { Input as BaseInput } from "@ui-sdk/react/input"
 import { Textarea as BaseTextarea } from "@ui-sdk/react/textarea"
+import { SearchIcon } from "lucide-react"
 import type { ComponentProps } from "react"
 import { variants, type VariantProps } from "./variants.ts"
 
@@ -21,6 +22,18 @@ export type InputProps = Omit<ComponentProps<typeof BaseInput>, "className" | "s
 
 export function Input({ variant, size, ...props }: InputProps) {
   return <BaseInput {...props} className={field({ variant, size: variant === "title" ? "auto" : size })} />
+}
+
+export type SearchInputProps = Omit<ComponentProps<typeof BaseInput>, "className" | "style" | "size"> & { readonly size?: "sm" | "md" }
+
+/** A boxed field with a magnifier at its start, for typing to narrow a list (the filter panel's text box). */
+export function SearchInput({ size, ...props }: SearchInputProps) {
+  return (
+    <span className="relative flex min-w-0 items-center">
+      <SearchIcon aria-hidden className="pointer-events-none absolute left-2 size-3.5 text-faint" />
+      <BaseInput type="search" {...props} className={`${field({ variant: "boxed", size })} pl-7`} />
+    </span>
+  )
 }
 
 const area = variants(

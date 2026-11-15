@@ -44,6 +44,25 @@ export const findMove = (prev: Lists, next: Lists, hint?: string): Move | null =
   return null
 }
 
+/**
+ * Where a drop lands among `among` (a column's own cards in position order, without the moved one),
+ * when the column shows only some of them (a filter, CEL-52) or shows others too (folded Needs input
+ * cards): right after the nearest shown card above it that's among them, else right before the nearest
+ * one below it, else at the end. With every card shown, that's the drop's own index.
+ */
+export const indexAmong = (shown: ReadonlyArray<string>, move: Move, among: ReadonlyArray<{ readonly id: string }>): number => {
+  const at = (id: string | undefined) => (id === undefined || id === move.key ? -1 : among.findIndex((t) => t.id === id))
+  for (let i = move.index - 1; i >= 0; i--) {
+    const found = at(shown[i])
+    if (found !== -1) return found + 1
+  }
+  for (let i = move.index + 1; i < shown.length; i++) {
+    const found = at(shown[i])
+    if (found !== -1) return found
+  }
+  return among.length
+}
+
 export interface Drop {
   readonly statusId: string
   readonly before: string | null

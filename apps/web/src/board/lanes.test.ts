@@ -77,4 +77,11 @@ describe("laneDrop: a drop in a column split into lanes", () => {
       statusId: "prog", before: null, after: "b",
     })
   })
+
+  it("with a filter hiding some of the lane, the card goes next to its shown neighbor among the whole lane (CEL-52)", () => {
+    // review lane: a, d (hidden by the filter), e.
+    const withHidden = [...column, card("e", "a4", "review")]
+    expect(laneDrop({ key: "e", to: "prog", index: 1 }, ["c", "e", "a", "b"], "prog", "manual", withHidden)).toMatchObject({ before: null, after: "a" })
+    expect(laneDrop({ key: "a", to: "prog", index: 2 }, ["c", "e", "a", "b"], "prog", "manual", withHidden)).toMatchObject({ before: "e", after: null })
+  })
 })
