@@ -1,6 +1,6 @@
 // A remark plugin: bare web addresses in markdown text become links (react-markdown only links
-// `<https://…>` and `[text](url)` on its own), and so do the keys of tasks that exist, as links to the
-// task marked `data-task-key` (TaskKey renders them). Code and existing links are left alone.
+// `<https://…>` and `[text](url)` on its own), and so do the task keys `isTask` accepts, as links to the
+// task marked `data-task-link` (LiveTaskKey renders them). Code and existing links are left alone.
 import { linkify, type LinkifyOptions } from "@cello/shared/linkify"
 import { taskPath } from "@cello/shared/taskKey"
 
@@ -36,7 +36,7 @@ const walk = (node: MdNode, options: LinkifyOptions) => {
             type: "link",
             url: taskPath(part.projectKey, part.number),
             title: null,
-            data: { hProperties: { dataTaskKey: part.key } },
+            data: { hProperties: { dataTaskLink: part.key } },
             children: [{ type: "text", value: part.text }],
           }
       }
@@ -44,7 +44,7 @@ const walk = (node: MdNode, options: LinkifyOptions) => {
   })
 }
 
-/** `isTask`: whether a task with that key exists; without it, keys stay text. */
+/** `isTask`: whether to link a key; without it, keys stay text. */
 export const remarkLinkify =
   (options: LinkifyOptions = {}) =>
   (tree: MdNode) =>

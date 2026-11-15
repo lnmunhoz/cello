@@ -30,12 +30,14 @@ export function ViewerPanel() {
   const navigate = useNavigate()
   useEffect(() => {
     // A Cello page framed in the viewer opens its links here, not inside itself, and its task keys
-    // open the task here, in the main window (which closes the viewer). The desktop app's preload sends
-    // the same task message for a key clicked in its native panel.
+    // open the task here, in the main window, closing the viewer (even when the task is the one
+    // already open under it). The desktop app's preload sends the same task message for a key clicked
+    // in its native panel.
     const onMessage = (e: MessageEvent) => {
       const task = openTaskFrom(e, location.origin)
       if (task) {
         void navigate({ to: "/$projectKey/$number", params: { projectKey: task.projectKey, number: String(task.number) } })
+        closeViewer()
         return
       }
       const data = e.data as Partial<OpenMessage> | null

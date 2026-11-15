@@ -4,7 +4,7 @@
 // the changed sections flash in the publisher's color and the scroll position stays.
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { documentBySlug } from "@cello/client/sync/documents"
-import { projectByKey, taskFinder } from "@cello/client/sync/selectors"
+import { projectByKey, projectKeysOf } from "@cello/client/sync/selectors"
 import type { Document, DocumentTask, Project } from "@cello/contract/entities"
 import { changedSections, pagePath, readerContent, type Section, sectionsOf, splitFrontmatter, summaryOf } from "@cello/shared/document"
 import { useAtomValue } from "@effect/atom-react"
@@ -190,7 +190,7 @@ function Reader({ board, project, document, pinned }: { board: BoardState; proje
             </div>
           ) : null}
 
-          <PageBody content={content} flash={flash} onFlashEnd={endFlash} tasks={taskFinder(board)} />
+          <PageBody content={content} flash={flash} onFlashEnd={endFlash} projectKeys={projectKeysOf(board)} />
         </article>
       </div>
     </div>
@@ -201,7 +201,7 @@ function Reader({ board, project, document, pinned }: { board: BoardState; proje
 function SectionMenu({ sections, current, onPick }: { sections: ReadonlyArray<Section>; current: string | null; onPick: (id: string) => void }) {
   const title = sections.find((s) => s.id === current)?.title ?? sections[0]!.title
   return (
-    <div className="sticky top-0 z-10 -mx-4 hidden items-center gap-2 border-b border-line bg-surface/95 px-4 py-2 backdrop-blur @max-[900px]:flex">
+    <div className="sticky top-0 z-10 -mx-4 mb-6 hidden items-center gap-2 border-b border-line bg-surface/95 px-4 py-2 backdrop-blur @max-[900px]:flex">
       <Menu onAction={(id) => onPick(String(id))}>
         <MenuTrigger variant="chip" aria-label="On this page">
           <ListIcon aria-hidden className="size-3.5 text-muted" />

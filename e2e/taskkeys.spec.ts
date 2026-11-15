@@ -40,9 +40,44 @@ async function screenshotPage(browser: Browser, url: string, key: string, colorS
   const context = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height: 900 }, colorScheme })
   const page = await context.newPage()
   await page.goto(url)
-  await expect(page.locator(`table [data-task-key="${key}-1"] [data-task-status]`).first()).toHaveText("In Progress")
+  await expect(page.locator(`table [data-task-link="${key}-1"] [data-task-status]`).first()).toHaveText("In Progress")
   await page.screenshot({ path: path.join(SHOTS, `task-keys-page-${colorScheme}.png`) })
   await context.close()
+}
+
+/** A task's description and a kind-doc page, each naming a task, in unrecorded windows: e2e/videos/task-keys-{description,doc}-<scheme>.png. */
+async function screenshotDescriptionAndDoc(browser: Browser, key: string, docPath: string, colorScheme: "light" | "dark") {
+  const context = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height: 900 }, colorScheme })
+  const page = await context.newPage()
+  await page.goto(`/${key}/1`)
+  const panel = taskPanel(page, `${key}-1`)
+  await panel.getByRole("tab", { name: "Preview" }).click()
+  await expect(panel.getByTestId("description-preview").locator(`[data-task-link="${key}-2"] [data-task-status]`)).toHaveText("Todo")
+  await page.screenshot({ path: path.join(SHOTS, `task-keys-description-${colorScheme}.png`) })
+  await page.goto(docPath)
+  await expect(page.getByRole("article").locator(`[data-task-link="${key}-1"] [data-task-status]`).first()).toHaveText("In Progress")
+  await page.screenshot({ path: path.join(SHOTS, `task-keys-doc-${colorScheme}.png`) })
+  await context.close()
+}
+
+/** A kind-doc (how something works) that names the project's tasks, published through the CLI. Returns its path. */
+function publishDoc(key: string, dir: string): string {
+  const file = path.join(dir, "keys.md")
+  fs.writeFileSync(
+    file,
+    [
+      "# How task keys work",
+      "",
+      `Any key of a task on the board links to it, with its status: ${key}-1 and ${key}-2.`,
+      "",
+      "## What stays plain",
+      "",
+      `- keys of tasks that don't exist, like ${key}-99`,
+      `- keys in code, like \`cello task claim ${key}-1\``,
+    ].join("\n"),
+  )
+  expect(cello("doc", "publish", file, "--project", key, "--kind", "doc")).toContain(`/${key}/pages/how-task-keys-work`)
+  return `/${key}/pages/how-task-keys-work`
 }
 
 test("CEL-20: a page's task table links its keys with their live status; moving a task on the board updates the page; a key opens its task; keys in comments link too", async ({ page, browser }) => {
@@ -55,15 +90,15 @@ test("CEL-20: a page's task table links its keys with their live status; moving 
   await caption(page, "Open the page: the keys are links, each with its task's status")
   const article = page.getByRole("article")
   // Each task's own row (the second row also names the first task, in its notes).
-  const first = article.locator("tbody tr").nth(0).locator(`[data-task-key="${key}-1"]`)
-  const second = article.locator("tbody tr").nth(1).locator(`[data-task-key="${key}-2"]`)
+  const first = article.locator("tbody tr").nth(0).locator(`[data-task-link="${key}-1"]`)
+  const second = article.locator("tbody tr").nth(1).locator(`[data-task-link="${key}-2"]`)
   await expect(first).toHaveAttribute("href", `/${key}/1`)
   await expect(first).toHaveAttribute("title", `${key}-1 · Link task keys`)
   await expect(first.locator("[data-task-status]")).toHaveText("Todo")
   await expect(second.locator("[data-task-status]")).toHaveText("Todo")
   // In running text too, and in the "after KEY-1" cell.
-  await expect(article.locator(`p [data-task-key="${key}-1"]`)).toBeVisible()
-  await expect(article.locator(`td [data-task-key="${key}-1"]`)).toHaveCount(2)
+  await expect(article.locator(`p [data-task-link="${key}-1"]`)).toBeVisible()
+  await expect(article.locator(`td [data-task-link="${key}-1"]`)).toHaveCount(2)
 
   await caption(page, "Unknown keys, keys in code and keys inside a web address stay as they are")
   await expect(article.locator("td", { hasText: `${key}-99` }).locator("a")).toHaveCount(0)
@@ -85,16 +120,26 @@ test("CEL-20: a page's task table links its keys with their live status; moving 
   await expect(panel.getByLabel("Title")).toHaveValue("Link task keys")
   expect(await page.evaluate(() => (window as { stillTheSamePage?: boolean }).stillTheSamePage)).toBe(true)
 
-  await caption(page, "A comment that names a task links it too, with its status")
+  await caption(page, "A description that names a task links it, with its status")
+  await panel.getByLabel("Description", { exact: true }).fill(`Ships after ${key}-2, so pages show live status.`)
+  await panel.getByRole("tab", { name: "Preview" }).click()
+  await expect(panel.getByTestId("description-preview").locator(`[data-task-link="${key}-2"] [data-task-status]`)).toHaveText("Todo")
+
+  await caption(page, "A comment that names a task links it too")
   await panel.getByLabel("New comment").fill(`Needs ${key}-2 first, not \`${key}-2\` in code.`)
   await panel.getByRole("button", { name: "Comment", exact: true }).click()
   const comment = panel.locator("[data-comment-id]").last()
-  await expect(comment.locator(`[data-task-key="${key}-2"] [data-task-status]`)).toHaveText("Todo")
+  await expect(comment.locator(`[data-task-link="${key}-2"] [data-task-status]`)).toHaveText("Todo")
   await expect(comment.locator("code a")).toHaveCount(0)
-  await comment.locator(`[data-task-key="${key}-2"]`).click()
+  await caption(page, `Click ${key}-2 in the comment: its task opens`)
+  await comment.locator(`[data-task-link="${key}-2"]`).click()
   await expect(page).toHaveURL(new RegExp(`/${key}/2$`))
   await expect(taskPanel(page, `${key}-2`).getByLabel("Title")).toHaveValue("Live status on pages")
   await caption(page, "Task keys link to their task, with its live status")
+
+  // Stills: the description, and a kind-doc page naming the tasks.
+  const docPath = publishDoc(key, dir)
+  for (const colorScheme of ["light", "dark"] as const) await screenshotDescriptionAndDoc(browser, key, docPath, colorScheme)
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
@@ -115,7 +160,7 @@ test("CEL-20: inside the viewer panel, a key in a page opens its task in the mai
   const viewer = page.getByRole("complementary", { name: "Viewer" })
   const frame = viewer.frameLocator("iframe")
   await expect(frame.getByRole("heading", { level: 1, name: "M2 progress" })).toBeVisible()
-  const inFrame = frame.locator(`table [data-task-key="${key}-2"]`)
+  const inFrame = frame.locator(`table [data-task-link="${key}-2"]`)
   await expect(inFrame.locator("[data-task-status]")).toHaveText("Todo")
 
   await caption(page, `Click ${key}-2 inside the viewer: the task opens in the main window`)
@@ -134,6 +179,14 @@ test("CEL-20: inside the viewer panel, a key in a page opens its task in the mai
   await expect(page).toHaveURL(new RegExp(`/${key}/2$`))
   await expect(viewer).toHaveCount(0)
   await expect(taskPanel(page, `${key}-2`)).toBeVisible()
+
+  await page.goto(`/${key}/1`)
+  await caption(page, `The key of ${key}-1, the task under the viewer: the viewer closes and shows it`)
+  await panel.locator("[data-comment-id]").getByRole("link", { name: pageUrl }).click()
+  await frame.locator(`tbody tr`).nth(0).locator(`[data-task-link="${key}-1"]`).click()
+  await expect(viewer).toHaveCount(0)
+  await expect(page).toHaveURL(new RegExp(`/${key}/1$`))
+  await expect(panel).toBeVisible()
   await caption(page, "Keys in a page in the viewer open their task in the main window")
   fs.rmSync(dir, { recursive: true, force: true })
 })

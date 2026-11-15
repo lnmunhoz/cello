@@ -1,7 +1,6 @@
 // Read-only views over client state, shared by every screen.
 import type { Project, Status, Task } from "@cello/contract/entities"
 import { positionBetween } from "@cello/shared/position"
-import { parseTaskKey } from "@cello/shared/taskKey"
 import type { BoardState } from "./applyEvents.ts"
 
 export const byPosition = <T extends { readonly position: string }>(rows: Iterable<T>): T[] =>
@@ -78,11 +77,28 @@ export interface KeyedTask {
   readonly status: Status | undefined
 }
 
-/** Finds tasks on the board by their whole key ("CEL-3"): what task keys in rendered text link to. */
-export const taskFinder =
-  (state: BoardState) =>
-  (key: string): KeyedTask | undefined => {
-    const ref = parseTaskKey(key)
-    const task = ref ? taskByKey(state, ref.projectKey, ref.number) : undefined
-    return task ? { task, status: state.statuses[task.statusId] } : undefined
+const byKey = new WeakMap<BoardState["tasks"], ReadonlyMap<string, Task>>()
+
+/** The board's tasks by their key ("CEL-3"), built once per board state (every change makes a new `tasks`). */
+export const tasksByKey = (state: BoardState): ReadonlyMap<string, Task> => {
+  let index = byKey.get(state.tasks)
+  if (!index) {
+    index = new Map(Object.values(state.tasks).map((t) => [t.key, t]))
+    byKey.set(state.tasks, index)
   }
+  return index
+}
+
+/** A task by its whole key ("CEL-3"): what a task key in rendered text links to. */
+export const taskOfKey = (state: BoardState, key: string): Task | undefined => tasksByKey(state).get(key)
+
+/**
+ * The project keys task keys in rendered text can name, sorted, as one string ("CEL THAI"): a value
+ * that only changes when a project's key does, so markdown parsed with it isn't parsed again on every
+ * board change.
+ */
+export const projectKeysOf = (state: BoardState): string =>
+  Object.values(state.projects)
+    .map((p) => p.key)
+    .sort()
+    .join(" ")

@@ -1,20 +1,34 @@
 import { useAtomValue } from "@effect/atom-react"
+import type * as Atom from "effect/reactivity/Atom"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import { taskFinder } from "@cello/client/sync/selectors"
-import type { FindTask } from "../task/TaskKey.tsx"
+import { type KeyedTask, projectKeysOf, taskOfKey } from "@cello/client/sync/selectors"
 import { boardAtom, currentAtom, syncedAtom } from "./cello.ts"
 
+const boardOf = (result: Atom.Type<typeof boardAtom>): BoardState | null => (AsyncResult.isSuccess(result) ? result.value : null)
+
 /** The board state, or null until the first snapshot arrives (and while a workspace switch loads). */
-export const useBoard = (): BoardState | null => {
-  const result = useAtomValue(boardAtom)
-  return AsyncResult.isSuccess(result) ? result.value : null
+export const useBoard = (): BoardState | null => boardOf(useAtomValue(boardAtom))
+
+const projectKeysFrom = (result: Atom.Type<typeof boardAtom>): string | undefined => {
+  const board = boardOf(result)
+  return board ? projectKeysOf(board) : undefined
 }
 
-/** Finds tasks by key on the live board, for task keys in rendered text; undefined until the board loads. */
-export const useTaskFinder = (): FindTask | undefined => {
-  const board = useBoard()
-  return board ? taskFinder(board) : undefined
+/**
+ * The project keys task keys in rendered text can name ("CEL THAI"); undefined until the board loads.
+ * Re-renders only when a project key changes, so markdown parsed with it isn't parsed on every change.
+ */
+export const useProjectKeys = (): string | undefined => useAtomValue(boardAtom, projectKeysFrom)
+
+/** The task a key names, with its status; re-renders only when that task or its status changes. */
+export const useKeyedTask = (key: string): KeyedTask | undefined => {
+  const task = useAtomValue(boardAtom, (result) => {
+    const board = boardOf(result)
+    return board ? taskOfKey(board, key) : undefined
+  })
+  const status = useAtomValue(boardAtom, (result) => (task ? boardOf(result)?.statuses[task.statusId] : undefined))
+  return task ? { task, status } : undefined
 }
 
 /** The workspace the app follows, once known. */
