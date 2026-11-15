@@ -113,6 +113,101 @@ body {
 }
 
 /*
+ * Agent cursors (CEL-6, board/cursors/animator.ts): the layer they fly on. Which cards wait for a step
+ * (hidden at their new slot, or keeping the space a copy flies to) the animator writes as rules of its own.
+ */
+#agent-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 40;
+}
+#agent-layer [data-agent-ghost] {
+  pointer-events: none;
+}
+/* An arrow in the session's colour with a pill naming the agent and session. */
+.agent-cursor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  will-change: transform;
+}
+.agent-cursor span {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: var(--agent);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgb(15 23 42 / 0.2);
+}
+/* Near the board's right edge: the pill on the arrow's left. */
+.agent-cursor[data-flip] span {
+  left: auto;
+  right: 14px;
+}
+/* "Claude Code made 23 changes" when a session's burst skips to the end: at the foot of the board. */
+#agent-notices {
+  position: fixed;
+  left: 50%;
+  bottom: 72px;
+  translate: -50% 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.agent-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--raised);
+  color: var(--ink);
+  font-size: 13px;
+  box-shadow: var(--shadow-pop);
+  white-space: nowrap;
+}
+.agent-notice::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--agent);
+}
+/* A comment or a claim pops from the card as a bubble, edged in the session's colour. */
+.agent-bubble {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  max-width: 240px;
+  padding: 5px 9px;
+  border-radius: 10px 10px 2px 10px;
+  border: 1.5px solid var(--agent);
+  background: var(--raised);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.35;
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform-origin: 100% 100%;
+}
+
+/*
  * The page reader's reading column, after the doc kit (~/.claude/doc-kit): 17px text, a display scale
  * for headings, framed tables, code and diagrams, images with captions. Markdown has no classes, so
  * this one block styles what it renders; colors are the app's tokens, so both themes follow.
@@ -229,9 +324,23 @@ body {
     border-radius: 10px;
     background: var(--raised);
   }
+  /* An image opens in the image modal: a button around it, without a look of its own. */
+  & .page-image {
+    display: block;
+    max-width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: zoom-in;
+    border-radius: 10px;
+    outline: none;
+  }
+  & .page-image:focus-visible img {
+    box-shadow: 0 0 0 2px var(--ring);
+  }
   /* An image's title, or an *italic line* right under it, is its caption. */
   & .page-caption,
-  & p:has(> img:only-child) + p > em:only-child {
+  & p:has(> .page-image:only-child) + p > em:only-child {
     display: block;
     margin-bottom: 18px;
     color: var(--muted);

@@ -1,6 +1,7 @@
 // The whole server as one layer: lock → database → migrations → seed → services → RPC over a
 // WebSocket at /rpc on 127.0.0.1, review evidence at /attachments/<id> (files in <dataDir>/assets),
-// plus the built web app when given, and the daily backup into <dataDir>/backups. main.ts and
+// plus the built web app when given, and the daily backup into <dataDir>/backups. It knows its build
+// (version, commit, start time, the web app's stamp) for open tabs to compare with theirs (CEL-37). main.ts and
 // `cello start` launch it; integration tests build it on port 0.
 import * as path from "node:path"
 import * as BunHttpServer from "@effect/platform-bun/BunHttpServer"
@@ -14,6 +15,7 @@ import * as RpcServer from "effect/rpc/RpcServer"
 import { CelloRpcs } from "@cello/contract/rpcs"
 import * as BackupSchedule from "./backup/BackupSchedule.ts"
 import * as BackupService from "./backup/BackupService.ts"
+import * as BuildInfo from "./build/BuildInfo.ts"
 import * as CallerMiddleware from "./caller/CallerMiddleware.ts"
 import * as Migrations from "./persistence/Migrations.ts"
 import * as Seed from "./persistence/Seed.ts"
@@ -36,6 +38,8 @@ export interface ServerOptions {
   readonly humanName: string
   /** The built web app to serve on the same port. Dev leaves it out: Vite serves the app. */
   readonly web?: WebFiles.WebFiles | undefined
+  /** The git commit this server was built from (build/git.ts), for `server.build`; null or left out when unknown. */
+  readonly commit?: string | null | undefined
   /** Take the daily backup (on unless false). Integration tests turn it off; the schedule has its own tests. */
   readonly autoBackup?: boolean | undefined
 }
@@ -64,7 +68,8 @@ export const layer = (options: ServerOptions) => {
   )
   const assets = AssetStore.layer({ dir: path.join(options.dataDir, AssetStore.ASSETS_DIR) })
   const backups = BackupService.layer({ dir: path.join(options.dataDir, BackupService.BACKUPS_DIR) })
-  const app = Layer.merge(Services.layer, backups).pipe(Layer.provideMerge(storage), Layer.provideMerge(assets))
+  const build = BuildInfo.layer({ commit: options.commit ?? null, web: options.web })
+  const app = Layer.mergeAll(Services.layer, backups, build).pipe(Layer.provideMerge(storage), Layer.provideMerge(assets))
   const rpc = RpcServer.layer(CelloRpcs).pipe(
     Layer.provide(Handlers.layer),
     Layer.provide(CallerMiddleware.layer),

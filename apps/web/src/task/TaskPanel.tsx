@@ -17,6 +17,7 @@ import { Select } from "../components/ui/Select.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "../components/ui/Tabs.tsx"
 import { commands } from "../lib/cello.ts"
+import { SAVES_ON_BLUR } from "../lib/editing.ts"
 import { EarlierReviews, PinnedReview } from "../review/TaskReviews.tsx"
 import { useViewerItem } from "../viewer/store.ts"
 import { Comments } from "./Comments.tsx"
@@ -156,6 +157,7 @@ function TaskDetails({ board, project, task, full }: { board: BoardState; projec
         <Input
           variant="title"
           aria-label="Title"
+          {...SAVES_ON_BLUR}
           value={title ?? task.title}
           onFocus={() => setTitle(task.title)}
           onChange={(e) => setTitle(e.currentTarget.value)}
@@ -181,6 +183,7 @@ function TaskDetails({ board, project, task, full }: { board: BoardState; projec
             <div className="pt-2">
               <Textarea
                 aria-label="Description"
+                {...SAVES_ON_BLUR}
                 placeholder="Add a description… Markdown works."
                 value={description ?? task.description}
                 onFocus={() => setDescription(task.description)}
@@ -287,6 +290,7 @@ function Properties({ board, project, task }: { board: BoardState; project: Proj
           size="sm"
           variant="bare"
           aria-label="Due date"
+          {...SAVES_ON_BLUR}
           value={task.dueDate ?? ""}
           onChange={(e) => {
             const dueDate = e.currentTarget.value === "" ? null : e.currentTarget.value

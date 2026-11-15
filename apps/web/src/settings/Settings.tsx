@@ -11,6 +11,7 @@ import { Input } from "../components/ui/Input.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { commands } from "../lib/cello.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
+import { SAVES_ON_BLUR } from "../lib/editing.ts"
 
 export function Settings() {
   const board = useBoard()
@@ -73,6 +74,7 @@ function NameField({ value, label, onSave }: { value: string; label: string; onS
       variant="bare"
       size="sm"
       aria-label={label}
+      {...SAVES_ON_BLUR}
       value={draft ?? value}
       onFocus={() => setDraft(value)}
       onChange={(e) => setDraft(e.currentTarget.value)}

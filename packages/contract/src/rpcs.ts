@@ -5,6 +5,7 @@ import * as Rpc from "effect/rpc/Rpc"
 import * as RpcGroup from "effect/rpc/RpcGroup"
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware"
 import { Backup } from "./backups.ts"
+import { ServerBuild } from "./build.ts"
 import {
   Ask,
   Comment,
@@ -357,6 +358,10 @@ export const CelloRpcs = RpcGroup.make(
   // prunes old ones; `backup.list` is newest first. Restoring happens offline, in the CLI.
   Rpc.make("backup.create", { payload: {}, success: Backup }),
   Rpc.make("backup.list", { payload: {}, success: Schema.Array(Backup) }),
+
+  // The server's build (CEL-37): version, commit, start time and the web app it serves. A tab asks on
+  // every (re)connect and offers a reload when the web build differs from the one it loaded.
+  Rpc.make("server.build", { payload: {}, success: ServerBuild }),
 
   Rpc.make("comment.list", { payload: { taskId: Id }, success: Schema.Array(Comment), error: NotFound }),
   Rpc.make("comment.add", {

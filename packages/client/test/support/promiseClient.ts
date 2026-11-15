@@ -16,11 +16,14 @@ export interface PromiseClient {
   readonly close: () => Promise<void>
 }
 
-/** Connects over a WebSocket (`ws://127.0.0.1:4791/rpc`). Uses the runtime's global WebSocket. */
-export const openClient = async (url: string): Promise<PromiseClient> => {
+/**
+ * Connects over a WebSocket (`ws://127.0.0.1:4791/rpc`). Uses the runtime's global WebSocket.
+ * `identity` is the CLI's identity headers (`x-cello-session`…): with them, calls come from that agent session.
+ */
+export const openClient = async (url: string, identity: Readonly<Record<string, string>> = {}): Promise<PromiseClient> => {
   const scope = Effect.runSync(Scope.make())
   const socket = Socket.layerWebSocket(url).pipe(Layer.provide(Socket.layerWebSocketConstructorGlobal))
-  const context = await Effect.runPromise(Layer.buildWithScope(makeClientLayer(socket), scope))
+  const context = await Effect.runPromise(Layer.buildWithScope(makeClientLayer(socket, identity), scope))
   const client = Context.get(context, CelloClient)
   return {
     run: (call) => Effect.runPromise(call(client)),

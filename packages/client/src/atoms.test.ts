@@ -212,4 +212,32 @@ describe("command atoms", () => {
     const current = await Effect.runPromise(AtomRegistry.getResult(registry, atoms.currentAtom))
     expect(current.scope).toEqual({ workspaceId: "w2" })
   })
+
+  it("ask for the server's build when the connection goes live, and again each time it comes back (CEL-37)", async () => {
+    const build = (commit: string) => ({ version: "0.2.0", commit, startedAt: 1, web: { version: "0.2.0", commit, builtAt: 1, changes: [] } })
+    const drop = Effect.runSync(Deferred.make<void>())
+    let subscribes = 0
+    const answers = [build("aaaaaaa"), build("bbbbbbb")]
+    let asked = 0
+    const fake = {
+      "snapshot.get": () => Effect.succeed(snapshot),
+      // The first stream drops when told to (the server restarting); the next one stays up.
+      "events.subscribe": () =>
+        ++subscribes === 1 ? Stream.fromEffect(Deferred.await(drop)).pipe(Stream.flatMap(() => Stream.fail("dropped"))) : Stream.never,
+      "server.build": () => Effect.sync(() => answers[Math.min(asked++, answers.length - 1)]),
+    } as unknown as CelloClient["Service"]
+    const atoms = makeCelloAtoms(Atom.runtime(Layer.succeed(CelloClient, fake)), { retryDelay: 0 })
+    const registry = AtomRegistry.make()
+    registry.mount(atoms.serverBuildAtom)
+    expect((await Effect.runPromise(AtomRegistry.getResult(registry, atoms.serverBuildAtom))).commit).toBe("aaaaaaa")
+    expect(asked).toBe(1)
+
+    Effect.runSync(Deferred.succeed(drop, undefined))
+    const next = await Effect.runPromise(
+      AtomRegistry.toStreamResult(registry, atoms.serverBuildAtom).pipe(Stream.filter((b) => b.commit === "bbbbbbb"), Stream.runHead),
+    )
+    expect(next._tag).toBe("Some")
+    expect(asked).toBe(2)
+    expect(subscribes).toBe(2)
+  })
 })

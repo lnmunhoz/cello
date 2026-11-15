@@ -96,6 +96,37 @@ export const evidenceTarget = (attachment: Attachment): EvidenceTarget | null =>
   return { url: attachmentUrl(attachment), title: attachment.caption || attachment.name, ...(kind ? { kind } : {}) }
 }
 
+/** A screenshot as the image modal shows it: the served file, titled by its caption, and its file name. */
+export interface EvidenceImage {
+  readonly url: string
+  readonly title: string
+  readonly name: string
+}
+
+/**
+ * Where a click on a piece of evidence opens it. A screenshot (any image, attached as a file too) opens
+ * in the image modal over the page, at its place among the packet's images, so ←/→ step through them;
+ * that's the same in the desktop app. A video, another file or a link opens beside the board (the viewer,
+ * or the desktop app's native panel). Null for a link without a URL.
+ */
+export type EvidenceOpen =
+  | { readonly in: "modal"; readonly images: ReadonlyArray<EvidenceImage>; readonly index: number }
+  | { readonly in: "panel"; readonly target: EvidenceTarget }
+
+export const evidenceOpen = (attachment: Attachment, packet: ReadonlyArray<Attachment>): EvidenceOpen | null => {
+  if (attachment.kind !== "link" && mediaKind(attachment) === "image") {
+    const pieces = packet.some((a) => a.id === attachment.id) ? packet : [...packet, attachment]
+    const images = evidenceInOrder(pieces).filter((a) => a.kind !== "link" && mediaKind(a) === "image")
+    return {
+      in: "modal",
+      index: images.findIndex((a) => a.id === attachment.id),
+      images: images.map((a) => ({ url: attachmentUrl(a), title: a.caption || a.name, name: a.name })),
+    }
+  }
+  const target = evidenceTarget(attachment)
+  return target ? { in: "panel", target } : null
+}
+
 /** A task's reviews (from `review.list`) kept current from the event stream. */
 export const applyReviewEvents = (
   reviews: ReadonlyArray<Review>,

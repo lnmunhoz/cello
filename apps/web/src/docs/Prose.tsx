@@ -1,8 +1,10 @@
+import { shortUrl } from "@cello/shared/linkify"
 import { Children, isValidElement, type ReactNode } from "react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { remarkLinkify } from "../components/ui/remarkLinkify.ts"
 import { LiveTaskKey, linkifyTasks, markdownTaskKey } from "../task/TaskKey.tsx"
+import { openGallery, zoomable } from "../viewer/gallery.ts"
 import { Mermaid } from "./Mermaid.tsx"
 import { mermaidSource } from "./mermaidSource.ts"
 
@@ -50,9 +52,19 @@ export function Prose({ markdown, headingId, projectKeys }: { markdown: string; 
       )
     },
     img({ src, alt, title }) {
+      const url = typeof src === "string" ? src : undefined
+      // A click opens it in the image modal, with the page's other images and diagrams a ← or → away.
       return (
         <>
-          <img src={typeof src === "string" ? src : undefined} alt={alt ?? ""} title={title} loading="lazy" />
+          <button
+            type="button"
+            className="page-image"
+            aria-label={`Open ${alt || title || "the image"}`}
+            {...(url ? zoomable({ url, title: alt || title || shortUrl(url) }) : {})}
+            onClick={(e) => openGallery(e.currentTarget)}
+          >
+            <img data-page-image="" src={url} alt={alt ?? ""} title={title} loading="lazy" />
+          </button>
           {title ? <span className="page-caption">{title}</span> : null}
         </>
       )

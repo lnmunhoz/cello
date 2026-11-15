@@ -6,10 +6,12 @@ import { expect, test, type ElectronApplication, type Page } from "@playwright/t
 import { recordWindow, screenshotWindow, type Recording } from "./recorder.ts"
 import {
   appPages,
+  buildWeb,
   CELLO_BIN,
   celloAsAgent,
   cleanup,
   COMMAND_OR_CONTROL,
+  entryOf,
   freePort,
   isAlive,
   launchApp,
@@ -244,7 +246,7 @@ test("CEL-24: ⌘B in the board collapses the sidebar to a rail and expands it a
   await expectBoardFills(app, board)
 })
 
-test("CEL-12: evidence clicked on the board opens in the native panel, not the web viewer: the card's badge, then a packet link beside the task", async ({}, testInfo) => {
+test("CEL-12, CEL-44: a screenshot clicked on the board opens in the image modal in the board's page, and its Open in viewer goes to the native panel; a packet link opens in the native panel beside the task", async ({}, testInfo) => {
   const site = await testSite()
   const dataDir = tempDir("cello-desktop-e2e-")
   const server = await startCello(dataDir)
@@ -277,8 +279,21 @@ test("CEL-12: evidence clicked on the board opens in the native panel, not the w
   const badge = taskCard.locator("[data-evidence-badge]")
   await expect(badge).toContainText("2")
 
-  await video.caption("Click the card's evidence badge: the screenshot opens in the native panel")
+  await video.caption("Click the card's evidence badge: the screenshot opens in the image modal, over the board")
   await badge.click()
+  const modal = board.getByRole("dialog", { name: "The board" })
+  await expect(modal.locator("img[data-modal-image]")).toBeVisible()
+  expect((await views(app)).page.visible).toBe(false)
+  // The still shows it after its fade-in has finished.
+  await modal.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)))
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "image-modal-badge.png"))
+
+  await video.caption("Esc closes it; Open in viewer in the modal shows the screenshot in the native panel")
+  await board.keyboard.press("Escape")
+  await expect(modal).toHaveCount(0)
+  await badge.click()
+  await modal.getByRole("button", { name: "Open The board in the viewer" }).click()
+  await expect(modal).toHaveCount(0)
   await panel.waitForURL(/\/attachments\/[^/]+$/)
   await expect(chrome.getByLabel("Address")).toHaveValue("The board")
   expect((await views(app)).page.visible).toBe(true)
@@ -339,6 +354,45 @@ test("CEL-20: a task key clicked in a page shown in the native panel opens the t
   expect(panel.url()).toBe(`${pageUrl}?embed=1`)
   expect((await views(app)).page.visible).toBe(true)
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "panel-task-key.png"))
+})
+
+test("CEL-37: the board in the app notices a new Cello build when the server restarts, says so, and reloads into it", async ({}, testInfo) => {
+  test.setTimeout(240_000)
+  const builds = tempDir("cello-desktop-builds-")
+  const a = buildWeb(path.join(builds, "a"), "aaaaaaa")
+  const b = buildWeb(path.join(builds, "b"), "bbbbbbb")
+  expect(entryOf(a)).not.toBe(entryOf(b))
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const port = await freePort()
+  const first = await startCello(dataDir, { port, webDir: a })
+  const app = await launchApp({ CELLO_PORT: String(port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-") })
+  const video = record(app, testInfo.title)
+  const { board } = await appPages(app, first.url)
+  const footer = board.locator("[data-build-footer]")
+  const bar = board.locator("[data-reload-bar]")
+  const loaded = () => board.locator('script[type="module"]').first().getAttribute("src")
+
+  await video.caption("The app's board runs build aaaaaaa: the sidebar's footer names it")
+  await expect(footer).toContainText("build aaaaaaa")
+  expect(await loaded()).toBe(entryOf(a))
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "reload-desktop-build-a.png"))
+
+  await video.caption("Deploy: the server restarts as build bbbbbbb while the app stays open")
+  await first.kill()
+  await startCello(dataDir, { port, webDir: b })
+
+  await video.caption("The board reconnects: \"Cello was updated\", and it reloads by itself in a few seconds")
+  await expect(bar).toContainText("Cello was updated")
+  await expect(bar).toContainText("build bbbbbbb")
+  await expect(bar).toHaveAttribute("data-reload-bar", "reload")
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "reload-desktop-bar.png"))
+  await board.waitForEvent("load", { timeout: 20_000 })
+
+  await video.caption("After the reload the board runs build bbbbbbb, and the bar is gone")
+  expect(await loaded()).toBe(entryOf(b))
+  await expect(footer).toContainText("build bbbbbbb")
+  await expect(bar).toHaveCount(0)
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "reload-desktop-build-b.png"))
 })
 
 test("starts the bundled cello when no server is running, and stops it on quit", async ({}, testInfo) => {

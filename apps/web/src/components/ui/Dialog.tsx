@@ -13,14 +13,28 @@ import { variants, type VariantProps } from "./variants.ts"
 export { DialogTrigger }
 export const Dialog = BaseDialog
 
+const PANEL =
+  "fixed top-[14vh] left-1/2 flex -translate-x-1/2 flex-col gap-4 rounded-xl border border-line bg-surface p-5 text-ink shadow-pop transition-[opacity,scale] data-starting-style:scale-97 data-starting-style:opacity-0 data-ending-style:scale-97 data-ending-style:opacity-0"
+
+/**
+ * sm and md: a panel near the top, over a dim. screen: the whole window on a dark backdrop, the same in
+ * both themes (the image modal); its content lays out its own toolbar and stage.
+ */
 const content = variants(
-  "fixed top-[14vh] left-1/2 flex -translate-x-1/2 flex-col gap-4 rounded-xl border border-line bg-surface p-5 text-ink shadow-pop outline-none transition-[opacity,scale] duration-150 data-starting-style:scale-97 data-starting-style:opacity-0 data-ending-style:scale-97 data-ending-style:opacity-0 motion-reduce:transition-none",
+  "outline-none duration-150 motion-reduce:transition-none",
   {
     size: {
-      sm: "w-[min(420px,calc(100vw-32px))]",
-      md: "w-[min(560px,calc(100vw-32px))]",
+      sm: `${PANEL} w-[min(420px,calc(100vw-32px))]`,
+      md: `${PANEL} w-[min(560px,calc(100vw-32px))]`,
+      screen: "fixed inset-0 flex flex-col bg-[rgb(9_9_11/0.99)] text-white transition-opacity data-starting-style:opacity-0 data-ending-style:opacity-0",
     },
   },
+  { size: "md" },
+)
+
+const backdrop = variants(
+  "fixed inset-0 transition-opacity duration-150 data-starting-style:opacity-0 data-ending-style:opacity-0",
+  { size: { sm: "bg-black/30", md: "bg-black/30", screen: "bg-transparent" } },
   { size: "md" },
 )
 
@@ -31,7 +45,7 @@ export function DialogContent({
 }: Omit<ComponentProps<typeof BaseContent>, "className" | "children"> & VariantProps<typeof content> & { children: ReactNode }) {
   return (
     <>
-      <DialogBackdrop className="fixed inset-0 bg-black/30 transition-opacity duration-150 data-starting-style:opacity-0 data-ending-style:opacity-0" />
+      <DialogBackdrop className={backdrop({ size })} />
       <BaseContent {...props} className={content({ size })}>
         {children}
       </BaseContent>
@@ -39,8 +53,11 @@ export function DialogContent({
   )
 }
 
-export function DialogTitle(props: Omit<ComponentProps<typeof BaseTitle>, "className">) {
-  return <BaseTitle {...props} className="text-[15px] font-semibold" />
+const title = variants("font-semibold", { size: { md: "text-[15px]", sm: "min-w-0 truncate text-[13px]" } }, { size: "md" })
+
+/** sm: one line that truncates, for a toolbar (the image modal's caption). */
+export function DialogTitle({ size, ...props }: Omit<ComponentProps<typeof BaseTitle>, "className"> & VariantProps<typeof title>) {
+  return <BaseTitle {...props} className={title({ size })} />
 }
 
 export function DialogDescription(props: Omit<ComponentProps<typeof BaseDescription>, "className">) {

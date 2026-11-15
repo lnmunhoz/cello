@@ -7,8 +7,10 @@ import { isEmbed } from "../lib/embed.ts"
 import { useMediaQuery, useWorkspaceId } from "../lib/hooks.ts"
 import { readStored, writeStored } from "../lib/storage.ts"
 import { NewProjectDialog } from "../project/NewProjectDialog.tsx"
+import { ImageModal } from "../viewer/ImageModal.tsx"
 import { ViewerPanel } from "../viewer/ViewerPanel.tsx"
 import { ConnectionStatus } from "./ConnectionStatus.tsx"
+import { ReloadBar } from "./ReloadBar.tsx"
 import { ShowSidebarButton, Sidebar, SidebarContext } from "./Sidebar.tsx"
 import {
   NARROW_WIDTH,
@@ -47,6 +49,8 @@ export function AppShell() {
     return (
       <div className="relative flex h-dvh flex-col overflow-clip bg-surface">
         <Outlet />
+        <ImageModal />
+        <TopReloadBar />
         <Toaster />
       </div>
     )
@@ -80,6 +84,8 @@ export function AppShell() {
         </main>
 
         {workspaceId ? <NewProjectDialog open={newProject} onOpenChange={setNewProject} workspaceId={workspaceId} /> : null}
+        <ImageModal />
+        <ReloadBar />
         <Toaster />
       </div>
     </SidebarContext>
@@ -97,7 +103,17 @@ export function EmbeddedShell() {
         <Outlet />
       </div>
       <ViewerPanel />
+      <ImageModal />
+      <TopReloadBar />
       <Toaster />
     </div>
   )
+}
+
+/**
+ * The reload bar for a page in a panel: shown when the page is the window's own (the desktop app's
+ * native panel), not inside the board's viewer iframe, where the board's bar already asks.
+ */
+function TopReloadBar() {
+  return window === window.top ? <ReloadBar /> : null
 }

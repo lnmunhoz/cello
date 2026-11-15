@@ -412,6 +412,26 @@ cello restore 20261115-120000    # only when Lucas asks, with Cello stopped
 - **What's kept:** the newest 14 of each kind, counted apart: **auto** (the daily ones), **manual** (\`cello backup\`) and **safety** (the copy of the current state that restore takes first). Taking many manual backups never pushes out the daily history or the undo for a restore. Only Cello's own folders (a \`YYYYMMDD-HHMMSS\` name and a manifest.json) are ever pruned; anything else in \`backups/\` is left alone.
 - **Restore** replaces the database and evidence files with a backup's. Stop Cello first (Ctrl-C where \`cello start\` runs, or quit the desktop app): it refuses while a server runs. It takes a safety backup of the current state first ("before restoring <id>" in the list), so restoring that one undoes it. **Agents run \`cello restore\` only when Lucas asks.**
 
+## Which build is running
+
+Each build of Cello knows the commit it was built from. When Lucas asks whether his Cello has a change yet, compare that commit with the merge:
+
+\`\`\`bash
+cello --version        # the CLI: 0.2.0 (build c602f25)
+cello whoami | jq '.server.build'
+# {
+#   "version": "0.2.0",
+#   "commit": "c602f25",              the commit the server was built from
+#   "startedAt": 1763230740000,        when it started
+#   "web": { "commit": "c602f25", "builtAt": …, "changes": ["merge: … (CEL-38, CEL-39)", …] }
+# }
+git merge-base --is-ancestor <merge commit> c602f25 && echo "it's in"
+\`\`\`
+
+- \`web\` is the web app the server serves; \`changes\` lists the commit subjects merged since the build before it. The sidebar's footer shows the same line, "Cello 0.2.0 · build c602f25 · live since 18:19", and a click lists those changes.
+- After a new build is started, open tabs and the desktop app notice it the next time they reconnect: they show "Cello was updated · Reload" and reload by themselves after a few seconds, unless Lucas is typing.
+- \`build dev\` means the commit is unknown: a build made outside a git checkout without \`CELLO_BUILD_COMMIT\`.
+
 ## Identity and environment
 
 | Variable | What it does |
@@ -421,6 +441,8 @@ cello restore 20261115-120000    # only when Lucas asks, with Cello stopped
 | \`CELLO_SESSION\` | Overrides the session. An agent that isn't Claude Code sets a stable id for its conversation here. \`CELLO_SESSION=me\` acts as Lucas: only when he asks you to. |
 | \`CELLO_PORT\` | The server's port, 4747 by default. Dev servers and tests use other ports. |
 | \`CELLO_DATA_DIR\` | \`cello start\`'s data folder, \`~/.cello\` by default. |
+| \`CELLO_WEB_DIR\` | A built web app (\`vite build\`'s folder) for \`cello start\` to serve instead of its own. It serves **every file in that folder** to anything that can reach the port, so point it only at a build. Without an \`index.html\` there, \`cello start\` says so on stderr and serves its own app. Tests use it to serve two builds. |
+| \`CELLO_BUILD_COMMIT\` | The commit a build records, when it's made outside a git checkout (Docker): a commit hash (7 to 40 lowercase hex characters); anything else is ignored. \`vite build\`, \`bun run build\` and \`cello\` from source otherwise read the checkout's HEAD. |
 
 With no session at all, changes are recorded as Lucas. When something gets credited to the wrong person, \`cello whoami\` prints what Cello sees.
 
@@ -741,7 +763,7 @@ cello doc archive [flags] <slug>
 
 ### cello whoami
 
-Print, as JSON, who Cello thinks is calling.
+Print, as JSON, who Cello thinks is calling, and which build the CLI and the server are.
 
 \`\`\`
 cello whoami [flags]
@@ -794,7 +816,7 @@ cello hook claude [flags] <event>
 
 ### cello start
 
-Run the Cello server on 127.0.0.1:4747 with data in ~/.cello (CELLO_PORT, CELLO_DATA_DIR).
+Run the Cello server on 127.0.0.1:4747 with data in ~/.cello (CELLO_PORT, CELLO_DATA_DIR), serving its built-in web app, or every file in CELLO_WEB_DIR when that folder has an index.html.
 
 \`\`\`
 cello start [flags]

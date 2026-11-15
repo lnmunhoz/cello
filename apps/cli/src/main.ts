@@ -1,13 +1,14 @@
-// Runs `cello` with the process's arguments and environment. `bin.ts` calls it with apps/web/dist;
-// the compiled binary calls it with the web app embedded (scripts/build.ts).
+// Runs `cello` with the process's arguments and environment. `bin.ts` calls it with apps/web/dist and
+// the checkout's commit; the compiled binary with the web app and the commit embedded (scripts/build.ts).
 import * as BunRuntime from "@effect/platform-bun/BunRuntime"
 import * as BunServices from "@effect/platform-bun/BunServices"
 import type * as WebFiles from "@cello/server/web/WebFiles"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import { CliEnv, run } from "./cli.ts"
+import type { CliBuild } from "./env.ts"
 
-export const main = (web: () => WebFiles.WebFiles | undefined) =>
+export const main = (web: () => WebFiles.WebFiles | undefined, build: CliBuild) =>
   run(process.argv.slice(2)).pipe(
     Effect.provideService(CliEnv, {
       env: process.env,
@@ -15,6 +16,7 @@ export const main = (web: () => WebFiles.WebFiles | undefined) =>
       now: () => Date.now(),
       readStdin: () => Bun.stdin.text(),
       web,
+      build,
       exit: (code) => process.exit(code),
     }),
     // CliFailure carries the sentence to print; parse errors were already shown with the help text.

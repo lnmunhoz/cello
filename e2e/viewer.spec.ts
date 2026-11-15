@@ -1,5 +1,6 @@
 // CEL-12: evidence, Cello pages and links open in the viewer side panel beside the board, from the
 // Review page, the task panel's pinned packet, a card's evidence badge and links in comments.
+// CEL-44: a screenshot opens in the image modal first; its "Open in viewer" moves it to the viewer.
 import * as fs from "node:fs"
 import * as http from "node:http"
 import type { AddressInfo } from "node:net"
@@ -21,6 +22,13 @@ const playedPastOneSecond = (video: Locator) =>
       }),
   )
 
+/** Opens `name`'s screenshot in the image modal, then in the viewer with the modal's "Open in viewer". */
+async function openScreenshotInViewer(page: Page, within: Locator, name: string) {
+  await within.getByRole("button", { name: `Open ${name}`, exact: true }).click()
+  await page.getByRole("dialog", { name }).getByRole("button", { name: `Open ${name} in the viewer` }).click()
+  await expect(page.getByRole("dialog")).toHaveCount(0)
+}
+
 /** Drags the viewer's left edge by `dx` px (negative: to the left, wider) with the mouse. */
 async function dragEdge(page: Page, dx: number) {
   const handle = viewerOf(page).getByRole("separator", { name: "Resize viewer" })
@@ -40,7 +48,7 @@ async function screenshotViewer(browser: Browser, key: string, colorScheme: "lig
   await page.goto(`/review?open=${key}-1`)
   const item = page.getByRole("article", { name: new RegExp(`${key}-1`) })
   const viewer = viewerOf(page)
-  await item.getByRole("button", { name: "Open The board" }).click()
+  await openScreenshotInViewer(page, item, "The board")
   await expect(viewer.locator("img[data-viewer-image]")).toHaveJSProperty("complete", true)
   await page.screenshot({ path: path.join(SHOTS, `viewer-screenshot-${colorScheme}.png`) })
   await item.getByRole("link", { name: "The PR" }).click()
@@ -60,8 +68,8 @@ test("CEL-12: a packet's screenshot, video and PR link open in the viewer beside
   await expect(viewer).toHaveCount(0)
   const feedWidth = (await item.boundingBox())!.width
 
-  await caption(page, "Click the screenshot: it opens in the viewer, fitted to the panel")
-  await item.getByRole("button", { name: "Open The board" }).click()
+  await caption(page, "Click the screenshot, then Open in viewer in the image modal: it opens in the viewer, fitted to the panel")
+  await openScreenshotInViewer(page, item, "The board")
   await expect(viewer.getByRole("heading", { name: "The board" })).toBeVisible()
   const image = viewer.locator("img[data-viewer-image]")
   await expect(image).toHaveJSProperty("naturalWidth", 1440)
@@ -104,9 +112,9 @@ test("CEL-12: a packet's screenshot, video and PR link open in the viewer beside
   await page.keyboard.press("Escape")
   await expect(viewer).toHaveCount(0)
 
-  await caption(page, "Reload and open the screenshot again: the viewer keeps its width")
+  await caption(page, "Reload and open the screenshot in the viewer again: it keeps its width")
   await page.reload()
-  await item.getByRole("button", { name: "Open The board" }).click()
+  await openScreenshotInViewer(page, item, "The board")
   await expect(viewer.getByRole("heading", { name: "The board" })).toBeVisible()
   expect((await viewer.boundingBox())!.width).toBe(before + 200)
 
@@ -139,11 +147,11 @@ test("CEL-12: on the board, the evidence badge and the task panel's packet open 
   await page.keyboard.press("Escape")
   await expect(viewer).toHaveCount(0)
 
-  await caption(page, "Open the card, then its screenshot: the viewer takes the task panel's place")
+  await caption(page, "Open the card, then its screenshot in the viewer: the viewer takes the task panel's place")
   await taskCard.click()
   const panel = taskPanel(page, `${key}-1`)
   const pinned = panel.getByRole("region", { name: "Review packet" })
-  await pinned.getByRole("button", { name: "Open The board" }).click()
+  await openScreenshotInViewer(page, pinned, "The board")
   await expect(viewer.getByRole("img", { name: "The board" })).toBeVisible()
   await expect(panel).toBeHidden()
   await expect(page).toHaveURL(new RegExp(`/${key}/1$`))

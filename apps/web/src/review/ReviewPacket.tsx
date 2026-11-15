@@ -11,12 +11,17 @@ import { ReviewActions } from "./ReviewActions.tsx"
  *
  * One column, unless the page gives it room (`packet-wide:`, index.css): then the summary, the steps
  * and the decision sit on the left, and the evidence on the right, sticky while the left column scrolls.
+ *
+ * One gallery: in the image modal, ← and → step from the summary's diagrams to the screenshots.
  */
 export function ReviewPacket({ task, review, decide, onDecided }: { task: Task; review: Review; decide: boolean; onDecided?: (() => void) | undefined }) {
   return (
-    <div className="flex flex-col gap-5 packet-wide:grid packet-wide:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] packet-wide:grid-rows-[auto_auto_1fr] packet-wide:gap-x-8">
+    <div
+      data-gallery=""
+      className="flex flex-col gap-5 packet-wide:grid packet-wide:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] packet-wide:grid-rows-[auto_auto_1fr] packet-wide:gap-x-8"
+    >
       <div className="min-w-0 packet-wide:col-start-1 packet-wide:row-start-1">
-        <Markdown source={review.summary} />
+        <Markdown source={review.summary} gallery={false} />
       </div>
       <section aria-label="How to check" className="flex flex-col gap-2 packet-wide:col-start-1 packet-wide:row-start-2">
         <h4 className="text-xs font-medium text-muted">How to check</h4>
