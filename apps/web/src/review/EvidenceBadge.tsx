@@ -25,7 +25,7 @@ const SIZES = {
 
 /**
  * On a card or list row with an open review packet: a thumbnail and how much evidence it has. With
- * `opens` (cards), a click opens the first piece of evidence in the viewer.
+ * `opens` (cards), a click opens the first piece of evidence: a screenshot in the image modal, anything else in the viewer.
  */
 export function EvidenceBadge({ task, board, opens = false, size = "sm" }: { task: Task; board: BoardState; opens?: boolean; size?: keyof typeof SIZES }) {
   const review = openReviewOf(board, task.id)
@@ -72,7 +72,7 @@ export function EvidenceBadge({ task, board, opens = false, size = "sm" }: { tas
       }}
       onClick={(e) => {
         e.stopPropagation()
-        openEvidence(first)
+        openEvidence(first, review.attachments, e.currentTarget)
       }}
       className={`${style.look} cursor-pointer outline-none hover:border-line-strong hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ring`}
     >

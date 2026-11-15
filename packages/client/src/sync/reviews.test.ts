@@ -2,7 +2,7 @@ import type { Attachment, Project, Review, Status, Task } from "@cello/contract/
 import type { CelloEvent, EventBody } from "@cello/contract/events"
 import { describe, expect, it } from "vitest"
 import type { BoardState } from "./applyEvents.ts"
-import { applyReviewEvents, attachmentUrl, evidenceInOrder, evidenceTarget, firstEvidence, openReviewOf, posterUrl, reviewQueue, thumbnailOf } from "./reviews.ts"
+import { applyReviewEvents, attachmentUrl, evidenceInOrder, evidenceOpen, evidenceTarget, firstEvidence, openReviewOf, posterUrl, reviewQueue, thumbnailOf } from "./reviews.ts"
 
 const status = (id: string, name: string, category: Status["category"], position: string): Status => ({
   id, workspaceId: "w1", name, category, position, color: "#999", hidden: false, createdAt: 1, updatedAt: 1,
@@ -115,6 +115,36 @@ describe("evidence", () => {
     expect(evidenceTarget(pr)).toEqual({ url: "https://github.com/lnmunhoz/cello/pull/10", title: "github.com/lnmunhoz/cello/pull/10" })
     expect(evidenceTarget({ ...pr, caption: "The PR" })?.title).toBe("The PR")
     expect(evidenceTarget(attachment("l2", "link"))).toBeNull()
+  })
+
+  it("a screenshot opens in the image modal, at its place among the packet's screenshots (images attached as files too)", () => {
+    const shot1 = attachment("s1", "image", { caption: "The board" })
+    const shot2 = attachment("s2", "image", { name: "dark.png" })
+    const webp = attachment("f2", "file", { name: "shot.webp", mime: "image/webp" })
+    const packet = [attachment("l1", "link", { url: "https://example.com" }), webp, shot1, attachment("v1", "video"), shot2, attachment("f1", "file", { mime: "text/plain" })]
+    expect(evidenceOpen(shot2, packet)).toEqual({
+      in: "modal",
+      index: 1,
+      images: [
+        { url: "/attachments/s1", title: "The board", name: "s1.bin" },
+        { url: "/attachments/s2", title: "dark.png", name: "dark.png" },
+        { url: "/attachments/f2", title: "shot.webp", name: "shot.webp" },
+      ],
+    })
+    expect(evidenceOpen(webp, packet)).toMatchObject({ in: "modal", index: 2 })
+    // On its own (a packet the caller doesn't have): the only image.
+    expect(evidenceOpen(shot1, [])).toMatchObject({ in: "modal", index: 0, images: [{ url: "/attachments/s1" }] })
+  })
+
+  it("a video, a text file and a link open beside the board, as before", () => {
+    const pr = attachment("l1", "link", { url: "https://github.com/lnmunhoz/cello/pull/10", caption: "The PR" })
+    const video = attachment("v1", "video", { caption: "The whole flow" })
+    const log = attachment("f1", "file", { name: "test-output.txt", mime: "text/plain" })
+    const packet = [pr, video, log, attachment("s1", "image")]
+    expect(evidenceOpen(pr, packet)).toEqual({ in: "panel", target: { url: "https://github.com/lnmunhoz/cello/pull/10", title: "The PR" } })
+    expect(evidenceOpen(video, packet)).toEqual({ in: "panel", target: { url: "/attachments/v1", title: "The whole flow", kind: "video" } })
+    expect(evidenceOpen(log, packet)).toEqual({ in: "panel", target: { url: "/attachments/f1", title: "test-output.txt" } })
+    expect(evidenceOpen(attachment("l2", "link"), packet)).toBeNull()
   })
 })
 

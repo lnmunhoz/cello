@@ -21,7 +21,9 @@ declare global {
  * draws only in the top page: a frame hands its pointer to its parent (postMessage, which works
  * across origins), each window adds the frame's position on its own page, and the top page draws
  * it, so clicks inside iframes (the viewer frames pages) show the cursor and ripple too. The
- * caption is kept in sessionStorage, so it stays through a reload.
+ * caption is kept in sessionStorage, so it stays through a reload. They sit in a manual popover,
+ * raised to the top of the top layer whenever the page changes, so they stay above a modal dialog
+ * (the image modal) too.
  */
 const overlay = () => {
   type Point = { kind: "move" | "press"; x: number; y: number }
@@ -75,6 +77,8 @@ const overlay = () => {
   const install = () => {
     const style = document.createElement("style")
     style.textContent = `
+      #e2e-layer { position: fixed; inset: 0; width: auto; height: auto; margin: 0; padding: 0; border: 0; background: transparent;
+        overflow: visible; pointer-events: none; color: inherit; }
       #e2e-cursor { position: fixed; z-index: 2147483647; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%;
         background: rgb(94 106 210 / .35); border: 2px solid rgb(94 106 210); pointer-events: none; left: -50px; top: -50px; }
       .e2e-ripple { position: fixed; z-index: 2147483646; width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%;
@@ -89,7 +93,29 @@ const overlay = () => {
     cursor.id = "e2e-cursor"
     const caption = document.createElement("div")
     caption.id = "e2e-caption"
-    document.body.append(cursor, caption)
+    const layer = document.createElement("div")
+    layer.id = "e2e-layer"
+    layer.setAttribute("popover", "manual")
+    layer.append(cursor, caption)
+    document.body.append(layer)
+    // Shown again after anything else enters the top layer (a modal dialog), so it's drawn above it.
+    let raising = false
+    const raise = () => {
+      if (raising) return
+      raising = true
+      requestAnimationFrame(() => {
+        raising = false
+        if (!layer.isConnected) document.body.append(layer)
+        try {
+          if (layer.matches(":popover-open")) layer.hidePopover()
+          layer.showPopover()
+        } catch {}
+      })
+    }
+    new MutationObserver((records) => {
+      if (records.some((r) => r.target !== layer && !layer.contains(r.target))) raise()
+    }).observe(document.body, { childList: true, subtree: true })
+    raise()
     show = ({ kind, x, y }) => {
       cursor.style.left = `${x}px`
       cursor.style.top = `${y}px`
@@ -99,7 +125,7 @@ const overlay = () => {
       ripple.className = "e2e-ripple"
       ripple.style.left = `${x}px`
       ripple.style.top = `${y}px`
-      document.body.append(ripple)
+      layer.append(ripple)
       ripple.addEventListener("animationend", () => ripple.remove())
     }
     render = () => {

@@ -79,9 +79,11 @@ describe("PageBody", () => {
     expect(html).not.toContain("language-mermaid")
   })
 
-  it("shows images with their title as a caption, and never raw HTML", () => {
+  it("shows images with their title as a caption, each a button that opens it in the image modal, and never raw HTML", () => {
     const html = render(REPORT)
-    expect(html).toContain('<img src="/attachments/01ABC" alt="The board" title="The board after the fix" loading="lazy"/>')
+    expect(html).toContain(
+      '<button type="button" class="page-image" aria-label="Open The board"><img data-page-image="" src="/attachments/01ABC" alt="The board" title="The board after the fix" loading="lazy"/></button>',
+    )
     expect(html).toContain('<span class="page-caption">The board after the fix</span>')
     expect(html).not.toContain("<script")
   })

@@ -229,9 +229,23 @@ body {
     border-radius: 10px;
     background: var(--raised);
   }
+  /* An image opens in the image modal: a button around it, without a look of its own. */
+  & .page-image {
+    display: block;
+    max-width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: zoom-in;
+    border-radius: 10px;
+    outline: none;
+  }
+  & .page-image:focus-visible img {
+    box-shadow: 0 0 0 2px var(--ring);
+  }
   /* An image's title, or an *italic line* right under it, is its caption. */
   & .page-caption,
-  & p:has(> img:only-child) + p > em:only-child {
+  & p:has(> .page-image:only-child) + p > em:only-child {
     display: block;
     margin-bottom: 18px;
     color: var(--muted);

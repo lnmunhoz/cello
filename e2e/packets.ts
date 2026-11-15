@@ -36,6 +36,15 @@ export const celloAs = (session: string | null, options: { readonly stdin?: stri
 /** Runs the `cello` CLI from source as a Claude Code session, against the e2e server. */
 export const cello = celloAs("e2e0review-agent-session")
 
+/** A real MP4 (a test pattern) at `file`. VP9 inside: Playwright's Chromium has no H.264. */
+const testVideo = (file: string) => {
+  const ffmpeg = spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=4:size=640x360:rate=25",
+    "-c:v", "libvpx-vp9", "-deadline", "realtime", "-b:v", "0", "-crf", "40", "-pix_fmt", "yuv420p", "-movflags", "+faststart", file,
+  ])
+  if (ffmpeg.status !== 0) throw new Error(`ffmpeg failed: ${ffmpeg.stderr}`)
+}
+
 /**
  * An agent's packet for task 1 of `key`: a real MP4 ("The whole flow"), a real screenshot of the
  * board ("The board") and a link to the PR ("The PR"). Remove `dir` when the test is done.
@@ -44,13 +53,8 @@ export async function submitPacket(page: Page, key: string): Promise<{ dir: stri
   cello("task", "create", "Review packets on the board", "--project", key)
   cello("task", "claim", `${key}-1`)
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-evidence-"))
-  // A real MP4 (a test pattern). VP9 inside: Playwright's Chromium has no H.264.
   const video = path.join(dir, "board-flow.mp4")
-  const ffmpeg = spawnSync("ffmpeg", [
-    "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=4:size=640x360:rate=25",
-    "-c:v", "libvpx-vp9", "-deadline", "realtime", "-b:v", "0", "-crf", "40", "-pix_fmt", "yuv420p", "-movflags", "+faststart", video,
-  ])
-  if (ffmpeg.status !== 0) throw new Error(`ffmpeg failed: ${ffmpeg.stderr}`)
+  testVideo(video)
   const screenshot = path.join(dir, "board.png")
   await page.screenshot({ path: screenshot })
   const out = cello(
@@ -89,6 +93,38 @@ export async function submitPackets(page: Page, key: string, titles: ReadonlyArr
       "--link", "https://github.com/lnmunhoz/cello/pull/22", "--caption", "The PR",
     )
   })
+  return { dir }
+}
+
+/**
+ * Task 1 of `key` handed in with three real screenshots of different shapes, to step through in the
+ * image modal: "The board" (the whole 1440×900 window), "The sidebar" (tall) and "The header" (a wide
+ * strip); plus a real MP4 ("The whole flow") and a link ("The PR"). `page` shows the board. Remove
+ * `dir` when done.
+ */
+export async function submitScreenshotsPacket(page: Page, key: string, title: string): Promise<{ dir: string }> {
+  cello("task", "create", title, "--project", key)
+  cello("task", "claim", `${key}-1`)
+  await expect(page.locator(`[data-task-key="${key}-1"]`)).toBeVisible()
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-evidence-"))
+  const video = path.join(dir, "flow.mp4")
+  testVideo(video)
+  const shot = (name: string) => path.join(dir, name)
+  await page.screenshot({ path: shot("board.png") })
+  await page.screenshot({ path: shot("sidebar.png"), clip: { x: 0, y: 0, width: 320, height: 900 } })
+  await page.screenshot({ path: shot("header.png"), clip: { x: 0, y: 0, width: 1440, height: 160 } })
+  const out = cello(
+    "task", "submit", `${key}-1`,
+    "--summary", "Screenshots open in a **zoomable modal**, and show at full width in the packet.",
+    "--step", "Click a screenshot: it opens over the page, fitted",
+    "--step", "Zoom with the wheel, drag it around, step with ← and →",
+    "--attach", video, "--caption", "The whole flow",
+    "--attach", shot("board.png"), "--caption", "The board",
+    "--attach", shot("sidebar.png"), "--caption", "The sidebar",
+    "--attach", shot("header.png"), "--caption", "The header",
+    "--link", "https://github.com/lnmunhoz/cello/pull/44", "--caption", "The PR",
+  )
+  expect(out).toContain(`Submitted ${key}-1 for review  In Progress → In Review`)
   return { dir }
 }
 
@@ -157,11 +193,7 @@ export async function submitDiagramPacket(page: Page, key: string, title: string
   cello("task", "claim", `${key}-1`)
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-evidence-"))
   const video = path.join(dir, "review-flow.mp4")
-  const ffmpeg = spawnSync("ffmpeg", [
-    "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=4:size=640x360:rate=25",
-    "-c:v", "libvpx-vp9", "-deadline", "realtime", "-b:v", "0", "-crf", "40", "-pix_fmt", "yuv420p", "-movflags", "+faststart", video,
-  ])
-  if (ffmpeg.status !== 0) throw new Error(`ffmpeg failed: ${ffmpeg.stderr}`)
+  testVideo(video)
   const board = path.join(dir, "board.png")
   await page.screenshot({ path: board })
   const out = celloAs("e2e0review-agent-session", { stdin: DIAGRAM_SUMMARY })(

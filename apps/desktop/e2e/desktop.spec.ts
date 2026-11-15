@@ -244,7 +244,7 @@ test("CEL-24: ⌘B in the board collapses the sidebar to a rail and expands it a
   await expectBoardFills(app, board)
 })
 
-test("CEL-12: evidence clicked on the board opens in the native panel, not the web viewer: the card's badge, then a packet link beside the task", async ({}, testInfo) => {
+test("CEL-12, CEL-44: a screenshot clicked on the board opens in the image modal in the board's page, and its Open in viewer goes to the native panel; a packet link opens in the native panel beside the task", async ({}, testInfo) => {
   const site = await testSite()
   const dataDir = tempDir("cello-desktop-e2e-")
   const server = await startCello(dataDir)
@@ -277,8 +277,21 @@ test("CEL-12: evidence clicked on the board opens in the native panel, not the w
   const badge = taskCard.locator("[data-evidence-badge]")
   await expect(badge).toContainText("2")
 
-  await video.caption("Click the card's evidence badge: the screenshot opens in the native panel")
+  await video.caption("Click the card's evidence badge: the screenshot opens in the image modal, over the board")
   await badge.click()
+  const modal = board.getByRole("dialog", { name: "The board" })
+  await expect(modal.locator("img[data-modal-image]")).toBeVisible()
+  expect((await views(app)).page.visible).toBe(false)
+  // The still shows it after its fade-in has finished.
+  await modal.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)))
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "image-modal-badge.png"))
+
+  await video.caption("Esc closes it; Open in viewer in the modal shows the screenshot in the native panel")
+  await board.keyboard.press("Escape")
+  await expect(modal).toHaveCount(0)
+  await badge.click()
+  await modal.getByRole("button", { name: "Open The board in the viewer" }).click()
+  await expect(modal).toHaveCount(0)
   await panel.waitForURL(/\/attachments\/[^/]+$/)
   await expect(chrome.getByLabel("Address")).toHaveValue("The board")
   expect((await views(app)).page.visible).toBe(true)
