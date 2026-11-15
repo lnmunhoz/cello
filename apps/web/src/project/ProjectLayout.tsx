@@ -77,8 +77,9 @@ export function ProjectLayout() {
           ...last,
         ]}
       />
-      {/* In a narrow window the tabs scroll sideways here instead of overflowing the main panel. */}
-      <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto px-3 [scrollbar-width:none]">
+      {/* In a narrow window the tabs scroll sideways here instead of overflowing the main panel; Display stays whole. */}
+      <div className="flex h-11 shrink-0 items-center gap-2 px-3">
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
         <TabLink to="/$projectKey/overview" params={{ projectKey: project.key }}>
           Overview
         </TabLink>
@@ -91,8 +92,9 @@ export function ProjectLayout() {
         <TabLink to="/$projectKey/activity" params={{ projectKey: project.key }}>
           Activity
         </TabLink>
+        </div>
         {onIssues ? (
-          <span className="ml-auto">
+          <span className="shrink-0">
             <DisplayOptions />
           </span>
         ) : null}
