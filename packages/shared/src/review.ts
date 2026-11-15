@@ -28,6 +28,12 @@ export const reviewTarget = <S extends StatusLike>(statuses: ReadonlyArray<S>, c
 export const approveTarget = <S extends StatusLike>(statuses: ReadonlyArray<S>): S | null =>
   sorted(statuses).find((s) => s.category === "completed") ?? null
 
-/** Where a task sent back goes: the first started status. */
-export const sendBackTarget = <S extends StatusLike>(statuses: ReadonlyArray<S>): S | null =>
+/**
+ * The status stages live in (CEL-35): the first started one by position (In Progress), where a claim
+ * puts a task. `cello task stage` works only there, and only its column splits into lanes.
+ */
+export const stageStatus = <S extends StatusLike>(statuses: ReadonlyArray<S>): S | null =>
   sorted(statuses).find((s) => s.category === "started") ?? null
+
+/** Where a task sent back goes: the first started status, back to work. */
+export const sendBackTarget = stageStatus

@@ -20,6 +20,9 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   assigneeSessionId: null,
   createdByActorId: "me",
   createdBySessionId: null,
+  updatedByActorId: null,
+  updatedBySessionId: null,
+  stage: null,
   version: 1,
   createdAt: 1,
   updatedAt: 1,
@@ -35,6 +38,7 @@ const snapshot = (tasks: Task[], seq = 10): Snapshot => ({
   statuses: [],
   labels: [],
   tasks,
+  sessions: [],
   reviews: [],
   asks: [],
   documents: [],
@@ -165,5 +169,46 @@ describe("applyEvents: documents", () => {
     expect(next.documents["d1"]).toMatchObject({ version: 2, tasks: [{ id: "t1", key: "CEL-1" }] })
     expect(next.documents["d0"]).toMatchObject({ version: 1, archivedAt: 13 })
     expect(next.tasks).toBe(state.tasks)
+  })
+})
+
+describe("applyEvents: stage, last change and presence (CEL-5, CEL-35)", () => {
+  const agent = (seq: number, body: EventBody): CelloEvent => ({ ...ev(seq, body), actorId: "claude", sessionId: "s1" }) as CelloEvent
+
+  it("a stage change sets the stage and version, and records who changed the task", () => {
+    const state = fromSnapshot(snapshot([task("t1")]))
+    const next = applyEvents(state, [agent(11, { type: "task.stage_changed", id: "t1", version: 2, before: null, after: "review" })])
+    expect(next.tasks["t1"]).toMatchObject({ stage: "review", version: 2, updatedAt: 11, updatedByActorId: "claude", updatedBySessionId: "s1" })
+  })
+
+  it("every task change records its author as the last change", () => {
+    const state = fromSnapshot(snapshot([task("t1")]))
+    const next = applyEvents(state, [
+      agent(11, { type: "task.updated", id: "t1", before: { title: "Task t1" }, after: { title: "New" }, version: 2 }),
+    ])
+    expect(next.tasks["t1"]).toMatchObject({ updatedByActorId: "claude", updatedBySessionId: "s1" })
+    const back = applyEvents(next, [ev(12, { type: "task.labels_changed", id: "t1", added: ["bug"], removed: [], version: 3 })])
+    expect(back.tasks["t1"]).toMatchObject({ updatedByActorId: "me", updatedBySessionId: null })
+  })
+
+  it("a session check-in adds or replaces the session; the snapshot's sessions load by id", () => {
+    const session = {
+      id: "s1", actorId: "claude", externalId: "2fd0505c-1", clientName: "Claude Code", entrypoint: null, cwd: null, pid: 1,
+      startedAt: 1, lastSeenAt: 5, endedAt: null,
+    }
+    const state = fromSnapshot({ ...snapshot([task("t1")]), sessions: [session] })
+    expect(state.sessions["s1"]?.lastSeenAt).toBe(5)
+    const next = applyEvents(state, [agent(11, { type: "session.seen", session: { ...session, lastSeenAt: 11 } })])
+    expect(next.sessions["s1"]?.lastSeenAt).toBe(11)
+    expect(next.tasks).toBe(state.tasks)
+  })
+
+  it("a session whose agent the board doesn't know yet brings it in, named after its client, so history can name it", () => {
+    const session = {
+      id: "s9", actorId: "codex", externalId: "9f9f9f9f-1", clientName: "Codex", entrypoint: null, cwd: null, pid: null,
+      startedAt: 1, lastSeenAt: 5, endedAt: null,
+    }
+    const next = applyEvents(fromSnapshot(snapshot([])), [agent(11, { type: "session.seen", session })])
+    expect(next.actors["codex"]).toMatchObject({ id: "codex", kind: "agent", name: "Codex", client: "Codex" })
   })
 })

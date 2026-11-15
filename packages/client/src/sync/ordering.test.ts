@@ -5,7 +5,7 @@ import { ORDERINGS, orderTasks, parseOrdering } from "./ordering.ts"
 const task = (id: string, extra: Partial<Task> = {}): Task => ({
   id, projectId: "p1", number: 1, key: `CEL-${id}`, title: id, description: "", statusId: "todo", priority: 0, position: "a0",
   dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null, createdByActorId: "me",
-  createdBySessionId: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
+  createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
 })
 const ids = (tasks: ReadonlyArray<Task>) => tasks.map((t) => t.id)
 

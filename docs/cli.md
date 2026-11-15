@@ -43,8 +43,9 @@ Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
    This repo's tasks live in Cello, project **KEY** on Lucas's board. Agents use it only through the `cello` CLI.
 
    - Before your first `cello` command in a session, run `cello guide` once: it's the full reference (concepts, workflow, every command, what each error means). Don't guess.
+   - **Every request from Lucas that will change something starts as a Cello task, before anything else.** Before you read code, search or plan: check `cello task list` for it, else `cello task create "<title>"` with his words quoted in the description, then `cello task claim KEY-n`. This covers small requests, follow-ups and anything he sends mid-task (each distinct request is its own task). Only a question that changes nothing is exempt.
    - Run `cello context` at the start of each session.
-   - Claim a task before working on it (`cello task claim KEY-n`), and put the key in commit messages (`fix(api): rate limit (KEY-12)`).
+   - Put the task key in commit messages (`fix(api): rate limit (KEY-12)`).
    - In Progress means someone is on it right now. When you wait on Lucas's decision, ask on the card with `cello task ask` (the task waits in Needs input). When you stop, put the state on the card and move it back to Todo.
    - Hand finished work to Lucas only with `cello task submit`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
    - Answer Lucas on the card with `cello task comment`. His comments come to your session by themselves.
@@ -82,6 +83,8 @@ Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
   - While your session is alive, other agents can't claim it.
   - If your session has exited, another session can claim the task and takes the claim over.
   - Lucas always wins: when he changes a task you've claimed (moves it, approves it), your claim ends, and `cello context` lists it under "Claims you lost".
+- **Stage:** where a claimed task is inside In Progress: **building**, **review** (Agent review), **fixing** (Fixing findings) or **merged**. In Progress holds a task from the claim to the packet, so without a stage a task being built and one waiting for review look the same. The session holding the claim sets it with `cello task stage`; the board shows it on the card. Asking Lucas keeps it through Needs input; any other move out of In Progress, or submitting it, clears it. See Stages.
+- **Presence:** the board shows whether the session holding a claim is working right now: **active now** (it called Cello in the last 5 minutes), **seen 2h ago** (quiet, its process still running) or **ended** (its process exited). Every `cello` command and every hook run counts as a check-in; with the hooks installed that's every tool call, a subagent's included. The board hears about it at most every 2 minutes, which keeps "active now" steady without filling the history. You don't do anything for it.
 - **Review packet:** how finished work reaches Lucas. It holds a summary, how-to-check steps and evidence (videos, screenshots, test output, links). `cello task submit` creates it and moves the task to In Review. Then Lucas decides:
   - **Approve:** the task moves to Done and your claim ends.
   - **Send back:** the task returns to In Progress with his note, and your claim stays. The note comes to your session (see Comments from Lucas reach your session), and `cello task get` shows it under Reviews.
@@ -125,7 +128,7 @@ Run it first in every session, and again when you come back to a task.
 
 ## The workflow
 
-1. **Find the work.** `cello task list` shows Todo and In Progress. `cello task get CEL-12` reads one task in full, including Lucas's notes on earlier packets and every comment.
+1. **Find the work, or make it.** When Lucas asks for something that will change code, docs or anything else, it becomes a task **before you read code or plan**: `cello task list` to check it isn't there already, else `cello task create` with his words. `cello task list` shows Todo and In Progress; `cello task get CEL-12` reads one task in full, including Lucas's notes on earlier packets and every comment.
 2. **Claim it.** `cello task claim CEL-12`. If it says another session holds the task, pick another one. Don't work on a task someone else holds.
 3. **Work, test first, and put the key in every commit:** `feat(web): collapsed review rows (CEL-22)`.
 4. **Comment** progress and decisions on the card (`cello task comment`). Lucas reads them there.
@@ -137,7 +140,8 @@ Run it first in every session, and again when you come back to a task.
    - if the task is In Review, move it back with `cello task move CEL-12 "In Progress"`, so the board shows it's being worked on again.
 
    Then fix, and submit a new packet (it replaces the open one). The same goes for feedback on a task in Done: comment it, and move it back to In Progress, or open a new task if it's a new request.
-7. **In Progress means someone is working on it right now.** When work stops before you submit, don't leave the card there: the board would show it as being built when nobody is on it.
+7. **If you run a feature through builder and reviewer agents** (the orchestrator), mark each step with `cello task stage` (see Stages), so the card says where the work is.
+8. **In Progress means someone is working on it right now.** When work stops before you submit, don't leave the card there: the board would show it as being built when nobody is on it.
    - **Waiting on Lucas** (a scope's options, a design choice, any decision that's his): ask on the card with `cello task ask` (see Questions for Lucas). The task moves to Needs input, your claim stays, and it comes back to In Progress when he answers.
    - **Stopping or pausing:** comment where it stands, move it back to Todo, and `cello task release CEL-12`.
    - A **scope** is part of its task. Claim the task to make the scope; once the scope is published, ask its questions with `cello task ask` (attach its screenshots, link the page): the task waits in Needs input until he picks.
@@ -191,6 +195,32 @@ cello task move CEL-31 backlog           # any case
 - **Moving into Needs input is refused,** to everyone, Lucas included: only `cello task ask` puts a task there, with your questions.
 - **Don't move tasks to Done or Canceled.**
 - **"It was changed by … in the meantime":** someone changed the task while you were acting. Run the command again.
+
+## Stages
+
+A stage says where a claimed task is inside In Progress, so Lucas can tell from the board why it's still there. The orchestrator (the session holding the claim) sets it at each step of a feature (docs/feature-lifecycle.md):
+
+| Stage | The board says | Set it when |
+| --- | --- | --- |
+| `building` | Building | a builder agent starts writing the code |
+| `review` | Agent review | a reviewer agent starts reading the branch |
+| `fixing` | Fixing findings | the findings go back to the builder |
+| `merged` | Merged | the branch is merged into main, before the packet |
+
+```bash
+cello task stage CEL-12 building
+# CEL-12 is now Building  (In Progress  Sidebar: collapse and resize)
+cello task stage CEL-12 review
+cello task stage CEL-12 --clear      # no stage
+cello task list
+# CEL-12  In Progress · Agent review  Sidebar: collapse and resize  · Claude Code session 2fd0505c
+```
+
+- **Only the session holding the claim** sets it (or Lucas, with `CELLO_SESSION=me`, which keeps your claim). Claim the task first.
+- **Only in In Progress.** In any other status it's refused.
+- **It clears itself:** `cello task submit`, or a move to any other status, removes it. Reordering inside In Progress keeps it, and so does `cello task ask`: the stage waits in Needs input and is still there when Lucas's answers bring the task back.
+- **Subagents don't run it.** Builders and reviewers work for the orchestrator's session; the orchestrator marks the steps.
+- `cello task get` shows it on the Status line ("Status: In Progress · Stage: Agent review") and in the history, with who changed the task last.
 
 ## Labels
 
@@ -292,7 +322,7 @@ For a task Lucas N. Munhoz sent back, fix what the note asks, then hand it in ag
 
 **When a task is sent back,** it's in In Progress again and still yours. The note arrives the same way, marked "sent it back" (`cello task get` also shows it under Reviews). Fix what it asks, test, then hand the task in again with `cello task submit CEL-22` and new evidence.
 
-**Subagents share your session.** A subagent's `CLAUDE_CODE_SESSION_ID` is its parent's, so Cello can't tell them apart. The hook skips tool calls made inside a subagent, so comments reach the main conversation. Don't run `cello inbox` from a subagent: it would take the parent's comments. `cello context` is safe anywhere, since it takes nothing.
+**Subagents share your session.** A subagent's `CLAUDE_CODE_SESSION_ID` is its parent's, so Cello can't tell them apart. Inside a subagent the hook hands nothing over, so comments reach the main conversation; it only checks the session in, so the board shows your task as being worked on while the subagent runs. Don't run `cello inbox` from a subagent: it would take the parent's comments. `cello context` is safe anywhere, since it takes nothing.
 
 ## Review packets
 
@@ -558,6 +588,10 @@ Every error is one sentence that says what to do next. The usual ones:
 | No label named "bord" (did you mean board?). Nothing was changed. | `cello task label` named a label that doesn't exist; the task wasn't touched. | Use the right name, or make the label with `cello label create` first. |
 | There's already a label named "board" · …an archived label named "ui" | Label names are unique ignoring case, and archived labels keep theirs. | Use the label that's there; `cello label list` shows them all. |
 | It was changed by … in the meantime | Someone changed the task while you were acting. | Run the command again. |
+| CEL-12 isn't claimed: claim it first | `cello task stage` on a task nobody holds. | `cello task claim CEL-12`, then set the stage. |
+| CEL-12 is claimed by another session: only the session holding the claim sets its stage | Someone else holds it. | Leave its stage alone. |
+| CEL-12 is in Todo; a stage is only for tasks in In Progress | Stages live inside In Progress. | Claim it (which moves it to In Progress), or leave it. |
+| No stage "deploying" | Not one of the stages. | Use building, review, fixing or merged. |
 | CEL-12 needs a review packet before it goes to In Review | You used `move` to hand work over. | Use `cello task submit`. |
 | Only Lucas can approve a review | Approving and sending back are his. | Leave the task in In Review. |
 | CEL-12 goes to Needs input only with questions for Lucas | You used `move` to wait on him. | Ask with `cello task ask` (see Questions for Lucas). |
@@ -684,6 +718,21 @@ cello task release [flags] <key>
 | | |
 | --- | --- |
 | `key string` | A task key, e.g. CEL-3. |
+| `--json` | Print JSON for scripts. |
+
+### cello task stage
+
+Say where your claimed task is inside In Progress, so the board shows it: building, agent review, fixing findings, merged. Only the session holding the claim (or Lucas), only in In Progress. Asking Lucas (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.
+
+```
+cello task stage [flags] <key> [<stage>]
+```
+
+| | |
+| --- | --- |
+| `key string` | A task key, e.g. CEL-3. |
+| `stage string` | Where the work is: building (a builder agent is writing the code), review (a reviewer agent is reading the branch), fixing (the builder is fixing what the review found), merged (merged into main; the packet comes next). (optional) |
+| `--clear` | Remove the stage instead. |
 | `--json` | Print JSON for scripts. |
 
 ### cello task move
@@ -978,7 +1027,7 @@ cello uninstall claude [flags]
 
 ### cello hook claude
 
-Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); they print nothing when there are none, inside a subagent, or when the server doesn't answer within 2 seconds. pre-tool-use turns a Claude artifact publish away with a pointer to `cello doc publish`, and lets every other call through (all of them with CELLO_ALLOW_ARTIFACTS=1); it needs no server. Always exits 0.
+Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. pre-tool-use turns a Claude artifact publish away with a pointer to `cello doc publish`, and lets every other call through (all of them with CELLO_ALLOW_ARTIFACTS=1); it needs no server. Always exits 0.
 
 ```
 cello hook claude [flags] <event>

@@ -22,6 +22,7 @@ import type {
   Task,
   Workspace,
 } from "@cello/contract/entities"
+import type { TaskStage } from "@cello/contract/stages"
 import { formatTaskKey } from "@cello/shared/taskKey"
 import * as Effect from "effect/Effect"
 import type * as SqlClient from "effect/sql/SqlClient"
@@ -182,6 +183,9 @@ interface TaskRow {
   assignee_session_id: string | null
   created_by_actor_id: string
   created_by_session_id: string | null
+  updated_by_actor_id: string | null
+  updated_by_session_id: string | null
+  stage: string | null
   version: number
   created_at: number
   updated_at: number
@@ -221,6 +225,10 @@ export const selectTasks = (sql: Sql, where: Where) =>
       assigneeSessionId: r.assignee_session_id,
       createdByActorId: r.created_by_actor_id,
       createdBySessionId: r.created_by_session_id,
+      updatedByActorId: r.updated_by_actor_id,
+      updatedBySessionId: r.updated_by_session_id,
+      // Only stages from the list are ever written (TaskService.setStage).
+      stage: r.stage as TaskStage | null,
       version: r.version,
       createdAt: r.created_at,
       updatedAt: r.updated_at,

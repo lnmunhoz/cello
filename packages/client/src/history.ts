@@ -1,6 +1,7 @@
 // One plain line per history event, for the task panel and `cello task get`.
 import type { BoardState } from "./sync/applyEvents.ts"
 import type { CelloEvent } from "@cello/contract/events"
+import { stageInfo } from "@cello/contract/stages"
 
 const FIELD_NAMES: Record<string, string> = { title: "title", description: "description", priority: "priority", dueDate: "due date", parentId: "parent" }
 
@@ -44,6 +45,10 @@ export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | 
       return `${who} released it`
     case "task.claim_ended":
       return `${who}'s change ended the agent's claim`
+    case "task.stage_changed":
+      return e.after === null ? `${who} cleared the stage` : `${who} set the stage to ${stageInfo(e.after)?.label ?? e.after}`
+    case "session.seen":
+      return e.session.endedAt === null ? `${who} checked in` : `${who}'s session ended`
     case "comment.added":
       return `${who} commented`
     case "comment.edited":

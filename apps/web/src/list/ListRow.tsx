@@ -1,13 +1,15 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { labelsOf, parentOf } from "@cello/client/sync/list"
 import type { Project, Task } from "@cello/contract/entities"
+import { stageInfo } from "@cello/contract/stages"
 import { Link } from "@tanstack/react-router"
 import { CalendarIcon, ChevronRightIcon } from "lucide-react"
 import type { KeyboardEvent } from "react"
 import { Chip } from "../components/ui/Chip.tsx"
 import { PriorityIcon } from "../components/ui/PriorityIcon.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
-import { formatDay, formatDue } from "../lib/format.ts"
+import { formatDue } from "../lib/format.ts"
+import { RowCreated, RowWork, StageChip } from "../presence/Presence.tsx"
 import { QuestionsBadge } from "../ask/QuestionsBadge.tsx"
 import { EvidenceBadge } from "../review/EvidenceBadge.tsx"
 
@@ -26,13 +28,18 @@ export interface ListRowProps {
   readonly current: boolean
   /** The one row Tab lands on; the arrow keys move it. */
   readonly tabbable: boolean
+  /** In Progress grouped by stage (CEL-35): a stage column before the title, instead of the word at the right. */
+  readonly stageColumn?: boolean
   readonly onFocus: () => void
   readonly onKeyDown: (event: KeyboardEvent<HTMLElement>) => void
 }
 
-/** One task in the list, after Linear's: priority, key, status, title › parent, labels, due date, created date. */
-export function ListRow({ task, board, project, keyChars, current, tabbable, onFocus, onKeyDown }: ListRowProps) {
-  const body = <RowBody task={task} board={board} keyChars={keyChars} />
+/**
+ * One task in the list, after Linear's: priority, key, status, title › parent, who's on it and its
+ * stage, labels, due date, and who created it (the whole provenance on hover).
+ */
+export function ListRow({ task, board, project, keyChars, current, tabbable, stageColumn = false, onFocus, onKeyDown }: ListRowProps) {
+  const body = <RowBody task={task} board={board} keyChars={keyChars} stageColumn={stageColumn} />
   // A task still being created has no number to open yet.
   if (task.number === 0) {
     return (
@@ -58,10 +65,11 @@ export function ListRow({ task, board, project, keyChars, current, tabbable, onF
   )
 }
 
-function RowBody({ task, board, keyChars }: { task: Task; board: BoardState; keyChars: number }) {
+function RowBody({ task, board, keyChars, stageColumn }: { task: Task; board: BoardState; keyChars: number; stageColumn: boolean }) {
   const status = board.statuses[task.statusId]
   const parent = parentOf(board, task)
   const labels = labelsOf(board, task)
+  const stage = task.stage === null ? undefined : stageInfo(task.stage)
   return (
     <>
       <span className="flex w-3.5 shrink-0 justify-center">{task.priority > 0 ? <PriorityIcon priority={task.priority} /> : null}</span>
@@ -69,6 +77,7 @@ function RowBody({ task, board, keyChars }: { task: Task; board: BoardState; key
         {task.key}
       </span>
       {status ? <StatusIcon category={status.category} color={status.color} /> : null}
+      {stageColumn ? <span className="flex w-[124px] shrink-0" data-stage-column>{stage ? <StageChip stage={stage} /> : null}</span> : null}
       <span className="flex min-w-0 flex-1 items-center gap-1.5">
         <span className="min-w-0 truncate font-medium text-ink" data-row-title>
           {task.title}
@@ -83,6 +92,7 @@ function RowBody({ task, board, keyChars }: { task: Task; board: BoardState; key
           </>
         ) : null}
       </span>
+      <RowWork task={task} board={board} stage={!stageColumn} />
       <span className="flex shrink-0 items-center gap-1.5">
         <QuestionsBadge task={task} board={board} />
         <EvidenceBadge task={task} board={board} />
@@ -99,10 +109,7 @@ function RowBody({ task, board, keyChars }: { task: Task; board: BoardState; key
           </Chip>
         ) : null}
       </span>
-      <span className="min-w-12 shrink-0 text-right text-xs text-muted">
-        <span className="sr-only">Created </span>
-        {formatDay(task.createdAt)}
-      </span>
+      <RowCreated task={task} board={board} />
     </>
   )
 }

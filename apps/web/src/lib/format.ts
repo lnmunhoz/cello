@@ -1,5 +1,8 @@
-const short = (d: Date, withYear: boolean) =>
-  d.toLocaleDateString("en-US", { month: "short", day: "numeric", ...(withYear ? { year: "numeric" } : {}) })
+// Made once: building a formatter is the slow part, and a board formats a date on every card each render.
+const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" })
+const DAY_YEAR = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" })
+
+const short = (d: Date, withYear: boolean) => (withYear ? DAY_YEAR : DAY).format(d)
 
 /** "Mar 31", or "Mar 31, 2025" outside the current year. */
 export const formatDay = (ms: number, now = Date.now()): string => {
