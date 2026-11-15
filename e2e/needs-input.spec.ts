@@ -9,7 +9,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import type { Page } from "@playwright/test"
-import { caption, card, column, createProject, expect, test, uniqueKey } from "./fixtures.ts"
+import { caption, card, column, createProject, dragCard, expect, test, uniqueKey } from "./fixtures.ts"
 import { celloAs, SHOTS } from "./packets.ts"
 
 const SESSION = "e2e0asks-agent-session"
@@ -59,7 +59,7 @@ const copyImage = async (page: Page, file: string) => {
   }, base64)
 }
 
-test("CEL-47: an agent asks with --wait; Lucas answers from the sidebar (several picks, None of these, a pasted screenshot); the agent gets the answers; round 2 follows", async ({ page, context }) => {
+test("CEL-47: an agent asks with --wait; Lucas answers from the sidebar (several picks, None of these, a pasted screenshot); the agent gets the answers; round 2 follows, and Lucas moving the card withdraws it", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"])
   const key = uniqueKey("ASK")
   const task = `${key}-1`
@@ -229,6 +229,25 @@ test("CEL-47: an agent asks with --wait; Lucas answers from the sidebar (several
   await expect(questions.locator("[data-ask-record] li[data-picked]")).toHaveCount(2)
   await expect(questions.locator("[data-none-of-these]")).toHaveCount(1)
   await expect(questions).toContainText("Keep the empty state from the old page.")
+  // Round 2 in view, under round 1's record.
+  await questions.locator('[data-round^="Round 2"]').scrollIntoViewIfNeeded()
+  await expect(questions.locator('[data-round^="Round 2"]')).toBeInViewport()
   await page.screenshot({ path: path.join(SHOTS, "cel-47-rounds-thread.png") })
+
+  await caption(page, "Lucas drags the card to Todo himself: round 2 is withdrawn, and the agent hears where it went")
+  await page.goto(`/${key}`)
+  await dragCard(page, task, "Todo")
+  await expect(column(page, "Todo").locator(`[data-task-key="${task}"]`)).toBeVisible()
+  await expect(card(page, task).locator("[data-questions-badge]")).toHaveCount(0)
+  const notice = agent("inbox", "--new")
+  await showTerminal(page, "cello inbox --new", notice)
+  expect(notice).toContain(`moved ${task} to Todo; your ask "The toggle" was withdrawn.`)
+  await expect(page.getByLabel("Agent terminal")).toContainText("your ask \"The toggle\" was withdrawn")
+  await page.screenshot({ path: path.join(SHOTS, "cel-47-withdrawn-notice.png") })
+  await hideTerminal(page)
+  await card(page, task).click()
+  await expect(page.getByRole("region", { name: "Questions" }).locator("[data-round]")).toHaveText([/Round 1 · answered/, /Round 2 · withdrawn/])
+  await page.getByRole("region", { name: "Questions" }).locator('[data-round^="Round 2"]').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: path.join(SHOTS, "cel-47-round-withdrawn.png") })
   fs.rmSync(dir, { recursive: true, force: true })
 })
