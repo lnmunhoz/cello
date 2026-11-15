@@ -277,20 +277,21 @@ describe("cello init", () => {
       expect(fs.readFileSync(`${file}.bak`, "utf8")).toBe(noted)
     }).pipe(Effect.scoped))
 
-  it.live("--agents-md replaces an old Cello section from before the markers, keeping a .bak; a section that isn't Cello's stays", () =>
+  it.live("--agents-md replaces an old section made only of earlier snippet lines, keeping a .bak; a section that isn't Cello's stays", () =>
     Effect.gen(function* () {
       const { dataDir, agent } = yield* setup
       const repo = gitRepo(dataDir, "cello")
       const file = path.join(repo, "AGENTS.md")
+      // What `cello init --agents-md` wrote before the markers existed (8a8d6d6's snippet), untouched.
       const original = [
         "# Cello",
         "",
         "## Tracking work in Cello",
         "",
-        "This repo's tasks live in Cello, project **CEL** on Lucas's board.",
+        "This repo's tasks live in Cello, project **CEL** on Lucas's board. Agents use it only through the `cello` CLI.",
         "",
         "- Run `cello context` at the start of each session.",
-        "- `cello task claim CEL-n` before working on a task.",
+        "- Claim a task before working on it (`cello task claim CEL-n`), and put the key in commit messages (`fix(api): rate limit (CEL-12)`).",
         "",
         "## Ours",
         "",
@@ -305,7 +306,7 @@ describe("cello init", () => {
         `Replaced the old "Tracking work in Cello" section in ${file} with the current one, between cello:agents-md markers so later ` +
           `runs update it (uncommitted). Kept the old file as ${file}.bak. What changed:`,
       )
-      expect(lines).toContain("  - - `cello task claim CEL-n` before working on a task.")
+      expect(lines).toContain("  - - Claim a task before working on it (`cello task claim CEL-n`), and put the key in commit messages (`fix(api): rate limit (CEL-12)`).")
       expect(fs.readFileSync(file, "utf8")).toBe(`# Cello\n\n${marked("CEL")}\n\n## Ours\n\nKeep this.\n`)
       expect(fs.readFileSync(`${file}.bak`, "utf8")).toBe(original)
       expect((yield* agent(repo)("init", "--agents-md")).out).toContain("is already current.")
@@ -320,6 +321,51 @@ describe("cello init", () => {
           "`cello context`); left it as it is. Rename or remove it, then run this again to add Cello's.",
       )
       expect(fs.readFileSync(path.join(other, "AGENTS.md"), "utf8")).toBe(own)
+    }).pipe(Effect.scoped))
+
+  it.live("--agents-md leaves a customised section (like the Cello repo's own) as it is, showing the diff; --replace swaps it, keeping a .bak", () =>
+    Effect.gen(function* () {
+      const { dataDir, agent } = yield* setup
+      const repo = gitRepo(dataDir, "cello")
+      const file = path.join(repo, "AGENTS.md")
+      // Snippet bullets plus the project's own rules, as the Cello repo's AGENTS.md has.
+      const original = [
+        "# Cello",
+        "",
+        "## Tracking work in Cello",
+        "",
+        "Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port 4747).",
+        "",
+        "- Run `cello context` at the start of each session.",
+        "- **Feedback Lucas gives in chat is a review too.** Put it on the task as a comment, in his words.",
+        "- Answer Lucas on the card with `cello task comment`. His comments come to your session by themselves.",
+        "- hand finished work to Lucas **only with `cello task submit`**",
+        "",
+        "## Backups",
+        "",
+        "Keep this.",
+        "",
+      ].join("\n")
+      fs.writeFileSync(file, original)
+      const left = yield* agent(repo)("init", "--agents-md")
+      expect(left.failure).toBeNull()
+      const lines = left.out.split("\n").slice(2)
+      expect(lines[0]).toBe(
+        `${file} has its own 'Tracking work in Cello' section with lines Cello didn't write; leaving it. Run with \`--replace\` to swap ` +
+          "it for Cello's (the old file is kept as .bak), or add the markers by hand. What swapping it would change:",
+      )
+      expect(lines).toContain("  - - **Feedback Lucas gives in chat is a review too.** Put it on the task as a comment, in his words.")
+      expect(fs.readFileSync(file, "utf8")).toBe(original)
+      expect(fs.existsSync(`${file}.bak`)).toBe(false)
+
+      const json = JSON.parse((yield* agent(repo)("init", "--agents-md", "--json")).out)
+      expect(json.agentsMd).toMatchObject({ file, changed: false, change: "customised", backup: null })
+      expect(json.agentsMd.diff.length).toBeGreaterThan(0)
+
+      const replaced = yield* agent(repo)("init", "--agents-md", "--replace")
+      expect(replaced.out).toContain(`Replaced the old "Tracking work in Cello" section in ${file}`)
+      expect(fs.readFileSync(file, "utf8")).toBe(`# Cello\n\n${marked("CEL")}\n\n## Backups\n\nKeep this.\n`)
+      expect(fs.readFileSync(`${file}.bak`, "utf8")).toBe(original)
     }).pipe(Effect.scoped))
 
   it.live("--agents-md writes CLAUDE.md when there's no AGENTS.md, in the checkout it runs in (a worktree's own)", () =>

@@ -15,7 +15,22 @@ import {
   lineDiff,
   withAgentsSection,
 } from "./agentsMd.ts"
+import { PAST_SNIPPET_LINES } from "./agentsMdHistory.ts"
 import { GUIDE } from "./guide.ts"
+
+/** Real lines of an earlier snippet (8a8d6d6's era), for project THAI: what an untouched old section holds. */
+const RUN_CONTEXT = "- Run `cello context` at the start of each session."
+const OLD_CLAIM = "- Claim a task before working on it (`cello task claim THAI-n`), and put the key in commit messages (`fix(api): rate limit (THAI-12)`)."
+const ANSWER = "- Answer Lucas on the card with `cello task comment`. His comments come to your session by themselves."
+const OLD_SNIPPET = [
+  AGENTS_HEADING,
+  "",
+  "This repo's tasks live in Cello, project **THAI** on Lucas's board. Agents use it only through the `cello` CLI.",
+  "",
+  RUN_CONTEXT,
+  OLD_CLAIM,
+  ANSWER,
+].join("\n")
 
 describe("agentsSection", () => {
   it("is the snippet between docs/cli.md's agents-md markers, unindented, without its fence, with KEY replaced", () => {
@@ -31,6 +46,11 @@ describe("agentsSection", () => {
 
   it("fails loudly when the doc lost its markers", () => {
     expect(() => agentsSection("# No markers here", "THAI")).toThrow(/agents-md/)
+  })
+
+  it("every line of the current snippet is in PAST_SNIPPET_LINES, so a later run still knows it for Cello's", () => {
+    const missing = agentsSection(GUIDE, "KEY").split("\n").filter((line) => line.trim() !== "" && !PAST_SNIPPET_LINES.includes(line))
+    expect(missing, "add these lines to apps/cli/src/agentsMdHistory.ts").toEqual([])
   })
 })
 
@@ -79,14 +99,14 @@ describe("withAgentsSection", () => {
   })
 
   it("is idempotent: the current text between the markers changes nothing", () => {
-    for (const current of ["", "# Repo\n", `# Repo\n\n${AGENTS_HEADING}\n\nRun \`cello context\` first.\n\n## Next\n`]) {
+    for (const current of ["", "# Repo\n", `# Repo\n\n${OLD_SNIPPET}\n\n## Next\n`]) {
       const once = withAgentsSection(current, section).text
       expect(withAgentsSection(once, section), current).toEqual({ text: once, change: "unchanged", before: section, backup: false })
     }
   })
 
-  it("replaces an old section without markers, Cello's by its words (`cello guide` or `cello context`), keeping a .bak", () => {
-    const old = `${AGENTS_HEADING}\n\nThis repo's tasks live in Cello.\n\n- Run \`cello context\` at the start.`
+  it("replaces an old section without markers when every line is one Cello's snippet has had, keeping a .bak", () => {
+    const old = OLD_SNIPPET
     const current = `# Repo\n\nRules.\n\n${old}\n\n## Ours\n\nMore.\n`
     expect(withAgentsSection(current, section)).toEqual({
       text: `# Repo\n\nRules.\n\n${marked(section)}\n\n## Ours\n\nMore.\n`,
@@ -95,17 +115,17 @@ describe("withAgentsSection", () => {
       backup: true,
     })
     // At the end of the file, and spelled another way.
-    const last = `# Repo\n\n## Tracking work in Cello (THAI)\n\nRun \`cello guide\`.\n`
+    const last = `# Repo\n\n## Tracking work in Cello (THAI)\n\n${RUN_CONTEXT}\n`
     expect(withAgentsSection(last, section)).toEqual({
       text: `# Repo\n\n${marked(section)}\n`,
       change: "replaced",
-      before: "## Tracking work in Cello (THAI)\n\nRun `cello guide`.",
+      before: `## Tracking work in Cello (THAI)\n\n${RUN_CONTEXT}`,
       backup: true,
     })
   })
 
   it("the old section ends at the next heading of any level, a setext heading or a --- rule, so what follows it stays", () => {
-    const old = `${AGENTS_HEADING}\n\nRun \`cello context\` first.`
+    const old = `${AGENTS_HEADING}\n\n${RUN_CONTEXT}`
     for (const after of [
       "# Top\n\nKeep.",
       "#### Release notes\n\nKeep.",
@@ -118,13 +138,13 @@ describe("withAgentsSection", () => {
       expect(withAgentsSection(`${old}\n\n${after}\n`, section), after).toMatchObject({ text: `${marked(section)}\n\n${after}\n`, before: old })
     }
     // A list item or a line of text isn't a rule.
-    const list = `${old}\n- More.\nStill Cello's.`
+    const list = `${old}\n${ANSWER}`
     expect(withAgentsSection(`${list}\n`, section)).toMatchObject({ text: `${marked(section)}\n`, before: list })
   })
 
   it("a heading inside a code fence doesn't end the old section", () => {
     const old = `${AGENTS_HEADING}\n\nRun \`cello context\`:\n\n\`\`\`bash\n# a comment\n## not a heading\n---\n\`\`\`\n\nThe end.`
-    expect(withAgentsSection(`${old}\n\n## Next\n`, section)).toMatchObject({ text: `${marked(section)}\n\n## Next\n`, before: old })
+    expect(withAgentsSection(`${old}\n\n## Next\n`, section, { replace: true })).toMatchObject({ text: `${marked(section)}\n\n## Next\n`, before: old })
   })
 
   it("leaves a Tracking work in Cello section that isn't recognisably Cello's alone, at any level or with words after it", () => {
@@ -141,10 +161,41 @@ describe("withAgentsSection", () => {
     const crlfSection = marked(section, "\r\n")
     expect(withAgentsSection("# Repo\r\n\r\nRules.", section).text).toBe(`# Repo\r\n\r\nRules.\r\n\r\n${crlfSection}\r\n`)
     expect(withAgentsSection("# Repo\r\n\r\nRules.\r\n\r\n", section).text).toBe(`# Repo\r\n\r\nRules.\r\n\r\n${crlfSection}\r\n`)
-    const old = `# Repo\r\n\r\n${AGENTS_HEADING}\r\n\r\nRun \`cello context\`.\r\n\r\n## Next\r\n`
+    const old = `# Repo\r\n\r\n${AGENTS_HEADING}\r\n\r\n${RUN_CONTEXT}\r\n\r\n## Next\r\n`
     const replaced = withAgentsSection(old, section)
     expect(replaced).toMatchObject({ text: `# Repo\r\n\r\n${crlfSection}\r\n\r\n## Next\r\n`, change: "replaced" })
     expect(withAgentsSection(replaced.text, section).change).toBe("unchanged")
+  })
+
+  it("a section with lines Cello didn't write (like the Cello repo's own) is customised: left as it is, nothing appended", () => {
+    const own = [
+      AGENTS_HEADING,
+      "",
+      "Cello's own backlog is the **THAI** project on Lucas's board (`cello start`, port 4747).",
+      "",
+      RUN_CONTEXT,
+      OLD_CLAIM,
+      "- **Feedback Lucas gives in chat is a review too.** Put it on the task as a comment, in his words.",
+      "- put the task key in commit messages (`feat(cli): task claim (THAI-3)`)",
+      ANSWER,
+    ].join("\n")
+    const current = `# Repo\n\n${own}\n\n## Backups\n\nKeep.\n`
+    expect(withAgentsSection(current, section)).toEqual({ text: current, change: "customised", before: own, backup: false })
+    // One line of its own is enough; another project's key is a line of its own too.
+    expect(withAgentsSection(`${OLD_SNIPPET}\n- Deploys go through Lucas.\n`, section).change).toBe("customised")
+    expect(withAgentsSection(`${OLD_SNIPPET.replaceAll("THAI", "APP")}\n`, section).change).toBe("customised")
+  })
+
+  it("--replace swaps a customised section for Cello's anyway, keeping a .bak; a section that isn't Cello's still stays", () => {
+    const own = `${OLD_SNIPPET}\n- Deploys go through Lucas.`
+    expect(withAgentsSection(`${own}\n\n## Next\n`, section, { replace: true })).toEqual({
+      text: `${marked(section)}\n\n## Next\n`,
+      change: "replaced",
+      before: own,
+      backup: true,
+    })
+    const theirs = `${AGENTS_HEADING}\n\nOur own words.\n`
+    expect(withAgentsSection(theirs, section, { replace: true }).change).toBe("foreign")
   })
 
   it("refuses markers it can't pair, instead of guessing where the section ends", () => {
@@ -178,11 +229,11 @@ describe("addAgentsSection", () => {
   it("an old unmarked section is replaced with a .bak of the file kept; an earlier Cello render is updated in place without one", () => {
     const checkout = fs.mkdtempSync(path.join(base, "co-"))
     const file = path.join(checkout, "AGENTS.md")
-    const original = `# Repo\n\n${AGENTS_HEADING}\n\nRun \`cello context\` at the start of each session.\n\n## Ours\n`
+    const original = `# Repo\n\n${OLD_SNIPPET}\n\n## Ours\n`
     fs.writeFileSync(file, original)
     const replaced = addAgentsSection(checkout, GUIDE, "THAI")
     expect(replaced).toMatchObject({ file, changed: true, change: "replaced", backup: `${file}.bak` })
-    expect(replaced.diff).toContain("- Run `cello context` at the start of each session.")
+    expect(replaced.diff).toContain(`- ${OLD_CLAIM}`)
     expect(fs.readFileSync(`${file}.bak`, "utf8")).toBe(original)
     expect(fs.readFileSync(file, "utf8")).toBe(`# Repo\n\n${agentsBlock(agentsSection(GUIDE, "THAI"))}\n\n## Ours\n`)
 
@@ -219,10 +270,26 @@ describe("addAgentsSection", () => {
     expect(fs.readFileSync(`${file}.bak.1`, "utf8")).toBe(withNote("Our note."))
   })
 
+  it("a customised section is left byte for byte, with no .bak, and the diff shows what replacing it would change; --replace swaps it", () => {
+    const checkout = fs.mkdtempSync(path.join(base, "co-"))
+    const file = path.join(checkout, "AGENTS.md")
+    const original = `# Repo\n\n${OLD_SNIPPET}\n- Our deploy rule.\n\n## Ours\n`
+    fs.writeFileSync(file, original)
+    const left = addAgentsSection(checkout, GUIDE, "THAI")
+    expect(left).toMatchObject({ file, changed: false, change: "customised", backup: null })
+    expect(left.diff).toContain("- - Our deploy rule.")
+    expect(fs.readFileSync(file, "utf8")).toBe(original)
+    expect(fs.existsSync(`${file}.bak`)).toBe(false)
+
+    expect(addAgentsSection(checkout, GUIDE, "THAI", { replace: true })).toMatchObject({ changed: true, change: "replaced", backup: `${file}.bak` })
+    expect(fs.readFileSync(`${file}.bak`, "utf8")).toBe(original)
+    expect(fs.readFileSync(file, "utf8")).toBe(`# Repo\n\n${agentsBlock(agentsSection(GUIDE, "THAI"))}\n\n## Ours\n`)
+  })
+
   it("a symlinked CLAUDE.md stays a link when its section is replaced", () => {
     const checkout = fs.mkdtempSync(path.join(base, "co-"))
     const real = path.join(base, `real-${path.basename(checkout)}.md`)
-    fs.writeFileSync(real, `${AGENTS_HEADING}\n\nRun \`cello guide\`.\n`)
+    fs.writeFileSync(real, `${OLD_SNIPPET}\n`)
     fs.symlinkSync(real, path.join(checkout, "CLAUDE.md"))
     expect(addAgentsSection(checkout, GUIDE, "THAI").change).toBe("replaced")
     expect(fs.lstatSync(path.join(checkout, "CLAUDE.md")).isSymbolicLink()).toBe(true)

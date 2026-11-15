@@ -6,11 +6,13 @@
 // current text in its place. The start marker carries a fingerprint of the text written: when what's
 // between the markers is no longer exactly that (someone's notes, another project's key), the old file
 // is kept in a .bak first. A section from before the markers is recognised by its heading and its
-// words (it mentions `cello guide` or `cello context`) and replaced the same way, with a .bak kept;
-// a "Tracking work in Cello" section that doesn't read like Cello's is left alone. A .bak already
-// there is never overwritten (.bak.1, .bak.2…).
+// words (it mentions `cello guide` or `cello context`). It's replaced the same way, with a .bak kept,
+// only when every line is one an earlier snippet had (agentsMdHistory.ts): a section with lines of its
+// own was customised, and stays unless --replace. A "Tracking work in Cello" section that doesn't read
+// like Cello's is left alone. A .bak already there is never overwritten (.bak.1, .bak.2…).
 import * as fs from "node:fs"
 import * as path from "node:path"
+import { PAST_SNIPPET_LINES } from "./agentsMdHistory.ts"
 import { writeFileAtomically } from "./claudeSettings.ts"
 
 const START = "<!-- agents-md:start -->"
@@ -49,10 +51,22 @@ const CELLO_WORDS = /`cello (guide|context)\b/
 
 /**
  * What a run does to the file: added the section (none there), updated it between the markers,
- * replaced an old unmarked Cello section, found it already current, or found a section by that name
- * that isn't Cello's and left it.
+ * replaced an old unmarked Cello section, found it already current, found an old Cello section with
+ * lines of its own and left it (customised), or found a section by that name that isn't Cello's and
+ * left it (foreign).
  */
-export type AgentsChange = "added" | "updated" | "replaced" | "unchanged" | "foreign"
+export type AgentsChange = "added" | "updated" | "replaced" | "unchanged" | "customised" | "foreign"
+
+/**
+ * The lines of an old unmarked section that no snippet of Cello's ever had (PAST_SNIPPET_LINES, with
+ * the project's key from `section`); the heading counts as Cello's in any of its spellings. Empty means
+ * it's an earlier snippet, untouched, and can be replaced.
+ */
+const ownLines = (old: string, section: string): ReadonlyArray<string> => {
+  const key = keyOf(section)
+  const known = new Set(PAST_SNIPPET_LINES.map((line) => (key === null ? line : line.replace(/\bKEY\b/g, key))))
+  return old.split("\n").filter((line, i) => line.trim() !== "" && !(i === 0 && HEADING.test(line)) && !known.has(line.trimEnd()))
+}
 
 /** Indexes of the lines outside code fences, so a `# comment` in a bash block isn't taken for a heading. */
 const outsideFences = (lines: ReadonlyArray<string>): ReadonlyArray<boolean> => {
@@ -109,12 +123,14 @@ const keyOf = (section: string) => /project \*\*([^*\s]+)\*\*/.exec(section)?.[1
 /**
  * `current` with the current `section` in it, in the file's own line endings (CRLF when it uses
  * them): between the markers when they're there, in place of an old Cello section, else appended
- * after a blank line. `before` is the section the file had (null when there was none of Cello's).
+ * after a blank line. An old section with lines no snippet of Cello's had is customised and stays,
+ * unless `replace`. `before` is the section the file had (null when there was none of Cello's).
  * Markers it can't pair are an error: it won't guess where the section ends.
  */
 export const withAgentsSection = (
   current: string,
   section: string,
+  options: { readonly replace?: boolean } = {},
 ): { readonly text: string; readonly change: AgentsChange; readonly before: string | null; readonly backup: boolean } => {
   const eol = current.includes("\r\n") ? "\r\n" : "\n"
   const lines = current.split(/\r?\n/)
@@ -138,6 +154,7 @@ export const withAgentsSection = (
   if (old !== null) {
     const before = lines.slice(old.from, old.to).join("\n")
     if (!CELLO_WORDS.test(before)) return { text: current, change: "foreign", before: null, backup: false }
+    if (!options.replace && ownLines(before, section).length > 0) return { text: current, change: "customised", before, backup: false }
     const next = [...lines.slice(0, old.from), ...block, ...lines.slice(old.to)]
     return { text: next.join(eol), change: "replaced", before, backup: true }
   }
@@ -187,7 +204,7 @@ export interface AgentsResult {
   readonly change: AgentsChange
   /** The old file's copy: kept when an old unmarked section was replaced, or the marked text wasn't exactly what Cello wrote. */
   readonly backup: string | null
-  /** What changed in the section (see lineDiff); empty when it was added or left. */
+  /** What changed in the section, or would change for a customised one (see lineDiff); empty when it was added or left. */
   readonly diff: ReadonlyArray<string>
 }
 
@@ -195,17 +212,18 @@ export interface AgentsResult {
  * Puts the current section for project `key` in the checkout's agents file. Adding it only appends,
  * so whatever the file holds stays byte for byte; updating or replacing it rewrites the file
  * atomically (a symlinked CLAUDE.md stays a link), with a .bak when text that isn't an earlier render
- * of Cello's goes.
+ * of Cello's goes. A customised old section stays as it is unless `replace` (its diff still shows
+ * what replacing it would change).
  * A symlink to nothing is refused: writing would create its target, maybe outside the repo.
  */
-export const addAgentsSection = (checkoutRoot: string, doc: string, key: string): AgentsResult => {
+export const addAgentsSection = (checkoutRoot: string, doc: string, key: string, options: { readonly replace?: boolean } = {}): AgentsResult => {
   const file = agentsFile(checkoutRoot)
   if (present(file) && !fs.existsSync(file)) {
     throw new Error(`${path.basename(file)} is a symlink to ${fs.readlinkSync(file)}, which doesn't exist`)
   }
   const current = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : ""
   const section = agentsSection(doc, key)
-  const next = withAgentsSection(current, section)
+  const next = withAgentsSection(current, section, options)
   const diff = next.before === null || next.change === "unchanged" ? [] : lineDiff(next.before, section)
   const result = { file, changed: false, change: next.change, backup: null, diff }
   if (next.change === "added") {
