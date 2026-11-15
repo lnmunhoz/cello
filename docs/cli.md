@@ -47,6 +47,7 @@ Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
    - Claim a task before working on it (`cello task claim KEY-n`), and put the key in commit messages (`fix(api): rate limit (KEY-12)`).
    - Hand finished work to Lucas only with `cello task submit`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
    - Answer Lucas on the card with `cello task comment`. His comments come to your session by themselves.
+   - When a decision is Lucas's (a design option, a scope, wording), ask on the card with `cello task ask` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. His answers come back to your session.
    ```
    <!-- agents-md:end -->
 

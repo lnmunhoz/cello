@@ -102,7 +102,7 @@ flowchart TD
     X -->|yes| R["The same reviewer re-checks only the fixes"]
     X -->|no| M
     R --> M
-    V -->|ask Lucas| Q["A design question the task doesn't answer"]
+    V -->|ask Lucas| Q["A design question the task doesn't answer:<br/>asked on the card with cello task ask"]
 ```
 
 - The reviewer gets the **diff and the task**, never the builder's report, so it judges the code rather than echoing the builder.

@@ -33,6 +33,12 @@ Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port
   - subagents share their parent's session: the hook skips them, and a subagent must not run `cello inbox`
   - act on them, then answer on the card with `cello task comment CEL-n "…"` (`--body-file -` for markdown); a sent-back task goes back to Lucas with `cello task submit`
   - `docs/cli.md`, "Comments from Lucas reach your session", has the details
+- **Decisions that are Lucas's are asked on the card, never in the terminal** (CEL-47): which design option, which stages, what wording, anything a task or scope leaves to him.
+  - `cello task ask CEL-n --file ask.yaml --wait` (run it in the background): questions with options, a recommended option always with its reason (`because`), and the evidence to decide from
+  - scopes always attach their screenshots and link the scope page
+  - one ask per task at a time; asking again replaces the open one, `--withdraw` takes it back
+  - the task waits in **Needs input** (only `cello task ask` puts it there); Lucas answers next to the evidence, the task returns to In Progress, still yours, and his answers reach your session (`--wait`, the hook, or `cello wait CEL-n`), with any screenshots he pasted saved as files
+  - `docs/cli.md`, "Questions for Lucas", has the file format and the details
 - put the task key in commit messages (`feat(cli): task claim (CEL-3)`)
 - hand finished work to Lucas **only with `cello task submit`**: a review packet (summary, how-to-check steps, evidence) that moves the task to **In Review**. `cello task move CEL-n "In Review"` is refused. Lucas approves it (Done) or sends it back with a note, on the Review page.
   - UI work: MP4 video(s) of the flow (the e2e videos) and screenshots, light and dark when it matters
@@ -61,7 +67,7 @@ The session running the work (the orchestrator) claims the task, then (the whole
    - When the task touches Lucas's data (migrations, backups and restore, writes outside the data folder such as Claude Code settings, deleting or overwriting files, the desktop panel's security rules), use `cello-data-reviewer` instead.
    - For UI work, the code reviewer also checks the videos and screenshots, using `cello-visual-reviewer`'s checklist, so each branch gets one reviewer, not two. A separate visual reviewer only for a large visual change.
    - Reviewers run only the tests the change touches. The orchestrator runs the whole suite at merge.
-3. **Fix.** Findings go back to the same builder agent, so it keeps its context. Only blockers get a re-check, by the same reviewer resumed. If one round of fixes doesn't settle a blocker, or it's a design question the task doesn't answer, ask Lucas. Comment the review's result on the card.
+3. **Fix.** Findings go back to the same builder agent, so it keeps its context. Only blockers get a re-check, by the same reviewer resumed. If one round of fixes doesn't settle a blocker, or it's a design question the task doesn't answer, ask Lucas on the card (`cello task ask`), not in the terminal. Comment the review's result on the card.
 4. **Merge.** The orchestrator merges into main (`merge: <what> (CEL-n)`) and runs the whole suite (unit, integration, typecheck, e2e). If the server or web app changed, it rebuilds `cello` and restarts the live server, backing up first when a migration ships.
 5. **Submit, right after the merge.** Don't batch merges or hold packets for a later deploy: deploying takes under a minute, and a merged task left in In Progress looks stuck on the board. `cello task submit` with the evidence, recorded once, at the end, in review mode. The summary says what the review found and what was fixed, and which models built and reviewed it.
 

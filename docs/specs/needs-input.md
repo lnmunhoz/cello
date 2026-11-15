@@ -134,6 +134,8 @@ Phase 1 is built test-first with integration tests against a real server; phase 
 
 ## Open questions for Lucas
 
+Built with these defaults (CEL-47), which Lucas can still change: Needs input is its own column (a status with category `waiting`, added to every existing workspace by migration 0005, right before In Review); moving the card out by hand withdraws the ask; nothing is pre-selected.
+
 1. **A column, or a badge?** This spec gives Needs input its own column (visible at a glance). The alternative is a "waiting on you" badge on In Progress cards, with no new column.
 2. **Withdraw on manual move:** if you drag a Needs input card somewhere else, should the ask be withdrawn (this spec), or stay open?
 3. **Pre-select the recommended option?** This spec says no (you pick everything). Pre-selecting is faster but easier to send without reading.
