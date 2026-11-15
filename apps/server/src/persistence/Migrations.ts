@@ -9,8 +9,10 @@ import inbox from "./migrations/0004_inbox.ts"
 import builds from "./migrations/0005_builds.ts"
 import asks from "./migrations/0006_asks.ts"
 import taskStage from "./migrations/0007_task_stage.ts"
+import search from "./migrations/0008_search.ts"
 
-export const migrations = SqliteMigrator.fromRecord({
+/** Every migration by id. Tests of one migration run the ones before it from here. */
+export const records = {
   "0001_init": init,
   "0002_reviews": reviews,
   "0003_documents": documents,
@@ -18,7 +20,10 @@ export const migrations = SqliteMigrator.fromRecord({
   "0005_builds": builds,
   "0006_asks": asks,
   "0007_task_stage": taskStage,
-})
+  "0008_search": search,
+}
+
+export const migrations = SqliteMigrator.fromRecord(records)
 
 /** Applies pending migrations. Failing to migrate is a defect: the server can't run on a half-built schema. */
 export const run = SqliteMigrator.run({ loader: migrations, table: "migrations" }).pipe(
