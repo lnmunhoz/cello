@@ -192,6 +192,43 @@ test("CEL-25: the board fills the window with a wide board: in a short window, i
   await expectBoardFills(app, board)
 })
 
+test("CEL-24: ⌘B in the board collapses the sidebar to a rail and expands it again; the app's menus don't take it", async ({}, testInfo) => {
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const server = await startCello(dataDir)
+  const app = await launchApp({ CELLO_PORT: String(server.port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-") })
+  const video = record(app, testInfo.title)
+  const { board } = await appPages(app, server.url)
+  const sidebar = board.getByRole("complementary", { name: "Sidebar" })
+  // ⌘ on a Mac, Ctrl elsewhere (the web app's "mod").
+  const mod = process.platform === "darwin" ? "meta" : "control"
+
+  await video.caption("The sidebar starts expanded")
+  await expect(sidebar).toHaveAttribute("data-sidebar", "expanded")
+  // No menu item claims ⌘B (⌘\ is the panel's), so the key reaches the board.
+  const accelerators = await app.evaluate(({ Menu }) => {
+    const all: string[] = []
+    const walk = (items: Electron.MenuItem[]) => {
+      for (const item of items) {
+        if (item.accelerator) all.push(item.accelerator)
+        if (item.submenu) walk(item.submenu.items)
+      }
+    }
+    walk(Menu.getApplicationMenu()?.items ?? [])
+    return all
+  })
+  expect(accelerators.map((a) => a.toLowerCase())).not.toContain("cmdorctrl+b")
+
+  await video.caption("⌘B: the sidebar collapses to a rail of icons")
+  await pressKey(app, VIEW.board, "b", [mod])
+  await expect(sidebar).toHaveAttribute("data-sidebar", "rail")
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "sidebar-rail.png"))
+
+  await video.caption("⌘B again: expanded")
+  await pressKey(app, VIEW.board, "b", [mod])
+  await expect(sidebar).toHaveAttribute("data-sidebar", "expanded")
+  await expectBoardFills(app, board)
+})
+
 test("CEL-12: evidence clicked on the board opens in the native panel, not the web viewer: the card's badge, then a packet link beside the task", async ({}, testInfo) => {
   const site = await testSite()
   const dataDir = tempDir("cello-desktop-e2e-")
