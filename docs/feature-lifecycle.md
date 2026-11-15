@@ -27,6 +27,20 @@ flowchart TD
     L -->|"Send back + note"| BU
 ```
 
+## What each column means for your version
+
+| Column | Where the code is | Can you try it? |
+| --- | --- | --- |
+| **Todo** | Nowhere yet | No |
+| **In Progress** | In an agent's worktree: being built, reviewed or fixed | No |
+| **In Review** | **Merged into main and live on your board** (server restarted with it) | **Yes**: reload Cello (⌘R) and follow the packet's "How to check" |
+| **Done** | Same as In Review; you signed it off | Yes |
+
+So anything in In Review or Done is already in the Cello you're running, once you've reloaded. Two parts update differently:
+
+- **The board, the Review page, every screen** come from the server: a reload (⌘R) after a deploy shows them. CEL-37 makes the app say when a reload is needed, and shows the running build.
+- **The desktop app's own shell** (its icon, the side panel's browser) only changes when the app is repackaged. That happens only for desktop changes, and the packet says so.
+
 ## Who does what
 
 | Who | What they do | Model |
