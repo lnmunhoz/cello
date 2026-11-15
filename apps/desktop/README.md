@@ -78,4 +78,6 @@ running app.
 - `src/server/`: finding or starting the server (`plan.ts` decides, `sidecar.ts` does it)
 - `src/preload.ts`: `window.celloDesktop`
 - `scripts/`: bundling with Bun (`dist-electron/`), dev, packaging (electron-builder)
+- `resources/icon.icns` (the packaged app) and `resources/icon.png` (the Dock in dev): built by
+  `bun art/icon/build-app-icons.mjs` from `art/icon/icon.svg`; don't edit them by hand
 - `e2e/`: Playwright Electron tests; `recorder.ts` composes the whole window into videos and screenshots
