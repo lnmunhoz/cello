@@ -197,7 +197,7 @@ test("CEL-60: a packet's text evidence (a terminal transcript, markdown) opens i
 
   await caption(page, "Copy puts the text, without colour codes, on the clipboard; Download saves it as transcript.txt")
   await viewer.getByRole("button", { name: "Copy" }).click()
-  await expect(page.getByText("Copied")).toBeVisible()
+  await expect(page.getByRole("region", { name: "Notifications" }).getByText("Copied")).toBeVisible()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("56 passed (56)")
   const download = page.waitForEvent("download")
   await viewer.getByRole("link", { name: "Download" }).click()
