@@ -18,7 +18,9 @@ const PANEL =
 
 /**
  * sm and md: a panel near the top, over a dim. screen: the whole window on a dark backdrop, the same in
- * both themes (the image modal); its content lays out its own toolbar and stage.
+ * both themes (the image modal); its content lays out its own toolbar and stage. page: the whole window
+ * in the app's own colors, light or dark (a question's compare view); its content lays out its header
+ * and a scrolling body.
  */
 const content = variants(
   "outline-none duration-150 motion-reduce:transition-none",
@@ -27,6 +29,7 @@ const content = variants(
       sm: `${PANEL} w-[min(420px,calc(100vw-32px))]`,
       md: `${PANEL} w-[min(560px,calc(100vw-32px))]`,
       screen: "fixed inset-0 flex flex-col bg-[rgb(9_9_11/0.99)] text-white transition-opacity data-starting-style:opacity-0 data-ending-style:opacity-0",
+      page: "fixed inset-0 flex flex-col bg-surface text-ink transition-opacity data-starting-style:opacity-0 data-ending-style:opacity-0",
     },
   },
   { size: "md" },
@@ -34,7 +37,7 @@ const content = variants(
 
 const backdrop = variants(
   "fixed inset-0 transition-opacity duration-150 data-starting-style:opacity-0 data-ending-style:opacity-0",
-  { size: { sm: "bg-black/30", md: "bg-black/30", screen: "bg-transparent" } },
+  { size: { sm: "bg-black/30", md: "bg-black/30", screen: "bg-transparent", page: "bg-transparent" } },
   { size: "md" },
 )
 
