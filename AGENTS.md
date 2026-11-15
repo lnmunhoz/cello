@@ -25,6 +25,7 @@ Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port
 **How to use the `cello` CLI: [docs/cli.md](docs/cli.md).** It covers the concepts (statuses, claims, review packets, pages), the workflow, copy-paste examples for every command, what each error means, and a reference of every flag. Read it before your first `cello` command in a session instead of guessing. `cello guide` prints the same page in any repository.
 
 - run `cello context` at the start of a session
+- **Feedback Lucas gives in chat is a review too.** Put it on the task as a comment, in his words (`**Lucas, in chat (review):** "…"`), and if the task is In Review or Done, move it back to In Progress before fixing. Then submit a new packet. The card, not the chat, is where a task's review history lives.
 - **Todo or Backlog:** Todo is ready to build. **Backlog** holds ideas and requests that still need discussing. When Lucas says "add to the backlog", create the task with `--status Backlog`. A Backlog task moves to Todo once it's agreed what to build; nobody builds from Backlog.
 - `cello task claim CEL-n` before working on a task, and comment progress with `cello task comment`
 - Lucas's comments and Send back notes on a task you claimed come to your session (CEL-15):
