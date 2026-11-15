@@ -14,6 +14,7 @@ import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@ce
 import { ACCEPTED } from "@cello/shared/attachment"
 import { pagePath } from "@cello/shared/document"
 import { formatBytes } from "@cello/shared/bytes"
+import { colorFromSeed } from "@cello/shared/color"
 import { shortCommit } from "@cello/shared/build"
 import { APP_VERSION } from "@cello/shared/version"
 import * as Console from "effect/Console"
@@ -52,10 +53,11 @@ import {
 import { CliEnv, dataDirOf, portOf } from "./env.ts"
 import { CliFailure, explain } from "./errors.ts"
 import { evidenceFromArgs } from "./evidence.ts"
-import { ago, columns, localTime, sessionName } from "./format.ts"
+import { ago, andList, columns, localTime, plural, sessionName } from "./format.ts"
 import { GUIDE } from "./guide.ts"
 import { type Env, IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
 import { deliveryText, inboxEntries } from "./inbox.ts"
+import { labelArgs, labelListText, labelNames, parseChanges, resolveChanges } from "./labels.ts"
 import { pageFiles } from "./pageFiles.ts"
 import { checkoutRootFor, repoRootFor } from "./repo.ts"
 import { start } from "./start.ts"
@@ -165,10 +167,6 @@ const author = (
   return session ? sessionName(session) : names.actors.find((a) => a.id === actorId)?.name ?? "Someone"
 }
 
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
-
-/** "a", "a and b", "a, b and c". */
-const andList = (items: ReadonlyArray<string>) => items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`
 
 const EVIDENCE_WORDS = { video: "video", image: "screenshot", file: "file", link: "link" } as const
 
@@ -328,7 +326,7 @@ const get = Command.make("get", { key, json }, (input) =>
     if (input.json) return yield* printJson(detail)
     const now = (yield* CliEnv).now()
     const { task } = detail
-    const labels = task.labelIds.map((id) => detail.labels.find((l) => l.id === id)?.name ?? "?")
+    const labels = labelNames(task, detail.labels)
     const claim = claimOf(detail, task)
     const lines = [
       `${task.key}  ${task.title}`,
@@ -687,6 +685,167 @@ const answers = Command.make("answers", {
 
 const waitCommand =Command.make("wait", { key, json }, (input) => waitAndPrint(input.key, input.json)).pipe(
   Command.withDescription("Wait for Lucas to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered."),
+)
+
+// ── labels ──────────────────────────────────────────────────────────────────────────────────────
+
+const taskLabel = Command.make("label", {
+  key,
+  changes: Argument.String("changes").pipe(
+    Argument.variadic(),
+    Argument.withDescription("+name adds a label, -name removes one; as many as you like, e.g. +board +cli -ui. Names match in any case."),
+  ),
+  json,
+}, (input) =>
+  Effect.gen(function* () {
+    const changes = parseChanges(input.changes)
+    if (typeof changes === "string") return yield* new CliFailure({ message: changes })
+    const written = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const detail = yield* client["task.get"]({ key: input.key })
+        const labels = resolveChanges(changes, detail.labels)
+        if (typeof labels === "string") return yield* new CliFailure({ message: labels })
+        const response = yield* client["task.setLabels"]({
+          commandId: newCommandId(),
+          id: detail.task.id,
+          add: labels.add.map((l) => l.id),
+          remove: labels.remove.map((l) => l.id),
+        })
+        return { response, detail }
+      })
+    )
+    if (input.json) return yield* printJson(written.response)
+    const { response, detail } = written
+    const task = response.result
+    const now = labelNames(task, detail.labels)
+    if (response.seq === null) {
+      return yield* print(now.length ? `${task.key} already has these labels: ${now.join(", ")}` : `${task.key} already has no labels`)
+    }
+    const added = labelNames({ labelIds: task.labelIds.filter((id) => !detail.task.labelIds.includes(id)) }, detail.labels)
+    const removed = labelNames({ labelIds: detail.task.labelIds.filter((id) => !task.labelIds.includes(id)) }, detail.labels)
+    const what = [...(added.length ? [`added ${andList(added)}`] : []), ...(removed.length ? [`removed ${andList(removed)}`] : [])]
+    yield* print(`${task.key} labels: ${now.join(", ") || "none"} (${what.join("; ")})`)
+  })).pipe(Command.withDescription(
+    "Add and remove a task's labels by name in one change: `cello task label CEL-12 +board -ui`. Unknown names are refused with close matches; nothing is created.",
+  ))
+
+const labelName = Argument.String("name").pipe(Argument.withDescription("The label's name; any case."))
+const colorFlag = Flag.String("color").pipe(Flag.optional, Flag.withDescription("A colour like \"#3B82F6\" (quoted, so the shell keeps the #)."))
+
+/** The project's labels with counts, and one of them by name (any case, archived ones too), or a failure listing them. */
+const labelNamed = (client: CelloClient["Service"], ref: ProjectRef, name: string) =>
+  Effect.gen(function* () {
+    const list = yield* client["label.list"]({ project: ref })
+    const found = list.labels.find((l) => l.label.name.toLowerCase() === name.trim().toLowerCase())
+    if (found) return { list, found }
+    const names = list.labels.map((l) => l.label.name).join(", ") || "none yet"
+    return yield* new CliFailure({ message: `No label named "${name}". Labels: ${names}. \`cello label list\` shows them all.` })
+  })
+
+/** A taken name or a bad colour explained, with what to do; other failures pass through. */
+const labelInvalid = <A, R>(effect: Effect.Effect<A, unknown, R>) =>
+  Effect.catchIf(
+    effect,
+    (e): e is { readonly _tag: "Invalid"; readonly field: string; readonly reason: string } => Predicate.isTagged(e, "Invalid"),
+    (e) => Effect.fail(new CliFailure({
+      message: e.field === "color"
+        ? "--color must be a colour like #3B82F6."
+        : `${e.reason.charAt(0).toUpperCase()}${e.reason.slice(1)}. Nothing was changed; \`cello label list\` shows every label, archived ones too.`,
+    })),
+  )
+
+const labelList = Command.make("list", { project, json }, (input) =>
+  Effect.gen(function* () {
+    const ref = yield* projectRef(input.project)
+    const list = yield* withClient((client) => client["label.list"]({ project: ref }))
+    if (input.json) return yield* printJson(list)
+    yield* print(labelListText(list))
+  })).pipe(Command.withDescription(
+    "The workspace's labels: each one's colour and how many tasks carry it (in this project, and in the workspace's other projects), then the archived ones.",
+  ))
+
+const labelCreate = Command.make("create", {
+  name: labelName,
+  color: Flag.String("color").pipe(Flag.optional, Flag.withDescription("A colour like \"#3B82F6\" (quoted, so the shell keeps the #). Default: one picked from the name.")),
+  project,
+  json,
+}, (input) =>
+  Effect.gen(function* () {
+    const ref = yield* projectRef(input.project)
+    const response = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const { project: target } = yield* client["label.list"]({ project: ref })
+        return yield* labelInvalid(client["label.create"]({
+          commandId: newCommandId(),
+          workspaceId: target.workspaceId,
+          name: input.name,
+          color: Option.getOrElse(input.color, () => colorFromSeed(input.name.trim().toLowerCase())),
+        }))
+      })
+    )
+    if (input.json) return yield* printJson(response)
+    yield* print(`Created label ${response.result.name}  ${response.result.color}`)
+  })).pipe(Command.withDescription(
+    "Make a label in the project's workspace (every project in it shares its labels). A name already taken, in any case and by archived labels too, is refused.",
+  ))
+
+const labelUpdate = Command.make("update", {
+  name: labelName,
+  color: colorFlag,
+  rename: Flag.String("name").pipe(Flag.optional, Flag.withDescription("A new name for the label.")),
+  project,
+  json,
+}, (input) =>
+  Effect.gen(function* () {
+    if (Option.isNone(input.color) && Option.isNone(input.rename)) {
+      return yield* new CliFailure({ message: "Say what to change: --color #3B82F6, --name new-name, or both." })
+    }
+    const ref = yield* projectRef(input.project)
+    const response = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const { found } = yield* labelNamed(client, ref, input.name)
+        return yield* labelInvalid(client["label.update"]({
+          commandId: newCommandId(),
+          id: found.label.id,
+          ...(Option.isSome(input.color) ? { color: input.color.value } : {}),
+          ...(Option.isSome(input.rename) ? { name: input.rename.value } : {}),
+        }))
+      })
+    )
+    if (input.json) return yield* printJson(response)
+    const label = response.result
+    yield* print(response.seq === null ? `Label ${label.name} is already ${label.color}.` : `Updated label ${label.name}  ${label.color}`)
+  })).pipe(Command.withDescription("Recolour or rename a label. Every task carrying it shows the change."))
+
+const labelArchive = Command.make("archive", { name: labelName, project, json }, (input) =>
+  Effect.gen(function* () {
+    const ref = yield* projectRef(input.project)
+    const written = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const { list, found } = yield* labelNamed(client, ref, input.name)
+        const response = yield* client["label.archive"]({ commandId: newCommandId(), id: found.label.id })
+        return { response, found, key: list.project.key }
+      })
+    )
+    if (input.json) return yield* printJson(written.response)
+    const { response, found, key: projectKey } = written
+    if (response.seq === null) return yield* print(`Label ${response.result.name} was already archived.`)
+    const carriers = [
+      ...(found.tasks ? [`${plural(found.tasks, "task")} in ${projectKey}`] : []),
+      ...(found.otherProjects ? [`${found.otherProjects} in other projects`] : []),
+    ]
+    const one = found.tasks + found.otherProjects === 1
+    const where = carriers.length
+      ? ` It no longer shows on the ${andList(carriers)} that ${one ? "carries" : "carry"} it (${one ? "the task keeps" : "they keep"} the link underneath),`
+      : " No task carries it. It"
+    yield* print(`Archived label ${response.result.name}.${where} can't be added to tasks, and its name stays taken.`)
+  })).pipe(Command.withDescription(
+    "Archive a label: it disappears from cards, pickers and `cello context`, and can't be added to tasks any more. Tasks keep the link underneath, out of sight, and its name stays taken. Applies to every project in the workspace.",
+  ))
+
+const label = Command.make("label").pipe(
+  Command.withDescription("Labels, shared by the projects of a workspace: list, create, update, archive. Put them on tasks with `cello task label`."),
+  Command.withSubcommands([labelList, labelCreate, labelUpdate, labelArchive]),
 )
 
 // ── documents ───────────────────────────────────────────────────────────────────────────────────
@@ -1289,8 +1448,8 @@ const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(
 )
 
 const task = Command.make("task").pipe(
-  Command.withDescription("Tasks: list, get, create, claim, release, move, comment, submit, ask, answers."),
-  Command.withSubcommands([list, get, create, claim, release, move, comment, submit, ask, answers]),
+  Command.withDescription("Tasks: list, get, create, claim, release, move, label, comment, submit, ask, answers."),
+  Command.withSubcommands([list, get, create, claim, release, move, taskLabel, comment, submit, ask, answers]),
 )
 
 const startCommand = Command.make("start", {}, () => start).pipe(
@@ -1299,15 +1458,17 @@ const startCommand = Command.make("start", {}, () => start).pipe(
 
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, init, task, waitCommand, inbox, doc, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand, buildsCommand]),
+  Command.withSubcommands([context, init, task, label, waitCommand, inbox, doc, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand, buildsCommand]),
 )
 
 /**
  * Runs `cello` with these arguments (without the program name). A defect (a failing disk, a bug)
  * still ends in one printed sentence instead of a silent exit.
  */
-export const run = (args: ReadonlyArray<string>) =>
-  Effect.flatMap(Effect.service(CliEnv), ({ build }) => Command.runWith(cello, { version: versionText(build) })(args)).pipe(
+export const run = (raw: ReadonlyArray<string>) => {
+  const args = labelArgs(raw)
+  return Effect.flatMap(Effect.service(CliEnv), ({ build }) => Command.runWith(cello, { version: versionText(build) })(args)).pipe(
     Effect.provideService(CliArgs, args),
     Effect.catchDefect((defect) => Effect.fail(new CliFailure({ message: `Something went wrong: ${reasonOf(defect)}` }))),
   )
+}
