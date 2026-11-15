@@ -10,3 +10,11 @@ playwright-report/
 e2e/videos/
 apps/cli/.build/
 .claude/worktrees/
+
+# promo render output (rebuild with art/promo/render.sh)
+art/promo/frames/
+art/promo/v2/frames/
+
+# design explorations and promo renders stay on disk (future: Cello media library), not in git
+art/variations/
+art/promo/
