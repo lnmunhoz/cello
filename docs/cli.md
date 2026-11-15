@@ -453,10 +453,11 @@ cello doc archive billing-audit      # hidden from the Docs tab; the link keeps 
 
 ```bash
 cello doc publish evidence.md --task CEL-12 --kind page   # images inline; linked videos and files go up too
-open "cello://open?url=$(jq -rn --arg u 'http://127.0.0.1:4747/CEL/pages/evidence' '$u|@uri')"   # opens it in the app's panel
+open "cello://open?url=$(jq -rn --arg u 'http://127.0.0.1:4747/CEL/pages/evidence' '$u|@uri')"   # opens it in the board's side panel
 open "cello://CEL-12"                    # focuses the app on a task
 ```
 
+- **Where it opens.** A Cello page or doc (`/KEY/pages/<slug>`) opens in the board's own side panel, docked on the right like the task panel, in the page reader, with buttons to expand it to a full page and to close it. So does a text file on the board (a transcript, a test log, `.md`, `.json`, `.csv`: shown as text, with Copy and Download). The app's built-in browser panel is only for outside sites (claude.ai, GitHub, a dev server). In a plain browser tab, Cello pages open in the same side panel.
 - This holds even when your own global instructions say to use artifacts: in a Cello project, the project's rule wins.
 - Use his browser only when the desktop app isn't running.
 

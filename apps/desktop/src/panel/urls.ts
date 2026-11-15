@@ -82,15 +82,21 @@ const isMail = (url: string) => url.trim().toLowerCase().startsWith("mailto:")
 
 export type OpenAction = "panel" | "external" | "deny"
 
-/** A board link that wants a new window (target=_blank, window.open): web pages go to the panel. */
-export const boardWindowOpenAction = (url: string): OpenAction =>
-  panelUrl(url) ? "panel" : isMail(url) ? "external" : "deny"
+/**
+ * A board link that wants a new window (target=_blank, window.open, a ⌘-click): a page on the board's
+ * own origin stays in the board, which opens it in its side panel (CEL-60); other web pages go to the
+ * browser panel.
+ */
+export const boardWindowOpenAction = (url: string, boardOrigin: string | null = null): "board" | OpenAction =>
+  onBoard(url, boardOrigin) ? "board" : offBoardAction(url)
+
+const offBoardAction = (url: string): OpenAction => (panelUrl(url) ? "panel" : isMail(url) ? "external" : "deny")
 
 /** The board stays on its own origin; a link to any other page opens in the panel instead. */
 export const boardNavigationAction = (url: string, boardOrigin: string): "allow" | OpenAction => {
   const target = URL.parse(url)
   if (target && target.origin === new URL(boardOrigin).origin) return "allow"
-  return boardWindowOpenAction(url)
+  return offBoardAction(url)
 }
 
 /**

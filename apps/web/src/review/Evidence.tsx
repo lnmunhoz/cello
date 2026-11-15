@@ -20,7 +20,7 @@ const zoomableEvidence = (attachment: Attachment) => {
 /**
  * Opens a piece of evidence from `packet` (see `evidenceOpen`): a screenshot in the image modal, with
  * the packet's other screenshots to step through (`opener` gets the focus back when it closes);
- * anything else beside the board, in the viewer or the desktop app's panel. Clicked in the packet
+ * a video or a text file in the side panel beside the board, a link where `openRoute` sends it. Clicked in the packet
  * itself (a zoomable `opener`), the modal steps through the summary's diagrams too (`openGallery`).
  */
 export const openEvidence = (attachment: Attachment, packet: ReadonlyArray<Attachment>, opener: HTMLElement | null = null): boolean => {
@@ -30,7 +30,7 @@ export const openEvidence = (attachment: Attachment, packet: ReadonlyArray<Attac
     else openImageModal(open.images, open.index, opener)
     return true
   }
-  return open !== null && openInPanel(open.target.url, open.target.title, open.target.kind)
+  return open !== null && openInPanel(open.target)
 }
 
 /** An evidence link: a plain click opens it (see `openEvidence`); ⌘-click still opens a new tab. */

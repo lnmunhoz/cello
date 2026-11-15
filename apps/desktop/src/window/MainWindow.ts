@@ -3,7 +3,7 @@
 // window-state.json; the panel's URL lives only as long as the app runs.
 import * as fs from "node:fs"
 import { BaseWindow, nativeTheme, screen, shell, webContents, WebContentsView, type WebContents } from "electron"
-import { BOARD_OPEN_TASK, PANEL_CLOSE, PANEL_OPEN } from "../ipc.ts"
+import { BOARD_OPEN, BOARD_OPEN_TASK, PANEL_CLOSE, PANEL_OPEN } from "../ipc.ts"
 import { Panel } from "../panel/Panel.ts"
 import { boardNavigationAction, boardWindowOpenAction } from "../panel/urls.ts"
 import { appCommandDirection, goInHistory, type HistoryDirection, historyShortcut, swipeDirection } from "./history.ts"
@@ -196,7 +196,7 @@ export class MainWindow {
     board.ipc.on(PANEL_CLOSE, () => this.panel.close())
     // Links that want a new window, and links off the board's origin, open in the panel.
     board.setWindowOpenHandler(({ url }) => {
-      this.#route(url, boardWindowOpenAction(url))
+      this.#route(url, boardWindowOpenAction(url, this.#origin))
       return { action: "deny" }
     })
     board.on("will-navigate", (event, url) => {
@@ -214,8 +214,18 @@ export class MainWindow {
     this.board.webContents.focus()
   }
 
-  #route(url: string, action: "panel" | "external" | "deny"): void {
-    if (action === "panel") this.panel.open(url)
+  /**
+   * A page on the board (a `cello://open` link, a ⌘-click): the board opens it in its own side panel
+   * and takes the focus (CEL-60). The browser panel, if open, stays as it was.
+   */
+  openInBoard(url: string): void {
+    this.board.webContents.send(BOARD_OPEN, url)
+    this.board.webContents.focus()
+  }
+
+  #route(url: string, action: "board" | "panel" | "external" | "deny"): void {
+    if (action === "board") this.openInBoard(url)
+    else if (action === "panel") this.panel.open(url)
     else if (action === "external") void shell.openExternal(url)
   }
 

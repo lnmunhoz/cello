@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { closeImageModal, imageModal } from "../viewer/imageModal.ts"
 import { closeViewer, viewerItem } from "../viewer/store.ts"
 import { openInPanel, openTask } from "./desktop.ts"
 
@@ -15,22 +16,38 @@ const stubWindow = (extra: object = {}) => {
 describe("openInPanel", () => {
   afterEach(() => {
     closeViewer()
+    closeImageModal()
     vi.unstubAllGlobals()
   })
 
-  it("opens the page in the desktop app's side panel when the board runs there", () => {
+  it("opens an outside site in the desktop app's native browser when the board runs there", () => {
     const openPanel = vi.fn()
     stubWindow({ celloDesktop: { isDesktop: true, openPanel, closePanel: vi.fn() } })
-    expect(openInPanel("https://claude.ai/artifact/x", "Review packet")).toBe(true)
+    expect(openInPanel({ url: "https://claude.ai/artifact/x", title: "Review packet" })).toBe(true)
     expect(openPanel).toHaveBeenCalledWith("https://claude.ai/artifact/x", "Review packet")
     expect(viewerItem()).toBeNull()
   })
 
-  it("opens it in the web viewer panel otherwise, never a new tab", () => {
+  it("opens a Cello page in the in-app side panel, in the desktop app too (CEL-60)", () => {
+    const openPanel = vi.fn()
+    stubWindow({ celloDesktop: { isDesktop: true, openPanel, closePanel: vi.fn() } })
+    expect(openInPanel({ url: "/CEL/pages/notes", title: "Notes" })).toBe(true)
+    expect(viewerItem()).toEqual({ url: "http://localhost:4747/CEL/pages/notes", title: "Notes", kind: "page" })
+    expect(openPanel).not.toHaveBeenCalled()
+  })
+
+  it("opens Open in viewer's image in the side panel, never a new tab", () => {
     const win = stubWindow()
-    expect(openInPanel("/attachments/a1", "The board", "image")).toBe(true)
+    expect(openInPanel({ url: "/attachments/a1", title: "The board", kind: "image", place: "viewer" })).toBe(true)
     expect(viewerItem()).toEqual({ url: "http://localhost:4747/attachments/a1", title: "The board", kind: "image" })
     expect(win.open).not.toHaveBeenCalled()
+  })
+
+  it("opens an image link in the image modal", () => {
+    stubWindow()
+    expect(openInPanel({ url: "/x/board.png", title: "The board" })).toBe(true)
+    expect(imageModal()?.items).toEqual([{ url: "http://localhost:4747/x/board.png", title: "The board" }])
+    expect(viewerItem()).toBeNull()
   })
 
   it("from a Cello page framed in the viewer, asks the board's window to open it", () => {
@@ -39,20 +56,18 @@ describe("openInPanel", () => {
     win.self = win
     win.top = win.parent
     vi.stubGlobal("window", win)
-    expect(openInPanel("https://example.com/")).toBe(true)
-    expect(postMessage).toHaveBeenCalledWith(
-      { type: "cello:open", item: { url: "https://example.com/", title: "example.com", kind: "external" } },
-      ORIGIN,
-    )
+    expect(openInPanel({ url: "https://example.com/" })).toBe(true)
+    expect(postMessage).toHaveBeenCalledWith({ type: "cello:open", item: { url: "https://example.com/" } }, ORIGIN)
     expect(viewerItem()).toBeNull()
   })
 
   it("leaves a link it can't show alone", () => {
     stubWindow()
-    expect(openInPanel("mailto:me@x.dev")).toBe(false)
+    expect(openInPanel({ url: "mailto:me@x.dev" })).toBe(false)
     expect(viewerItem()).toBeNull()
   })
 })
+
 
 describe("openTask", () => {
   afterEach(() => vi.unstubAllGlobals())

@@ -47,7 +47,7 @@ export function Video({ video }: { video: VideoFile }) {
           aria-label={`Open ${name} in the viewer`}
           onClick={() => {
             ref.current?.pause()
-            openInPanel(attachmentUrl(video), name, "video")
+            openInPanel({ url: attachmentUrl(video), title: name, kind: "video", place: "viewer" })
           }}
         >
           <PanelRightOpenIcon aria-hidden className="size-3.5" />

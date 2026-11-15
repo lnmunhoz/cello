@@ -119,7 +119,7 @@ describe("evidence", () => {
   it("what the viewer opens for each piece: the served file or the link, its caption or name, and whether it's an image or a video", () => {
     expect(evidenceTarget(attachment("s1", "image", { caption: "The board" }))).toEqual({ url: "/attachments/s1", title: "The board", kind: "image" })
     expect(evidenceTarget(attachment("v1", "video", { name: "flow.mp4" }))).toEqual({ url: "/attachments/v1", title: "flow.mp4", kind: "video" })
-    expect(evidenceTarget(attachment("f1", "file", { name: "test-output.txt", mime: "text/plain" }))).toEqual({ url: "/attachments/f1", title: "test-output.txt" })
+    expect(evidenceTarget(attachment("f1", "file", { name: "test-output.txt", mime: "text/plain", caption: "Test output" }))).toEqual({ url: "/attachments/f1", title: "Test output", kind: "text", name: "test-output.txt" })
     expect(evidenceTarget(attachment("f2", "file", { name: "shot.webp", mime: "image/webp" }))).toEqual({ url: "/attachments/f2", title: "shot.webp", kind: "image" })
     const pr = attachment("l1", "link", { url: "https://github.com/lnmunhoz/cello/pull/10", name: "https://github.com/lnmunhoz/cello/pull/10" })
     expect(evidenceTarget(pr)).toEqual({ url: "https://github.com/lnmunhoz/cello/pull/10", title: "github.com/lnmunhoz/cello/pull/10" })
@@ -146,14 +146,14 @@ describe("evidence", () => {
     expect(evidenceOpen(shot1, [])).toMatchObject({ in: "modal", index: 0, images: [{ url: "/attachments/s1" }] })
   })
 
-  it("a video, a text file and a link open beside the board, as before", () => {
+  it("a video, a text file and a link open beside the board (a text file in the side panel's text view, CEL-60)", () => {
     const pr = attachment("l1", "link", { url: "https://github.com/lnmunhoz/cello/pull/10", caption: "The PR" })
     const video = attachment("v1", "video", { caption: "The whole flow" })
     const log = attachment("f1", "file", { name: "test-output.txt", mime: "text/plain" })
     const packet = [pr, video, log, attachment("s1", "image")]
     expect(evidenceOpen(pr, packet)).toEqual({ in: "panel", target: { url: "https://github.com/lnmunhoz/cello/pull/10", title: "The PR" } })
     expect(evidenceOpen(video, packet)).toEqual({ in: "panel", target: { url: "/attachments/v1", title: "The whole flow", kind: "video" } })
-    expect(evidenceOpen(log, packet)).toEqual({ in: "panel", target: { url: "/attachments/f1", title: "test-output.txt" } })
+    expect(evidenceOpen(log, packet)).toEqual({ in: "panel", target: { url: "/attachments/f1", title: "test-output.txt", kind: "text", name: "test-output.txt" } })
     expect(evidenceOpen(attachment("l2", "link"), packet)).toBeNull()
   })
 })
