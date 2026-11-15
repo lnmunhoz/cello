@@ -279,7 +279,7 @@ const make = Effect.gen(function* () {
   const query = Effect.fn("SearchService.query")(function* (input: SearchQuery) {
     const limit = input.limit ?? DEFAULT_LIMIT
     if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
-      return yield* new Invalid({ field: "limit", reason: `must be a whole number from 1 to ${MAX_LIMIT}` })
+      return yield* new Invalid({ field: "limit", reason: `the number of hits per kind (limit) must be a whole number from 1 to ${MAX_LIMIT}` })
     }
     const scope = yield* scopeOf(input)
     const kinds = SEARCH_KINDS.filter((k) => input.kinds === undefined || input.kinds.includes(k))
