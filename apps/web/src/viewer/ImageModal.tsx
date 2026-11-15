@@ -1,16 +1,18 @@
 import { ChevronLeftIcon, ChevronRightIcon, ImageOffIcon, MinusIcon, PanelRightOpenIcon, PlusIcon, XIcon } from "lucide-react"
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react"
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react"
 import { Button } from "../components/ui/Button.tsx"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../components/ui/Dialog.tsx"
+import { diagramSize } from "../docs/diagram.ts"
+import { useDiagram } from "../docs/Mermaid.tsx"
 import { openInPanel } from "../lib/desktop.ts"
 import { fitView, isZoomed, panBy, pinch, refit, toggleZoom, wheelAction, zoomBy, type Frame, type Point, type Size, type View } from "../lib/zoom.ts"
-import { closedImageModal, closeImageModal, imageModal, stepImage, useImageModal, type ImageModalState, type ModalImage } from "./imageModal.ts"
+import { closedImageModal, closeImageModal, imageModal, stepImage, useImageModal, type ImageModalState, type ModalDiagram, type ModalItem } from "./imageModal.ts"
 
 /**
- * The image modal: a screenshot over the whole window on a dark backdrop, fitted, to zoom (wheel,
- * pinch, double-click, +/−) and drag around, with ←/→ through the other images it was opened with.
- * Esc, the close button or a click on the backdrop closes it, and the focus goes back to the
- * thumbnail. Opened with `openImageModal` (imageModal.ts); the app shell mounts one.
+ * The image modal: a screenshot or a diagram over the whole window on a dark backdrop, fitted, to zoom
+ * (wheel, pinch, double-click, +/−) and drag around, with ←/→ through the other images and diagrams it
+ * was opened with. Esc, the close button or a click on the backdrop closes it, and the focus goes back
+ * to the thumbnail or diagram. Opened with `openImageModal` (imageModal.ts); the app shell mounts one.
  */
 export function ImageModal() {
   const state = useImageModal()
@@ -35,11 +37,11 @@ export function ImageModal() {
 }
 
 function Content({ state }: { state: ImageModalState }) {
-  const image = state.images[state.index]!
-  const count = state.images.length
-  const zoom = useZoom(image.url)
-  // After the modal has closed and given the focus back, so the viewer returns it there in turn.
-  const openInViewer = () => closeImageModal(() => openInPanel(image.url, image.title, "image"))
+  const item = state.items[state.index]!
+  const count = state.items.length
+  // Another item starts fitted again; two copies of one diagram in a row are still two items.
+  const key = `${state.index} ${item.kind === "diagram" ? item.source : item.url}`
+  const zoom = useZoom(key)
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return
     const action = KEYS[e.key]
@@ -53,8 +55,8 @@ function Content({ state }: { state: ImageModalState }) {
     <DialogContent size="screen" initialFocus="content" finalFocus={state.opener ?? "trigger"} onKeyDown={onKeyDown} data-image-modal="">
       <header className="flex h-12 shrink-0 items-center gap-2 pr-2 pl-4">
         <div className="flex min-w-0 flex-1 items-baseline gap-2">
-          <DialogTitle size="sm">{image.title}</DialogTitle>
-          {image.name && image.name !== image.title ? <span className="min-w-0 truncate text-xs text-white/55">{image.name}</span> : null}
+          <DialogTitle size="sm">{item.title}</DialogTitle>
+          {item.kind !== "diagram" && item.name && item.name !== item.title ? <span className="min-w-0 truncate text-xs text-white/55">{item.name}</span> : null}
         </div>
         {count > 1 ? (
           <DialogDescription>
@@ -84,15 +86,23 @@ function Content({ state }: { state: ImageModalState }) {
             <PlusIcon aria-hidden className="size-4" />
           </Button>
         </div>
-        <Button variant="overlay" size="md" aria-label={`Open ${image.title} in the viewer`} onClick={openInViewer}>
-          <PanelRightOpenIcon aria-hidden className="size-3.5" />
-          Open in viewer
-        </Button>
+        {item.kind !== "diagram" ? (
+          <Button
+            variant="overlay"
+            size="md"
+            aria-label={`Open ${item.title} in the viewer`}
+            // After the modal has closed and given the focus back, so the viewer returns it there in turn.
+            onClick={() => closeImageModal(() => openInPanel(item.url, item.title, "image"))}
+          >
+            <PanelRightOpenIcon aria-hidden className="size-3.5" />
+            Open in viewer
+          </Button>
+        ) : null}
         <Button variant="overlay" size="iconMd" aria-label="Close" title="Close (Esc)" onClick={() => closeImageModal()}>
           <XIcon aria-hidden className="size-4" />
         </Button>
       </header>
-      <Stage image={image} zoom={zoom} />
+      <Stage item={item} itemKey={key} zoom={zoom} />
       {count > 1 ? (
         <>
           <Step side="previous" disabled={state.index === 0} />
@@ -131,18 +141,20 @@ function Step({ side, disabled }: { side: "previous" | "next"; disabled: boolean
 }
 
 interface ZoomState {
-  readonly url: string
+  /** Which item it's for. */
+  readonly key: string
   readonly stage: Size | null
+  /** The image's natural size, or the diagram's drawn size. */
   readonly image: Size | null
   /** Null: fitted, and fitted again whenever the stage changes size. */
   readonly view: View | null
   /** A button, a key or a double-click: the change animates. A wheel, a drag or a pinch follows the hand. */
   readonly smooth: boolean
-  /** The image didn't load: there's nothing to zoom. */
+  /** The image didn't load, or the diagram didn't draw: there's nothing to zoom. */
   readonly broken: boolean
 }
 
-const blank = (url: string): ZoomState => ({ url, stage: null, image: null, view: null, smooth: false, broken: false })
+const blank = (key: string): ZoomState => ({ key, stage: null, image: null, view: null, smooth: false, broken: false })
 const frameOf = (s: ZoomState): Frame | null => (s.stage && s.image ? { stage: s.stage, image: s.image } : null)
 
 /** A change to the view, kept only when it's zoomed in (fitted stays null). */
@@ -157,10 +169,10 @@ const STEP = 1.5
 
 type Zoom = ReturnType<typeof useZoom>
 
-/** The zoom state of the image shown, reset (keeping the stage's size) when another image is shown. */
-function useZoom(url: string) {
-  const [state, setState] = useState(() => blank(url))
-  const current = state.url === url ? state : { ...blank(url), stage: state.stage }
+/** The zoom state of the item shown, reset (keeping the stage's size) when another item is shown. */
+function useZoom(key: string) {
+  const [state, setState] = useState(() => blank(key))
+  const current = state.key === key ? state : { ...blank(key), stage: state.stage }
   if (current !== state) setState(current)
   const frame = frameOf(current)
   const view = frame ? (current.view ?? fitView(frame)) : null
@@ -199,11 +211,16 @@ interface Press {
 
 const DRAG_PX = 4
 
-function Stage({ image, zoom }: { image: ModalImage; zoom: Zoom }) {
+function Stage({ item, itemKey, zoom }: { item: ModalItem; itemKey: string; zoom: Zoom }) {
   const ref = useRef<HTMLDivElement>(null)
   const pointers = useRef(new Map<number, Point>())
   const press = useRef<Press | null>(null)
   const { view, update } = zoom
+  // The image or the diagram, drawn at its natural size and moved and scaled into place.
+  const placed = view
+    ? { width: zoom.state.image!.width, height: zoom.state.image!.height, transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }
+    : undefined
+  const placement = `absolute top-0 left-0 max-w-none origin-top-left ${view && !zoom.broken ? "" : "invisible"} ${zoom.zoomed ? "" : "cursor-zoom-in"} ${zoom.state.smooth ? "transition-transform duration-150 ease-out motion-reduce:transition-none" : ""}`
   const at = (e: { clientX: number; clientY: number }): Point => {
     const box = ref.current!.getBoundingClientRect()
     return { x: e.clientX - box.left, y: e.clientY - box.top }
@@ -306,30 +323,80 @@ function Stage({ image, zoom }: { image: ModalImage; zoom: Zoom }) {
       }}
       className={`relative min-h-0 flex-1 touch-none overflow-hidden select-none ${zoom.zoomed ? "cursor-grab active:cursor-grabbing" : ""}`}
     >
-      <img
-        key={image.url}
-        src={image.url}
-        alt={image.title}
-        draggable={false}
-        data-modal-image=""
-        onLoad={(e) => {
-          const size = { width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight }
-          update((s) => (s.image ? s : { ...s, image: size }))
-        }}
-        onError={() => update((s) => ({ ...s, broken: true, view: null }))}
-        style={
-          view
-            ? { width: zoom.state.image!.width, height: zoom.state.image!.height, transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }
-            : undefined
-        }
-        className={`absolute top-0 left-0 max-w-none origin-top-left ${view && !zoom.broken ? "" : "invisible"} ${zoom.zoomed ? "" : "cursor-zoom-in"} ${zoom.state.smooth ? "transition-transform duration-150 ease-out motion-reduce:transition-none" : ""}`}
-      />
+      {item.kind === "diagram" ? (
+        <DiagramSheet key={itemKey} diagram={item} update={update} style={placed} className={placement} />
+      ) : (
+        <img
+          key={itemKey}
+          src={item.url}
+          alt={item.title}
+          draggable={false}
+          data-modal-image=""
+          onLoad={(e) => {
+            const size = { width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight }
+            update((s) => (s.image ? s : { ...s, image: size }))
+          }}
+          onError={() => update((s) => ({ ...s, broken: true, view: null }))}
+          style={placed}
+          className={placement}
+        />
+      )}
       {zoom.broken ? (
         <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-white/70">
           <ImageOffIcon aria-hidden className="size-6 text-white/50" />
-          Couldn't load this image
+          {item.kind === "diagram" ? "Couldn't draw this diagram" : "Couldn't load this image"}
         </div>
       ) : null}
     </div>
+  )
+}
+
+/** A diagram is drawn this many times its size on the page, so its 100% reads like a Retina screenshot of it. */
+const DIAGRAM_DENSITY = 2
+/** Room around the diagram on its sheet, in drawn px. */
+const DIAGRAM_PAD = 32
+
+/**
+ * A diagram on a sheet of the page's surface color (light or dark, as the app is), drawn again by
+ * Mermaid from its source (its own ids, and again when the theme changes). It stays vector, so the
+ * browser redraws it sharp at every zoom; the stage zooms and pans it like an image.
+ */
+function DiagramSheet({
+  diagram,
+  update,
+  style,
+  className,
+}: {
+  diagram: ModalDiagram
+  update: Zoom["update"]
+  style: CSSProperties | undefined
+  className: string
+}) {
+  const sheet = useRef<HTMLDivElement>(null)
+  const rendered = useDiagram(diagram.source, sheet)
+  const svg = rendered !== null && "svg" in rendered ? rendered.svg : null
+  const failed = rendered !== null && "error" in rendered
+
+  // Its drawn size is what the zoom maths fit and scale, once it's drawn (and again if a theme draws it another size).
+  useEffect(() => {
+    const size = svg ? diagramSize(svg) : null
+    if (failed || (svg && !size)) update((s) => ({ ...s, broken: true, view: null }))
+    else if (size) {
+      const drawn = { width: size.width * DIAGRAM_DENSITY + 2 * DIAGRAM_PAD, height: size.height * DIAGRAM_DENSITY + 2 * DIAGRAM_PAD }
+      update((s) => (s.image?.width === drawn.width && s.image.height === drawn.height ? s : { ...s, image: drawn, view: null }))
+    }
+  }, [svg, failed, update])
+
+  return (
+    <div
+      ref={sheet}
+      role="img"
+      aria-label={diagram.title}
+      data-modal-diagram=""
+      data-theme={rendered?.theme}
+      style={{ ...style, padding: DIAGRAM_PAD }}
+      className={`${className} rounded-xl bg-raised [&>svg]:block [&>svg]:size-full [&>svg]:max-w-none!`}
+      dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
+    />
   )
 }

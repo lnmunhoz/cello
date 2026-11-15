@@ -28,7 +28,8 @@ export function PageBody({
   const references = referenceDefinitions(content)
   const tail = references.length === 0 ? "" : `\n\n${references.join("\n")}`
   return (
-    <div className="page-prose">
+    // One gallery: ← and → in the image modal step through every section's images and diagrams.
+    <div className="page-prose" data-gallery="">
       {splitSections(content).map((block) => {
         const changed = flash !== null && flash.ids.includes(block.id)
         return (
