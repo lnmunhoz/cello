@@ -69,7 +69,8 @@ export const explain = (error: unknown, where: Where): string => {
     }
     case "BackupFailed":
       return `The backup failed (${e.reason}). Nothing was saved, and your data and earlier backups are untouched. ` +
-        `Check that the disk has room and that every file in ${e.dataDir}/assets can be read, then run \`cello backup\` again.`
+        `Check that the disk has room, that every file in ${e.dataDir}/assets can be read and that ${e.dataDir}/backups can be written, ` +
+        "then run `cello backup` again."
     case "ServerAlreadyRunning":
       return `Cello is running for ${e.dataDir} (pid ${e.pid}) but doesn't answer on 127.0.0.1:${where.port}. ` +
         `Run the command again with CELLO_PORT=${e.port}.`

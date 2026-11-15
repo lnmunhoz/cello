@@ -12,6 +12,7 @@ import * as Exit from "effect/Exit"
 import * as Scope from "effect/Scope"
 import { BACKUPS_DIR } from "../../src/backup/BackupService.ts"
 import { backupOffline, listBackups, restore } from "../../src/backup/offline.ts"
+import { failingCopy, failingRename } from "../../src/testing/failures.ts"
 import { writePng, writeText } from "../../src/testing/media.ts"
 import { AGENT_IDENTITY, connect, startServer, tempDataDir, withClient } from "./harness.ts"
 
@@ -258,24 +259,15 @@ const stoppedWithBackup = (dataDir: string) =>
 /** A path in the staging folder that came from the backup (not the live files moved aside into previous/). */
 const isStaged = (file: string) => file.includes(`${path.sep}.restore-`) && !file.includes(`${path.sep}previous${path.sep}`) && !file.endsWith(`${path.sep}previous`)
 
-/** fs.renameSync, except it throws EPERM for the renames `fails` picks. */
-const failingRename = (fails: (from: string, to: string) => boolean) => (from: string, to: string) => {
-  if (fails(from, to)) throw Object.assign(new Error(`EPERM: operation not permitted, rename '${from}' -> '${to}'`), { code: "EPERM" })
-  fs.renameSync(from, to)
-}
-
 describe("a restore that fails", () => {
   it.live("while copying the backup changes nothing and says so", () =>
     Effect.gen(function* () {
       const dataDir = yield* tempDataDir
       const backup = yield* stoppedWithBackup(dataDir)
       const before = filesIn(path.join(dataDir, "assets"))
-      const taskDir = fs.readdirSync(path.join(backup.path, "assets"))[0]!
-      const locked = path.join(backup.path, "assets", taskDir, fs.readdirSync(path.join(backup.path, "assets", taskDir))[0]!)
-      fs.chmodSync(locked, 0o000)
-      yield* Effect.addFinalizer(() => Effect.sync(() => fs.chmodSync(locked, 0o644)))
 
-      const error = yield* Effect.flip(restore({ dataDir, id: backup.id }))
+      // Copying the backup's files into the staging folder fails.
+      const error = yield* Effect.flip(restore({ dataDir, id: backup.id, copyFile: failingCopy((source) => source.startsWith(backup.path)) }))
       expect(error).toMatchObject({ _tag: "RestoreFailed", id: backup.id, dataDir, step: "copying the backup", unchanged: true, safetyId: null, keptAt: null })
       expect((error as { reason: string }).reason).toContain("EACCES")
       expect(filesIn(path.join(dataDir, "assets"))).toEqual(before)
@@ -339,17 +331,15 @@ describe("a backup with no server running", () => {
       expect(fs.existsSync(path.join(dataDir, "server.lock"))).toBe(false)
     }).pipe(Effect.scoped))
 
-  it.live("that fails (an unreadable file) says why, and leaves no half-made backup", () =>
+  it.live("that fails (a file that can't be copied) says why, and leaves no half-made backup", () =>
     Effect.gen(function* () {
       const dataDir = yield* tempDataDir
       yield* stoppedWithBackup(dataDir)
-      // A new file must be read to be copied (an unchanged one is only linked).
+      // A new file must be copied (an unchanged one is only linked), and that copy fails.
       const taskDir = fs.readdirSync(path.join(dataDir, "assets"))[0]!
-      const locked = writeText(path.join(dataDir, "assets", taskDir), "new.txt", "can't read me")
-      fs.chmodSync(locked, 0o000)
-      yield* Effect.addFinalizer(() => Effect.sync(() => fs.chmodSync(locked, 0o644)))
+      writeText(path.join(dataDir, "assets", taskDir), "new.txt", "can't be copied")
 
-      const error = yield* Effect.flip(backupOffline({ dataDir }))
+      const error = yield* Effect.flip(backupOffline({ dataDir, copyFile: failingCopy((source) => source.endsWith("new.txt")) }))
       expect(error).toMatchObject({ _tag: "BackupFailed", dataDir })
       expect((error as { reason: string }).reason).toContain("EACCES")
       expect(fs.readdirSync(path.join(dataDir, BACKUPS_DIR))).toHaveLength(1)

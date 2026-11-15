@@ -25,7 +25,7 @@ import * as SqlClient from "effect/sql/SqlClient"
 import * as AssetStore from "../review/AssetStore.ts"
 import { DB_FILE } from "../server/ServerLock.ts"
 import { checkDatabase } from "./database.ts"
-import { copyAssets, MANIFEST_FILE, readBackups, toBackup } from "./files.ts"
+import { copyAssets, type CopyFile, MANIFEST_FILE, readBackups, toBackup } from "./files.ts"
 import { backupId, freeId, toPrune } from "./rules.ts"
 
 /** The folder inside the data folder that holds the backups. */
@@ -56,6 +56,8 @@ export class BackupService extends Context.Service<BackupService, {
 export interface BackupOptions {
   /** The backups folder, `<dataDir>/backups`; created on the first backup. */
   readonly dir: string
+  /** For tests: a file copy that fails on purpose. */
+  readonly copyFile?: CopyFile
 }
 
 /** Needs the open database (to copy it) and the asset store (to know where the files are). */
@@ -100,7 +102,7 @@ export const make = (options: BackupOptions) =>
         fs.mkdirSync(partial)
         const db = yield* copyDatabase(partial)
         const copied = yield* Effect.promise(() =>
-          copyAssets(assets.dir, path.join(partial, AssetStore.ASSETS_DIR), previous ? path.join(previous.path, AssetStore.ASSETS_DIR) : null)
+          copyAssets(assets.dir, path.join(partial, AssetStore.ASSETS_DIR), previous ? path.join(previous.path, AssetStore.ASSETS_DIR) : null, options.copyFile)
         )
         const manifest: BackupManifest = {
           format: "cello-backup/1",

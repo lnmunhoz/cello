@@ -296,7 +296,7 @@ Every error is one sentence that says what to do next. The usual ones:
 | Only Lucas can approve a review | Approving and sending back are his. | Leave the task in In Review. |
 | This folder isn't in a git repository | The CLI can't work out the project. | Pass `--project KEY`. |
 | No project is linked to /path | This repository isn't a Cello project yet. | Pass `--project KEY`, or ask Lucas. |
-| Cello is running for … Stop it before restoring | `cello restore` runs only while no server does. | Lucas stops Cello, then runs it again. |
+| Cello is running for …, and restore only runs while it's stopped | `cello restore` runs only while no server does. Nothing was changed. | Lucas stops Cello, then runs it again. |
 | No backup 20261115-120000 in … | That backup id doesn't exist. | `cello backup list` shows the real ones. |
 | The backup failed (…) | The disk is full, or a file in `assets/` can't be read. Nothing was saved. | Tell Lucas, with the message. |
 | The restore of … failed while … | The disk or a file got in the way. The sentence says whether anything changed, the safety backup's id and, if needed, where the data was kept. | Tell Lucas, with the message. Don't start Cello if it says not to. |

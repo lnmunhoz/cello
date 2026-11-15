@@ -5,10 +5,12 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import { APP_VERSION } from "@cello/shared/version"
 import { describe, expect, it } from "@effect/vitest"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as TestClock from "effect/testing/TestClock"
 import * as AssetStore from "../review/AssetStore.ts"
+import { failingCopy } from "../testing/failures.ts"
 import { database } from "../testing/TestLayers.ts"
 import { tempDataDir } from "../testing/tempDir.ts"
 import * as BackupService from "./BackupService.ts"
@@ -16,14 +18,17 @@ import { latestSchemaLevel } from "./database.ts"
 import { backupId } from "./rules.ts"
 
 /** A data folder in a temp dir: an in-memory database, `<dir>/assets` and `<dir>/backups`. */
-const dataFolder = Layer.unwrap(Effect.map(tempDataDir, (dir) =>
-  BackupService.layer({ dir: path.join(dir, "backups") }).pipe(
-    Layer.provideMerge(Layer.succeed(AssetStore.AssetStore, AssetStore.make({ dir: path.join(dir, "assets"), ffmpeg: null }))),
-    Layer.provideMerge(database()),
-  )))
+const dataFolder = (options: Pick<BackupService.BackupOptions, "copyFile"> = {}) =>
+  Layer.unwrap(Effect.map(tempDataDir, (dir) =>
+    BackupService.layer({ dir: path.join(dir, "backups"), ...options }).pipe(
+      Layer.provideMerge(Layer.succeed(AssetStore.AssetStore, AssetStore.make({ dir: path.join(dir, "assets"), ffmpeg: null }))),
+      Layer.provideMerge(database()),
+    )))
 
-const run = <A, E>(effect: Effect.Effect<A, E, BackupService.BackupService | AssetStore.AssetStore>) =>
-  Effect.provide(effect, dataFolder)
+const run = <A, E>(
+  effect: Effect.Effect<A, E, BackupService.BackupService | AssetStore.AssetStore>,
+  options: Pick<BackupService.BackupOptions, "copyFile"> = {},
+) => Effect.provide(effect, dataFolder(options))
 
 const write = (file: string, content: string) => {
   fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -77,22 +82,26 @@ describe("BackupService.create", () => {
       expect(second.note).toBe("before restoring x")
     })))
 
-  it.effect("a backup that fails part-way leaves nothing behind, and the next one works", () =>
-    run(Effect.gen(function* () {
+  it.effect("a backup that fails part-way leaves nothing behind, and the next one works", () => {
+    let broken = true
+    const copyFile = failingCopy((source) => broken && source.endsWith("locked.png"))
+    return run(Effect.gen(function* () {
       const assets = yield* AssetStore.AssetStore
-      const unreadable = path.join(assets.dir, "task-1", "locked.png")
-      write(unreadable, "secret")
-      fs.chmodSync(unreadable, 0o000)
+      write(path.join(assets.dir, "documents", "doc-1", "notes.txt"), "copied first")
+      write(path.join(assets.dir, "task-1", "locked.png"), "can't be copied")
       const backups = yield* BackupService.BackupService
 
       const failed = yield* Effect.exit(backups.create({ kind: "manual" }))
       expect(failed._tag).toBe("Failure")
+      expect(String(failed._tag === "Failure" && Cause.pretty(failed.cause))).toContain("EACCES")
       expect(fs.readdirSync(backups.dir)).toEqual([])
 
-      fs.chmodSync(unreadable, 0o644)
+      broken = false
       const backup = yield* backups.create({ kind: "manual" })
       expect(fs.readdirSync(backups.dir)).toEqual([backup.id])
-    })))
+      expect(backup.assets).toMatchObject({ files: 2, copied: 2 })
+    }), { copyFile })
+  })
 })
 
 describe("BackupService.list", () => {

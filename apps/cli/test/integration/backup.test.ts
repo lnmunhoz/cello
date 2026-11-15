@@ -92,37 +92,35 @@ describe("cello backup", () => {
 })
 
 describe("cello backup that fails", () => {
-  /** A new evidence file nobody can read: a backup must copy it, and can't. */
-  const unreadableAsset = (dataDir: string) =>
-    Effect.gen(function* () {
-      const taskDir = path.join(dataDir, "assets", fs.readdirSync(path.join(dataDir, "assets"))[0]!)
-      const locked = writeText(taskDir, "locked.txt", "can't read me")
-      fs.chmodSync(locked, 0o000)
-      yield* Effect.addFinalizer(() => Effect.sync(() => fs.chmodSync(locked, 0o644)))
-    })
+  // A file where the backups folder goes: creating the backup fails, for root too (the Docker runner),
+  // unlike a `chmod 000` file. A failure part-way through copying is tested in the server's tests.
+  const blockBackups = (dataDir: string) => fs.writeFileSync(path.join(dataDir, "backups"), "in the way")
 
   const FAILED = (dataDir: string) =>
     new RegExp(
-      `^The backup failed \\(EACCES: [^)]*locked\\.txt[^)]*\\)\\. Nothing was saved, and your data and earlier backups are untouched\\. ` +
-        `Check that the disk has room and that every file in ${dataDir}/assets can be read, then run \\\`cello backup\\\` again\\.$`,
+      `^The backup failed \\(E[A-Z]+: [^)]*${dataDir}/backups[^)]*\\)\\. Nothing was saved, and your data and earlier backups are untouched\\. ` +
+        `Check that the disk has room, that every file in ${dataDir}/assets can be read and that ${dataDir}/backups can be written, ` +
+        `then run \\\`cello backup\\\` again\\.$`,
     )
 
-  it.live("through the running server prints why, and leaves no half-made backup", () =>
+  it.live("through the running server prints why, and leaves nothing half-made", () =>
     Effect.gen(function* () {
       const { run, dataDir } = yield* setup
-      yield* unreadableAsset(dataDir)
+      blockBackups(dataDir)
       const result = yield* run("backup")
       expect(result.failure).toMatch(FAILED(dataDir))
-      expect(fs.readdirSync(path.join(dataDir, "backups"))).toEqual([])
+      expect(fs.readFileSync(path.join(dataDir, "backups"), "utf8")).toBe("in the way")
+      expect(fs.readdirSync(dataDir).filter((name) => name.startsWith("."))).toEqual([])
     }).pipe(Effect.scoped))
 
   it.live("with no server running prints why too", () =>
     Effect.gen(function* () {
       const { run, stop, dataDir } = yield* setup
       yield* stop
-      yield* unreadableAsset(dataDir)
+      blockBackups(dataDir)
       expect((yield* run("backup")).failure).toMatch(FAILED(dataDir))
-      expect(fs.readdirSync(path.join(dataDir, "backups"))).toEqual([])
+      expect(fs.readFileSync(path.join(dataDir, "backups"), "utf8")).toBe("in the way")
+      expect(fs.existsSync(path.join(dataDir, "server.lock"))).toBe(false)
     }).pipe(Effect.scoped))
 })
 

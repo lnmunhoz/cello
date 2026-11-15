@@ -87,7 +87,7 @@ describe("explain", () => {
   it("a failed backup says why, that nothing was saved, and what to check", () => {
     expect(explain(new BackupFailed({ dataDir: "/data", reason: "ENOSPC: no space left on device, write" }), where)).toBe(
       "The backup failed (ENOSPC: no space left on device, write). Nothing was saved, and your data and earlier backups are untouched. " +
-        "Check that the disk has room and that every file in /data/assets can be read, then run `cello backup` again.",
+        "Check that the disk has room, that every file in /data/assets can be read and that /data/backups can be written, then run `cello backup` again.",
     )
   })
 

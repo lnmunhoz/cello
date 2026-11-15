@@ -81,9 +81,12 @@ const factsOf = (file: string): FileFacts | null => {
   }
 }
 
+/** Copies one file; fs.promises.copyFile, or one that fails on purpose in tests. */
+export type CopyFile = (source: string, target: string) => Promise<void>
+
 /** Copies a file and keeps its modification time, so the next backup recognizes it unchanged. */
-const copyKeepingTime = async (source: string, target: string, file: FileFacts) => {
-  await fsp.copyFile(source, target)
+const copyKeepingTime = async (source: string, target: string, file: FileFacts, copyFile: CopyFile) => {
+  await copyFile(source, target)
   const seconds = file.mtimeMs / 1000
   await fsp.utimes(target, seconds, seconds)
 }
@@ -94,7 +97,7 @@ const copyKeepingTime = async (source: string, target: string, file: FileFacts) 
  * what changed. A link that fails (another volume, say) falls back to a copy. Never touches `from`
  * or `previous`.
  */
-export const copyAssets = async (from: string, to: string, previous: string | null): Promise<BackupAssets> => {
+export const copyAssets = async (from: string, to: string, previous: string | null, copyFile: CopyFile = fsp.copyFile): Promise<BackupAssets> => {
   const totals = { files: 0, bytes: 0, linked: 0, copied: 0, copiedBytes: 0 }
   await fsp.mkdir(to, { recursive: true })
   for (const file of listFiles(from)) {
@@ -112,7 +115,7 @@ export const copyAssets = async (from: string, to: string, previous: string | nu
         continue
       }
     }
-    await copyKeepingTime(source, target, file)
+    await copyKeepingTime(source, target, file, copyFile)
     totals.copied++
     totals.copiedBytes += file.size
   }

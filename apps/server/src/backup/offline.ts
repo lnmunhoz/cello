@@ -28,7 +28,7 @@ import * as AssetStore from "../review/AssetStore.ts"
 import * as ServerLock from "../server/ServerLock.ts"
 import { BACKUPS_DIR, BackupService, type CreateBackup, layer as backupLayer } from "./BackupService.ts"
 import { checkDatabase, latestSchemaLevel } from "./database.ts"
-import { copyAssets, readBackups } from "./files.ts"
+import { copyAssets, type CopyFile, readBackups } from "./files.ts"
 import { previousOf, type Rename, swapIn } from "./swap.ts"
 
 export class BackupNotFound extends Schema.TaggedError<BackupNotFound>()("BackupNotFound", {
@@ -98,15 +98,24 @@ export const reasonOf = (defect: unknown): string =>
   Predicate.hasProperty(defect, "message") && typeof defect.message === "string" ? defect.message : String(defect)
 
 const dbPathOf = (dataDir: string) => path.join(dataDir, ServerLock.DB_FILE)
+
+/** Does `dir` hold anything? When it can't be read, assume it does: that's the side that keeps data. */
+const holdsFiles = (dir: string): boolean => {
+  try {
+    return fs.readdirSync(dir).length > 0
+  } catch {
+    return true
+  }
+}
 const assetsOf = (dataDir: string) => path.join(dataDir, AssetStore.ASSETS_DIR)
 
 /** Holds the data folder's lock for the rest of the scope, as a server would. */
 const holdLock = (dataDir: string) => Layer.build(ServerLock.layer({ dataDir, port: 0 }))
 
 /** Opens the folder's database and takes a backup of it; the database is closed again afterwards. */
-const backUp = (dataDir: string, input: CreateBackup) =>
+const backUp = (dataDir: string, input: CreateBackup, copyFile?: CopyFile) =>
   Effect.scoped(Effect.gen(function* () {
-    const layer = backupLayer({ dir: path.join(dataDir, BACKUPS_DIR) }).pipe(
+    const layer = backupLayer({ dir: path.join(dataDir, BACKUPS_DIR), ...(copyFile ? { copyFile } : {}) }).pipe(
       Layer.provide(Sqlite.layer(dbPathOf(dataDir))),
       Layer.provide(AssetStore.layer({ dir: assetsOf(dataDir), ffmpeg: null })),
     )
@@ -119,12 +128,16 @@ export const listBackups = Effect.fn("offline.list")(function* (options: { reado
 })
 
 /** A manual backup of a folder no server runs for. Fails with ServerAlreadyRunning while one does. */
-export const backupOffline = Effect.fn("offline.backup")(function* (options: { readonly dataDir: string }) {
+export const backupOffline = Effect.fn("offline.backup")(function* (options: {
+  readonly dataDir: string
+  /** For tests: a file copy that fails on purpose. */
+  readonly copyFile?: CopyFile
+}) {
   const dataDir = path.resolve(options.dataDir)
   if (!fs.existsSync(dbPathOf(dataDir))) return yield* new NothingToBackUp({ dataDir })
   return yield* Effect.scoped(Effect.gen(function* () {
     yield* holdLock(dataDir)
-    return yield* backUp(dataDir, { kind: "manual" })
+    return yield* backUp(dataDir, { kind: "manual" }, options.copyFile)
   })).pipe(Effect.catchDefect((defect) => Effect.fail(new BackupFailed({ dataDir, reason: reasonOf(defect) }))))
 })
 
@@ -133,6 +146,8 @@ export interface RestoreOptions {
   readonly id: string
   /** For tests: a rename that fails on purpose during the swap. */
   readonly rename?: Rename
+  /** For tests: a file copy that fails on purpose. */
+  readonly copyFile?: CopyFile
 }
 
 /** Restores backup `id` into a data folder no server runs for. */
@@ -166,19 +181,22 @@ export const restore = Effect.fn("offline.restore")(function* (options: RestoreO
       fs.copyFileSync(path.join(backup.path, ServerLock.DB_FILE), stagedDb)
       const check = checkDatabase(stagedDb)
       if (!check.ok) return yield* new BackupDamaged({ id, problems: check.problems.join("; ") })
-      const assets = yield* Effect.promise(() => copyAssets(path.join(backup.path, AssetStore.ASSETS_DIR), path.join(staging, AssetStore.ASSETS_DIR), null))
+      const assets = yield* Effect.promise(() =>
+        copyAssets(path.join(backup.path, AssetStore.ASSETS_DIR), path.join(staging, AssetStore.ASSETS_DIR), null, options.copyFile)
+      )
 
       step = "taking the safety backup"
       const holdsData = fs.existsSync(dbPathOf(dataDir)) || fs.existsSync(assetsOf(dataDir))
-      const safety = holdsData ? yield* backUp(dataDir, { kind: "safety", note: `before restoring ${id}`, protect: [id] }) : null
+      const safety = holdsData ? yield* backUp(dataDir, { kind: "safety", note: `before restoring ${id}`, protect: [id] }, options.copyFile) : null
       safetyId = safety?.id ?? null
 
       step = "swapping the files in"
       const swapped = swapIn(dataDir, staging, options.rename)
       if (swapped._tag === "RolledBack") return yield* failed(swapped.error)
       if (swapped._tag === "Stuck") {
-        const previous = previousOf(staging)
-        keepStaging = fs.existsSync(previous) && fs.readdirSync(previous).length > 0
+        // Keep it first: if looking inside fails, `ensuring` must still leave previous/ alone.
+        keepStaging = true
+        keepStaging = holdsFiles(previousOf(staging))
         return yield* failed(swapped.error, { unchanged: false, keptAt: keepStaging ? staging : null })
       }
       return { backup, safety, assets: { files: assets.files, bytes: assets.bytes, expected: backup.assets.files } } satisfies Restored

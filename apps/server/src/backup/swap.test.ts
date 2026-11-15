@@ -5,6 +5,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import { failingRename as failing } from "../testing/failures.ts"
 import { tempDataDir } from "../testing/tempDir.ts"
 import { swapIn } from "./swap.ts"
 
@@ -36,12 +37,6 @@ const contents = (dir: string): Record<string, string> =>
 
 const LIVE = { "assets/t1/a.png": "live asset", "cello.db": "live db", "cello.db-shm": "live shm", "cello.db-wal": "live wal" }
 const STAGED = { "assets/t1/b.png": "backup asset", "cello.db": "backup db" }
-
-/** fs.renameSync, except it throws EPERM for the renames `fails` picks. */
-const failing = (fails: (from: string, to: string) => boolean) => (from: string, to: string) => {
-  if (fails(from, to)) throw Object.assign(new Error(`EPERM: operation not permitted, rename '${from}' -> '${to}'`), { code: "EPERM" })
-  fs.renameSync(from, to)
-}
 
 describe("swapIn", () => {
   it.effect("moves the live database, its -wal and -shm, and assets aside, and puts the staged ones in", () =>
