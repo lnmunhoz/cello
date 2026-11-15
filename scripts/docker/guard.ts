@@ -1,6 +1,8 @@
 // Where the desktop e2e tests may run. They launch Electron, which opens real windows, so on a Mac
 // they would take over Lucas's screen while he works. They run in the Docker container instead
-// (`bun run test:docker:desktop`), under a virtual screen. apps/desktop/playwright.config.ts asks.
+// (`bun run test:docker:desktop`), under a virtual screen. apps/desktop/playwright.config.ts asks
+// first, for an early message; apps/desktop/e2e/support.ts asks again, since another config (or
+// Playwright's default one) skips the first.
 
 /** Set by scripts/test-in-docker.ts inside the container. */
 export const IN_CONTAINER = { name: "CELLO_DESKTOP_E2E", value: "docker" } as const
@@ -20,4 +22,10 @@ export const desktopE2eRefusal = (platform: string, env: Readonly<Record<string,
     "Videos and screenshots land in test-results/docker/latest/desktop/.",
     `Only for a check that needs macOS itself (Dock, cello:// through LaunchServices, the app menu), and only when asked: ${ALLOW_LOCAL.name}=${ALLOW_LOCAL.value}.`,
   ].join("\n")
+}
+
+/** Throws the refusal when the desktop e2e tests may not run in this process. */
+export const assertDesktopE2eAllowed = (): void => {
+  const refusal = desktopE2eRefusal(process.platform, process.env)
+  if (refusal) throw new Error(refusal)
 }

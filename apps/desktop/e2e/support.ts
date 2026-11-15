@@ -8,9 +8,13 @@ import { createRequire } from "node:module"
 import * as os from "node:os"
 import * as path from "node:path"
 import { _electron, type ElectronApplication, type Page } from "@playwright/test"
-import { IN_CONTAINER } from "../../../scripts/docker/guard.ts"
+import { assertDesktopE2eAllowed, IN_CONTAINER } from "../../../scripts/docker/guard.ts"
 import { isAlive } from "../../server/src/process/isAlive.ts"
 import { LOCK_FILE, parseBanner, parseLock, type LockInfo } from "../src/server/plan.ts"
+
+// Every test that launches Electron imports this file, so the Mac is refused here too, whichever
+// config ran the tests (`-c apps/desktop/e2e` uses Playwright's default one and skips ours).
+assertDesktopE2eAllowed()
 
 export const DESKTOP_DIR = path.resolve(import.meta.dirname, "..")
 export const CLI_DIR = path.resolve(DESKTOP_DIR, "../cli")

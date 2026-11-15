@@ -6,10 +6,10 @@
 // apps/cli/dist/cello when missing. Videos (MP4) and screenshots land in test-results/videos and
 // test-results/screenshots, copied out to test-results/docker/latest/desktop/.
 import { defineConfig } from "@playwright/test"
-import { desktopE2eRefusal } from "../../scripts/docker/guard.ts"
+import { assertDesktopE2eAllowed } from "../../scripts/docker/guard.ts"
 
-const refusal = desktopE2eRefusal(process.platform, process.env)
-if (refusal) throw new Error(refusal)
+// The early, friendly refusal; e2e/support.ts refuses again for runs that skip this config.
+assertDesktopE2eAllowed()
 
 export default defineConfig({
   testDir: "e2e",
