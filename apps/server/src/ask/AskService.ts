@@ -28,7 +28,7 @@ import * as AssetStore from "../review/AssetStore.ts"
 import { checkFile, requireLink } from "../review/evidence.ts"
 import * as TaskService from "../task/TaskService.ts"
 import { requireText } from "../validation.ts"
-import { openAskOf, withdrawOpenAsk } from "./openAsk.ts"
+import { withdrawOpenAsk } from "./openAsk.ts"
 import { checkQuestions, withImages } from "./questions.ts"
 
 export interface CreateAsk {
@@ -304,25 +304,18 @@ const make = Effect.gen(function* () {
       return yield* new Invalid({ field: "file", reason: `${input.name} is over ${MAX_UPLOAD_BYTES / 1024 / 1024} MB` })
     }
     yield* sweepDrafts
-    const ask = yield* openAskOrFail(input.askId)
+    const [ask] = yield* sql<{ task_id: string; state: string }>`SELECT task_id, state FROM asks WHERE id = ${input.askId}`
+    if (!ask) return yield* new NotFound({ entity: "ask", id: input.askId })
+    if (ask.state !== "open") return yield* new Invalid({ field: "askId", reason: `this ask is ${ask.state}, so it takes no more answers` })
     const now = yield* Clock.currentTimeMillis
     const id = newId(now)
-    const relative = yield* assets.writeIn(input.bytes, ask.taskId, id, ext)
+    const relative = yield* assets.writeIn(input.bytes, ask.task_id, id, ext)
     yield* sql`INSERT INTO attachments (id, task_id, ask_id, answer_to, kind, name, path, mime, bytes, actor_id, created_at)
-      VALUES (${id}, ${ask.taskId}, ${ask.id}, 'draft', 'image', ${path.basename(input.name)}, ${relative}, ${mime},
+      VALUES (${id}, ${ask.task_id}, ${input.askId}, 'draft', 'image', ${path.basename(input.name)}, ${relative}, ${mime},
               ${input.bytes.byteLength}, ${caller.actorId}, ${now})`.pipe(Effect.onError(() => assets.remove([relative])))
     const [row] = yield* sql<Parameters<typeof toAttachment>[0]>`SELECT * FROM attachments WHERE id = ${id}`
     return toAttachment(row!)
   }, Effect.catchTag("SqlError", Effect.die))
-
-  const openAskOrFail = (askId: string) =>
-    Effect.gen(function* () {
-      const [found] = yield* sql<{ task_id: string; state: string }>`SELECT task_id, state FROM asks WHERE id = ${askId}`
-      if (!found) return yield* new NotFound({ entity: "ask", id: askId })
-      if (found.state !== "open") return yield* new Invalid({ field: "askId", reason: `this ask is ${found.state}, so it takes no more answers` })
-      const open = yield* openAskOf(sql, found.task_id)
-      return open!
-    })
 
   yield* sweepDrafts
   return AskService.of({ create, answer, withdraw, latest, list, wait, upload, sweepDrafts })

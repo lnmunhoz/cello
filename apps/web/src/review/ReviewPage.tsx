@@ -177,7 +177,8 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
                 <div className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-line px-6 py-14 text-center text-[13px] text-muted">
                   <p className="text-[15px] font-medium text-ink">Nothing to review</p>
                   <p>
-                    When an agent runs <code className="rounded bg-sunken px-1 py-0.5 text-[12px]">cello task submit</code>, its packet shows up here.
+                    When an agent asks you something with <code className="rounded bg-sunken px-1 py-0.5 text-[12px]">cello task ask</code> or hands
+                    in work with <code className="rounded bg-sunken px-1 py-0.5 text-[12px]">cello task submit</code>, it shows up here.
                   </p>
                 </div>
               ) : null

@@ -34,8 +34,13 @@ import { SIDEBAR_SHORTCUT, SIDEBAR_WIDTH, type SidebarMode } from "./sidebarStat
 /** The sidebar's mode as shown, for the pieces outside it (the breadcrumb makes room for "Show sidebar"). Null outside the app shell. */
 export const SidebarContext = createContext<SidebarMode | null>(null)
 
-const row =
-  "flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium text-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-selected"
+/**
+ * A sidebar row, and one that also marks the page it opens as the current one. Needs input opens the
+ * Review page too, so only Review is marked there.
+ */
+const rowBase =
+  "flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium text-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
+const row = `${rowBase} data-[status=active]:bg-selected`
 /** What the rail's one tooltip says for the item under the pointer (or focused). */
 interface RailHint {
   readonly label: string
@@ -44,8 +49,9 @@ interface RailHint {
 type RailTips = ReturnType<typeof createTooltipController<RailHint>>
 
 /** A rail item: an icon the size of an icon button, with its tooltip on the right. */
-const railItem =
-  "relative flex size-7 shrink-0 items-center justify-center rounded-md text-muted outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-selected data-[status=active]:text-ink"
+const railItemBase =
+  "relative flex size-7 shrink-0 items-center justify-center rounded-md text-muted outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
+const railItem = `${railItemBase} data-[status=active]:bg-selected data-[status=active]:text-ink`
 
 /**
  * The left sidebar, expanded (resizable by its right edge) or as a rail of icons with tooltips. Hidden,
@@ -155,7 +161,7 @@ export function Sidebar({
 
         <nav aria-label="Inbox" className="flex flex-col items-center gap-1">
           <RailTip tips={tips} label={asked.length > 0 ? `Needs input · ${asked.length} waiting` : "Needs input"}>
-            <Link to="/review" search={inputSearch} className={railItem}>
+            <Link to="/review" search={inputSearch} className={railItemBase}>
               <MessageCircleQuestionIcon aria-hidden className="size-4" />
               <span className="sr-only">Needs input</span>
               {inputBadge}
@@ -252,7 +258,7 @@ export function Sidebar({
       </div>
 
       <nav aria-label="Inbox" className="flex flex-col gap-0.5">
-        <Link to="/review" search={inputSearch} className={row}>
+        <Link to="/review" search={inputSearch} className={rowBase}>
           <MessageCircleQuestionIcon aria-hidden className="size-3.5 text-muted" />
           Needs input
           {inputBadge}

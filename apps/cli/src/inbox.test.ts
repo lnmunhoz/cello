@@ -1,6 +1,6 @@
 // What an agent reads when comments reach it: `cello inbox`, `cello context` and the Claude Code hook
 // all print items the same way.
-import type { Ask, InboxComment, InboxItem } from "@cello/contract/entities"
+import type { InboxComment } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import { deliveryText, inboxEntries, MAX_DELIVERY } from "./inbox.ts"
 
