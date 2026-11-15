@@ -221,7 +221,7 @@ describe("writeFileAtomically", () => {
     const file = path.join(dir, "settings.json")
     fs.writeFileSync(file, "{ \"old\": true }\n")
     const full = { writeSync: () => { throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" }) } }
-    expect(() => writeFileAtomically(file, "{ \"new\": true }\n", full)).toThrow("ENOSPC")
+    expect(() => writeFileAtomically(file, "{ \"new\": true }\n", { io: full })).toThrow("ENOSPC")
     expect(fs.readFileSync(file, "utf8")).toBe("{ \"old\": true }\n")
     expect(leftovers(dir)).toEqual([])
     expect(fs.existsSync(`${file}.bak`)).toBe(false)
@@ -240,6 +240,15 @@ describe("writeFileAtomically", () => {
     expect(fs.readFileSync(link, "utf8")).toBe("{ \"a\": 1 }\n")
     expect(fs.readFileSync(`${real}.bak`, "utf8")).toBe("{}\n")
     expect(leftovers(path.dirname(real))).toEqual([])
+  })
+
+  it("backup: false replaces the file the same way without keeping a .bak", () => {
+    const file = path.join(dir, "AGENTS.md")
+    fs.writeFileSync(file, "old\n")
+    expect(writeFileAtomically(file, "new\n", { backup: false })).toEqual({ target: file, backup: null })
+    expect(fs.readFileSync(file, "utf8")).toBe("new\n")
+    expect(fs.existsSync(`${file}.bak`)).toBe(false)
+    expect(leftovers(dir)).toEqual([])
   })
 
   it("creates a new file and its folder, with no .bak", () => {

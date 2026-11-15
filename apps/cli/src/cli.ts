@@ -26,7 +26,7 @@ import * as Predicate from "effect/Predicate"
 import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
-import { addAgentsSection, agentsFile } from "./agentsMd.ts"
+import { addAgentsSection, agentsFile, type AgentsResult } from "./agentsMd.ts"
 import { roundLabel } from "@cello/client/sync/asks"
 import { answerLines, answerScreenshots, askResultText, askSpecFromArgs, askSpecFromFile, roundsText } from "./ask.ts"
 import { buildsText } from "./builds.ts"
@@ -1406,6 +1406,31 @@ const uninstallClaude = Command.make("claude", {}, () =>
 /** Where the board shows a project: the web app `cello start` serves on the same port. */
 const boardUrl = (env: Env, projectKey: string) => `http://127.0.0.1:${portOf(env)}/${projectKey}`
 
+/** What `cello init --agents-md` says it did to the agents file, with the section's changed lines when it rewrote it. */
+const agentsMdLines = (done: AgentsResult): ReadonlyArray<string> => {
+  const section = "\"Tracking work in Cello\" section"
+  const diff = indent([...done.diff])
+  switch (done.change) {
+    case "added":
+      return [`Added the ${section} to ${done.file} (uncommitted).`]
+    case "updated":
+      return [`Updated the ${section} in ${done.file} to the current text (uncommitted):`, ...diff]
+    case "replaced":
+      return [
+        `Replaced the old ${section} in ${done.file} with the current one, between cello:agents-md markers so later runs update it ` +
+        `(uncommitted). Kept the old file as ${done.backup}. What changed:`,
+        ...diff,
+      ]
+    case "unchanged":
+      return [`The ${section} in ${done.file} is already current.`]
+    case "foreign":
+      return [
+        `${done.file} has a ${section} that isn't Cello's (it doesn't mention \`cello guide\` or \`cello context\`); left it as it is. ` +
+        "Rename or remove it, then run this again to add Cello's.",
+      ]
+  }
+}
+
 const init = Command.make("init", {
   name: Flag.String("name").pipe(Flag.optional, Flag.withDescription("The project's name. Default: the repository's folder name.")),
   key: Flag.String("key").pipe(
@@ -1419,11 +1444,16 @@ const init = Command.make("init", {
   ),
   agentsMd: Flag.Boolean("agents-md").pipe(
     Flag.withDefault(false),
-    Flag.withDescription("Also add the \"Tracking work in Cello\" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), once."),
+    Flag.withDescription(
+      "Also add the \"Tracking work in Cello\" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), or bring the one there up to date.",
+    ),
   ),
   json: Flag.Boolean("json").pipe(
     Flag.withDefault(false),
-    Flag.withDescription("Print JSON: created, project, url, hooks and agentsMd ({ file, changed }, or null when not asked for or not reached), and error when --hooks or --agents-md failed."),
+    Flag.withDescription(
+      "Print JSON: created, project, url, hooks ({ file, changed }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged or " +
+        "foreign, backup, diff }), each null when not asked for or not reached, and error when --hooks or --agents-md failed.",
+    ),
   ),
 }, (input) =>
   Effect.gen(function* () {
@@ -1506,11 +1536,7 @@ const init = Command.make("init", {
     } else {
       const lines = [
         ...(hooks?.lines ?? []),
-        ...(agentsMd === null
-          ? []
-          : agentsMd.changed
-          ? [`Added the "Tracking work in Cello" section to ${agentsMd.file} (uncommitted).`]
-          : [`${agentsMd.file} already has a "Tracking work in Cello" section; left it as it is.`]),
+        ...(agentsMd === null ? [] : agentsMdLines(agentsMd)),
       ]
       if (lines.length) yield* print(lines.join("\n"))
     }

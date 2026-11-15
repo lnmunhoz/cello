@@ -150,14 +150,15 @@ export const settingsPaths = (options: { readonly projectRoot: string; readonly 
 /**
  * Replaces `file` with `text` so a crash or a full disk never leaves it half written: the new bytes go
  * to `<file>.cello-<pid>.tmp` beside it, are fsynced, and the temp file is renamed over the original,
- * keeping its mode. The old bytes are kept in `<file>.bak`. Returns the file written (a symlink's
- * target) and the backup, if there was an old file. `io` is for tests that fail the write.
+ * keeping its mode. The old bytes are kept in `<file>.bak` (unless `backup: false`). Returns the file
+ * written (a symlink's target) and the backup, if one was kept. `io` is for tests that fail the write.
  */
 export const writeFileAtomically = (
   file: string,
   text: string,
-  io: { readonly writeSync: (fd: number, data: string) => unknown } = fs,
+  options: { readonly io?: { readonly writeSync: (fd: number, data: string) => unknown }; readonly backup?: boolean } = {},
 ): { readonly target: string; readonly backup: string | null } => {
+  const { io = fs, backup = true } = options
   const target = fs.existsSync(file) ? fs.realpathSync(file) : file
   const folder = path.dirname(target)
   fs.mkdirSync(folder, { recursive: true })
@@ -172,7 +173,7 @@ export const writeFileAtomically = (
       fs.closeSync(fd)
     }
     if (old) fs.chmodSync(temp, old.mode)
-    if (old) fs.writeFileSync(`${target}.bak`, old.bytes, { mode: old.mode })
+    if (old && backup) fs.writeFileSync(`${target}.bak`, old.bytes, { mode: old.mode })
     fs.renameSync(temp, target)
   } catch (error) {
     fs.rmSync(temp, { force: true })
@@ -186,7 +187,7 @@ export const writeFileAtomically = (
   } catch {
     // Best effort.
   }
-  return { target, backup: old ? `${target}.bak` : null }
+  return { target, backup: old && backup ? `${target}.bak` : null }
 }
 
 /**

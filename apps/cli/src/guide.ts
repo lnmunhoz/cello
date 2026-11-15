@@ -36,7 +36,10 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    - If the key is taken, it says which project has it: pick another, or leave \`--key\` out and Cello picks a free one (CEL, then CELL, CELLO, CEL2…).
    - \`--workspace Work\` puts it in another workspace, by name; the default is the first one.
 4. **Hooks, so Lucas's comments reach your session.** Run \`cello install claude\` (or \`cello init --hooks\`, which does the same). It writes this machine's \`.claude/settings.local.json\` and makes sure git ignores it. It keeps a \`.bak\` of the old file; ignore that too if the repo's \`.gitignore\` doesn't cover it. Run it again any time; it changes nothing the second time. The same command adds two guards: in this project, Claude artifact publishes are turned away with a pointer to \`cello doc publish\` (see "Showing things to Lucas"), and an agent's edits in the repo are turned away until its session has claimed a task (see "Edits need a claimed task").
-5. **Tell the repo's agents.** \`cello init --agents-md\` adds this section, with the project's key in place of \`KEY\`, to the end of the AGENTS.md in the checkout you're in, or to CLAUDE.md if there's no AGENTS.md (creating it). It changes nothing else in the file, and nothing at all when the file already has a "Tracking work in Cello" heading. To add it by hand, copy it and replace \`KEY\` yourself:
+5. **Tell the repo's agents.** \`cello init --agents-md\` adds this section, with the project's key in place of \`KEY\`, to the end of the AGENTS.md in the checkout you're in, or to CLAUDE.md if there's no AGENTS.md (creating it), between two markers: \`<!-- cello:agents-md:start -->\` and \`<!-- cello:agents-md:end -->\`. Run it again whenever Cello's text changes: it puts the current text between the markers and prints the lines that changed, or says it's already current. It changes nothing else in the file.
+   - **A section from before the markers** (a "Tracking work in Cello" heading, up to the next heading of its level, that mentions \`cello guide\` or \`cello context\`) is replaced with the marked one. It says so, prints what changed, and keeps the old file as \`AGENTS.md.bak\` (or \`CLAUDE.md.bak\`): delete it once you've looked.
+   - **A "Tracking work in Cello" section that isn't Cello's** (it mentions neither) is left alone, and the command says so.
+   - To add it by hand, copy it and replace \`KEY\` yourself:
 
    <!-- agents-md:start -->
    \`\`\`markdown
@@ -57,7 +60,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    <!-- agents-md:end -->
 
    \`cello init --agents-md\` copies this block, so changing it here changes what the command writes.
-6. **Check.** \`cello context\` shows the project, its statuses and labels. Tell Lucas the repo is set up: the project key, that the hooks are installed, and that the AGENTS.md section was added (uncommitted, unless he asks you to commit it).
+6. **Check.** \`cello context\` shows the project, its statuses and labels. Tell Lucas the repo is set up: the project key, that the hooks are installed, and that the AGENTS.md section was added or brought up to date (uncommitted, unless he asks you to commit it).
 
 ## Concepts
 
@@ -658,8 +661,8 @@ cello init [flags]
 | \`--key string\` | Its task key: 2 to 10 letters or digits, starting with a letter (THAI gives THAI-1, THAI-2…). Default: one made from the name that no project has. |
 | \`--workspace string\` | The workspace to put it in, by name. Default: the first one. |
 | \`--hooks\` | Also install the Claude Code hooks for this machine, as \`cello install claude\` does. |
-| \`--agents-md\` | Also add the "Tracking work in Cello" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), once. |
-| \`--json\` | Print JSON: created, project, url, hooks and agentsMd ({ file, changed }, or null when not asked for or not reached), and error when --hooks or --agents-md failed. |
+| \`--agents-md\` | Also add the "Tracking work in Cello" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), or bring the one there up to date. |
+| \`--json\` | Print JSON: created, project, url, hooks ({ file, changed }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged or foreign, backup, diff }), each null when not asked for or not reached, and error when --hooks or --agents-md failed. |
 
 ### cello task list
 
