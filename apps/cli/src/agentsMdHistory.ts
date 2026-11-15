@@ -14,6 +14,7 @@ export const PAST_SNIPPET_LINES: ReadonlyArray<string> = [
   "- Claim a task before working on it (`cello task claim KEY-n`), and put the key in commit messages (`fix(api): rate limit (KEY-12)`).",
   "- Hand finished work to Lucas only with `cello task submit`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).",
   "- Answer Lucas on the card with `cello task comment`. His comments come to your session by themselves.",
+  "- When you end a turn while holding a claimed task, start `cello inbox --wait` in the background so Lucas's comments wake you.",
   "- When a decision is Lucas's (a design option, a scope, wording), ask on the card with `cello task ask` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. His answers come back to your session.",
   "- In Progress means someone is on it right now. When you stop, or wait on Lucas's decision, put the questions or the state on the card and move it back to Todo.",
   "- In Progress means someone is on it right now. When you wait on Lucas's decision, ask on the card with `cello task ask` (the task waits in Needs input). When you stop, put the state on the card and move it back to Todo.",

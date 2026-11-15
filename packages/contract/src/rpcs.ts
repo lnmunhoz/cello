@@ -271,6 +271,10 @@ export const CelloRpcs = RpcGroup.make(
   // time; `unreadOnly` leaves out the ones read before. Read marks are the session's own bookkeeping,
   // not board changes: no commandId, no event. (`context` shows new items without taking them.)
   Rpc.make("inbox.take", { payload: { unreadOnly: Schema.optionalKey(Schema.Boolean) }, success: Inbox }),
+  // Blocks until the caller has at least one new item, then takes them as `inbox.take` with `unreadOnly`
+  // does (CEL-74: `cello inbox --wait`, so an idle agent session wakes on a comment). Returns at once
+  // when items are waiting, and for the human. Items a live `ask.wait` is handing over are left to it.
+  Rpc.make("inbox.wait", { payload: {}, success: Inbox }),
 
   // A subagent of the caller's session (CEL-55), as Claude Code's hooks see it: `started` (SubagentStart),
   // `launched` (the parent's Agent tool returned its id, with the launch's description and prompt, which

@@ -14,6 +14,7 @@ Cello is a task board shared by a person and their coding agents. Agents use it 
 - Test first. Comment progress and decisions with `cello task comment`.
 - **Decisions that are the person's** (a design option, a scope, wording) are asked on the card with `cello task ask`, never in the terminal.
 - Their comments reach your session by themselves with the hooks (else `cello inbox`). Answer on the card.
+- When you end a turn while holding a claimed task, start `cello inbox --wait` in the background, so their comments wake you while you're idle.
 - In Progress means someone is on it now. Pausing: put the state on the card, move it back to Todo, `cello task release`.
 - Hand finished work in only with `cello task submit`: a summary, how to check it, and evidence.
 - Show reports, plans and evidence as Cello pages (`cello doc publish page.md --task <KEY>`).

@@ -69,6 +69,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "task.release": (input) => tasks.release(input),
     "task.stage": (input) => tasks.setStage(input),
     "inbox.take": (query) => inbox.take(query),
+    "inbox.wait": () => inbox.wait,
     "agent.report": (input) => agents.report(input),
     "review.submit": (input) => reviews.submit(input),
     "review.approve": (input) => reviews.approve(input),

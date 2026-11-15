@@ -16,6 +16,7 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Stream from "effect/Stream"
 import { connect } from "../../../server/test/integration/harness.ts"
+import { WAIT_NUDGE } from "../../src/claudeHook.ts"
 import { cello, gitRepo } from "./cli.ts"
 
 const X = "2fd0505c-417a-4167-acfe-2d66080fcae0"
@@ -196,7 +197,8 @@ describe("cello task ask", () => {
       const saved = context.split("\n").find((l) => l.includes("Screenshot: "))!.split("Screenshot: ")[1]!
       expect(fs.existsSync(saved)).toBe(true)
       expect(yield* hook("post-tool-use")).toEqual({ out: "", failure: null })
-      expect(yield* hook("stop")).toEqual({ out: "", failure: null })
+      // Not again: the stop only asks for a waiter, since the session still holds CEL-1 (CEL-74).
+      expect(JSON.parse((yield* hook("stop")).out).hookSpecificOutput.additionalContext).toBe(WAIT_NUDGE(["CEL-1"], "Lucas"))
     }).pipe(Effect.scoped))
 
   it.live("--withdraw takes the ask back; a waiting agent hears it was withdrawn", () =>

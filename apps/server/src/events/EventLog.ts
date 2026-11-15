@@ -7,6 +7,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as PubSub from "effect/PubSub"
+import type * as EffectScope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as EventStore from "./EventStore.ts"
 import { inScope } from "./scope.ts"
@@ -19,21 +20,27 @@ export class EventLog extends Context.Service<EventLog, {
   readonly publish: (events: ReadonlyArray<CelloEvent>) => Effect.Effect<void>
   /** Events in scope after `afterSeq`: the stored ones, then live ones as they commit. */
   readonly subscribe: (scope: Scope, afterSeq: number) => Stream.Stream<CelloEvent, SnapshotRequired>
+  /**
+   * Joins the live channel now and streams every event committed from then on, in any scope, without
+   * a replay: for a waiter that reads the database itself right after joining (InboxService.wait), so
+   * nothing committed in between is missed. It leaves when the scope closes.
+   */
+  readonly live: Effect.Effect<Stream.Stream<CelloEvent>, never, EffectScope.Scope>
 }>()("cello/EventLog") {}
 
 const make = Effect.gen(function* () {
   const store = yield* EventStore.EventStore
-  const live = yield* PubSub.unbounded<CelloEvent>()
+  const channel = yield* PubSub.unbounded<CelloEvent>()
 
   const publish = Effect.fn("EventLog.publish")(function* (events: ReadonlyArray<CelloEvent>) {
-    if (events.length > 0) yield* PubSub.publishAll(live, events)
+    if (events.length > 0) yield* PubSub.publishAll(channel, events)
   })
 
   const subscribe = (scope: Scope, afterSeq: number): Stream.Stream<CelloEvent, SnapshotRequired> =>
     Stream.unwrap(Effect.gen(function* () {
       const resolved = yield* store.resolveScope(scope)
       // Join first: anything committed from here on reaches us live.
-      const subscription = yield* PubSub.subscribe(live)
+      const subscription = yield* PubSub.subscribe(channel)
       const latestSeq = yield* store.latestSeq
       if (afterSeq > latestSeq || (yield* store.countAfter(resolved, afterSeq)) > MAX_REPLAY) {
         return yield* new SnapshotRequired({ latestSeq })
@@ -48,7 +55,9 @@ const make = Effect.gen(function* () {
       )
     }).pipe(Effect.withSpan("EventLog.subscribe")))
 
-  return EventLog.of({ publish, subscribe })
+  const live = PubSub.subscribe(channel).pipe(Effect.map((subscription) => Stream.fromSubscription(subscription)))
+
+  return EventLog.of({ publish, subscribe, live })
 })
 
 export const layer = Layer.effect(EventLog, make)
