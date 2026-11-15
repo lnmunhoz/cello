@@ -35,6 +35,9 @@ const task = (id: string): Task => ({
   assigneeSessionId: null,
   createdByActorId: "me",
   createdBySessionId: null,
+  updatedByActorId: null,
+  updatedBySessionId: null,
+  stage: null,
   version: 1,
   createdAt: 1,
   updatedAt: 1,
@@ -49,6 +52,7 @@ const snapshot = (seq: number, tasks: Task[] = []): Snapshot => ({
   statuses: [],
   labels: [],
   tasks,
+  sessions: [],
   reviews: [],
   documents: [],
 })
@@ -161,7 +165,7 @@ describe("follow", () => {
 describe("advance", () => {
   it("applies events and remembers which commands it has seen", () => {
     const start: Synced = {
-      state: { seq: 10, actors: {}, workspaces: {}, projects: {}, statuses: {}, labels: {}, tasks: {}, reviews: {}, documents: {} },
+      state: { seq: 10, actors: {}, workspaces: {}, projects: {}, statuses: {}, labels: {}, tasks: {}, sessions: {}, reviews: {}, documents: {} },
       scope: { workspaceId: "w1" },
       epoch: 1,
       seen: new Map(),
@@ -177,7 +181,7 @@ describe("advance", () => {
 
   it("returns the same object when nothing applies", () => {
     const start: Synced = {
-      state: { seq: 10, actors: {}, workspaces: {}, projects: {}, statuses: {}, labels: {}, tasks: {}, reviews: {}, documents: {} },
+      state: { seq: 10, actors: {}, workspaces: {}, projects: {}, statuses: {}, labels: {}, tasks: {}, sessions: {}, reviews: {}, documents: {} },
       scope: { workspaceId: "w1" },
       epoch: 1,
       seen: new Map(),

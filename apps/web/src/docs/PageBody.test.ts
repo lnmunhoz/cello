@@ -18,10 +18,10 @@ const cel: Project = { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", c
 const review: Task = {
   id: "t8", projectId: "p1", number: 8, key: "CEL-8", title: "Review packets", description: "", statusId: "s2", priority: 0, position: "a0",
   dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null, createdByActorId: "me",
-  createdBySessionId: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null,
+  createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null,
 }
 const board: BoardState = {
-  seq: 1, actors: {}, workspaces: {}, projects: { p1: cel }, statuses: { s2: inProgress }, labels: {}, tasks: { t8: review }, reviews: {}, documents: {},
+  seq: 1, actors: {}, workspaces: {}, projects: { p1: cel }, statuses: { s2: inProgress }, labels: {}, tasks: { t8: review }, sessions: {}, reviews: {}, documents: {},
 }
 
 /** The page body as the reader renders it, with the board above it (the key chips read it themselves). */

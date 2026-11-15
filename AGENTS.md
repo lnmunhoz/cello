@@ -57,13 +57,15 @@ The server backs up `<dataDir>` into `<dataDir>/backups/<YYYYMMDD-HHMMSS>/` (cel
 
 The session running the work (the orchestrator) claims the task, then (the whole path, with diagrams: [docs/feature-lifecycle.md](docs/feature-lifecycle.md), also in Cello's Docs tab):
 
-1. **Build.** A `cello-builder` agent (`.claude/agents/`) works in its own git worktree, test first, and commits on its branch. It never pushes, touches main or changes the live board. The orchestrator's brief says what to build, what to read, and what other agents are changing at the same time.
-2. **Review.** Before merging, a fresh `cello-code-reviewer` agent reviews the branch. It gets the diff against main and the task text, never the builder's report, so it judges the code rather than echoing the builder.
+At each step it marks the task's **stage** with `cello task stage CEL-n building|review|fixing|merged`, so the In Progress card says where the work is instead of looking stuck. Submitting clears it.
+
+1. **Build** (`cello task stage CEL-n building`). A `cello-builder` agent (`.claude/agents/`) works in its own git worktree, test first, and commits on its branch. It never pushes, touches main or changes the live board. The orchestrator's brief says what to build, what to read, and what other agents are changing at the same time.
+2. **Review** (`cello task stage CEL-n review`). Before merging, a fresh `cello-code-reviewer` agent reviews the branch. It gets the diff against main and the task text, never the builder's report, so it judges the code rather than echoing the builder.
    - When the task touches Lucas's data (migrations, backups and restore, writes outside the data folder such as Claude Code settings, deleting or overwriting files, the desktop panel's security rules), use `cello-data-reviewer` instead.
    - For UI work, the code reviewer also checks the videos and screenshots, using `cello-visual-reviewer`'s checklist, so each branch gets one reviewer, not two. A separate visual reviewer only for a large visual change.
    - Reviewers run only the tests the change touches. The orchestrator runs the whole suite at merge.
-3. **Fix.** Findings go back to the same builder agent, so it keeps its context. Only blockers get a re-check, by the same reviewer resumed. If one round of fixes doesn't settle a blocker, or it's a design question the task doesn't answer, ask Lucas. Comment the review's result on the card.
-4. **Merge.** The orchestrator merges into main (`merge: <what> (CEL-n)`) and runs the whole suite (unit, integration, typecheck, e2e). If the server or web app changed, it rebuilds `cello` and restarts the live server, backing up first when a migration ships.
+3. **Fix** (`cello task stage CEL-n fixing`). Findings go back to the same builder agent, so it keeps its context. Only blockers get a re-check, by the same reviewer resumed. If one round of fixes doesn't settle a blocker, or it's a design question the task doesn't answer, ask Lucas. Comment the review's result on the card.
+4. **Merge** (`cello task stage CEL-n merged`). The orchestrator merges into main (`merge: <what> (CEL-n)`) and runs the whole suite (unit, integration, typecheck, e2e). If the server or web app changed, it rebuilds `cello` and restarts the live server, backing up first when a migration ships.
 5. **Submit, right after the merge.** Don't batch merges or hold packets for a later deploy: deploying takes under a minute, and a merged task left in In Progress looks stuck on the board. `cello task submit` with the evidence, recorded once, at the end, in review mode. The summary says what the review found and what was fixed, and which models built and reviewed it.
 
 Small changes (docs, a one-line fix) skip steps 1–3: the orchestrator makes them directly, still test first. Later, these roles move into Cello itself (CEL-28).

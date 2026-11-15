@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import type * as Statement from "effect/sql/Statement"
+import { SessionService } from "../session/SessionService.ts"
 import * as EventStore from "../events/EventStore.ts"
 import {
   selectActors,
@@ -30,6 +31,7 @@ export class SnapshotService extends Context.Service<SnapshotService, {
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const store = yield* EventStore.EventStore
+  const sessions = yield* SessionService
 
   const get = Effect.fn("SnapshotService.get")(function* (scope?: Scope) {
     return yield* sql.withTransaction(Effect.gen(function* () {
@@ -52,6 +54,7 @@ const make = Effect.gen(function* () {
         workspaceId = found[0].workspace_id
         projectFilter = sql`p.id = ${scope.projectId}`
       }
+      const tasks = yield* selectTasks(sql, projectFilter)
       return {
         seq: yield* store.latestSeq,
         actors: yield* selectActors(sql),
@@ -59,7 +62,8 @@ const make = Effect.gen(function* () {
         projects: yield* selectProjects(sql, projectFilter),
         statuses: yield* selectStatuses(sql, sql`s.workspace_id = ${workspaceId}`),
         labels: yield* selectLabels(sql, sql`l.workspace_id = ${workspaceId}`),
-        tasks: yield* selectTasks(sql, projectFilter),
+        tasks,
+        sessions: yield* sessions.byIds(tasks.flatMap((t) => [t.createdBySessionId, t.assigneeSessionId, t.updatedBySessionId].filter((id) => id !== null))),
         reviews: yield* selectReviews(sql, sql`r.decided_at IS NULL AND ${projectFilter}`),
         documents: yield* selectDocuments(sql, projectFilter),
       } satisfies Snapshot

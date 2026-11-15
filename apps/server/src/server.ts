@@ -25,6 +25,7 @@ import * as AssetStore from "./review/AssetStore.ts"
 import * as Handlers from "./rpc/Handlers.ts"
 import * as ServerLock from "./server/ServerLock.ts"
 import * as Services from "./services.ts"
+import * as PresenceWatch from "./session/PresenceWatch.ts"
 import * as Attachments from "./web/Attachments.ts"
 import * as WebFiles from "./web/WebFiles.ts"
 
@@ -78,7 +79,7 @@ export const layer = (options: ServerOptions) => {
   const api = Layer.mergeAll(rpc, Attachments.layer, AllowedOrigins.layer)
   const routes = options.web === undefined ? api : Layer.mergeAll(api, WebFiles.layer(options.web))
   const dailyBackup = options.autoBackup === false ? Layer.empty : BackupSchedule.layer
-  return Layer.mergeAll(HttpRouter.serve(routes, { disableLogger: true }), recordPort, dailyBackup).pipe(
+  return Layer.mergeAll(HttpRouter.serve(routes, { disableLogger: true }), recordPort, dailyBackup, PresenceWatch.layer).pipe(
     Layer.provide(app),
     Layer.provideMerge(BunHttpServer.layer({ hostname: "127.0.0.1", port: options.port, gracefulShutdownTimeout: SHUTDOWN_GRACE })),
     Layer.provideMerge(ServerLock.layer({ dataDir: options.dataDir, port: options.port })),

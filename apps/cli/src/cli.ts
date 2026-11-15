@@ -5,6 +5,7 @@ import * as path from "node:path"
 import * as BunSocket from "@effect/platform-bun/BunSocket"
 import { CelloClient, makeClientLayer, newCommandId } from "@cello/client/client"
 import { describeEvent } from "@cello/client/history"
+import { STAGE_IDS, stageInfo, TASK_STAGES } from "@cello/contract/stages"
 import type { Backup } from "@cello/contract/backups"
 import type { Actor, AgentSession, DocumentKind, Priority, ProjectRef, Review, Status, Task } from "@cello/contract/entities"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
@@ -22,7 +23,7 @@ import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
 import { addAgentsSection, agentsFile } from "./agentsMd.ts"
-import { HOOK_EVENTS, type HookEvent, hookDeadline, hookResponse, hookSession, parseHookInput } from "./claudeHook.ts"
+import { HOOK_EVENTS, type HookEvent, hookAction, hookDeadline, hookResponse, hookSession, parseHookInput } from "./claudeHook.ts"
 import {
   addCelloHooks,
   CELLO_HOOKS,
@@ -132,13 +133,19 @@ const claimOf = (names: Names, task: Task) => {
   return session ? sessionName(session) : null
 }
 
+/** "In Progress", or "In Progress · Agent review" while the task has a stage (CEL-35). */
+const statusWithStage = (names: Names, task: Task) => {
+  const stage = task.stage === null ? undefined : stageInfo(task.stage)
+  return stage ? `${statusName(names, task.statusId)} · ${stage.label}` : statusName(names, task.statusId)
+}
+
 const taskRows = (names: Names, tasks: ReadonlyArray<Task>) =>
   columns(tasks.map((t) => {
     const claim = claimOf(names, t)
-    return [t.key, statusName(names, t.statusId), claim ? `${t.title}  · ${claim}` : t.title]
+    return [t.key, statusWithStage(names, t), claim ? `${t.title}  · ${claim}` : t.title]
   }))
 
-const taskLine = (names: Names, task: Task) => `${task.key}  ${statusName(names, task.statusId)}  ${task.title}`
+const taskLine = (names: Names, task: Task) => `${task.key}  ${statusWithStage(names, task)}  ${task.title}`
 
 /** Who did something: "Claude Code session 2fd0505c", or the actor's name. */
 const author = (
@@ -312,11 +319,15 @@ const get = Command.make("get", { key, json }, (input) =>
     const { task } = detail
     const labels = task.labelIds.map((id) => detail.labels.find((l) => l.id === id)?.name ?? "?")
     const claim = claimOf(detail, task)
+    const stage = task.stage === null ? undefined : stageInfo(task.stage)
+    const changed = task.updatedByActorId === null ? null : author(detail, task.updatedByActorId, task.updatedBySessionId)
     const lines = [
       `${task.key}  ${task.title}`,
-      `Status: ${statusName(detail, task.statusId)} · Priority: ${PRIORITY_NAMES[task.priority]}${labels.length ? ` · Labels: ${labels.join(", ")}` : ""}`,
+      `Status: ${statusName(detail, task.statusId)}${stage ? ` · Stage: ${stage.label}` : ""} · Priority: ${PRIORITY_NAMES[task.priority]}` +
+      `${labels.length ? ` · Labels: ${labels.join(", ")}` : ""}`,
       ...(claim ? [`Claimed by: ${claim}`] : task.assigneeActorId ? [`Assigned to: ${author(detail, task.assigneeActorId, null)}`] : []),
       `Created by ${author(detail, task.createdByActorId, task.createdBySessionId)}, ${ago(task.createdAt, now)}`,
+      ...(changed && task.version > 1 ? [`Last changed by ${changed}, ${ago(task.updatedAt, now)}`] : []),
     ]
     if (task.description.trim()) lines.push("", task.description.trim())
     if (detail.documents.length) {
@@ -413,6 +424,42 @@ const release = Command.make("release", { key, json }, (input) =>
     if (input.json) return yield* printJson(written.response)
     yield* print(`Released ${taskLine(written.names, written.response.result)}`)
   })).pipe(Command.withDescription("Give up your claim without finishing the task; its status stays."))
+
+const STAGE_NAMES = andList(STAGE_IDS.map(String)).replace(" and ", " or ")
+
+const stage = Command.make("stage", {
+  key,
+  stage: Argument.String("stage").pipe(
+    Argument.optional,
+    Argument.withDescription(`Where the work is: ${TASK_STAGES.map((s) => `${s.id} (${s.when})`).join(", ")}.`),
+  ),
+  clear: Flag.Boolean("clear").pipe(Flag.withDefault(false), Flag.withDescription("Remove the stage instead.")),
+  json,
+}, (input) =>
+  Effect.gen(function* () {
+    const named = Option.getOrUndefined(input.stage)?.trim().toLowerCase()
+    if (named !== undefined && input.clear) return yield* new CliFailure({ message: "Pass a stage or --clear, not both." })
+    if (named === undefined && !input.clear) {
+      return yield* new CliFailure({
+        message: `Name a stage: ${STAGE_NAMES} (e.g. \`cello task stage ${input.key.toUpperCase()} review\`), or --clear to remove it.`,
+      })
+    }
+    const next = named === undefined ? null : STAGE_IDS.find((id) => id === named)
+    if (next === undefined) return yield* new CliFailure({ message: `No stage "${named}". Use ${STAGE_NAMES}.` })
+    const written = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const response = yield* client["task.stage"]({ commandId: newCommandId(), key: input.key, stage: next })
+        return { response, names: yield* client["task.get"]({ key: response.result.key }) }
+      })
+    )
+    if (input.json) return yield* printJson(written.response)
+    const task = written.response.result
+    const where = `(${statusName(written.names, task.statusId)}  ${task.title})`
+    yield* print(next === null ? `Cleared the stage of ${task.key}  ${where}` : `${task.key} is now ${stageInfo(next)!.label}  ${where}`)
+  })).pipe(Command.withDescription(
+    "Say where your claimed task is inside In Progress, so the board shows it: building, agent review, fixing findings, merged. " +
+      "Only the session holding the claim (or Lucas), only in In Progress. Moving the task to another status, or submitting it, clears it.",
+  ))
 
 const move = Command.make("move", {
   key,
@@ -782,10 +829,12 @@ const deliverToClaude = (event: HookEvent) =>
   Effect.gen(function* () {
     const { env, cwd, now, readStdin } = yield* CliEnv
     const hook = parseHookInput(yield* Effect.promise(readStdin))
-    const session = hookSession(hook, env)
-    // A subagent's tool calls carry its parent's session; leave the comments for the main conversation.
-    if (hook.inSubagent || session === null) return
-    const headers = identityHeaders({ ...env, CELLO_SESSION: undefined, CLAUDE_CODE_SESSION_ID: session }, hook.cwd ?? cwd)
+    const action = hookAction(hook, env)
+    if (action === "nothing") return
+    const headers = identityHeaders({ ...env, CELLO_SESSION: undefined, CLAUDE_CODE_SESSION_ID: hookSession(hook, env)! }, hook.cwd ?? cwd)
+    // A subagent's tool calls carry its parent's session: check the session in (any call does) and
+    // leave the comments for the main conversation.
+    if (action === "check-in") return yield* withClient((client) => client["whoami"]({ project: {} }), { headers }).pipe(Effect.asVoid)
     // Taken and marked read in one step: a comment is handed over once, even to hooks running at the
     // same time, and a Stop hook can't loop on it (stop_hook_active needs no special case).
     const { items } = yield* withClient((client) => client["inbox.take"]({ unreadOnly: true }), { headers })
@@ -805,8 +854,8 @@ const hookClaude = Command.make("claude", {
     exit?.(0)
   })).pipe(Command.withDescription(
     "Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin and hands new comments " +
-      "for its session back to the agent as context (on Stop it keeps the agent going). Prints nothing when there are none, " +
-      "inside a subagent, or when the server doesn't answer within 2 seconds; always exits 0.",
+      "for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working. " +
+      "Prints nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds; always exits 0.",
   ))
 
 const hook = Command.make("hook").pipe(
@@ -1049,7 +1098,7 @@ const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(
 
 const task = Command.make("task").pipe(
   Command.withDescription("Tasks: list, get, create, claim, release, move, comment, submit."),
-  Command.withSubcommands([list, get, create, claim, release, move, comment, submit]),
+  Command.withSubcommands([list, get, create, claim, release, stage, move, comment, submit]),
 )
 
 const startCommand = Command.make("start", {}, () => start).pipe(

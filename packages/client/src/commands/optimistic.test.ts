@@ -22,6 +22,9 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   assigneeSessionId: null,
   createdByActorId: "me",
   createdBySessionId: null,
+  updatedByActorId: null,
+  updatedBySessionId: null,
+  stage: null,
   version: 1,
   createdAt: 1,
   updatedAt: 1,
@@ -37,6 +40,7 @@ const state = (seq: number, tasks: Task[]): BoardState => ({
   statuses: {},
   labels: {},
   tasks: Object.fromEntries(tasks.map((t) => [t.id, t])),
+  sessions: {},
   reviews: {},
   documents: {},
 })

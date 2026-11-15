@@ -1,5 +1,5 @@
 // Pure reducer from events to client state. Shared by the web app and any other client.
-import type { Actor, DocumentSummary, Label, Project, Review, Snapshot, Status, Task, Workspace } from "@cello/contract/entities"
+import type { Actor, AgentSession, DocumentSummary, Label, Project, Review, Snapshot, Status, Task, Workspace } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
 
 type ById<T> = Readonly<Record<string, T>>
@@ -12,6 +12,8 @@ export interface BoardState {
   readonly statuses: ById<Status>
   readonly labels: ById<Label>
   readonly tasks: ById<Task>
+  /** Agent sessions the tasks name, kept current by `session.seen` (who's working right now, CEL-35). */
+  readonly sessions: ById<AgentSession>
   /** Open reviews only: a decided one leaves the board (the task panel loads a task's whole list). */
   readonly reviews: ById<Review>
   /** Documents without their bodies, archived ones included (the reader loads a body). */
@@ -29,6 +31,7 @@ export const fromSnapshot = (s: Snapshot): BoardState => ({
   statuses: byId(s.statuses),
   labels: byId(s.labels),
   tasks: byId(s.tasks),
+  sessions: byId(s.sessions),
   reviews: byId(s.reviews),
   documents: byId(s.documents),
 })
@@ -110,6 +113,10 @@ const apply = (d: Draft, e: CelloEvent) => {
       return d.update("tasks", e.id, (t) => ({ ...t, archivedAt: e.ts, version: e.version, updatedAt: e.ts }))
     case "task.unarchived":
       return d.update("tasks", e.id, (t) => ({ ...t, archivedAt: null, version: e.version, updatedAt: e.ts }))
+    case "task.stage_changed":
+      return d.update("tasks", e.id, (t) => ({ ...t, stage: e.after, version: e.version, updatedAt: e.ts }))
+    case "session.seen":
+      return d.set("sessions", e.session.id, e.session)
     case "comment.added":
     case "comment.edited":
     case "comment.deleted":
@@ -134,6 +141,11 @@ export const applyEvents = (state: BoardState, events: ReadonlyArray<CelloEvent>
   for (const e of events) {
     if (e.seq <= seq) continue
     apply(draft, e)
+    // Every change to a task records who made it (CEL-5), as the server does in the same command; events
+    // that carry the whole task already have it.
+    if (e.type.startsWith("task.") && "id" in e && !("task" in e)) {
+      draft.update("tasks", e.id, (t) => ({ ...t, updatedByActorId: e.actorId, updatedBySessionId: e.sessionId }))
+    }
     seq = e.seq
   }
   return draft.finish(seq)

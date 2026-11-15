@@ -35,6 +35,15 @@ describe("describeEvent", () => {
     expect(describeEvent(ev({ type: "comment.added", comment: {} as never }, "ghost"), state)).toBe("Someone commented")
   })
 
+  it("names the stage by its label, and says when it was cleared", () => {
+    expect(describeEvent(ev({ type: "task.stage_changed", id: "t", version: 2, before: null, after: "review" }), state)).toBe(
+      "Lucas set the stage to Agent review",
+    )
+    expect(describeEvent(ev({ type: "task.stage_changed", id: "t", version: 3, before: "review", after: null }), state)).toBe(
+      "Lucas cleared the stage",
+    )
+  })
+
   it("describes reviews", () => {
     expect(describeEvent(ev({ type: "review.submitted", review: {} as never }), state)).toBe("Lucas submitted a review")
     const decided = (decision: "approved" | "sent_back" | "superseded") =>

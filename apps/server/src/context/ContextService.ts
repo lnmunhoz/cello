@@ -83,9 +83,9 @@ const make = Effect.gen(function* () {
       }
     })
 
-  /** Sessions a set of tasks and events mention: assignees, creators and event authors. */
+  /** Sessions a set of tasks and events mention: assignees, creators, last changes and event authors. */
   const sessionIdsOf = (taskRows: ReadonlyArray<Task>, events: ReadonlyArray<CelloEvent> = []) => [
-    ...taskRows.flatMap((t) => [t.assigneeSessionId, t.createdBySessionId]),
+    ...taskRows.flatMap((t) => [t.assigneeSessionId, t.createdBySessionId, t.updatedBySessionId]),
     ...events.map((e) => e.sessionId),
   ]
 

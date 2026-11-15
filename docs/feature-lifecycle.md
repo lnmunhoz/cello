@@ -70,7 +70,8 @@ For a visible change, the first step is a scope, not code: where it shows up and
 
 ```mermaid
 flowchart TD
-    A["Orchestrator claims the task<br/>cello task claim CEL-n: In Progress"] --> B["Writes the brief<br/>what, why, what to read,<br/>what other agents are changing"]
+    A["Orchestrator claims the task<br/>cello task claim CEL-n: In Progress"] --> S["Marks the stage<br/>cello task stage CEL-n building"]
+    S --> B["Writes the brief<br/>what, why, what to read,<br/>what other agents are changing"]
     B --> C["Builder starts in its own git worktree<br/>a copy of the repo on its own branch"]
     C --> D["Test first<br/>a failing test, then the code that passes it"]
     D --> E["Unit and integration tests<br/>on the Mac (Vitest)"]
@@ -79,6 +80,17 @@ flowchart TD
     F --> G
     G --> H["Report back<br/>commits, test results, evidence paths"]
 ```
+
+**The stage shows where the task is inside In Progress.** In Progress holds a task from the claim to the packet, so on its own it can't tell building from waiting for review. The orchestrator says which step it's on, and the card shows it as a word (Building, Agent review, Fixing findings, Merged), or as lanes when Lucas turns on Display → "Group In Progress by stage":
+
+| When | The orchestrator runs |
+| --- | --- |
+| It starts the builder | `cello task stage CEL-n building` |
+| It starts the reviewer | `cello task stage CEL-n review` |
+| Findings go back to the builder | `cello task stage CEL-n fixing` |
+| The branch is merged, before the packet | `cello task stage CEL-n merged` |
+
+Submitting the packet (or moving the task out of In Progress) clears it. Builders and reviewers never run it: they don't hold the claim.
 
 Rules the builder follows (from AGENTS.md):
 
@@ -111,7 +123,7 @@ flowchart TD
 
 ## ⑦ Merge and deploy
 
-The orchestrator merges the branch into main and checks everything together:
+The orchestrator merges the branch into main (`cello task stage CEL-n merged`) and checks everything together:
 
 1. **The whole suite:** unit and integration tests, typecheck, the CLI-docs check, and the full Docker run (browser and desktop end-to-end).
 2. **Push** to GitHub.

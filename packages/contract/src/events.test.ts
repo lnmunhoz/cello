@@ -26,6 +26,31 @@ describe("decodeEvent", () => {
     if (event.type === "task.updated") expect(event.after.title).toBe("New")
   })
 
+  it("reads a task stored before CEL-5/35 with no stage and no last change as null", () => {
+    const task = {
+      id: "t-1", projectId: "p-1", number: 1, key: "CEL-1", title: "Old", description: "", statusId: "s-1", priority: 0,
+      position: "a0", dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null,
+      createdByActorId: "actor-1", createdBySessionId: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null,
+    }
+    const event = decodeEvent({ ...envelope, schemaVersion: 1, type: "task.created", task })
+    if (event.type !== "task.created") throw new Error(event.type)
+    expect(event.task).toMatchObject({ stage: null, updatedByActorId: null, updatedBySessionId: null })
+  })
+
+  it("decodes a stage change and a session check-in, and refuses a stage that isn't in the list", () => {
+    const changed = decodeEvent({ ...envelope, schemaVersion: 1, type: "task.stage_changed", id: "t-1", version: 3, before: null, after: "review" })
+    expect(changed.type === "task.stage_changed" && changed.after).toBe("review")
+    expect(() =>
+      decodeEvent({ ...envelope, schemaVersion: 1, type: "task.stage_changed", id: "t-1", version: 3, before: null, after: "deploying" })
+    ).toThrow()
+    const session = {
+      id: "s-1", actorId: "actor-2", externalId: "2fd0505c-aaaa", clientName: "Claude Code", entrypoint: "cli", cwd: "/repo",
+      pid: 42, startedAt: 1, lastSeenAt: 2, endedAt: null,
+    }
+    const seen = decodeEvent({ ...envelope, projectId: null, schemaVersion: 1, type: "session.seen", session })
+    expect(seen.type === "session.seen" && seen.session.lastSeenAt).toBe(2)
+  })
+
   it("decodes a submitted review with its attachments, and a decision", () => {
     const attachment = {
       id: "a-1",

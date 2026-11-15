@@ -50,6 +50,8 @@ export const entityOf = (body: EventBody): { readonly type: string; readonly id:
       return { type, id: body.review.id }
     case "document.published":
       return { type, id: body.document.id }
+    case "session.seen":
+      return { type, id: body.session.id }
     default:
       return { type, id: body.id }
   }

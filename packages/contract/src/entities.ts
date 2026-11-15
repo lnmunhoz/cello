@@ -1,5 +1,7 @@
 // Entities as they travel on the wire and live in client state. Schemas only.
+import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import { TaskStage } from "./stages.ts"
 
 export const Id = Schema.String
 export const Millis = Schema.Number
@@ -103,6 +105,14 @@ export const Task = Schema.Struct({
   assigneeSessionId: Schema.NullOr(Id),
   createdByActorId: Id,
   createdBySessionId: Schema.NullOr(Id),
+  /**
+   * Who changed it last (CEL-5): every task change sets it. Tasks inside events stored before it
+   * existed read as null (`withDecodingDefaultKey`); the UI then names the creator.
+   */
+  updatedByActorId: Schema.NullOr(Id).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
+  updatedBySessionId: Schema.NullOr(Id).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
+  /** Where it is inside In Progress (CEL-35), set with `cello task stage`; null outside it. */
+  stage: Schema.NullOr(TaskStage).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   version: Schema.Number,
   createdAt: Millis,
   updatedAt: Millis,
@@ -301,6 +311,11 @@ export const Snapshot = Schema.Struct({
   statuses: Schema.Array(Status),
   labels: Schema.Array(Label),
   tasks: Schema.Array(Task),
+  /**
+   * The agent sessions the tasks in scope name (creator, claim, last change), so cards can say who
+   * and whether they're still working (CEL-5, CEL-35). `session.seen` events keep them current.
+   */
+  sessions: Schema.Array(AgentSession),
   /** Open reviews of the tasks in scope: everything the Review page and the cards need. */
   reviews: Schema.Array(Review),
   /** Documents of the projects in scope, archived ones included, without their bodies. */

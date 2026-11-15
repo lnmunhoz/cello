@@ -1,7 +1,7 @@
 // The Claude Code hook's side of the wire (https://code.claude.com/docs/en/hooks): what it reads on
 // stdin and what it prints for Stop and PostToolUse.
 import { describe, expect, it } from "vitest"
-import { hookResponse, hookSession, parseHookInput } from "./claudeHook.ts"
+import { hookAction, hookResponse, hookSession, parseHookInput } from "./claudeHook.ts"
 
 describe("parseHookInput", () => {
   it("reads the session, folder and loop guard from Claude Code's JSON", () => {
@@ -35,6 +35,14 @@ describe("hookSession", () => {
     expect(hookSession(input, { CLAUDE_CODE_SESSION_ID: "from-env" })).toBe("from-stdin")
     expect(hookSession(parseHookInput(""), { CLAUDE_CODE_SESSION_ID: "from-env" })).toBe("from-env")
     expect(hookSession(parseHookInput(""), {})).toBeNull()
+  })
+})
+
+describe("hookAction", () => {
+  it("delivers comments in the main conversation; inside a subagent it only checks the session in, so the board sees it working", () => {
+    expect(hookAction(parseHookInput(JSON.stringify({ session_id: "s" })), {})).toBe("deliver")
+    expect(hookAction(parseHookInput(JSON.stringify({ session_id: "s", agent_id: "a1" })), {})).toBe("check-in")
+    expect(hookAction(parseHookInput(""), {})).toBe("nothing")
   })
 })
 

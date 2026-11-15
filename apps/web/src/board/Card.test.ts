@@ -14,7 +14,7 @@ const label = (id: string, name: string, extra: Partial<Label> = {}): Label => (
 const task = (id: string, number: number, extra: Partial<Task> = {}): Task => ({
   id, projectId: "p1", number, key: `CEL-${number}`, title: `Task ${number}`, description: "", statusId: "todo", priority: 0,
   position: "a0", dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null,
-  createdByActorId: "me", createdBySessionId: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
+  createdByActorId: "me", createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
 })
 
 const board: BoardState = {
@@ -25,6 +25,7 @@ const board: BoardState = {
   statuses: { todo: status },
   labels: { bug: label("bug", "Bug"), old: label("old", "Old", { archivedAt: 5 }) },
   tasks: { t1: task("t1", 1, { title: "Plan the release" }) },
+  sessions: {},
   reviews: {},
   documents: {},
 }

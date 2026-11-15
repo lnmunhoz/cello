@@ -79,6 +79,8 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
   - While your session is alive, other agents can't claim it.
   - If your session has exited, another session can claim the task and takes the claim over.
   - Lucas always wins: when he changes a task you've claimed (moves it, approves it), your claim ends, and \`cello context\` lists it under "Claims you lost".
+- **Stage:** where a claimed task is inside In Progress: **building**, **review** (Agent review), **fixing** (Fixing findings) or **merged**. In Progress holds a task from the claim to the packet, so without a stage a task being built and one waiting for review look the same. The session holding the claim sets it with \`cello task stage\`; the board shows it on the card. Moving the task out of In Progress, or submitting it, clears it. See Stages.
+- **Presence:** the board shows whether the session holding a claim is working right now: **active now** (it called Cello in the last 5 minutes), **seen 2h ago** (quiet, its process still running) or **ended** (its process exited). Every \`cello\` command and every hook run counts as a check-in; with the hooks installed that's every tool call, a subagent's included. You don't do anything for it.
 - **Review packet:** how finished work reaches Lucas. It holds a summary, how-to-check steps and evidence (videos, screenshots, test output, links). \`cello task submit\` creates it and moves the task to In Review. Then Lucas decides:
   - **Approve:** the task moves to Done and your claim ends.
   - **Send back:** the task returns to In Progress with his note, and your claim stays. The note comes to your session (see Comments from Lucas reach your session), and \`cello task get\` shows it under Reviews.
@@ -132,7 +134,8 @@ Run it first in every session, and again when you come back to a task.
    - if the task is In Review, move it back with \`cello task move CEL-12 "In Progress"\`, so the board shows it's being worked on again.
 
    Then fix, and submit a new packet (it replaces the open one). The same goes for feedback on a task in Done: comment it, and move it back to In Progress, or open a new task if it's a new request.
-7. **If you stop without finishing,** \`cello task release CEL-12\`. The task keeps its status, and someone else can claim it.
+7. **If you run a feature through builder and reviewer agents** (the orchestrator), mark each step with \`cello task stage\` (see Stages), so the card says where the work is.
+8. **If you stop without finishing,** \`cello task release CEL-12\`. The task keeps its status, and someone else can claim it.
 
 Never move a task to Done or Canceled yourself: Lucas decides.
 
@@ -181,6 +184,32 @@ cello task move CEL-31 backlog           # any case
 - **Moving into In Review is refused:** use \`cello task submit\`.
 - **Don't move tasks to Done or Canceled.**
 - **"It was changed by … in the meantime":** someone changed the task while you were acting. Run the command again.
+
+## Stages
+
+A stage says where a claimed task is inside In Progress, so Lucas can tell from the board why it's still there. The orchestrator (the session holding the claim) sets it at each step of a feature (docs/feature-lifecycle.md):
+
+| Stage | The board says | Set it when |
+| --- | --- | --- |
+| \`building\` | Building | a builder agent starts writing the code |
+| \`review\` | Agent review | a reviewer agent starts reading the branch |
+| \`fixing\` | Fixing findings | the findings go back to the builder |
+| \`merged\` | Merged | the branch is merged into main, before the packet |
+
+\`\`\`bash
+cello task stage CEL-12 building
+# CEL-12 is now Building  (In Progress  Sidebar: collapse and resize)
+cello task stage CEL-12 review
+cello task stage CEL-12 --clear      # no stage
+cello task list
+# CEL-12  In Progress · Agent review  Sidebar: collapse and resize  · Claude Code session 2fd0505c
+\`\`\`
+
+- **Only the session holding the claim** sets it (or Lucas, with \`CELLO_SESSION=me\`, which keeps your claim). Claim the task first.
+- **Only in In Progress.** In any other status it's refused.
+- **It clears itself:** \`cello task submit\`, or a move to any other status, removes it. Reordering inside In Progress keeps it.
+- **Subagents don't run it.** Builders and reviewers work for the orchestrator's session; the orchestrator marks the steps.
+- \`cello task get\` shows it on the Status line ("Status: In Progress · Stage: Agent review") and in the history, with who changed the task last.
 
 ## Comments
 
@@ -240,7 +269,7 @@ For a task Lucas N. Munhoz sent back, fix what the note asks, then hand it in ag
 
 **When a task is sent back,** it's in In Progress again and still yours. The note arrives the same way, marked "sent it back" (\`cello task get\` also shows it under Reviews). Fix what it asks, test, then hand the task in again with \`cello task submit CEL-22\` and new evidence.
 
-**Subagents share your session.** A subagent's \`CLAUDE_CODE_SESSION_ID\` is its parent's, so Cello can't tell them apart. The hook skips tool calls made inside a subagent, so comments reach the main conversation. Don't run \`cello inbox\` from a subagent: it would take the parent's comments. \`cello context\` is safe anywhere, since it takes nothing.
+**Subagents share your session.** A subagent's \`CLAUDE_CODE_SESSION_ID\` is its parent's, so Cello can't tell them apart. Inside a subagent the hook hands nothing over, so comments reach the main conversation; it only checks the session in, so the board shows your task as being worked on while the subagent runs. Don't run \`cello inbox\` from a subagent: it would take the parent's comments. \`cello context\` is safe anywhere, since it takes nothing.
 
 ## Review packets
 
@@ -374,6 +403,10 @@ Every error is one sentence that says what to do next. The usual ones:
 | CEL-12 is claimed by Claude Code session 1a2b3c4d (active now) | Another live session is working on it. | Pick another task. |
 | No task CEL-99 · No status named … · No label named … | A typo, or something that doesn't exist. | The message lists the real names. |
 | It was changed by … in the meantime | Someone changed the task while you were acting. | Run the command again. |
+| CEL-12 isn't claimed: claim it first | \`cello task stage\` on a task nobody holds. | \`cello task claim CEL-12\`, then set the stage. |
+| CEL-12 is claimed by another session: only the session holding the claim sets its stage | Someone else holds it. | Leave its stage alone. |
+| CEL-12 is in Todo; a stage is only for tasks in In Progress | Stages live inside In Progress. | Claim it (which moves it to In Progress), or leave it. |
+| No stage "deploying" | Not one of the stages. | Use building, review, fixing or merged. |
 | CEL-12 needs a review packet before it goes to In Review | You used \`move\` to hand work over. | Use \`cello task submit\`. |
 | Only Lucas can approve a review | Approving and sending back are his. | Leave the task in In Review. |
 | This folder isn't in a git repository | The CLI can't work out the project. | Pass \`--project KEY\`. |
@@ -495,6 +528,21 @@ cello task release [flags] <key>
 | | |
 | --- | --- |
 | \`key string\` | A task key, e.g. CEL-3. |
+| \`--json\` | Print JSON for scripts. |
+
+### cello task stage
+
+Say where your claimed task is inside In Progress, so the board shows it: building, agent review, fixing findings, merged. Only the session holding the claim (or Lucas), only in In Progress. Moving the task to another status, or submitting it, clears it.
+
+\`\`\`
+cello task stage [flags] <key> [<stage>]
+\`\`\`
+
+| | |
+| --- | --- |
+| \`key string\` | A task key, e.g. CEL-3. |
+| \`stage string\` | Where the work is: building (a builder agent is writing the code), review (a reviewer agent is reading the branch), fixing (the builder is fixing what the review found), merged (merged into main; the packet comes next). (optional) |
+| \`--clear\` | Remove the stage instead. |
 | \`--json\` | Print JSON for scripts. |
 
 ### cello task move
@@ -664,7 +712,7 @@ cello uninstall claude [flags]
 
 ### cello hook claude
 
-Run by the hooks \`cello install claude\` adds, not by hand: reads Claude Code's hook JSON on stdin and hands new comments for its session back to the agent as context (on Stop it keeps the agent going). Prints nothing when there are none, inside a subagent, or when the server doesn't answer within 2 seconds; always exits 0.
+Run by the hooks \`cello install claude\` adds, not by hand: reads Claude Code's hook JSON on stdin and hands new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working. Prints nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds; always exits 0.
 
 \`\`\`
 cello hook claude [flags] <event>

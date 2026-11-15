@@ -27,6 +27,7 @@ import {
 } from "./entities.ts"
 import { HumanOnly, Invalid, KeyTaken, NotFound, ReviewRequired, SnapshotRequired, TaskClaimed, VersionConflict } from "./errors.ts"
 import { CelloEvent } from "./events.ts"
+import { TaskStage } from "./stages.ts"
 import { DocumentList, Inbox, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
 
 /** Who is calling, resolved by the server from per-request RPC headers. */
@@ -195,6 +196,13 @@ export const CelloRpcs = RpcGroup.make(
   }),
   Rpc.make("task.release", {
     payload: { commandId, key: Schema.String },
+    success: write(Task),
+    error: Schema.Union([NotFound, Invalid]),
+  }),
+  // Where a task is inside In Progress (CEL-35); null clears it. The claim holder or the human; only
+  // while the task is in In Progress.
+  Rpc.make("task.stage", {
+    payload: { commandId, key: Schema.String, stage: Schema.NullOr(TaskStage) },
     success: write(Task),
     error: Schema.Union([NotFound, Invalid]),
   }),

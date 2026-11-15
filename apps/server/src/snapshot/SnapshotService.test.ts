@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect"
 import * as ProjectService from "../project/ProjectService.ts"
 import * as TaskService from "../task/TaskService.ts"
 import { cmd, setupProject } from "../testing/fixtures.ts"
-import { asHuman, services, TEST_HUMAN } from "../testing/TestLayers.ts"
+import { asAgent, asHuman, services, TEST_HUMAN } from "../testing/TestLayers.ts"
 import * as WorkspaceService from "../workspace/WorkspaceService.ts"
 import * as SnapshotService from "./SnapshotService.ts"
 
@@ -52,6 +52,21 @@ describe("SnapshotService.get", () => {
       const snapshot = yield* snapshots.get({ projectId: project.id })
       expect(snapshot.projects.map((p) => p.key)).toEqual(["CEL"])
       expect(snapshot.tasks).toEqual([])
+    })))
+
+  it.effect("carries the agent sessions its tasks name (creator, claim, last change), and no others", () =>
+    run(Effect.gen(function* () {
+      const snapshots = yield* SnapshotService.SnapshotService
+      const tasks = yield* TaskService.TaskService
+      const { project } = yield* setupProject
+      const maker = { session: "maker", client: "Claude Code", pid: process.pid }
+      const holder = { session: "holder", client: "Claude Code", pid: process.pid }
+      const { result: task } = yield* asAgent(maker)(tasks.create({ commandId: cmd(), projectId: project.id, title: "Made by an agent" }))
+      yield* asAgent(holder)(tasks.claim({ commandId: cmd(), key: task.key }))
+      yield* asAgent({ session: "bystander", client: "Claude Code" })(Effect.void)
+
+      const snapshot = yield* snapshots.get()
+      expect(snapshot.sessions.map((s) => s.externalId).sort()).toEqual(["holder", "maker"])
     })))
 
   it.effect("an unknown workspace or project scope is NotFound", () =>

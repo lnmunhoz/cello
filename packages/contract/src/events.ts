@@ -1,6 +1,7 @@
 // Every change is one of these events. `before`/`after` hold only the fields that changed.
 import * as Schema from "effect/Schema"
-import { Comment, DocumentSummary, DueDate, Id, Label, Millis, Priority, Project, Review, ReviewDecision, Status, Task, Workspace } from "./entities.ts"
+import { AgentSession, Comment, DocumentSummary, DueDate, Id, Label, Millis, Priority, Project, Review, ReviewDecision, Status, Task, Workspace } from "./entities.ts"
+import { TaskStage } from "./stages.ts"
 
 export const CURRENT_SCHEMA_VERSION = 1
 
@@ -67,6 +68,12 @@ export const CelloEvent = Schema.Union([
   event("task.released", { id: Id, version: Schema.Number, task: Task }),
   // A human change ends an agent's claim; it shares the version of the change that ended it.
   event("task.claim_ended", { id: Id, version: Schema.Number, from: ClaimHolder, reason: Schema.Literals(["human_change"]) }),
+  // `cello task stage` (CEL-35). A status change clears the stage inside its own `task.moved`.
+  event("task.stage_changed", { id: Id, version: Schema.Number, before: Schema.NullOr(TaskStage), after: Schema.NullOr(TaskStage) }),
+  // An agent session holding a claim checked in (at most once every 30 s) or its process exited, so
+  // boards show who is working right now (CEL-35). Workspace-level (no projectId): one per workspace
+  // the session holds claims in. Not a task change: the task's version stays.
+  event("session.seen", { session: AgentSession }),
   event("comment.added", { comment: Comment }),
   event("comment.edited", { id: Id, before: CommentPatch, after: CommentPatch }),
   event("comment.deleted", { id: Id }),
