@@ -5,8 +5,14 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import type { Browser, Page } from "@playwright/test"
-import { caption, card, column, createProject, expect, test, uniqueKey } from "./fixtures.ts"
+import { caption, captionWithUrl, card, column, createProject, expect, test, uniqueKey } from "./fixtures.ts"
 import { SHOTS, submitPacket, submitPackets, WEB_URL } from "./packets.ts"
+import { isReview } from "./recording.ts"
+
+// Review videos hold every step (e2e/recording.ts), which takes these flows past the default timeout.
+test.beforeEach(() => {
+  if (isReview(process.env)) test.setTimeout(180_000)
+})
 
 /** The Review page in its own unrecorded tall window, saved to e2e/videos/review-page-<scheme>.png. */
 async function screenshotReviewPage(browser: Browser, key: string, colorScheme: "light" | "dark") {
@@ -165,7 +171,7 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
   const { dir } = await submitPackets(page, key, ["Collapse the review feed", "Open one packet at a time", "Keep the open row in the URL"])
   const [one, two, three] = [1, 2, 3].map((n) => rowOf(page, `${key}-${n}`)) as [ReturnType<typeof rowOf>, ReturnType<typeof rowOf>, ReturnType<typeof rowOf>]
 
-  await caption(page, "Open Review: every packet is a collapsed row")
+  await captionWithUrl(page, "Open Review: every packet is a collapsed row")
   await page.getByRole("navigation", { name: "Inbox" }).getByRole("link", { name: /^Review/ }).click()
   await expect(page).toHaveURL(/\/review$/)
   for (const row of [one, two, three]) {
@@ -186,14 +192,14 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
   await expect(badge.locator("img")).toHaveJSProperty("naturalWidth", 1440)
   for (const colorScheme of ["light", "dark"] as const) await screenshotRows(browser, `${key}-1`, colorScheme)
 
-  await caption(page, `Click ${key}-1: its packet opens`)
+  await captionWithUrl(page, `Click ${key}-1: its packet opens`)
   await one.header.click()
   await expect(one.header).toHaveAttribute("aria-expanded", "true")
   // The step names the task: its key links to it, with its status (CEL-20).
   await expect(one.steps.locator(`[data-task-link="${key}-1"] [data-task-status]`)).toHaveText("In Review")
   await expect(page).toHaveURL(new RegExp(`/review\\?open=${key}-1$`))
 
-  await caption(page, `Click ${key}-2: it opens, and ${key}-1 closes`)
+  await captionWithUrl(page, `Click ${key}-2: it opens, and ${key}-1 closes`)
   await two.header.click()
   await expect(two.header).toHaveAttribute("aria-expanded", "true")
   await expect(two.steps).toBeVisible()
@@ -201,7 +207,7 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
   await expect(one.steps).toHaveCount(0)
   await expect(page).toHaveURL(new RegExp(`/review\\?open=${key}-2$`))
 
-  await caption(page, "k moves up a row, Enter opens it; the keyboard wins over the mouse's hover")
+  await captionWithUrl(page, "k moves up a row, Enter opens it; the keyboard wins over the mouse's hover")
   await two.header.hover()
   await expect(two.header).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
   await page.keyboard.press("k")
@@ -212,7 +218,7 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
   await expect(one.header).toHaveAttribute("aria-expanded", "true")
   await expect(two.header).toHaveAttribute("aria-expanded", "false")
 
-  await caption(page, "j, j moves down two rows; Enter opens it")
+  await captionWithUrl(page, "j, j moves down two rows; Enter opens it")
   await page.keyboard.press("j")
   await expect(two.header).toBeFocused()
   await page.keyboard.press("j")
@@ -221,31 +227,31 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
   await expect(three.header).toHaveAttribute("aria-expanded", "true")
   await expect(one.header).toHaveAttribute("aria-expanded", "false")
 
-  await caption(page, "Esc closes it")
+  await captionWithUrl(page, "Esc closes it")
   await page.keyboard.press("Escape")
   await expect(three.header).toHaveAttribute("aria-expanded", "false")
   await expect(three.steps).toHaveCount(0)
   await expect(page).toHaveURL(/\/review$/)
   await expect(three.header).toBeFocused()
 
-  await caption(page, `↑ to ${key}-2, Enter, then reload: ${key}-2 is still open`)
+  await captionWithUrl(page, `↑ to ${key}-2, Enter, then reload: ${key}-2 is still open`)
   await page.keyboard.press("ArrowUp")
   await page.keyboard.press("Enter")
   await expect(page).toHaveURL(new RegExp(`/review\\?open=${key}-2$`))
   await page.reload()
-  await caption(page, `Reloaded: ${key}-2 is still open`)
+  await captionWithUrl(page, `Reloaded: ${key}-2 is still open`)
   await expect(two.header).toHaveAttribute("aria-expanded", "true")
   await expect(two.steps.locator(`[data-task-link="${key}-2"]`)).toBeVisible()
   await expect(one.header).toHaveAttribute("aria-expanded", "false")
 
-  await caption(page, `Approve ${key}-2: it leaves the queue and ${key}-3 opens`)
+  await captionWithUrl(page, `Approve ${key}-2: it leaves the queue and ${key}-3 opens`)
   await two.article.getByRole("button", { name: "Approve" }).click()
   await expect(two.article).toHaveCount(0)
   await expect(three.header).toHaveAttribute("aria-expanded", "true")
   await expect(page).toHaveURL(new RegExp(`/review\\?open=${key}-3$`))
   await expect(three.header).toBeFocused()
 
-  await caption(page, `Open ${key}-1 and send it back: ${key}-3 opens again`)
+  await captionWithUrl(page, `Open ${key}-1 and send it back: ${key}-3 opens again`)
   await one.header.click()
   // The mouse moved: hover highlights are back.
   await expect(one.header).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
@@ -257,6 +263,6 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
   await expect(one.article).toHaveCount(0)
   await expect(three.header).toHaveAttribute("aria-expanded", "true")
   await expect(page).toHaveURL(new RegExp(`/review\\?open=${key}-3$`))
-  await caption(page, "One packet at a time, in order")
+  await captionWithUrl(page, "One packet at a time, in order")
   fs.rmSync(dir, { recursive: true, force: true })
 })

@@ -5,8 +5,14 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import type { Browser } from "@playwright/test"
-import { caption, createProject, expect, taskPanel, test, uniqueKey } from "./fixtures.ts"
+import { caption, captionWithUrl, createProject, expect, taskPanel, test, uniqueKey } from "./fixtures.ts"
 import { cello, SHOTS, WEB_URL } from "./packets.ts"
+import { isReview } from "./recording.ts"
+
+// Review videos hold every step (e2e/recording.ts), which takes these flows past the default timeout.
+test.beforeEach(() => {
+  if (isReview(process.env)) test.setTimeout(180_000)
+})
 
 /** Two tasks in Todo and a page with a progress table of them, published through the CLI. Returns the page's path. */
 function publishProgress(key: string): { path: string; dir: string } {
@@ -87,7 +93,7 @@ test("CEL-20: a page's task table links its keys with their live status; moving 
   const { path: pagePath, dir } = publishProgress(key)
 
   await page.goto(pagePath)
-  await caption(page, "Open the page: the keys are links, each with its task's status")
+  await captionWithUrl(page, "Open the page: the keys are links, each with its task's status")
   const article = page.getByRole("article")
   // Each task's own row (the second row also names the first task, in its notes).
   const first = article.locator("tbody tr").nth(0).locator(`[data-task-link="${key}-1"]`)
@@ -113,7 +119,7 @@ test("CEL-20: a page's task table links its keys with their live status; moving 
   expect(await page.evaluate(() => (window as { stillTheSamePage?: boolean }).stillTheSamePage)).toBe(true)
   for (const colorScheme of ["light", "dark"] as const) await screenshotPage(browser, pagePath, key, colorScheme)
 
-  await caption(page, `Click ${key}-1: its task opens`)
+  await captionWithUrl(page, `Click ${key}-1: its task opens`)
   await first.click()
   await expect(page).toHaveURL(new RegExp(`/${key}/1$`))
   const panel = taskPanel(page, `${key}-1`)
@@ -131,11 +137,11 @@ test("CEL-20: a page's task table links its keys with their live status; moving 
   const comment = panel.locator("[data-comment-id]").last()
   await expect(comment.locator(`[data-task-link="${key}-2"] [data-task-status]`)).toHaveText("Todo")
   await expect(comment.locator("code a")).toHaveCount(0)
-  await caption(page, `Click ${key}-2 in the comment: its task opens`)
+  await captionWithUrl(page, `Click ${key}-2 in the comment: its task opens`)
   await comment.locator(`[data-task-link="${key}-2"]`).click()
   await expect(page).toHaveURL(new RegExp(`/${key}/2$`))
   await expect(taskPanel(page, `${key}-2`).getByLabel("Title")).toHaveValue("Live status on pages")
-  await caption(page, "Task keys link to their task, with its live status")
+  await captionWithUrl(page, "Task keys link to their task, with its live status")
 
   // Stills: the description, and a kind-doc page naming the tasks.
   const docPath = publishDoc(key, dir)
@@ -149,7 +155,7 @@ test("CEL-20: inside the viewer panel, a key in a page opens its task in the mai
   const { path: pagePath, dir } = publishProgress(key)
 
   await page.goto(`/${key}/1`)
-  await caption(page, `Open ${key}-1 and leave a comment with a link to the page`)
+  await captionWithUrl(page, `Open ${key}-1 and leave a comment with a link to the page`)
   const panel = taskPanel(page, `${key}-1`)
   const pageUrl = `${WEB_URL}${pagePath}`
   await panel.getByLabel("New comment").fill(`Progress: ${pageUrl}`)
@@ -163,7 +169,7 @@ test("CEL-20: inside the viewer panel, a key in a page opens its task in the mai
   const inFrame = frame.locator(`table [data-task-link="${key}-2"]`)
   await expect(inFrame.locator("[data-task-status]")).toHaveText("Todo")
 
-  await caption(page, `Click ${key}-2 inside the viewer: the task opens in the main window`)
+  await captionWithUrl(page, `Click ${key}-2 inside the viewer: the task opens in the main window`)
   await page.evaluate(() => Object.assign(window, { stillTheSamePage: true }))
   await inFrame.click()
   await expect(page).toHaveURL(new RegExp(`/${key}/2$`))
@@ -173,7 +179,7 @@ test("CEL-20: inside the viewer panel, a key in a page opens its task in the mai
   expect(await page.evaluate(() => (window as { stillTheSamePage?: boolean }).stillTheSamePage)).toBe(true)
 
   await page.goto(`/${key}/1`)
-  await caption(page, `Back on ${key}-1, the page's linked-task chip does the same`)
+  await captionWithUrl(page, `Back on ${key}-1, the page's linked-task chip does the same`)
   await panel.locator("[data-comment-id]").getByRole("link", { name: pageUrl }).click()
   await frame.locator(`[data-task-chip="${key}-2"]`).click()
   await expect(page).toHaveURL(new RegExp(`/${key}/2$`))
@@ -181,12 +187,12 @@ test("CEL-20: inside the viewer panel, a key in a page opens its task in the mai
   await expect(taskPanel(page, `${key}-2`)).toBeVisible()
 
   await page.goto(`/${key}/1`)
-  await caption(page, `The key of ${key}-1, the task under the viewer: the viewer closes and shows it`)
+  await captionWithUrl(page, `The key of ${key}-1, the task under the viewer: the viewer closes and shows it`)
   await panel.locator("[data-comment-id]").getByRole("link", { name: pageUrl }).click()
   await frame.locator(`tbody tr`).nth(0).locator(`[data-task-link="${key}-1"]`).click()
   await expect(viewer).toHaveCount(0)
   await expect(page).toHaveURL(new RegExp(`/${key}/1$`))
   await expect(panel).toBeVisible()
-  await caption(page, "Keys in a page in the viewer open their task in the main window")
+  await captionWithUrl(page, "Keys in a page in the viewer open their task in the main window")
   fs.rmSync(dir, { recursive: true, force: true })
 })
