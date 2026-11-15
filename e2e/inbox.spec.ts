@@ -79,7 +79,8 @@ test("CEL-15: a comment typed in the task panel and a Send back on the Review pa
   agent("task", "submit", task, "--summary", "Empty state done", "--step", "Open an empty project", "--attach", path.join(dir, "vitest.log"))
 
   await caption(page, "Lucas sends it back from the Review page")
-  await page.goto("/review")
+  // Rows are collapsed since CEL-22: open this one.
+  await page.goto(`/review?open=${task}`)
   const item = page.getByRole("article", { name: new RegExp(task) })
   await item.getByRole("button", { name: "Send back" }).click()
   const dialog = page.getByRole("dialog", { name: `Send ${task} back` })
