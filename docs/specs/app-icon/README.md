@@ -34,10 +34,9 @@ waiting, done): see `art/variations/round12-face/S-*.svg`.
 
 ## Where it ships (CEL-27)
 
-`art/icon/build-app-icons.mjs` builds every icon the apps use from `icon.svg` and `favicon.svg` (resvg 0.47.0,
-plus iconutil for the `.icns`). Edit a source, then run `bun art/icon/build-app-icons.mjs`; `--check` fails if a
-committed icon is out of date and prints the resvg version it used. The same sources and resvg version give
-the same bytes.
+`art/icon/build-app-icons.mjs` builds every icon the apps use from `icon.svg` and `favicon.svg` (resvg 0.47.0).
+Edit a source, then run `bun art/icon/build-app-icons.mjs`; `--check` fails if a committed icon is out of date
+and prints the resvg version it used. The same sources and resvg version give the same bytes.
 
 | Built file | From | Used by |
 |---|---|---|
@@ -47,10 +46,23 @@ the same bytes.
 | `apps/web/public/icons/icon-maskable-512.png` | `icon.svg`, the agent at 80% | the manifest (`maskable`): the tip stays inside the 80% safe circle |
 | `apps/web/public/icons/apple-touch-icon.png` | `icon.svg` at 180 px, full bleed | iOS home screen (iOS rounds the corners) |
 | `apps/desktop/resources/icon.png` | `icon.svg` in Apple's grid: an 824 px rounded square on 1024, with a shadow | the Dock icon in dev (`app.dock.setIcon`) |
-| `apps/desktop/resources/icon.icns` | the same, rendered at 16 to 1024 px | the packaged `Cello.app` (electron-builder `mac.icon`) |
+| `apps/desktop/resources/Cello.icon/` (`icon.json`, `Assets/agent.svg`) | `icon.svg`: the agent as one layer with its eyes cut out, on an orange fill | the packaged `Cello.app` (electron-builder `mac.icon`) |
 
-The manifest's colours come from the icon: `theme_color` ink `#141416` (the installed app's title bar),
-`background_color` orange `#FF7A2F` (its launch screen).
+The `.icon` is an Icon Composer document. When packaging, electron-builder compiles it with Xcode 26's
+`actool` into `Contents/Resources/Assets.car` (`CFBundleIconName`), plus an `icon.icns` for macOS before 26.
+So the Mac that packages needs Xcode 26. Its settings:
+- one layer with `glass: false`
+- shadow `none`, `specular: false`, translucency off
+- a solid orange fill, pinned for the dark appearance too
+
+The manifest's colours come from the icon:
+- `theme_color` ink `#141416`: the installed app's title bar on macOS, the status bar on Android
+- `background_color` orange `#FF7A2F`:
+  - macOS Chrome has no launch screen and shows it only for a moment before the page paints
+  - Android shows it as the launch screen
+  - iOS ignores it
+
+The 2026-11-15 decisions below explain both choices. The side-by-side comparisons are in CEL-27's review packet.
 
 ## How we got here
 
@@ -86,6 +98,14 @@ cards, comment), "who did it, and which conversation", all repos on your Mac, en
 ## Decisions
 
 - 2026-11-14: Icon and favicon = the plain teardrop agent (the note version was dropped: "just use the one with the character"); team mark = ensemble.
+- 2026-11-15 (CEL-27): The packaged app's icon is a flat Icon Composer `.icon`, not a plain `.icns`.
+  - With only an `.icns`, macOS 26 redraws it as glass: the ink teardrop turns see-through brown with glowing eyes.
+  - In macOS's dark icon style the `.icns` loses the orange altogether: a black tile with the agent as a faint outline.
+  - The `.icon` with glass off keeps the agent flat ink on orange in both styles, so it stays recognisable in the Dock.
+- 2026-11-15 (CEL-27): The installed web app gets an ink title bar (`theme_color` `#141416`) and an orange `background_color`.
+  - The ink bar sits quietly above both the light and the dark board.
+  - An orange bar would be loud on every window.
+  - The orange shows where the brand belongs: Android's launch screen, where the full-bleed icon melts into it and leaves the agent.
 - 2026-11-14: Promo music must sound like Cello (cello and orchestra, never electronic); chosen: Baroque strings take 1.
 - 2026-11-14: Write "Chello" in voice text so it's pronounced right; the screen still says Cello. Leave a breath (about 0.8 s) between voice lines.
 - 2026-11-14: Voice tags must be unambiguous: `[clear]` made the narrator clear his throat. Use one consistent tag such as `[confident, inspiring]`, or none.
