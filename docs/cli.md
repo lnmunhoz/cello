@@ -43,8 +43,9 @@ Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
    This repo's tasks live in Cello, project **KEY** on Lucas's board. Agents use it only through the `cello` CLI.
 
    - Before your first `cello` command in a session, run `cello guide` once: it's the full reference (concepts, workflow, every command, what each error means). Don't guess.
+   - **Every request from Lucas that will change something starts as a Cello task, before anything else.** Before you read code, search or plan: check `cello task list` for it, else `cello task create "<title>"` with his words quoted in the description, then `cello task claim KEY-n`. This covers small requests, follow-ups and anything he sends mid-task (each distinct request is its own task). Only a question that changes nothing is exempt.
    - Run `cello context` at the start of each session.
-   - Claim a task before working on it (`cello task claim KEY-n`), and put the key in commit messages (`fix(api): rate limit (KEY-12)`).
+   - Put the task key in commit messages (`fix(api): rate limit (KEY-12)`).
    - In Progress means someone is on it right now. When you wait on Lucas's decision, ask on the card with `cello task ask` (the task waits in Needs input). When you stop, put the state on the card and move it back to Todo.
    - Hand finished work to Lucas only with `cello task submit`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
    - Answer Lucas on the card with `cello task comment`. His comments come to your session by themselves.
@@ -127,7 +128,7 @@ Run it first in every session, and again when you come back to a task.
 
 ## The workflow
 
-1. **Find the work.** `cello task list` shows Todo and In Progress. `cello task get CEL-12` reads one task in full, including Lucas's notes on earlier packets and every comment.
+1. **Find the work, or make it.** When Lucas asks for something that will change code, docs or anything else, it becomes a task **before you read code or plan**: `cello task list` to check it isn't there already, else `cello task create` with his words. `cello task list` shows Todo and In Progress; `cello task get CEL-12` reads one task in full, including Lucas's notes on earlier packets and every comment.
 2. **Claim it.** `cello task claim CEL-12`. If it says another session holds the task, pick another one. Don't work on a task someone else holds.
 3. **Work, test first, and put the key in every commit:** `feat(web): collapsed review rows (CEL-22)`.
 4. **Comment** progress and decisions on the card (`cello task comment`). Lucas reads them there.
