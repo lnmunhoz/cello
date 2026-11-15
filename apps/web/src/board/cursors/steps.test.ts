@@ -55,6 +55,13 @@ describe("changeOf", () => {
     expect(changeOf(ev({ type: "task.moved", id: "t1", from: { statusId: "todo", position: "a0" }, to: { statusId: "done", position: "a0" }, version: 2, task: task("t1") }, { sessionId: null }), "p1", nowhere)).toBeNull()
   })
 
+  it("gives each subagent of a session its own cursor (CEL-55): the lane is the session and the agent", () => {
+    const staged = (agentId: string | null) => ev({ type: "task.created", task: task("t1") }, { agentId })
+    expect(changeOf(staged("a13bfb89"), "p1", nowhere)).toMatchObject({ lane: "s1/a13bfb89" })
+    expect(changeOf(staged("b77d0e11"), "p1", nowhere)).toMatchObject({ lane: "s1/b77d0e11" })
+    expect(changeOf(staged(null), "p1", nowhere)).toMatchObject({ lane: "s1" })
+  })
+
   it("shows nothing for another project's changes", () => {
     expect(changeOf(ev({ type: "task.created", task: task("t1") }, { projectId: "p2" }), "p1", nowhere)).toBeNull()
   })

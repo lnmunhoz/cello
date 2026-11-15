@@ -1,5 +1,5 @@
 // Pure reducer from events to client state. Shared by the web app and any other client.
-import type { Actor, AgentSession, Ask, DocumentSummary, Label, Project, Review, Snapshot, Status, Task, Workspace } from "@cello/contract/entities"
+import { type Actor, type AgentSession, agentKey, type Ask, type DocumentSummary, type Label, type Project, type Review, type SessionAgent, type Snapshot, type Status, type Task, type Workspace } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
 import { colorFromSeed } from "@cello/shared/color"
 
@@ -15,6 +15,8 @@ export interface BoardState {
   readonly tasks: ById<Task>
   /** Agent sessions the tasks name, kept current by `session.seen` (who's working right now, CEL-35). */
   readonly sessions: ById<AgentSession>
+  /** Subagents of those sessions (CEL-55), by `agentKey(sessionId, agentId)`, kept current by `agent.seen`. */
+  readonly agents: ById<SessionAgent>
   /** Open reviews only: a decided one leaves the board (the task panel loads a task's whole list). */
   readonly reviews: ById<Review>
   /** Open asks only (Needs input): an answered or withdrawn one leaves the board (the task panel loads a task's list). */
@@ -35,6 +37,7 @@ export const fromSnapshot = (s: Snapshot): BoardState => ({
   labels: byId(s.labels),
   tasks: byId(s.tasks),
   sessions: byId(s.sessions),
+  agents: Object.fromEntries(s.agents.map((a) => [agentKey(a.sessionId, a.agentId), a])),
   reviews: byId(s.reviews),
   asks: byId(s.asks),
   documents: byId(s.documents),
@@ -81,6 +84,7 @@ const activity = (e: CelloEvent, t: Task) => ({
   updatedAt: e.ts,
   updatedByActorId: e.actorId,
   updatedBySessionId: e.sessionId,
+  updatedByAgentId: e.agentId ?? null,
 })
 
 const apply = (d: Draft, e: CelloEvent) => {
@@ -140,6 +144,8 @@ const apply = (d: Draft, e: CelloEvent) => {
         })
       }
       return d.set("sessions", e.session.id, e.session)
+    case "agent.seen":
+      return d.set("agents", agentKey(e.agent.sessionId, e.agent.agentId), e.agent)
     // Comments load per task; the board keeps each task's count and latest comment time. A comment is
     // activity: the server set the task's last change and bumped its version in the same command.
     case "comment.added":
@@ -159,6 +165,7 @@ const apply = (d: Draft, e: CelloEvent) => {
     case "review.submitted":
       return d.set("reviews", e.review.id, e.review)
     case "review.decided":
+    case "review.withdrawn":
       return d.delete("reviews", e.id)
     case "ask.created":
       return d.set("asks", e.ask.id, e.ask)
@@ -187,7 +194,7 @@ export const applyEvents = (state: BoardState, events: ReadonlyArray<CelloEvent>
     // Every change to a task records who made it (CEL-5), as the server does in the same command; events
     // that carry the whole task already have it.
     if (e.type.startsWith("task.") && "id" in e && !("task" in e)) {
-      draft.update("tasks", e.id, (t) => ({ ...t, updatedByActorId: e.actorId, updatedBySessionId: e.sessionId }))
+      draft.update("tasks", e.id, (t) => ({ ...t, updatedByActorId: e.actorId, updatedBySessionId: e.sessionId, updatedByAgentId: e.agentId ?? null }))
     }
     seq = e.seq
   }

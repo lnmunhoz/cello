@@ -4,19 +4,34 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { useSearch } from "@tanstack/react-router"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { MoreHorizontalIcon } from "lucide-react"
-import { useState } from "react"
+import { type ReactNode, useId, useState } from "react"
 import { Button } from "../components/ui/Button.tsx"
 import { Textarea } from "../components/ui/Input.tsx"
 import { Markdown } from "../components/ui/Markdown.tsx"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.tsx"
 import { commands, commentsFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
+import { type Who, whoOf } from "../presence/model.ts"
 import type { TaskSearch } from "./view.ts"
 
-export function Comments({ board, task }: { board: BoardState; task: Task }) {
+interface CommentsProps {
+  readonly board: BoardState
+  readonly task: Task
+  /** The box's text, when the parent shares it: the Review page sends it as Send back's note (CEL-70). */
+  readonly draft?: { readonly value: string; readonly onChange: (body: string) => void } | undefined
+  readonly placeholder?: string | undefined
+  /** More buttons after Comment, in its row (the Review page's Send back and Approve); the row's buttons are then full size. */
+  readonly actions?: ReactNode
+}
+
+/** A task's comments, oldest first, and a box to add one (⌘Enter or Comment): in the task panel, and under an open packet on the Review page. */
+export function Comments({ board, task, draft, placeholder = "Leave a comment…", actions }: CommentsProps) {
   const result = useAtomValue(commentsFamily(task.id))
   const add = useAtomSet(commands.addComment, { mode: "promiseExit" })
-  const [body, setBody] = useState("")
+  const [own, setOwn] = useState("")
+  const body = draft?.value ?? own
+  const setBody = draft?.onChange ?? setOwn
+  const headingId = useId()
   const comments = AsyncResult.isSuccess(result) ? result.value.filter((c) => c.deletedAt === null) : []
   // Opened at a comment from ⌘K (`?comment=<id>`, CEL-43): it scrolls into view and flashes once.
   const target = (useSearch({ strict: false }) as TaskSearch).comment
@@ -28,21 +43,21 @@ export function Comments({ board, task }: { board: BoardState; task: Task }) {
   }
 
   return (
-    <section aria-labelledby="comments-heading" className="flex flex-col gap-3">
-      <h3 id="comments-heading" className="text-[13px] font-semibold">
+    <section aria-labelledby={headingId} className="flex flex-col gap-3">
+      <h3 id={headingId} className="text-[13px] font-semibold">
         Comments
       </h3>
       {AsyncResult.isInitial(result) ? <p className="text-xs text-faint">Loading comments…</p> : null}
       <ul className="flex flex-col gap-2">
         {comments.map((c) => (
-          <CommentItem key={c.id} comment={c} author={board.actors[c.actorId]?.name ?? "Someone"} target={c.id === target} />
+          <CommentItem key={c.id} comment={c} author={whoOf(board, c.actorId, c.sessionId, c.agentId)} target={c.id === target} />
         ))}
       </ul>
       <div className="flex flex-col gap-2">
         <Textarea
           variant="comment"
           aria-label="New comment"
-          placeholder="Leave a comment…"
+          placeholder={placeholder}
           value={body}
           onChange={(e) => setBody(e.currentTarget.value)}
           onKeyDown={(e) => {
@@ -52,10 +67,11 @@ export function Comments({ board, task }: { board: BoardState; task: Task }) {
             }
           }}
         />
-        <div className="flex justify-end">
-          <Button variant="secondary" size="sm" onClick={submit} disabled={body.trim() === ""}>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button variant="secondary" size={actions ? "md" : "sm"} onClick={submit} disabled={body.trim() === ""}>
             Comment
           </Button>
+          {actions}
         </div>
       </div>
     </section>
@@ -63,7 +79,7 @@ export function Comments({ board, task }: { board: BoardState; task: Task }) {
 }
 
 /** `target`: the comment the task was opened at; it's scrolled to on arrival and flashes once. */
-function CommentItem({ comment, author, target }: { comment: Comment; author: string; target: boolean }) {
+function CommentItem({ comment, author, target }: { comment: Comment; author: Who; target: boolean }) {
   const edit = useAtomSet(commands.editComment, { mode: "promiseExit" })
   const remove = useAtomSet(commands.deleteComment)
   const [draft, setDraft] = useState<string | null>(null)
@@ -82,7 +98,11 @@ function CommentItem({ comment, author, target }: { comment: Comment; author: st
       className={`flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-3 py-2.5 shadow-card ${target ? "comment-flash" : ""}`}
     >
       <div className="flex items-center gap-2 text-xs">
-        <span className="font-medium text-ink">{author}</span>
+        {/* An agent session by its id, a subagent by its type and id with its session after it (CEL-55). */}
+        <span className="min-w-0 truncate" data-comment-author title={author.parent ? `${author.name}, under ${author.parent}` : author.name}>
+          <span className="font-medium text-ink">{author.name}</span>
+          {author.parentShort ? <span className="text-faint"> · under {author.parentShort}</span> : null}
+        </span>
         <span className="text-faint">
           {relativeTime(comment.createdAt)}
           {comment.updatedAt > comment.createdAt ? " · edited" : ""}

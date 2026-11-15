@@ -108,17 +108,28 @@ export default Effect.gen(function* () {
   END`)
 
   // Each source replaces its entry when what's indexed changes.
-  for (const { table, kind, columns, select } of SOURCES) {
-    const changed = columns.map((c) => `old.${c} IS NOT new.${c}`).join(" OR ")
-    yield* sql.unsafe(`CREATE TRIGGER search_${table}_insert AFTER INSERT ON ${table} BEGIN
-      INSERT INTO search_entries (${COLUMNS}) ${select("new")};
-    END`)
-    yield* sql.unsafe(`CREATE TRIGGER search_${table}_update AFTER UPDATE OF ${columns.join(", ")} ON ${table} WHEN ${changed} BEGIN
-      DELETE FROM search_entries WHERE kind = '${kind}' AND ref_id = old.id;
-      INSERT INTO search_entries (${COLUMNS}) ${select("new")};
-    END`)
-    yield* sql.unsafe(`CREATE TRIGGER search_${table}_delete AFTER DELETE ON ${table} BEGIN
-      DELETE FROM search_entries WHERE kind = '${kind}' AND ref_id = old.id;
-    END`)
+  for (const { table } of SOURCES) {
+    for (const statement of sourceTriggers(table)) yield* sql.unsafe(statement)
   }
 })
+
+/**
+ * The three triggers that keep one source table's entries current. A later migration that rebuilds
+ * the table runs these again (0010 rebuilds `reviews`), so the index follows it as before.
+ */
+export const sourceTriggers = (table: (typeof SOURCES)[number]["table"]): ReadonlyArray<string> => {
+  const { kind, columns, select } = SOURCES.find((s) => s.table === table)!
+  const changed = columns.map((c) => `old.${c} IS NOT new.${c}`).join(" OR ")
+  return [
+    `CREATE TRIGGER search_${table}_insert AFTER INSERT ON ${table} BEGIN
+      INSERT INTO search_entries (${COLUMNS}) ${select("new")};
+    END`,
+    `CREATE TRIGGER search_${table}_update AFTER UPDATE OF ${columns.join(", ")} ON ${table} WHEN ${changed} BEGIN
+      DELETE FROM search_entries WHERE kind = '${kind}' AND ref_id = old.id;
+      INSERT INTO search_entries (${COLUMNS}) ${select("new")};
+    END`,
+    `CREATE TRIGGER search_${table}_delete AFTER DELETE ON ${table} BEGIN
+      DELETE FROM search_entries WHERE kind = '${kind}' AND ref_id = old.id;
+    END`,
+  ]
+}

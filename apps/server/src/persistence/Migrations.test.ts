@@ -2,6 +2,7 @@
 // document, not a task) and must keep every row. 0005 adds build history to a copy of a database that
 // has a board on it, and changes nothing else. 0006 rebuilds `statuses` (a new category, under the
 // tasks that reference it) and `inbox_items`, and adds Needs input to the workspaces that lack it.
+// 0010 rebuilds `reviews` (a new decision, under the evidence that references it) with its search triggers.
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as SqliteMigrator from "@effect/sql-sqlite-bun/SqliteMigrator"
@@ -315,6 +316,12 @@ const untilSearch = SqliteMigrator.run({
   table: "migrations",
 }).pipe(Effect.orDie)
 
+/** Up to 0009: what the live board ran before CEL-71 and CEL-55 (later ones change tables, and have their own tests). */
+const untilLabelGroup = SqliteMigrator.run({
+  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0010"))),
+  table: "migrations",
+}).pipe(Effect.orDie)
+
 const CEL_AREAS = ["board", "list", "task-panel", "review", "pages", "sidebar", "search", "viewer", "agents", "cli", "server", "data", "desktop", "tests", "release"]
 
 // CEL-52: labels get a group (kind, area, milestone or none). Additive: one column with a default, then
@@ -347,7 +354,7 @@ describe("migration 0009_label_group", () => {
       const labelsBefore = yield* sql<Record<string, unknown>>`SELECT * FROM labels ORDER BY id`
       const before = { ...(yield* everything), taskLabels: yield* taskLabels }
 
-      yield* Migrations.run
+      yield* untilLabelGroup
       const after = yield* sql<Record<string, unknown>>`SELECT * FROM labels ORDER BY id`
       expect(after.map(({ label_group: _, ...rest }) => rest)).toEqual(labelsBefore)
       expect({ ...(yield* everything), taskLabels: yield* taskLabels }).toEqual(before)
@@ -364,8 +371,118 @@ describe("migration 0009_label_group", () => {
 
       // The next start runs the migrations again: nothing changes.
       const migrated = yield* sql`SELECT * FROM labels ORDER BY id`
-      yield* Migrations.run
+      yield* untilLabelGroup
       expect(yield* sql`SELECT * FROM labels ORDER BY id`).toEqual(migrated)
       expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
+    }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
+})
+
+/** Up to 0010 (CEL-71): 0011 adds agent columns and a table, and has its own test. */
+const throughReviewWithdrawn = SqliteMigrator.run({
+  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0011"))),
+  table: "migrations",
+}).pipe(Effect.orDie)
+
+/** Every table, all rows and columns, without the migrations bookkeeping. */
+const allRows = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+  const tables = yield* sql<{ name: string }>`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name != 'migrations' AND name NOT LIKE 'sqlite_%'
+      AND name NOT LIKE 'search_words%' AND name NOT LIKE 'search_stems%' ORDER BY name`
+  const rows: Record<string, unknown> = {}
+  for (const { name } of tables) rows[name] = yield* sql.unsafe(`SELECT * FROM "${name}" ORDER BY rowid`)
+  return rows
+})
+
+// CEL-71: a packet whose task leaves In Review by a plain move closes as `withdrawn`. SQLite can't change
+// the decision CHECK in place, so 0010 rebuilds `reviews` under the attachments that reference it, and
+// puts back its indexes and the search triggers that went with the old table.
+describe("migration 0010_review_withdrawn", () => {
+  it.effect("lets a packet be withdrawn, and keeps every row, the evidence links and the search index as they were", () =>
+    Effect.gen(function* () {
+      yield* untilLabelGroup
+      yield* realisticBoard
+      const sql = yield* SqlClient.SqlClient
+      yield* sql`INSERT INTO reviews (id, task_id, summary, steps, actor_id, session_id, created_at, decided_at, decision, decision_note) VALUES
+        ('r2', 't10', 'Backups every day', '["Run cello backup"]', 'claude', 'sess', 6, 7, 'sent_back', 'The list is empty'),
+        ('r3', 't11', 'Stages on cards', '[]', 'claude', NULL, 8, 9, 'approved', NULL),
+        ('r4', 't11', 'An older packet', '["Step"]', 'claude', 'sess', 7, 8, 'superseded', NULL)`
+      yield* sql`INSERT INTO attachments (id, task_id, review_id, kind, name, url, caption, actor_id, session_id, created_at)
+        VALUES ('f2', 't10', 'r2', 'link', 'https://example.com', 'https://example.com', 'The page', 'claude', 'sess', 6)`
+      const before = yield* allRows
+      expect((before["search_entries"] as ReadonlyArray<{ kind: string }>).filter((e) => e.kind === "packet")).toHaveLength(3)
+      const indexes = sql`SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'reviews' ORDER BY name`
+      const triggers = sql`SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'reviews' ORDER BY name`
+      const indexesBefore = yield* indexes
+      const triggersBefore = yield* triggers
+      expect(triggersBefore).toHaveLength(3)
+
+      yield* throughReviewWithdrawn
+      expect(yield* allRows).toEqual(before)
+      expect(yield* indexes).toEqual(indexesBefore)
+      expect(yield* triggers).toEqual(triggersBefore)
+      expect(yield* sql`PRAGMA foreign_key_check`).toEqual([])
+      expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
+
+      // Withdrawn is a decision now; anything else still isn't.
+      yield* sql`UPDATE reviews SET decided_at = 10, decision = 'withdrawn' WHERE id = 'r1'`
+      expect(yield* sql`SELECT decision FROM reviews WHERE id = 'r1'`).toEqual([{ decision: "withdrawn" }])
+      expect((yield* Effect.exit(sql`UPDATE reviews SET decision = 'maybe' WHERE id = 'r2'`))._tag).toBe("Failure")
+      // The search index still follows the table: a withdrawn packet stays findable, a new one is added.
+      yield* sql`INSERT INTO reviews (id, task_id, summary, steps, actor_id, created_at) VALUES ('r5', 't12', 'Withdrawn packets', '[]', 'claude', 11)`
+      expect(yield* sql`SELECT ref_id FROM search_entries WHERE kind = 'packet' ORDER BY ref_id`).toEqual(
+        [{ ref_id: "r1" }, { ref_id: "r2" }, { ref_id: "r3" }, { ref_id: "r5" }],
+      )
+      expect(yield* sql`SELECT e.ref_id FROM search_words JOIN search_entries e ON e.id = search_words.rowid WHERE search_words MATCH 'withdrawn'`)
+        .toEqual([{ ref_id: "r5" }])
+      // Evidence still has to belong to a packet that exists.
+      expect((yield* Effect.exit(sql`INSERT INTO attachments (id, task_id, review_id, kind, name, actor_id, created_at)
+        VALUES ('f3', 't10', 'nope', 'file', 'x.txt', 'claude', 12)`))._tag).toBe("Failure")
+
+      // The next start runs the migrations again: nothing changes.
+      const migrated = yield* allRows
+      yield* throughReviewWithdrawn
+      expect(yield* allRows).toEqual(migrated)
+    }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
+})
+
+// CEL-55: subagents under a session. Additive only: a new table, and a nullable agent column on events,
+// comments and tasks' "last changed". Every row keeps every value it had; old rows read as "the session
+// itself" (null). Safe to run on a board with sessions, claims, comments and events.
+describe("migration 0011_agents", () => {
+  it.effect("adds the agents table and the agent columns, null on every row it finds, and changes nothing else", () =>
+    Effect.gen(function* () {
+      yield* throughReviewWithdrawn
+      yield* realisticBoard
+      const sql = yield* SqlClient.SqlClient
+      const before = yield* everything
+
+      yield* Migrations.run
+      const strip = (rows: ReadonlyArray<Record<string, unknown>>, column: string) =>
+        rows.map(({ [column]: value, ...rest }) => {
+          expect(value).toBeNull()
+          return rest
+        })
+      const after = yield* everything
+      expect({
+        ...after,
+        tasks: strip(after.tasks, "updated_by_agent_id"),
+        comments: strip(after.comments, "agent_id"),
+        events: strip(after.events, "agent_id"),
+      }).toEqual(before)
+      expect(yield* sql`SELECT * FROM session_agents`).toEqual([])
+
+      // One row per agent of a session; the same agent id under another session would be another agent.
+      yield* sql`INSERT INTO session_agents (session_id, agent_id, agent_type, task_id, description, started_at, last_seen_at)
+        VALUES ('sess', 'a13bfb89', 'cello-builder', 't1', 'CEL-1 build it', 10, 10)`
+      const twice = yield* Effect.exit(sql`INSERT INTO session_agents (session_id, agent_id, started_at, last_seen_at) VALUES ('sess', 'a13bfb89', 11, 11)`)
+      expect(twice._tag).toBe("Failure")
+
+      // The next start runs the migrations again: nothing changes.
+      const migrated = { ...(yield* everything), agents: yield* sql`SELECT * FROM session_agents` }
+      yield* Migrations.run
+      expect({ ...(yield* everything), agents: yield* sql`SELECT * FROM session_agents` }).toEqual(migrated)
+      expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
+      expect(yield* sql`PRAGMA foreign_key_check`).toEqual([])
     }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
 })

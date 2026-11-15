@@ -14,6 +14,7 @@ import * as ProjectService from "./project/ProjectService.ts"
 import * as RepoPaths from "./project/repoPath.ts"
 import * as ReviewService from "./review/ReviewService.ts"
 import * as SearchService from "./search/SearchService.ts"
+import * as AgentService from "./session/AgentService.ts"
 import * as SessionService from "./session/SessionService.ts"
 import * as SnapshotService from "./snapshot/SnapshotService.ts"
 import * as StatusService from "./status/StatusService.ts"
@@ -33,6 +34,8 @@ const domain = Layer.mergeAll(
   // Comments and reviews deliver into agents' inboxes, which read sessions.
   Layer.provideMerge(InboxService.layer),
   Layer.provideMerge(SessionService.layer),
+  // Subagents under sessions (CEL-55): the snapshot lists them, and the caller middleware checks them in.
+  Layer.provideMerge(AgentService.layer),
   Layer.provideMerge(Commands.layer),
   Layer.provideMerge(EventLog.layer),
   Layer.provideMerge(EventStore.layer),

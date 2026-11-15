@@ -8,12 +8,16 @@ import * as path from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   addCelloHooks,
+  addCelloPlugin,
   CELLO_HOOKS,
   celloHooksFor,
   detectFormat,
   formatSettings,
+  installCello,
   readSettingsFile,
   removeCelloHooks,
+  removeCelloPlugin,
+  uninstallCello,
   settingsPaths,
   writeFileAtomically,
 } from "./claudeSettings.ts"
@@ -21,6 +25,10 @@ import {
 const stop = { type: "command", command: "cello hook claude stop", timeout: 10 }
 const postToolUse = { type: "command", command: "cello hook claude post-tool-use", timeout: 10 }
 const preToolUse = { type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }
+const subagentStart = { type: "command", command: "cello hook claude subagent-start", timeout: 10 }
+const subagentStop = { type: "command", command: "cello hook claude subagent-stop", timeout: 10 }
+/** The subagent hooks (CEL-55): SubagentStart only in a project's settings, SubagentStop everywhere. */
+const subagents = { SubagentStart: [{ hooks: [subagentStart] }], SubagentStop: [{ hooks: [subagentStop] }] }
 
 describe("addCelloHooks", () => {
   it("adds a Stop hook, a PostToolUse hook for every tool and a PreToolUse hook for Artifact and the edit tools to empty settings", () => {
@@ -31,16 +39,17 @@ describe("addCelloHooks", () => {
           Stop: [{ hooks: [stop] }],
           PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
           PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+          ...subagents,
         },
       },
     })
-    expect(CELLO_HOOKS.map((h) => h.event)).toEqual(["Stop", "PostToolUse", "PreToolUse"])
+    expect(CELLO_HOOKS.map((h) => h.event)).toEqual(["Stop", "PostToolUse", "PreToolUse", "SubagentStart", "SubagentStop"])
   })
 
   it("the artifact guard is for Cello projects only: user settings (every project) get just the comment hooks", () => {
     expect(celloHooksFor("project")).toEqual(CELLO_HOOKS)
     expect(addCelloHooks({}, celloHooksFor("user")).settings).toEqual({
-      hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }] },
+      hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }], SubagentStop: subagents.SubagentStop },
     })
   })
 
@@ -48,7 +57,7 @@ describe("addCelloHooks", () => {
     const before = { hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }] } }
     expect(addCelloHooks(before)).toEqual({
       changed: true,
-      settings: { hooks: { ...before.hooks, PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }] } },
+      settings: { hooks: { ...before.hooks, PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }], ...subagents } },
     })
   })
 
@@ -68,6 +77,7 @@ describe("addCelloHooks", () => {
         hooks: {
           ...before.hooks,
           PreToolUse: [mine, { matcher: "Artifact", hooks: [{ type: "command", command: "log.sh" }] }, { matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+          ...subagents,
         },
       },
     })
@@ -102,6 +112,7 @@ describe("addCelloHooks", () => {
         PostToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "prettier --write" }] }, { matcher: "*", hooks: [postToolUse] }],
         SessionStart: [{ hooks: [{ type: "command", command: "echo hi" }] }],
         PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+        ...subagents,
       },
     })
     // The input isn't changed in place.
@@ -116,6 +127,7 @@ describe("addCelloHooks", () => {
         Stop: [{ hooks: [{ ...stop, timeout: 30 }] }],
         PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
         PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ ...preToolUse, timeout: 5 }] }],
+        ...subagents,
       },
     }
     expect(addCelloHooks(tuned)).toEqual({ changed: false, settings: tuned })
@@ -124,7 +136,12 @@ describe("addCelloHooks", () => {
   it("adds only the hook that's missing", () => {
     const half = { hooks: { Stop: [{ hooks: [stop] }] } }
     expect(addCelloHooks(half).settings).toEqual({
-      hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }], PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }] },
+      hooks: {
+        Stop: [{ hooks: [stop] }],
+        PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
+        PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+        ...subagents,
+      },
     })
   })
 
@@ -157,6 +174,115 @@ describe("removeCelloHooks", () => {
   it("leaves no empty hooks object behind, and does nothing when Cello isn't installed", () => {
     expect(removeCelloHooks(addCelloHooks({ model: "opus" }).settings)).toEqual({ changed: true, settings: { model: "opus" } })
     expect(removeCelloHooks({ model: "opus" })).toEqual({ changed: false, settings: { model: "opus" } })
+  })
+})
+
+describe("addCelloPlugin (CEL-64)", () => {
+  const folder = "/home/me/.local/share/cello/claude-plugin"
+  const marketplace = { cello: { source: { source: "directory", path: folder } } }
+  const both = { folder, declare: true, enable: true }
+
+  it("declares Cello's marketplace (a folder on this machine) and enables cello@cello", () => {
+    expect(addCelloPlugin({}, both)).toEqual({
+      changed: true,
+      off: false,
+      settings: { extraKnownMarketplaces: marketplace, enabledPlugins: { "cello@cello": true } },
+    })
+  })
+
+  it("can do just one of the two: --shared enables it in the committed file and declares the folder in the local one", () => {
+    expect(addCelloPlugin({}, { folder, declare: false, enable: true }).settings).toEqual({ enabledPlugins: { "cello@cello": true } })
+    expect(addCelloPlugin({}, { folder, declare: true, enable: false }).settings).toEqual({ extraKnownMarketplaces: marketplace })
+  })
+
+  it("keeps every other marketplace, plugin and setting; installing again changes nothing", () => {
+    const mine = {
+      model: "opus",
+      enabledPlugins: { "formatter@team": true, "noisy@team": false },
+      extraKnownMarketplaces: { team: { source: { source: "github", repo: "acme/plugins" } } },
+    }
+    const once = addCelloPlugin(mine, both)
+    expect(once.settings).toEqual({
+      model: "opus",
+      enabledPlugins: { "formatter@team": true, "noisy@team": false, "cello@cello": true },
+      extraKnownMarketplaces: { team: { source: { source: "github", repo: "acme/plugins" } }, ...marketplace },
+    })
+    expect(mine.enabledPlugins).not.toHaveProperty("cello@cello")
+    expect(addCelloPlugin(once.settings, both)).toEqual({ changed: false, off: false, settings: once.settings })
+  })
+
+  it("keeps the extra keys someone put on Cello's marketplace entry (autoUpdate)", () => {
+    const tuned = { extraKnownMarketplaces: { cello: { source: { source: "directory", path: folder }, autoUpdate: true } }, enabledPlugins: { "cello@cello": true } }
+    expect(addCelloPlugin(tuned, both)).toEqual({ changed: false, off: false, settings: tuned })
+  })
+
+  it("leaves a plugin someone turned off (false) off, and says so", () => {
+    const off = { extraKnownMarketplaces: marketplace, enabledPlugins: { "cello@cello": false } }
+    expect(addCelloPlugin(off, both)).toEqual({ changed: false, off: true, settings: off })
+    expect(installCello(off, { hooks: [], plugin: both })).toMatchObject({ changed: false, plugin: false, off: true })
+  })
+
+  it("refuses a marketplace called cello that isn't exactly Cello's folder, even when it only enables (the committed file of --shared)", () => {
+    const github = { extraKnownMarketplaces: { cello: { source: { source: "github", repo: "someone/cello" } } } }
+    expect(() => addCelloPlugin(github, both)).toThrow("\"extraKnownMarketplaces.cello\" is another marketplace, not Cello's folder")
+    expect(() => addCelloPlugin(github, { folder, declare: false, enable: true })).toThrow("\"extraKnownMarketplaces.cello\" is another marketplace")
+    // A folder with the same last two names elsewhere isn't Cello's either (an older XDG_DATA_HOME, say).
+    const moved = { extraKnownMarketplaces: { cello: { source: { source: "directory", path: "/old/cello/claude-plugin" } } } }
+    expect(() => addCelloPlugin(moved, both)).toThrow("\"extraKnownMarketplaces.cello\" is another marketplace")
+  })
+
+  it("refuses settings it can't merge into", () => {
+    expect(() => addCelloPlugin({ enabledPlugins: [] }, both)).toThrow("\"enabledPlugins\" isn't an object")
+    expect(() => addCelloPlugin({ extraKnownMarketplaces: "x" }, both)).toThrow("\"extraKnownMarketplaces\" isn't an object")
+    expect(() => addCelloPlugin([], both)).toThrow("isn't a JSON object")
+  })
+})
+
+describe("removeCelloPlugin", () => {
+  const folder = "/home/me/.local/share/cello/claude-plugin"
+  const both = { folder, declare: true, enable: true }
+
+  it("takes out cello@cello and Cello's marketplace, and the keys they leave empty; anything else stays", () => {
+    const installed = addCelloPlugin({ model: "opus", enabledPlugins: { "formatter@team": true } }, both).settings
+    expect(removeCelloPlugin(installed, folder)).toEqual({ changed: true, settings: { model: "opus", enabledPlugins: { "formatter@team": true } } })
+    expect(removeCelloPlugin({ model: "opus" }, folder)).toEqual({ changed: false, settings: { model: "opus" } })
+    // The committed file of --shared: enabled, with the marketplace declared elsewhere.
+    expect(removeCelloPlugin({ enabledPlugins: { "cello@cello": true } }, folder)).toEqual({ changed: true, settings: {} })
+  })
+
+  it("leaves a marketplace called cello, and the cello@cello it enables, alone when it isn't Cello's folder", () => {
+    const theirs = {
+      extraKnownMarketplaces: { cello: { source: { source: "github", repo: "someone/cello" } } },
+      enabledPlugins: { "cello@cello": true },
+    }
+    expect(removeCelloPlugin(theirs, folder)).toEqual({ changed: false, settings: theirs })
+    const otherFolder = { extraKnownMarketplaces: { cello: { source: { source: "directory", path: "/old/cello/claude-plugin" } } } }
+    expect(removeCelloPlugin(otherFolder, folder)).toEqual({ changed: false, settings: otherFolder })
+  })
+
+  it("install, then uninstall, gives back the same bytes", () => {
+    const raw = `${JSON.stringify({ $schema: "s", enabledPlugins: { "a@b": true }, model: "opus" }, null, 4)}\n`
+    const format = detectFormat(raw)
+    const installed = formatSettings(installCello(JSON.parse(raw), { hooks: CELLO_HOOKS, plugin: both }).settings, format)
+    expect(Object.keys(JSON.parse(installed))).toEqual(["$schema", "enabledPlugins", "model", "hooks", "extraKnownMarketplaces"])
+    expect(formatSettings(uninstallCello(JSON.parse(installed), folder).settings, format)).toBe(raw)
+  })
+})
+
+describe("installCello / uninstallCello", () => {
+  const folder = "/home/me/.local/share/cello/claude-plugin"
+  const both = { folder, declare: true, enable: true }
+
+  it("merges the hooks and the plugin in one go and says which of them changed", () => {
+    const installed = installCello({}, { hooks: CELLO_HOOKS, plugin: both })
+    expect(installed).toMatchObject({ changed: true, hooks: true, plugin: true, off: false })
+    // A file with the hooks from before the plugin existed: only the plugin is new.
+    const hooksOnly = addCelloHooks({}).settings
+    expect(installCello(hooksOnly, { hooks: CELLO_HOOKS, plugin: both })).toMatchObject({ changed: true, hooks: false, plugin: true })
+    expect(installCello(installed.settings, { hooks: CELLO_HOOKS, plugin: both }))
+      .toEqual({ changed: false, hooks: false, plugin: false, off: false, settings: installed.settings })
+    expect(uninstallCello(installed.settings, folder)).toEqual({ changed: true, hooks: true, plugin: true, off: false, settings: {} })
+    expect(uninstallCello(hooksOnly, folder)).toMatchObject({ changed: true, hooks: true, plugin: false })
   })
 })
 

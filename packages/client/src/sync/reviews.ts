@@ -4,7 +4,7 @@ import type { Attachment, Project, Review, Task } from "@cello/contract/entities
 import type { CelloEvent } from "@cello/contract/events"
 import { attachmentPath } from "@cello/shared/attachment"
 import { shortUrl } from "@cello/shared/linkify"
-import { isReviewStatus } from "@cello/shared/review"
+import { holdsPacket, isReviewStatus } from "@cello/shared/review"
 import type { BoardState } from "./applyEvents.ts"
 
 export interface ReviewItem {
@@ -14,9 +14,20 @@ export interface ReviewItem {
   readonly review: Review | null
 }
 
-/** A task's open review, if it has one. */
+/**
+ * Whether an open review is waiting on Lucas: its task is in In Review, or in Needs input when the
+ * agent asked from there. A packet left open on a task that moved on before CEL-71 isn't: no badge,
+ * no pinned packet to approve, no "waiting: review" match (the server refuses to decide it, too).
+ */
+const waiting = (state: BoardState, review: Review): boolean => {
+  const task = state.tasks[review.taskId]
+  const status = task ? state.statuses[task.statusId] : undefined
+  return status !== undefined && holdsPacket(status)
+}
+
+/** A task's open review, if it has one waiting on Lucas. */
 export const openReviewOf = (state: BoardState, taskId: string): Review | undefined =>
-  Object.values(state.reviews).find((r) => r.taskId === taskId)
+  Object.values(state.reviews).find((r) => r.taskId === taskId && waiting(state, r))
 
 /**
  * Every packet waiting on Lucas in a workspace: tasks with an open review (oldest packet first), then
@@ -33,7 +44,7 @@ export const reviewQueue = (state: BoardState, workspaceId: string): ReviewItem[
   const reviewed = new Set<string>(Object.values(state.asks).map((a) => a.taskId))
   for (const review of Object.values(state.reviews).sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1))) {
     const task = state.tasks[review.taskId]
-    const project = task && task.archivedAt === null ? projectOf(task) : undefined
+    const project = task && task.archivedAt === null && waiting(state, review) ? projectOf(task) : undefined
     if (!task || !project || reviewed.has(task.id)) continue
     reviewed.add(task.id)
     withPacket.push({ task, project, review })
@@ -147,6 +158,8 @@ export const applyReviewEvents = (
       next = [...next, e.review]
     } else if (e.type === "review.decided" && e.taskId === taskId) {
       next = next.map((r) => (r.id === e.id ? { ...r, decision: e.decision, decisionNote: e.note, decidedAt: e.ts } : r))
+    } else if (e.type === "review.withdrawn" && e.taskId === taskId) {
+      next = next.map((r) => (r.id === e.id ? { ...r, decision: "withdrawn", decisionNote: null, decidedAt: e.ts } : r))
     }
   }
   return next

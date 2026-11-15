@@ -1,5 +1,5 @@
 // Small text helpers shared by the commands' output.
-import type { AgentSession } from "@cello/contract/entities"
+import type { AgentSession, SessionAgent } from "@cello/contract/entities"
 
 /** "just now", "3m ago", "2h ago", "4d ago". */
 export const ago = (ts: number, now: number): string => {
@@ -18,6 +18,15 @@ export const shortSession = (id: string): string => id.slice(0, 8)
 /** "Claude Code session 2fd0505c". */
 export const sessionName = (session: Pick<AgentSession, "clientName" | "externalId" | "id">): string =>
   `${session.clientName} session ${shortSession(session.externalId ?? session.id)}`
+
+/**
+ * A session's subagent (CEL-55): "cello-builder · a13bfb89 (under Claude Code session 2fd0505c)", or
+ * "agent · a13bfb89" when its type isn't known; the session left out when it isn't.
+ */
+export const agentName = (
+  agent: Pick<SessionAgent, "agentId" | "agentType">,
+  session?: Pick<AgentSession, "clientName" | "externalId" | "id">,
+): string => `${agent.agentType ?? "agent"} · ${agent.agentId.slice(0, 8)}${session ? ` (under ${sessionName(session)})` : ""}`
 
 /** "1 task", "3 tasks". */
 export const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? "" : "s"}`

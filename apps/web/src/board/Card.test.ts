@@ -1,9 +1,9 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import type { AgentSession, Label, Priority, Status, Task } from "@cello/contract/entities"
+import { type AgentSession, agentKey, type Label, type Priority, type SessionAgent, type Status, type Task } from "@cello/contract/entities"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { sessionColor } from "../presence/model.ts"
+import { provenanceOf, sessionColor } from "../presence/model.ts"
 import { CardBody } from "./Card.tsx"
 
 const status: Status = {
@@ -26,7 +26,7 @@ const board: BoardState = {
   statuses: { todo: status },
   labels: { bug: label("bug", "Bug"), old: label("old", "Old", { archivedAt: 5 }) },
   tasks: { t1: task("t1", 1, { title: "Plan the release" }) },
-  sessions: {},
+  sessions: {}, agents: {},
   reviews: {},
   asks: {},
   documents: {},
@@ -158,6 +158,21 @@ describe("CardBody", () => {
         const ended = markOf(renderIn({ ...withStatuses, sessions: { s1: { ...session, endedAt: now - 60_000 } } }, held))
         expect(ended).toContain('data-agent-mood="still"')
         expect(ended).toContain("--agent-body:var(--faint)")
+      })
+
+      it("follows whoever the line names: a subagent working on the task gets the mark, in its colour (CEL-55)", () => {
+        const builder: SessionAgent = {
+          sessionId: "s1", agentId: "a13bfb89c0de1234", agentType: "cello-builder", taskId: "t4", description: null,
+          startedAt: now - 60_000, lastSeenAt: now - 10_000, endedAt: null,
+        }
+        const state = { ...withStatuses, agents: { [agentKey("s1", builder.agentId)]: builder } }
+        const who = provenanceOf(state, held, now).holder!.who
+        expect(who.color).not.toBe(sessionColor(session))
+        const html = renderIn(state, held)
+        expect(html).toContain('data-agent="a13bfb89c0de1234"')
+        const mark = markOf(html)
+        expect(mark).toContain(`--agent-body:${who.color}`)
+        expect(mark).toContain('data-agent-mood="working"')
       })
     })
   })

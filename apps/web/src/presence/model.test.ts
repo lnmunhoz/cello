@@ -1,7 +1,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import type { AgentSession, Task } from "@cello/contract/entities"
+import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { agentMood, markEntry, provenanceLine, provenanceOf, workingSessions } from "./model.ts"
+import { agentMood, agentsWorkingCount, markEntry, provenanceLine, provenanceOf, whoOf, workingSessions } from "./model.ts"
 
 const MIN = 60_000
 const now = Date.UTC(2026, 10, 15, 12)
@@ -18,7 +18,12 @@ const task = (id: string, extra: Partial<Task> = {}): Task => ({
   createdAt: Date.UTC(2026, 10, 14), updatedAt: Date.UTC(2026, 10, 14), archivedAt: null, ...extra,
 })
 
-const board = (tasks: Task[], sessions: AgentSession[]): BoardState => ({
+const agent = (sessionId: string, agentId: string, extra: Partial<SessionAgent> = {}): SessionAgent => ({
+  sessionId, agentId, agentType: "cello-builder", taskId: null, description: null,
+  startedAt: now - 30 * MIN, lastSeenAt: now - MIN, endedAt: null, ...extra,
+})
+
+const board = (tasks: Task[], sessions: AgentSession[], agents: SessionAgent[] = []): BoardState => ({
   seq: 1,
   actors: {
     lucas: { id: "lucas", kind: "human", name: "Lucas N. Munhoz", client: null, color: "#5e6ad2", createdAt: 1 },
@@ -30,6 +35,7 @@ const board = (tasks: Task[], sessions: AgentSession[]): BoardState => ({
   labels: {},
   tasks: Object.fromEntries(tasks.map((t) => [t.id, t])),
   sessions: Object.fromEntries(sessions.map((s) => [s.id, s])),
+  agents: Object.fromEntries(agents.map((a) => [`${a.sessionId}/${a.agentId}`, a])),
   reviews: {},
   asks: {},
   documents: {},
@@ -164,5 +170,71 @@ describe("markEntry (CEL-69)", () => {
     expect(markEntry({ mood: "thinking", statusId: "prog" }, { mood: "working", statusId: "prog" })).toBeNull()
     expect(markEntry({ mood: "working", statusId: "prog" }, { mood: "still", statusId: "prog" })).toBeNull()
     expect(markEntry({ mood: "waiting", statusId: "needs" }, { mood: "thinking", statusId: "prog" })).toBeNull()
+  })
+})
+
+// CEL-55: subagents work under the orchestrator's session; the board names the agent, the session is its parent.
+describe("subagents", () => {
+  const orchestrator = session("2fd0505c")
+  const held = (id: string, extra: Partial<Task> = {}) => task(id, { assigneeActorId: "claude", assigneeSessionId: "2fd0505c", ...extra })
+
+  it("a card names the agent working on it, with its session as the parent, instead of the orchestrator", () => {
+    const t = held("t1")
+    const builder = agent("2fd0505c", "a13bfb89c0de1234", { taskId: "t1" })
+    const p = provenanceOf(board([t], [orchestrator], [builder]), t, now)
+    expect(p.holder?.who).toMatchObject({ name: "cello-builder · a13bfb89", short: "cello-builder · a13bfb89", parent: "Claude Code session 2fd0505c" })
+    expect(p.holder?.agent?.agentId).toBe("a13bfb89c0de1234")
+    expect(p.holder?.session?.id).toBe("2fd0505c")
+  })
+
+  it("the freshest active agent on the task wins; once none is active, the holder session is back", () => {
+    const t = held("t1")
+    const reviewer = agent("2fd0505c", "b77d0e11", { agentType: "cello-code-reviewer", taskId: "t1", lastSeenAt: now - 10_000 })
+    const builder = agent("2fd0505c", "a13bfb89", { taskId: "t1", lastSeenAt: now - 3 * MIN })
+    expect(provenanceOf(board([t], [orchestrator], [builder, reviewer]), t, now).holder?.who.name).toBe("cello-code-reviewer · b77d0e11")
+    const done = [{ ...builder, endedAt: now - MIN }, { ...reviewer, lastSeenAt: now - 20 * MIN }]
+    const p = provenanceOf(board([t], [orchestrator], done), t, now)
+    expect(p.holder).toMatchObject({ who: { name: "Claude Code session 2fd0505c" }, agent: null })
+  })
+
+  it("a change or comment by an agent names it; an agent the board doesn't know yet still says agent and its session", () => {
+    const changed = task("t", { version: 3, updatedByActorId: "claude", updatedBySessionId: "2fd0505c", updatedByAgentId: "a13bfb89", updatedAt: now - 4 * MIN })
+    const state = board([changed], [orchestrator], [agent("2fd0505c", "a13bfb89")])
+    expect(provenanceLine(provenanceOf(state, changed, now), now)).toBe("Lucas created · cello-builder · a13bfb89 changed 4m ago")
+    expect(whoOf(board([], [orchestrator]), "claude", "2fd0505c", "ffee0011aa")).toMatchObject({
+      name: "agent · ffee0011", parent: "Claude Code session 2fd0505c",
+    })
+    expect(whoOf(state, "claude", "2fd0505c", null).name).toBe("Claude Code session 2fd0505c")
+  })
+
+  it("Agents working counts each working agent, subagents included, and lists them under their session with their task", () => {
+    const tasks = [held("t1"), task("t2"), held("t3")]
+    const agents = [
+      agent("2fd0505c", "a13bfb89", { taskId: "t1" }),
+      agent("2fd0505c", "b77d0e11", { agentType: "cello-code-reviewer", taskId: "t2", lastSeenAt: now - 10_000 }),
+      agent("2fd0505c", "c0ffee00", { agentType: "Explore", lastSeenAt: now - 2 * MIN }),
+      agent("2fd0505c", "deadbeef", { taskId: "t3", endedAt: now - MIN }),
+    ]
+    const working = workingSessions(board(tasks, [orchestrator], agents), "w1", now)
+    expect(working).toHaveLength(1)
+    expect(working[0]!.agents.map((a) => [a.who.name, a.presence, a.task?.id ?? null])).toEqual([
+      ["cello-code-reviewer · b77d0e11", "active", "t2"],
+      ["cello-builder · a13bfb89", "active", "t1"],
+      ["Explore · c0ffee00", "active", null],
+    ])
+    // The orchestrator and its three working subagents.
+    expect(agentsWorkingCount(working)).toBe(4)
+  })
+
+  it("a session with an agent on a task in the workspace is listed even when it holds no claim", () => {
+    const state = board([task("t2")], [orchestrator], [agent("2fd0505c", "b77d0e11", { taskId: "t2" })])
+    expect(workingSessions(state, "w1", now).map((w) => [w.session.id, w.tasks.length, w.agents.length])).toEqual([["2fd0505c", 0, 1]])
+  })
+
+  it("the agents of an ended session are ended too: not listed, not counted", () => {
+    const state = board([held("t1")], [session("2fd0505c", { endedAt: now - MIN })], [agent("2fd0505c", "a13bfb89", { taskId: "t1" })])
+    const working = workingSessions(state, "w1", now)
+    expect(working[0]?.agents).toEqual([])
+    expect(agentsWorkingCount(working)).toBe(0)
   })
 })

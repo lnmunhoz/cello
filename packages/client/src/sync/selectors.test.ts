@@ -29,7 +29,7 @@ const state: BoardState = {
     gone: task("gone", "todo", "a5", { archivedAt: 9 }),
     other: task("other", "todo", "a1", { projectId: "p2", key: "ZED-4", number: 4 }),
   },
-  sessions: {},
+  sessions: {}, agents: {},
   reviews: {},
   asks: {},
   documents: {},

@@ -18,6 +18,12 @@ const beforeSearch = SqliteMigrator.run({
   table: "migrations",
 }).pipe(Effect.orDie)
 
+/** Up to this one: later migrations change tables on purpose (0011 adds agent columns) and have their own tests. */
+const throughSearch = SqliteMigrator.run({
+  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id <= "0008_search"))),
+  table: "migrations",
+}).pipe(Effect.orDie)
+
 const WORDS = ["evidence", "video", "review", "packet", "sidebar", "theme", "search", "comment", "backup", "restore", "stage", "label"]
 const word = (n: number) => WORDS[n % WORDS.length]!
 
@@ -102,7 +108,7 @@ describe("migration 0008_search", () => {
       fs.copyFileSync(original, copy)
       yield* Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient
-        yield* Migrations.run
+        yield* throughSearch
         expect(yield* boardRows).toEqual(before)
 
         const indexed = yield* entries
@@ -137,7 +143,7 @@ describe("migration 0008_search", () => {
         expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
 
         // The next start runs the migrations again: nothing changes.
-        yield* Migrations.run
+        yield* throughSearch
         expect(yield* entries).toEqual(indexed)
         expect(yield* boardRows).toEqual(before)
       }).pipe(Effect.provide(Sqlite.layer(copy)), Effect.scoped)

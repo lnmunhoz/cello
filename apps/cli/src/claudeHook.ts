@@ -2,8 +2,10 @@
 // object on stdin and reads a JSON object from stdout on exit 0; formats from
 // https://code.claude.com/docs/en/hooks (checked 2026-11-15):
 //
-//   stdin   { session_id, cwd, hook_event_name, stop_hook_active (Stop), agent_id (inside a subagent),
-//             tool_name, tool_input (PreToolUse, PostToolUse), … }
+//   stdin   { session_id, cwd, hook_event_name, stop_hook_active (Stop), agent_id and agent_type (inside a
+//             subagent, and on SubagentStart/SubagentStop), tool_name, tool_input (PreToolUse, PostToolUse),
+//             tool_response (PostToolUse; on the Agent tool it has the launched subagent's agentId), … }
+//   start   { "hookSpecificOutput": { "hookEventName": "SubagentStart", "additionalContext": "…" } }
 //   both    { "hookSpecificOutput": { "hookEventName": "Stop" | "PostToolUse", "additionalContext": "…" } }
 //   pre     { "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "…" } }
 //
@@ -16,10 +18,12 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { isObject } from "./claudeSettings.ts"
-import type { Env } from "./identity.ts"
+import { agentVariable, type Env } from "./identity.ts"
 
-export const HOOK_EVENTS = ["stop", "post-tool-use", "pre-tool-use"] as const
+export const HOOK_EVENTS = ["stop", "post-tool-use", "pre-tool-use", "subagent-start", "subagent-stop"] as const
 export type HookEvent = (typeof HOOK_EVENTS)[number]
+/** The events that hand comments over (CEL-15). */
+export type DeliveryEvent = "stop" | "post-tool-use"
 
 /** How long the hook waits for the server before giving up silently (Claude Code's own limit is HOOK_TIMEOUT). */
 export const HOOK_DEADLINE_MS = 2000
@@ -35,15 +39,49 @@ export interface HookInput {
   readonly stopHookActive: boolean
   /** The event fired inside a subagent (its input carries `agent_id`); comments go to the main conversation. */
   readonly inSubagent: boolean
+  /** That subagent (CEL-55): `agent_id`, and `agent_type` when given. SubagentStart and SubagentStop name the one starting or stopping. */
+  readonly agent: HookAgent | null
+  /** PostToolUse on the Agent tool: the subagent it launched (CEL-55), when the response names it. */
+  readonly launched: Launch | null
   /** PreToolUse and PostToolUse: the tool being called (`Artifact`, `Bash`, …). */
   readonly toolName: string | null
   /** Its arguments, when they're an object. */
   readonly toolInput: Readonly<Record<string, unknown>> | null
 }
 
+export interface HookAgent {
+  readonly id: string
+  readonly type: string | null
+}
+
+/** A subagent the Agent tool launched: `tool_response.agentId`, and what `tool_input` asked for. */
+export interface Launch {
+  readonly agentId: string
+  readonly agentType: string
+  readonly description: string | null
+  readonly prompt: string | null
+}
+
+/** The Agent tool's names: `Agent`, and `Task` before Claude Code renamed it. */
+const AGENT_TOOLS = new Set(["Agent", "Task"])
+
+/** What Claude Code runs when the Agent tool names no `subagent_type`. */
+const DEFAULT_AGENT_TYPE = "general-purpose"
+
 const text = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value.trim() : null)
 
 const record = (value: unknown) => (isObject(value) ? value : null)
+
+const launchOf = (toolName: string | null, toolInput: Readonly<Record<string, unknown>> | null, toolResponse: unknown): Launch | null => {
+  const agentId = text(record(toolResponse)?.agentId)
+  if (toolName === null || !AGENT_TOOLS.has(toolName) || agentId === null) return null
+  return {
+    agentId,
+    agentType: text(toolInput?.subagent_type) ?? DEFAULT_AGENT_TYPE,
+    description: text(toolInput?.description),
+    prompt: text(toolInput?.prompt),
+  }
+}
 
 /** Reads the hook's stdin. Empty or broken input means no information, never an error. */
 export const parseHookInput = (raw: string): HookInput => {
@@ -54,18 +92,56 @@ export const parseHookInput = (raw: string): HookInput => {
     // Not JSON: nothing to go on.
   }
   const input = record(value) ?? {}
+  const agentId = text(input.agent_id)
+  const toolName = text(input.tool_name)
+  const toolInput = record(input.tool_input)
   return {
     sessionId: text(input.session_id),
     cwd: text(input.cwd),
     stopHookActive: input.stop_hook_active === true,
-    inSubagent: text(input.agent_id) !== null,
-    toolName: text(input.tool_name),
-    toolInput: record(input.tool_input),
+    inSubagent: agentId !== null,
+    agent: agentId === null ? null : { id: agentId, type: text(input.agent_type) },
+    launched: launchOf(toolName, toolInput, input.tool_response),
+    toolName,
+    toolInput,
   }
 }
 
 /** The session to deliver to: stdin's `session_id`, else CLAUDE_CODE_SESSION_ID. */
 export const hookSession = (input: HookInput, env: Env): string | null => input.sessionId ?? text(env.CLAUDE_CODE_SESSION_ID)
+
+/**
+ * The environment the hook's own calls are made as: the session from stdin (never CELLO_SESSION, which
+ * would be the human's "me"), and inside a subagent that agent as CELLO_AGENT (CEL-55). In the main
+ * conversation CELLO_AGENT is dropped, whatever the environment had.
+ */
+export const hookIdentity = (input: HookInput, env: Env): Env => {
+  const { CELLO_SESSION: _session, CELLO_AGENT: _agent, ...rest } = env
+  const session = hookSession(input, env)
+  return {
+    ...rest,
+    ...(session ? { CLAUDE_CODE_SESSION_ID: session } : {}),
+    ...(input.agent ? { CELLO_AGENT: agentVariable(input.agent) } : {}),
+  }
+}
+
+/**
+ * SubagentStart's answer (CEL-55): context for the new subagent. Its Bash can't see its own agent id,
+ * so it's told the CELLO_AGENT to put before its `cello` commands; then the board credits its comments
+ * and changes to it, under the session.
+ */
+export const subagentContext = (agent: HookAgent) => {
+  const value = agentVariable(agent)
+  return {
+    hookSpecificOutput: {
+      hookEventName: "SubagentStart" as const,
+      additionalContext:
+        `Cello: you are subagent \`${value}\` of this Claude Code session. Put \`CELLO_AGENT=${value}\` before every \`cello\` command you run ` +
+        `(e.g. \`CELLO_AGENT=${value} cello task comment CEL-1 "…"\`), so the board credits your comments and changes to you, not to the main conversation. ` +
+        "Claims and comments for the session stay with the main conversation: don't run `cello inbox`.",
+    },
+  }
+}
 
 /**
  * What the hook does for this input. In the main conversation it hands over new comments (which also
@@ -225,6 +301,6 @@ export const claimCache = (dir: string, key: { readonly port: string; readonly r
 export const claimCacheDir = (env: Env) => path.join(env.TMPDIR || os.tmpdir(), "cello-claims")
 
 /** What the hook prints when comments arrived: context the agent acts on (on Stop, it keeps the agent going). */
-export const hookResponse = (event: Exclude<HookEvent, "pre-tool-use">, delivery: string) => ({
+export const hookResponse = (event: DeliveryEvent, delivery: string) => ({
   hookSpecificOutput: { hookEventName: event === "stop" ? "Stop" as const : "PostToolUse" as const, additionalContext: delivery },
 })
