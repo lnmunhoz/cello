@@ -91,3 +91,55 @@ export async function submitPackets(page: Page, key: string, titles: ReadonlyArr
   })
   return { dir }
 }
+
+/** The summary of `submitDiagramPacket`: a paragraph, then a mermaid flowchart (top to bottom). */
+export const DIAGRAM_SUMMARY = [
+  "Review packets get the **whole width**: on a wide panel the summary and steps sit on the left and the evidence stays in view on the right.",
+  "",
+  "```mermaid",
+  "flowchart TD",
+  '    A["An agent runs cello task submit"] --> B["The packet lands in Review"]',
+  '    B --> C{"Is the panel wide enough?"}',
+  '    C -- "Yes" --> D["Two columns: read on the left, watch on the right"]',
+  '    C -- "No" --> E["One column, as before"]',
+  '    D --> F(["Approve or send back"])',
+  "    E --> F",
+  "```",
+  "",
+  "The evidence column is sticky, so the video stays next to the steps while you scroll.",
+].join("\n")
+
+/**
+ * Task 1 of `key` handed in with a packet that explains a flow: a summary with a mermaid diagram
+ * (`DIAGRAM_SUMMARY`), six steps, a real MP4, two screenshots and a link. Remove `dir` when done.
+ */
+export async function submitDiagramPacket(page: Page, key: string, title: string): Promise<{ dir: string }> {
+  cello("task", "create", title, "--project", key)
+  cello("task", "claim", `${key}-1`)
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-evidence-"))
+  const video = path.join(dir, "review-flow.mp4")
+  const ffmpeg = spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=4:size=640x360:rate=25",
+    "-c:v", "libvpx-vp9", "-deadline", "realtime", "-b:v", "0", "-crf", "40", "-pix_fmt", "yuv420p", "-movflags", "+faststart", video,
+  ])
+  if (ffmpeg.status !== 0) throw new Error(`ffmpeg failed: ${ffmpeg.stderr}`)
+  const board = path.join(dir, "board.png")
+  await page.screenshot({ path: board })
+  const out = celloAs("e2e0review-agent-session", { stdin: DIAGRAM_SUMMARY })(
+    "task", "submit", `${key}-1`,
+    "--summary-file", "-",
+    "--step", `Open ${key}-1 on the Review page in a wide window`,
+    "--step", "The summary, the diagram and these steps are on the left",
+    "--step", "The video and the screenshots are on the right",
+    "--step", "Scroll down: the evidence stays in view",
+    "--step", "Make the window narrow: it goes back to one column",
+    "--step", "Open the viewer beside the board: the packet narrows to one column too",
+    "--step", "The task panel's pinned packet stays in one column",
+    "--step", "Approve it, or send it back",
+    "--attach", video, "--caption", "The whole flow",
+    "--attach", board, "--caption", "The board",
+    "--link", "https://github.com/lnmunhoz/cello/pull/38", "--caption", "The PR",
+  )
+  expect(out).toContain(`Submitted ${key}-1 for review  In Progress → In Review`)
+  return { dir }
+}

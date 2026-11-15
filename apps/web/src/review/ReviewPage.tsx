@@ -106,8 +106,10 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <Breadcrumb crumbs={[{ label: board.workspaces[workspaceId]?.name ?? "Workspace" }, { label: "Review" }]} />
-      <div className="flex-1 overflow-y-auto px-8 py-6">
-        <div className="mx-auto flex max-w-3xl flex-col gap-6">
+      {/* A packet container (index.css), measured on the whole panel, so the padding sits inside: on a
+          wide panel the rows widen and the open packet splits in two. */}
+      <div data-review-scroller="" className="@container/packet flex-1 overflow-y-auto py-6">
+        <div className="mx-auto box-content flex max-w-3xl flex-col gap-6 px-8 packet-wide:max-w-[1536px]">
           <header className="flex flex-col gap-0.5">
             <h1 className="text-[17px] font-semibold">
               Review <span className="font-normal text-muted tabular-nums">{queue.length}</span>
