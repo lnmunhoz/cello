@@ -15,6 +15,10 @@ You build one Cello task in a git worktree of the Cello repo. The orchestrator's
   - Don't claim, comment on, submit or move tasks on the live board. The orchestrator does that after merging.
 - **Never touch the live board.** Leave ports 4747, 4748 and 5199 alone, and never read or write anything in `~/.cello`. Tests use temp data folders and the ports in your brief.
 - Background processes get captured PIDs; stop only those, and never kill by name. Don't install anything globally.
+- **Changed something agents do with `cello`** (a command, flag, output, error or rule)? Update docs/cli.md in the same commit:
+  - give each flag and argument a description in `apps/cli/src/cli.ts`
+  - run `bun run docs:cli`
+  - explain the behaviour in the hand-written sections, in plain words, with an example
 - Stay in the area your brief gives you. Other agents are changing other parts of the repo at the same time.
 
 ## Evidence

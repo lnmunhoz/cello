@@ -221,7 +221,7 @@ const actorsWithSessions = (
 const list = Command.make("list", {
   project,
   json,
-  status: Flag.String("status").pipe(Flag.optional, Flag.withDescription("Only this status (by name).")),
+  status: Flag.String("status").pipe(Flag.optional, Flag.withDescription("Only this status, by name (e.g. Backlog, Done). Without it: Todo and In Progress.")),
   label: Flag.String("label").pipe(Flag.optional, Flag.withDescription("Only tasks with this label.")),
   mine: Flag.Boolean("mine").pipe(Flag.withDefault(false), Flag.withDescription("Only tasks you've claimed.")),
 }, (input) =>
@@ -241,7 +241,7 @@ const list = Command.make("list", {
       return yield* print(`No ${which}${input.mine ? " claimed by you" : ""} in ${result.project.key}.`)
     }
     yield* print(taskRows(result, result.tasks).join("\n"))
-  })).pipe(Command.withDescription("Open tasks in the current project."))
+  })).pipe(Command.withDescription("Tasks in the current project: Todo and In Progress unless --status picks another."))
 
 const get = Command.make("get", { key, json }, (input) =>
   Effect.gen(function* () {
@@ -281,15 +281,18 @@ const get = Command.make("get", { key, json }, (input) =>
     lines.push(...columns(detail.history.map((e) => [ago(e.ts, now), describeEvent(e, { ...byIds(detail), actors: actorsWithSessions(detail, e) })]))
       .map((l) => `  ${l}`))
     yield* print(lines.join("\n"))
-  })).pipe(Command.withDescription("One task: description, labels, comments, history."))
+  })).pipe(Command.withDescription("One task in full: description, labels, claim, pages, review packets with Lucas's notes, comments, history."))
 
 const create = Command.make("create", {
-  title: Argument.String("title"),
+  title: Argument.String("title").pipe(Argument.withDescription("The task's title, in quotes.")),
   project,
   json,
-  description: Flag.String("description").pipe(Flag.optional),
+  description: Flag.String("description").pipe(Flag.optional, Flag.withDescription("The description, in markdown.")),
   bodyFile: Flag.String("body-file").pipe(Flag.optional, Flag.withDescription("Read the description from a file; - is stdin.")),
-  status: Flag.String("status").pipe(Flag.optional),
+  status: Flag.String("status").pipe(
+    Flag.optional,
+    Flag.withDescription("Status by name. Default: the first visible one (Todo). Backlog for ideas that still need discussing."),
+  ),
   priority: Flag.String("priority").pipe(Flag.optional, Flag.withDescription("urgent, high, medium, low or none.")),
   label: Flag.String("label").pipe(Flag.atLeast(0), Flag.withDescription("A label name; repeat it, or separate names with commas.")),
   parent: Flag.String("parent").pipe(Flag.optional, Flag.withDescription("Parent task key.")),
@@ -324,7 +327,7 @@ const create = Command.make("create", {
     const { names, ...response } = written
     if (input.json) return yield* printJson(response)
     yield* print(`Created ${taskLine(names, response.result)}`)
-  })).pipe(Command.withDescription("Create a task in the current project."))
+  })).pipe(Command.withDescription("Create a task in the current project (Todo unless --status says otherwise)."))
 
 const claim = Command.make("claim", { key, json }, (input) =>
   Effect.gen(function* () {
@@ -336,7 +339,7 @@ const claim = Command.make("claim", { key, json }, (input) =>
     )
     if (input.json) return yield* printJson(written.response)
     yield* print(`Claimed ${taskLine(written.names, written.response.result)}`)
-  })).pipe(Command.withDescription("Assign the task to this session and move it to the first started status."))
+  })).pipe(Command.withDescription("Start working on a task: it's assigned to your session and moves to In Progress. Refused while another live session holds it."))
 
 const release = Command.make("release", { key, json }, (input) =>
   Effect.gen(function* () {
@@ -348,9 +351,13 @@ const release = Command.make("release", { key, json }, (input) =>
     )
     if (input.json) return yield* printJson(written.response)
     yield* print(`Released ${taskLine(written.names, written.response.result)}`)
-  })).pipe(Command.withDescription("Give up your claim without finishing the task."))
+  })).pipe(Command.withDescription("Give up your claim without finishing the task; its status stays."))
 
-const move = Command.make("move", { key, status: Argument.String("status"), json }, (input) =>
+const move = Command.make("move", {
+  key,
+  status: Argument.String("status").pipe(Argument.withDescription("The status's name, e.g. Todo or Backlog; any case.")),
+  json,
+}, (input) =>
   Effect.gen(function* () {
     const written = yield* withClient((client) =>
       Effect.gen(function* () {
@@ -368,11 +375,11 @@ const move = Command.make("move", { key, status: Argument.String("status"), json
     if (input.json) return yield* printJson(written.response)
     const { detail, response } = written
     yield* print(`Moved ${response.result.key}  ${statusName(detail, detail.task.statusId)} → ${statusName(detail, response.result.statusId)}`)
-  })).pipe(Command.withDescription("Move a task to a status by name."))
+  })).pipe(Command.withDescription("Move a task to a status by name. Into In Review is refused: hand work over with `cello task submit`."))
 
 const comment = Command.make("comment", {
   key,
-  text: Argument.String("text").pipe(Argument.optional),
+  text: Argument.String("text").pipe(Argument.optional, Argument.withDescription("The comment, in quotes; markdown renders on the card.")),
   bodyFile: Flag.String("body-file").pipe(Flag.optional, Flag.withDescription("Read the comment from a file; - is stdin.")),
   json,
 }, (input) =>
@@ -389,7 +396,7 @@ const comment = Command.make("comment", {
     )
     if (input.json) return yield* printJson(response)
     yield* print(`Commented on ${input.key.toUpperCase()}`)
-  })).pipe(Command.withDescription("Add a markdown comment."))
+  })).pipe(Command.withDescription("Add a markdown comment to a task: progress, a question, an answer to Lucas."))
 
 const submit = Command.make("submit", {
   key,
@@ -547,7 +554,11 @@ const docGet = Command.make("get", {
     yield* input.json ? printJson(doc) : print(doc.body)
   })).pipe(Command.withDescription("Print a page's markdown, to read it back or continue from it."))
 
-const docArchive = Command.make("archive", { slug: Argument.String("slug"), project, json }, (input) =>
+const docArchive = Command.make("archive", {
+  slug: Argument.String("slug").pipe(Argument.withDescription("The page's slug, e.g. billing-audit.")),
+  project,
+  json,
+}, (input) =>
   Effect.gen(function* () {
     const ref = yield* projectRef(input.project)
     const response = yield* withClient((client) => client["document.archive"]({ commandId: newCommandId(), project: ref, slug: input.slug }))
@@ -560,7 +571,9 @@ const doc = Command.make("doc").pipe(
   Command.withSubcommands([docPublish, docList, docGet, docArchive]),
 )
 
-const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(Command.withDescription("How agents work with Cello."))
+const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(
+  Command.withDescription("Print the full guide for agents: concepts, workflow, examples, errors and every command (docs/cli.md)."),
+)
 
 const task = Command.make("task").pipe(
   Command.withDescription("Tasks: list, get, create, claim, release, move, comment, submit."),

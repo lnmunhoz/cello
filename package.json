@@ -12,7 +12,8 @@
     "test:docker": "bun scripts/test-in-docker.ts all",
     "test:docker:e2e": "bun scripts/test-in-docker.ts e2e",
     "test:docker:desktop": "bun scripts/test-in-docker.ts desktop",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "docs:cli": "bun apps/cli/scripts/docs.ts"
   },
   "devDependencies": {
     "@effect/vitest": "4.1.4",
