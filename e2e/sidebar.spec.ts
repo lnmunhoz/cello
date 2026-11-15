@@ -56,7 +56,7 @@ test("CEL-24: drag the sidebar's edge and reload: the width stays; ⌘B and the 
   expect(await widthOf(page)).toBe(340)
   await expect(sidebar.getByRole("separator", { name: "Resize sidebar" })).toHaveAttribute("aria-valuenow", "340")
 
-  await caption(page, "Reload: the width is remembered on this device")
+  await caption(page, "Reload: the width stays (remembered on this device)")
   await page.reload()
   await expect(sidebar).toHaveAttribute("data-sidebar", "expanded")
   expect(await widthOf(page)).toBe(340)
@@ -103,9 +103,10 @@ test("CEL-24: drag the sidebar's edge and reload: the width stays; ⌘B and the 
   await expect(sidebar).toHaveAttribute("data-sidebar", "expanded")
   expect(await widthOf(page)).toBe(280)
 
-  await caption(page, "The collapse button does the same, and the rail is remembered across a reload")
+  await caption(page, "The collapse button collapses it to the rail too")
   await sidebar.getByRole("button", { name: "Collapse sidebar" }).click()
   await expect(sidebar).toHaveAttribute("data-sidebar", "rail")
+  await caption(page, "Reload: still a rail")
   await page.reload()
   await expect(sidebar).toHaveAttribute("data-sidebar", "rail")
 

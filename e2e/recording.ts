@@ -19,6 +19,12 @@ export const slowMo = (env: Env): number =>
 /** How long a review video holds each state: after a step's caption shows, around reloads, and at the end. */
 export const holdMs = (env: Env): number => (isReview(env) ? REVIEW_HOLD_MS : 0)
 
+/**
+ * Playwright's per-test timeout: the usual 30 s, or 5 minutes in review mode, where every caption
+ * holds the screen twice and every action waits, so a long walkthrough runs minutes by design.
+ */
+export const testTimeoutMs = (env: Env): number => (isReview(env) ? 300_000 : 30_000)
+
 interface Size {
   readonly width: number
   readonly height: number
