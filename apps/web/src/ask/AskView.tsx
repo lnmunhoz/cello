@@ -59,10 +59,11 @@ const useDraft = (ask: Ask) => {
 /**
  * An open ask, answered here (CEL-47). The two-column packet layout (CEL-38): the intro, one card per
  * question and the overall note on the left; the evidence on the right, sticky while the left
- * scrolls; one column when narrow. Options are buttons (1-9 picks in the focused question), the
- * recommended one tagged with the agent's reason, nothing pre-selected. Each comment box and the note
- * take pasted (⌘V) or dropped screenshots. Send answers (⌘Enter) waits until every question has a
- * pick or words; the draft stays on this device until then.
+ * scrolls; one column when narrow. Options are checkboxes (1-9 toggles one in the focused question):
+ * the recommended ones come picked, tagged with the agent's reason, and Lucas can pick several, or
+ * "None of these" with a comment (Nov 15). Each comment box and the note take pasted (⌘V) or dropped
+ * screenshots. Send answers (⌘Enter) waits until every question has a pick, None of these with a
+ * comment, or words; the draft stays on this device until then.
  */
 export function AskForm({ task, ask, onAnswered }: { task: Task; ask: Ask; onAnswered?: (() => void) | undefined }) {
   const answer = useAtomSet(commands.answerAsk, { mode: "promiseExit" })
@@ -493,6 +494,7 @@ export function AskRecord({ ask }: { ask: Ask }) {
                   })}
                 </ul>
               ) : null}
+              {answer?.none ? <p data-none-of-these className="text-xs font-medium text-ink">None of these</p> : null}
               {answer?.comment ? <p className="rounded-md bg-sunken px-2.5 py-1.5 text-xs whitespace-pre-wrap text-ink">{answer.comment}</p> : null}
               {shots(answer?.attachments ?? [])}
             </li>

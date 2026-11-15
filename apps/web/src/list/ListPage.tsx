@@ -1,5 +1,6 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { listGroups, type ListGroup } from "@cello/client/sync/list"
+import { useNeedsInputColumn } from "../board/needsInputColumn.ts"
 import { orderTasks, type Ordering } from "@cello/client/sync/ordering"
 import { projectByKey, taskByKey } from "@cello/client/sync/selectors"
 import type { Project, Task } from "@cello/contract/entities"
@@ -45,7 +46,8 @@ function TaskList({
   ordering: Ordering
   openNumber?: number
 }) {
-  const groups = listGroups(board, workspaceId, project.id).map((g) => ({ ...g, tasks: orderTasks(g.tasks, ordering) }))
+  const needsInputColumn = useNeedsInputColumn()
+  const groups = listGroups(board, workspaceId, project.id, { needsInputColumn }).map((g) => ({ ...g, tasks: orderTasks(g.tasks, ordering) }))
   const open = openNumber === undefined ? undefined : taskByKey(board, project.key, openNumber)
   // Groups you folded or unfolded; the rest follow the default in `isCollapsed`.
   const [chosen, setChosen] = useState<Readonly<Record<string, boolean>>>({})

@@ -277,8 +277,7 @@ test("CEL-6: Lucas drags a card while an agent moves another: nothing shifts und
   await expect(page.locator("[data-dragging]")).toHaveCount(1)
   // The next caption first holds this moment in a review video.
   await caption(page, "Lucas drops it on In Review")
-  // Measured now: an agent's flight can scroll the board to show its column (Done sits past the window
-  // since Needs input joined the board, CEL-47).
+  // Measured now, not before the drag: an agent's flight can scroll the board to show its column.
   const target = (await column(page, "In Review").locator('[role="list"]').boundingBox())!
   await page.mouse.move(target.x + target.width / 2, target.y + 30, { steps: 20 })
   await page.mouse.up()

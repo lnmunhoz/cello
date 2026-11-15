@@ -5,6 +5,7 @@
 import * as path from "node:path"
 import type { Ask, AskQuestion, Attachment } from "@cello/contract/entities"
 import type { AskQuestionInput, EvidenceFile, EvidenceLink } from "@cello/contract/rpcs"
+import { roundLabel } from "@cello/client/sync/asks"
 import { ago } from "./format.ts"
 
 export interface AskSpec {
@@ -218,10 +219,6 @@ export const askResultText = (ask: Ask, taskKey: string, human: string, files: R
   ].join("\n")
 }
 
-const ROUND_STATES = { open: "open", answered: "answered", withdrawn: "withdrawn", superseded: "replaced" } as const
-
-/** "Round 2 · answered": a task's asks are rounds of one conversation, oldest first. */
-export const roundLabel = (asks: ReadonlyArray<Ask>, ask: Ask): string => `Round ${asks.indexOf(ask) + 1} · ${ROUND_STATES[ask.state]}`
 
 /**
  * `cello task answers`: the latest answered round (and the round still open after it, if any);

@@ -351,7 +351,7 @@ function AskRow({ item, onAnswered, ...row }: RowProps & { item: AskItem; onAnsw
       task={task}
       project={project}
       subtitle={`${ask.author.name} asks: ${ask.title} · ${relativeTime(ask.createdAt)}`}
-      badge={<QuestionsBadge task={task} board={row.board} />}
+      badge={<QuestionsBadge task={task} board={row.board} count />}
     >
       <AskForm task={task} ask={ask} onAnswered={onAnswered} />
     </QueueRow>

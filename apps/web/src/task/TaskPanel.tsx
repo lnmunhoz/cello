@@ -23,7 +23,7 @@ import { commands } from "../lib/cello.ts"
 import { SAVES_ON_BLUR } from "../lib/editing.ts"
 import { useMediaQuery } from "../lib/hooks.ts"
 import { EarlierReviews, PinnedReview } from "../review/TaskReviews.tsx"
-import { EarlierAsks, PinnedAsk } from "../ask/TaskAsks.tsx"
+import { AskThread, PinnedAsk } from "../ask/TaskAsks.tsx"
 import { useViewerItem } from "../viewer/store.ts"
 import { Comments } from "./Comments.tsx"
 import { History } from "./History.tsx"
@@ -226,7 +226,7 @@ function TaskDetails({ board, project, task, full }: { board: BoardState; projec
       </div>
       <div className={`flex flex-col gap-6 border-t border-line py-5 ${full ? "max-w-3xl" : "px-6"}`}>
         <TaskPages board={board} task={task} />
-        <EarlierAsks task={task} />
+        <AskThread task={task} />
         <EarlierReviews task={task} />
         <Comments board={board} task={task} />
         <History board={board} task={task} />

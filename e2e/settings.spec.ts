@@ -44,9 +44,9 @@ test("settings: rename, reorder and hide a status; the board's columns follow", 
   await page.getByRole("button", { name: "Hide Todo" }).click()
   await expect(page.locator('[data-status-row="Todo"]')).toContainText("Hidden")
 
-  await caption(page, "The board shows Reviewing, In Progress, Needs input and Done, in that order")
+  await caption(page, "The board shows Reviewing, In Progress and Done, in that order (Needs input is a column only when Display turns it on)")
   await projectLink(page, key).click()
-  await expect(columnHeadings(page)).toHaveText(["Reviewing", "In Progress", "Needs input", "Done"])
+  await expect(columnHeadings(page)).toHaveText(["Reviewing", "In Progress", "Done"])
 })
 
 test("hidden columns: hide a status in settings; it folds into the strip, and a click shows it again", async ({ page }) => {

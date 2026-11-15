@@ -70,7 +70,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
   | Backlog (hidden) | An idea or request that still needs discussing. Nobody builds from here. | \`cello task create … --status Backlog\` |
   | Todo | Agreed and ready to build. | The default for new tasks |
   | In Progress | Someone is working on it. | \`cello task claim\` |
-  | Needs input | Waiting for Lucas to decide something an agent asked on the card. | Only \`cello task ask\` |
+  | Needs input | Waiting for Lucas to decide something an agent asked on the card. On the board it shows in In Progress with a "Needs input" badge, unless Display turns its column on. | Only \`cello task ask\` |
   | In Review | Waiting for Lucas, with a review packet. | Only \`cello task submit\` |
   | Done | Lucas approved it. | Lucas, on the Review page |
   | Canceled (hidden) | It won't be done. | Lucas |
@@ -297,12 +297,12 @@ cello task ask CEL-43 --title "Search layout" \\
 
 What happens:
 
-1. The task moves to **Needs input** (your claim stays). It shows in that column, in the sidebar's Needs input count, and first on Lucas's Review page.
-2. Lucas answers every question and sends. The task goes back to **In Progress**, still yours.
+1. The task moves to **Needs input** (your claim stays). It shows in the sidebar's Needs input count, first on Lucas's Review page, and in In Progress with a "Needs input" badge (or its own column, when he turns that on in Display).
+2. Lucas answers each question (a pick, several, or None of these with a comment; words for a text-only one) and sends. The task goes back to **In Progress**, still yours.
 3. The answers reach you, once:
    - **with \`--wait\`:** the command blocks until he sends, then prints the answers and exits. Run it in the background (Claude Code: \`run_in_background\`), so your session wakes when they arrive.
    - **without it:** the hook delivers them like a comment (see Comments from Lucas reach your session), or \`cello wait CEL-43\` waits for them later (after a restart, say).
-   - \`cello task answers CEL-43\` prints them again any time; \`--json\` for scripts.
+   - \`cello task answers CEL-43\` prints the latest answers again any time (\`--all\`: every round); \`--json\` for scripts.
 
 **The file** (JSON or YAML; paths are relative to it):
 
@@ -312,7 +312,7 @@ intro: |                             # optional markdown, shown above the questi
   Both layouts are built; the screenshots are from the real app.
 questions:
   - prompt: Which layout?
-    kind: one                        # one (pick one; the default with options), any (pick any), text (no options)
+    kind: one                        # what you expect: one (the default with options), any, text (no options). He may still pick several
     options:
       - label: "Peek: list + preview"
         description: Shows the highlighted result's text   # one line, optional
@@ -333,11 +333,12 @@ links:
 \`\`\`
 
 - **Inline flags** in order: \`--question\` starts a question; the \`--kind\`, \`--option "Label|description"\`, \`--recommend "Label"\` and \`--because "why"\` after it belong to it. \`--attach\`, \`--caption\` and \`--link\` work as for \`submit\`; they add to a file's evidence too.
-- **Recommend at most one option** of a pick-one question, and always say why (\`because\`). Nothing is pre-selected for Lucas: he picks.
+- **Recommend at most one option** of a pick-one question, and always say why (\`because\`). Recommended options come **picked** for Lucas; he can change them, pick several on any question, or pick **None of these** and say what instead.
 - **Up to 20 questions, 9 options each** (he picks with the 1-9 keys).
 - **One ask per task at a time.** Asking again while one is open replaces it (the old one is kept, marked replaced).
 - **Withdraw** an ask you no longer need: \`cello task ask CEL-43 --withdraw\`. The task goes back to In Progress.
-- **If Lucas moves the card himself** out of Needs input, the ask is withdrawn and your claim ends, as with any move he makes; \`--wait\` then says it was withdrawn.
+- **If Lucas moves the card himself** out of Needs input, the ask is withdrawn and your claim ends, as with any move he makes. You hear it once, like a comment: "Lucas moved CEL-43 to Todo; your ask 'Search layout' was withdrawn." \`--wait\` then says it was withdrawn.
+- **Rounds:** after his answers, ask again on the same card for a follow-up; the answered ask stays. The card shows the asks as a thread ("Round 1 · answered", "Round 2 · open"), and \`cello task answers CEL-43 --all\` prints every round.
 - **Scopes** always attach their screenshots and link the scope page.
 
 **What arrives** (by \`--wait\`, the hook, or \`cello inbox\`) is each question with what he picked and his comment; screenshots he pasted are saved as files you can open, and their paths printed:
@@ -361,7 +362,7 @@ Note: Ship it after the e2e passes.
 CEL-43 is back in progress: carry on with these answers. Reply on the card with \`cello task comment CEL-43 "…"\` if something is unclear.
 \`\`\`
 
-A question can come back with no option picked and only his words ("Picked: none of the options"): none fitted, and the comment says what he wants instead.
+A question can come back as "Picked: None of these": no option fitted, and his comment says what he wants instead. He may also pick several options on any question, even one you asked as \`kind: one\`.
 
 ## Pages, docs and specs
 

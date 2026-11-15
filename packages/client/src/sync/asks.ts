@@ -59,6 +59,11 @@ export const needsInputFold = (
   return from && into ? { from: from.id, into: into.id } : null
 }
 
+const ROUND_STATES = { open: "open", answered: "answered", withdrawn: "withdrawn", superseded: "replaced" } as const
+
+/** "Round 2 · answered": a task's asks are rounds of one conversation, oldest first (Lucas, Nov 15). */
+export const roundLabel = (asks: ReadonlyArray<Ask>, ask: Ask): string => `Round ${asks.indexOf(ask) + 1} · ${ROUND_STATES[ask.state]}`
+
 /** "3 questions". */
 export const questionCount = (ask: Pick<Ask, "questions">): string =>
   `${ask.questions.length} question${ask.questions.length === 1 ? "" : "s"}`

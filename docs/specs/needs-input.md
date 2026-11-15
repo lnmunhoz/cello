@@ -28,7 +28,7 @@ Task: CEL-47. Related: CEL-15 (inbox and hooks), CEL-22 and CEL-38 (the Review p
 
 - An agent can ask Lucas one or more questions on a task, each with options, a recommended option and a reason, plus evidence (screenshots, videos, a scope page, links).
 - Lucas answers **inside Cello**: on the Review page, in the task panel or the task's full page, with the evidence beside the questions.
-- Anything waiting on Lucas is visible at a glance: its own column and a sidebar count.
+- Anything waiting on Lucas is visible at a glance: a sidebar count, and (a Display option) its own column.
 - The answer reaches the asking session by itself (hooks), or wakes an agent that is waiting.
 - Every question and answer stays in the task's history.
 
@@ -77,7 +77,7 @@ flowchart TD
 
 - **Layout:** the same two-column packet layout as CEL-38. Questions on the left, evidence on the right, sticky. One column when narrow.
 - **An option with an image** shows it as a thumbnail; clicking opens the image modal (CEL-44).
-- **Recommended options** carry a small "Recommended" tag and the agent's reason under it. Nothing is pre-selected: Lucas picks.
+- **Recommended options** carry a small "Recommended" tag and the agent's reason under it, and come picked (Decided, Nov 15); Lucas can change them.
 - **Pasting screenshots:** ⌘V in a comment box or the note uploads the image and shows it as a thumbnail under the text (opens in the image modal; × removes it). Dragging image files in works the same. Images only (PNG, JPEG, GIF, WebP), up to 20 MB each.
 - **Drafts:** picks, comments and pasted screenshots are kept until sent (the images upload right away and stay attached to the draft), so a reload or a closed panel loses nothing.
 - **Keyboard:** 1-9 picks an option in the focused question, Tab moves between questions, ⌘Enter sends.
@@ -132,10 +132,12 @@ cello task ask CEL-43 --title "Search layout" \
 
 Phase 1 is built test-first with integration tests against a real server; phase 2 ships with review-mode videos in Docker. The flow is tested end to end: an agent asks with `--wait`, Lucas answers in the browser, the agent's command returns with his answers.
 
-## Open questions for Lucas
 
-Built with these defaults (CEL-47), which Lucas can still change: Needs input is its own column (a status with category `waiting`, added to every existing workspace by migration 0005, right before In Review); moving the card out by hand withdraws the ask; nothing is pre-selected.
+## Decided (Nov 15)
 
-1. **A column, or a badge?** This spec gives Needs input its own column (visible at a glance). The alternative is a "waiting on you" badge on In Progress cards, with no new column.
-2. **Withdraw on manual move:** if you drag a Needs input card somewhere else, should the ask be withdrawn (this spec), or stay open?
-3. **Pre-select the recommended option?** This spec says no (you pick everything). Pre-selecting is faster but easier to send without reading.
+Lucas answered the three open questions; these replace what the sections above say where they differ.
+
+1. **Sidebar first, the column is optional.** A "Needs input" item in the sidebar with a count opens the Review page at the oldest ask, in its "Needs your input" group above the packets. The board column is a Display toggle, **"Needs input column", off by default**, kept on this device like the other Display options. While it's off, Needs input cards sit at the bottom of In Progress with a "Needs input" badge, and the list view folds them into the In Progress group the same way. The status itself (category `waiting`, added to existing workspaces by migration 0006, right before In Review) is there either way.
+2. **Moving the card yourself withdraws the ask.** It's an `ask.withdrawn` event (reason `moved`, `withdrawn_by` the human); the questions stay in the task's history; the session that asked gets an inbox item: "Lucas moved CEL-n to <status>; your ask was withdrawn." The claim ends as with any move Lucas makes.
+3. **Answering.** The recommended option(s) come **pre-selected**, and Lucas can change them. Any question with options takes **several picks** (`kind` stays, as what the agent expected; the UI and `ask.answer` accept several option ids). Every question has a comment box and a **"None of these"** choice, which needs a comment. The overall note and pasted screenshots stay. A question is answered by at least one pick, or None of these with a comment, or words for a text-only question.
+4. **Rounds.** After Lucas answers, the agent can `cello task ask` again on the same card for a follow-up; the answered ask stays. The task view shows the asks as a thread ("Round 1 · answered", "Round 2 · open"). `cello task answers CEL-n` prints the latest answers; `--all` prints every round.

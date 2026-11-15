@@ -2,7 +2,7 @@ import type { Ask, Project, Task } from "@cello/contract/entities"
 import type { CelloEvent, EventBody } from "@cello/contract/events"
 import { describe, expect, it } from "vitest"
 import type { BoardState } from "./applyEvents.ts"
-import { applyAskEvents, needsInputQueue, openAskOf, questionCount } from "./asks.ts"
+import { applyAskEvents, needsInputFold, needsInputQueue, openAskOf, questionCount } from "./asks.ts"
 
 const project = (id: string, workspaceId = "w1", archivedAt: number | null = null): Project => ({
   id, workspaceId, name: id, key: id.toUpperCase(), color: "#000", description: "", repoPath: null, createdAt: 1, updatedAt: 1, archivedAt,
@@ -46,5 +46,16 @@ describe("Needs input on the client", () => {
     list = applyAskEvents(list, "t1", [ev(5, { type: "ask.answered", ask: answered })])
     expect(list[1]).toEqual(answered)
     expect(applyAskEvents(list, "t1", [])).toBe(list)
+  })
+})
+
+describe("folding the Needs input column (off by default, Lucas, Nov 15)", () => {
+  const s = (id: string, name: string, category: string) => ({ id, name, category: category as "started" })
+  const statuses = [s("todo", "Todo", "unstarted"), s("doing", "In Progress", "started"), s("input", "Needs input", "waiting"), s("review", "In Review", "started")]
+
+  it("folds its tasks into the first started status while the column is off", () => {
+    expect(needsInputFold(statuses, false)).toEqual({ from: "input", into: "doing" })
+    expect(needsInputFold(statuses, true)).toBeNull()
+    expect(needsInputFold(statuses.filter((x) => x.id !== "input"), false)).toBeNull()
   })
 })
