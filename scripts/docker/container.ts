@@ -15,8 +15,11 @@ export const MODE_STEPS: Readonly<Record<Mode, ReadonlyArray<string>>> = {
   desktop: ["install", "desktop-e2e"],
 }
 
-/** Electron's window is 1440×900; the virtual screen has room for it (24-bit colour, not xvfb-run's 640×480×8). */
-const SCREEN = "1920x1200x24"
+/**
+ * Electron's window is 1440×900 and the tests run it at a device scale of 2 (apps/desktop/e2e/support.ts),
+ * so the virtual screen has room for 2880×1800 pixels, in 24-bit colour (xvfb-run's default is 640×480×8).
+ */
+const SCREEN = "3200x2000x24"
 
 /** Each step's command, run from the copy of the repo in /work. Playwright arguments go on the end. */
 const COMMANDS: Readonly<Record<string, string>> = {

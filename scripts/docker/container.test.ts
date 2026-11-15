@@ -122,12 +122,12 @@ describe("containerScript", () => {
     expect(script).toMatch(/^step install .* \|\| exit 1$/m)
   })
 
-  it("the full run: unit and integration, typecheck, web e2e and desktop e2e (Electron on a virtual screen that fits its 1440×900 window)", () => {
+  it("the full run: unit and integration, typecheck, web e2e and desktop e2e (Electron on a virtual screen that fits its 1440×900 window at 2x)", () => {
     const script = containerScript("all", [])
     expect(stepArgv(script, "unit")).toEqual(["bun", "run", "test"])
     expect(stepArgv(script, "typecheck")).toEqual(["bun", "run", "typecheck"])
     expect(stepArgv(script, "web-e2e")).toEqual(["bun", "run", "test:e2e:local"])
-    expect(stepArgv(script, "desktop-e2e")).toEqual(["cd", "apps/desktop", "xvfb-run", "-a", "-s", "-screen 0 1920x1200x24", "bun", "run", "test:e2e:local"])
+    expect(stepArgv(script, "desktop-e2e")).toEqual(["cd", "apps/desktop", "xvfb-run", "-a", "-s", "-screen 0 3200x2000x24", "bun", "run", "test:e2e:local"])
   })
 
   it("one suite runs alone, with the Playwright arguments quoted", () => {
@@ -137,7 +137,7 @@ describe("containerScript", () => {
     const desktop = containerScript("desktop", ["-g", "CEL-12"])
     expect(desktop).not.toMatch(/step (unit|typecheck|web-e2e) /)
     expect(stepArgv(desktop, "desktop-e2e")).toEqual([
-      "cd", "apps/desktop", "xvfb-run", "-a", "-s", "-screen 0 1920x1200x24", "bun", "run", "test:e2e:local", "-g", "CEL-12",
+      "cd", "apps/desktop", "xvfb-run", "-a", "-s", "-screen 0 3200x2000x24", "bun", "run", "test:e2e:local", "-g", "CEL-12",
     ])
   })
 

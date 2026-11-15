@@ -8,6 +8,7 @@ import { createRequire } from "node:module"
 import * as os from "node:os"
 import * as path from "node:path"
 import { _electron, type ElectronApplication, type Page } from "@playwright/test"
+import { IN_CONTAINER } from "../../../scripts/docker/guard.ts"
 import { isAlive } from "../../server/src/process/isAlive.ts"
 import { LOCK_FILE, parseBanner, parseLock, type LockInfo } from "../src/server/plan.ts"
 
@@ -20,6 +21,26 @@ export const SCREENSHOTS_DIR = path.join(DESKTOP_DIR, "test-results/screenshots"
 export const ELECTRON = createRequire(path.join(DESKTOP_DIR, "package.json"))("electron") as string
 
 export { isAlive }
+
+/** The modifier Electron's CommandOrControl means here: ⌘ on macOS, Ctrl on Linux (the Docker run). */
+export const COMMAND_OR_CONTROL = process.platform === "darwin" ? "meta" : "control"
+/** The panel's shortcut as captions spell it. */
+export const TOGGLE_PANEL_KEYS = process.platform === "darwin" ? "⌘\\" : "Ctrl+\\"
+
+/**
+ * Chromium switches for the Docker run (Linux under Xvfb), none on the Mac:
+ * - `--no-sandbox` when running as root, which the container does: Chromium won't start as root
+ *   with its sandbox on. The container is the sandbox: a throwaway Linux box with the repo
+ *   read-only and nothing of the Mac's. Playwright runs its own Chromium without it as well.
+ * - `--force-device-scale-factor=2`: Xvfb has no Retina, so this makes screenshots as sharp as the
+ *   Mac's (2880 px wide for the 1440 px window) instead of 1x captures scaled up.
+ * - `--hide-scrollbars`: macOS shows overlay scrollbars only while scrolling; Linux would draw
+ *   classic ones in every frame. Playwright's headless browser for the web e2e hides them too.
+ */
+const inContainer = process.env[IN_CONTAINER.name] === IN_CONTAINER.value
+const ELECTRON_FLAGS = inContainer
+  ? [...(process.getuid?.() === 0 ? ["--no-sandbox"] : []), "--force-device-scale-factor=2", "--hide-scrollbars"]
+  : []
 
 /** Ports the real board, the dev server and Vite use; tests never touch them. */
 const RESERVED_PORTS = new Set([4747, 4748, 5199])
@@ -52,7 +73,12 @@ export const freePort = async (): Promise<number> => {
   }
 }
 
-const baseEnv = () => ({ PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? os.homedir() })
+/** PATH and HOME, plus Xvfb's display in the Docker run (unset on macOS). */
+const baseEnv = (): Record<string, string> => ({
+  PATH: process.env.PATH ?? "",
+  HOME: process.env.HOME ?? os.homedir(),
+  ...Object.fromEntries((["DISPLAY", "XAUTHORITY"] as const).flatMap((name) => (process.env[name] ? [[name, process.env[name]]] : []))),
+})
 
 /** Stops a process this test started, by its pid, and waits for it to exit. */
 const stopChild = (child: ChildProcess) =>
@@ -121,7 +147,7 @@ export interface AppEnv {
 export const appEnv = (env: AppEnv): Record<string, string> => ({ ...baseEnv(), ...env })
 
 export const launchApp = async (env: AppEnv): Promise<ElectronApplication> => {
-  const app = await _electron.launch({ executablePath: ELECTRON, args: [DESKTOP_DIR], env: appEnv(env) })
+  const app = await _electron.launch({ executablePath: ELECTRON, args: [...ELECTRON_FLAGS, DESKTOP_DIR], env: appEnv(env) })
   let closed = false
   app.once("close", () => (closed = true))
   onCleanup(async () => {
@@ -182,7 +208,7 @@ export const readLock = (dataDir: string): LockInfo | null => {
 /** Runs the app binary a second time with `args`; it should hand them to the running app and exit. */
 export const secondLaunch = (env: AppEnv, args: ReadonlyArray<string>) =>
   new Promise<number | null>((resolve) => {
-    const child = spawn(ELECTRON, [DESKTOP_DIR, ...args], { env: appEnv(env), stdio: "ignore" })
+    const child = spawn(ELECTRON, [...ELECTRON_FLAGS, DESKTOP_DIR, ...args], { env: appEnv(env), stdio: "ignore" })
     child.once("exit", (code) => resolve(code))
   })
 
