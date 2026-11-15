@@ -11,7 +11,7 @@ import asks from "./migrations/0006_asks.ts"
 import taskStage from "./migrations/0007_task_stage.ts"
 import search from "./migrations/0008_search.ts"
 import labelGroup from "./migrations/0009_label_group.ts"
-import agents from "./migrations/0010_agents.ts"
+import agents from "./migrations/0011_agents.ts"
 
 /** Every migration by id. Tests of one migration run the ones before it from here. */
 export const records = {
@@ -24,7 +24,7 @@ export const records = {
   "0007_task_stage": taskStage,
   "0008_search": search,
   "0009_label_group": labelGroup,
-  "0010_agents": agents,
+  "0011_agents": agents,
 }
 
 export const migrations = SqliteMigrator.fromRecord(records)

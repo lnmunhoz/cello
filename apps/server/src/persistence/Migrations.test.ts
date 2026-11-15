@@ -315,7 +315,7 @@ const untilSearch = SqliteMigrator.run({
   table: "migrations",
 }).pipe(Effect.orDie)
 
-/** Up to 0009: what the live board has run before CEL-55 (0010 adds columns, and has its own test). */
+/** Up to 0009: what the live board ran before CEL-71 and CEL-55 (later ones change tables, and have their own tests). */
 const untilLabelGroup = SqliteMigrator.run({
   loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0010"))),
   table: "migrations",
@@ -376,13 +376,19 @@ describe("migration 0009_label_group", () => {
     }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
 })
 
+/** Every migration before 0011, whatever lands before it (0010, CEL-71). */
+const beforeAgents = SqliteMigrator.run({
+  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0011"))),
+  table: "migrations",
+}).pipe(Effect.orDie)
+
 // CEL-55: subagents under a session. Additive only: a new table, and a nullable agent column on events,
 // comments and tasks' "last changed". Every row keeps every value it had; old rows read as "the session
 // itself" (null). Safe to run on a board with sessions, claims, comments and events.
-describe("migration 0010_agents", () => {
+describe("migration 0011_agents", () => {
   it.effect("adds the agents table and the agent columns, null on every row it finds, and changes nothing else", () =>
     Effect.gen(function* () {
-      yield* untilLabelGroup
+      yield* beforeAgents
       yield* realisticBoard
       const sql = yield* SqlClient.SqlClient
       const before = yield* everything

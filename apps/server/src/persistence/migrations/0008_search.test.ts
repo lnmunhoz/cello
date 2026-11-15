@@ -18,7 +18,7 @@ const beforeSearch = SqliteMigrator.run({
   table: "migrations",
 }).pipe(Effect.orDie)
 
-/** Up to this one: later migrations change tables on purpose (0010 adds agent columns) and have their own tests. */
+/** Up to this one: later migrations change tables on purpose (0011 adds agent columns) and have their own tests. */
 const throughSearch = SqliteMigrator.run({
   loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id <= "0008_search"))),
   table: "migrations",
