@@ -2,6 +2,7 @@
 // folder: what each prints, that backup and list work with or without a server, and that restore
 // waits for the server to stop.
 import * as fs from "node:fs"
+import * as os from "node:os"
 import * as path from "node:path"
 import { newCommandId } from "@cello/client/client"
 import type { Backup } from "@cello/contract/backups"
@@ -13,7 +14,7 @@ import * as Exit from "effect/Exit"
 import * as Scope from "effect/Scope"
 import { AGENT_IDENTITY, connect } from "../../../server/test/integration/harness.ts"
 import { bytes, localTime } from "../../src/format.ts"
-import { cello } from "./cli.ts"
+import { cello, TEST_HOME } from "./cli.ts"
 
 /** A running server (stopped by closing `running`), a project and a review with two files. */
 const setup = Effect.gen(function* () {
@@ -43,6 +44,21 @@ const setup = Effect.gen(function* () {
 const assetLine = (b: Backup) =>
   `  assets    ${b.assets.files} files, ${bytes(b.assets.bytes)}: ${b.assets.linked} linked to the previous backup, ` +
   `${b.assets.copied} copied (${bytes(b.assets.copiedBytes)} new)`
+
+describe("the test harness", () => {
+  it.live("never lets a command reach ~/.cello: without CELLO_DATA_DIR, the data folder is a temp path that doesn't exist", () =>
+    Effect.gen(function* () {
+      const scratch = yield* tempDataDir
+      const forgetful = cello({ port: 1, cwd: scratch }) // no server, no CELLO_DATA_DIR
+      expect(TEST_HOME.startsWith(os.tmpdir())).toBe(true)
+      expect((yield* forgetful("backup", "list")).out).toBe(
+        `No backups in ${path.join(TEST_HOME, ".cello", "backups")} yet. Take one with \`cello backup\`; the server also takes one every day.`,
+      )
+      expect((yield* forgetful("backup")).failure).toBe(`There's no Cello database in ${path.join(TEST_HOME, ".cello")} yet, so there's nothing to back up.`)
+      expect((yield* forgetful("restore", "20261115-120000")).failure).toContain(path.join(TEST_HOME, ".cello", "backups"))
+      expect(fs.existsSync(TEST_HOME)).toBe(false)
+    }).pipe(Effect.scoped))
+})
 
 describe("cello backup", () => {
   it.live("takes one through the running server and prints its folder, size, and linked vs copied files", () =>
