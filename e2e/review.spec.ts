@@ -3,11 +3,13 @@
 // task panel (send back with a note → In Progress).
 // CEL-22: the Review page shows the queue as collapsed rows and opens one packet at a time.
 // CEL-38: on a wide panel the open packet splits in two, the evidence on the right and sticky.
+// CEL-71: a task moved out of In Review takes its packet off the Review page (withdrawn).
 import * as fs from "node:fs"
 import * as path from "node:path"
 import type { Browser, Page } from "@playwright/test"
 import { caption, captionWithUrl, card, column, createProject, expect, test, uniqueKey } from "./fixtures.ts"
 import {
+  cello,
   expectOneColumn,
   expectTwoColumns,
   packetDrawn,
@@ -373,5 +375,36 @@ test("CEL-38: a wide Review page opens the packet in two columns, evidence on th
   await pinned.getByRole("button", { name: "Approve" }).click()
   await expect(pinned).toBeHidden()
   await caption(page, "Wide panels read on the left and watch on the right; narrow ones keep one column")
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test("CEL-71: an agent moves its task out of In Review with `cello task move`: the packet leaves the Review page, withdrawn, and the task panel lists it under Earlier reviews", async ({ page }) => {
+  const key = uniqueKey("WDR")
+  await createProject(page, "Withdrawn packets test", key)
+  await caption(page, "An agent submits two packets")
+  const { dir } = await submitPackets(page, key, ["Filter the board", "Keep this one waiting"])
+  const [one, two] = [1, 2].map((n) => rowOf(page, `${key}-${n}`)) as [ReturnType<typeof rowOf>, ReturnType<typeof rowOf>]
+
+  await captionWithUrl(page, "Open Review: both packets wait for Lucas")
+  await page.getByRole("navigation", { name: "Inbox" }).getByRole("link", { name: /^Review/ }).click()
+  await expect(one.header).toBeVisible()
+  await expect(two.header).toBeVisible()
+
+  await captionWithUrl(page, `Lucas comments in chat; the agent runs \`cello task move ${key}-1 "In Progress"\``)
+  cello("task", "move", `${key}-1`, "In Progress")
+  await captionWithUrl(page, `${key}-1 leaves the Review page by itself; ${key}-2 still waits`)
+  await expect(one.article).toHaveCount(0)
+  await expect(two.header).toBeVisible()
+  await page.screenshot({ path: path.join(SHOTS, "review-withdrawn.png") })
+
+  await caption(page, `${key}-1 is in In Progress; its panel lists the packet as withdrawn`)
+  await page.getByRole("link", { name: "Withdrawn packets test" }).click()
+  await expect(column(page, "In Progress").locator(`[data-task-key="${key}-1"]`)).toBeVisible()
+  await expect(card(page, `${key}-1`).locator("[data-evidence-badge]")).toHaveCount(0)
+  await card(page, `${key}-1`).click()
+  const panel = page.getByRole("complementary", { name: `${key}-1 details` })
+  await expect(panel.getByRole("region", { name: "Review packet" })).toBeHidden()
+  await expect(panel.getByRole("region", { name: "Earlier reviews" }).getByRole("button", { name: /Withdrawn/ })).toBeVisible()
+  await caption(page, `Withdrawn: ${key}-1 is being worked on again, and the Review page shows only what waits on Lucas`)
   fs.rmSync(dir, { recursive: true, force: true })
 })

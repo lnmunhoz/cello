@@ -7,7 +7,7 @@ const FIELD_NAMES: Record<string, string> = { title: "title", description: "desc
 
 const list = (words: string[]) => (words.length <= 1 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`)
 
-const DECIDED = { approved: "approved the review", sent_back: "sent it back", superseded: "replaced the open review" }
+const DECIDED = { approved: "approved the review", sent_back: "sent it back", superseded: "replaced the open review", withdrawn: "withdrew the review" }
 
 const WITHDRAWN = { agent: "withdrew the questions", moved: "moved it out of Needs input, withdrawing the questions", superseded: "replaced the open questions" }
 
@@ -59,6 +59,8 @@ export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | 
       return `${who} submitted a review`
     case "review.decided":
       return `${who} ${DECIDED[e.decision]}`
+    case "review.withdrawn":
+      return `${who} moved it to ${status(e.to)}, withdrawing the open review`
     case "ask.created": {
       const count = e.ask.questions.length
       return `${who} asked ${count === 1 ? "a question" : `${count} questions`}: “${e.ask.title}”`

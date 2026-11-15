@@ -24,6 +24,7 @@ import {
   type Status,
   type Task,
 } from "@cello/contract/entities"
+import type { CelloEvent, EventOf } from "@cello/contract/events"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
 import { ACCEPTED } from "@cello/shared/attachment"
@@ -211,16 +212,32 @@ const packetCounts = (review: Review) =>
     }),
   ].join(" · ")
 
-const DECISIONS = { approved: "approved", sent_back: "sent back", superseded: "superseded by a newer one" } as const
+const DECISIONS = { approved: "approved", sent_back: "sent back", superseded: "superseded by a newer one", withdrawn: "withdrawn" } as const
 
+/**
+ * Who withdrew a packet, and where to: the move that closed it, in the same command (same time), as
+ * "Claude Code session 2fd0505c moved it to In Progress" (CEL-71).
+ */
+const withdrawal = (
+  names: Names & { readonly actors: ReadonlyArray<Actor> },
+  review: Review,
+  history: ReadonlyArray<CelloEvent>,
+) => {
+  const move = history.find((e): e is EventOf<"task.moved"> =>
+    e.type === "task.moved" && e.ts === review.decidedAt && e.from.statusId !== e.to.statusId)
+  return move ? `: ${author(names, move.actorId, move.sessionId)} moved it to ${statusName(names, move.to.statusId)}` : ""
+}
 
 /** One review in `task get`: state, who submitted it, summary, steps, evidence and Lucas's note. */
 const reviewLines = (
   names: Names & { readonly actors: ReadonlyArray<Actor> },
   review: Review,
+  history: ReadonlyArray<CelloEvent>,
   now: number,
 ): string[] => {
-  const state = review.decision === null ? "open" : `${DECISIONS[review.decision]} ${ago(review.decidedAt!, now)}`
+  const state = review.decision === null
+    ? "open"
+    : `${DECISIONS[review.decision]} ${ago(review.decidedAt!, now)}${review.decision === "withdrawn" ? withdrawal(names, review, history) : ""}`
   const indent = (text: string) => text.split("\n").map((l) => `    ${l}`)
   return [
     `  Review (${state}), submitted by ${author(names, review.actorId, review.sessionId)}, ${ago(review.createdAt, now)}`,
@@ -380,7 +397,7 @@ const get = Command.make("get", { key, json }, (input) =>
     }
     if (detail.reviews.length) {
       lines.push("", `Reviews (${detail.reviews.length})`)
-      for (const r of [...detail.reviews].reverse()) lines.push(...reviewLines(detail, r, now))
+      for (const r of [...detail.reviews].reverse()) lines.push(...reviewLines(detail, r, detail.history, now))
     }
     if (detail.asks.length) {
       lines.push("", `Questions for ${humanName(detail.actors)} (${detail.asks.length})`)

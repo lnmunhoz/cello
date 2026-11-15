@@ -37,7 +37,7 @@ export function Marked({ text, ranges }: { text: string; ranges: ReadonlyArray<R
   )
 }
 
-export const DECISION_LABELS = { approved: "Approved", sent_back: "Sent back", superseded: "Replaced" } as const
+export const DECISION_LABELS = { approved: "Approved", sent_back: "Sent back", superseded: "Replaced", withdrawn: "Withdrawn" } as const
 
 function OpenHint({ label, full }: { label: string; full?: boolean }) {
   return (

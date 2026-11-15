@@ -2,6 +2,7 @@
 // document, not a task) and must keep every row. 0005 adds build history to a copy of a database that
 // has a board on it, and changes nothing else. 0006 rebuilds `statuses` (a new category, under the
 // tasks that reference it) and `inbox_items`, and adds Needs input to the workspaces that lack it.
+// 0010 rebuilds `reviews` (a new decision, under the evidence that references it) with its search triggers.
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as SqliteMigrator from "@effect/sql-sqlite-bun/SqliteMigrator"
@@ -367,5 +368,74 @@ describe("migration 0009_label_group", () => {
       yield* Migrations.run
       expect(yield* sql`SELECT * FROM labels ORDER BY id`).toEqual(migrated)
       expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
+    }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
+})
+
+/** Up to 0009: what the live board has run before CEL-71. */
+const untilLabelGroups = SqliteMigrator.run({
+  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0010"))),
+  table: "migrations",
+}).pipe(Effect.orDie)
+
+/** Every table, all rows and columns, without the migrations bookkeeping. */
+const allRows = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+  const tables = yield* sql<{ name: string }>`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name != 'migrations' AND name NOT LIKE 'sqlite_%'
+      AND name NOT LIKE 'search_words%' AND name NOT LIKE 'search_stems%' ORDER BY name`
+  const rows: Record<string, unknown> = {}
+  for (const { name } of tables) rows[name] = yield* sql.unsafe(`SELECT * FROM "${name}" ORDER BY rowid`)
+  return rows
+})
+
+// CEL-71: a packet whose task leaves In Review by a plain move closes as `withdrawn`. SQLite can't change
+// the decision CHECK in place, so 0010 rebuilds `reviews` under the attachments that reference it, and
+// puts back its indexes and the search triggers that went with the old table.
+describe("migration 0010_review_withdrawn", () => {
+  it.effect("lets a packet be withdrawn, and keeps every row, the evidence links and the search index as they were", () =>
+    Effect.gen(function* () {
+      yield* untilLabelGroups
+      yield* realisticBoard
+      const sql = yield* SqlClient.SqlClient
+      yield* sql`INSERT INTO reviews (id, task_id, summary, steps, actor_id, session_id, created_at, decided_at, decision, decision_note) VALUES
+        ('r2', 't10', 'Backups every day', '["Run cello backup"]', 'claude', 'sess', 6, 7, 'sent_back', 'The list is empty'),
+        ('r3', 't11', 'Stages on cards', '[]', 'claude', NULL, 8, 9, 'approved', NULL),
+        ('r4', 't11', 'An older packet', '["Step"]', 'claude', 'sess', 7, 8, 'superseded', NULL)`
+      yield* sql`INSERT INTO attachments (id, task_id, review_id, kind, name, url, caption, actor_id, session_id, created_at)
+        VALUES ('f2', 't10', 'r2', 'link', 'https://example.com', 'https://example.com', 'The page', 'claude', 'sess', 6)`
+      const before = yield* allRows
+      expect((before["search_entries"] as ReadonlyArray<{ kind: string }>).filter((e) => e.kind === "packet")).toHaveLength(3)
+      const indexes = sql`SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'reviews' ORDER BY name`
+      const triggers = sql`SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'reviews' ORDER BY name`
+      const indexesBefore = yield* indexes
+      const triggersBefore = yield* triggers
+      expect(triggersBefore).toHaveLength(3)
+
+      yield* Migrations.run
+      expect(yield* allRows).toEqual(before)
+      expect(yield* indexes).toEqual(indexesBefore)
+      expect(yield* triggers).toEqual(triggersBefore)
+      expect(yield* sql`PRAGMA foreign_key_check`).toEqual([])
+      expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
+
+      // Withdrawn is a decision now; anything else still isn't.
+      yield* sql`UPDATE reviews SET decided_at = 10, decision = 'withdrawn' WHERE id = 'r1'`
+      expect(yield* sql`SELECT decision FROM reviews WHERE id = 'r1'`).toEqual([{ decision: "withdrawn" }])
+      expect((yield* Effect.exit(sql`UPDATE reviews SET decision = 'maybe' WHERE id = 'r2'`))._tag).toBe("Failure")
+      // The search index still follows the table: a withdrawn packet stays findable, a new one is added.
+      yield* sql`INSERT INTO reviews (id, task_id, summary, steps, actor_id, created_at) VALUES ('r5', 't12', 'Withdrawn packets', '[]', 'claude', 11)`
+      expect(yield* sql`SELECT ref_id FROM search_entries WHERE kind = 'packet' ORDER BY ref_id`).toEqual(
+        [{ ref_id: "r1" }, { ref_id: "r2" }, { ref_id: "r3" }, { ref_id: "r5" }],
+      )
+      expect(yield* sql`SELECT e.ref_id FROM search_words JOIN search_entries e ON e.id = search_words.rowid WHERE search_words MATCH 'withdrawn'`)
+        .toEqual([{ ref_id: "r5" }])
+      // Evidence still has to belong to a packet that exists.
+      expect((yield* Effect.exit(sql`INSERT INTO attachments (id, task_id, review_id, kind, name, actor_id, created_at)
+        VALUES ('f3', 't10', 'nope', 'file', 'x.txt', 'claude', 12)`))._tag).toBe("Failure")
+
+      // The next start runs the migrations again: nothing changes.
+      const migrated = yield* allRows
+      yield* Migrations.run
+      expect(yield* allRows).toEqual(migrated)
     }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
 })

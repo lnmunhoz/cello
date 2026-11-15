@@ -100,6 +100,35 @@ describe("cello task submit", () => {
       expect(text).toContain("    flow.mp4 (video): The whole flow")
     }).pipe(Effect.scoped))
 
+  // CEL-71: CEL-52 went back to In Progress by `cello task move`, and its packet stayed on the Review page.
+  it.live("moving the task out of In Review withdraws its packet: gone from the open list, shown as withdrawn, in the activity", () =>
+    Effect.gen(function* () {
+      const { agent, human, repo } = yield* setup
+      yield* agent("task", "create", "Filters")
+      yield* agent("task", "claim", "CEL-1")
+      writePng(repo, "board.png")
+      yield* agent("task", "submit", "CEL-1", "--summary", "Filter panel", "--step", "Open the board", "--attach", "board.png")
+      expect((yield* human["snapshot.get"]({})).reviews).toHaveLength(1)
+
+      expect(yield* agent("task", "move", "CEL-1", "In Progress")).toMatchObject({ failure: null })
+
+      // Nothing waits on Lucas any more: the snapshot the Review page loads has no open packet.
+      expect((yield* human["snapshot.get"]({})).reviews).toEqual([])
+      const detail = JSON.parse((yield* agent("task", "get", "CEL-1", "--json")).out)
+      expect(detail.reviews.map((r: { decision: string | null }) => r.decision)).toEqual(["withdrawn"])
+      const text = (yield* agent("task", "get", "CEL-1")).out
+      expect(text).toContain("Review (withdrawn just now: Claude Code session 2fd0505c moved it to In Progress), submitted by Claude Code session 2fd0505c, just now")
+      expect(text).toContain("Claude Code session 2fd0505c moved it from In Review to In Progress")
+      // The withdrawal is an event of its own, by the session that moved the task.
+      const context = JSON.parse((yield* agent("context", "--json")).out)
+      expect(context.recent.slice(0, 2).map((a: { event: { type: string }; taskKey: string }) => [a.event.type, a.taskKey])).toEqual([
+        ["task.moved", "CEL-1"],
+        ["review.withdrawn", "CEL-1"],
+      ])
+      // Coming back to In Review takes a new packet.
+      expect((yield* agent("task", "move", "CEL-1", "In Review")).failure).toContain("CEL-1 needs a review packet before it goes to In Review")
+    }).pipe(Effect.scoped))
+
   it.live("the summary can come from stdin; missing files and stray captions fail with what to fix", () =>
     Effect.gen(function* () {
       const { agent, piped, repo } = yield* setup
