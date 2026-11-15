@@ -3,6 +3,7 @@ import type { AgentSession, Label, Priority, Status, Task } from "@cello/contrac
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
+import { sessionColor } from "../presence/model.ts"
 import { CardBody } from "./Card.tsx"
 
 const status: Status = {
@@ -117,6 +118,47 @@ describe("CardBody", () => {
     it("in a laned column the lane says the stage, so the card doesn't; nobody on it means no work line", () => {
       expect(renderIn(staffed, held, true)).not.toContain("data-stage")
       expect(renderIn(staffed, task("t5", 5))).not.toContain("data-card-work")
+    })
+
+    describe("the agent mark in place of the presence dot (CEL-69)", () => {
+      const statuses = {
+        ...board.statuses,
+        needs: { ...status, id: "needs", name: "Needs input", category: "waiting" as const },
+        review: { ...status, id: "review", name: "In Review", category: "started" as const },
+      }
+      const withStatuses = { ...staffed, statuses }
+      /** The opening tag of the card's agent mark. */
+      const markOf = (html: string) => html.match(/<span[^>]*class="agent-mark"[^>]*>/)?.[0] ?? ""
+
+      it("leads the work line with the agent in the session's colour, white eyes, working while it fixes findings", () => {
+        const html = renderIn(withStatuses, held)
+        const mark = markOf(html)
+        expect(mark).toContain('data-agent-mood="working"')
+        expect(mark).toContain('data-presence="active"')
+        expect(mark).toContain(`--agent-body:${sessionColor(session)}`)
+        expect(mark).toContain("--agent-eye:white")
+        // The dot is gone from the card.
+        expect(html).not.toContain("rounded-full")
+      })
+
+      it("thinks with no stage; waits in Needs input; rests once In Review; nothing plays as the board first draws", () => {
+        expect(markOf(renderIn(withStatuses, { ...held, stage: null }))).toContain('data-agent-mood="thinking"')
+        const waiting = markOf(renderIn(withStatuses, { ...held, statusId: "needs" }))
+        expect(waiting).toContain('data-agent-mood="waiting"')
+        expect(waiting).not.toContain("data-play")
+        const done = markOf(renderIn(withStatuses, { ...held, statusId: "review" }))
+        expect(done).toContain('data-agent-mood="done"')
+        expect(done).not.toContain("data-play")
+      })
+
+      it("keeps still when the session is quiet (amber) or has ended (grey), as the dot's rings did", () => {
+        const quiet = markOf(renderIn({ ...withStatuses, sessions: { s1: { ...session, lastSeenAt: now - 2 * 3_600_000 } } }, held))
+        expect(quiet).toContain('data-agent-mood="still"')
+        expect(quiet).toContain("--agent-body:var(--idle)")
+        const ended = markOf(renderIn({ ...withStatuses, sessions: { s1: { ...session, endedAt: now - 60_000 } } }, held))
+        expect(ended).toContain('data-agent-mood="still"')
+        expect(ended).toContain("--agent-body:var(--faint)")
+      })
     })
   })
 })

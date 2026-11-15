@@ -37,6 +37,19 @@ and eyes, drawn at any size, with its tip as the hotspot. The board's agent curs
 session's colour with white eyes, and the e2e videos' pointer draws it in ink with orange eyes. A test there
 compares it with `icon.svg` and `favicon.svg`, so a change to the icon has to change the mark too.
 
+The mark has states (CEL-69): `apps/web/src/components/ui/AgentMark.tsx` draws it with a mood, and cards
+and list rows show it in place of the session's presence dot, in the session's colour with white eyes.
+**Working** (stage Building or Fixing findings): a shorter tip spins round the body, the narrowed eyes
+follow it. **Thinking** (no stage, or Agent review): it leans back, eyes slanted up toward the tip.
+**Needs input**: big eyes looking up; arriving, it hops twice and a ring goes out, once. **Done** (In
+Review or Done, after ElevenLabs' take): a pancake squash, a leap with happy arches for eyes, a wobbly
+landing, a blink, once. Merged has happy eyes; a quiet or ended session keeps still (amber, grey). The
+loops run only while the session is active, entries play only for a change seen on screen, and
+`prefers-reduced-motion` stills it all. Body and eyes are two CSS colours (`--agent-body`,
+`--agent-eye`, or the `body` and `eye` props), so it draws in any colour. Only transform and opacity
+animate, each on its own HTML layer (`AgentMark.css`): 40 working agents on a board measured 60 fps
+with no long tasks. The extra geometry (spinner tip, happy eyes, the square frame) is in `agentMark.ts`.
+
 ## Where it ships (CEL-27)
 
 `art/icon/build-app-icons.mjs` builds every icon the apps use from `icon.svg` and `favicon.svg` (resvg 0.47.0).

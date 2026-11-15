@@ -1,7 +1,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { provenanceLine, provenanceOf, workingSessions } from "./model.ts"
+import { agentMood, markEntry, provenanceLine, provenanceOf, workingSessions } from "./model.ts"
 
 const MIN = 60_000
 const now = Date.UTC(2026, 10, 15, 12)
@@ -97,5 +97,72 @@ describe("workingSessions", () => {
       ["idle1", "idle", ["a"]],
       ["ended1", "ended", ["d"]],
     ])
+  })
+})
+
+describe("agentMood (CEL-69)", () => {
+  const inProgress = { name: "In Progress", category: "started" }
+  const needsInput = { name: "Needs input", category: "waiting" }
+  const inReview = { name: "In Review", category: "started" }
+  const done = { name: "Done", category: "completed" }
+
+  it("works while an active agent builds or fixes findings: the tip spins", () => {
+    expect(agentMood("building", inProgress, "active")).toBe("working")
+    expect(agentMood("fixing", inProgress, "active")).toBe("working")
+  })
+
+  it("thinks while an active agent holds it with no stage yet (planning) or in Agent review (reading)", () => {
+    expect(agentMood(null, inProgress, "active")).toBe("thinking")
+    expect(agentMood("review", inProgress, "active")).toBe("thinking")
+  })
+
+  it("looks happy and keeps still once the work is merged", () => {
+    expect(agentMood("merged", inProgress, "active")).toBe("merged")
+  })
+
+  it("keeps still while the session is quiet or has ended, whatever the stage", () => {
+    for (const stage of [null, "building", "review", "fixing", "merged"]) {
+      expect(agentMood(stage, inProgress, "idle")).toBe("still")
+      expect(agentMood(stage, inProgress, "ended")).toBe("still")
+    }
+  })
+
+  it("waits for Lucas while the task is in Needs input, its own status or one a workspace named so, even when the agent has gone quiet", () => {
+    for (const presence of ["active", "idle", "ended"] as const) {
+      expect(agentMood("fixing", needsInput, presence)).toBe("waiting")
+      expect(agentMood(null, { name: "needs input", category: "started" }, presence)).toBe("waiting")
+    }
+  })
+
+  it("is done once the task is In Review or Done, whatever the agent is up to", () => {
+    for (const presence of ["active", "idle", "ended"] as const) {
+      expect(agentMood(null, inReview, presence)).toBe("done")
+      expect(agentMood(null, done, presence)).toBe("done")
+    }
+  })
+
+  it("keeps still on a canceled task, and on one whose status the board doesn't have", () => {
+    expect(agentMood("building", { name: "Canceled", category: "canceled" }, "active")).toBe("still")
+    expect(agentMood("building", undefined, "active")).toBe("still")
+  })
+})
+
+describe("markEntry (CEL-69)", () => {
+  it("plays Done when the card moves into In Review or Done while it's on screen, and again from In Review to Done", () => {
+    expect(markEntry({ mood: "working", statusId: "prog" }, { mood: "done", statusId: "review" })).toBe("done")
+    expect(markEntry({ mood: "still", statusId: "prog" }, { mood: "done", statusId: "done" })).toBe("done")
+    expect(markEntry({ mood: "done", statusId: "review" }, { mood: "done", statusId: "done" })).toBe("done")
+  })
+
+  it("hops when the task arrives in Needs input", () => {
+    expect(markEntry({ mood: "thinking", statusId: "prog" }, { mood: "waiting", statusId: "needs" })).toBe("waiting")
+  })
+
+  it("plays nothing when nothing arrived: the same mood and status, a loop starting or stopping, a stage changing", () => {
+    expect(markEntry({ mood: "done", statusId: "review" }, { mood: "done", statusId: "review" })).toBeNull()
+    expect(markEntry({ mood: "waiting", statusId: "needs" }, { mood: "waiting", statusId: "needs" })).toBeNull()
+    expect(markEntry({ mood: "thinking", statusId: "prog" }, { mood: "working", statusId: "prog" })).toBeNull()
+    expect(markEntry({ mood: "working", statusId: "prog" }, { mood: "still", statusId: "prog" })).toBeNull()
+    expect(markEntry({ mood: "waiting", statusId: "needs" }, { mood: "thinking", statusId: "prog" })).toBeNull()
   })
 })

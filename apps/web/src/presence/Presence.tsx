@@ -6,9 +6,21 @@ import type { AgentSession, Task } from "@cello/contract/entities"
 import type { StageInfo } from "@cello/contract/stages"
 import { agoShort, type Presence, presenceOf, presenceWords } from "@cello/shared/presence"
 import { BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, type LucideIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
-import { useState } from "react"
+import { type ReactNode, useEffect, useState } from "react"
+import { AgentMark } from "../components/ui/AgentMark.tsx"
 import { formatDay } from "../lib/format.ts"
-import { type Holder, type Provenance, provenanceLine, provenanceOf, sessionColor, type Who, workingSessions } from "./model.ts"
+import {
+  agentMood,
+  type Holder,
+  markEntry,
+  type MarkSeen,
+  type Provenance,
+  provenanceLine,
+  provenanceOf,
+  sessionColor,
+  type Who,
+  workingSessions,
+} from "./model.ts"
 import { useNow } from "./useNow.ts"
 
 const STAGE_ICONS: Record<string, LucideIcon> = { hammer: HammerIcon, "scan-eye": ScanEyeIcon, wrench: WrenchIcon, "git-merge": GitMergeIcon }
@@ -89,19 +101,77 @@ export function PresenceDot({ session, size = 8 }: { session: AgentSession; size
   )
 }
 
-/** "8a41c9e2 active now" next to its dot, coloured by presence. `boxed`: the dot sits in an avatar-sized box, to line up with avatars. */
-function HolderWords({ holder, full = false, boxed = false }: { holder: Holder & { session: AgentSession }; full?: boolean; boxed?: boolean }) {
+/** The mark's size on cards and list rows: about a line of their 12 px text. */
+const MARK_SIZE = 15
+
+/** The mark's body: the session's colour while it's active, amber when quiet and grey once ended, like the dot's rings. */
+const markBody = (session: AgentSession, presence: Presence) =>
+  presence === "active" ? sessionColor(session) : presence === "idle" ? "var(--idle)" : "var(--faint)"
+
+/** Each task's mark as last drawn. A card that changes column is a new component, so this outlives it. */
+const drawnMarks = new Map<string, MarkSeen & { readonly session: AgentSession | null }>()
+
+/**
+ * The agent mark for a task's card or list row (CEL-69), in place of the presence dot: what its agent is
+ * doing (agentMood), and the entry to play once when the task moves into In Review or Done, or starts
+ * waiting in Needs input, while it's on screen. A page load plays nothing: the first value drawn is the
+ * baseline. When Lucas approves and the claim ends, the session that held it stays for Done, then leaves.
+ */
+function useTaskMark(task: Task, board: BoardState, holder: AgentSession | null): { mark: ReactNode; leaving: boolean } {
+  const now = useNow()
+  const presence: Presence = holder ? presenceOf(holder, now) : "ended"
+  const seen: MarkSeen = { mood: agentMood(task.stage, board.statuses[task.statusId], presence), statusId: task.statusId }
+  const [last, setLast] = useState(() => drawnMarks.get(task.id) ?? { ...seen, session: holder })
+  // The entry playing right now, if any; it clears once played.
+  const [entry, setEntry] = useState<"done" | "waiting" | null>(null)
+  // The session whose claim ended as the task finished (Lucas approved it): it stays to play Done.
+  const [gone, setGone] = useState<AgentSession | null>(null)
+  if (last.mood !== seen.mood || last.statusId !== seen.statusId || last.session?.id !== holder?.id) {
+    setLast({ ...seen, session: holder })
+    const next = last.mood !== seen.mood || last.statusId !== seen.statusId ? markEntry(last, seen) : entry
+    setEntry(next)
+    setGone(next === "done" && holder === null ? (last.session ?? gone) : null)
+  }
+  useEffect(() => {
+    drawnMarks.set(task.id, { ...seen, session: holder })
+  })
+  const session = holder ?? gone
+  if (session === null) return { mark: null, leaving: false }
+  const played = () => {
+    setEntry(null)
+    setGone(null)
+  }
+  const mark = (
+    <AgentMark
+      mood={seen.mood}
+      play={entry !== null}
+      size={MARK_SIZE}
+      body={markBody(session, holder ? presence : "active")}
+      eye="white"
+      onPlayed={played}
+      data-presence={holder ? presence : undefined}
+      data-leaving={holder ? undefined : ""}
+    />
+  )
+  return { mark, leaving: holder === null }
+}
+
+/**
+ * "8a41c9e2 active now" next to its dot, coloured by presence. `boxed`: the dot sits in an avatar-sized
+ * box, to line up with avatars. `mark`: drawn in place of the dot (the card's and the row's agent mark).
+ */
+function HolderWords({ holder, full = false, boxed = false, mark }: { holder: Holder & { session: AgentSession }; full?: boolean; boxed?: boolean; mark?: ReactNode }) {
   const now = useNow()
   const presence = presenceOf(holder.session, now)
   return (
     <span className={`flex min-w-0 items-center ${boxed ? "gap-2" : "gap-1.5"} ${PRESENCE_TEXT[presence]}`}>
-      {boxed ? (
+      {mark ?? (boxed ? (
         <span className="flex size-4 shrink-0 items-center justify-center">
           <PresenceDot session={holder.session} />
         </span>
       ) : (
         <PresenceDot session={holder.session} />
-      )}
+      ))}
       <span className="truncate">
         <span className="font-medium">{full ? holder.who.name : holder.who.short}</span> {presenceWords(holder.session, now)}
       </span>
@@ -119,11 +189,12 @@ const withSession = (holder: Holder | null): (Holder & { session: AgentSession }
 export function CardWork({ task, board, stage = true }: { task: Task; board: BoardState; stage?: boolean }) {
   const p = provenanceOf(board, task)
   const holder = withSession(p.holder)
+  const { mark, leaving } = useTaskMark(task, board, holder?.session ?? null)
   const shownStage = stage ? p.stage : null
-  if (!holder && !shownStage) return null
+  if (!holder && !shownStage && !leaving) return null
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-xs" data-card-work>
-      {holder ? <HolderWords holder={holder} /> : null}
+      {holder ? <HolderWords holder={holder} mark={mark} /> : leaving ? mark : null}
       {shownStage ? (
         <span className="ml-auto">
           <StageWord stage={shownStage} />
@@ -152,10 +223,11 @@ const fullProvenance = (p: Provenance, now: number) =>
 export function RowWork({ task, board, stage = true }: { task: Task; board: BoardState; stage?: boolean }) {
   const p = provenanceOf(board, task)
   const holder = withSession(p.holder)
-  if (!holder && !(stage && p.stage)) return null
+  const { mark, leaving } = useTaskMark(task, board, holder?.session ?? null)
+  if (!holder && !(stage && p.stage) && !leaving) return null
   return (
     <span className="flex shrink-0 items-center gap-2 text-xs" data-row-work>
-      {holder ? <HolderWords holder={holder} /> : null}
+      {holder ? <HolderWords holder={holder} mark={mark} /> : leaving ? mark : null}
       {/* A fixed slot, so the stages down the list line up. */}
       {stage && p.stage ? (
         <span className="flex w-[118px]">
