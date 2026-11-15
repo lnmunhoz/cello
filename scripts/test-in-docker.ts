@@ -13,7 +13,7 @@
 // TEST_CPUS and TEST_MEMORY change the 4 CPU and 6 GB caps. CELLO_E2E_SLOWMO and CELLO_E2E_ONLINE
 // are passed in. The image (docker/test.Dockerfile) is built on the first run and again only when
 // the Dockerfile or the pinned Playwright or Bun version changes.
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { buildArgs, dockerArgs, imageTag, parseCommand, passedEnv, versions } from "./docker/container.ts"
@@ -77,9 +77,16 @@ const folder = path.relative(repo, out)
 const started = new Date()
 console.log(`Running ${[mode, ...args].join(" ")} in ${image} (${cpus} CPUs, ${memory}); results in ${folder}/`)
 
-// Ctrl+C reaches docker, which stops the container; this process stays to write the summary.
-process.on("SIGINT", () => {})
-const run = spawnSync("docker", dockerArgs({ image, mode, args, repo, out, cpus, memory, env: process.env }), { stdio: "inherit" })
+// Ctrl+C (or a kill) stops the container by its name; this process stays to write the summary.
+const name = `cello-test-${path.basename(out)}`
+const stop = () => spawnSync("docker", ["kill", name], { stdio: "ignore" })
+process.on("SIGINT", stop)
+process.on("SIGTERM", stop)
+const status = await new Promise<number | null>((resolve) => {
+  const child = spawn("docker", dockerArgs({ image, name, mode, args, repo, out, cpus, memory, env: process.env }), { stdio: "inherit" })
+  child.once("error", () => resolve(null))
+  child.once("exit", (code) => resolve(code))
+})
 
 const steps = parseSteps(read(path.join(out, "steps.tsv")))
 const summary = summarize({
@@ -103,4 +110,4 @@ const summary = summarize({
 fs.writeFileSync(path.join(out, "summary.txt"), summary)
 await finishRun(out)
 console.log(`\n${summary}\nResults: ${folder}/  (test-results/docker/latest is the newest run)`)
-process.exit(run.status ?? 1)
+process.exit(status ?? 1)

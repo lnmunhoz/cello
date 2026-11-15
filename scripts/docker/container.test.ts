@@ -71,7 +71,8 @@ describe("parseCommand", () => {
 })
 
 describe("dockerArgs", () => {
-  const args = dockerArgs({ image, mode: "desktop", args: [], repo: "/repo", out: "/results", cpus: "3", memory: "4g", env: {} })
+  const options = { image, name: "cello-test-2026-11-15_090507-desktop-4242", mode: "desktop" as const, args: [], repo: "/repo", out: "/results", cpus: "3", memory: "4g", env: {} }
+  const args = dockerArgs(options)
 
   it("mounts the repo read-only and the run's results folder, with caches for Bun and Electron", () => {
     expect(args).toContain("/repo:/src:ro")
@@ -94,10 +95,14 @@ describe("dockerArgs", () => {
   it("tells the tests they're in the container, and passes CELLO_E2E_SLOWMO and CELLO_E2E_ONLINE through only when set", () => {
     expect(args).toContain("CELLO_DESKTOP_E2E=docker")
     expect(args.join(" ")).not.toContain("CELLO_E2E_SLOWMO")
-    const slow = dockerArgs({ image, mode: "e2e", args: [], repo: "/repo", out: "/results", cpus: "4", memory: "6g", env: { CELLO_E2E_SLOWMO: "400", CELLO_E2E_ONLINE: "1", HOME: "/Users/x" } })
+    const slow = dockerArgs({ ...options, env: { CELLO_E2E_SLOWMO: "400", CELLO_E2E_ONLINE: "1", HOME: "/Users/x" } })
     expect(slow).toContain("CELLO_E2E_SLOWMO=400")
     expect(slow).toContain("CELLO_E2E_ONLINE=1")
     expect(slow.join(" ")).not.toContain("HOME=")
+  })
+
+  it("names the container, so the runner can stop it on Ctrl+C", () => {
+    expect(args.slice(args.indexOf("--name"), args.indexOf("--name") + 2)).toEqual(["--name", options.name])
   })
 
   it("runs the container script with bash in the test image", () => {

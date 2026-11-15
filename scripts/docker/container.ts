@@ -132,6 +132,8 @@ export const containerScript = (mode: Mode, args: ReadonlyArray<string>): string
 
 export interface RunOptions {
   readonly image: string
+  /** The container's name, so the runner can stop it (`docker kill`) on Ctrl+C. */
+  readonly name: string
   readonly mode: Mode
   readonly args: ReadonlyArray<string>
   /** The worktree being tested, mounted read-only at /src. */
@@ -151,7 +153,7 @@ export interface RunOptions {
  */
 export const dockerArgs = (options: RunOptions): string[] => [
   "run", "--rm", "--init", `--cpus=${options.cpus}`, `--memory=${options.memory}`, "--shm-size=1g",
-  "--label", IMAGE_NAME,
+  "--name", options.name, "--label", IMAGE_NAME,
   "-v", `${options.repo}:/src:ro`,
   "-v", `${options.out}:/out`,
   "-v", `${IMAGE_NAME}-bun-cache:/root/.bun/install/cache`,
