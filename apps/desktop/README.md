@@ -100,6 +100,12 @@ when the panel has focus:
 
 Which input means which way is `src/window/history.ts`. The "Starting Cello…" message the board
 replaces is dropped from the board's history, so Back never lands on it.
+
+- **What's checked where:** the keys, the History menu and the app commands run in the desktop e2e
+  (Linux, in Docker). The trackpad swipe and a real mouse's buttons on macOS are covered only by the
+  unit tests of `history.ts`; nobody has checked them on a real Mac yet.
+- **Not handled:** on macOS a mouse's back and forward buttons do nothing over the panel's page (it's
+  any website, with no preload of ours). Its toolbar has Back and Forward, and ⌘[ / ⌘] work there.
 - The window's size and position, and the panel's width, are saved; the panel's page lasts as
   long as the app runs.
 

@@ -18,16 +18,15 @@ const bridge: CelloDesktop = {
 contextBridge.exposeInMainWorld("celloDesktop", bridge)
 
 // A mouse's back and forward buttons go back and forward in the board. macOS reports them only to the
-// page; on Windows and Linux they arrive as app commands, which MainWindow takes (so not twice here).
-if (process.platform === "darwin") {
-  window.addEventListener("mouseup", (event) => {
-    const direction = mouseButtonDirection(event.button)
-    if (direction === null) return
-    event.preventDefault()
-    if (direction === "back") history.back()
-    else history.forward()
-  })
-}
+// page; on Windows and Linux they arrive as app commands, which MainWindow takes, so
+// `mouseButtonDirection` is null there and the board moves once.
+window.addEventListener("mouseup", (event) => {
+  const direction = mouseButtonDirection(event.button, process.platform)
+  if (direction === null) return
+  event.preventDefault()
+  if (direction === "back") history.back()
+  else history.forward()
+})
 
 // A task key clicked in the panel: the web app opens it as it does one clicked in its own viewer's
 // iframe, from a same-origin `cello:task` message (the web app checks the key).

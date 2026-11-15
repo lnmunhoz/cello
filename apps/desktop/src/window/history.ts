@@ -18,8 +18,15 @@ export const historyShortcut = (input: KeyInput, platform: string): HistoryDirec
 export const appCommandDirection = (command: string): HistoryDirection | null =>
   command === "browser-backward" ? "back" : command === "browser-forward" ? "forward" : null
 
-/** A mouse's back and forward buttons as the page sees them (`MouseEvent.button`), which is how macOS reports them. */
-export const mouseButtonDirection = (button: number): HistoryDirection | null => (button === 3 ? "back" : button === 4 ? "forward" : null)
+/**
+ * What the board's preload does with a mouse button as the page sees it (`MouseEvent.button`): 3 goes
+ * back and 4 forward, on macOS only, which reports them nowhere else. On Windows and Linux they arrive
+ * as app commands (`appCommandDirection`), so the preload leaves them alone and the board moves once.
+ */
+export const mouseButtonDirection = (button: number, platform: string): HistoryDirection | null => {
+  if (platform !== "darwin") return null
+  return button === 3 ? "back" : button === 4 ? "forward" : null
+}
 
 /** A trackpad swipe on macOS (Electron's `swipe`, with "Swipe between pages" set to swipe): left goes back, right forward. */
 export const swipeDirection = (direction: string): HistoryDirection | null =>

@@ -34,11 +34,18 @@ describe("the other ways back and forward", () => {
     expect(appCommandDirection("media-play")).toBeNull()
   })
 
-  it("and as DOM mouse buttons 3 and 4 on macOS", () => {
-    expect(mouseButtonDirection(3)).toBe("back")
-    expect(mouseButtonDirection(4)).toBe("forward")
-    expect(mouseButtonDirection(0)).toBeNull()
-    expect(mouseButtonDirection(2)).toBeNull()
+  it("and as DOM mouse buttons 3 and 4 on macOS, which the board's preload takes", () => {
+    expect(mouseButtonDirection(3, "darwin")).toBe("back")
+    expect(mouseButtonDirection(4, "darwin")).toBe("forward")
+    for (const button of [0, 1, 2, 5]) expect(mouseButtonDirection(button, "darwin")).toBeNull()
+  })
+
+  it("the preload ignores mouse buttons on Windows and Linux, where the app command already moves: one step, never two", () => {
+    for (const platform of ["linux", "win32"]) {
+      expect(mouseButtonDirection(3, platform)).toBeNull()
+      expect(mouseButtonDirection(4, platform)).toBeNull()
+      expect(appCommandDirection("browser-backward")).toBe("back")
+    }
   })
 
   it("a trackpad swipe: left goes back, right goes forward", () => {
