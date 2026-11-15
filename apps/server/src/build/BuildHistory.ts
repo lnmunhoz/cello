@@ -94,28 +94,32 @@ export const layer = (options: BuildHistoryOptions = {}) =>
       if (web === null) return null
       const commit = build.commit ?? web.commit
       const id = buildKey({ version: build.version, commit, builtAt: web.builtAt })
-      // The command id is the build's: its first start inserts it; any later start finds the receipt and
-      // writes nothing, and only the last start moves below.
-      yield* commands.write({ commandId: `build:${id}`, rpc: "build.record" }, ({ now, emit }) =>
-        Effect.gen(function* () {
-          const [previous] = yield* sql<{ number: number; commit_hash: string | null }>`
-            SELECT number, commit_hash FROM builds ORDER BY number DESC LIMIT 1`
-          const changes = changesSince({
-            previous: previous ? { commit: previous.commit_hash } : null,
-            commit,
-            webChanges: web.changes,
-            changesBetween: options.changesBetween,
-          })
-          yield* sql`INSERT INTO builds (id, number, version, commit_hash, web_built_at, started_at, last_started_at, changes, created_at)
-            VALUES (${id}, ${(previous?.number ?? 0) + 1}, ${build.version}, ${commit}, ${web.builtAt}, ${build.startedAt},
-                    ${build.startedAt}, ${JSON.stringify(changes)}, ${now})`
-          const recorded = (yield* byId(id))!
-          const workspaces = yield* sql<{ id: string }>`SELECT id FROM workspaces WHERE archived_at IS NULL ORDER BY position`
-          for (const workspace of workspaces) {
-            yield* emit({ type: "build.recorded", build: recorded }, { workspaceId: workspace.id, projectId: null })
-          }
-          return id
-        }))
+      // A build already recorded (a restart) is found by its id; only its last start moves below.
+      if ((yield* byId(id)) === null) {
+        // Git runs here, before the write, so the transaction stays short.
+        const [previous] = yield* sql<{ commit_hash: string | null }>`SELECT commit_hash FROM builds ORDER BY number DESC LIMIT 1`
+        const changes = changesSince({
+          previous: previous ? { commit: previous.commit_hash } : null,
+          commit,
+          webChanges: web.changes,
+          changesBetween: options.changesBetween,
+        })
+        yield* commands.write({ commandId: `build:${id}:${build.startedAt}`, rpc: "build.record" }, ({ now, emit }) =>
+          Effect.gen(function* () {
+            // Inserted once per id, whatever became of earlier command receipts.
+            if ((yield* sql`SELECT 1 FROM builds WHERE id = ${id}`).length > 0) return id
+            const [next] = yield* sql<{ number: number }>`SELECT COALESCE(MAX(number), 0) + 1 AS number FROM builds`
+            yield* sql`INSERT INTO builds (id, number, version, commit_hash, web_built_at, started_at, last_started_at, changes, created_at)
+              VALUES (${id}, ${next!.number}, ${build.version}, ${commit}, ${web.builtAt}, ${build.startedAt},
+                      ${build.startedAt}, ${JSON.stringify(changes)}, ${now})`
+            const recorded = (yield* byId(id))!
+            const workspaces = yield* sql<{ id: string }>`SELECT id FROM workspaces WHERE archived_at IS NULL ORDER BY position`
+            for (const workspace of workspaces) {
+              yield* emit({ type: "build.recorded", build: recorded }, { workspaceId: workspace.id, projectId: null })
+            }
+            return id
+          }))
+      }
       yield* sql`UPDATE builds SET last_started_at = ${build.startedAt} WHERE id = ${id} AND last_started_at < ${build.startedAt}`
       running = id
       return yield* byId(id)
@@ -140,9 +144,16 @@ export const layer = (options: BuildHistoryOptions = {}) =>
     return BuildHistory.of({ record, list })
   }))
 
-/** Records the build this server starts on, as the human (the one who deploys). Part of server start. */
+/**
+ * Records the build this server starts on, as the human (the one who deploys). Part of server start,
+ * but never what stops it: a failure (a missing table after a migration mix-up) is logged as a warning,
+ * nothing is marked running, and the board comes up anyway.
+ */
 export const recordOnStart = Layer.effectDiscard(Effect.gen(function* () {
   const build = yield* (yield* BuildInfo).get()
   const human = yield* Seed.HumanActor
-  yield* (yield* BuildHistory).record(build).pipe(Effect.provideService(Caller, { actorId: human.id, sessionId: null }))
+  yield* (yield* BuildHistory).record(build).pipe(
+    Effect.provideService(Caller, { actorId: human.id, sessionId: null }),
+    Effect.catchCause((cause) => Effect.logWarning("Couldn't record this build in the build history; starting without it.", cause)),
+  )
 }))

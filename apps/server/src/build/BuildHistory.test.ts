@@ -6,8 +6,10 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as EventStore from "../events/EventStore.ts"
+import builds from "../persistence/migrations/0005_builds.ts"
 import { asHuman, services } from "../testing/TestLayers.ts"
 import * as BuildHistory from "./BuildHistory.ts"
+import { BuildInfo } from "./BuildInfo.ts"
 
 const VERSION = "0.2.0"
 
@@ -124,6 +126,47 @@ describe("recording builds", () => {
     Effect.gen(function* () {
       const build = serverBuild("aaaaaaa", 1_000, 5_000)
       expect(yield* record({ ...build, commit: null })).toMatchObject({ id: "0.2.0+aaaaaaa.1000", commit: "aaaaaaa" })
+    }).pipe(Effect.provide(layer(between))))
+})
+
+describe("recording builds safely", () => {
+  it.effect("a restart finds the build by its id even when its command receipt is gone (pruned): one row, one event, the last start moves", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      const first = yield* record(serverBuild("aaaaaaa", 1_000, 5_000))
+      yield* sql`DELETE FROM command_receipts`
+      const again = yield* record(serverBuild("aaaaaaa", 1_000, 9_000))
+      expect(again).toEqual({ ...first, lastStartedAt: 9_000 })
+      expect((yield* list()).builds).toHaveLength(1)
+      expect(yield* buildEvents).toHaveLength(1)
+    }).pipe(Effect.provide(layer(between))))
+
+  it.effect("asks git only for a new build, before its write: never on a restart of a recorded one", () =>
+    Effect.gen(function* () {
+      const asked: string[] = []
+      const counting = (from: string, to: string) => {
+        asked.push(`${from}..${to}`)
+        return between(from, to)
+      }
+      yield* Effect.gen(function* () {
+        yield* record(serverBuild("aaaaaaa", 1_000, 5_000))
+        yield* record(serverBuild("bbbbbbb", 2_000, 6_000))
+        yield* record(serverBuild("bbbbbbb", 2_000, 7_000))
+        yield* record(serverBuild("bbbbbbb", 2_000, 8_000))
+      }).pipe(Effect.provide(layer(counting)))
+      expect(asked).toEqual(["aaaaaaa..bbbbbbb"])
+    }))
+
+  it.effect("a failure to record (here, no builds table after a migration mix-up) never stops the server starting: nothing is marked running", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      yield* sql`DROP TABLE builds`
+      const started = Layer.build(BuildHistory.recordOnStart).pipe(
+        Effect.provideService(BuildInfo, BuildInfo.of({ get: () => Effect.succeed(serverBuild("aaaaaaa", 1_000, 5_000)) })),
+      )
+      expect((yield* Effect.exit(Effect.scoped(started)))._tag).toBe("Success")
+      yield* builds
+      expect(yield* list()).toEqual({ builds: [], running: null, next: null })
     }).pipe(Effect.provide(layer(between))))
 })
 
