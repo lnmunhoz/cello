@@ -1,5 +1,6 @@
 // Runs `cello` commands in this process against a real server, capturing what they print.
 import * as fs from "node:fs"
+import * as os from "node:os"
 import * as path from "node:path"
 import * as BunServices from "@effect/platform-bun/BunServices"
 import * as Console from "effect/Console"
@@ -15,6 +16,13 @@ export interface Output {
   readonly failure: string | null
 }
 
+/**
+ * HOME for every command a test runs, unless the test sets its own: a temp path that's never created.
+ * The default data folder (~/.cello) then resolves inside it, so a test that forgets CELLO_DATA_DIR
+ * finds nothing there instead of reaching Lucas's real board.
+ */
+export const TEST_HOME = path.join(os.tmpdir(), `cello-test-home-${process.pid}-never-created`)
+
 export const cello = (options: { readonly port: number; readonly env?: Env; readonly cwd: string; readonly stdin?: string }) =>
   (...args: string[]): Effect.Effect<Output> =>
     Effect.gen(function* () {
@@ -26,7 +34,7 @@ export const cello = (options: { readonly port: number; readonly env?: Env; read
       })
       const exit = yield* run(args).pipe(
         Effect.provideService(CliEnv, {
-          env: { CELLO_PORT: String(options.port), ...options.env },
+          env: { CELLO_PORT: String(options.port), HOME: TEST_HOME, CELLO_DATA_DIR: path.join(TEST_HOME, ".cello"), ...options.env },
           cwd: options.cwd,
           now: () => Date.now(),
           readStdin: () => Promise.resolve(options.stdin ?? ""),

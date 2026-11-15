@@ -68,6 +68,13 @@ describe("docs/cli.md and cello guide", () => {
     expect(fs.readFileSync(GUIDE_PATH, "utf8"), "apps/cli/src/guide.ts is out of date: run `bun run docs:cli`").toBe(guideModule(doc))
   })
 
+  it("documents a command that runs by itself and has subcommands too: cello backup and cello backup list", async () => {
+    const reference = await Effect.runPromise(referenceFromCli)
+    expect(reference).toContain("### cello backup\n")
+    expect(reference).toContain("### cello backup list\n")
+    expect(reference).not.toContain("### cello task\n")
+  })
+
   it("documents every command with a description on each argument and flag", async () => {
     const reference = await Effect.runPromise(referenceFromCli)
     expect(reference).not.toContain("(no description yet)")

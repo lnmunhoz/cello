@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatBytes, formatDay, formatDue, relativeTime } from "./format.ts"
+import { formatDay, formatDue, relativeTime } from "./format.ts"
 
 describe("format", () => {
   it("shows a day as a short month and day, with the year only when it differs", () => {
@@ -12,12 +12,6 @@ describe("format", () => {
     const now = new Date(2026, 10, 14, 12).getTime()
     expect(formatDue("2026-11-20", now)).toBe("Nov 20")
     expect(formatDue("2027-01-02", now)).toBe("Jan 2, 2027")
-  })
-
-  it("shows a file size in B, KB or MB", () => {
-    expect(formatBytes(512)).toBe("512 B")
-    expect(formatBytes(20_480)).toBe("20 KB")
-    expect(formatBytes(3.4 * 1024 * 1024)).toBe("3.4 MB")
   })
 
   it("says how long ago something happened", () => {

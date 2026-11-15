@@ -252,6 +252,23 @@ open "cello://CEL-12"                    # focuses the app on a task
 
 Use his browser only when the desktop app isn't running.
 
+## Backups
+
+The server backs up its data folder every day: the database and every evidence file (videos, screenshots, page images), into `~/.cello/backups/<YYYYMMDD-HHMMSS>/`.
+
+```bash
+cello backup                     # take one now: prints the folder, its size, files linked vs copied
+cello backup --json              # the same as JSON
+cello backup list                # id, when, kind, size and file count, newest first
+cello restore 20261115-120000    # only when Lucas asks, with Cello stopped
+```
+
+- **When:** when the server starts, if the newest daily backup is 24 hours old (or there's none), then every 24 hours. Take one by hand before something risky.
+- **Small:** files unchanged since the previous backup are hard links to it, so a backup only adds what changed.
+- **With or without a server:** `cello backup` and `cello backup list` ask the server on `CELLO_PORT`. When none answers, they work on `CELLO_DATA_DIR` (`~/.cello` by default) directly; `cello backup` then holds the data folder's lock while it copies, as a server would.
+- **What's kept:** the newest 14 of each kind, counted apart: **auto** (the daily ones), **manual** (`cello backup`) and **safety** (the copy of the current state that restore takes first). Taking many manual backups never pushes out the daily history or the undo for a restore. Only Cello's own folders (a `YYYYMMDD-HHMMSS` name and a manifest.json) are ever pruned; anything else in `backups/` is left alone.
+- **Restore** replaces the database and evidence files with a backup's. Stop Cello first (Ctrl-C where `cello start` runs, or quit the desktop app): it refuses while a server runs. It takes a safety backup of the current state first ("before restoring <id>" in the list), so restoring that one undoes it. **Agents run `cello restore` only when Lucas asks.**
+
 ## Identity and environment
 
 | Variable | What it does |
@@ -280,6 +297,10 @@ Every error is one sentence that says what to do next. The usual ones:
 | Only Lucas can approve a review | Approving and sending back are his. | Leave the task in In Review. |
 | This folder isn't in a git repository | The CLI can't work out the project. | Pass `--project KEY`. |
 | No project is linked to /path | This repository isn't a Cello project yet. | Pass `--project KEY`, or ask Lucas. |
+| Cello is running for …, and restore only runs while it's stopped | `cello restore` runs only while no server does. Nothing was changed. | Lucas stops Cello, then runs it again. |
+| No backup 20261115-120000 in … | That backup id doesn't exist. | `cello backup list` shows the real ones. |
+| The backup failed (…) | The disk is full, or a file in `assets/` can't be read. Nothing was saved. | Tell Lucas, with the message. |
+| The restore of … failed while … | The disk or a file got in the way. The sentence says whether anything changed, the safety backup's id and, if needed, where the data was kept. | Tell Lucas, with the message. Don't start Cello if it says not to. |
 
 ## Command reference
 
@@ -558,6 +579,43 @@ Run the Cello server on 127.0.0.1:4747 with data in ~/.cello (CELLO_PORT, CELLO_
 ```
 cello start [flags]
 ```
+
+### cello backup
+
+Back up the database and every evidence file (videos, screenshots, page images) now, into <data folder>/backups/<YYYYMMDD-HHMMSS>/, and print the folder, its size and how many files were linked or copied. The server already takes one a day and keeps 14 of those; take one by hand before something risky, like a bulk change or trying a new build on your real board. Files unchanged since the previous backup become hard links to it, so a backup only adds what changed. Talks to the running server on CELLO_PORT; with none running, it backs up CELLO_DATA_DIR (default ~/.cello) itself.
+
+```
+cello backup <subcommand> [flags]
+```
+
+| | |
+| --- | --- |
+| `--json` | Print the backup as JSON (id, path, sizes, file counts) for scripts. |
+
+### cello backup list
+
+List the backups, newest first: the id (the folder name, which `cello restore` takes), when it was taken, its kind (auto: the daily one; manual: `cello backup`; safety: the copy of the current state `cello restore` takes first, which undoes that restore), its size (the database plus its files, counting files shared with other backups in each) and how many evidence files it holds. The newest 14 of each kind are kept. Use it to pick a backup to restore. Only Cello's own backups are listed; other folders in backups/ are left alone. Works whether or not Cello is running.
+
+```
+cello backup list [flags]
+```
+
+| | |
+| --- | --- |
+| `--json` | Print the backups as a JSON array, newest first, for scripts. |
+
+### cello restore
+
+Put a backup's database and evidence files back in place of the current ones, in CELLO_DATA_DIR (default ~/.cello). Use it when the board's data is lost or damaged. Stop Cello first (Ctrl-C where `cello start` runs, or quit the desktop app): restore refuses while a server holds the data folder. It first takes a safety backup of the current state (kind safety, "before restoring <id>"), so restoring that one undoes it. Agents run it only when Lucas asks.
+
+```
+cello restore [flags] <id>
+```
+
+| | |
+| --- | --- |
+| `id string` | The backup to restore: its id from `cello backup list`, e.g. 20261115-120000. |
+| `--json` | Print what was restored, and the safety backup, as JSON. |
 
 ### Flags every command takes
 

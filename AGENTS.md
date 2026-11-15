@@ -44,6 +44,13 @@ Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port
   - pick the kind by what it's for: `--kind page` for a report on finished work (a snapshot to read now), `--kind doc` for an explanation of how something works (kept up to date when it changes), `--kind spec` for a plan before the work (linked to its tasks). When in doubt: a page is about a moment, a doc is about the system. The Docs tab's *Docs, specs and pages* doc explains it.
 - to show Lucas a page, video or artifact, open it **inside Cello**: `open "cello://open?url=<url-encoded link>"` opens it in the desktop app's browser panel (claude.ai artifacts included). Use his browser only when the app isn't running.
 
+## Backups
+
+The server backs up `<dataDir>` into `<dataDir>/backups/<YYYYMMDD-HHMMSS>/` (cello.db via `VACUUM INTO`, assets/ with unchanged files hard-linked to the previous backup, manifest.json): at start when the newest auto backup is 24 h old, then every 24 h. It keeps the newest 14 of each kind (auto, manual, and the safety backup restore takes first) and never touches folders it didn't make. `cello backup` takes one now, `cello backup list` lists them, `cello restore <id>` puts one back while no server runs (taking a safety backup first). Code: `apps/server/src/backup/`.
+
+- Agents run `cello restore` only when Lucas asks. The command reference is in docs/cli.md.
+- Tests start servers with `autoBackup` off (`startServer`); the schedule is tested with TestClock.
+
 ## How a task flows: build, review, merge, submit
 
 The session running the work (the orchestrator) claims the task, then:

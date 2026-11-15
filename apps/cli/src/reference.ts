@@ -77,7 +77,11 @@ export interface CommandPage {
   readonly page: HelpPage
 }
 
-/** Every command that does something (the leaves of the tree), in the order `cello --help` lists them. */
+/**
+ * Every command that does something, in the order `cello --help` lists them: the leaves of the tree,
+ * and a command with subcommands that also runs by itself (it takes flags or arguments, like
+ * `cello backup` beside `cello backup list`).
+ */
 export const commandPages = Effect.gen(function* () {
   const root = parseHelp(yield* helpFor([]))
   const pages: CommandPage[] = []
@@ -86,8 +90,9 @@ export const commandPages = Effect.gen(function* () {
       Effect.gen(function* () {
         const commandPath = [...prefix, name]
         const page = parseHelp(yield* helpFor(commandPath))
-        if (page.subcommands.length > 0) return yield* walk(commandPath, page.subcommands.map((s) => s.name))
-        pages.push({ path: commandPath, page })
+        const runsItself = page.subcommands.length === 0 || page.flags.length > 0 || page.arguments.length > 0
+        if (runsItself) pages.push({ path: commandPath, page })
+        if (page.subcommands.length > 0) yield* walk(commandPath, page.subcommands.map((s) => s.name))
       }), { discard: true })
   yield* walk([], root.subcommands.map((s) => s.name))
   return { pages, globalFlags: root.globalFlags }

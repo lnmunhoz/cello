@@ -1,5 +1,6 @@
 // Errors say what to do next, from one table keyed by error tag.
 import { HumanOnly, NotFound, ReviewRequired, TaskClaimed } from "@cello/contract/errors"
+import { BackupFailed, RestoreBlocked, RestoreFailed } from "@cello/server/backup/offline"
 import { describe, expect, it } from "vitest"
 import { explain } from "./errors.ts"
 
@@ -45,6 +46,48 @@ describe("explain", () => {
   it("only the human decides reviews", () => {
     expect(explain(new HumanOnly({ action: "approve a review", human: "Lucas" }), where)).toBe(
       "Only Lucas can approve a review. Leave the task in In Review; Lucas decides on the Review page.",
+    )
+  })
+
+  it("a restore refused while Cello runs says nothing changed and how to stop it", () => {
+    expect(explain(new RestoreBlocked({ id: "20261115-120000", dataDir: "/data", pid: 42, port: 4747 }), where)).toBe(
+      "Cello is running for /data (pid 42, http://127.0.0.1:4747), and restore only runs while it's stopped; nothing was changed. " +
+        "Stop it: press Ctrl-C in the terminal running `cello start`, or quit the Cello desktop app (there's no `cello stop` yet). " +
+        "Then run `cello restore 20261115-120000` again.",
+    )
+  })
+
+  it("a failed restore says what failed, whether anything changed, and the safety backup", () => {
+    const failure = { id: "20261115-120000", dataDir: "/data", step: "swapping the files in", reason: "EPERM: operation not permitted" }
+    expect(explain(new RestoreFailed({ ...failure, unchanged: true, safetyId: "20261115-130000", keptAt: null }), where)).toBe(
+      "The restore of 20261115-120000 failed while swapping the files in (EPERM: operation not permitted). " +
+        "Nothing was changed: your data is as it was, and safety backup 20261115-130000 holds it too.",
+    )
+    expect(explain(new RestoreFailed({ ...failure, step: "copying the backup", unchanged: true, safetyId: null, keptAt: null }), where)).toBe(
+      "The restore of 20261115-120000 failed while copying the backup (EPERM: operation not permitted). Nothing was changed: your data is as it was.",
+    )
+  })
+
+  it("a restore that couldn't move the files back says where the data is and how to put it back", () => {
+    expect(explain(new RestoreFailed({
+      id: "20261115-120000",
+      dataDir: "/data",
+      step: "swapping the files in",
+      reason: "EPERM: operation not permitted",
+      unchanged: false,
+      safetyId: "20261115-130000",
+      keptAt: "/data/.restore-20261115-120000-1",
+    }), where)).toBe(
+      "The restore of 20261115-120000 failed while swapping the files in (EPERM: operation not permitted), and moving your files back failed too. " +
+        "Don't start Cello yet: your data is in /data/.restore-20261115-120000-1/previous. Move everything in it back into /data, " +
+        "replacing what's there, or run `cello restore 20261115-130000` (the safety backup taken just before).",
+    )
+  })
+
+  it("a failed backup says why, that nothing was saved, and what to check", () => {
+    expect(explain(new BackupFailed({ dataDir: "/data", reason: "ENOSPC: no space left on device, write" }), where)).toBe(
+      "The backup failed (ENOSPC: no space left on device, write). Nothing was saved, and your data and earlier backups are untouched. " +
+        "Check that the disk has room, that every file in /data/assets can be read and that /data/backups can be written, then run `cello backup` again.",
     )
   })
 

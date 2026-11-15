@@ -1,11 +1,11 @@
 import { attachmentUrl, evidenceTarget, posterUrl } from "@cello/client/sync/reviews"
 import type { Attachment } from "@cello/contract/entities"
+import { formatBytes } from "@cello/shared/bytes"
 import { shortUrl } from "@cello/shared/linkify"
 import { ExternalLinkIcon, FileTextIcon, PanelRightOpenIcon } from "lucide-react"
 import { useRef, type MouseEvent } from "react"
 import { Button, ButtonLink } from "../components/ui/Button.tsx"
 import { openInPanel } from "../lib/desktop.ts"
-import { formatBytes } from "../lib/format.ts"
 import { isPlainClick } from "../viewer/viewer.ts"
 
 /** Opens a piece of evidence beside the board: the viewer, or the desktop app's panel. */

@@ -7,6 +7,9 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 
+/** The folder inside the data folder that holds every stored file. */
+export const ASSETS_DIR = "assets"
+
 export class AssetStore extends Context.Service<AssetStore, {
   /** `<dataDir>/assets`. */
   readonly dir: string
@@ -28,6 +31,19 @@ export interface AssetStoreOptions {
   readonly dir: string
   /** The ffmpeg binary for posters; null skips them. Defaults to the one on PATH. */
   readonly ffmpeg?: string | null
+}
+
+/** The SHA-256 of a file as hex, read in 1 MB chunks so a long video never sits in memory whole. */
+export const sha256File = (file: string): string => {
+  const hasher = new Bun.CryptoHasher("sha256")
+  const fd = fs.openSync(file, "r")
+  try {
+    const chunk = Buffer.allocUnsafe(1 << 20)
+    for (let read = fs.readSync(fd, chunk); read > 0; read = fs.readSync(fd, chunk)) hasher.update(chunk.subarray(0, read))
+  } finally {
+    fs.closeSync(fd)
+  }
+  return hasher.digest("hex")
 }
 
 const run = (cmd: ReadonlyArray<string>) =>
@@ -60,7 +76,7 @@ export const make = (options: AssetStoreOptions) => {
     }).pipe(Effect.withSpan("AssetStore.copyIn"))
 
   const hashOf = (file: string) =>
-    Effect.sync(() => new Bun.CryptoHasher("sha256").update(fs.readFileSync(file)).digest("hex")).pipe(Effect.withSpan("AssetStore.hashOf"))
+    Effect.sync(() => sha256File(file)).pipe(Effect.withSpan("AssetStore.hashOf"))
 
   const nonEmpty = (file: string) => {
     try {

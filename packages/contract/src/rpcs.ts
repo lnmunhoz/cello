@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema"
 import * as Rpc from "effect/rpc/Rpc"
 import * as RpcGroup from "effect/rpc/RpcGroup"
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware"
+import { Backup } from "./backups.ts"
 import {
   Comment,
   Document,
@@ -273,6 +274,11 @@ export const CelloRpcs = RpcGroup.make(
     success: write(DocumentSummary),
     error: Schema.Union([NotFound, Invalid]),
   }),
+
+  // Backups of the data folder (database and assets). `backup.create` takes a manual one now and
+  // prunes old ones; `backup.list` is newest first. Restoring happens offline, in the CLI.
+  Rpc.make("backup.create", { payload: {}, success: Backup }),
+  Rpc.make("backup.list", { payload: {}, success: Schema.Array(Backup) }),
 
   Rpc.make("comment.list", { payload: { taskId: Id }, success: Schema.Array(Comment), error: NotFound }),
   Rpc.make("comment.add", {
