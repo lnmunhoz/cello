@@ -4,6 +4,42 @@ Everything an agent needs to work with Cello through the `cello` command: the id
 
 This page is kept current: any change to a command, a flag, an output or a rule updates it in the same commit. The command reference at the end is generated from the CLI's own `--help`.
 
+## Set up a repo for Cello
+
+When Lucas says "use Cello in this repo", or `cello context` fails here, go through these steps in order. Each one checks first, so running them again is safe.
+
+```mermaid
+flowchart TD
+    A["① Is the cello CLI installed?<br/>cello --version"] --> B["② Is Cello running?<br/>cello whoami: server answers"]
+    B --> C{"③ Is this repo a Cello project?<br/>cello context"}
+    C -->|yes| E
+    C -->|"no: not linked"| D["Ask Lucas to create the project<br/>(name, key, this repo's path)"]
+    D --> E["④ Hooks: cello install claude"]
+    E --> F["⑤ Tell this repo's agents:<br/>a Cello section in AGENTS.md / CLAUDE.md"]
+    F --> G(["⑥ Check: cello context shows the project"])
+```
+
+1. **The CLI.** `cello --version` prints a version. If the command isn't found, stop and tell Lucas: `cello` is installed from his Cello repo (`apps/cli`, linked at `~/.local/bin/cello`). Never install it yourself.
+2. **The server.** `cello whoami` prints JSON with a `server` entry. If it says Cello isn't running, ask Lucas to open the Cello desktop app or run `cello start`. Don't start it yourself, since it serves his real data.
+3. **The project.** `cello context`, run inside this repo, shows the project and its key. If it says no project is linked to this folder, ask Lucas to create one:
+   - in Cello: **New project** in the sidebar, with a name, a short key (e.g. `THAI`) and this repo's path (`git rev-parse --show-toplevel`)
+   - an agent can't create projects from the CLI yet (CEL-41 adds `cello init`)
+4. **Hooks, so Lucas's comments reach your session.** Run `cello install claude`. It writes this machine's `.claude/settings.local.json` and makes sure git ignores it. It keeps a `.bak` of the old file; ignore that too if the repo's `.gitignore` doesn't cover it. Run it again any time; it changes nothing the second time.
+5. **Tell the repo's agents.** Add this section to the repo's AGENTS.md, or to CLAUDE.md if there's no AGENTS.md, replacing `KEY` with the project's key. Change nothing else in the file:
+
+   ```markdown
+   ## Tracking work in Cello
+
+   This repo's tasks live in Cello, project **KEY** on Lucas's board. Agents use it only through the `cello` CLI.
+
+   - Before your first `cello` command in a session, run `cello guide` once: it's the full reference (concepts, workflow, every command, what each error means). Don't guess.
+   - Run `cello context` at the start of each session.
+   - Claim a task before working on it (`cello task claim KEY-n`), and put the key in commit messages (`fix(api): rate limit (KEY-12)`).
+   - Hand finished work to Lucas only with `cello task submit`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
+   - Answer Lucas on the card with `cello task comment`. His comments come to your session by themselves.
+   ```
+6. **Check.** `cello context` shows the project, its statuses and labels. Tell Lucas the repo is set up: the project key, that the hooks are installed, and that the AGENTS.md section was added (uncommitted, unless he asks you to commit it).
+
 ## Concepts
 
 **Cello** is the task board Lucas shares with his agents. Its server runs on his Mac (`cello start`, http://127.0.0.1:4747, data in `~/.cello`). The board in the browser, the desktop app and the CLI all talk to that server, and every change shows up live everywhere.
