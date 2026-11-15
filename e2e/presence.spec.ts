@@ -220,3 +220,78 @@ test("CEL-35: Display → Group In Progress by stage splits the column into lane
   for (const taskKey of keys) await agent.run((c) => c["task.release"]({ commandId: newCommandId(), key: taskKey }))
   await agent.close()
 })
+
+test("CEL-5: a comment is activity: the card says who commented just now, with a count, and moves up under Last updated", async ({ page, cello, baseURL }) => {
+  const key = uniqueKey("TALK")
+  const project = await seedProject(cello, "Comments on cards", key)
+  const { statuses } = await defaultWorkspace(cello)
+  const ids: string[] = []
+  for (const title of ["Write the release notes", "Fix the drop zone", "Plan the next milestone"]) {
+    const { result } = await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title, statusId: statuses.Todo!.id }))
+    ids.push(result.id)
+  }
+  const [oldest, middle, newest] = [`${key}-1`, `${key}-2`, `${key}-3`]
+  const todo = column(page, "Todo").locator("[data-task-key]")
+  const order = async (keys: ReadonlyArray<string>) => {
+    for (const [i, k] of keys.entries()) await expect(todo.nth(i)).toHaveAttribute("data-task-key", k)
+  }
+  // The session holds a task of its own (In Progress), so the board knows it by its short id.
+  const agent = await agentAs(baseURL!, "2fd0505c-presence-talk", process.pid)
+  await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title: "Agent's own work", statusId: statuses.Todo!.id }))
+  await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: `${key}-4` }))
+  await page.goto(`/${key}/issues`)
+  await expect(todo).toHaveCount(3)
+
+  await caption(page, "Display → Ordering → Last updated: the newest task is on top, and no card has comments yet")
+  await display(page).click()
+  await page.getByRole("combobox", { name: "Ordering", exact: true }).click()
+  await page.getByRole("option", { name: "Last updated", exact: true }).click()
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("dialog", { name: "Display options" })).toBeHidden()
+  await order([newest, middle, oldest])
+  await expect(todo.locator("[data-comment-count]")).toHaveCount(0)
+
+  await caption(page, "Session 2fd0505c comments on the oldest task: its card says so, shows one comment, and moves to the top")
+  await agent.run((c) => c["comment.add"]({ commandId: newCommandId(), taskId: ids[0]!, body: "Started on the notes: the draft is in the PR." }))
+  const commented = card(page, oldest)
+  await expect(commented.locator("[data-provenance]")).toHaveText(/created · 2fd0505c commented just now$/)
+  await expect(commented.locator("[data-comment-count]")).toHaveText("1")
+  await order([oldest, newest, middle])
+
+  await caption(page, "Lucas replies: the card names him now, and counts two")
+  await cello.run((c) => c["comment.add"]({ commandId: newCommandId(), taskId: ids[0]!, body: "Thanks, I'll read it tonight." }))
+  await expect(commented.locator("[data-provenance]")).toHaveText(/created · commented just now$/)
+  await expect(commented.locator("[data-comment-count]")).toHaveText("2")
+  await expect(commented.locator("[data-comment-count]")).toHaveAttribute("aria-label", "2 comments")
+
+  await caption(page, "Session 2fd0505c comments on the middle task: it moves up to the top")
+  await agent.run((c) => c["comment.add"]({ commandId: newCommandId(), taskId: ids[1]!, body: "Found the cause: the lane's drop zone is too wide." }))
+  await expect(card(page, middle).locator("[data-provenance]")).toHaveText(/created · 2fd0505c commented just now$/)
+  await order([middle, oldest, newest])
+  for (const theme of ["light", "dark"] as const) {
+    await page.evaluate((dark) => document.documentElement.classList.toggle("dark", dark), theme === "dark")
+    await column(page, "Todo").screenshot({ path: path.join(SHOTS, `cel-5-comments-column-${theme}.png`), animations: "disabled" })
+    await commented.screenshot({ path: path.join(SHOTS, `cel-5-comments-card-${theme}.png`), animations: "disabled" })
+  }
+  await page.evaluate(() => document.documentElement.classList.remove("dark"))
+
+  await caption(page, "Renaming the task is a change again: the card says changed, and keeps its count")
+  const { task } = await cello.run((c) => c["task.get"]({ key: oldest }))
+  await agent.run((c) => c["task.update"]({ commandId: newCommandId(), id: task.id, expectedVersion: task.version, title: "Write the release notes for 0.4" }))
+  await expect(commented.locator("[data-provenance]")).toHaveText(/created · 2fd0505c changed just now$/)
+  await expect(commented.locator("[data-comment-count]")).toHaveText("2")
+
+  await caption(page, "The list: each row with comments shows its count; the full provenance is on hover")
+  await page.goto(`/${key}/issues?layout=list`)
+  const row = page.locator(`[data-layout="list"] [data-task-key="${middle}"]`)
+  await expect(row.locator("[data-comment-count]")).toHaveText("1")
+  await expect(row.locator("[data-provenance]")).toHaveAttribute("title", /last commented by Claude Code session 2fd0505c, just now$/)
+  await expect(page.locator(`[data-layout="list"] [data-task-key="${newest}"] [data-comment-count]`)).toHaveCount(0)
+  for (const theme of ["light", "dark"] as const) {
+    await page.evaluate((dark) => document.documentElement.classList.toggle("dark", dark), theme === "dark")
+    await page.screenshot({ path: path.join(SHOTS, `cel-5-comments-list-${theme}.png`) })
+  }
+  await page.evaluate(() => document.documentElement.classList.remove("dark"))
+  await agent.run((c) => c["task.release"]({ commandId: newCommandId(), key: `${key}-4` }))
+  await agent.close()
+})
