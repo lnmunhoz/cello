@@ -939,49 +939,62 @@ const init = Command.make("init", {
     }
     const { project, created } = yield* withClient((client) =>
       Effect.gen(function* () {
-        const linked = (yield* client["whoami"]({ project: { repoPath } })).project
+        const linkedProject = Effect.map(client["whoami"]({ project: { repoPath } }), (w) => w.project)
+        const linked = yield* linkedProject
         if (linked) return { project: linked, created: false }
         const { workspaces } = yield* client["snapshot.get"]({})
         const workspace = Option.isSome(input.workspace) ? yield* byName("workspace", workspaces, input.workspace.value) : workspaces[0]!
-        const { result } = yield* client["project.create"]({
+        return yield* client["project.create"]({
           commandId: newCommandId(),
           workspaceId: workspace.id,
           name: Option.getOrElse(input.name, () => path.basename(repoPath)),
           repoPath,
           ...(Option.isSome(input.key) ? { key: input.key.value } : {}),
-        }).pipe(Effect.catchTag("Invalid", (e) =>
-          Effect.fail(
-            e.field === "key"
-              ? new CliFailure({ message: `--key ${Option.getOrElse(input.key, () => "")} won't do: a key ${e.reason}.` })
-              // whoami found no live project for this path, so the one holding it is archived.
-              : e.field === "repoPath"
-              ? new CliFailure({
-                message: `${repoPath} belongs to ${e.reason.replace(/^already used by /, "")}, an archived project, so it can't be linked again. ` +
-                  "Ask Lucas what to do with it.",
-              })
-              : e,
-          )))
-        return { project: result, created: true }
+        }).pipe(
+          Effect.map((written) => ({ project: written.result, created: true })),
+          Effect.catchTag("Invalid", (e) =>
+            Effect.gen(function* () {
+              if (e.field === "key") {
+                return yield* new CliFailure({ message: `--key ${Option.getOrElse(input.key, () => "")} won't do: a key ${e.reason}.` })
+              }
+              if (e.field !== "repoPath") return yield* e
+              // Another `cello init` may have linked it a moment ago; otherwise an archived project holds the path.
+              const now = yield* linkedProject
+              if (now) return { project: now, created: false }
+              return yield* new CliFailure({ message: `${repoPath} is ${e.reason}, so it can't be linked again. Ask Lucas what to do with it.` })
+            })),
+        )
       })
     )
     const url = boardUrl(env, project.key)
-    const hooks = input.hooks ? yield* installHooks("local") : null
+    const ignored = (["key", "name", "workspace"] as const).filter((flag) => Option.isSome(input[flag])).map((flag) => `--${flag}`)
+    // Said first, so a failing --hooks or --agents-md still leaves the project's state on screen.
+    if (!input.json) {
+      yield* print([
+        created
+          ? `Created project ${project.key} · ${project.name} for ${repoPath} (tasks ${project.key}-1, ${project.key}-2, …)`
+          : `This repo is already project ${project.key} · ${project.name} (${project.repoPath ?? repoPath}); the project itself is unchanged.` +
+            (ignored.length ? ` ${andList(ignored)} only ${ignored.length === 1 ? "applies" : "apply"} to a new project.` : ""),
+        url,
+      ].join("\n"))
+    }
+    const afterward = <A, E, R>(step: Effect.Effect<A, E | CliFailure, R>) =>
+      step.pipe(Effect.mapError((e) =>
+        new CliFailure({
+          message: `Project ${project.key} is set up, but the next step failed: ${e instanceof CliFailure ? e.message : String(e)}`,
+        })
+      ))
+    const hooks = input.hooks ? yield* afterward(installHooks("local")) : null
     const agentsMd = input.agentsMd
-      ? yield* Effect.try({
+      ? yield* afterward(Effect.try({
         try: () => addAgentsSection(checkout, GUIDE, project.key),
         catch: (e) => new CliFailure({ message: `Can't add the Cello section to ${agentsFile(checkout)}: ${(e as Error).message}.` }),
-      })
+      }))
       : null
     if (input.json) {
       return yield* printJson({ created, project, url, hooks: hooks && { file: hooks.file, changed: hooks.changed }, agentsMd })
     }
-    const ignored = (["key", "name", "workspace"] as const).filter((flag) => Option.isSome(input[flag])).map((flag) => `--${flag}`)
     const lines = [
-      created
-        ? `Created project ${project.key} · ${project.name} for ${repoPath} (tasks ${project.key}-1, ${project.key}-2, …)`
-        : `This repo is already project ${project.key} · ${project.name} (${project.repoPath ?? repoPath}). Nothing changed` +
-          (ignored.length ? `; ${andList(ignored)} only ${ignored.length === 1 ? "applies" : "apply"} to a new project.` : "."),
-      url,
       ...(hooks?.lines ?? []),
       ...(agentsMd === null
         ? []
@@ -989,7 +1002,7 @@ const init = Command.make("init", {
         ? [`Added the "Tracking work in Cello" section to ${agentsMd.file} (uncommitted).`]
         : [`${agentsMd.file} already has a "Tracking work in Cello" section; left it as it is.`]),
     ]
-    yield* print(lines.join("\n"))
+    if (lines.length) yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
     "Make the git repository you're in a Cello project: creates it with this repo's path (the main checkout's, from a worktree), " +
       "named after the folder, with a free key made from the name, and prints its key and board URL. In a repo that's already a " +

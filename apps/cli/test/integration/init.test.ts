@@ -70,12 +70,12 @@ describe("cello init", () => {
       const before = yield* projects
       expect(yield* agent(repo)("init", "--key", "OTHER", "--name", "Other")).toEqual({
         out: [
-          `This repo is already project CEL · cello (${repo}). Nothing changed; --key and --name only apply to a new project.`,
+          `This repo is already project CEL · cello (${repo}); the project itself is unchanged. --key and --name only apply to a new project.`,
           url("CEL"),
         ].join("\n"),
         failure: null,
       })
-      expect((yield* agent(repo)("init", "--workspace", "Work")).out).toContain("Nothing changed; --workspace only applies to a new project.")
+      expect((yield* agent(repo)("init", "--workspace", "Work")).out).toContain("the project itself is unchanged. --workspace only applies to a new project.")
       expect(yield* projects).toEqual(before)
     }).pipe(Effect.scoped))
 
@@ -108,6 +108,25 @@ describe("cello init", () => {
       expect((yield* agent(repo)("init")).out).toBe([`Created project CELL · cello for ${repo} (tasks CELL-1, CELL-2, …)`, url("CELL")].join("\n"))
     }).pipe(Effect.scoped))
 
+  it.live("a project made with another spelling of this repo is found, not duplicated: a trailing /, a symlink, a subfolder", () =>
+    Effect.gen(function* () {
+      const { dataDir, human, agent, projects } = yield* setup
+      const workspaceId = (yield* human["snapshot.get"]({})).workspaces[0]!.id
+      const alias = path.join(dataDir, "alias")
+      fs.symlinkSync(dataDir, alias)
+      const spellings = {
+        trailing: (repo: string) => `${repo}/`,
+        symlinked: (repo: string) => path.join(alias, path.basename(repo)),
+        subfolder: (repo: string) => path.join(repo, "src"),
+      }
+      for (const [name, spell] of Object.entries(spellings)) {
+        const repo = gitRepo(dataDir, name)
+        yield* human["project.create"]({ commandId: newCommandId(), workspaceId, name, repoPath: spell(repo) })
+        expect((yield* agent(repo)("init")).out, name).toContain(`This repo is already project `)
+      }
+      expect((yield* projects).map((p) => p.name)).toEqual(Object.keys(spellings))
+    }).pipe(Effect.scoped))
+
   it.live("a repo whose project was archived is refused, naming that project", () =>
     Effect.gen(function* () {
       const { dataDir, human, agent } = yield* setup
@@ -116,7 +135,7 @@ describe("cello init", () => {
       const { result } = yield* human["project.create"]({ commandId: newCommandId(), workspaceId, name: "Old Cello", key: "OLD", repoPath: repo })
       yield* human["project.archive"]({ commandId: newCommandId(), id: result.id })
       expect((yield* agent(repo)("init")).failure).toBe(
-        `${repo} belongs to Old Cello, an archived project, so it can't be linked again. Ask Lucas what to do with it.`,
+        `${repo} is already used by Old Cello (archived), so it can't be linked again. Ask Lucas what to do with it.`,
       )
     }).pipe(Effect.scoped))
 
@@ -163,10 +182,24 @@ describe("cello init", () => {
       expect(JSON.parse(fs.readFileSync(file, "utf8")).hooks.Stop[0].hooks[0].command).toBe("cello hook claude stop")
       // Already linked and already installed: both say so.
       expect((yield* agent(repo)("init", "--hooks")).out).toBe([
-        `This repo is already project CEL · cello (${repo}). Nothing changed.`,
+        `This repo is already project CEL · cello (${repo}); the project itself is unchanged.`,
         url("CEL"),
         `Cello's Claude Code hooks are already in ${file}.`,
       ].join("\n"))
+    }).pipe(Effect.scoped))
+
+  it.live("when --hooks fails after the project was created, the output still says the project exists", () =>
+    Effect.gen(function* () {
+      const { dataDir, agent, url } = yield* setup
+      const repo = gitRepo(dataDir, "cello")
+      const file = path.join(repo, ".claude", "settings.local.json")
+      fs.mkdirSync(path.dirname(file))
+      fs.writeFileSync(file, "{ not json")
+      expect(yield* agent(repo)("init", "--hooks")).toEqual({
+        out: [`Created project CEL · cello for ${repo} (tasks CEL-1, CEL-2, …)`, url("CEL")].join("\n"),
+        failure: `Project CEL is set up, but the next step failed: Can't update ${file}: it isn't valid JSON. Fix it first; Cello won't overwrite it.`,
+      })
+      expect(fs.readFileSync(file, "utf8")).toBe("{ not json")
     }).pipe(Effect.scoped))
 
   it.live("--agents-md appends docs/cli.md's section to AGENTS.md once, keeping what was there", () =>

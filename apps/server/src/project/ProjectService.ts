@@ -11,6 +11,7 @@ import * as Commands from "../commands/Commands.ts"
 import { newId } from "../persistence/ids.ts"
 import { selectProjects } from "../persistence/rows.ts"
 import { requireColor, requireText } from "../validation.ts"
+import { normalizeRepoPath } from "./repoPath.ts"
 
 /** New projects without a color take the next one from this list. */
 export const PROJECT_COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316"]
@@ -41,7 +42,10 @@ export class ProjectService extends Context.Service<ProjectService, {
     NotFound,
     Caller
   >
-  /** The non-archived project a CLI call names: by key if given, else by its repository folder. */
+  /**
+   * The non-archived project a CLI call names: by key if given, else by its repository folder, however
+   * either side spells it (see normalizeRepoPath).
+   */
   readonly resolve: (ref: ProjectRef) => Effect.Effect<Project, NotFound | Invalid>
 }>()("cello/ProjectService") {}
 
@@ -54,6 +58,17 @@ const make = Effect.gen(function* () {
       Effect.flatMap((rows) => rows[0] ? Effect.succeed(rows[0]) : Effect.fail(new NotFound({ entity: "project", id }))),
     )
 
+  /**
+   * Every project whose folder is `wanted` (a normalized path), archived ones too: rows stored that way,
+   * and rows stored before paths were normalized, normalized as they're read.
+   */
+  const holdersOf = (wanted: string) =>
+    sql<{ project_id: string; path: string; name: string; key: string; archived_at: number | null }>`
+      SELECT r.project_id, r.path, p.name, p.key, p.archived_at
+      FROM project_repos r JOIN projects p ON p.id = r.project_id ORDER BY p.created_at, p.id`.pipe(
+      Effect.map((rows) => rows.filter((r) => r.path === wanted || normalizeRepoPath(r.path) === wanted)),
+    )
+
   const create = Effect.fn("ProjectService.create")(function* (input: CreateProject) {
     const name = yield* requireText("name", input.name)
     const given = input.key?.trim().toUpperCase()
@@ -61,7 +76,7 @@ const make = Effect.gen(function* () {
       return yield* new Invalid({ field: "key", reason: "must be 2 to 10 letters or digits, starting with a letter" })
     }
     const color = input.color === undefined ? undefined : yield* requireColor("color", input.color)
-    const repoPath = input.repoPath === undefined ? undefined : yield* requireText("repoPath", input.repoPath)
+    const repoPath = input.repoPath === undefined ? undefined : normalizeRepoPath(yield* requireText("repoPath", input.repoPath))
 
     return yield* commands.write({ commandId: input.commandId, rpc: "project.create" }, ({ now, emit }) =>
       Effect.gen(function* () {
@@ -74,9 +89,10 @@ const make = Effect.gen(function* () {
         const holders = yield* sql<{ name: string }>`SELECT name FROM projects WHERE key = ${key}`
         if (holders[0]) return yield* new KeyTaken({ key, projectName: holders[0].name })
         if (repoPath !== undefined) {
-          const repos = yield* sql<{ name: string }>`
-            SELECT p.name FROM project_repos r JOIN projects p ON p.id = r.project_id WHERE r.path = ${repoPath}`
-          if (repos[0]) return yield* new Invalid({ field: "repoPath", reason: `already used by ${repos[0].name}` })
+          const [holder] = yield* holdersOf(repoPath)
+          if (holder) {
+            return yield* new Invalid({ field: "repoPath", reason: `already used by ${holder.name}${holder.archived_at === null ? "" : " (archived)"}` })
+          }
         }
         const [{ count }] = (yield* sql<{ count: number }>`SELECT COUNT(*) AS count FROM projects`) as [{ count: number }]
         const id = newId(now)
@@ -138,9 +154,18 @@ const make = Effect.gen(function* () {
       return rows[0] ?? (yield* new NotFound({ entity: "project", id: key }))
     }
     if (ref.repoPath) {
-      const rows = yield* selectProjects(sql, sql`p.archived_at IS NULL AND p.id IN (
-        SELECT project_id FROM project_repos WHERE path = ${ref.repoPath})`)
-      return rows[0] ?? (yield* new NotFound({ entity: "project", id: ref.repoPath }))
+      const wanted = normalizeRepoPath(ref.repoPath)
+      const exact = yield* selectProjects(sql, sql`p.archived_at IS NULL AND p.id IN (
+        SELECT project_id FROM project_repos WHERE path = ${wanted})`)
+      if (exact[0]) return exact[0]
+      const live = (yield* holdersOf(wanted)).filter((h) => h.archived_at === null)
+      if (live.length > 1) {
+        return yield* new Invalid({
+          field: "project",
+          reason: `several projects use this folder (${live.map((h) => h.key).join(", ")}); pass --project KEY`,
+        })
+      }
+      return live[0] ? yield* load(live[0].project_id) : yield* new NotFound({ entity: "project", id: ref.repoPath })
     }
     return yield* new Invalid({ field: "project", reason: "name a project by key or by its repository folder" })
   }, Effect.catchTag("SqlError", Effect.die))

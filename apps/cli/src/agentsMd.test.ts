@@ -4,7 +4,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
-import { AGENTS_HEADING, agentsFile, agentsSection, withAgentsSection } from "./agentsMd.ts"
+import { addAgentsSection, AGENTS_HEADING, agentsFile, agentsSection, withAgentsSection } from "./agentsMd.ts"
 import { GUIDE } from "./guide.ts"
 
 describe("agentsSection", () => {
@@ -34,9 +34,36 @@ describe("withAgentsSection", () => {
     expect(withAgentsSection("", section).text).toBe(`${section}\n`)
   })
 
-  it("changes nothing when the file already has a Tracking work in Cello heading", () => {
-    const current = `# Repo\n\n${AGENTS_HEADING}\n\nOur own words.\n\n## Other\n`
-    expect(withAgentsSection(current, section)).toEqual({ text: current, changed: false })
+  it("changes nothing when the file already has a Tracking work in Cello heading, at any level or with words after it", () => {
+    for (const heading of [AGENTS_HEADING, "### Tracking work in Cello", "## Tracking work in Cello (THAI)", "##   tracking work in cello  "]) {
+      const current = `# Repo\n\n${heading}\n\nOur own words.\n\n## Other\n`
+      expect(withAgentsSection(current, section), heading).toEqual({ text: current, changed: false })
+    }
+    const crlf = `# Repo\r\n\r\n${AGENTS_HEADING}\r\n\r\nOurs.\r\n`
+    expect(withAgentsSection(crlf, section)).toEqual({ text: crlf, changed: false })
+    // A mention in a sentence isn't the heading.
+    expect(withAgentsSection("We like Tracking work in Cello.\n", section).changed).toBe(true)
+  })
+
+  it("uses the file's own line endings", () => {
+    expect(withAgentsSection("# Repo\r\n\r\nRules.", section).text).toBe(`# Repo\r\n\r\nRules.\r\n\r\n${AGENTS_HEADING}\r\n\r\nUse cello.\r\n`)
+    expect(withAgentsSection("# Repo\r\n\r\nRules.\r\n\r\n", section).text).toBe(`# Repo\r\n\r\nRules.\r\n\r\n${AGENTS_HEADING}\r\n\r\nUse cello.\r\n`)
+  })
+})
+
+describe("addAgentsSection", () => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cello-agents-add-")))
+  afterAll(() => fs.rmSync(base, { recursive: true, force: true }))
+
+  it("refuses an AGENTS.md or CLAUDE.md that's a symlink to nothing, instead of creating a file outside the repo", () => {
+    for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+      const checkout = fs.mkdtempSync(path.join(base, "co-"))
+      const target = path.join(base, `nowhere-${name}`)
+      fs.symlinkSync(target, path.join(checkout, name))
+      expect(() => addAgentsSection(checkout, GUIDE, "THAI"), name).toThrow(`${name} is a symlink to ${target}, which doesn't exist`)
+      expect(fs.existsSync(target)).toBe(false)
+      expect(fs.existsSync(path.join(checkout, name === "AGENTS.md" ? "CLAUDE.md" : "AGENTS.md"))).toBe(false)
+    }
   })
 })
 
