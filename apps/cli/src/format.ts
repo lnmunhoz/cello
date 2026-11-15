@@ -25,3 +25,23 @@ export const columns = (rows: ReadonlyArray<ReadonlyArray<string>>): string[] =>
   for (const row of rows) row.forEach((cell, i) => (widths[i] = Math.max(widths[i] ?? 0, cell.length)))
   return rows.map((row) => row.map((cell, i) => (i === row.length - 1 ? cell : cell.padEnd(widths[i]!))).join("  ").trimEnd())
 }
+
+/** "512 B", "1.2 KB", "38 MB", "1.1 GB": decimal units, as Finder shows them. */
+export const bytes = (n: number): string => {
+  if (n < 1000) return `${n} B`
+  const units = ["KB", "MB", "GB", "TB"]
+  let value = n / 1000
+  let unit = 0
+  while (value >= 999.5 && unit < units.length - 1) {
+    value /= 1000
+    unit++
+  }
+  return `${value < 9.95 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
+}
+
+/** "2026-11-15 12:00", in local time. */
+export const localTime = (ts: number): string => {
+  const d = new Date(ts)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}

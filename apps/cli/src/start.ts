@@ -1,7 +1,5 @@
 // `cello start`: the server on 127.0.0.1:${CELLO_PORT:-4747} with data in ${CELLO_DATA_DIR:-~/.cello},
 // serving the built web app on the same port. Runs until stopped.
-import * as os from "node:os"
-import * as path from "node:path"
 import { gitUserName } from "@cello/server/humanName"
 import * as Server from "@cello/server/server"
 import * as Console from "effect/Console"
@@ -9,13 +7,13 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as HttpServer from "effect/http/HttpServer"
-import { CliEnv, portOf } from "./env.ts"
+import { CliEnv, dataDirOf, portOf } from "./env.ts"
 import { CliFailure } from "./errors.ts"
 
 export const start = Effect.gen(function* () {
   const { env, web } = yield* CliEnv
   const port = portOf(env)
-  const dataDir = path.resolve(env.CELLO_DATA_DIR || path.join(env.HOME || os.homedir(), ".cello"))
+  const dataDir = dataDirOf(env)
   const files = web()
   yield* Effect.scoped(Effect.gen(function* () {
     const context = yield* Layer.build(Server.layer({ dataDir, port, humanName: gitUserName(), web: files }))

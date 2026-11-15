@@ -49,6 +49,24 @@ export const explain = (error: unknown, where: Where): string => {
       return `Only ${e.human} can ${e.action}. Leave the task in In Review; ${e.human} decides on the Review page.`
     case "RpcClientError":
       return `Cello isn't running on 127.0.0.1:${where.port}. Start it with \`cello start\`.`
+    // Backups and restore, which work on the data folder itself while no server runs.
+    case "RestoreBlocked":
+      return `Cello is running for ${e.dataDir} (pid ${e.pid}, http://127.0.0.1:${e.port}). Stop it before restoring: ` +
+        "press Ctrl-C where `cello start` runs, or quit the Cello desktop app (there's no `cello stop` yet). " +
+        `Then run \`cello restore ${e.id}\` again.`
+    case "ServerAlreadyRunning":
+      return `Cello is running for ${e.dataDir} (pid ${e.pid}) but doesn't answer on 127.0.0.1:${where.port}. ` +
+        `Run the command again with CELLO_PORT=${e.port}.`
+    case "BackupNotFound":
+      return `No backup ${e.id} in ${e.dir}. Run \`cello backup list\` to see them.`
+    case "BackupTooNew":
+      return `Backup ${e.id} was made by a newer Cello (schema level ${e.schemaLevel}; this one knows up to ${e.known}). ` +
+        "Update Cello, then restore it."
+    case "BackupDamaged":
+      return `Backup ${e.id}'s database fails SQLite's integrity check (${e.problems}). Nothing was changed; ` +
+        "pick another one from `cello backup list`."
+    case "NothingToBackUp":
+      return `There's no Cello database in ${e.dataDir} yet, so there's nothing to back up.`
     case "CliFailure":
       return String(e.message)
   }

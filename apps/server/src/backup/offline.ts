@@ -82,6 +82,11 @@ const backUp = (dataDir: string, input: CreateBackup) =>
     return yield* Context.get(yield* Layer.build(layer), BackupService).create(input)
   }))
 
+/** The folder's backups, newest first, read straight from disk: no lock needed, a server may be running. */
+export const listBackups = Effect.fn("offline.list")(function* (options: { readonly dataDir: string }) {
+  return readBackups(path.join(path.resolve(options.dataDir), BACKUPS_DIR))
+})
+
 /** A manual backup of a folder no server runs for. Fails with ServerAlreadyRunning while one does. */
 export const backupOffline = Effect.fn("offline.backup")(function* (options: { readonly dataDir: string }) {
   const dataDir = path.resolve(options.dataDir)

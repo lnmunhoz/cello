@@ -4,20 +4,24 @@ import * as path from "node:path"
 import * as BunSocket from "@effect/platform-bun/BunSocket"
 import { CelloClient, makeClientLayer, newCommandId } from "@cello/client/client"
 import { describeEvent } from "@cello/client/history"
+import type { Backup } from "@cello/contract/backups"
 import type { Actor, AgentSession, DocumentKind, Priority, ProjectRef, Review, Status, Task } from "@cello/contract/entities"
+import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
+import { backupOffline, listBackups, restore } from "@cello/server/backup/offline"
 import { pagePath } from "@cello/shared/document"
 import { APP_VERSION } from "@cello/shared/version"
 import * as Console from "effect/Console"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
-import { CliEnv, portOf } from "./env.ts"
+import { CliEnv, dataDirOf, portOf } from "./env.ts"
 import { CliFailure, explain } from "./errors.ts"
 import { evidenceFromArgs } from "./evidence.ts"
-import { ago, columns, sessionName } from "./format.ts"
+import { ago, bytes, columns, localTime, sessionName } from "./format.ts"
 import { GUIDE } from "./guide.ts"
 import { type Env, IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
 import { pageFiles } from "./pageFiles.ts"
@@ -33,14 +37,22 @@ class CliArgs extends Context.Service<CliArgs, ReadonlyArray<string>>()("cello/C
 
 // ── running a call ──────────────────────────────────────────────────────────────────────────────
 
-/** Runs `use` with a client connected as this environment's caller; any failure becomes a CliFailure. */
-const withClient = <A, E>(use: (client: CelloClient["Service"]) => Effect.Effect<A, E | CliFailure, CelloClient>) =>
+/**
+ * Runs `use` with a client connected as this environment's caller; any failure becomes a CliFailure.
+ * `whenDown` runs instead when no server answers on CELLO_PORT; without it, that's a failure too.
+ */
+const withClient = <A, E, B = never>(
+  use: (client: CelloClient["Service"]) => Effect.Effect<A, E | CliFailure, CelloClient>,
+  whenDown?: Effect.Effect<B, unknown, CliEnv>,
+) =>
   Effect.gen(function* () {
     const { env, cwd, now } = yield* CliEnv
     const port = portOf(env)
     const socket = BunSocket.layerWebSocket(`ws://127.0.0.1:${port}/rpc`)
     return yield* Effect.flatMap(Effect.service(CelloClient), use).pipe(
       Effect.provide(makeClientLayer(socket, identityHeaders(env, cwd))),
+      Effect.catch((error): Effect.Effect<A | B, unknown, CliEnv> =>
+        whenDown !== undefined && Predicate.isTagged(error, "RpcClientError") ? whenDown : Effect.fail(error)),
       Effect.mapError((error) => error instanceof CliFailure ? error : new CliFailure({ message: explain(error, { port, now: now() }) })),
     )
   })
@@ -561,6 +573,108 @@ const doc = Command.make("doc").pipe(
   Command.withSubcommands([docPublish, docList, docGet, docArchive]),
 )
 
+// ── backups ─────────────────────────────────────────────────────────────────────────────────────
+
+const backupLines = (backup: Backup) => [
+  `Backed up to ${backup.path}`,
+  `  database  ${bytes(backup.dbBytes)}`,
+  backup.assets.files === 0
+    ? "  assets    none yet"
+    : `  assets    ${plural(backup.assets.files, "file")}, ${bytes(backup.assets.bytes)}: ${backup.assets.linked} linked to the previous backup, ` +
+      `${backup.assets.copied} copied (${bytes(backup.assets.copiedBytes)} new)`,
+]
+
+const backupJson = Flag.Boolean("json").pipe(Flag.withDefault(false), Flag.withDescription("Print the backup as JSON (id, path, sizes, file counts) for scripts."))
+
+const backupCreate = Command.make("backup", { json: backupJson }, (input) =>
+  Effect.gen(function* () {
+    const dataDir = dataDirOf((yield* CliEnv).env)
+    const taken = yield* withClient(
+      (client) => Effect.map(client["backup.create"]({}), (backup) => ({ backup, direct: false })),
+      Effect.map(backupOffline({ dataDir }), (backup) => ({ backup, direct: true })),
+    )
+    if (input.json) return yield* printJson(taken.backup)
+    yield* print([
+      ...(taken.direct ? [`Cello isn't running, so the backup was taken straight from ${dataDir}.`] : []),
+      ...backupLines(taken.backup),
+    ].join("\n"))
+  })).pipe(Command.withDescription(
+    "Back up the database and every evidence file (videos, screenshots, page images) now, into " +
+      "<data folder>/backups/<YYYYMMDD-HHMMSS>/, and print the folder, its size and how many files were linked or copied. " +
+      "The server already takes one a day and keeps 14; take one by hand before something risky, like a bulk change or " +
+      "trying a new build on your real board. Files unchanged since the previous backup become hard links to it, so a " +
+      "backup only adds what changed. Talks to the running server on CELLO_PORT; with none running, it backs up " +
+      "CELLO_DATA_DIR (default ~/.cello) itself.",
+  ), Command.withShortDescription("Back up the database and evidence files now."), Command.withExamples([
+    { command: "cello backup", description: "Take a backup now; prints its folder and how many files were linked or copied" },
+    { command: "cello backup --json", description: "The same, as JSON for a script" },
+    { command: "CELLO_DATA_DIR=/path/to/data cello backup", description: "Back up another data folder (with no server running for it)" },
+  ]))
+
+const backupList = Command.make("list", {
+  json: Flag.Boolean("json").pipe(Flag.withDefault(false), Flag.withDescription("Print the backups as a JSON array, newest first, for scripts.")),
+}, (input) =>
+  Effect.gen(function* () {
+    const dataDir = dataDirOf((yield* CliEnv).env)
+    const backups = yield* withClient((client) => client["backup.list"]({}), listBackups({ dataDir }))
+    if (input.json) return yield* printJson(backups)
+    if (backups.length === 0) {
+      return yield* print(`No backups in ${path.join(dataDir, BACKUPS_DIR)} yet. Take one with \`cello backup\`; the server also takes one every day.`)
+    }
+    const noted = backups.some((b) => b.note !== null)
+    yield* print(columns(backups.map((b) => [
+      b.id,
+      localTime(b.createdAt),
+      b.kind,
+      bytes(b.dbBytes + b.assets.bytes),
+      plural(b.assets.files, "file"),
+      ...(noted ? [b.note ?? ""] : []),
+    ])).join("\n"))
+  })).pipe(Command.withDescription(
+    "List the backups, newest first: the id (the folder name, which `cello restore` takes), when it was taken, its kind " +
+      "(auto: the daily one; manual: `cello backup`, or the copy `cello restore` takes first), its size (the database " +
+      "plus its files, counting files shared with other backups in each) and how many evidence files it holds. Use it to " +
+      "pick a backup to restore. Only Cello's own backups are listed; other folders in backups/ are left alone. Works " +
+      "whether or not Cello is running.",
+  ), Command.withShortDescription("List the backups, newest first."), Command.withExamples([
+    { command: "cello backup list", description: "Every backup: id, time, kind, size and file count" },
+    { command: "cello backup list --json | jq -r '.[0].id'", description: "The newest backup's id" },
+    { command: "CELLO_DATA_DIR=/path/to/data cello backup list", description: "Another data folder's backups" },
+  ]))
+
+const backup = backupCreate.pipe(Command.withSubcommands([backupList]))
+
+const restoreCommand = Command.make("restore", {
+  id: Argument.String("id").pipe(Argument.withDescription("The backup to restore: its id from `cello backup list`, e.g. 20261115-120000.")),
+  json: Flag.Boolean("json").pipe(Flag.withDefault(false), Flag.withDescription("Print what was restored, and the safety backup, as JSON.")),
+}, (input) =>
+  Effect.gen(function* () {
+    const { env, now } = yield* CliEnv
+    const restored = yield* restore({ dataDir: dataDirOf(env), id: input.id }).pipe(
+      Effect.mapError((error) => new CliFailure({ message: explain(error, { port: portOf(env), now: now() }) })),
+    )
+    if (input.json) return yield* printJson(restored)
+    const { backup, safety, assets } = restored
+    yield* print([
+      `Restored backup ${backup.id} (${backup.kind}, taken ${localTime(backup.createdAt)})`,
+      `  database  ${bytes(backup.dbBytes)}, schema level ${backup.schemaLevel}`,
+      `  assets    ${plural(assets.files, "file")}, ${bytes(assets.bytes)}`,
+      safety
+        ? `What it replaced is saved as backup ${safety.id}; \`cello restore ${safety.id}\` brings it back.`
+        : "The data folder held nothing before, so there was nothing to save.",
+      "Start Cello again: `cello start`, or open the desktop app.",
+    ].join("\n"))
+  })).pipe(Command.withDescription(
+    "Put a backup's database and evidence files back in place of the current ones, in CELLO_DATA_DIR (default " +
+      "~/.cello). Use it when the board's data is lost or damaged. Stop Cello first (Ctrl-C where `cello start` runs, or " +
+      "quit the desktop app): restore refuses while a server holds the data folder. It first backs up the current state " +
+      "(listed as \"before restoring <id>\"), so a restore can itself be undone. For Lucas: agents never run it.",
+  ), Command.withShortDescription("Put a backup back in place of the current data (stop Cello first)."), Command.withExamples([
+    { command: "cello backup list", description: "First, pick the backup to restore" },
+    { command: "cello restore 20261115-120000", description: "Restore it; the current state is backed up first" },
+    { command: "cello restore 20261115-130501", description: "Undo that restore: restore the \"before restoring\" backup it printed" },
+  ]))
+
 const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(Command.withDescription("How agents work with Cello."))
 
 const task = Command.make("task").pipe(
@@ -574,7 +688,7 @@ const startCommand = Command.make("start", {}, () => start).pipe(
 
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, task, doc, whoami, guide, startCommand]),
+  Command.withSubcommands([context, task, doc, whoami, guide, startCommand, backup, restoreCommand]),
 )
 
 /** Runs `cello` with these arguments (without the program name). */
