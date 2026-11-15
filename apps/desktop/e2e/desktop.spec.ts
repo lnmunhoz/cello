@@ -204,7 +204,14 @@ test("CEL-24: ⌘B in the board collapses the sidebar to a rail and expands it a
   // ⌘ on a Mac, Ctrl elsewhere (the web app's "mod").
   const mod = process.platform === "darwin" ? "meta" : "control"
 
-  await video.caption("The sidebar starts expanded")
+  await video.caption("A project on the board; the sidebar starts expanded")
+  await board.getByRole("button", { name: "New project" }).first().click()
+  await board.getByLabel("Name").fill("Sidebar")
+  await board.getByLabel("Key").fill("SIDE")
+  await board.getByRole("button", { name: "Create project" }).click()
+  await board.waitForURL(`${server.url}/SIDE/issues`)
+  celloAsAgent(server.port, "task", "create", "Collapse the sidebar with ⌘B", "--project", "SIDE")
+  await expect(board.locator('[data-task-key="SIDE-1"]')).toBeVisible()
   await expect(sidebar).toHaveAttribute("data-sidebar", "expanded")
   // No menu item claims ⌘B (⌘\ is the panel's), so the key reaches the board.
   const accelerators = await app.evaluate(({ Menu }) => {
