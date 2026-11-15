@@ -15,6 +15,7 @@ import * as EventStore from "../events/EventStore.ts"
 import * as InboxService from "../inbox/InboxService.ts"
 import { selectActors, selectAsks, selectLabels, selectProjects, selectReviews, selectStatuses, selectTasks } from "../persistence/rows.ts"
 import * as ProjectService from "../project/ProjectService.ts"
+import { type AgentRef, AgentService } from "../session/AgentService.ts"
 import { SessionService } from "../session/SessionService.ts"
 import * as TaskService from "../task/TaskService.ts"
 
@@ -70,6 +71,7 @@ const make = Effect.gen(function* () {
   const tasks = yield* TaskService.TaskService
   const comments = yield* CommentService.CommentService
   const sessions = yield* SessionService
+  const agents = yield* AgentService
   const store = yield* EventStore.EventStore
   const documents = yield* DocumentService.DocumentService
   const inbox = yield* InboxService.InboxService
@@ -77,15 +79,17 @@ const make = Effect.gen(function* () {
   const actorById = (id: string) =>
     Effect.map(selectActors(sql), (actors) => actors.find((a) => a.id === id)!)
 
-  /** The names a project's ids point at, plus the sessions in `sessionIds`. */
-  const projectNames = (project: Project, sessionIds: ReadonlyArray<string | null>) =>
+  /** The names a project's ids point at, plus the sessions in `sessionIds` and the subagents in `agentRefs` (with theirs). */
+  const projectNames = (project: Project, sessionIds: ReadonlyArray<string | null>, agentRefs: ReadonlyArray<AgentRef> = []) =>
     Effect.gen(function* () {
+      const named = yield* agents.byRefs(agentRefs)
       return {
         project,
         statuses: yield* selectStatuses(sql, sql`s.workspace_id = ${project.workspaceId}`),
         labels: yield* selectLabels(sql, sql`l.workspace_id = ${project.workspaceId} AND l.archived_at IS NULL`),
         actors: yield* selectActors(sql),
-        sessions: yield* sessions.byIds(sessionIds.filter((id): id is string => id !== null)),
+        sessions: yield* sessions.byIds([...sessionIds.filter((id): id is string => id !== null), ...named.map((a) => a.sessionId)]),
+        agents: named,
       }
     })
 
@@ -94,6 +98,13 @@ const make = Effect.gen(function* () {
     ...taskRows.flatMap((t) => [t.assigneeSessionId, t.createdBySessionId, t.updatedBySessionId]),
     ...events.map((e) => e.sessionId),
   ]
+
+  /** Subagents (CEL-55) the rows name: whoever made a change or wrote a comment, under its session. */
+  const agentRefsOf = (rows: ReadonlyArray<{ readonly sessionId: string | null; readonly agentId?: string | null | undefined }>): AgentRef[] =>
+    rows.flatMap((r) => (r.sessionId !== null && r.agentId ? [{ sessionId: r.sessionId, agentId: r.agentId }] : []))
+
+  /** A task's last change, as an agent ref source. */
+  const lastChange = (t: Task) => ({ sessionId: t.updatedBySessionId, agentId: t.updatedByAgentId })
 
   const withKeys = (events: ReadonlyArray<CelloEvent>) =>
     Effect.gen(function* () {
@@ -129,8 +140,9 @@ const make = Effect.gen(function* () {
   const whoami = Effect.fn("ContextService.whoami")(function* (ref: ProjectRef) {
     const caller = yield* Caller
     const [session] = caller.sessionId === null ? [] : yield* sessions.byIds([caller.sessionId])
+    const [agent] = caller.sessionId === null || !caller.agentId ? [] : yield* agents.byRefs([{ sessionId: caller.sessionId, agentId: caller.agentId }])
     const project = yield* projects.resolve(ref).pipe(Effect.catch(() => Effect.succeed(null)))
-    return { actor: yield* actorById(caller.actorId), session: session ?? null, project }
+    return { actor: yield* actorById(caller.actorId), session: session ?? null, agent: agent ?? null, project }
   }, Effect.catchTag("SqlError", Effect.die))
 
   const context = Effect.fn("ContextService.context")(function* (ref: ProjectRef) {
@@ -139,7 +151,11 @@ const make = Effect.gen(function* () {
     const claimed = yield* selectTasks(sql, sql`t.project_id = ${project.id} AND t.archived_at IS NULL AND ${heldBy(caller)}`)
     const recent = yield* store.recent(project.id, RECENT)
     const lost = caller.sessionId === null ? [] : yield* store.claimsLostBy(caller.sessionId, project.id, RECENT)
-    const names = yield* projectNames(project, [caller.sessionId, ...sessionIdsOf(claimed, [...recent, ...lost])])
+    const names = yield* projectNames(
+      project,
+      [caller.sessionId, ...sessionIdsOf(claimed, [...recent, ...lost])],
+      agentRefsOf([...claimed.map(lastChange), ...recent, ...lost]),
+    )
     return {
       ...names,
       actor: names.actors.find((a: Actor) => a.id === caller.actorId)!,
@@ -179,7 +195,7 @@ const make = Effect.gen(function* () {
       (status ? t.statusId === status.id : open.has(t.statusId)) && (label === undefined || t.labelIds.includes(label.id))
     )
     const sorted = [...rows].sort((a, b) => order.get(a.statusId)! - order.get(b.statusId)! || (a.position < b.position ? -1 : 1))
-    return { ...(yield* projectNames(project, sessionIdsOf(sorted))), tasks: sorted }
+    return { ...(yield* projectNames(project, sessionIdsOf(sorted), agentRefsOf(sorted.map(lastChange)))), tasks: sorted }
   }, Effect.catchTag("SqlError", Effect.die))
 
   const taskDetail = Effect.fn("ContextService.taskDetail")(function* (key: string) {
@@ -194,6 +210,10 @@ const make = Effect.gen(function* () {
       ...list.map((c) => c.sessionId),
       ...reviews.map((r) => r.sessionId),
       ...asks.map((a) => a.sessionId),
+    ], [
+      ...agentRefsOf([lastChange(task), ...history, ...list]),
+      // The agents on it (CEL-55), working or done: the panel and `cello task get` name them.
+      ...(yield* agents.onTask(task.id)),
     ])
     return { ...names, task, comments: list, reviews, asks, documents: yield* documents.ofTask(task.id), history }
   }, Effect.catchTag("SqlError", Effect.die))

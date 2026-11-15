@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatTaskKey, freeProjectKey, isValidProjectKey, parseTaskKey, parseTaskPath, reservedKeyProblem, suggestProjectKey, taskPath } from "./taskKey.ts"
+import { formatTaskKey, freeProjectKey, isValidProjectKey, parseTaskKey, parseTaskPath, reservedKeyProblem, suggestProjectKey, taskKeysIn, taskPath } from "./taskKey.ts"
 
 describe("project keys", () => {
   it.each([
@@ -71,5 +71,14 @@ describe("task paths", () => {
     for (const bad of ["/CEL/issues", "/CEL/pages/notes", "/CEL/docs", "/review", "/", "/CEL/0", "/CEL/3/x", "/C/3", "CEL/3", "/attachments/3"]) {
       expect(parseTaskPath(bad)).toBeNull()
     }
+  })
+})
+
+describe("task keys in text (CEL-55: the task an agent's launch names)", () => {
+  it("finds each key once, in the order they appear, upper case only and on word edges", () => {
+    expect(taskKeysIn("You are a cello-builder building CEL-55. CEL-35 did presence; see CEL-55 and THAI-12.")).toEqual(["CEL-55", "CEL-35", "THAI-12"])
+    expect(taskKeysIn("CEL-55 which agent is on each card")).toEqual(["CEL-55"])
+    expect(taskKeysIn("cel-55, XCEL-0, CEL-055x, A-1, (WRK-7)")).toEqual(["WRK-7"])
+    expect(taskKeysIn("")).toEqual([])
   })
 })

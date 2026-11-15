@@ -40,6 +40,30 @@ export const AgentSession = Schema.Struct({
 })
 export type AgentSession = typeof AgentSession.Type
 
+/**
+ * A subagent working under an agent session (CEL-55): Claude Code's Agent tool runs builders and
+ * reviewers inside the orchestrator's conversation, with its session id. `agentId` is the host's id for
+ * the subagent run, unique within its session; `agentType` what it was launched as (`cello-builder`,
+ * `general-purpose`). `taskId` is the task its launch named, when it named one. Claims and inbox
+ * delivery stay on the session: an agent is who did the work, never a holder.
+ */
+export const SessionAgent = Schema.Struct({
+  sessionId: Id,
+  agentId: Schema.String,
+  agentType: Schema.NullOr(Schema.String),
+  taskId: Schema.NullOr(Id),
+  /** The launch's short description ("CEL-55 which agent is on each card"), when the launch was seen. */
+  description: Schema.NullOr(Schema.String),
+  startedAt: Millis,
+  lastSeenAt: Millis,
+  /** When it finished (SubagentStop); a resumed agent clears it. */
+  endedAt: Schema.NullOr(Millis),
+})
+export type SessionAgent = typeof SessionAgent.Type
+
+/** One agent's key in maps and lookups: its session and its id. */
+export const agentKey = (sessionId: string, agentId: string): string => `${sessionId}/${agentId}`
+
 export const Workspace = Schema.Struct({
   id: Id,
   name: Schema.String,
@@ -126,6 +150,8 @@ export const Task = Schema.Struct({
    */
   updatedByActorId: Schema.NullOr(Id).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   updatedBySessionId: Schema.NullOr(Id).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
+  /** The subagent of that session that changed it (CEL-55); absent or null when the session itself did. */
+  updatedByAgentId: Schema.optionalKey(Schema.NullOr(Schema.String)),
   /** Where it is inside In Progress (CEL-35), set with `cello task stage`; null outside it. */
   stage: Schema.NullOr(TaskStage).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   /**
@@ -150,6 +176,8 @@ export const Comment = Schema.Struct({
   body: Schema.String,
   actorId: Id,
   sessionId: Schema.NullOr(Id),
+  /** The subagent of the session that wrote it (CEL-55); absent or null when the session itself did. */
+  agentId: Schema.optionalKey(Schema.NullOr(Schema.String)),
   createdAt: Millis,
   updatedAt: Millis,
   deletedAt: Schema.NullOr(Millis),
@@ -469,6 +497,11 @@ export const Snapshot = Schema.Struct({
    * and whether they're still working (CEL-5, CEL-35). `session.seen` events keep them current.
    */
   sessions: Schema.Array(AgentSession),
+  /**
+   * Subagents of those sessions (CEL-55): the ones still working, and the ones on or last changing a
+   * task in scope. `agent.seen` events keep them current; their sessions are in `sessions`.
+   */
+  agents: Schema.Array(SessionAgent),
   /** Open reviews of the tasks in scope: everything the Review page and the cards need. */
   reviews: Schema.Array(Review),
   /** Open asks of the tasks in scope: the Needs input group, the sidebar count and the cards' badges. */

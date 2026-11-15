@@ -188,6 +188,7 @@ interface TaskRow {
   created_by_session_id: string | null
   updated_by_actor_id: string | null
   updated_by_session_id: string | null
+  updated_by_agent_id: string | null
   stage: string | null
   version: number
   created_at: number
@@ -235,6 +236,7 @@ export const selectTasks = (sql: Sql, where: Where) =>
       createdBySessionId: r.created_by_session_id,
       updatedByActorId: r.updated_by_actor_id,
       updatedBySessionId: r.updated_by_session_id,
+      updatedByAgentId: r.updated_by_agent_id,
       // Only stages from the list are ever written (TaskService.setStage).
       stage: r.stage as TaskStage | null,
       commentCount: comments.get(r.id)?.count ?? 0,
@@ -252,6 +254,7 @@ interface CommentRow {
   body: string
   actor_id: string
   session_id: string | null
+  agent_id: string | null
   created_at: number
   updated_at: number
   deleted_at: number | null
@@ -263,6 +266,7 @@ const toComment = (r: CommentRow): Comment => ({
   body: r.body,
   actorId: r.actor_id,
   sessionId: r.session_id,
+  agentId: r.agent_id,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
   deletedAt: r.deleted_at,

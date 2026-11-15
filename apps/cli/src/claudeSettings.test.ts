@@ -25,6 +25,10 @@ import {
 const stop = { type: "command", command: "cello hook claude stop", timeout: 10 }
 const postToolUse = { type: "command", command: "cello hook claude post-tool-use", timeout: 10 }
 const preToolUse = { type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }
+const subagentStart = { type: "command", command: "cello hook claude subagent-start", timeout: 10 }
+const subagentStop = { type: "command", command: "cello hook claude subagent-stop", timeout: 10 }
+/** The subagent hooks (CEL-55): SubagentStart only in a project's settings, SubagentStop everywhere. */
+const subagents = { SubagentStart: [{ hooks: [subagentStart] }], SubagentStop: [{ hooks: [subagentStop] }] }
 
 describe("addCelloHooks", () => {
   it("adds a Stop hook, a PostToolUse hook for every tool and a PreToolUse hook for Artifact and the edit tools to empty settings", () => {
@@ -35,16 +39,17 @@ describe("addCelloHooks", () => {
           Stop: [{ hooks: [stop] }],
           PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
           PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+          ...subagents,
         },
       },
     })
-    expect(CELLO_HOOKS.map((h) => h.event)).toEqual(["Stop", "PostToolUse", "PreToolUse"])
+    expect(CELLO_HOOKS.map((h) => h.event)).toEqual(["Stop", "PostToolUse", "PreToolUse", "SubagentStart", "SubagentStop"])
   })
 
   it("the artifact guard is for Cello projects only: user settings (every project) get just the comment hooks", () => {
     expect(celloHooksFor("project")).toEqual(CELLO_HOOKS)
     expect(addCelloHooks({}, celloHooksFor("user")).settings).toEqual({
-      hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }] },
+      hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }], SubagentStop: subagents.SubagentStop },
     })
   })
 
@@ -52,7 +57,7 @@ describe("addCelloHooks", () => {
     const before = { hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }] } }
     expect(addCelloHooks(before)).toEqual({
       changed: true,
-      settings: { hooks: { ...before.hooks, PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }] } },
+      settings: { hooks: { ...before.hooks, PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }], ...subagents } },
     })
   })
 
@@ -72,6 +77,7 @@ describe("addCelloHooks", () => {
         hooks: {
           ...before.hooks,
           PreToolUse: [mine, { matcher: "Artifact", hooks: [{ type: "command", command: "log.sh" }] }, { matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+          ...subagents,
         },
       },
     })
@@ -106,6 +112,7 @@ describe("addCelloHooks", () => {
         PostToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "prettier --write" }] }, { matcher: "*", hooks: [postToolUse] }],
         SessionStart: [{ hooks: [{ type: "command", command: "echo hi" }] }],
         PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+        ...subagents,
       },
     })
     // The input isn't changed in place.
@@ -120,6 +127,7 @@ describe("addCelloHooks", () => {
         Stop: [{ hooks: [{ ...stop, timeout: 30 }] }],
         PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
         PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ ...preToolUse, timeout: 5 }] }],
+        ...subagents,
       },
     }
     expect(addCelloHooks(tuned)).toEqual({ changed: false, settings: tuned })
@@ -128,7 +136,12 @@ describe("addCelloHooks", () => {
   it("adds only the hook that's missing", () => {
     const half = { hooks: { Stop: [{ hooks: [stop] }] } }
     expect(addCelloHooks(half).settings).toEqual({
-      hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }], PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }] },
+      hooks: {
+        Stop: [{ hooks: [stop] }],
+        PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
+        PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+        ...subagents,
+      },
     })
   })
 

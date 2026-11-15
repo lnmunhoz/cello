@@ -39,7 +39,7 @@ const state: BoardState = {
     other: task("other", "todo", "a1", { projectId: "p2" }),
     orphan: task("orphan", "todo", "a3", { parentId: "missing" }),
   },
-  sessions: {},
+  sessions: {}, agents: {},
   reviews: {},
   asks: {},
   documents: {},

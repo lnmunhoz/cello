@@ -45,7 +45,7 @@ const state: BoardState = {
     gone: task("gone", "review", { archivedAt: 5 }),
     far: task("far", "review", { projectId: "p9" }),
   },
-  sessions: {},
+  sessions: {}, agents: {},
   reviews: {
     r1: review("r1", "t1", 30),
     r2: review("r2", "t2", 10),

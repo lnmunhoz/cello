@@ -340,7 +340,7 @@ function WhoFacet({ props, me, open, onOpen, now }: { props: PanelProps; me: str
               id={`session-${who.short}`}
               name={`${s.clientName} · ${who.short}`}
               nested
-              icon={<span className="flex size-3.5 shrink-0 items-center justify-center"><PresenceDot session={s} /></span>}
+              icon={<span className="flex size-3.5 shrink-0 items-center justify-center"><PresenceDot of={s} color={who.color} /></span>}
               detail={{ text: presenceWords(s, now), tone: presence }}
               checked={on(agent === "on" || f.sessions.includes(s.id))}
               count={countWith(tasks, f, ctx, "holder", { holder: [], sessions: [s.id] })}

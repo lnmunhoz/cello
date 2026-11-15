@@ -316,6 +316,12 @@ const untilSearch = SqliteMigrator.run({
   table: "migrations",
 }).pipe(Effect.orDie)
 
+/** Up to 0009: what the live board ran before CEL-71 and CEL-55 (later ones change tables, and have their own tests). */
+const untilLabelGroup = SqliteMigrator.run({
+  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0010"))),
+  table: "migrations",
+}).pipe(Effect.orDie)
+
 const CEL_AREAS = ["board", "list", "task-panel", "review", "pages", "sidebar", "search", "viewer", "agents", "cli", "server", "data", "desktop", "tests", "release"]
 
 // CEL-52: labels get a group (kind, area, milestone or none). Additive: one column with a default, then
@@ -348,7 +354,7 @@ describe("migration 0009_label_group", () => {
       const labelsBefore = yield* sql<Record<string, unknown>>`SELECT * FROM labels ORDER BY id`
       const before = { ...(yield* everything), taskLabels: yield* taskLabels }
 
-      yield* Migrations.run
+      yield* untilLabelGroup
       const after = yield* sql<Record<string, unknown>>`SELECT * FROM labels ORDER BY id`
       expect(after.map(({ label_group: _, ...rest }) => rest)).toEqual(labelsBefore)
       expect({ ...(yield* everything), taskLabels: yield* taskLabels }).toEqual(before)
@@ -365,15 +371,15 @@ describe("migration 0009_label_group", () => {
 
       // The next start runs the migrations again: nothing changes.
       const migrated = yield* sql`SELECT * FROM labels ORDER BY id`
-      yield* Migrations.run
+      yield* untilLabelGroup
       expect(yield* sql`SELECT * FROM labels ORDER BY id`).toEqual(migrated)
       expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
     }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
 })
 
-/** Up to 0009: what the live board has run before CEL-71. */
-const untilLabelGroups = SqliteMigrator.run({
-  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0010"))),
+/** Up to 0010 (CEL-71): 0011 adds agent columns and a table, and has its own test. */
+const throughReviewWithdrawn = SqliteMigrator.run({
+  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0011"))),
   table: "migrations",
 }).pipe(Effect.orDie)
 
@@ -394,7 +400,7 @@ const allRows = Effect.gen(function* () {
 describe("migration 0010_review_withdrawn", () => {
   it.effect("lets a packet be withdrawn, and keeps every row, the evidence links and the search index as they were", () =>
     Effect.gen(function* () {
-      yield* untilLabelGroups
+      yield* untilLabelGroup
       yield* realisticBoard
       const sql = yield* SqlClient.SqlClient
       yield* sql`INSERT INTO reviews (id, task_id, summary, steps, actor_id, session_id, created_at, decided_at, decision, decision_note) VALUES
@@ -411,7 +417,7 @@ describe("migration 0010_review_withdrawn", () => {
       const triggersBefore = yield* triggers
       expect(triggersBefore).toHaveLength(3)
 
-      yield* Migrations.run
+      yield* throughReviewWithdrawn
       expect(yield* allRows).toEqual(before)
       expect(yield* indexes).toEqual(indexesBefore)
       expect(yield* triggers).toEqual(triggersBefore)
@@ -435,7 +441,48 @@ describe("migration 0010_review_withdrawn", () => {
 
       // The next start runs the migrations again: nothing changes.
       const migrated = yield* allRows
-      yield* Migrations.run
+      yield* throughReviewWithdrawn
       expect(yield* allRows).toEqual(migrated)
+    }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
+})
+
+// CEL-55: subagents under a session. Additive only: a new table, and a nullable agent column on events,
+// comments and tasks' "last changed". Every row keeps every value it had; old rows read as "the session
+// itself" (null). Safe to run on a board with sessions, claims, comments and events.
+describe("migration 0011_agents", () => {
+  it.effect("adds the agents table and the agent columns, null on every row it finds, and changes nothing else", () =>
+    Effect.gen(function* () {
+      yield* throughReviewWithdrawn
+      yield* realisticBoard
+      const sql = yield* SqlClient.SqlClient
+      const before = yield* everything
+
+      yield* Migrations.run
+      const strip = (rows: ReadonlyArray<Record<string, unknown>>, column: string) =>
+        rows.map(({ [column]: value, ...rest }) => {
+          expect(value).toBeNull()
+          return rest
+        })
+      const after = yield* everything
+      expect({
+        ...after,
+        tasks: strip(after.tasks, "updated_by_agent_id"),
+        comments: strip(after.comments, "agent_id"),
+        events: strip(after.events, "agent_id"),
+      }).toEqual(before)
+      expect(yield* sql`SELECT * FROM session_agents`).toEqual([])
+
+      // One row per agent of a session; the same agent id under another session would be another agent.
+      yield* sql`INSERT INTO session_agents (session_id, agent_id, agent_type, task_id, description, started_at, last_seen_at)
+        VALUES ('sess', 'a13bfb89', 'cello-builder', 't1', 'CEL-1 build it', 10, 10)`
+      const twice = yield* Effect.exit(sql`INSERT INTO session_agents (session_id, agent_id, started_at, last_seen_at) VALUES ('sess', 'a13bfb89', 11, 11)`)
+      expect(twice._tag).toBe("Failure")
+
+      // The next start runs the migrations again: nothing changes.
+      const migrated = { ...(yield* everything), agents: yield* sql`SELECT * FROM session_agents` }
+      yield* Migrations.run
+      expect({ ...(yield* everything), agents: yield* sql`SELECT * FROM session_agents` }).toEqual(migrated)
+      expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
+      expect(yield* sql`PRAGMA foreign_key_check`).toEqual([])
     }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
 })

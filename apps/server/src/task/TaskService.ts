@@ -256,6 +256,7 @@ const make = Effect.gen(function* () {
       updated_at: now,
       updated_by_actor_id: caller.actorId,
       updated_by_session_id: caller.sessionId,
+      updated_by_agent_id: caller.agentId ?? null,
     })} WHERE id = ${task.id}`
 
   /** Who holds the task's claim, if anyone. */
@@ -314,10 +315,10 @@ const make = Effect.gen(function* () {
         const id = newId(now)
         yield* sql`INSERT INTO tasks (id, project_id, number, title, description, status_id, priority, position, due_date,
                                       parent_id, created_by_actor_id, created_by_session_id, updated_by_actor_id,
-                                      updated_by_session_id, version, created_at, updated_at)
+                                      updated_by_session_id, updated_by_agent_id, version, created_at, updated_at)
           VALUES (${id}, ${input.projectId}, ${numbers[0]!.number}, ${title}, ${input.description ?? ""}, ${statusId},
                   ${input.priority ?? 0}, ${position}, ${input.dueDate ?? null}, ${parentId}, ${caller.actorId},
-                  ${caller.sessionId}, ${caller.actorId}, ${caller.sessionId}, 1, ${now}, ${now})`
+                  ${caller.sessionId}, ${caller.actorId}, ${caller.sessionId}, ${caller.agentId ?? null}, 1, ${now}, ${now})`
         yield* Effect.forEach(labelIds, (labelId) =>
           sql`INSERT INTO task_labels (task_id, label_id, created_at) VALUES (${id}, ${labelId}, ${now})`, { discard: true })
         const task = yield* load(id)
