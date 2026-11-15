@@ -23,6 +23,7 @@ A local task board for one developer and their AI coding agents. The design is i
 Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port 4747). Once the `cello` CLI exists (M2 step B2):
 
 - run `cello context` at the start of a session
+- **Todo or Backlog:** Todo is ready to build. **Backlog** holds ideas and requests that still need discussing. When Lucas says "add to the backlog", create the task with `--status Backlog`. A Backlog task moves to Todo once it's agreed what to build; nobody builds from Backlog.
 - `cello task claim CEL-n` before working on a task, and comment progress with `cello task comment`
 - put the task key in commit messages (`feat(cli): task claim (CEL-3)`)
 - hand finished work to Lucas **only with `cello task submit`**: a review packet (summary, how-to-check steps, evidence) that moves the task to **In Review**. `cello task move CEL-n "In Review"` is refused. Lucas approves it (Done) or sends it back with a note, on the Review page.
