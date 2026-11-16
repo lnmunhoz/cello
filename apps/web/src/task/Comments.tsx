@@ -4,7 +4,7 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { useSearch } from "@tanstack/react-router"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { MoreHorizontalIcon } from "lucide-react"
-import { type ReactNode, useId, useState } from "react"
+import { Fragment, type ReactNode, useId, useState } from "react"
 import { Button } from "../components/ui/Button.tsx"
 import { Textarea } from "../components/ui/Input.tsx"
 import { Markdown } from "../components/ui/Markdown.tsx"
@@ -17,7 +17,8 @@ import { uploadUrl } from "../screenshots/screenshots.ts"
 import { useScreenshotUpload } from "../screenshots/useScreenshotUpload.ts"
 import { addScreenshot, removeScreenshot, toComment, useCommentDraft } from "./commentDraft.ts"
 import { Reactions } from "./Reactions.tsx"
-import { NextCommentLine, ReceiptTicks } from "./Receipt.tsx"
+import { CommentStatusRow, ReceiptTicks } from "./Receipt.tsx"
+import { statusCommentId } from "./receipts.ts"
 import type { TaskSearch } from "./view.ts"
 
 interface CommentsProps {
@@ -32,8 +33,8 @@ interface CommentsProps {
  * A task's comments, oldest first, and a box to add one (⌘Enter or Comment): in the task panel, and under
  * an open packet on the Review page. The box takes pasted and dropped screenshots (CEL-73); its words and
  * screenshots are the task's comment draft, kept on this device until sent (the Review page's Send back
- * and Approve read it too). Lucas's comments carry their receipts, and a line under the box says where
- * the next one goes (CEL-76).
+ * and Approve read it too). Lucas's comments carry their receipts, and his latest, until it's answered,
+ * a status row in the thread saying where it stands (CEL-76).
  */
 export function Comments({ board, task, placeholder = "Leave a comment…", actions }: CommentsProps) {
   const result = useAtomValue(commentsFamily(task.id))
@@ -45,6 +46,7 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
   const comments = AsyncResult.isSuccess(result) ? result.value.filter((c) => c.deletedAt === null) : []
   // Opened at a comment from ⌘K (`?comment=<id>`, CEL-43): it scrolls into view and flashes once.
   const target = (useSearch({ strict: false }) as TaskSearch).comment
+  const statusAfter = statusCommentId(comments)
 
   const submit = async () => {
     if (toSend === null) return
@@ -60,15 +62,17 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
       {AsyncResult.isInitial(result) ? <p className="text-xs text-faint">Loading comments…</p> : null}
       <ul className="flex flex-col gap-2">
         {comments.map((c) => (
-          <CommentItem
-            key={c.id}
-            board={board}
-            task={task}
-            comment={c}
-            comments={comments}
-            author={whoOf(board, c.actorId, c.sessionId, c.agentId)}
-            target={c.id === target}
-          />
+          <Fragment key={c.id}>
+            <CommentItem
+              board={board}
+              task={task}
+              comment={c}
+              comments={comments}
+              author={whoOf(board, c.actorId, c.sessionId, c.agentId)}
+              target={c.id === target}
+            />
+            {c.id === statusAfter ? <CommentStatusRow board={board} task={task} comment={c} comments={comments} /> : null}
+          </Fragment>
         ))}
       </ul>
       <div className="flex flex-col gap-2">
@@ -88,7 +92,6 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
           }}
         />
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <NextCommentLine board={board} task={task} />
           {uploading > 0 ? <span className="text-xs text-muted">Uploading…</span> : null}
           <Button variant="secondary" size={actions ? "md" : "sm"} onClick={submit} disabled={toSend === null}>
             Comment

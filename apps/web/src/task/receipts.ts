@@ -2,10 +2,11 @@
 // (`delivery`: the session holding the claim when he wrote it) and when that session took it
 // (`comment.delivered`); it's answered once that session, or a subagent of it, comments after it or
 // reacts to it (CEL-77). Who gets the next one comes from the claim, the holder's presence (CEL-35) and
-// whether a `cello inbox --wait` of it is open (`waiting`).
+// whether a `cello inbox --wait` of it is open (`waiting`). Under Lucas's latest comment, until it's
+// answered, a status row says where it stands, like a chat's typing indicator (commentStatus).
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Comment, DeliveryVia, Task } from "@cello/contract/entities"
-import { agoShort, type Presence, presenceOf } from "@cello/shared/presence"
+import { type Presence, presenceOf } from "@cello/shared/presence"
 import { agentOn, agentPresence, agentWho, sessionWho, type Who, whoOf } from "../presence/model.ts"
 
 /**
@@ -16,7 +17,7 @@ import { agentOn, agentPresence, agentWho, sessionWho, type Who, whoOf } from ".
 export type Receipt =
   | { readonly state: "unsent" }
   | { readonly state: "sent"; readonly to: Who; readonly sessionId: string }
-  | { readonly state: "delivered"; readonly to: Who; readonly at: number; readonly after: number; readonly via: DeliveryVia | null }
+  | { readonly state: "delivered"; readonly to: Who; readonly sessionId: string; readonly at: number; readonly after: number; readonly via: DeliveryVia | null }
   | { readonly state: "answered"; readonly to: Who; readonly by: Who; readonly at: number; readonly after: number; readonly emoji: string | null }
 
 /** "<1s", "12s", "3m", "2h": how long something took. */
@@ -54,7 +55,7 @@ export const receiptOf = (comment: Comment, comments: ReadonlyArray<Comment>, bo
     : null
   if (answer) return { state: "answered", to, ...answer, after: answer.at - comment.createdAt }
   if (readAt === null) return { state: "sent", to, sessionId: delivery.sessionId }
-  return { state: "delivered", to, at: readAt, after: readAt - comment.createdAt, via: delivery.via }
+  return { state: "delivered", to, sessionId: delivery.sessionId, at: readAt, after: readAt - comment.createdAt, via: delivery.via }
 }
 
 /**
@@ -89,41 +90,67 @@ export const reachOf = (board: BoardState, task: Task, now: number): Reach => {
   }
 }
 
-/** ok: it arrives soon. idle: it waits in the inbox until the agent works again. warn: nobody will get it. */
+/** ok: it arrives soon, or is being worked on. idle: it waits until the agent works again. warn: nobody will get it. */
 export type ReachTone = "ok" | "idle" | "warn"
 
-/** What the line under the comment box says about who gets the next comment, and how soon. */
-export const reachWords = (reach: Reach, now: number): { readonly tone: ReachTone; readonly text: string } => {
-  if (reach.kind === "nobody") return { tone: "warn", text: "No agent holds this task, so nobody will get this comment." }
-  const name = reach.who.short
-  if (reach.presence === "ended") return { tone: "warn", text: `${name} has ended, so nobody will get this unless it resumes.` }
-  if (reach.waiting) return { tone: "ok", text: `${name} is waiting for you: it gets your comment in about a second.` }
-  if (reach.presence === "active" || reach.worker) {
-    return reach.worker
-      ? { tone: "ok", text: `${reach.worker.short} is working on it now. ${name} gets your comment at its next step.` }
-      : { tone: "ok", text: `${name} is active now and gets your comment at its next step.` }
-  }
-  return { tone: "idle", text: `${name} is idle (seen ${agoShort(reach.lastSeenAt, now)}) and isn't waiting: it gets this when it next works.` }
-}
-
-/** What a comment not taken yet is waiting for: "2fd0505c gets it at its next step". */
-export const pendingWords = (reach: Reach): string =>
-  reach.kind === "nobody"
-    ? "nobody holds the task now"
-    : reach.presence === "ended"
-    ? `${reach.who.short} has ended`
-    : reach.waiting
-    ? `${reach.who.short} gets it in about a second`
-    : reach.presence === "active" || reach.worker
-    ? `${reach.who.short} gets it at its next step`
-    : `${reach.who.short} is idle, gets it when it next works`
+/** The holder takes comments while it, or a subagent of it on the task, is active. */
+const working = (reach: Extract<Reach, { kind: "agent" }>): boolean => reach.presence === "active" || reach.worker !== null
 
 /**
- * What a comment not taken yet waits for: the holder's next step (pendingWords), or, once the claim has
- * moved on from the session it went to, that session's inbox.
+ * How soon a comment not taken yet reaches whoever holds the task. The session, not a subagent working
+ * for it, takes comments, so it's the one named.
  */
-export const sentWords = (r: Extract<Receipt, { state: "sent" }>, task: Task, reach: Reach): string =>
-  r.sessionId === task.assigneeSessionId ? pendingWords(reach) : `waiting in ${r.to.short}'s inbox; ${r.to.short} no longer holds this task`
+export const reachWords = (reach: Reach): { readonly tone: ReachTone; readonly text: string } => {
+  if (reach.kind === "nobody") return { tone: "warn", text: "No agent holds this task: nobody will get this" }
+  const name = reach.who.short
+  if (reach.presence === "ended") return { tone: "idle", text: `${name} ended: it gets this if the session is resumed` }
+  if (reach.waiting) return { tone: "ok", text: `${name} is waiting for you: it gets this in about a second` }
+  if (working(reach)) return { tone: "ok", text: `${name} gets this at its next step` }
+  return { tone: "idle", text: `${name} is idle: it gets this when it next works` }
+}
+
+/**
+ * What the Sent tick adds: nothing while the comment went to the holder (the status row under it says how
+ * soon), or, once the claim has moved on from the session it went to, the inbox it waits in.
+ */
+export const sentWords = (r: Extract<Receipt, { state: "sent" }>, task: Task): string | null =>
+  r.sessionId === task.assigneeSessionId ? null : `waiting in ${r.to.short}'s inbox; ${r.to.short} no longer holds this task`
+
+/** The comment the status row follows: Lucas's latest, even with agents' comments after it. */
+export const statusCommentId = (comments: ReadonlyArray<Comment>): string | null =>
+  comments.findLast((c) => c.sessionId === null && c.deletedAt === null)?.id ?? null
+
+/**
+ * The status row under Lucas's latest comment, until it's answered: how soon the holder gets it, that it
+ * got it and is working on it, or that nobody will. `reach` is the holder the row is about (its mark), or
+ * null when it's about a session that no longer holds the task.
+ */
+export interface CommentStatus {
+  readonly tone: ReachTone
+  readonly text: string
+  readonly reach: Reach | null
+}
+
+export const commentStatus = (comment: Comment, comments: ReadonlyArray<Comment>, task: Task, board: BoardState, now: number): CommentStatus | null => {
+  const r = receiptOf(comment, comments, board)
+  if (r === null || r.state === "answered") return null
+  const reach = reachOf(board, task, now)
+  switch (r.state) {
+    case "unsent":
+      // Claimed after it was written, it still went nowhere: its tick says so, and no row says otherwise.
+      return reach.kind === "nobody" && unsentTone(comment, comments, task, board) === "warn" ? { ...reachWords(reach), reach } : null
+    case "sent":
+      // Waiting in a session that let the task go: its tick names that inbox.
+      return r.sessionId === task.assigneeSessionId ? { ...reachWords(reach), reach } : null
+    case "delivered": {
+      const holder = reach.kind === "agent" && r.sessionId === task.assigneeSessionId ? reach : null
+      // A holder waiting in `cello inbox --wait` has ended its turn: it's waiting for Lucas, not working on it.
+      return holder && working(holder) && !holder.waiting
+        ? { tone: "ok", text: `${r.to.short} got your comment and is working on it…`, reach: holder }
+        : { tone: "idle", text: `${r.to.short} got your comment but hasn't answered yet`, reach: holder }
+    }
+  }
+}
 
 /** When receipts started (CEL-76): a comment from before can't say where it went. */
 export const RECEIPTS_SINCE = Date.UTC(2026, 10, 16)

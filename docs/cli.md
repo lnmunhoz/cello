@@ -435,12 +435,16 @@ cello inbox --json
 - **✓✓ Answered** once your session, or one of its subagents, comments on the task after it or reacts to it. So answer on the card, even with just a 👍.
 - **Not delivered** when no session held the claim as he wrote it.
 
-A line under his comment box also tells him where his next comment goes, and how soon:
+Under his latest comment, until you answer it, a status row in the thread (with your agent mark, like a chat's typing indicator) tells him where it stands:
 
-- you're working: it reaches you at your next step
-- a `cello inbox --wait` of yours is running: it reaches you in about a second
-- you're idle with no waiter: it reaches you when you next work
-- nobody holds the claim, or your session has ended: nobody gets it
+- you're working and haven't taken it yet: "2fd0505c gets this at its next step"
+- a `cello inbox --wait` of yours is running: "2fd0505c is waiting for you: it gets this in about a second"
+- you're idle with no waiter: "2fd0505c is idle: it gets this when it next works"
+- your session has ended: "2fd0505c ended: it gets this if the session is resumed"
+- you took it and are working: "2fd0505c got your comment and is working on it…"
+- nobody holds the claim: "No agent holds this task: nobody will get this"
+
+The row goes away once you answer (a comment or a reaction after taking it), so a comment you took and then left unanswered keeps saying "got your comment but hasn't answered yet".
 
 That's another reason to keep `cello inbox --wait` running when you end a turn holding a claim. What arrives looks like this:
 
@@ -516,7 +520,7 @@ Cello: you hold a claim on CEL-22, and nothing is waiting for Lucas's comments, 
 Closing the terminal (or the Claude Code thread) ends the session. Nothing is lost; delivery pauses:
 
 1. **The waiter stops with it.** `cello inbox --wait` exits within a second once its Claude Code is gone, taking nothing.
-2. **Lucas's comments wait in that session's inbox.** On the card, the comment's receipt says the session ended, and the presence turns grey "ended" within about 30 seconds.
+2. **Lucas's comments wait in that session's inbox.** On the card, the status row under his latest comment says the session ended and gets it if resumed, and the presence turns grey "ended" within about 30 seconds.
 3. **Resuming the session** (`claude --resume`, or reopening the thread) hands everything over at its first hook: its first tool call, or its first stop.
 4. **A new session that claims the task instead** doesn't receive what was sent to the old one; it reads it in the task's history (`cello task get CEL-12` shows every comment). New comments from then on go to the new session.
 
