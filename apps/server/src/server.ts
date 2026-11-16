@@ -4,6 +4,7 @@
 // (version, commit, start time, the web app's stamp) for open tabs to compare with theirs (CEL-37), and
 // records it in the build history before it serves (CEL-50). main.ts and
 // `cello start` launch it; integration tests build it on port 0.
+import * as os from "node:os"
 import * as path from "node:path"
 import * as BunHttpServer from "@effect/platform-bun/BunHttpServer"
 import * as Duration from "effect/Duration"
@@ -14,6 +15,8 @@ import * as HttpServer from "effect/http/HttpServer"
 import * as RpcSerialization from "effect/rpc/RpcSerialization"
 import * as RpcServer from "effect/rpc/RpcServer"
 import { CelloRpcs } from "@cello/contract/rpcs"
+import * as AgentLogService from "./agentLog/AgentLogService.ts"
+import { claudeProjectsDir } from "./agentLog/transcriptPath.ts"
 import * as BackupSchedule from "./backup/BackupSchedule.ts"
 import * as BackupService from "./backup/BackupService.ts"
 import * as BuildHistory from "./build/BuildHistory.ts"
@@ -67,6 +70,11 @@ export interface ServerOptions {
     readonly batch?: Duration.Input | undefined
     readonly quiet?: Duration.Input | undefined
   } | undefined
+  /**
+   * Claude Code's projects folder, the only place agents' transcripts are read from (CEL-106). Default:
+   * `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`. Tests point it at a temp folder.
+   */
+  readonly claudeProjectsDir?: string | undefined
 }
 
 /**
@@ -96,7 +104,9 @@ const wake = (options: ServerOptions) => {
       quiet: options.wake?.quiet,
     })
   }))
-  return WakeService.layer.pipe(
+  // An agent's live log (CEL-106) reads woken runs' logs too, so it sits on the same config.
+  const logs = AgentLogService.layer({ projectsDir: options.claudeProjectsDir ?? claudeProjectsDir(process.env, os.homedir()) })
+  return Layer.merge(WakeService.layer, logs).pipe(
     Layer.provideMerge(SessionHost.layer),
     Layer.provideMerge(AgentDriver.layer([claudeCode()])),
     Layer.provideMerge(config),

@@ -26,6 +26,8 @@ import {
   waitHint,
   waitsInBackground,
   subagentContext,
+  subagentTranscript,
+  transcriptOf,
 } from "./claudeHook.ts"
 
 describe("parseHookInput", () => {
@@ -48,6 +50,8 @@ describe("parseHookInput", () => {
       toolInput: null,
       backgroundCommands: null,
       permissionMode: null,
+      transcriptPath: "/tmp/t.jsonl",
+      agentTranscriptPath: null,
     })
   })
 
@@ -80,7 +84,10 @@ describe("parseHookInput", () => {
   })
 
   it("treats empty or broken input as no information, never as an error", () => {
-    const none = { sessionId: null, cwd: null, stopHookActive: false, inSubagent: false, agent: null, launched: null, toolName: null, toolInput: null, backgroundCommands: null, permissionMode: null }
+    const none = {
+      sessionId: null, cwd: null, stopHookActive: false, inSubagent: false, agent: null, launched: null, toolName: null, toolInput: null,
+      backgroundCommands: null, permissionMode: null, transcriptPath: null, agentTranscriptPath: null,
+    }
     expect(parseHookInput("")).toEqual(none)
     expect(parseHookInput("{not json")).toEqual(none)
     expect(parseHookInput("[1,2]")).toEqual(none)
@@ -207,6 +214,32 @@ describe("waitHint (CEL-74): a delivery on Stop also says to start a waiter", ()
   })
 })
 
+describe("transcriptOf (CEL-106): which transcript is the caller's", () => {
+  const session = "/h/.claude/projects/-repo/2fd0505c.jsonl"
+  const of = (input: Record<string, unknown>) => transcriptOf(parseHookInput(JSON.stringify({ session_id: "2fd0505c", ...input })))
+
+  it("the main conversation's is transcript_path", () => {
+    expect(of({ transcript_path: session })).toBe(session)
+    expect(of({})).toBeNull()
+  })
+
+  it("a subagent's is agent_transcript_path (SubagentStop), else its file under the session's subagents/ folder", () => {
+    expect(of({ transcript_path: session, agent_id: "a13b", agent_transcript_path: "/h/.claude/projects/-repo/2fd0505c/subagents/agent-a13b.jsonl" }))
+      .toBe("/h/.claude/projects/-repo/2fd0505c/subagents/agent-a13b.jsonl")
+    expect(of({ transcript_path: session, agent_id: "a13b" })).toBe("/h/.claude/projects/-repo/2fd0505c/subagents/agent-a13b.jsonl")
+    // Already its own file: kept.
+    expect(of({ transcript_path: "/h/.claude/projects/-repo/2fd0505c/subagents/agent-a13b.jsonl", agent_id: "a13b" }))
+      .toBe("/h/.claude/projects/-repo/2fd0505c/subagents/agent-a13b.jsonl")
+    expect(of({ agent_id: "a13b" })).toBeNull()
+  })
+
+  it("an agent id that would climb out of the folder makes no path", () => {
+    expect(subagentTranscript(session, "../../x")).toBeNull()
+    expect(subagentTranscript(session, "a/b")).toBeNull()
+    expect(subagentTranscript("/h/not-a-transcript.txt", "a13b")).toBeNull()
+  })
+})
+
 describe("hookSession", () => {
   it("takes the session from stdin, falling back to CLAUDE_CODE_SESSION_ID", () => {
     const input = parseHookInput(JSON.stringify({ session_id: "from-stdin" }))
@@ -240,6 +273,29 @@ describe("hookIdentity and subagentContext", () => {
     const withMode = parseHookInput(JSON.stringify({ session_id: "2fd0505c", permission_mode: "acceptEdits" }))
     expect(hookIdentity(withMode, {})).toEqual({ CLAUDE_CODE_SESSION_ID: "2fd0505c", CELLO_PERMISSION_MODE: "acceptEdits" })
     expect(hookIdentity(parseHookInput(JSON.stringify({ session_id: "2fd0505c" })), { CELLO_PERMISSION_MODE: "auto" }))
+      .toEqual({ CLAUDE_CODE_SESSION_ID: "2fd0505c" })
+  })
+
+  it("passes on the caller's transcript and, after a tool call, its step in one line (CEL-106); never stale ones from the environment", () => {
+    const post = parseHookInput(JSON.stringify({
+      session_id: "2fd0505c", transcript_path: "/h/.claude/projects/-repo/2fd0505c.jsonl", tool_name: "Bash", tool_input: { command: "bun run test" },
+    }))
+    expect(hookIdentity(post, { CELLO_TRANSCRIPT: "/stale.jsonl", CELLO_STEP: "stale" })).toEqual({
+      CLAUDE_CODE_SESSION_ID: "2fd0505c",
+      CELLO_TRANSCRIPT: "/h/.claude/projects/-repo/2fd0505c.jsonl",
+      CELLO_STEP: "Bash · bun run test",
+    })
+    // Inside a subagent: the subagent's own file, next to the session's.
+    const sub = parseHookInput(JSON.stringify({
+      session_id: "2fd0505c", agent_id: "a13b", agent_type: "cello-builder", transcript_path: "/h/.claude/projects/-repo/2fd0505c.jsonl",
+      tool_name: "Edit", tool_input: { file_path: "/repo/src/FacetPanel.tsx" },
+    }))
+    expect(hookIdentity(sub, {})).toMatchObject({
+      CELLO_TRANSCRIPT: "/h/.claude/projects/-repo/2fd0505c/subagents/agent-a13b.jsonl",
+      CELLO_STEP: "Edit · FacetPanel.tsx",
+    })
+    // A Stop says no step; no transcript_path, no transcript.
+    expect(hookIdentity(parseHookInput(JSON.stringify({ session_id: "2fd0505c", hook_event_name: "Stop" })), { CELLO_STEP: "stale" }))
       .toEqual({ CLAUDE_CODE_SESSION_ID: "2fd0505c" })
   })
 

@@ -44,6 +44,14 @@ export const AgentSession = Schema.Struct({
    * out, which means false.
    */
   waiting: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Its log (CEL-106): `hasLog` when a hook reported its Claude Code transcript (the path itself stays on
+   * the server); `currentStep` its last tool call in one line ("Bash · bun run test", keys masked) and
+   * when. Left out by events stored before CEL-106, which means none.
+   */
+  hasLog: Schema.optionalKey(Schema.Boolean),
+  currentStep: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  currentStepAt: Schema.optionalKey(Schema.NullOr(Millis)),
 })
 export type AgentSession = typeof AgentSession.Type
 
@@ -65,6 +73,14 @@ export const SessionAgent = Schema.Struct({
   lastSeenAt: Millis,
   /** When it finished (SubagentStop); a resumed agent clears it. */
   endedAt: Schema.NullOr(Millis),
+  /**
+   * Its log (CEL-106): `hasLog` when a hook reported its Claude Code transcript (the path itself stays on
+   * the server); `currentStep` its last tool call in one line ("Bash · bun run test", keys masked) and
+   * when. Left out by events stored before CEL-106, which means none.
+   */
+  hasLog: Schema.optionalKey(Schema.Boolean),
+  currentStep: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  currentStepAt: Schema.optionalKey(Schema.NullOr(Millis)),
 })
 export type SessionAgent = typeof SessionAgent.Type
 

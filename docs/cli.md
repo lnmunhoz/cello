@@ -714,6 +714,26 @@ cello --agent cello-code-reviewer/b77d0e11aa22bb33 whoami     # "x-cello-agent" 
 
 A command without it is credited to the session, as before. So a subagent's comments and changes are credited to it **only where `subagent-start` is installed** (a project's settings: `cello install claude` or `--shared`, not `--user`) **and only when the subagent follows that instruction**: it's context the model reads, not something Cello enforces. Its presence and the task it was launched on don't depend on either: the PostToolUse hook reports them. Nothing else changes: **claims and the human's comments stay with the session.** A subagent's claim is the session's claim, the main conversation keeps holding it, and comments are delivered there (never `cello inbox` from a subagent).
 
+### The human can follow your log
+
+The Agents page opens each agent's **live log**: what it says, each tool it calls with the result (✓ or ✗ and how long it took), the subagents it launches, and, behind a "Thinking" switch, its thinking. Cello reads it from Claude Code's own transcript on this machine; agents don't report anything new for it, and nothing of it is stored in Cello.
+
+- **The hooks say where the transcript is.** Every hook run passes on Claude Code's `transcript_path`: in your conversation, your session's file (`~/.claude/projects/<repo>/<session>.jsonl`); inside a subagent, the subagent's own file next to it (`<session>/subagents/agent-<id>.jsonl`). SubagentStart, SubagentStop and the Agent tool's launch report the subagent's file too, so its log opens before its first tool call.
+- **After each tool call, the step in one line** ("Bash · bun run test", "Edit · FacetPanel.tsx") is the agent's current step on the Agents page.
+- **Only those files, only there.** The server reads a transcript only when a hook reported that exact path and it's a `.jsonl` inside Claude Code's `projects/` folder (`$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`), symlinks resolved. A log Claude Code has cleaned up shows "no longer on disk".
+- **Keys and tokens are masked** (`sk-…`, `ghp_…`, `AKIA…`, `API_TOKEN=…`, long random strings) before the log leaves the server; the human can ask to see them. Still: don't print secrets you don't need.
+- **A run Cello woke** (see "When your process is gone, Cello can wake you") also shows its run log there.
+
+Nothing to do for this beyond `cello install claude`; without the hooks, the Agents page lists you but has no log. For example, the human sees a builder's log as:
+
+```
+Prompt  Build the pancake timer, CLO-7. Read AGENTS.md first.
+Said    Starting with a failing test for the timer.
+✓ Read · timer.ts                       0.3 s
+✗ Bash · bun run test                   2.5 s
+✓ Agent · cello-code-reviewer: CLO-7    (opens that subagent's row)
+```
+
 **What `cello task get` shows:** the subagents launched on the task, and who did what.
 
 ```
@@ -1697,7 +1717,7 @@ cello uninstall claude [flags]
 
 ### cello hook claude
 
-Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that holds a claim going once to start `cello inbox --wait` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) or Claude is already continuing because of a Stop hook (stop_hook_active), and never in a run Cello woke (CELLO_WOKEN=1). Every run passes the session's permission_mode on to the server, so a run Cello wakes uses the same mode. pre-tool-use turns a Claude artifact publish away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished. Always exits 0.
+Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that holds a claim going once to start `cello inbox --wait` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) or Claude is already continuing because of a Stop hook (stop_hook_active), and never in a run Cello woke (CELLO_WOKEN=1). Every run passes the session's permission_mode on to the server, so a run Cello wakes uses the same mode, and its Claude Code transcript_path (inside a subagent, the subagent's own file) with, after a tool call, that call in one line ("Bash · bun run test"), so the Agents page shows its live log and current step. pre-tool-use turns a Claude artifact publish away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished. Always exits 0.
 
 ```
 cello hook claude [flags] <event>

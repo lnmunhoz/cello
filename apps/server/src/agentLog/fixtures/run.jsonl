@@ -1,0 +1,7 @@
+{"type":"cello.run","run":{"id":"r1","why":"comment","outcome":"running"},"prompt":"The human commented on CLO-7."}
+{"type":"system","subtype":"init","session_id":"11111111-2222-4333-8444-555555555555","tools":["Bash"]}
+{"type":"assistant","message":{"id":"msg_run1","role":"assistant","content":[{"type":"text","text":"Reading the comment now."},{"type":"tool_use","id":"toolu_run_bash","name":"Bash","input":{"command":"cello inbox"}}]},"session_id":"11111111-2222-4333-8444-555555555555"}
+{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_run_bash","type":"tool_result","content":"Nothing new.","is_error":false}]},"session_id":"11111111-2222-4333-8444-555555555555"}
+{"type":"result","subtype":"success","is_error":false,"result":"Done."}
+{"type":"cello.stderr","text":"warning: something on stderr"}
+{"type":"cello.ended","outcome":"completed","exitCode":0,"error":null}

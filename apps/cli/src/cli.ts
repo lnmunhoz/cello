@@ -73,6 +73,8 @@ import {
   parseHookInput,
   stopNudge,
   subagentContext,
+  subagentTranscript,
+  transcriptOf,
   waitHint,
   WOKEN_VARIABLE,
 } from "./claudeHook.ts"
@@ -1665,6 +1667,8 @@ const deliverToClaude = (event: DeliveryEvent) =>
     // The Agent tool just launched a subagent: the board learns it, and the task its launch names.
     const launched = hook.launched
     if (launched !== null) {
+      // Its transcript sits next to the session's (CEL-106), so its log opens before its own first hook.
+      const transcriptPath = hook.transcriptPath === null ? null : subagentTranscript(hook.transcriptPath, launched.agentId)
       yield* withClient((client) =>
         client["agent.report"]({
           agentId: launched.agentId,
@@ -1672,6 +1676,7 @@ const deliverToClaude = (event: DeliveryEvent) =>
           state: "launched",
           ...(launched.description ? { description: launched.description } : {}),
           ...(launched.prompt ? { prompt: launched.prompt } : {}),
+          ...(transcriptPath ? { transcriptPath } : {}),
         }), { headers }).pipe(
         // Telling the board is a nicety: if it fails, the comments below are still handed over.
         Effect.catch(() => Effect.void),
@@ -1750,7 +1755,9 @@ const subagentHook = (state: "started" | "stopped") =>
     if (state === "started") yield* print(JSON.stringify(subagentContext(agent)))
     const session = hookIdentity({ ...hook, agent: null }, env)
     if (!session.CLAUDE_CODE_SESSION_ID) return
-    yield* withClient((client) => client["agent.report"]({ agentId: agent.id, agentType: agent.type, state }), {
+    // The subagent's own transcript (CEL-106): its log on the Agents page.
+    const transcriptPath = transcriptOf(hook)
+    yield* withClient((client) => client["agent.report"]({ agentId: agent.id, agentType: agent.type, state, ...(transcriptPath ? { transcriptPath } : {}) }), {
       headers: identityHeaders(session, hook.cwd ?? cwd),
     })
   })
@@ -1784,7 +1791,8 @@ const hookClaude = Command.make("claude", {
       "when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that " +
       "holds a claim going once to start `cello inbox --wait` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) " +
       "or Claude is already continuing because of a Stop hook (stop_hook_active), and never in a run Cello woke (CELLO_WOKEN=1). Every run passes the session's " +
-      "permission_mode on to the server, so a run Cello wakes uses the same mode. pre-tool-use turns a Claude artifact publish " +
+      "permission_mode on to the server, so a run Cello wakes uses the same mode, and its Claude Code transcript_path (inside a subagent, the subagent's own " +
+      "file) with, after a tool call, that call in one line (\"Bash · bun run test\"), so the Agents page shows its live log and current step. pre-tool-use turns a Claude artifact publish " +
       "away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); " +
       "this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and " +
       "denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the " +

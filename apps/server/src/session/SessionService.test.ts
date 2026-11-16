@@ -70,6 +70,36 @@ describe("SessionService.resolve", () => {
       ])
     })))
 
+  it.effect("keeps the transcript and current step a hook reported (CEL-106): the session's on the session, a subagent's on the subagent", () =>
+    run(Effect.gen(function* () {
+      const sessions = yield* SessionService
+      const transcript = "/home/u/.claude/projects/-repo/2fd0505c-417a.jsonl"
+      const agentTranscript = "/home/u/.claude/projects/-repo/2fd0505c-417a/subagents/agent-a13b.jsonl"
+      yield* sessions.resolve({ ...claude, transcript, step: "Bash · bun run test" })
+      yield* TestClock.adjust("1 minute")
+      yield* sessions.resolve({ ...claude, agent: "a13b", agentType: "cello-builder", transcript: agentTranscript, step: "Edit · FacetPanel.tsx" })
+      // A plain `cello` call (no hook) says neither: the last ones stay.
+      yield* TestClock.adjust("1 minute")
+      yield* sessions.resolve(claude)
+      const session = yield* rows((sql) => sql`SELECT transcript_path, current_step, current_step_at FROM agent_sessions`)
+      expect(session).toEqual([{ transcript_path: transcript, current_step: "Bash · bun run test", current_step_at: 0 }])
+      const agent = yield* rows((sql) => sql`SELECT transcript_path, current_step, current_step_at FROM session_agents`)
+      expect(agent).toEqual([{ transcript_path: agentTranscript, current_step: "Edit · FacetPanel.tsx", current_step_at: 60_000 }])
+    })))
+
+  it.effect("masks keys in a current step, and ignores a transcript path that isn't an absolute .jsonl (CEL-106)", () =>
+    run(Effect.gen(function* () {
+      const sessions = yield* SessionService
+      yield* sessions.resolve({ ...claude, transcript: "relative/s.jsonl", step: "Bash · export API_TOKEN=tok_live_998877 && deploy" })
+      yield* sessions.resolve({ ...claude, transcript: "/etc/passwd" })
+      yield* sessions.resolve({ ...claude, transcript: "/home/u/.claude/projects/x/\u0007s.jsonl" })
+      const [row] = yield* rows((sql) => sql<{ transcript_path: string | null; current_step: string }>`
+        SELECT transcript_path, current_step FROM agent_sessions`)
+      expect(row!.transcript_path).toBeNull()
+      expect(row!.current_step).not.toContain("tok_live_998877")
+      expect(row!.current_step).toContain("Bash · export API_TOKEN=")
+    })))
+
   it.effect("session \"me\" and no session at all both resolve to the human", () =>
     run(Effect.gen(function* () {
       const sessions = yield* SessionService

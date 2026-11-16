@@ -15,6 +15,15 @@ describe("identityHeaders", () => {
     expect(identityHeaders({ CLAUDE_CODE_SESSION_ID: "s1" }, "/repo")[IDENTITY_HEADERS.permissionMode]).toBeUndefined()
   })
 
+  it("the hook's CELLO_TRANSCRIPT and CELLO_STEP become the transcript and step headers (CEL-106); the human sends neither", () => {
+    const env = { CLAUDE_CODE_SESSION_ID: "s1", CELLO_TRANSCRIPT: "/h/.claude/projects/-repo/s1.jsonl", CELLO_STEP: "Bash · bun run test" }
+    const headers = identityHeaders(env, "/repo")
+    expect(headers[IDENTITY_HEADERS.transcript]).toBe("/h/.claude/projects/-repo/s1.jsonl")
+    expect(headers[IDENTITY_HEADERS.step]).toBe("Bash · bun run test")
+    const human = identityHeaders({ ...env, CELLO_SESSION: "me" }, "/repo")
+    expect([human[IDENTITY_HEADERS.transcript], human[IDENTITY_HEADERS.step]]).toEqual([undefined, undefined])
+  })
+
   it("a Claude Code shell sends its session, client, pid, entrypoint and folder", () => {
     expect(identityHeaders(claude, "/Users/lnmunhoz/projects/cello")).toEqual({
       "x-cello-session": "2fd0505c-417a-4167-acfe-2d66080fcae0",
