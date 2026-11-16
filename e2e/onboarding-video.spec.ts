@@ -16,6 +16,7 @@ import * as path from "node:path"
 import type { Browser, Locator, Page } from "@playwright/test"
 import { newCommandId, openClient, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
 import { agentAs, caption, card, column, defaultWorkspace, expect, hold, seedLabels, seedProject, taskPanel, test } from "./fixtures.ts"
+import { celloIn, claudeHooks } from "./claudeHooks.ts"
 import { celloAs, celloInBackground, WEB_URL } from "./packets.ts"
 
 const SIZE = { width: 1920, height: 1080 }
@@ -29,7 +30,53 @@ const SESSIONS = {
   speed: "e9c45f27-81d3-4b6a-a2c4-7f19d0e3b862",
   email: "1a8e6d3b-f40c-4e27-8b51-c3a9e2d76f04",
   applePay: "4f2a9c1e-6b7d-4c3e-95a8-d1e0f2b3c4a6",
+  orchestrator: "7d3f1a92-2c4b-4e6d-8a1f-5b9c0e3d7a26",
 } as const
+
+/** Subagents the sessions launch (scenes ① and ③b), each by its session, with Claude Code's agent type. */
+const SUBAGENTS = {
+  speedBuilder: { session: "speed", id: "5a91c3e7d2b04f68", type: "cello-builder" },
+  emailReviewer: { session: "email", id: "c28e4f1a9b7d3e05", type: "cello-code-reviewer" },
+  applePayBuilder: { session: "applePay", id: "e7b3d915a4c2f086", type: "cello-builder" },
+  applePayReviewer: { session: "applePay", id: "b46d2f8e1c3a9057", type: "cello-code-reviewer" },
+  applePayFixer: { session: "applePay", id: "f19a7c3e5d2b8064", type: "cello-builder" },
+  skuBuilder: { session: "orchestrator", id: "a13f6b2d8e9c4071", type: "cello-builder" },
+  addressBuilder: { session: "orchestrator", id: "3d8e2a71f5c9b604", type: "cello-builder" },
+  skuReviewer: { session: "orchestrator", id: "9f0c5e3b1a7d2e48", type: "cello-code-reviewer" },
+} as const satisfies Record<string, { session: keyof typeof SESSIONS; id: string; type: string }>
+type Subagent = keyof typeof SUBAGENTS
+
+// The sessions' hooks run in a folder named like the shop's repository, as Claude Code's do.
+const repo = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-acme-")), "acme-shop")
+fs.mkdirSync(repo)
+const hooks = claudeHooks(repo)
+/** Subagents launched and not stopped yet, so the clean-up ends each one. */
+const running = new Set<Subagent>()
+
+/** A subagent starts, launched by its session to do `description`. */
+const launch = (name: Subagent, description: string) => {
+  const { session, id, type } = SUBAGENTS[name]
+  hooks.launch(SESSIONS[session], id, type, description)
+  running.add(name)
+}
+/** One of its tool calls: it checks in. */
+const toolCall = (name: Subagent, tool?: string) => {
+  const { session, id, type } = SUBAGENTS[name]
+  hooks.toolCall(SESSIONS[session], id, type, tool)
+}
+/** It finishes. */
+const stop = (name: Subagent) => {
+  const { session, id, type } = SUBAGENTS[name]
+  hooks.stop(SESSIONS[session], id, type)
+  running.delete(name)
+}
+/** `cello …` as the subagent (`cello --agent <type>/<id>`, as the SubagentStart hook tells it to). */
+const asSubagent = (name: Subagent) => {
+  const { session, id, type } = SUBAGENTS[name]
+  return celloIn(repo)(SESSIONS[session], { agent: `${type}/${id}` })
+}
+/** `cello …` as a session itself. */
+const asSession = (name: keyof typeof SESSIONS) => celloIn(repo)(SESSIONS[name])
 
 const TITLES = {
   applePay: "Add Apple Pay to checkout",
@@ -247,6 +294,7 @@ test.beforeAll(async ({ browser }) => {
 async function cleanUp() {
   const snapshot = await human.run((c) => c["snapshot.get"]({}))
   const project = snapshot.projects.find((p) => p.key === KEY && p.archivedAt === null)
+  for (const name of [...running]) stop(name)
   if (project) {
     // Each claim released by its own session, so no agent counts as working and no task waits on anyone.
     for (const [name, id] of Object.entries(SESSIONS) as Array<[keyof typeof SESSIONS, string]>) {
@@ -266,6 +314,7 @@ test.afterAll(async () => {
   await cleanUp()
   await human.close()
   fs.rmSync(evidenceDir, { recursive: true, force: true })
+  fs.rmSync(path.dirname(repo), { recursive: true, force: true })
 })
 
 test.beforeEach(async ({ context }) => {
@@ -476,5 +525,117 @@ test("⑥ Nothing without proof: a packet with a video is approved and lands in 
   await page.getByRole("link", { name: "Acme Shop" }).click()
   await expect(column(page, "Done").locator(`[data-task-key="${cart}"]`)).toBeVisible()
   await expect(column(page, "In Progress").locator(`[data-task-key="${email}"]`)).toBeVisible()
+  await hold(page)
+})
+
+// Scenes ① and ③b come last in the file, so the scenes before them record the board as it was approved;
+// in the video they come first.
+
+/** The session holds `title`: claims it unless it already does. */
+async function holds(name: keyof typeof SESSIONS, title: string) {
+  const key = await keyOf(human, title)
+  const snapshot = await human.run((c) => c["snapshot.get"]({}))
+  const task = snapshot.tasks.find((t) => `${KEY}-${t.number}` === key && snapshot.projects.find((p) => p.id === t.projectId)?.key === KEY)!
+  const holder = snapshot.sessions.find((s) => s.id === task.assigneeSessionId)
+  if (holder?.externalId !== SESSIONS[name]) asSession(name)("task", "claim", key)
+  return key
+}
+
+test("① Agents working: three sessions at once, their subagents starting, checking in and moving through stages, live on the Agents page", async ({ page }) => {
+  const speed = await holds("speed", TITLES.speed)
+  const email = await holds("email", TITLES.email)
+  // Apple Pay's card when scene ④ made it, else a task from the seed.
+  const madeInScene4 = await keyOf(human, TITLES.applePay).then(() => true, () => false)
+  const third = await holds("applePay", madeInScene4 ? TITLES.applePay : "Low-stock alerts")
+  launch("speedBuilder", `${speed} lazy-load the product gallery`)
+  asSubagent("speedBuilder")("task", "stage", speed, "building")
+  launch("applePayBuilder", `${third} add Apple Pay to checkout`)
+  asSubagent("applePayBuilder")("task", "stage", third, "building")
+  asSession("email")("task", "stage", email, "building")
+
+  await page.goto("/agents")
+  await expect(page.locator(`[data-agent-row$="/${SUBAGENTS.applePayBuilder.id}"]`)).toBeVisible()
+  await hold(page)
+
+  // Each step is a real CLI call or hook, so they come about as fast as an agent's tool calls do: new
+  // subagents appear under their sessions, others finish, stages move on, and every mark keeps working.
+  toolCall("speedBuilder", "Read")
+  launch("emailReviewer", `${email} review the email template branch`)
+  asSubagent("emailReviewer")("task", "stage", email, "review")
+  await expect(page.locator(`[data-agent-row$="/${SUBAGENTS.emailReviewer.id}"]`)).toBeVisible()
+  await hold(page)
+  toolCall("applePayBuilder", "Edit")
+  toolCall("speedBuilder", "Bash")
+  asSubagent("speedBuilder")("task", "stage", speed, "review")
+  toolCall("emailReviewer", "Read")
+  stop("applePayBuilder")
+  launch("applePayReviewer", `${third} review the Apple Pay branch`)
+  asSubagent("applePayReviewer")("task", "stage", third, "review")
+  await expect(page.locator(`[data-agent-row$="/${SUBAGENTS.applePayReviewer.id}"]`)).toBeVisible()
+  await hold(page)
+  toolCall("emailReviewer", "Grep")
+  toolCall("applePayReviewer", "Read")
+  stop("emailReviewer")
+  asSession("email")("task", "stage", email, "fixing")
+  await expect(page.locator(`[data-agent-row$="/${SUBAGENTS.emailReviewer.id}"]`)).toHaveCount(0)
+  toolCall("speedBuilder", "Edit")
+  asSubagent("speedBuilder")("task", "stage", speed, "fixing")
+  toolCall("applePayReviewer", "Bash")
+  stop("applePayReviewer")
+  launch("applePayFixer", `${third} fix the review's findings`)
+  asSubagent("applePayFixer")("task", "stage", third, "fixing")
+  toolCall("speedBuilder", "Bash")
+  await hold(page)
+})
+
+test("③b The orchestrator: one session claims two tasks and hands each to a builder; a reviewer checks one before it's merged", async ({ page }) => {
+  // Scene ①'s subagents have finished.
+  for (const name of ["speedBuilder", "applePayBuilder", "applePayReviewer", "applePayFixer", "emailReviewer"] as const) if (running.has(name)) stop(name)
+  const sku = await keyOf(human, TITLES.sku)
+  const addresses = await keyOf(human, "Saved addresses")
+  await openBoard(page)
+  await hold(page)
+
+  const orchestrator = asSession("orchestrator")
+  orchestrator("task", "claim", sku)
+  const skuCard = column(page, "In Progress").locator(`[data-task-key="${sku}"]`)
+  await expect(skuCard.locator("[data-card-work]")).toContainText("7d3f1a92 active now")
+  orchestrator("task", "claim", addresses)
+  const addressCard = column(page, "In Progress").locator(`[data-task-key="${addresses}"]`)
+  await expect(addressCard.locator("[data-card-work]")).toContainText("7d3f1a92 active now")
+  await hold(page)
+  await hold(page)
+
+  launch("skuBuilder", `${sku} build search by SKU`)
+  asSubagent("skuBuilder")("task", "stage", sku, "building")
+  await expect(skuCard.locator("[data-card-work]")).toContainText("cello-builder · a13f6b2d")
+  await expect(skuCard.locator('[data-stage="building"]')).toBeVisible()
+  await hold(page)
+  launch("addressBuilder", `${addresses} build saved addresses`)
+  asSubagent("addressBuilder")("task", "stage", addresses, "building")
+  await expect(addressCard.locator("[data-card-work]")).toContainText("cello-builder · 3d8e2a71")
+  await hold(page)
+
+  toolCall("skuBuilder", "Edit")
+  toolCall("addressBuilder", "Edit")
+  toolCall("skuBuilder", "Bash")
+  stop("skuBuilder")
+  launch("skuReviewer", `${sku} review the search-by-SKU branch`)
+  asSubagent("skuReviewer")("task", "stage", sku, "review")
+  await expect(skuCard.locator("[data-card-work]")).toContainText("cello-code-reviewer · 9f0c5e3b")
+  await expect(skuCard.locator('[data-stage="review"]')).toBeVisible()
+  toolCall("addressBuilder", "Bash")
+  await hold(page)
+  toolCall("skuReviewer", "Read")
+  await hold(page)
+
+  stop("skuReviewer")
+  orchestrator("task", "stage", sku, "merged")
+  await expect(skuCard.locator('[data-stage="merged"]')).toBeVisible()
+  toolCall("addressBuilder", "Edit")
+  await hold(page)
+  await hold(page)
+  toolCall("addressBuilder", "Bash")
+  await expect(addressCard.locator('[data-stage="building"]')).toBeVisible()
   await hold(page)
 })
