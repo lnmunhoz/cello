@@ -160,6 +160,22 @@ describe("CardBody", () => {
         expect(ended).toContain("--agent-body:var(--faint)")
       })
 
+      it("an edge in the agent's colour while it's at work on the task, and none when it's quiet, ended, or waiting on Lucas (CEL-76)", () => {
+        const edgeOf = (html: string) => html.match(/<span[^>]*data-activity-edge[^>]*>/)?.[0] ?? null
+        const working = edgeOf(renderIn(withStatuses, held))
+        expect(working).toContain(`background:${sessionColor(session)}`)
+        // Thinking (no stage yet) is at work too.
+        expect(edgeOf(renderIn(withStatuses, { ...held, stage: null }))).not.toBeNull()
+        expect(edgeOf(renderIn({ ...withStatuses, sessions: { s1: { ...session, lastSeenAt: now - 2 * 3_600_000 } } }, held))).toBeNull()
+        expect(edgeOf(renderIn({ ...withStatuses, sessions: { s1: { ...session, endedAt: now - 60_000 } } }, held))).toBeNull()
+        expect(edgeOf(renderIn(withStatuses, { ...held, statusId: "needs" }))).toBeNull()
+        expect(edgeOf(renderIn(withStatuses, task("t5", 5)))).toBeNull()
+        // As the board first draws, nothing plays: no flash, no turn.
+        const html = renderIn(withStatuses, held)
+        expect(html).not.toContain("activity-edge-flash")
+        expect(html).not.toContain("status-turn")
+      })
+
       it("follows whoever the line names: a subagent working on the task gets the mark, in its colour (CEL-55)", () => {
         const builder: SessionAgent = {
           sessionId: "s1", agentId: "a13bfb89c0de1234", agentType: "cello-builder", taskId: "t4", description: null,

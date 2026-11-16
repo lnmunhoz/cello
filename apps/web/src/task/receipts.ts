@@ -1,47 +1,25 @@
-// CEL-76 scope (removed in the real build): delivery receipts on Lucas's comments, and who will get the
-// next one, picked with `?receipts=a|b|c`; the cards' activity treatment with `?activity=sweep|edge`.
-// The facts come from the prototype read `scope.receipts` (which session each comment went to, when it
-// took it, and the sessions with `cello inbox --wait` open); "answered" is the receiving session (or one
-// of its subagents) commenting after it. The build replaces the read with a `comment.delivered` event.
+// Delivery receipts on Lucas's comments (CEL-76), and who gets the next one. A comment says where it went
+// (`delivery`: the session holding the claim when he wrote it) and when that session took it
+// (`comment.delivered`); it's answered once that session, or a subagent of it, comments after it or
+// reacts to it (CEL-77). Who gets the next one comes from the claim, the holder's presence (CEL-35) and
+// whether a `cello inbox --wait` of it is open (`waiting`).
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import type { Comment, Task } from "@cello/contract/entities"
+import type { Comment, DeliveryVia, Task } from "@cello/contract/entities"
 import { agoShort, type Presence, presenceOf } from "@cello/shared/presence"
 import { agentOn, agentPresence, agentWho, sessionWho, type Who, whoOf } from "../presence/model.ts"
 
-export type ReceiptStyle = "a" | "b" | "c"
-export type ActivityStyle = "sweep" | "edge"
-
-/** `?receipts=a|b|c`: which receipt option shows; anything else, none (the app as it is). */
-export const receiptStyle = (search: string): ReceiptStyle | null => {
-  const value = new URLSearchParams(search).get("receipts")
-  return value === "a" || value === "b" || value === "c" ? value : null
-}
-
-/** `?activity=sweep|edge`: which card activity treatment shows. */
-export const activityStyle = (search: string): ActivityStyle | null => {
-  const value = new URLSearchParams(search).get("activity")
-  return value === "sweep" || value === "edge" ? value : null
-}
-
-/** One comment's delivery, as `scope.receipts` returns it. */
-export interface ReceiptRow {
-  readonly commentId: string
-  readonly sessionId: string
-  readonly readAt: number | null
-}
-
 /**
- * A comment of Lucas's, as it travels: unsent (no agent held the task, so it went nowhere), sent (in
+ * One of Lucas's comments, as it travels: unsent (no agent held the task, so it went nowhere), sent (in
  * the session's inbox, not taken yet), delivered (the session took it, `after` ms later), answered (the
- * session or a subagent of it commented after it, `after` ms later).
+ * session or a subagent of it commented after it or reacted to it, `after` ms later).
  */
 export type Receipt =
   | { readonly state: "unsent" }
-  | { readonly state: "sent"; readonly to: Who; readonly sessionId: string }
-  | { readonly state: "delivered"; readonly to: Who; readonly sessionId: string; readonly at: number; readonly after: number }
-  | { readonly state: "answered"; readonly to: Who; readonly sessionId: string; readonly by: Who; readonly at: number; readonly after: number }
+  | { readonly state: "sent"; readonly to: Who }
+  | { readonly state: "delivered"; readonly to: Who; readonly at: number; readonly after: number; readonly via: DeliveryVia | null }
+  | { readonly state: "answered"; readonly to: Who; readonly by: Who; readonly at: number; readonly after: number; readonly emoji: string | null }
 
-/** "12s", "3m", "2h": how long something took. */
+/** "<1s", "12s", "3m", "2h": how long something took. */
 export const durationShort = (ms: number): string => {
   if (ms < 1000) return "<1s"
   const s = Math.round(ms / 1000)
@@ -56,21 +34,22 @@ const sessionName = (board: BoardState, sessionId: string): Who => {
   return s ? sessionWho(s) : { kind: "agent", name: "an agent session", short: sessionId.slice(0, 8), color: "var(--faint)" }
 }
 
-/** A comment's receipt; null for an agent's comment (receipts are for Lucas's). */
-export const receiptOf = (comment: Comment, comments: ReadonlyArray<Comment>, rows: ReadonlyArray<ReceiptRow>, board: BoardState): Receipt | null => {
+/** A comment's receipt; null for an agent's own comment (receipts are for Lucas's). */
+export const receiptOf = (comment: Comment, comments: ReadonlyArray<Comment>, board: BoardState): Receipt | null => {
   if (comment.sessionId !== null) return null
-  const row = rows.find((r) => r.commentId === comment.id)
-  if (!row) return { state: "unsent" }
-  const to = sessionName(board, row.sessionId)
-  const reply = comments.find((c) => c.sessionId === row.sessionId && c.createdAt > comment.createdAt && c.deletedAt === null)
-  if (reply) {
-    return {
-      state: "answered", to, sessionId: row.sessionId, by: whoOf(board, reply.actorId, reply.sessionId, reply.agentId),
-      at: reply.createdAt, after: reply.createdAt - comment.createdAt,
-    }
-  }
-  if (row.readAt === null) return { state: "sent", to, sessionId: row.sessionId }
-  return { state: "delivered", to, sessionId: row.sessionId, at: row.readAt, after: row.readAt - comment.createdAt }
+  const delivery = comment.delivery ?? null
+  if (delivery === null) return { state: "unsent" }
+  const to = sessionName(board, delivery.sessionId)
+  const reply = comments.find((c) => c.sessionId === delivery.sessionId && c.createdAt > comment.createdAt && c.deletedAt === null)
+  const reaction = (comment.reactions ?? []).find((r) => r.sessionId === delivery.sessionId)
+  const answer = reply && (!reaction || reply.createdAt <= reaction.createdAt)
+    ? { by: whoOf(board, reply.actorId, reply.sessionId, reply.agentId), at: reply.createdAt, emoji: null }
+    : reaction
+    ? { by: whoOf(board, reaction.actorId, reaction.sessionId, reaction.agentId), at: reaction.createdAt, emoji: reaction.emoji }
+    : null
+  if (answer) return { state: "answered", to, ...answer, after: answer.at - comment.createdAt }
+  if (delivery.readAt === null) return { state: "sent", to }
+  return { state: "delivered", to, at: delivery.readAt, after: delivery.readAt - comment.createdAt, via: delivery.via }
 }
 
 /**
@@ -82,7 +61,6 @@ export type Reach =
   | { readonly kind: "nobody" }
   | {
     readonly kind: "agent"
-    readonly sessionId: string
     readonly who: Who
     readonly presence: Presence
     readonly lastSeenAt: number
@@ -90,31 +68,63 @@ export type Reach =
     readonly worker: Who | null
   }
 
-export const reachOf = (board: BoardState, task: Task, waiting: ReadonlySet<string>, now: number): Reach => {
+export const reachOf = (board: BoardState, task: Task, now: number): Reach => {
   const id = task.assigneeSessionId
   const session = id === null ? undefined : board.sessions[id]
-  if (id === null || !session) return { kind: "nobody" }
+  if (!session) return { kind: "nobody" }
   const agent = agentOn(board, task, now)
   const worker = agent && agentPresence(board, agent, now) === "active" ? agentWho(agent, session) : null
   return {
-    kind: "agent", sessionId: id, who: sessionWho(session), presence: presenceOf(session, now), lastSeenAt: session.lastSeenAt,
-    waiting: waiting.has(id), worker,
+    kind: "agent",
+    who: sessionWho(session),
+    presence: presenceOf(session, now),
+    lastSeenAt: session.lastSeenAt,
+    waiting: session.waiting === true,
+    worker,
   }
 }
 
 /** ok: it arrives soon. idle: it waits in the inbox until the agent works again. warn: nobody will get it. */
 export type ReachTone = "ok" | "idle" | "warn"
 
-/** What the board says about who gets the next comment, and how soon. */
+/** What the line under the comment box says about who gets the next comment, and how soon. */
 export const reachWords = (reach: Reach, now: number): { readonly tone: ReachTone; readonly text: string } => {
   if (reach.kind === "nobody") return { tone: "warn", text: "No agent holds this task, so nobody will get this comment." }
   const name = reach.who.short
   if (reach.presence === "ended") return { tone: "warn", text: `${name} has ended, so nobody will get this unless it resumes.` }
-  if (reach.waiting) return { tone: "ok", text: `${name} is waiting for you: your comment wakes it.` }
+  if (reach.waiting) return { tone: "ok", text: `${name} is waiting for you: it gets your comment in about a second.` }
   if (reach.presence === "active" || reach.worker) {
     return reach.worker
       ? { tone: "ok", text: `${reach.worker.short} is working on it now. ${name} gets your comment at its next step.` }
       : { tone: "ok", text: `${name} is working on it now and gets your comment at its next step.` }
   }
   return { tone: "idle", text: `${name} is idle (seen ${agoShort(reach.lastSeenAt, now)}) and isn't waiting: it gets this when it next works.` }
+}
+
+/** What a comment not taken yet is waiting for: "2fd0505c gets it at its next step". */
+export const pendingWords = (reach: Reach): string =>
+  reach.kind === "nobody"
+    ? "nobody holds the task now"
+    : reach.presence === "ended"
+    ? `${reach.who.short} has ended`
+    : reach.waiting
+    ? `${reach.who.short} gets it in about a second`
+    : reach.presence === "active" || reach.worker
+    ? `${reach.who.short} gets it at its next step`
+    : `${reach.who.short} is idle, gets it when it next works`
+
+const VIA: Record<DeliveryVia, string> = { hook: "its hook", inbox: "cello inbox", wait: "its waiting cello inbox --wait" }
+
+/** The tick's hover: who took it, how and when. */
+export const receiptTitle = (r: Receipt): string => {
+  switch (r.state) {
+    case "unsent":
+      return "No agent held this task when you wrote it, so nobody got it"
+    case "sent":
+      return `Waiting in ${r.to.name}'s inbox`
+    case "delivered":
+      return `${r.to.name} took it ${durationShort(r.after)} after you sent it${r.via ? `, through ${VIA[r.via]}` : ""}`
+    case "answered":
+      return `${r.by.name} ${r.emoji ? `reacted ${r.emoji}` : "answered"} ${durationShort(r.after)} after you sent it`
+  }
 }

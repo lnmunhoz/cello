@@ -1,7 +1,11 @@
 import type { StatusCategory } from "@cello/contract/entities"
 
-/** Linear-style status glyph: dashed for backlog, empty, half, paused (waiting on Lucas), check, cross. */
-export function StatusIcon({ category, color, size = 14 }: { category: StatusCategory; color: string; size?: number }) {
+/**
+ * Linear-style status glyph: dashed for backlog, empty, half, paused (waiting on Lucas), check, cross.
+ * `turn` (started only, CEL-76): each new value turns the half fill once, for an agent checking in while
+ * at work on the task; 0 or unset is still. Nothing loops.
+ */
+export function StatusIcon({ category, color, size = 14, turn = 0 }: { category: StatusCategory; color: string; size?: number; turn?: number }) {
   const common = { width: size, height: size, viewBox: "0 0 14 14", "aria-hidden": true, className: "shrink-0" } as const
   switch (category) {
     case "backlog":
@@ -18,9 +22,15 @@ export function StatusIcon({ category, color, size = 14 }: { category: StatusCat
       )
     case "started":
       return (
-        <svg {...common}>
+        <svg {...common} data-status-turn={turn > 0 ? turn : undefined}>
           <circle cx="7" cy="7" r="5.5" fill="none" stroke={color} strokeWidth="1.5" />
-          <path d="M7 3.5 A3.5 3.5 0 0 1 7 10.5 Z" fill={color} />
+          {turn > 0 ? (
+            <g key={turn} className="status-turn">
+              <path d="M7 3.5 A3.5 3.5 0 0 1 7 10.5 Z" fill={color} />
+            </g>
+          ) : (
+            <path d="M7 3.5 A3.5 3.5 0 0 1 7 10.5 Z" fill={color} />
+          )}
         </svg>
       )
     case "waiting":
