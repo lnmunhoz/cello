@@ -2148,7 +2148,7 @@ const init = Command.make("init", {
   json: Flag.Boolean("json").pipe(
     Flag.withDefault(false),
     Flag.withDescription(
-      "Print JSON: created, project, url, testing ({ detection: { stack, packageManager, tools, fields, unresolved ([{ field, why }]: found but not settled, so not written), readiness }, written, kept }), " +
+      "Print JSON: created, project, url, testing ({ detection: { stack, packageManager, tools, fields, unresolved ([{ field, why }]: found but not settled, so not written), readiness }, written, kept, cleared (detected fields this run didn't find, so removed) }), " +
         "profile (the testing profile after it), hooks ({ file, changed, pluginFolder }) and agentsMd ({ file, changed, change: added, " +
         "updated, replaced, unchanged, customised or foreign, backup, diff }), each null when not asked for or not reached, and error " +
         "when detection, --hooks or --agents-md failed.",
@@ -2207,7 +2207,7 @@ const init = Command.make("init", {
     }
     // The rest of the setup. What it did is kept even when a later step fails, so it can be reported.
     const done: {
-      testing: { detection: Detection; written: ReadonlyArray<string>; kept: ReadonlyArray<string> } | null
+      testing: { detection: Detection; written: ReadonlyArray<string>; kept: ReadonlyArray<string>; cleared: ReadonlyArray<string> } | null
       profile: ProfileWrite["profile"] | null
       hooks: Effect.Success<ReturnType<typeof installHooks>> | null
       agentsMd: ReturnType<typeof addAgentsSection> | null
@@ -2225,7 +2225,7 @@ const init = Command.make("init", {
             detected: true,
           })
         )
-        done.testing = { detection, written: result.written, kept: result.kept }
+        done.testing = { detection, written: result.written, kept: result.kept, cleared: result.cleared }
         done.profile = result.profile
         if (!input.json) yield* print([...readinessLines(detection), ...wroteLines({ ...result, found: Object.keys(detection.fields).length })].join("\n"))
       }
@@ -2266,7 +2266,7 @@ const init = Command.make("init", {
       "project it says which one and changes nothing. Then it inspects the repo (test runner, typecheck, e2e tool, how to start the app, " +
       "and ffmpeg, Docker and Playwright's browsers on this machine), prints a readiness report per kind of evidence with what to do " +
       "about what's missing, and writes what it found into the project's testing profile where a field is empty or was detected " +
-      "before. --hooks and --agents-md do the rest of the setup; each is safe to run again.",
+      "before, clearing detected values it no longer finds. --hooks and --agents-md do the rest of the setup; each is safe to run again.",
   ))
 
 const install = Command.make("install").pipe(

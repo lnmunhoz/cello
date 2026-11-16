@@ -40,15 +40,20 @@ export const readinessLines = (found: Detection): string[] => {
   ]
 }
 
-/** What `cello init` wrote into the profile from detection (`found`: how many fields it detected), and what it left. */
+/**
+ * What `cello init` wrote into the profile from detection (`found`: how many fields it detected), what it
+ * left, and the detected fields it cleared because this run didn't find them (CEL-96).
+ */
 export const wroteLines = (
-  done: { readonly written: ReadonlyArray<string>; readonly kept: ReadonlyArray<string>; readonly found: number },
+  done: { readonly written: ReadonlyArray<string>; readonly kept: ReadonlyArray<string>; readonly cleared: ReadonlyArray<string>; readonly found: number },
 ): string[] => {
+  const cleared = done.cleared.length ? `Cleared ${andList([...done.cleared])}: detected before, not found this time.` : null
   if (done.written.length === 0 && done.kept.length === 0) {
+    if (cleared) return [`${cleared} See \`cello profile\`.`]
     if (done.found > 0) return ["The testing profile already has everything found. See `cello profile`."]
     return [`Nothing to write to the testing profile yet. Set fields as the repo gets them: ${SET_HINT}.`]
   }
   const wrote = done.written.length ? `Wrote ${done.written.join(", ")} to the testing profile` : "Wrote nothing new to the testing profile"
   const kept = done.kept.length ? `; kept ${andList([...done.kept])}, which an agent or the human set` : ""
-  return [`${wrote}${kept}. See \`cello profile\`.`]
+  return [`${wrote}${kept}. See \`cello profile\`.`, ...(cleared ? [cleared] : [])]
 }

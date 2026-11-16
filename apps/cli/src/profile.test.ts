@@ -55,12 +55,20 @@ describe("the testing profile in the CLI (CEL-89)", () => {
   })
 
   it("says what init wrote into the profile and what it kept", () => {
-    expect(wroteLines({ written: ["install", "unit"], kept: ["typecheck"], found: 3 })).toEqual([
+    expect(wroteLines({ written: ["install", "unit"], kept: ["typecheck"], cleared: [], found: 3 })).toEqual([
       "Wrote install, unit to the testing profile; kept typecheck, which an agent or the human set. See `cello profile`.",
     ])
-    expect(wroteLines({ written: [], kept: [], found: 0 })).toEqual([
+    expect(wroteLines({ written: [], kept: [], cleared: [], found: 0 })).toEqual([
       "Nothing to write to the testing profile yet. Set fields as the repo gets them: `cello profile set <field> \"<value>\"`.",
     ])
-    expect(wroteLines({ written: [], kept: [], found: 4 })).toEqual(["The testing profile already has everything found. See `cello profile`."])
+    expect(wroteLines({ written: [], kept: [], cleared: [], found: 4 })).toEqual(["The testing profile already has everything found. See `cello profile`."])
+    // CEL-96: detected values this run didn't find are cleared, and it says which.
+    expect(wroteLines({ written: ["app.url"], kept: [], cleared: ["e2e.web.videos", "e2e.web.screenshots"], found: 6 })).toEqual([
+      "Wrote app.url to the testing profile. See `cello profile`.",
+      "Cleared e2e.web.videos and e2e.web.screenshots: detected before, not found this time.",
+    ])
+    expect(wroteLines({ written: [], kept: [], cleared: ["app.url"], found: 0 })).toEqual([
+      "Cleared app.url: detected before, not found this time. See `cello profile`.",
+    ])
   })
 })

@@ -128,14 +128,16 @@ export type AnswerInput = typeof AnswerInput.Type
 
 /**
  * What `profile.set` did: the profile now; the fields it changed (set to a new value, or unset); the ones
- * it confirmed (set to the value they had: same value, new source and time); and the ones it kept because
- * someone else set them.
+ * it confirmed (set to the value they had: same value, new source and time); the ones it kept because
+ * someone else set them; and, for a detection, the detected fields it cleared because this detection
+ * didn't find them (CEL-96).
  */
 export const ProfileWrite = Schema.Struct({
   profile: TestingProfile,
   written: Schema.Array(Schema.String),
   confirmed: Schema.Array(Schema.String),
   kept: Schema.Array(Schema.String),
+  cleared: Schema.Array(Schema.String),
 })
 export type ProfileWrite = typeof ProfileWrite.Type
 
@@ -184,8 +186,9 @@ export const CelloRpcs = RpcGroup.make(
   // A project's testing profile (CEL-89): how to test its repo and collect evidence.
   Rpc.make("profile.get", { payload: { project: ProjectRef }, success: TestingProfile, error: Schema.Union([NotFound, Invalid]) }),
   // Sets and unsets fields in one command. The caller is the source: the human, or an agent, who can't
-  // change a field the human set (ProfileFieldLocked). `detected` (`cello init`) writes only fields that
-  // are unset or were detected before, keeps the rest, and never unsets.
+  // change a field the human set (ProfileFieldLocked). `detected` (`cello init`) is a whole detection: it
+  // writes only fields that are unset or were detected before, keeps the rest, takes no `unset`, and clears
+  // the fields still marked detected that it doesn't name (no longer found).
   Rpc.make("profile.set", {
     payload: {
       commandId,
