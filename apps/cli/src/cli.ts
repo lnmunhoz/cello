@@ -593,7 +593,7 @@ const create = Command.make("create", {
   ),
   priority: Flag.String("priority").pipe(Flag.optional, Flag.withDescription("urgent, high, medium, low or none.")),
   label: Flag.String("label").pipe(Flag.atLeast(0), Flag.withDescription("A label name; repeat it, or separate names with commas.")),
-  milestone: Flag.String("milestone").pipe(Flag.optional, Flag.withDescription("An open milestone of the project, by name (`cello milestone list`).")),
+  milestone: Flag.String("milestone").pipe(Flag.optional, Flag.withDescription("An open milestone of the project, by name (`cello milestone list`); none for no milestone.")),
   parent: Flag.String("parent").pipe(Flag.optional, Flag.withDescription("Parent task key.")),
 }, (input) =>
   Effect.gen(function* () {
@@ -607,7 +607,7 @@ const create = Command.make("create", {
         const status = Option.isSome(input.status) ? yield* byName("status", ctx.statuses, input.status.value) : undefined
         const names = input.label.flatMap((value) => value.split(",")).filter((l) => l.trim())
         const labels = yield* Effect.forEach(names, (name) => byName("label", ctx.labels, name))
-        const milestone = Option.isSome(input.milestone) ? yield* milestoneOrFail(ctx.milestones, input.milestone.value, ctx.project.key, false) : null
+        const milestone = Option.isSome(input.milestone) ? yield* milestoneOrFail(ctx.milestones, input.milestone.value, ctx.project.key, true) : null
         const parent = Option.isSome(input.parent) ? (yield* client["task.get"]({ key: input.parent.value })).task : undefined
         const result = yield* client["task.create"]({
           commandId: newCommandId(),

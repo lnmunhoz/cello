@@ -104,6 +104,10 @@ describe("cello milestone", () => {
       // --milestone alone prints its write, with no update.
       const alone = JSON.parse((yield* agent("task", "edit", "CEL-1", "--milestone", "none", "--json")).out)
       expect(alone).toMatchObject({ update: null, moved: { result: { key: "CEL-1", milestoneId: null } } })
+
+      // `task create --milestone none` is a task without one, as docs/cli.md's `<name|none>` says.
+      expect(yield* agent("task", "create", "Loose", "--milestone", "none")).toEqual({ out: "Created CEL-4  Todo  Loose", failure: null })
+      expect(JSON.parse((yield* agent("task", "get", "CEL-4", "--json")).out).task.milestoneId).toBeNull()
     }).pipe(Effect.scoped))
 
   it.live("context lists the open milestones with done/total; only the human closes one", () =>

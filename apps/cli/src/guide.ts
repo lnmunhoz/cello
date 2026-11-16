@@ -332,7 +332,7 @@ cello task create "Restore refuses while a server runs" --parent CEL-23 --label 
 
 - **Todo or Backlog:** Todo means agreed and ready to build. When the human says "add to the backlog", use \`--status Backlog\`.
 - **Labels must already exist.** \`cello label list\` lists them, and an unknown label fails with the real names. \`cello label create\` makes a new one (see Labels).
-- **So must the milestone,** and it must be open: \`cello milestone list\` shows them, \`cello milestone create\` makes one (see Milestones).
+- **So must the milestone,** and it must be open: \`cello milestone list\` shows them, \`cello milestone create\` makes one (see Milestones). \`--milestone none\` is the same as leaving it out: no milestone.
 - **Priority:** \`urgent\`, \`high\`, \`medium\`, \`low\` or \`none\`.
 - **Long descriptions:** use \`--body-file -\` with a heredoc, or \`--body-file notes.md\`.
 
@@ -1480,7 +1480,7 @@ cello task create [flags] <title>
 | \`--status string\` | Status by name. Default: the first visible one (Todo). Backlog for ideas that still need discussing. |
 | \`--priority string\` | urgent, high, medium, low or none. |
 | \`--label string\` | A label name; repeat it, or separate names with commas. |
-| \`--milestone string\` | An open milestone of the project, by name (\`cello milestone list\`). |
+| \`--milestone string\` | An open milestone of the project, by name (\`cello milestone list\`); none for no milestone. |
 | \`--parent string\` | Parent task key. |
 
 ### cello task edit
