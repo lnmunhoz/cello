@@ -1,0 +1,56 @@
+[
+ {
+  "scene": "s1-problem",
+  "voice": "audio/s1-problem-a.mp3",
+  "at": 0.4,
+  "seconds": 14.32
+ },
+ {
+  "scene": "s2-what",
+  "voice": "audio/s2-what-a.mp3",
+  "at": 16.12,
+  "seconds": 11.36
+ },
+ {
+  "scene": "s3-setup",
+  "voice": "audio/s3-setup-a.mp3",
+  "at": 28.88,
+  "seconds": 13.68
+ },
+ {
+  "scene": "s3b-orchestrator",
+  "voice": "audio/s3b-orchestrator-a.mp3",
+  "at": 47.96,
+  "seconds": 27.84
+ },
+ {
+  "scene": "s4-watch",
+  "voice": "audio/s4-watch-a.mp3",
+  "at": 77.2,
+  "seconds": 16.32
+ },
+ {
+  "scene": "s5-decisions",
+  "voice": "audio/s5-decisions-a.mp3",
+  "at": 94.92,
+  "seconds": 21.36
+ },
+ {
+  "scene": "s6-proof",
+  "voice": "audio/s6-proof-a.mp3",
+  "at": 117.68,
+  "seconds": 15.44
+ },
+ {
+  "scene": "s7-local",
+  "voice": "audio/s7-local-a.mp3",
+  "at": 134.52,
+  "seconds": 10.32
+ },
+ {
+  "scene": "s8-outro",
+  "voice": "audio/s8-outro-a.mp3",
+  "at": 146.24,
+  "seconds": 3.44
+ }
+]
