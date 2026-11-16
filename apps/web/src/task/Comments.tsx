@@ -12,6 +12,7 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.
 import { commands, commentsFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
 import { type Who, whoOf } from "../presence/model.ts"
+import { useReceiptScope } from "../scope/Receipts.tsx"
 import type { TaskSearch } from "./view.ts"
 
 interface CommentsProps {
@@ -35,6 +36,8 @@ export function Comments({ board, task, draft, placeholder = "Leave a comment…
   const comments = AsyncResult.isSuccess(result) ? result.value.filter((c) => c.deletedAt === null) : []
   // Opened at a comment from ⌘K (`?comment=<id>`, CEL-43): it scrolls into view and flashes once.
   const target = (useSearch({ strict: false }) as TaskSearch).comment
+  // CEL-76 scope: `?receipts=a|b|c` (removed in the build).
+  const scope = useReceiptScope(board, task, comments)
 
   const submit = async () => {
     if (body.trim() === "") return
@@ -50,10 +53,18 @@ export function Comments({ board, task, draft, placeholder = "Leave a comment…
       {AsyncResult.isInitial(result) ? <p className="text-xs text-faint">Loading comments…</p> : null}
       <ul className="flex flex-col gap-2">
         {comments.map((c) => (
-          <CommentItem key={c.id} comment={c} author={whoOf(board, c.actorId, c.sessionId, c.agentId)} target={c.id === target} />
+          <CommentItem
+            key={c.id}
+            comment={c}
+            author={whoOf(board, c.actorId, c.sessionId, c.agentId)}
+            target={c.id === target}
+            receipt={scope?.under(c)}
+            dot={scope?.dot(c)}
+          />
         ))}
       </ul>
       <div className="flex flex-col gap-2">
+        {scope?.above}
         <Textarea
           variant="comment"
           aria-label="New comment"
@@ -68,6 +79,7 @@ export function Comments({ board, task, draft, placeholder = "Leave a comment…
           }}
         />
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {scope?.hint}
           <Button variant="secondary" size={actions ? "md" : "sm"} onClick={submit} disabled={body.trim() === ""}>
             Comment
           </Button>
@@ -78,8 +90,11 @@ export function Comments({ board, task, draft, placeholder = "Leave a comment…
   )
 }
 
-/** `target`: the comment the task was opened at; it's scrolled to on arrival and flashes once. */
-function CommentItem({ comment, author, target }: { comment: Comment; author: Who; target: boolean }) {
+/**
+ * `target`: the comment the task was opened at; it's scrolled to on arrival and flashes once.
+ * `receipt` and `dot`: the CEL-76 scope's receipt under it and by its time.
+ */
+function CommentItem({ comment, author, target, receipt, dot }: { comment: Comment; author: Who; target: boolean; receipt?: ReactNode; dot?: ReactNode }) {
   const edit = useAtomSet(commands.editComment, { mode: "promiseExit" })
   const remove = useAtomSet(commands.deleteComment)
   const [draft, setDraft] = useState<string | null>(null)
@@ -107,6 +122,7 @@ function CommentItem({ comment, author, target }: { comment: Comment; author: Wh
           {relativeTime(comment.createdAt)}
           {comment.updatedAt > comment.createdAt ? " · edited" : ""}
         </span>
+        {dot}
         <span className="ml-auto">
           <Menu
             onAction={(value) => {
@@ -151,6 +167,7 @@ function CommentItem({ comment, author, target }: { comment: Comment; author: Wh
           </div>
         </div>
       )}
+      {receipt}
     </li>
   )
 }

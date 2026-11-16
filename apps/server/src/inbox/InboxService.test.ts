@@ -225,6 +225,35 @@ describe("InboxService.wait (CEL-74)", () => {
     })))
 })
 
+// CEL-76 scope (a prototype read, replaced by a `comment.delivered` event in the build): which of a
+// task's comments reached a session and when, and which sessions have a waiter open right now.
+describe("InboxService.receipts (CEL-76 scope)", () => {
+  it.effect("names the session each human comment went to, and when it took it", () =>
+    run(Effect.gen(function* () {
+      const { inbox, one, comment } = yield* setup
+      const sent = yield* comment(one.id, "Did this reach you?")
+      const before = yield* inbox.receipts(one.id)
+      expect(before.items.map((r) => [r.commentId, r.readAt])).toEqual([[sent.id, null]])
+      expect(before.items[0]!.sessionId).toBe((yield* agent(inbox.take({}))).session!.id)
+      const after = yield* inbox.receipts(one.id)
+      expect(after.items[0]!.readAt).toBeTypeOf("number")
+    })))
+
+  it.effect("lists a session as waiting while its `inbox.wait` is open, and not once it returns", () =>
+    run(Effect.gen(function* () {
+      const { inbox, one, comment } = yield* setup
+      expect((yield* inbox.receipts(one.id)).waiting).toEqual([])
+      const waiting = yield* Effect.forkChild(agent(inbox.wait))
+      yield* Effect.yieldNow
+      const listed = (yield* inbox.receipts(one.id)).waiting
+      expect(listed).toHaveLength(1)
+      yield* comment(one.id, "Wake up")
+      const woken = yield* Fiber.join(waiting)
+      expect(listed).toEqual([woken.session!.id])
+      expect((yield* inbox.receipts(one.id)).waiting).toEqual([])
+    })))
+})
+
 describe("InboxService: Send back", () => {
   /** CEL-1 handed in for review by session X. */
   const submitted = Effect.gen(function* () {

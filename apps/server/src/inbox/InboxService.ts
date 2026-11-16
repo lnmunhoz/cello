@@ -64,7 +64,19 @@ export class InboxService extends Context.Service<InboxService, {
    * marked read, and while it runs `take` leaves that item alone, so the hook never prints them too.
    */
   readonly handOverAnswers: <A extends { readonly id: string }, E, R>(askId: string, wait: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | Caller>
+  /**
+   * CEL-76 scope, a prototype read (the build replaces it with a `comment.delivered` event): which
+   * session each of a task's comments went to and when it took it, and the sessions with an
+   * `inbox.wait` open right now (the server sees the waiter directly, not CEL-74's lock in $TMPDIR).
+   */
+  readonly receipts: (taskId: string) => Effect.Effect<Receipts>
 }>()("cello/InboxService") {}
+
+/** CEL-76 scope: see `InboxService.receipts`. */
+export interface Receipts {
+  readonly items: ReadonlyArray<{ readonly commentId: string; readonly sessionId: string; readonly readAt: number | null }>
+  readonly waiting: ReadonlyArray<string>
+}
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
@@ -169,6 +181,36 @@ const make = Effect.gen(function* () {
     }))
   }, Effect.orDie)
 
+  // CEL-76 scope: sessions with an `inbox.wait` open right now, and how many.
+  const waiters = new Map<string, number>()
+  const waiting = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.gen(function* () {
+      const caller = yield* Caller
+      const id = caller.sessionId
+      if (id === null) return yield* effect
+      return yield* Effect.acquireUseRelease(
+        Effect.sync(() => void waiters.set(id, (waiters.get(id) ?? 0) + 1)),
+        () => effect,
+        () =>
+          Effect.sync(() => {
+            const n = (waiters.get(id) ?? 1) - 1
+            if (n <= 0) waiters.delete(id)
+            else waiters.set(id, n)
+          }),
+      )
+    })
+
+  const receipts = (taskId: string) =>
+    sql<{ comment_id: string; session_id: string; read_at: number | null }>`
+      SELECT comment_id, session_id, read_at FROM inbox_items WHERE task_id = ${taskId} AND comment_id IS NOT NULL
+      ORDER BY created_at, rowid`.pipe(
+      Effect.map((rows): Receipts => ({
+        items: rows.map((r) => ({ commentId: r.comment_id, sessionId: r.session_id, readAt: r.read_at })),
+        waiting: [...waiters.keys()],
+      })),
+      Effect.orDie,
+    )
+
   const wait = Effect.gen(function* () {
     // Joined before the first take: an item committed after that take publishes an event we get.
     const events = yield* log.live
@@ -181,7 +223,7 @@ const make = Effect.gen(function* () {
       Stream.runHead,
     )
     return Option.getOrElse(next, () => first)
-  }).pipe(Effect.scoped, Effect.withSpan("InboxService.wait"))
+  }).pipe(Effect.scoped, waiting, Effect.withSpan("InboxService.wait"))
 
   const unread = Effect.gen(function* () {
     const caller = yield* Caller
@@ -189,7 +231,7 @@ const make = Effect.gen(function* () {
     return yield* selectInboxItems(sql, sql`i.session_id = ${caller.sessionId} AND i.read_at IS NULL`)
   }).pipe(Effect.orDie, Effect.withSpan("InboxService.unread"))
 
-  return InboxService.of({ take, wait, unread, deliverWithin, deliverAnswersWithin, deliverWithdrawalWithin, handOverAnswers })
+  return InboxService.of({ take, wait, unread, deliverWithin, deliverAnswersWithin, deliverWithdrawalWithin, handOverAnswers, receipts })
 })
 
 export const layer = Layer.effect(InboxService, make)

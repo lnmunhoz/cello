@@ -275,6 +275,15 @@ export const CelloRpcs = RpcGroup.make(
   // does (CEL-74: `cello inbox --wait`, so an idle agent session wakes on a comment). Returns at once
   // when items are waiting, and for the human. Items a live `ask.wait` is handing over are left to it.
   Rpc.make("inbox.wait", { payload: {}, success: Inbox }),
+  // CEL-76 scope, a prototype read (the build replaces it with a `comment.delivered` event): which
+  // session each of a task's comments went to and when it took it, and the sessions waiting right now.
+  Rpc.make("scope.receipts", {
+    payload: { taskId: Id },
+    success: Schema.Struct({
+      items: Schema.Array(Schema.Struct({ commentId: Id, sessionId: Id, readAt: Schema.NullOr(Schema.Number) })),
+      waiting: Schema.Array(Id),
+    }),
+  }),
 
   // A subagent of the caller's session (CEL-55), as Claude Code's hooks see it: `started` (SubagentStart),
   // `launched` (the parent's Agent tool returned its id, with the launch's description and prompt, which

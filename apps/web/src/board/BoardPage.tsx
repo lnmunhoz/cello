@@ -39,7 +39,7 @@ const WAITING_LANE = "needs-input"
 const layoutTransition = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 } as const
 
 /** A card's look, shared by the card and the copy an agent's waiting move leaves in its old slot. */
-const CARD = "group flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-3 py-2.5 shadow-card"
+const CARD = "group relative flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-3 py-2.5 shadow-card"
 
 /** A card you just made (still optimistic) scrolls into view, wherever the ordering puts it. */
 const reveal = (el: HTMLElement | null) => el?.scrollIntoView({ block: "nearest", inline: "nearest" })

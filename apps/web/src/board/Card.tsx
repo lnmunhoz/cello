@@ -11,6 +11,7 @@ import { CardWork, ProvenanceLine } from "../presence/Presence.tsx"
 import { QuestionsBadge } from "../ask/QuestionsBadge.tsx"
 import { EvidenceBadge } from "../review/EvidenceBadge.tsx"
 import { CommentCount } from "../task/CommentCount.tsx"
+import { ActiveEdge, ActiveStatusIcon, useActivityStyle } from "../scope/Activity.tsx"
 
 /**
  * What a card shows: key and parent breadcrumb, status and title, then priority, due date and labels
@@ -19,12 +20,15 @@ import { CommentCount } from "../task/CommentCount.tsx"
  */
 export function CardBody({ task, board, laned = false }: { task: Task; board: BoardState; laned?: boolean }) {
   const status = board.statuses[task.statusId]
+  // CEL-76 scope: `?activity=sweep|edge` (removed in the build).
+  const activity = useActivityStyle()
   const parent = task.parentId ? board.tasks[task.parentId] : undefined
   const labels = task.labelIds.map((id) => board.labels[id]).filter((l) => l !== undefined && l.archivedAt === null)
   const chips = task.priority !== 0 || task.dueDate !== null || labels.length > 0 || openReviewOf(board, task.id) !== undefined ||
     openAskOf(board, task.id) !== undefined
   return (
     <>
+      {activity === "edge" ? <ActiveEdge task={task} board={board} /> : null}
       <span className="flex min-w-0 items-center gap-1 text-xs text-muted">
         <span className="shrink-0 tabular-nums" data-card-key>
           {task.number > 0 ? task.key : "Creating…"}
@@ -41,7 +45,11 @@ export function CardBody({ task, board, laned = false }: { task: Task; board: Bo
       <span className="flex items-start gap-2">
         {status ? (
           <span className="pt-0.5">
-            <StatusIcon category={status.category} color={status.color} />
+            {activity ? (
+              <ActiveStatusIcon task={task} board={board} status={status} style={activity} />
+            ) : (
+              <StatusIcon category={status.category} color={status.color} />
+            )}
           </span>
         ) : null}
         <span className="text-[13px] leading-snug font-medium text-ink" data-card-title>
