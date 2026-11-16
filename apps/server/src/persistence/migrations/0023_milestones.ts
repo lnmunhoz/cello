@@ -21,6 +21,7 @@ import { positionsAfter } from "@cello/shared/position"
 import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/sql/SqlClient"
+import { MIGRATION_COMMAND_PREFIX } from "../../events/EventStore.ts"
 import { newId } from "../ids.ts"
 
 interface LabelRow {
@@ -33,7 +34,8 @@ interface LabelRow {
   readonly archived_at: number | null
 }
 
-const COMMAND_ID = "migration:0023_milestones"
+/** Marks its events as a migration's, so Recent activity leaves them out (EventStore.recent). */
+const COMMAND_ID = `${MIGRATION_COMMAND_PREFIX}0023_milestones`
 
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
