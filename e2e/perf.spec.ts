@@ -242,8 +242,9 @@ test("performance: 40 working agents spinning stay near 60 fps (at least 55), wi
     await agent.run((c) => c["task.stage"]({ commandId: newCommandId(), key: taskKey, stage: "building" }))
   }
   await page.goto(`/${key}/issues`)
-  // An agent at work looks alive: each Building card's mark spins from the moment the board draws.
-  await expect(page.locator('[data-agent-mood="working"]')).toHaveCount(40)
+  // An agent at work looks alive: each Building card's mark spins from the moment the board draws,
+  // and so does each session's in the sidebar's Agents working list.
+  await expect(page.locator('[data-task-key] [data-agent-mood="working"]')).toHaveCount(40)
   await caption(page, "40 tasks with an agent building each: 40 marks spinning. Counting 150 frames, then again once the agents have ended")
 
   const cdp = await page.context().newCDPSession(page)
@@ -287,11 +288,14 @@ test("performance: 40 working agents spinning stay near 60 fps (at least 55), wi
     }
   }
 
+  // Every working mark on the page spins: the 40 cards' and each session's in the sidebar.
+  const working = await page.locator('[data-agent-mood="working"]').count()
+  expect(working).toBeGreaterThanOrEqual(40)
   const spinning = await measure()
   // The agents end (their processes exit): within 30 s the server notices, the board shows them ended,
   // and their marks rest. Nothing is left running.
   for (const p of processes) p.kill()
-  await expect(page.locator('.agent-mark[data-presence="ended"]')).toHaveCount(40, { timeout: 45_000 })
+  await expect(page.locator('[data-task-key] .agent-mark[data-presence="ended"]')).toHaveCount(40, { timeout: 45_000 })
   await expect(page.locator('[data-agent-mood="working"]')).toHaveCount(0)
   const still = await measure()
   console.log(`[perf] agent marks spinning ${JSON.stringify(spinning)}`)
@@ -299,8 +303,8 @@ test("performance: 40 working agents spinning stay near 60 fps (at least 55), wi
   testInfo.annotations.push({ type: "perf", description: JSON.stringify({ spinning, still }) })
   await caption(page, `Spinning: ${spinning.averageFps} fps, ${spinning.taskMsPerFrame} ms main thread a frame. Still: ${still.averageFps} fps, ${still.taskMsPerFrame} ms`)
 
-  // Two layers spin in each working mark: the body and the face.
-  expect(spinning.animations).toBe(80)
+  // Two layers spin in each working mark (the body and the face), and nothing else runs.
+  expect(spinning.animations).toBe(2 * working)
   expect(still.animations).toBe(0)
   expect(spinning.averageFps).toBeGreaterThanOrEqual(55)
   expect(spinning.longTasks).toBe(0)
