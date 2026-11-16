@@ -218,7 +218,9 @@ function Folded({ step, row, working, time }: { readonly step: LogStep; readonly
               Open this subagent
             </Link>
           ) : null}
-          {shown ? (
+          {shown && step.kind === "thinking" ? (
+            <p className="rounded-md border border-line bg-raised px-2.5 py-2 text-[13px] whitespace-pre-wrap break-words text-muted">{shown}</p>
+          ) : shown ? (
             <pre className="max-h-96 overflow-auto rounded-md border border-line bg-raised px-2.5 py-2 font-mono text-[12px] whitespace-pre-wrap break-words text-ink">
               {shown}
             </pre>
