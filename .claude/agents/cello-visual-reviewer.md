@@ -41,3 +41,5 @@ Then give:
 - **Missing evidence:** what to record or capture so the packet makes the case
 
 Be concrete and short. Lucas decides from this evidence, so a missing requirement matters more than a polish nit.
+
+- **Tests:** run only the tests the change touches; for e2e, only the related specs by name (`bun run test:e2e -- e2e/<spec>`), never the full suite (AGENTS.md, "Pick the e2e specs").

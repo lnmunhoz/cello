@@ -58,3 +58,5 @@ Then list findings, most severe first. Each finding has:
 - the fix you'd make
 
 Report only findings you're confident about. Five real ones beat twenty maybes. If the branch is clean, say so in one line.
+
+- **Tests:** run only the tests the change touches; for e2e, only the related specs by name (`bun run test:e2e -- e2e/<spec>`), never the full suite (AGENTS.md, "Pick the e2e specs").

@@ -16,3 +16,5 @@ On top of it:
 - **Use the repo's migration-check script when it exists** instead of building a test board by hand each time.
 - **Escalate, don't guess.** If you find a possible blocker you can't settle by reproducing it, say so plainly in the verdict ("needs an Opus look"). The orchestrator then asks Opus for a second opinion on that point only.
 - **Never touch the real data:** `~/.cello`, port 4747, `~/.claude`, or the repo's real `.claude/settings*.json`.
+
+- **Tests:** run only the tests the change touches; for e2e, only the related specs by name (`bun run test:e2e -- e2e/<spec>`), never the full suite (AGENTS.md, "Pick the e2e specs").
