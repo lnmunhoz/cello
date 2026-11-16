@@ -63,11 +63,11 @@ export function AgentLog({ board, row }: { readonly board: BoardState; readonly 
   }
 
   return (
-    <section aria-label="Live log" data-agent-log data-log-follow={following ? "on" : "off"} className="flex min-w-0 flex-col gap-2">
+    <section aria-label={live ? "Live log" : "Log"} data-agent-log data-log-follow={following ? "on" : "off"} className="flex min-w-0 flex-col gap-2">
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <h3 className="flex items-center gap-1.5 text-xs font-semibold text-muted">
           <ScrollTextIcon aria-hidden className="size-3.5 text-faint" />
-          Live log
+          {live ? "Live log" : "Log"}
         </h3>
         <div className="ml-auto flex flex-wrap items-center gap-3">
           {runs.length > 0 ? (

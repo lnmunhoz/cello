@@ -1,4 +1,5 @@
 import { currentStepOf } from "@cello/client/sync/agentLog"
+import { finishedAgents, startOfDay } from "@cello/client/sync/agents"
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Task } from "@cello/contract/entities"
 import { stageInfo } from "@cello/contract/stages"
@@ -17,14 +18,27 @@ import { useNow } from "../presence/useNow.ts"
 import { QueueRow, type QueueRowState } from "../review/QueueRow.tsx"
 import { useQueue } from "../review/useQueue.ts"
 import { AgentLog } from "./AgentLog.tsx"
-import { type AgentRow, agentGroups, agentRows, directTasks, groupOf, rowKeysOf, stateTaskOf, subagentsLabel, waitingTaskOf } from "./layout.ts"
+import {
+  type AgentRow,
+  agentGroups,
+  agentRows,
+  directTasks,
+  finishedRows,
+  groupOf,
+  rowKeysOf,
+  stateTaskOf,
+  subagentsLabel,
+  waitingTaskOf,
+} from "./layout.ts"
 
 /**
  * The Agents page (CEL-65), opened from the sidebar's "Agents working": every agent session and subagent
  * working in the workspace, with the card each is on, laid out like the Review page. Agents waiting on
  * the human come first, then the ones working, then the quiet ones; subagents sit under their session. One
  * row is open at a time (`?open=`): what the agent was asked and its card on the left, and on the right
- * its live log (CEL-106, AgentLog.tsx). Rows come, move and go live, as agents start, wait, go quiet and finish.
+ * its live log (CEL-106, AgentLog.tsx). Rows come, move and go live, as agents start, wait, go quiet and finish;
+ * the ones that finished today fold into "Finished today" at the bottom, newest first, their logs still
+ * a click away while Claude Code keeps the transcript (CEL-107).
  */
 export function AgentsPage() {
   const board = useBoard()
@@ -39,7 +53,8 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const now = useNow()
   const sessions = workingSessions(board, workspaceId, now)
   const rows = agentRows(sessions)
-  const groups = agentGroups(rows)
+  const finished = finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now)))
+  const groups = agentGroups(rows, finished)
   const keys = rowKeysOf(groups)
   const openId = open !== undefined && keys.includes(open) ? open : null
   const queue = useQueue({ keys, open: openId, setOpen: (id) => void navigate({ search: id === null ? {} : { open: id }, replace: true }) })
@@ -55,8 +70,8 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
               Agents working <span className="font-normal text-muted tabular-nums">{agentsWorkingCount(sessions)}</span>
             </h1>
             <p className="text-[13px] text-muted">
-              Every agent session and subagent on a task in this workspace, and the card it's on. Agents waiting on you come first. Open one
-              to see what it was asked. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
+              Every agent session and subagent on a task in this workspace, and the card it's on. Agents waiting on you come first, the ones
+              that finished today last. Open one to see what it was asked and its log. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
             </p>
           </header>
           {rows.length === 0 ? (
@@ -64,7 +79,8 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
               <p className="text-[15px] font-medium text-ink">No agent is working</p>
               <p>When an agent claims a task, or a subagent starts on one, it shows up here.</p>
             </div>
-          ) : (
+          ) : null}
+          {groups.length === 0 ? null : (
             <div {...queue.list} className="flex flex-col gap-6">
               {groups.map((group) => (
                 <section key={group.id} aria-labelledby={`agents-${group.id}`} data-agents-group={group.id} className="flex flex-col gap-2">
@@ -74,8 +90,8 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                   </h2>
                   <ul aria-label={group.label} className="flex flex-col gap-2">
                     {group.rows.map((row) => (
-                      // A subagent sits under its session, always in the same group (CEL-104).
-                      <li key={row.id} className={row.kind === "agent" ? "pl-6" : undefined}>
+                      // A subagent sits under its session, always in the same group (CEL-104); finished ones stand on their own.
+                      <li key={row.id} className={row.kind === "agent" && group.id !== "finished" ? "pl-6" : undefined}>
                         <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
                       </li>
                     ))}
@@ -92,12 +108,16 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
 
 const PRESENCE_TEXT = { active: "text-ink", idle: "text-idle", ended: "text-faint" } as const
 
-/** "active now" / "seen 12m ago", in the presence's colour. */
+/** "active now" / "seen 12m ago" / "finished 3m ago", in the presence's colour. */
 function PresenceText({ board, row }: { board: BoardState; row: AgentRow }) {
   const now = useNow()
   return (
-    <span className={`shrink-0 ${PRESENCE_TEXT[row.presence]}`} data-agent-presence>
-      {presenceWords(presenceSubjectOf(board, row.session, row.agent), now)}
+    <span
+      className={`shrink-0 ${PRESENCE_TEXT[row.presence]}`}
+      data-agent-presence
+      title={row.endedAt === null ? undefined : new Date(row.endedAt).toLocaleTimeString()}
+    >
+      {row.endedAt === null ? presenceWords(presenceSubjectOf(board, row.session, row.agent), now) : `finished ${agoShort(row.endedAt, now)}`}
     </span>
   )
 }

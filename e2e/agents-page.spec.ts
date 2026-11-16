@@ -66,7 +66,7 @@ async function shoot(page: Page, name: string, target: Page | Locator = page) {
 const sessionId = async (cello: Parameters<typeof defaultWorkspace>[0], external: string) =>
   (await cello.run((c) => c["snapshot.get"]({}))).sessions.find((s) => s.externalId === external)!.id
 
-const group = (page: Page, id: "waiting" | "working" | "quiet") => page.locator(`section[data-agents-group="${id}"]`)
+const group = (page: Page, id: "waiting" | "working" | "quiet" | "finished") => page.locator(`section[data-agents-group="${id}"]`)
 const rowsIn = (page: Page, id: "waiting" | "working" | "quiet") => group(page, id).locator("[data-agent-row]")
 
 test.beforeEach(async ({ context }) => {
@@ -220,9 +220,11 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   await expect(visualRow).toContainText("cello-visual-reviewer · c4e2f9a0")
   await expect(orchestratorRow).toContainText("orchestrator · 3 subagents")
 
-  await caption(page, "The code reviewer finishes (SubagentStop): its row leaves")
+  await caption(page, "The code reviewer finishes (SubagentStop): its row folds into Finished today (CEL-107)")
   hook("subagent-stop", { session_id: ORCHESTRATOR, agent_id: REVIEWER, agent_type: "cello-code-reviewer", hook_event_name: "SubagentStop" })
-  await expect(reviewerRow).toHaveCount(0)
+  await expect(reviewerRow).toHaveAttribute("data-agent-group", "finished")
+  await expect(group(page, "finished").locator(`[data-agent-row="agent:${orchestrator}/${REVIEWER}"]`)).toHaveCount(1)
+  await expect(orchestratorRow).toContainText("orchestrator · 2 subagents")
 
   await caption(page, "The orchestrator asks you about CLO-2: it moves up to Waiting on you, its working subagents still under it")
   cli(ORCHESTRATOR)("task", "ask", "CLO-2", "--file", askFile("Which drop zone", "Where can screenshots be dropped?"))
