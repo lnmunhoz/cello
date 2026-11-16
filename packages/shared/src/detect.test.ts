@@ -269,7 +269,7 @@ describe("one e2e entry per Playwright config, each with its surface (CEL-96)", 
     expect(video.suggestion).toContain("set e2e.desktop.videos")
   })
 
-  it("a config using _electron is desktop; the desktop package's own e2e script runs it from its folder; its folders sit under that folder", () => {
+  it("a config using _electron is desktop; the desktop package's own e2e script runs it from its folder; its video folder is left to set", () => {
     const found = detectRepo(repo({
       paths: ["package.json", "pnpm-lock.yaml", "packages/app/package.json", "packages/app/playwright.config.ts"],
       packages: [
