@@ -1,0 +1,3 @@
+# Known false positives for gitleaks (one fingerprint per line).
+# Sec-WebSocket-Key in a test: the RFC 6455 sample handshake nonce, not a secret.
+a50216429ff732684261fbeb765c5772977de3d6:apps/cli/test/integration/start.test.ts:generic-api-key:109

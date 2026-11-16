@@ -138,11 +138,11 @@ describe("cello profile (CEL-89)", () => {
       expect((yield* me(repo)("profile", "set", "install", "bun install")).out).toBe("Set install to `bun install`.")
       expect(yield* agent(repo)("profile", "set", "install", "npm ci")).toEqual({
         out: "",
-        failure: "Lucas set install himself (`bun install`), so an agent can't change it. If it's wrong, ask him on the card " +
+        failure: "Lucas set install (`bun install`), so an agent can't change it. If it's wrong, ask them on the card " +
           "on your task: `cello task ask <KEY-n> --title \"Change install in the testing profile?\" --question \"…\" --option \"A\" --option \"B\"` " +
-          "(or --file ask.json; see `cello guide`, \"Questions for Lucas\"), and say so in your packet.",
+          "(or --file ask.json; see `cello guide`, \"Questions for the human\"), and say so in your packet.",
       })
-      expect((yield* agent(repo)("profile", "unset", "install")).failure).toContain("Lucas set install himself")
+      expect((yield* agent(repo)("profile", "unset", "install")).failure).toContain("Lucas set install (`bun install`)")
       expect((yield* agent(repo)("profile", "set", "deploy", "x")).failure).toMatch(/^Unknown field "deploy"\. Fields: install, unit/)
       expect((yield* agent(repo)("profile", "set", "ui.runsIn", "vm")).failure).toBe('The value of ui.runsIn must be "local" or "docker", not "vm".')
       expect((yield* me(repo)("profile", "unset", "e2e.web.run")).out).toBe("Unset e2e.web.run.")

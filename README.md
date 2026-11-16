@@ -8,7 +8,7 @@
 </p>
 
 > [!WARNING]
-> **Cello is experimental and changes fast.** It's built in the open by one developer for his own daily work, mostly by the agents it coordinates. Expect rough edges, breaking changes and docs that address "Lucas" by name. It runs on macOS and is tuned for [Claude Code](https://claude.com/claude-code) today. Try it, open issues, but don't trust it with anything you can't lose yet.
+> **Cello is experimental and changes fast.** It's built in the open by one developer for his own daily work, mostly by the agents it coordinates. Expect rough edges and breaking changes. It runs on macOS and is tuned for [Claude Code](https://claude.com/claude-code) today. Try it, open issues, but don't trust it with anything you can't lose yet.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/readme/board-dark.png">

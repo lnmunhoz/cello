@@ -1,0 +1,29 @@
+# Dependabot: weekly update PRs for packages, GitHub Actions and the test image.
+# Security updates (for known CVEs) are separate and come as soon as an alert opens,
+# once "Dependabot security updates" is on in the repo's Settings > Advanced Security.
+version: 2
+updates:
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Effect packages must stay on one version (see CLAUDE.md), so they move together.
+      effect:
+        patterns: ["effect", "@effect/*"]
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly

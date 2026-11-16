@@ -72,7 +72,7 @@ export function FacetPanel() {
   const [folded, toggleFold] = useFolded()
   if (!loaded) return null
   const { board, workspaceId, project } = loaded
-  const me = Object.values(board.actors).find((a) => a.kind === "human")?.name.split(" ")[0] ?? "Lucas"
+  const me = Object.values(board.actors).find((a) => a.kind === "human")?.name.split(" ")[0] ?? "You"
   // The project's own labels (CEL-80): another project's Kinds and Areas aren't offered here.
   const labels = labelsInScope(board, { projectId: project.id })
   const picked = pickedValues(state.filter, {

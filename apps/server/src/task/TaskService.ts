@@ -1,6 +1,6 @@
 // Tasks: numbered per project, ordered within (project, status), versioned on every change.
 import type { CelloEvent } from "@cello/contract/events"
-import type { Priority, Task } from "@cello/contract/entities"
+import type { Ask, ClaimEndCause, Priority, Task } from "@cello/contract/entities"
 import { AskRequired, Invalid, NotFound, ReviewRequired, TaskClaimed, VersionConflict } from "@cello/contract/errors"
 import type { TaskStage } from "@cello/contract/stages"
 import type { Caller } from "@cello/contract/rpcs"
@@ -82,6 +82,11 @@ interface MoveWithin {
   readonly statusId: string
   readonly keepClaim?: boolean
   readonly keepPacket?: boolean
+  /**
+   * `false`: a human's move that ends the claim tells the session nothing (an approval: its work is
+   * done). Otherwise the session hears the move ended its claim (CEL-46).
+   */
+  readonly tell?: boolean
 }
 
 export class TaskService extends Context.Service<TaskService, {
@@ -90,7 +95,9 @@ export class TaskService extends Context.Service<TaskService, {
   /**
    * An agent can't move a task into In Review unless it has an open review (`ReviewRequired`); no one moves
    * one into Needs input (`AskRequired`). Moving a task out of Needs input withdraws its open ask, and
-   * moving it anywhere but In Review or Needs input withdraws its open review packet (CEL-71).
+   * moving it anywhere but In Review or Needs input withdraws its open review packet (CEL-71). A human
+   * move to another status ends an agent's claim and tells its session (CEL-46); reordering within the
+   * column keeps the claim.
    */
   readonly move: (input: MoveTask) => Write<NotFound | Invalid | VersionConflict | ReviewRequired | AskRequired>
   readonly setLabels: (input: SetTaskLabels) => Write<NotFound | Invalid>
@@ -102,10 +109,10 @@ export class TaskService extends Context.Service<TaskService, {
   /**
    * Assigns the task to the caller's session and moves it to the first started status (unless it's
    * already in one). Fails with TaskClaimed while another live session holds it; a gone holder's
-   * claim is taken over (`task.claim_taken`). The human always wins.
+   * claim is taken over (`task.claim_taken`). The human always wins, and the session he took it from hears so (CEL-46).
    */
   readonly claim: (input: ByKey) => Write<NotFound | TaskClaimed>
-  /** Gives up the caller's claim; the human can release anyone's. The status stays. */
+  /** Gives up the caller's claim; the human can release anyone's, and that session hears so (CEL-46). The status stays. */
   readonly release: (input: ByKey) => Write<NotFound | Invalid>
   /**
    * Where the task is inside In Progress (CEL-35); null clears it. Only the session holding the claim,
@@ -289,20 +296,26 @@ const make = Effect.gen(function* () {
 
   /**
    * A human change ends an agent's claim. Returns the columns that clear it (merged into the change's
-   * own `bump`) and `after(version)`, which emits `task.claim_ended` once the change's event is out.
+   * own `bump`) and `after(version)`, which emits `task.claim_ended` once the change's event is out and
+   * tells the session that held it what he did (`cause`, CEL-46). `tell: false` when the session hears
+   * it another way in the same command (its withdrawn ask says the claim ended).
    */
-  const humanEndsClaim = (task: Task, workspaceId: string, { caller, emit }: Commands.WriteContext) => {
+  const humanEndsClaim = (task: Task, workspaceId: string, context: Commands.WriteContext, cause: ClaimEndCause, tell = true) => {
     const holder = holderOf(task)
-    if (caller.sessionId !== null || holder === null || holder.sessionId === null) {
+    if (context.caller.sessionId !== null || holder === null || holder.sessionId === null) {
       return { columns: {}, after: (_version: number) => Effect.void }
     }
+    const sessionId = holder.sessionId
     return {
       columns: { assignee_actor_id: null, assignee_session_id: null },
       after: (version: number) =>
-        emit(
-          { type: "task.claim_ended", id: task.id, version, from: holder, reason: "human_change" },
-          { workspaceId, projectId: task.projectId },
-        ).pipe(Effect.asVoid),
+        Effect.gen(function* () {
+          yield* context.emit(
+            { type: "task.claim_ended", id: task.id, version, from: holder, reason: "human_change" },
+            { workspaceId, projectId: task.projectId },
+          )
+          if (tell) yield* inbox.deliverClaimEndedWithin(context, { taskId: task.id, sessionId, cause })
+        }),
     }
   }
 
@@ -358,7 +371,7 @@ const make = Effect.gen(function* () {
         const before = Object.fromEntries(fields.map((f) => [f, current[f]]))
         const after = Object.fromEntries(fields.map((f) => [f, next[f]]))
         const workspaceId = yield* workspaceOf(current.projectId)
-        const claim = humanEndsClaim(current, workspaceId, context)
+        const claim = humanEndsClaim(current, workspaceId, context, "edited")
         yield* bump(current, context, { ...Object.fromEntries(fields.map((f) => [EDITABLE[f], next[f]])), ...claim.columns })
         yield* emit(
           { type: "task.updated", id: current.id, before, after, version: current.version + 1 },
@@ -373,7 +386,7 @@ const make = Effect.gen(function* () {
   const moveIn = (
     context: Commands.WriteContext,
     current: Task,
-    to: Neighbors & { readonly statusId: string; readonly keepClaim?: boolean; readonly keepPacket?: boolean },
+    to: Neighbors & { readonly statusId: string; readonly keepClaim?: boolean; readonly keepPacket?: boolean; readonly tell?: boolean },
   ) =>
     Effect.gen(function* () {
       const workspaceId = yield* workspaceOf(current.projectId)
@@ -389,8 +402,9 @@ const make = Effect.gen(function* () {
       if (sameColumn && unchanged) return current
       // Leaving Needs input any other way than an answer or a withdrawal (those close the ask first):
       // the open ask goes with it.
+      let withdrawn: Ask | null = null
       if (!sameColumn && isNeedsInputStatus(yield* statusOf(current.statusId))) {
-        const withdrawn = yield* withdrawOpenAsk(sql, context, current, { workspaceId, projectId: current.projectId }, "moved")
+        withdrawn = yield* withdrawOpenAsk(sql, context, current, { workspaceId, projectId: current.projectId }, "moved")
         // Lucas moving it himself: the agent that asked hears where the card went.
         if (withdrawn !== null) yield* inbox.deliverWithdrawalWithin(context, withdrawn, (yield* statusOf(to.statusId)).name)
       }
@@ -405,7 +419,12 @@ const make = Effect.gen(function* () {
           yield* withdrawOpenReview(sql, context, current, { workspaceId, projectId: current.projectId }, to.statusId)
         }
       }
-      const claim = to.keepClaim ? { columns: {}, after: (_version: number) => Effect.void } : humanEndsClaim(current, workspaceId, context)
+      // Reordering within the column isn't taking the task over: the claim stays. The session whose ask
+      // the move withdrew hears the claim ended from it, not a second time; an approval tells no one
+      // (the work is done) (CEL-46).
+      const claim = to.keepClaim || sameColumn
+        ? { columns: {}, after: (_version: number) => Effect.void }
+        : humanEndsClaim(current, workspaceId, context, "moved", to.tell !== false && withdrawn?.sessionId !== current.assigneeSessionId)
       // A stage says where the task is inside In Progress (CEL-35): leaving the column ends it, except a
       // round trip through Needs input, where asking Lucas pauses the work without changing its step.
       const stage = sameColumn || current.stage === null || (yield* stageCarries(workspaceId, current.statusId, to.statusId))
@@ -472,6 +491,7 @@ const make = Effect.gen(function* () {
         after: top?.id ?? null,
         keepClaim: input.keepClaim ?? false,
         keepPacket: input.keepPacket ?? false,
+        ...(input.tell === undefined ? {} : { tell: input.tell }),
       })
     })
 
@@ -494,7 +514,7 @@ const make = Effect.gen(function* () {
         })
         yield* Effect.forEach(removed, (labelId) =>
           sql`DELETE FROM task_labels WHERE task_id = ${current.id} AND label_id = ${labelId}`, { discard: true })
-        const claim = humanEndsClaim(current, workspaceId, context)
+        const claim = humanEndsClaim(current, workspaceId, context, "labels")
         yield* bump(current, context, claim.columns)
         yield* emit(
           { type: "task.labels_changed", id: current.id, added, removed, version: current.version + 1 },
@@ -513,7 +533,8 @@ const make = Effect.gen(function* () {
           const current = yield* load(input.id)
           if ((current.archivedAt !== null) === archived) return current
           const workspaceId = yield* workspaceOf(current.projectId)
-          const claim = humanEndsClaim(current, workspaceId, context)
+          // Unarchiving rarely finds a claim (archiving ended it); one taken on the archived task ends as an edit.
+          const claim = humanEndsClaim(current, workspaceId, context, archived ? "archived" : "edited")
           yield* bump(current, context, { archived_at: archived ? now : null, ...claim.columns })
           yield* emit(
             { type: archived ? "task.archived" : "task.unarchived", id: current.id, version: current.version + 1 },
@@ -587,6 +608,10 @@ const make = Effect.gen(function* () {
             : { type: "task.claimed", id: task.id, version: task.version, task },
           where,
         )
+        // Lucas taking it over: the session that held it hears so (CEL-46).
+        if (taken?.reason === "human" && taken.holder.sessionId !== null) {
+          yield* inbox.deliverClaimEndedWithin(context, { taskId: task.id, sessionId: taken.holder.sessionId, cause: "claimed" })
+        }
         return task
       }))
   })
@@ -608,6 +633,10 @@ const make = Effect.gen(function* () {
           { type: "task.released", id: task.id, version: task.version, task },
           { workspaceId: yield* workspaceOf(task.projectId), projectId: task.projectId },
         )
+        // Lucas letting go of a session's claim: that session hears so (CEL-46).
+        if (!mine && holder.sessionId !== null) {
+          yield* inbox.deliverClaimEndedWithin(context, { taskId: task.id, sessionId: holder.sessionId, cause: "released" })
+        }
         return task
       }))
   })

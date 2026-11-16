@@ -11,6 +11,7 @@ import * as SqlClient from "effect/sql/SqlClient"
 import * as CommentService from "../comment/CommentService.ts"
 import { ContextService } from "../context/ContextService.ts"
 import * as EventStore from "../events/EventStore.ts"
+import * as LabelService from "../label/LabelService.ts"
 import * as ReviewService from "../review/ReviewService.ts"
 import * as TaskService from "../task/TaskService.ts"
 import { cmd, setupProject } from "../testing/fixtures.ts"
@@ -42,9 +43,24 @@ const setup = Effect.gen(function* () {
   return { tasks, comments, inbox, status, project, one, two, comment }
 })
 
-/** What each item says: a comment's body, or the kind and title of the ask an answers or withdrawn item is about. */
+/**
+ * What each item says: a comment's body, the kind and title of the ask an answers or withdrawn item is
+ * about, or for an ended claim (CEL-46) what Lucas did and where the card is now.
+ */
 const bodies = (items: ReadonlyArray<InboxItem>) =>
-  items.map((i) => (i.kind === "answers" || i.kind === "withdrawn" ? `${i.kind}: ${i.ask.title}` : i.kind === "reaction" ? `${i.emoji}: ${i.comment.body}` : i.comment.body))
+  items.map((i) => {
+    switch (i.kind) {
+      case "answers":
+      case "withdrawn":
+        return `${i.kind}: ${i.ask.title}`
+      case "reaction":
+        return `${i.emoji}: ${i.comment.body}`
+      case "claim_ended":
+        return `claim ended: ${i.cause}, ${i.status}`
+      default:
+        return i.comment.body
+    }
+  })
 
 describe("InboxService: who gets what", () => {
   it.effect("a human comment on a task goes to the session holding its claim, and to no one else", () =>
@@ -83,12 +99,12 @@ describe("InboxService: who gets what", () => {
       yield* comment(one.id, "While you hold it")
       yield* agent(tasks.release({ commandId: cmd(), key: one.key }))
       yield* comment(one.id, "After you let it go")
-      // A human change ends Y's claim; the comment after it goes nowhere.
+      // A human change ends Y's claim (Y hears that, CEL-46); the comment after it goes nowhere.
       yield* tasks.move({ commandId: cmd(), id: two.id, statusId: status["Todo"]!.id })
       yield* comment(two.id, "After I moved it back")
 
       expect(bodies(yield* agent(inbox.unread))).toEqual(["While you hold it"])
-      expect(yield* other(inbox.unread)).toEqual([])
+      expect(bodies(yield* other(inbox.unread))).toEqual(["claim ended: moved, Todo"])
     })))
 
   it.effect("a comment follows the claim when another session takes it over", () =>
@@ -102,7 +118,8 @@ describe("InboxService: who gets what", () => {
       yield* other(tasks.claim({ commandId: cmd(), key: one.key }))
       yield* comment(one.id, "Second")
 
-      expect(bodies(yield* agent(inbox.unread))).toEqual(["First"])
+      // X hears that the human took it over (CEL-46); Y gets what came once it held it.
+      expect(bodies(yield* agent(inbox.unread))).toEqual(["First", "claim ended: claimed, In Progress"])
       expect(bodies(yield* other(inbox.unread))).toEqual(["Second"])
     })))
 
@@ -445,10 +462,12 @@ describe("InboxService: Send back", () => {
       yield* tasks.update({ commandId: cmd(), id: one.id, expectedVersion: current.version, title: "Comments reach agents (renamed)" })
       expect((yield* tasks.byKey(one.key)).assigneeSessionId).toBeNull()
       yield* reviews.sendBack({ commandId: cmd(), key: one.key, note: "Still missing the video" })
-      expect(bodies(yield* agent(inbox.unread))).toEqual(["Still missing the video"])
+      // The rename told X its claim ended (CEL-46), then the note came.
+      const told = ["claim ended: edited, In Review", "Still missing the video"]
+      expect(bodies(yield* agent(inbox.unread))).toEqual(told)
       // A plain comment on the unclaimed task doesn't.
       yield* (yield* CommentService.CommentService).add({ commandId: cmd(), taskId: one.id, body: "And this?" })
-      expect(bodies(yield* agent(inbox.unread))).toEqual(["Still missing the video"])
+      expect(bodies(yield* agent(inbox.unread))).toEqual(told)
     })))
 })
 
@@ -576,5 +595,148 @@ describe("InboxService: reactions", () => {
       const context = yield* ContextService
       expect(said((yield* agent(context.context({ key: "CEL" }))).inbox)).toEqual(["✅ on Built it; shall I merge?"])
       expect(said((yield* agent(inbox.take({ unreadOnly: true }))).items)).toEqual(["✅ on Built it; shall I merge?"])
+    })))
+})
+
+// CEL-46: when Lucas ends a session's claim, by any change he makes to the task, that session hears it
+// once, in its inbox, so it stops working on the task instead of finding out at its next cello command.
+describe("InboxService: Lucas ending a claim (CEL-46)", () => {
+  /** Makes a new task in `setup`'s project, claimed by session X. */
+  const claimer = ({ tasks, project, status }: Effect.Success<typeof setup>) => (title: string) =>
+    Effect.gen(function* () {
+      const { result } = yield* tasks.create({ commandId: cmd(), projectId: project.id, title, statusId: status["Todo"]!.id })
+      return (yield* agent(tasks.claim({ commandId: cmd(), key: result.key }))).result
+    })
+
+  /** What each item says, with its task: `CEL-3 claim ended: moved, Backlog`. */
+  const said = (items: ReadonlyArray<InboxItem>) => items.map((i) => `${i.taskKey} ${bodies([i])[0]}`)
+
+  it.effect("Lucas moving a claimed task back to Todo tells the session once: its claim ended, and where the card went", () =>
+    run(Effect.gen(function* () {
+      const { inbox, tasks, status, one } = yield* setup
+      const { result: moved } = yield* tasks.move({ commandId: cmd(), id: one.id, statusId: status["Todo"]!.id })
+      expect(moved.assigneeSessionId).toBeNull()
+
+      const notice = {
+        id: expect.any(String),
+        kind: "claim_ended",
+        taskId: one.id,
+        taskKey: "CEL-1",
+        taskTitle: "Comments reach agents",
+        author: "Lucas",
+        cause: "moved",
+        status: "Todo",
+        createdAt: moved.updatedAt,
+        readAt: null,
+      }
+      expect(yield* agent(inbox.unread)).toEqual([notice])
+      expect(yield* other(inbox.unread)).toEqual([])
+      // cello context lists it and leaves it new.
+      expect((yield* agent((yield* ContextService).context({ key: "CEL" }))).inbox).toEqual([notice])
+      // Taken once; the next take has nothing new, and it comes back only as earlier.
+      const taken = yield* agent(inbox.take({ unreadOnly: true }))
+      expect(taken.items).toEqual([{ ...notice, readAt: expect.any(Number) }])
+      expect(taken.claimed).toEqual([])
+      expect((yield* agent(inbox.take({ unreadOnly: true }))).items).toEqual([])
+      expect(said((yield* agent(inbox.take({}))).earlier)).toEqual(["CEL-1 claim ended: moved, Todo"])
+    })))
+
+  it.effect("every way Lucas ends a claim tells the session, naming what he did", () =>
+    run(Effect.gen(function* () {
+      const ctx = yield* setup
+      const claimedByX = claimer(ctx)
+      const { inbox, tasks, status, project } = ctx
+      const labels = yield* LabelService.LabelService
+      const reviews = yield* ReviewService.ReviewService
+      const png = writePng(yield* tempDataDir, "board.png")
+
+      const backlog = yield* claimedByX("Moved to Backlog")
+      yield* tasks.move({ commandId: cmd(), id: backlog.id, statusId: status["Backlog"]!.id })
+      const canceled = yield* claimedByX("Canceled")
+      yield* tasks.move({ commandId: cmd(), id: canceled.id, statusId: status["Canceled"]!.id })
+      const edited = yield* claimedByX("Renamed")
+      yield* tasks.update({ commandId: cmd(), id: edited.id, expectedVersion: edited.version, title: "Renamed by Lucas" })
+      const labelled = yield* claimedByX("Labelled")
+      const { result: bug } = yield* labels.create({ commandId: cmd(), projectId: project.id, name: "bug", color: "#EF4444" })
+      yield* tasks.setLabels({ commandId: cmd(), id: labelled.id, add: [bug.id], remove: [] })
+      const archived = yield* claimedByX("Archived")
+      yield* tasks.archive({ commandId: cmd(), id: archived.id })
+      const takenOver = yield* claimedByX("Taken over")
+      yield* tasks.claim({ commandId: cmd(), key: takenOver.key })
+      const released = yield* claimedByX("Released")
+      yield* tasks.release({ commandId: cmd(), key: released.key })
+
+      expect(said(yield* agent(inbox.unread))).toEqual([
+        `${backlog.key} claim ended: moved, Backlog`,
+        `${canceled.key} claim ended: moved, Canceled`,
+        `${edited.key} claim ended: edited, In Progress`,
+        `${labelled.key} claim ended: labels, In Progress`,
+        `${archived.key} claim ended: archived, In Progress`,
+        `${takenOver.key} claim ended: claimed, In Progress`,
+        `${released.key} claim ended: released, In Progress`,
+      ])
+      expect(yield* other(inbox.unread)).toEqual([])
+    })))
+
+  it.effect("approving ends the finished session's claim without a notice; reordering a card within its column keeps the claim", () =>
+    run(Effect.gen(function* () {
+      const ctx = yield* setup
+      const claimedByX = claimer(ctx)
+      const { inbox, tasks, status } = ctx
+      const reviews = yield* ReviewService.ReviewService
+      const png = writePng(yield* tempDataDir, "board.png")
+
+      // Approve: the work is done, so the claim ends quietly.
+      const approved = yield* claimedByX("Approved")
+      yield* agent(reviews.submit({ commandId: cmd(), key: approved.key, summary: "Done", steps: ["Look"], files: [{ path: png }], links: [] }))
+      yield* reviews.approve({ commandId: cmd(), key: approved.key })
+      const done = yield* tasks.byKey(approved.key)
+      expect([done.statusId, done.assigneeSessionId]).toEqual([status["Done"]!.id, null])
+
+      // Lucas dragging X's card to another place in In Progress: still X's, nothing to hear.
+      const first = yield* claimedByX("First in the column")
+      const second = yield* claimedByX("Second in the column")
+      const { result: reordered } = yield* tasks.move({ commandId: cmd(), id: first.id, statusId: status["In Progress"]!.id, before: second.id })
+      expect(reordered.position).not.toBe(first.position)
+      expect(reordered.assigneeSessionId).toBe(first.assigneeSessionId)
+      expect(reordered.assigneeSessionId).not.toBeNull()
+
+      expect(yield* agent(inbox.unread)).toEqual([])
+    })))
+
+  it.effect("the session's own changes, its subagents', and other agents' tell it nothing", () =>
+    run(Effect.gen(function* () {
+      const ctx = yield* setup
+      const claimedByX = claimer(ctx)
+      const { inbox, tasks, status } = ctx
+      const reviews = yield* ReviewService.ReviewService
+      const subagent = asAgent({ session: "session-x", client: "Claude Code", pid: process.pid, agent: "a13bfb89", agentType: "cello-builder" })
+      const png = writePng(yield* tempDataDir, "board.png")
+
+      const own = yield* claimedByX("Its own")
+      yield* agent(tasks.move({ commandId: cmd(), id: own.id, statusId: status["Todo"]!.id }))
+      yield* agent(tasks.release({ commandId: cmd(), key: own.key }))
+      const bySub = yield* claimedByX("A subagent's")
+      yield* subagent(tasks.update({ commandId: cmd(), id: bySub.id, expectedVersion: bySub.version, title: "Renamed by the builder" }))
+      yield* subagent(tasks.release({ commandId: cmd(), key: bySub.key }))
+      const byOther = yield* claimedByX("Another agent's change")
+      yield* other(tasks.update({ commandId: cmd(), id: byOther.id, expectedVersion: byOther.version, title: "Renamed by Y" }))
+      yield* other(tasks.move({ commandId: cmd(), id: byOther.id, statusId: status["Todo"]!.id }))
+      const submitted = yield* claimedByX("Submitted, then sent back")
+      yield* agent(reviews.submit({ commandId: cmd(), key: submitted.key, summary: "Done", steps: ["Look"], files: [{ path: png }], links: [] }))
+      yield* reviews.sendBack({ commandId: cmd(), key: submitted.key, note: "Once more" })
+
+      // Only the Send back note: the claim stayed through it.
+      expect(said(yield* agent(inbox.unread))).toEqual([`${submitted.key} Once more`])
+    })))
+
+  it.effect("wakes a waiting session", () =>
+    run(Effect.gen(function* () {
+      const { inbox, tasks, status, one } = yield* setup
+      const waiting = yield* Effect.forkChild(agent(inbox.wait))
+      yield* Effect.yieldNow
+      yield* tasks.move({ commandId: cmd(), id: one.id, statusId: status["Todo"]!.id })
+      expect(said((yield* Fiber.join(waiting)).items)).toEqual(["CEL-1 claim ended: moved, Todo"])
+      expect(yield* agent(inbox.unread)).toEqual([])
     })))
 })
