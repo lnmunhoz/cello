@@ -13,6 +13,8 @@ import search from "./migrations/0008_search.ts"
 import labelGroup from "./migrations/0009_label_group.ts"
 import reviewWithdrawn from "./migrations/0010_review_withdrawn.ts"
 import agents from "./migrations/0011_agents.ts"
+import commentAttachments from "./migrations/0012_comment_attachments.ts"
+import reactions from "./migrations/0013_reactions.ts"
 
 /** Every migration by id. Tests of one migration run the ones before it from here. */
 export const records = {
@@ -27,6 +29,8 @@ export const records = {
   "0009_label_group": labelGroup,
   "0010_review_withdrawn": reviewWithdrawn,
   "0011_agents": agents,
+  "0012_comment_attachments": commentAttachments,
+  "0013_reactions": reactions,
 }
 
 export const migrations = SqliteMigrator.fromRecord(records)

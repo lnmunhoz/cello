@@ -1,6 +1,6 @@
 // Review packets for the e2e tests: an agent hands one in through the real `cello` CLI (from source,
 // as a Claude Code session) with a real MP4, a real screenshot and a link.
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
@@ -35,6 +35,37 @@ export const celloAs = (session: string | null, options: { readonly stdin?: stri
 
 /** Runs the `cello` CLI from source as a Claude Code session, against the e2e server. */
 export const cello = celloAs("e2e0review-agent-session")
+
+/**
+ * `cello …` in the background, as Claude Code session `session`: resolves with what it printed (stdout
+ * and stderr) once it exits, and its stdout alone. `printed` resolves with its first output on stderr,
+ * which a waiting command (`cello inbox --wait`) prints once it's waiting.
+ */
+export const celloInBackground = (session: string) => (...args: string[]) => {
+  const child = spawn("bun", [path.join(root, "apps/cli/src/bin.ts"), ...args], {
+    cwd: root,
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, CELLO_PORT: String(SERVER_PORT), CLAUDE_CODE_SESSION_ID: session, CLAUDE_PID: String(process.pid) },
+  })
+  let out = ""
+  let stdout = ""
+  let markPrinted = (_line: string) => {}
+  const printed = new Promise<string>((resolve) => (markPrinted = resolve))
+  child.stdout.on("data", (chunk: Buffer) => {
+    out += chunk.toString()
+    stdout += chunk.toString()
+  })
+  child.stderr.on("data", (chunk: Buffer) => {
+    out += chunk.toString()
+    markPrinted(chunk.toString().trim())
+  })
+  const done = new Promise<{ code: number | null; out: string; stdout: string }>((resolve) =>
+    child.on("close", (code) => {
+      markPrinted("")
+      resolve({ code, out: out.trim(), stdout: stdout.trim() })
+    })
+  )
+  return Object.assign(done, { printed })
+}
 
 /** A real MP4 (a test pattern) at `file`. VP9 inside: Playwright's Chromium has no H.264. */
 export const testVideo = (file: string) => {

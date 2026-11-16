@@ -267,7 +267,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
       call: (c, a, commandId) => c["label.archive"]({ commandId, ...a }),
     }),
     addComment: command({
-      call: (c, a: { taskId: string; body: string }, commandId) => c["comment.add"]({ commandId, ...a }),
+      call: (c, a: { taskId: string; body: string; attachmentIds?: ReadonlyArray<string> }, commandId) => c["comment.add"]({ commandId, ...a }),
     }),
     editComment: command({
       call: (c, a: { id: string; body: string }, commandId) => c["comment.edit"]({ commandId, ...a }),
@@ -275,13 +275,17 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     deleteComment: command({
       call: (c, a: { id: string }, commandId) => c["comment.delete"]({ commandId, ...a }),
     }),
+    // An emoji reaction on a comment (CEL-77); the chip follows when the event arrives.
+    reactToComment: command({
+      call: (c, a: { commentId: string; emoji: string; on: boolean }, commandId) => c["comment.react"]({ commandId, ...a }),
+    }),
     // No optimistic patch: the review closes and the task moves in one batch of events, a moment later.
     approveReview: command({
-      call: (c, a: { key: string; note?: string }, commandId) => c["review.approve"]({ commandId, ...a }),
+      call: (c, a: { key: string; note?: string; attachmentIds?: ReadonlyArray<string> }, commandId) => c["review.approve"]({ commandId, ...a }),
       subject: (a) => a.key,
     }),
     sendBackReview: command({
-      call: (c, a: { key: string; note: string }, commandId) => c["review.sendBack"]({ commandId, ...a }),
+      call: (c, a: { key: string; note: string; attachmentIds?: ReadonlyArray<string> }, commandId) => c["review.sendBack"]({ commandId, ...a }),
       subject: (a) => a.key,
     }),
     // No optimistic patch either: the ask closes and the task moves back to In Progress in one batch.

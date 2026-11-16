@@ -5,35 +5,11 @@
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import type { Page } from "@playwright/test"
 import { caption, card, column, createProject, expect, taskPanel, test, uniqueKey } from "./fixtures.ts"
+import { showTerminalAndPoint as showTerminal } from "./agentScreen.ts"
 import { celloAs, SHOTS } from "./packets.ts"
 
 const SESSION = "e2e0inbox-agent-session"
-
-/**
- * Draws an agent's terminal at the bottom left of the page and appends a command and what it printed,
- * then points at it, so the video shows the agent's side next to the board.
- */
-const showTerminal = async (page: Page, command: string, output: string) => {
-  await page.evaluate(([cmd, out]) => {
-    let el = document.getElementById("e2e-terminal")
-    if (!el) {
-      el = document.createElement("pre")
-      el.id = "e2e-terminal"
-      el.setAttribute("aria-label", "Agent terminal")
-      Object.assign(el.style, {
-        position: "fixed", zIndex: "2147483646", left: "24px", bottom: "84px", width: "760px", maxHeight: "70vh", overflow: "hidden",
-        margin: "0", padding: "14px 16px", borderRadius: "10px", background: "rgb(16 16 20 / .94)", color: "#e8e8ec",
-        font: "12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace", whiteSpace: "pre-wrap", boxShadow: "0 12px 40px rgb(0 0 0 / .35)",
-      })
-      document.body.append(el)
-    }
-    el.textContent = `${el.textContent ? `${el.textContent}\n\n` : ""}agent session $ ${cmd}\n${out || "(prints nothing)"}`
-    el.scrollTop = el.scrollHeight
-  }, [command, output] as const)
-  await page.getByLabel("Agent terminal").hover()
-}
 
 test("CEL-15: a comment typed in the task panel and a Send back on the Review page both reach the agent's session, once each", async ({ page }) => {
   const key = uniqueKey("INB")

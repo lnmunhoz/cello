@@ -1,4 +1,4 @@
-// Comments load per task (comment.list); this keeps a loaded list current from the event stream.
+// Comments load per task (comment.list), with their reactions; this keeps a loaded list current from the event stream.
 import type { Comment } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
 
@@ -19,6 +19,25 @@ export const applyCommentEvents = (
       case "comment.deleted":
         if (next.some((c) => c.id === e.id)) next = next.map((c) => (c.id === e.id ? { ...c, deletedAt: e.ts } : c))
         break
+      // Emoji reactions (CEL-77): the comment's list gains or loses one.
+      case "reaction.added": {
+        const { reaction } = e
+        next = next.map((c) =>
+          c.id === reaction.commentId && !(c.reactions ?? []).some((r) => r.id === reaction.id)
+            ? { ...c, reactions: [...(c.reactions ?? []), reaction] }
+            : c
+        )
+        break
+      }
+      case "reaction.removed": {
+        const { reaction } = e
+        next = next.map((c) =>
+          c.id === reaction.commentId && (c.reactions ?? []).some((r) => r.id === reaction.id)
+            ? { ...c, reactions: (c.reactions ?? []).filter((r) => r.id !== reaction.id) }
+            : c
+        )
+        break
+      }
     }
   }
   return next

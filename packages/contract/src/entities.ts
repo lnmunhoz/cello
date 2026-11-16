@@ -170,19 +170,22 @@ export const Task = Schema.Struct({
 })
 export type Task = typeof Task.Type
 
-export const Comment = Schema.Struct({
+/**
+ * An emoji reaction on a comment (CEL-77): one per reacting party (the human, or an agent session) and
+ * emoji. Removing it deletes the row; the events keep the history.
+ */
+export const Reaction = Schema.Struct({
   id: Id,
+  commentId: Id,
   taskId: Id,
-  body: Schema.String,
+  emoji: Schema.String,
   actorId: Id,
   sessionId: Schema.NullOr(Id),
-  /** The subagent of the session that wrote it (CEL-55); absent or null when the session itself did. */
+  /** The subagent of the session that reacted; absent or null when the session itself did. */
   agentId: Schema.optionalKey(Schema.NullOr(Schema.String)),
   createdAt: Millis,
-  updatedAt: Millis,
-  deletedAt: Schema.NullOr(Millis),
 })
-export type Comment = typeof Comment.Type
+export type Reaction = typeof Reaction.Type
 
 export const AttachmentKind = Schema.Literals(["image", "video", "file", "link"])
 export type AttachmentKind = typeof AttachmentKind.Type
@@ -217,6 +220,32 @@ export const Attachment = Schema.Struct({
   deletedAt: Schema.NullOr(Millis),
 })
 export type Attachment = typeof Attachment.Type
+
+export const Comment = Schema.Struct({
+  id: Id,
+  taskId: Id,
+  body: Schema.String,
+  actorId: Id,
+  sessionId: Schema.NullOr(Id),
+  /** The subagent of the session that wrote it (CEL-55); absent or null when the session itself did. */
+  agentId: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  createdAt: Millis,
+  updatedAt: Millis,
+  deletedAt: Schema.NullOr(Millis),
+  /**
+   * Its screenshots (CEL-73): images Lucas pasted or dropped into the comment box, or an agent attached
+   * with `cello task comment --attach`. The server always sends it; comments in events stored before
+   * CEL-73 have no key, which means none.
+   */
+  attachments: Schema.optionalKey(Schema.Array(Attachment)),
+  /**
+   * Its emoji reactions (CEL-77), oldest first. Read with the comment, so `comment.added` carries an
+   * empty list; events stored before reactions existed leave it out. A reaction changing is its own
+   * event (`reaction.added`, `reaction.removed`), never a comment event.
+   */
+  reactions: Schema.optionalKey(Schema.Array(Reaction)),
+})
+export type Comment = typeof Comment.Type
 
 /**
  * How a review closed. `superseded`: a newer review of the same task replaced it before anyone decided.
@@ -345,10 +374,10 @@ export type Ask = typeof Ask.Type
 
 /**
  * Why something reached an agent's inbox: a comment on its task, the note of a review Lucas sent back,
- * his answers to the questions it asked on the card (CEL-47), or his moving that card himself, which
- * withdrew the ask (`withdrawn`).
+ * his answers to the questions it asked on the card (CEL-47), his moving that card himself, which
+ * withdrew the ask (`withdrawn`), or his emoji reaction to one of its comments (`reaction`, CEL-77).
  */
-export const InboxKind = Schema.Literals(["comment", "send_back", "answers", "withdrawn"])
+export const InboxKind = Schema.Literals(["comment", "send_back", "answers", "withdrawn", "reaction"])
 export type InboxKind = typeof InboxKind.Type
 
 const inboxFields = {
@@ -382,8 +411,16 @@ export type InboxAnswers = typeof InboxAnswers.Type
 export const InboxWithdrawn = Schema.Struct({ ...inboxFields, kind: Schema.Literal("withdrawn"), ask: Ask, status: Schema.String })
 export type InboxWithdrawn = typeof InboxWithdrawn.Type
 
-/** Something delivered to an agent session's inbox: a comment (CEL-15), Lucas's answers or a withdrawn ask (CEL-47). */
-export const InboxItem = Schema.Union([InboxComment, InboxAnswers, InboxWithdrawn])
+/**
+ * Lucas reacted to a comment the session wrote (CEL-77). Delivered to that session, or to the claim
+ * holder once that session ended; removing the reaction before it's read takes it back. `comment` is
+ * the comment reacted to, as it is now; `createdAt` is when he reacted.
+ */
+export const InboxReaction = Schema.Struct({ ...inboxFields, kind: Schema.Literal("reaction"), comment: Comment, emoji: Schema.String })
+export type InboxReaction = typeof InboxReaction.Type
+
+/** Something delivered to an agent session's inbox: a comment (CEL-15), Lucas's answers or a withdrawn ask (CEL-47), his reaction (CEL-77). */
+export const InboxItem = Schema.Union([InboxComment, InboxAnswers, InboxWithdrawn, InboxReaction])
 export type InboxItem = typeof InboxItem.Type
 
 /** Docs, specs and pages share one table and one reader; `kind` says what a document is for. */

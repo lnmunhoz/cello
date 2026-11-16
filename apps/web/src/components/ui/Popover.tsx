@@ -15,6 +15,8 @@ const trigger = variants(
       toolbar: "h-7 items-center gap-1.5 border border-line bg-raised px-2.5 text-[13px] font-medium text-ink shadow-card hover:bg-hover data-open:bg-hover",
       /** A quiet line of small print, like the running build at the foot of the sidebar. */
       footer: "w-full min-w-0 flex-col items-start px-2 py-1 text-left text-[11px] leading-4 text-faint tabular-nums hover:bg-hover hover:text-muted data-open:bg-hover data-open:text-muted",
+      /** A comment's add-a-reaction button (CEL-77): quiet, as tall as a reaction chip. */
+      reaction: "h-6 items-center gap-1 rounded-full border border-dashed border-line px-1.5 text-faint hover:border-line-strong hover:text-ink data-open:border-line-strong data-open:text-ink",
     },
   },
   { variant: "property" },

@@ -95,5 +95,6 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "comment.add": (input) => comments.add(input),
     "comment.edit": (input) => comments.edit(input),
     "comment.delete": (input) => comments.remove(input),
+    "comment.react": (input) => comments.react(input),
   })
 }))

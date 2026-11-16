@@ -11,7 +11,6 @@ import { HumanOnly, Invalid, NotFound, TaskClaimed } from "@cello/contract/error
 import { Caller, type AnswerInput, type AskQuestionInput, type EvidenceFile, type EvidenceLink } from "@cello/contract/rpcs"
 import { answerProblem, isNeedsInputStatus, needsInputTarget } from "@cello/shared/ask"
 import { sendBackTarget } from "@cello/shared/review"
-import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -22,13 +21,14 @@ import * as EventLog from "../events/EventLog.ts"
 import * as EventStore from "../events/EventStore.ts"
 import * as InboxService from "../inbox/InboxService.ts"
 import { newId } from "../persistence/ids.ts"
-import { selectAsks, selectStatuses, selectTasks, type StoredAnswers, toAttachment } from "../persistence/rows.ts"
+import { selectAsks, selectStatuses, selectTasks, type StoredAnswers } from "../persistence/rows.ts"
 import * as Seed from "../persistence/Seed.ts"
 import * as AssetStore from "../review/AssetStore.ts"
 import { SessionService } from "../session/SessionService.ts"
 import { checkFile, requireLink } from "../review/evidence.ts"
 import * as TaskService from "../task/TaskService.ts"
 import { requireText } from "../validation.ts"
+import * as Drafts from "../upload/drafts.ts"
 import { withdrawOpenAsk } from "./openAsk.ts"
 import { checkQuestions, withImages } from "./questions.ts"
 
@@ -50,24 +50,11 @@ export interface AnswerAsk {
   readonly noteAttachmentIds?: ReadonlyArray<string>
 }
 
-export interface Upload {
+export interface Upload extends Drafts.Upload {
   readonly askId: string
-  /** The file's name as pasted or dropped ("image.png"); its extension decides the type. */
-  readonly name: string
-  readonly bytes: Uint8Array
 }
 
-/** The image types Lucas can paste into an answer. */
-export const UPLOAD_TYPES: Readonly<Record<string, string>> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-}
-export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
-/** How long a screenshot from a draft that was never sent is kept after its ask closes. */
-export const DRAFT_TTL_MS = 24 * 60 * 60 * 1000
+export { DRAFT_TTL_MS, MAX_UPLOAD_BYTES, UPLOAD_TYPES } from "../upload/drafts.ts"
 
 type Write<A, E> = Effect.Effect<Commands.Written<A>, E, Caller>
 type AskAndTask = { readonly ask: Ask; readonly task: Task }
@@ -101,6 +88,7 @@ const make = Effect.gen(function* () {
   const store = yield* EventStore.EventStore
   const human = yield* Seed.HumanActor
   const sessions = yield* SessionService
+  const drafts = Drafts.make(sql, assets, human)
 
   const placeOf = (task: Task) =>
     sql<{ workspace_id: string }>`SELECT workspace_id FROM projects WHERE id = ${task.projectId}`.pipe(
@@ -223,19 +211,10 @@ const make = Effect.gen(function* () {
         if (found.state !== "open") return yield* new Invalid({ field: "askId", reason: `this ask is ${found.state}, so it can't be answered` })
 
         // Every question once, nothing else; each screenshot is a draft of this ask's, used once.
-        const drafts = yield* sql<{ id: string }>`
-          SELECT id FROM attachments WHERE ask_id = ${found.id} AND answer_to = 'draft' AND deleted_at IS NULL`
+        const available = (yield* sql<{ id: string }>`
+          SELECT id FROM attachments WHERE ask_id = ${found.id} AND answer_to = 'draft' AND deleted_at IS NULL`).map((d) => d.id)
         const used = new Set<string>()
-        const takeScreenshots = (ids: ReadonlyArray<string>) =>
-          Effect.gen(function* () {
-            for (const id of ids) {
-              if (used.has(id) || !drafts.some((d) => d.id === id)) {
-                return yield* new Invalid({ field: "attachmentIds", reason: `screenshot ${id} isn't a draft of this ask's, or is used twice` })
-              }
-              used.add(id)
-            }
-            return ids
-          })
+        const takeScreenshots = (ids: ReadonlyArray<string>) => drafts.take(ids, available, used, "this ask's")
         const stored: Array<StoredAnswers["questions"][number] & { readonly attachmentIds: ReadonlyArray<string> }> = []
         for (const question of found.questions) {
           const given = input.answers.filter((a) => a.questionId === question.id)
@@ -321,39 +300,16 @@ const make = Effect.gen(function* () {
     )
   }, Effect.catchTag("SqlError", Effect.die))
 
-  const sweepDrafts = Effect.gen(function* () {
-    const now = yield* Clock.currentTimeMillis
-    const stale = yield* sql<{ id: string; path: string | null }>`
-      SELECT f.id, f.path FROM attachments f JOIN asks a ON a.id = f.ask_id
-      WHERE f.answer_to = 'draft' AND f.deleted_at IS NULL AND a.state != 'open' AND f.created_at < ${now - DRAFT_TTL_MS}`
-    if (stale.length === 0) return 0
-    yield* sql`UPDATE attachments SET deleted_at = ${now} WHERE ${sql.in("id", stale.map((f) => f.id))}`
-    yield* assets.remove(stale.flatMap((f) => (f.path === null ? [] : [f.path])))
-    return stale.length
-  }).pipe(Effect.orDie, Effect.withSpan("AskService.sweepDrafts"))
-
   const upload = Effect.fn("AskService.upload")(function* (input: Upload) {
-    const caller = yield* Caller
-    if (caller.sessionId !== null) return yield* new HumanOnly({ action: "paste screenshots into answers", human: human.name })
-    const ext = path.extname(input.name).toLowerCase()
-    const mime = UPLOAD_TYPES[ext]
-    if (mime === undefined) return yield* new Invalid({ field: "file", reason: `${input.name} isn't a PNG, JPEG, GIF or WebP image` })
-    if (input.bytes.byteLength > MAX_UPLOAD_BYTES) {
-      return yield* new Invalid({ field: "file", reason: `${input.name} is over ${MAX_UPLOAD_BYTES / 1024 / 1024} MB` })
-    }
-    yield* sweepDrafts
-    const [ask] = yield* sql<{ task_id: string; state: string }>`SELECT task_id, state FROM asks WHERE id = ${input.askId}`
-    if (!ask) return yield* new NotFound({ entity: "ask", id: input.askId })
-    if (ask.state !== "open") return yield* new Invalid({ field: "askId", reason: `this ask is ${ask.state}, so it takes no more answers` })
-    const now = yield* Clock.currentTimeMillis
-    const id = newId(now)
-    const relative = yield* assets.writeIn(input.bytes, ask.task_id, id, ext)
-    yield* sql`INSERT INTO attachments (id, task_id, ask_id, answer_to, kind, name, path, mime, bytes, actor_id, created_at)
-      VALUES (${id}, ${ask.task_id}, ${input.askId}, 'draft', 'image', ${path.basename(input.name)}, ${relative}, ${mime},
-              ${input.bytes.byteLength}, ${caller.actorId}, ${now})`.pipe(Effect.onError(() => assets.remove([relative])))
-    const [row] = yield* sql<Parameters<typeof toAttachment>[0]>`SELECT * FROM attachments WHERE id = ${id}`
-    return toAttachment(row!)
-  }, Effect.catchTag("SqlError", Effect.die))
+    return yield* drafts.store(input, "paste screenshots into answers", Effect.gen(function* () {
+      const [ask] = yield* sql<{ task_id: string; state: string }>`SELECT task_id, state FROM asks WHERE id = ${input.askId}`
+      if (!ask) return yield* new NotFound({ entity: "ask", id: input.askId })
+      if (ask.state !== "open") return yield* new Invalid({ field: "askId", reason: `this ask is ${ask.state}, so it takes no more answers` })
+      return { taskId: ask.task_id, askId: input.askId }
+    }).pipe(Effect.catchTag("SqlError", Effect.die)))
+  })
+
+  const sweepDrafts = drafts.sweep
 
   yield* sweepDrafts
   return AskService.of({ create, answer, withdraw, latest, list, wait, upload, sweepDrafts })

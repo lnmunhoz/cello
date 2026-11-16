@@ -166,6 +166,10 @@ export const askSpecFromArgs = (args: ReadonlyArray<string>, cwd: string): Parse
 }
 
 /** Every screenshot Lucas pasted into his answers, with a file name for it: "q1-1.png", "note-1.png". */
+/** "Screenshot: <where it was saved>", or the path the server serves it at when it wasn't saved. */
+export const screenshotLine = (a: Pick<Attachment, "id">, files: ReadonlyMap<string, string>): string =>
+  `Screenshot: ${files.get(a.id) ?? `/attachments/${a.id}`}`
+
 export const answerScreenshots = (ask: Ask): Array<{ readonly attachment: Attachment; readonly fileName: string }> => {
   if (ask.answers === null) return []
   const named = (where: string, list: ReadonlyArray<Attachment>) =>
@@ -186,7 +190,7 @@ const pickedLine = (question: AskQuestion, optionIds: ReadonlyArray<string>) => 
  */
 export const answerLines = (ask: Ask, files: ReadonlyMap<string, string>): string[] => {
   if (ask.answers === null) return []
-  const shot = (a: Attachment) => `Screenshot: ${files.get(a.id) ?? `/attachments/${a.id}`}`
+  const shot = (a: Attachment) => screenshotLine(a, files)
   const lines: string[] = []
   for (const [i, question] of ask.questions.entries()) {
     const answer = ask.answers.questions.find((a) => a.questionId === question.id)

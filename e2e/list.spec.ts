@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import { caption, createProject, expect, test, uniqueKey } from "./fixtures.ts"
+import { caption, contentAnimations, createProject, expect, test, uniqueKey } from "./fixtures.ts"
 
 const list = (page: Page) => page.locator('[data-layout="list"]')
 const group = (page: Page, name: string) => list(page).locator(`section[data-group="${name}"]`)
@@ -72,7 +72,7 @@ test("list: switch to List, add tasks from a group's +, open a row's panel, use 
   await expect(panel2.getByLabel("Title")).toHaveValue("Wire the Display popover")
   await expect(row(page, `${key}-2`)).toBeVisible()
   // An idle list runs no animations.
-  expect(await page.evaluate(() => document.getAnimations().length)).toBe(0)
+  expect(await contentAnimations(page)).toBe(0)
   await page.getByRole("button", { name: "Display" }).click()
   await expect(page.getByRole("radio", { name: "List" })).toBeChecked()
   await page.keyboard.press("Escape")

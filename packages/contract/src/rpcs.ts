@@ -305,13 +305,16 @@ export const CelloRpcs = RpcGroup.make(
     success: write(Schema.Struct({ review: Review, task: Task })),
     error: Schema.Union([NotFound, Invalid]),
   }),
+  // With `attachmentIds` (screenshots pasted into the Review page's box, CEL-73), they and the note go in
+  // a comment in the same command, and the approval carries no note.
   Rpc.make("review.approve", {
-    payload: { commandId, key: Schema.String, note: Schema.optionalKey(Schema.String) },
+    payload: { commandId, key: Schema.String, note: Schema.optionalKey(Schema.String), attachmentIds: Schema.optionalKey(Schema.Array(Id)) },
     success: write(Task),
     error: Schema.Union([NotFound, Invalid, HumanOnly]),
   }),
+  // The note becomes a comment; `attachmentIds`: screenshots pasted into the Review page's box with it (CEL-73).
   Rpc.make("review.sendBack", {
-    payload: { commandId, key: Schema.String, note: Schema.String },
+    payload: { commandId, key: Schema.String, note: Schema.String, attachmentIds: Schema.optionalKey(Schema.Array(Id)) },
     success: write(Task),
     error: Schema.Union([NotFound, Invalid, HumanOnly]),
   }),
@@ -443,8 +446,17 @@ export const CelloRpcs = RpcGroup.make(
   }),
 
   Rpc.make("comment.list", { payload: { taskId: Id }, success: Schema.Array(Comment), error: NotFound }),
+  // Screenshots in comments (CEL-73): Lucas's are uploaded while he writes (POST /tasks/<id>/uploads)
+  // and sent by id (`attachmentIds`); an agent's are image files on this machine (`files`, absolute
+  // paths), copied into the data folder. The body may be empty when the comment carries a screenshot.
   Rpc.make("comment.add", {
-    payload: { commandId, taskId: Id, body: Schema.String },
+    payload: {
+      commandId,
+      taskId: Id,
+      body: Schema.String,
+      attachmentIds: Schema.optionalKey(Schema.Array(Id)),
+      files: Schema.optionalKey(Schema.Array(EvidenceFile)),
+    },
     success: write(Comment),
     error: Schema.Union([NotFound, Invalid]),
   }),
@@ -454,6 +466,13 @@ export const CelloRpcs = RpcGroup.make(
     error: Schema.Union([NotFound, Invalid]),
   }),
   Rpc.make("comment.delete", { payload: { commandId, id: Id }, success: write(Comment), error: NotFound }),
+  // An emoji reaction on a comment (CEL-77): `on` adds the caller's reaction with that emoji, false
+  // removes it; either is a no-op (no event) when it's already so. Returns the comment with its reactions.
+  Rpc.make("comment.react", {
+    payload: { commandId, commentId: Id, emoji: Schema.String, on: Schema.Boolean },
+    success: write(Comment),
+    error: Schema.Union([NotFound, Invalid]),
+  }),
 ).middleware(CallerMiddleware)
 
 export type CelloRpcs = typeof CelloRpcs

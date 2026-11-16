@@ -15,7 +15,6 @@ import {
   type AgentSession,
   type Ask,
   type DocumentKind,
-  type InboxItem,
   type Label,
   LABEL_GROUPS,
   type LabelGroup,
@@ -35,6 +34,7 @@ import { ACCEPTED } from "@cello/shared/attachment"
 import { pagePath } from "@cello/shared/document"
 import { formatBytes } from "@cello/shared/bytes"
 import { colorFromSeed } from "@cello/shared/color"
+import { cleanReaction, groupReactions } from "@cello/shared/reaction"
 import { shortCommit } from "@cello/shared/build"
 import { APP_VERSION } from "@cello/shared/version"
 import * as Console from "effect/Console"
@@ -47,7 +47,7 @@ import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
 import { addAgentsSection, agentsFile, type AgentsResult } from "./agentsMd.ts"
 import { roundLabel } from "@cello/client/sync/asks"
-import { answerLines, answerScreenshots, askResultText, askSpecFromArgs, askSpecFromFile, roundsText } from "./ask.ts"
+import { answerLines, askResultText, askSpecFromArgs, askSpecFromFile, roundsText } from "./ask.ts"
 import { buildsText } from "./builds.ts"
 import {
   ALLOW_ARTIFACTS_VARIABLE,
@@ -90,7 +90,7 @@ import { evidenceFromArgs } from "./evidence.ts"
 import { agentName, ago, andList, columns, localTime, plural, sessionName } from "./format.ts"
 import { GUIDE } from "./guide.ts"
 import { type Env, IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
-import { deliveryText, inboxEntries } from "./inbox.ts"
+import { askScreenshots, commentScreenshots, commentStart, commentText, deliveryText, inboxEntries, inboxScreenshots, type ScreenshotFile } from "./inbox.ts"
 import {
   acquireWaiter,
   afterDown,
@@ -328,8 +328,8 @@ const context = Command.make("context", { project, json }, (input) =>
       const answered = ctx.inbox.find((i) => i.kind === "answers")
       lines.push(
         "",
-        `${answered ? "New for you" : "New comments for you"} (${ctx.inbox.length})`,
-        ...indent(inboxEntries(ctx.inbox, now, undefined, yield* saveScreenshots(answeredAsks(ctx.inbox)))),
+        `${answered || ctx.inbox.some((i) => i.kind === "reaction") ? "New for you" : "New comments for you"} (${ctx.inbox.length})`,
+        ...indent(inboxEntries(ctx.inbox, now, undefined, yield* saveScreenshots(inboxScreenshots(ctx.inbox)))),
         `  Answer on the card: \`cello task comment ${ctx.inbox[0]!.taskKey} "…"\`. They stay new until the hook or \`cello inbox\` hands them over.`,
         ...(sentBack ? [`  Sent back: fix it, then hand it in again with \`cello task submit ${sentBack.taskKey}\`.`] : []),
         ...(answered ? [`  Answered: ${answered.taskKey} is back in progress; carry on with the answers.`] : []),
@@ -449,9 +449,16 @@ const get = Command.make("get", { key, json }, (input) =>
     }
     if (detail.comments.length) {
       lines.push("", `Comments (${detail.comments.length})`)
+      // Screenshots in comments (CEL-73) are saved to temp files, so the agent can open them.
+      const files = yield* saveScreenshots(detail.comments.flatMap(commentScreenshots))
       for (const c of detail.comments) {
-        lines.push(`  ${author(detail, c.actorId, c.sessionId, c.agentId)} · ${ago(c.createdAt, now)}`)
-        lines.push(...c.body.split("\n").map((l) => `    ${l}`))
+        // The id is what `cello task react` takes (CEL-77).
+        lines.push(`  ${author(detail, c.actorId, c.sessionId, c.agentId)} · ${ago(c.createdAt, now)} · id ${c.id}`)
+        lines.push(...commentText(c, files).split("\n").map((l) => `    ${l}`))
+        const chips = groupReactions(c.reactions ?? [], () => false)
+        if (chips.length) {
+          lines.push(`    Reactions: ${chips.map((chip) => `${chip.emoji} ${chip.reactions.map((r) => author(detail, r.actorId, r.sessionId, r.agentId)).join(", ")}`).join(" · ")}`)
+        }
       }
     }
     lines.push("", "History")
@@ -592,22 +599,77 @@ const comment = Command.make("comment", {
   key,
   text: Argument.String("text").pipe(Argument.optional, Argument.withDescription("The comment, in quotes; markdown renders on the card.")),
   bodyFile: Flag.String("body-file").pipe(Flag.optional, Flag.withDescription("Read the comment from a file; - is stdin.")),
+  attach: Flag.String("attach").pipe(
+    Flag.atLeast(0),
+    Flag.withDescription("An image (PNG, JPEG, GIF, WebP or AVIF) shown under the comment as a thumbnail; repeatable."),
+  ),
   json,
 }, (input) =>
   Effect.gen(function* () {
     const body = yield* bodyText(input.text, input.bodyFile)
-    if (body === undefined) {
+    if (body === undefined && input.attach.length === 0) {
       return yield* new CliFailure({ message: `Say something: cello task comment ${input.key} "text", or --body-file - for markdown from stdin.` })
     }
+    const { cwd } = yield* CliEnv
+    const files = input.attach.map((file) => ({ path: path.resolve(cwd, file) }))
     const response = yield* withClient((client) =>
       Effect.gen(function* () {
         const { task } = yield* client["task.get"]({ key: input.key })
-        return yield* client["comment.add"]({ commandId: newCommandId(), taskId: task.id, body })
+        return yield* client["comment.add"]({ commandId: newCommandId(), taskId: task.id, body: body ?? "", ...(files.length ? { files } : {}) })
       })
     )
     if (input.json) return yield* printJson(response)
-    yield* print(`Commented on ${input.key.toUpperCase()}`)
-  })).pipe(Command.withDescription("Add a markdown comment to a task: progress, a question, an answer to Lucas."))
+    const shots = files.length === 0 ? "" : files.length === 1 ? " with 1 image" : ` with ${files.length} images`
+    yield* print(`Commented on ${input.key.toUpperCase()}${shots}`)
+  })).pipe(Command.withDescription("Add a markdown comment to a task: progress, a question, an answer to Lucas. --attach adds screenshots."))
+
+const react = Command.make("react", {
+  key,
+  comment: Argument.String("comment").pipe(
+    Argument.withDescription("The comment's id (`cello task get` shows it after each comment's author), or `last` for Lucas's newest comment on the task."),
+  ),
+  emoji: Argument.String("emoji").pipe(Argument.withDescription("One emoji, e.g. 👍 ✅ 👀 ❤️ 🎉.")),
+  remove: Flag.Boolean("remove").pipe(Flag.withDefault(false), Flag.withDescription("Take your reaction with that emoji back instead.")),
+  json,
+}, (input) =>
+  Effect.gen(function* () {
+    const written = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const detail = yield* client["task.get"]({ key: input.key })
+        const { key: taskKey } = detail.task
+        const target = input.comment.toLowerCase() === "last"
+          ? detail.comments.filter((c) => c.sessionId === null).at(-1)
+          : detail.comments.find((c) => c.id === input.comment)
+        if (target === undefined) {
+          const ids = `\`cello task get ${taskKey}\` shows each comment with its id.`
+          return yield* new CliFailure({
+            message: input.comment.toLowerCase() === "last"
+              ? `${humanName(detail.actors)} hasn't commented on ${taskKey} yet. Pass a comment id instead; ${ids}`
+              : `No comment ${input.comment} on ${taskKey}. ${ids}`,
+          })
+        }
+        const response = yield* client["comment.react"]({ commandId: newCommandId(), commentId: target.id, emoji: input.emoji, on: !input.remove })
+        return { response, detail, target }
+      })
+    )
+    if (input.json) return yield* printJson(written.response)
+    const { response, detail, target } = written
+    const emoji = cleanReaction(input.emoji)
+    const whose = `${author(detail, target.actorId, target.sessionId, target.agentId)}'s comment on ${detail.task.key}`
+    const changed = response.seq !== null
+    yield* print(
+      input.remove
+        ? changed ? `Took back your ${emoji} on ${whose}` : `No ${emoji} of yours on ${whose}`
+        : changed ? `Reacted ${emoji} to ${whose}: "${commentStart(target.body)}"` : `You had already reacted ${emoji} to ${whose}`,
+    )
+  })).pipe(Command.withDescription(
+    "React to a comment with an emoji: a quick answer that needs no words (👍 to Lucas's \"go ahead\"). Once per emoji; --remove takes it back. " +
+      "Lucas's reactions to your comments reach your session like his comments do.",
+  ), Command.withExamples([
+    { command: "cello task react CEL-3 last 👍", description: "Thumbs up on Lucas's newest comment" },
+    { command: "cello task react CEL-3 01JD2X7Q8M4K5N6P7R8S9T0V1W ✅", description: "A check on one comment, by its id" },
+    { command: "cello task react CEL-3 last 👍 --remove", description: "Take the thumbs up back" },
+  ]))
 
 const edit = Command.make("edit", {
   key,
@@ -685,30 +747,29 @@ const submit = Command.make("submit", {
 // ── needs input (CEL-47) ────────────────────────────────────────────────────────────────────────
 
 /**
- * Saves the screenshots Lucas pasted into answers to a temp folder (agents never read the data folder
- * directly), fetched from the server: `<tmp>/cello-answers/<ask id>/q1-1.png`. Returns attachment id →
- * path; one that can't be fetched is left out (the text then shows its URL path).
+ * Saves screenshots (Lucas's in answers and comments, an agent's in comments) to the temp folder, fetched
+ * from the server, since agents never read the data folder directly: `<tmp>/cello-answers/<ask id>/q1-1.png`,
+ * `<tmp>/cello-comments/<comment id>/1.png`. Returns attachment id → path; one that can't be fetched is
+ * left out (the text then shows its URL path).
  */
-const saveScreenshots = (asks: ReadonlyArray<Ask>) =>
+const saveScreenshots = (shots: ReadonlyArray<ScreenshotFile>) =>
   Effect.gen(function* () {
     const { env } = yield* CliEnv
     const saved = new Map<string, string>()
-    for (const ask of asks) {
-      for (const { attachment, fileName } of answerScreenshots(ask)) {
-        const file = path.join(os.tmpdir(), "cello-answers", ask.id, fileName)
-        const ok = yield* Effect.promise(async () => {
-          try {
-            const response = await fetch(`http://127.0.0.1:${portOf(env)}/attachments/${attachment.id}`)
-            if (!response.ok) return false
-            fs.mkdirSync(path.dirname(file), { recursive: true })
-            await Bun.write(file, await response.arrayBuffer())
-            return true
-          } catch {
-            return false
-          }
-        })
-        if (ok) saved.set(attachment.id, file)
-      }
+    for (const { attachment, file: relative } of shots) {
+      const file = path.join(os.tmpdir(), relative)
+      const ok = yield* Effect.promise(async () => {
+        try {
+          const response = await fetch(`http://127.0.0.1:${portOf(env)}/attachments/${attachment.id}`)
+          if (!response.ok) return false
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          await Bun.write(file, await response.arrayBuffer())
+          return true
+        } catch {
+          return false
+        }
+      })
+      if (ok) saved.set(attachment.id, file)
     }
     return saved as ReadonlyMap<string, string>
   })
@@ -724,7 +785,7 @@ const waitAndPrint = (key: string, json: boolean) =>
         return { ask, detail: yield* client["task.get"]({ key }) }
       })
     )
-    const files = yield* saveScreenshots([ask])
+    const files = yield* saveScreenshots(askScreenshots(ask))
     if (json) return yield* printJson({ ask, files: Object.fromEntries(files) })
     yield* print(askResultText(ask, detail.task.key, humanName(detail.actors), files, (yield* CliEnv).now()))
   })
@@ -829,7 +890,7 @@ const answers = Command.make("answers", {
     // `task.get` carries every ask of the task, oldest first: one per round.
     const detail = yield* withClient((client) => client["task.get"]({ key: input.key }))
     const shown = input.all ? detail.asks : detail.asks.filter((a) => a.state === "answered").slice(-1)
-    const files = yield* saveScreenshots(shown)
+    const files = yield* saveScreenshots(shown.flatMap(askScreenshots))
     if (input.json) return yield* printJson({ asks: shown, files: Object.fromEntries(files) })
     yield* print(roundsText(detail.asks, { all: input.all, taskKey: detail.task.key, human: humanName(detail.actors), files, now: (yield* CliEnv).now() }))
   })).pipe(Command.withDescription(
@@ -1413,7 +1474,7 @@ const waitForInbox = (json: boolean) =>
     }
     if (taken.session === null) return yield* new CliFailure({ message: NO_INBOX })
     if (json) return yield* printJson(taken)
-    yield* print(deliveryText(taken.items, now(), yield* saveScreenshots(answeredAsks(taken.items))))
+    yield* print(deliveryText(taken.items, now(), yield* saveScreenshots(inboxScreenshots(taken.items))))
   })
 
 /**
@@ -1459,7 +1520,7 @@ const inbox = Command.make("inbox", {
     const taken = yield* withClient((client) => client["inbox.take"](input.onlyNew ? { unreadOnly: true } : {}))
     if (input.json) return yield* printJson(taken)
     const now = (yield* CliEnv).now()
-    const files = yield* saveScreenshots(answeredAsks([...taken.items, ...taken.earlier]))
+    const files = yield* saveScreenshots(inboxScreenshots([...taken.items, ...taken.earlier]))
     if (input.onlyNew) return taken.items.length ? yield* print(deliveryText(taken.items, now, files)) : undefined
     if (taken.session === null) return yield* print(NO_INBOX)
     const lines = [taken.items.length ? deliveryText(taken.items, now, files) : `No new comments for ${sessionName(taken.session)}.`]
@@ -1512,7 +1573,7 @@ const deliverToClaude = (event: DeliveryEvent) =>
       ? { claimed: claimed ?? [], waiter: readWaiter(lock).state, human: human ?? items[0]?.author ?? "the human" }
       : null
     if (items.length) {
-      const delivery = deliveryText(items, now(), yield* saveScreenshots(answeredAsks(items)))
+      const delivery = deliveryText(items, now(), yield* saveScreenshots(inboxScreenshots(items)))
       const hint = facts && waitHint(hook, facts)
       return yield* print(JSON.stringify(hookResponse(event, hint ? `${delivery}\n\n${hint}` : delivery)))
     }
@@ -1521,7 +1582,6 @@ const deliverToClaude = (event: DeliveryEvent) =>
   })
 
 /** The asks whose answers are among these inbox items. */
-const answeredAsks = (items: ReadonlyArray<InboxItem>) => items.flatMap((i) => (i.kind === "answers" ? [i.ask] : []))
 
 /**
  * What the claim guard does (CEL-61): an edit inside this repo from a session that holds no open task
@@ -1986,8 +2046,8 @@ const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(
 )
 
 const task = Command.make("task").pipe(
-  Command.withDescription("Tasks: list, get, create, claim, release, stage, move, label, comment, submit, ask, answers."),
-  Command.withSubcommands([list, get, create, edit, claim, release, stage, move, taskLabel, comment, submit, ask, answers]),
+  Command.withDescription("Tasks: list, get, create, claim, release, stage, move, label, comment, react, submit, ask, answers."),
+  Command.withSubcommands([list, get, create, edit, claim, release, stage, move, taskLabel, comment, react, submit, ask, answers]),
 )
 
 const startCommand = Command.make("start", {}, () => start).pipe(

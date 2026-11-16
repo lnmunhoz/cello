@@ -65,12 +65,19 @@ describe("AgentMark.css", () => {
     expect(new Set(properties)).toEqual(new Set(["transform", "opacity"]))
   })
 
-  it("never runs forever, and moves only when told to play: an idle board runs no animation (CEL-69)", () => {
-    expect(css).not.toMatch(/\binfinite\b/)
-    // Every animation is switched on by data-play, which the board sets only for an event seen on screen.
-    const rules = [...css.matchAll(/([^{}]+)\{[^{}]*\banimation:[^{}]*\}/g)].map((m) => m[1]!.trim())
+  it("loops only while working or thinking; everything else plays once, when told to (CEL-69)", () => {
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*\banimation:[^{}]*)\}/g)].map((m) => ({ selector: m[1]!.trim(), body: m[2]! }))
     expect(rules.length).toBeGreaterThan(8)
-    for (const selector of rules) expect(selector).toContain("[data-play]")
+    const loops = rules.filter((r) => /\binfinite\b/.test(r.body))
+    // The working and thinking moods loop by themselves: the board gives a mark those moods only while
+    // its agent is active (agentMood), so an idle board runs none.
+    expect(loops.length).toBeGreaterThanOrEqual(4)
+    for (const { selector } of loops) {
+      expect(selector).toMatch(/\[data-agent-mood="(working|thinking)"\]/)
+      expect(selector).not.toContain("[data-play]")
+    }
+    // Every other animation runs a set number of times, switched on by data-play: an event seen on screen.
+    for (const { selector } of rules.filter((r) => !loops.includes(r))) expect(selector).toContain("[data-play]")
   })
 
   it("turns and squashes about the icon's own points: the circle's centre and the floor under it", () => {

@@ -1,13 +1,9 @@
 // Pieces of a question shared by the inline question card and its full-screen compare view (CEL-47):
-// the check mark, an option's words, "None of these", the comment box, and the keys between choices.
-import { attachmentUrl } from "@cello/client/sync/reviews"
-import type { AskOption, AskQuestion, Attachment } from "@cello/contract/entities"
-import { CheckIcon, ImagePlusIcon, SparklesIcon, XIcon } from "lucide-react"
-import { useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react"
-import { Button } from "../components/ui/Button.tsx"
-import { Textarea } from "../components/ui/Input.tsx"
-import { SAVES_ON_BLUR } from "../lib/editing.ts"
-import { openImageModal } from "../viewer/imageModal.ts"
+// the check mark, an option's words, "None of these", and the keys between choices. The comment box is
+// the shared ScreenshotBox (screenshots/Screenshots.tsx).
+import type { AskOption, AskQuestion } from "@cello/contract/entities"
+import { CheckIcon, SparklesIcon } from "lucide-react"
+import type { KeyboardEvent } from "react"
 import type { DraftAnswer } from "./draft.ts"
 
 /** What the agent expects; Lucas may still pick several options on any question (Nov 15). */
@@ -93,90 +89,5 @@ export function NoneChoice({ picked, tabbable, onPick, onKeyDown }: { picked: bo
       None of these
       <span className="text-xs text-faint">· say what instead below</span>
     </button>
-  )
-}
-
-interface CommentBoxProps {
-  readonly label: string
-  readonly placeholder: string
-  readonly value: string
-  readonly screenshots: ReadonlyArray<Attachment>
-  readonly onChange: (text: string) => void
-  readonly onAttach: (files: ReadonlyArray<File>) => void
-  readonly onRemove: (attachmentId: string) => void
-}
-
-const imagesIn = (list: DataTransferItemList | null | undefined): File[] =>
-  [...(list ?? [])].flatMap((item) => {
-    if (item.kind !== "file") return []
-    const file = item.getAsFile()
-    return file ? [file] : []
-  })
-
-/** A comment box that takes pasted (⌘V) and dropped screenshots, shown as thumbnails under it. */
-export function CommentBox({ label, placeholder, value, screenshots, onChange, onAttach, onRemove }: CommentBoxProps) {
-  const [dropping, setDropping] = useState(false)
-  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = imagesIn(e.clipboardData?.items)
-    if (files.length === 0) return
-    e.preventDefault()
-    onAttach(files)
-  }
-  const hasFiles = (e: DragEvent) => [...e.dataTransfer.types].includes("Files")
-  return (
-    <div
-      data-comment-box=""
-      data-dropping={dropping ? "" : undefined}
-      onDragOver={(e) => {
-        if (!hasFiles(e)) return
-        e.preventDefault()
-        e.dataTransfer.dropEffect = "copy"
-        setDropping(true)
-      }}
-      onDragLeave={() => setDropping(false)}
-      onDrop={(e) => {
-        if (!hasFiles(e)) return
-        e.preventDefault()
-        setDropping(false)
-        onAttach([...e.dataTransfer.files])
-      }}
-      className="flex flex-col gap-2 rounded-md data-dropping:ring-2 data-dropping:ring-accent"
-    >
-      <Textarea
-        variant="comment"
-        aria-label={label}
-        {...SAVES_ON_BLUR}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.currentTarget.value)}
-        onPaste={onPaste}
-      />
-      {screenshots.length > 0 ? (
-        <ul aria-label="Pasted screenshots" className="flex flex-wrap gap-2">
-          {screenshots.map((shot, i) => (
-            <li key={shot.id} className="relative">
-              <button
-                type="button"
-                aria-label={`Open ${shot.name}`}
-                onClick={(e) => openImageModal(screenshots.map((s) => ({ url: attachmentUrl(s), title: s.name })), i, e.currentTarget)}
-                className="block h-16 w-24 cursor-zoom-in overflow-hidden rounded border border-line bg-sunken outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <img data-pasted-screenshot src={attachmentUrl(shot)} alt="" className="size-full object-cover object-top" />
-              </button>
-              <span className="absolute -top-1.5 -right-1.5">
-                <Button variant="secondary" size="icon" aria-label={`Remove ${shot.name}`} onClick={() => onRemove(shot.id)}>
-                  <XIcon aria-hidden className="size-3" />
-                </Button>
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <span className="flex items-center gap-1.5 text-[11px] text-faint">
-          <ImagePlusIcon aria-hidden className="size-3" />
-          Paste or drop screenshots here
-        </span>
-      )}
-    </div>
   )
 }
