@@ -1,20 +1,22 @@
-// CEL-52: the board the filter specs share: thirty of Cello's own tasks with CEL-56's grouped labels,
-// some claimed by agent sessions (two live, one whose process is gone) and one by Lucas.
+// CEL-52: the board the filter specs share: thirty of Cello's own tasks with CEL-56's grouped labels and
+// the milestones M2, M3 and M4 (CEL-113), some claimed by agent sessions (two live, one whose process is
+// gone) and one by Lucas.
 import { spawnSync } from "node:child_process"
 import type { LabelGroup } from "../packages/contract/src/entities.ts"
 import { newCommandId, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
 import { AREA_GROUPS, KIND_COLORS } from "../scripts/apply-cel56-labels.ts"
 import { agentAs, defaultWorkspace, seedProject, uniqueKey } from "./fixtures.ts"
 
-/** CEL-56's labels with their colours and groups, and the milestones. */
+/** CEL-56's labels with their colours and groups. */
 const LABELS: ReadonlyArray<{ name: string; color: string; group: LabelGroup }> = [
   ...Object.entries(KIND_COLORS).map(([name, color]) => ({ name, color, group: "kind" as const })),
   ...Object.values(AREA_GROUPS).flatMap((g) => g.areas.map((name) => ({ name, color: g.color, group: "area" as const }))),
-  { name: "M2", color: "#26B5CE", group: "milestone" },
-  { name: "M3", color: "#26B5CE", group: "milestone" },
 ]
 
-/** Thirty of Cello's own tasks, labelled as CEL-56 does; the last ones are claimed below. */
+/** The project's milestones in order (CEL-113); M4 has no tasks. A task listing one of these names is in it. */
+export const MILESTONES = ["M2", "M3", "M4"] as const
+
+/** Thirty of Cello's own tasks, labelled as CEL-56 does, three in a milestone; the last ones are claimed below. */
 export const TASKS: ReadonlyArray<readonly [title: string, status: "Done" | "Todo", labels: ReadonlyArray<string>]> = [
   ["M0 spikes: identity, drag, cursor, Effect", "Done", ["chore", "agents", "board", "server"]],
   ["M1 local board", "Done", ["feature", "board", "server", "M2"]],
@@ -66,9 +68,21 @@ export async function seedFilterBoard(cello: PromiseClient, baseURL: string, pre
   const project = await seedProject(cello, name, key)
   const { statuses } = await defaultWorkspace(cello)
   const labels = await seedGroupedLabels(cello, project.id)
+  const milestones = new Map<string, string>()
+  for (const name of MILESTONES) {
+    milestones.set(name, (await cello.run((c) => c["milestone.create"]({ commandId: newCommandId(), projectId: project.id, name }))).result.id)
+  }
   for (const [title, status, names] of TASKS) {
+    const milestoneId = names.flatMap((n) => milestones.get(n) ?? [])[0]
     await cello.run((c) =>
-      c["task.create"]({ commandId: newCommandId(), projectId: project.id, title, statusId: statuses[status]!.id, labelIds: names.map((n) => labels.get(n)!) }))
+      c["task.create"]({
+        commandId: newCommandId(),
+        projectId: project.id,
+        title,
+        statusId: statuses[status]!.id,
+        labelIds: names.filter((n) => !milestones.has(n)).map((n) => labels.get(n)!),
+        ...(milestoneId ? { milestoneId } : {}),
+      }))
   }
   const k = (n: number) => `${key}-${n}`
   const first = await agentAs(baseURL, "8a41c9e2-filters", process.pid)
