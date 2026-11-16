@@ -22,7 +22,7 @@ flowchart TD
 Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
 
 1. **The CLI.** `cello --version` prints a version. If the command isn't found, stop and tell Lucas: `cello` is installed from his Cello repo (`apps/cli`, linked at `~/.local/bin/cello`). Never install it yourself, unless you were asked to set Cello up from scratch on a machine that doesn't have it: then follow [docs/agent-setup.md](agent-setup.md), the first-time install.
-2. **The server.** `cello whoami` prints JSON with a `server` entry. If it says Cello isn't running, ask Lucas to open the Cello desktop app or run `cello start`. Don't start it yourself, since it serves his real data (the first-time install in docs/agent-setup.md is the one exception).
+2. **The server.** `cello whoami` prints JSON with a `server` entry. If it says Cello isn't running, `cello service status` says whether the background service is installed and shows its log; tell Lucas what it says, and ask him to open the Cello desktop app or run `cello start`. Don't start it yourself, since it serves his real data (the first-time install in docs/agent-setup.md is the one exception).
 3. **The project.** Run `cello init` inside this repo. It creates the project with this repo's path (the main checkout's when you're in a worktree), named after the repo's folder, with a key made from the name that no other project has, and prints the key and the board's URL. If the repo is already a project, it says which one and leaves the project as it is, however its path was typed in New project (`~/…`, a trailing `/`, a symlinked folder, a subfolder of the repo). It refuses a repo an archived project holds, naming it: ask Lucas then.
 
    Then it inspects the repo, because Lucas relies on visual evidence and every packet needs some: it looks for a unit test runner, a typecheck, an e2e tool and its output folders, how to start the app and on which port, and checks this machine for ffmpeg, Docker and Playwright's browsers. It prints a readiness report, one line per kind of evidence (unit tests, e2e video, screenshots, terminal transcript): **ready**, **partial**, **missing**, or **not needed** (no UI found), each one that isn't ready with what to do. What it found goes into the project's testing profile (see The testing profile):
@@ -119,7 +119,7 @@ Allowed `cello` commands in /Users/lnmunhoz/projects/app/.claude/settings.local.
 
 ## Concepts
 
-**Cello** is the task board Lucas shares with his agents. Its server runs on his Mac (`cello start`, http://127.0.0.1:4747, data in `~/.cello`). The board in the browser, the desktop app and the CLI all talk to that server, and every change shows up live everywhere.
+**Cello** is the task board Lucas shares with his agents. Its server runs on his Mac (`cello start`, http://127.0.0.1:4747, data in `~/.cello`), as a background service from login once `cello service install` set it up (see The background service). The board in the browser, the desktop app and the CLI all talk to that server, and every change shows up live everywhere.
 
 - **Workspace:** a group of projects that share statuses and views.
 - **Label:** a name and a colour on a task. Each project has its own labels: CEL's `bug` and THAI's `bug` are two labels. A task can carry several of its project's labels. `cello label list` shows them; see Labels.
@@ -915,6 +915,34 @@ This project uses Cello. Show it as a Cello page: `cello doc publish page.md --t
 - **`CELLO_ALLOW_ARTIFACTS=1`** in Claude Code's environment lets every artifact call through. It's for when Lucas explicitly asks for a claude.ai artifact; he sets it by starting Claude Code with it (`CELLO_ALLOW_ARTIFACTS=1 claude`). Agents never set it on their own, nor work around the hook any other way.
 - `cello uninstall claude` takes it out with the other hooks.
 
+## The background service
+
+On macOS, Cello's server can run as a **background service**: a launchd user agent, `dev.cello.server`, that starts `cello start` when Lucas logs in and starts it again within 5 seconds whenever it stops. Then the server doesn't depend on the desktop app or a terminal: Lucas can quit the app and agents' `cello` commands keep working.
+
+```bash
+cello service status               # installed? running? pid, program, data folder, port, version, log
+cello service install              # write ~/Library/LaunchAgents/dev.cello.server.plist and start it
+cello service install --replace    # the same, stopping the `cello start` that holds the data folder first
+cello service restart              # the deploy step: launchd runs the (rebuilt) binary again
+cello service uninstall            # stop it and remove the plist; data and log stay
+```
+
+- **What it runs:** the `cello` binary that ran `install`, by its absolute path with symlinks resolved. For Lucas that's the repo build, `apps/cli/dist/cello` (what `~/.local/bin/cello` links to), so rebuilding updates what the service runs on its next restart. It gets `CELLO_DATA_DIR` and `CELLO_PORT` as they were at install (default `~/.cello` and 4747), plus PATH and HOME, since launchd doesn't read a shell profile.
+- **Its log:** `<data folder>/logs/server.log`. `cello service status` prints its last 10 lines, which is where to look when the service keeps stopping.
+- **One server per data folder** still holds. `install` refuses while a server started another way (a terminal's `cello start`, the desktop app) holds the data folder, and names it:
+
+  ```
+  Cello is already running for /Users/lucas/.cello (pid 51234, http://127.0.0.1:4747), outside the service. Stop it first
+  (Ctrl-C in its terminal, or quit the desktop app and pick Stop), or run `cello service install --replace` to stop pid
+  51234 and install the service in its place.
+  ```
+
+  `--replace` stops that pid, and only that one, then installs. Installing again while the service runs is fine: it unloads the old one first (after a rebuild moved the binary, or to change the port).
+- **A plist pointing at a binary that's gone** (the repo moved, the build was deleted): `status` says so, and `restart` refuses. Build it again, or run `install` again with the cello you want it to run.
+- **Deploying with the service installed:** rebuild `cello` (`bun run build` in `apps/cli`), `cello backup` when a migration ships, then `cello service restart`. Without the service, restart `cello start` by hand as before.
+- **The desktop app** joins the service whenever it's installed and never stops it when it quits. Without the service, the app starts its own server, and the first time Lucas quits it asks once: **Keep Running** (the server stays up until the Mac restarts), **Stop Server**, or **Install Background Service**. It remembers Keep or Stop. The app menu says which it is: "Server: background service (pid 44568)", "Server: started by this app (pid …)" or "Server: started outside the app (pid …)".
+- **Agents:** `cello service status` is safe to run any time, to see why Cello isn't answering. `install`, `restart` and `uninstall` change Lucas's machine: run them only when he asks, or as the orchestrator's deploy step. Tests never run them against the real `~/Library/LaunchAgents` or launchctl: they use a temp HOME and a fake `launchctl` on PATH.
+
 ## Backups
 
 The server backs up its data folder every day: the database and every evidence file (videos, screenshots, page images), into `~/.cello/backups/<YYYYMMDD-HHMMSS>/`.
@@ -994,7 +1022,11 @@ Every error is one sentence that says what to do next. The usual ones:
 
 | The message says | What it means | What to do |
 | --- | --- | --- |
-| Cello isn't running on 127.0.0.1:4747 | Lucas's server is down. | Tell him. Don't start one against `~/.cello` yourself unless he asks. |
+| Cello isn't running on 127.0.0.1:4747 | Lucas's server is down. | Run `cello service status`: it says whether the background service is installed and shows its log's last lines. Tell him what it says. Don't start one against `~/.cello` yourself unless he asks. |
+| Cello is already running for … (pid …), outside the service | `cello service install` found a server started another way holding the data folder. | Stop that server first, or `cello service install --replace` to stop that pid and install. Only when Lucas asked for the install. |
+| The background service isn't installed | `cello service restart` with no service set up. | `cello service install` sets it up (when Lucas asks); without it, restart `cello start` by hand. |
+| The service's program … doesn't exist any more | The plist points at a `cello` binary that was moved or deleted. | Build it again (`bun run build` in `apps/cli`), or run `cello service install` with the cello it should run. |
+| `cello service` runs Cello as a macOS launchd service, and launchctl isn't on the PATH | Not macOS (or a PATH without `/bin`). | Run `cello start` yourself instead. |
 | Cello on 127.0.0.1:4747 closed the connection before answering | The server stopped or restarted (a deploy) while your command ran. A change it had started still went through. | Look before you redo it: `cello task get CEL-12` shows whether the claim, move, comment or submit landed. A rerun is a new command, so running it blindly can do it twice. |
 | CEL-12 is claimed by Claude Code session 1a2b3c4d (active now) | Another live session is working on it. | Pick another task. |
 | No task CEL-99 · No status named … · No label named … | A typo, or something that doesn't exist. | The message lists the real names. |
@@ -1572,6 +1604,46 @@ Run the Cello server on 127.0.0.1:4747 with data in ~/.cello (CELLO_PORT, CELLO_
 
 ```
 cello start [flags]
+```
+
+### cello service install
+
+Run Cello's server as a macOS background service: writes the launchd user agent dev.cello.server to ~/Library/LaunchAgents/dev.cello.server.plist and loads it, so `cello start` runs now, at every login, and again within 5 seconds whenever it stops. It runs this cello binary (the absolute path, symlinks resolved), with CELLO_DATA_DIR (default ~/.cello) and CELLO_PORT (default 4747) as they are now, and logs to <data folder>/logs/server.log. Installing again replaces it (after a rebuild that moved, or to change the port). Refuses while another server holds the data folder.
+
+```
+cello service install [flags]
+```
+
+| | |
+| --- | --- |
+| `--replace` | When a server started another way (`cello start` in a terminal, the desktop app) holds the data folder, stop it by the pid in its lock, and only that pid, then install. Without it, install refuses and names that server. |
+
+### cello service status
+
+Show the background service: whether it's installed and running, its pid, the program and data folder it runs with, whether its server answers and which build it is, the plist and log paths, and the log's last 10 lines. Flags a plist whose program no longer exists (the repo moved or the build was deleted). Without the service, says whether a server runs anyway.
+
+```
+cello service status [flags]
+```
+
+| | |
+| --- | --- |
+| `--json` | Print JSON: installed, plist, program, programExists, dataDir, port, logPath, loaded, running, pid, lastExit, server ({ version, commit } or null), logTail and holder ({ pid, port } of the server holding the data folder, or null). |
+
+### cello service restart
+
+Restart the background service (launchctl kickstart -k): its server stops and launchd starts the program again. This is the deploy step once the service is installed: rebuild cello, back up when a migration ships, then restart.
+
+```
+cello service restart [flags]
+```
+
+### cello service uninstall
+
+Remove the background service: unloads it from launchd (stopping its server) and deletes its plist. The data folder and the log are left as they are.
+
+```
+cello service uninstall [flags]
 ```
 
 ### cello backup

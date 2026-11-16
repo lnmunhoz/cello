@@ -36,7 +36,8 @@ export class ServerLock extends Context.Service<ServerLock, {
   readonly recordPort: (port: number) => Effect.Effect<void>
 }>()("cello/ServerLock") {}
 
-const readLock = (file: string): LockInfo | null => {
+/** The pid and port in a lock file; null when it's missing or names no pid. */
+export const readLock = (file: string): LockInfo | null => {
   try {
     const info = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<LockInfo>
     return typeof info.pid === "number" ? { pid: info.pid, port: info.port ?? 0 } : null

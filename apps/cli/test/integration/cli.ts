@@ -40,6 +40,8 @@ export const cello = (options: {
    * anything on the machine it runs on.
    */
   readonly open?: (link: string) => Promise<void>
+  /** The command this `cello` runs as (`cello service install` writes it into the plist). */
+  readonly self?: ReadonlyArray<string>
 }) =>
   (...args: string[]): Effect.Effect<Output> =>
     Effect.gen(function* () {
@@ -61,6 +63,7 @@ export const cello = (options: {
           web: () => undefined,
           open: options.open ?? (() => Promise.reject(new Error("tests don't open links"))),
           ...(options.build ? { build: options.build } : {}),
+          ...(options.self ? { self: options.self } : {}),
         }),
         Effect.provideService(Console.Console, console),
         Effect.provide(BunServices.layer),
