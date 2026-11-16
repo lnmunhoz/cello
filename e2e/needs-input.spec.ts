@@ -17,6 +17,8 @@ const SESSION = "e2e0asks-agent-session"
 const inBackground = celloInBackground(SESSION)
 
 test("CEL-47: an agent asks with --wait; Lucas answers from the sidebar (several picks, None of these, a pasted screenshot); the agent gets the answers; round 2 follows, and Lucas moving the card withdraws it", async ({ page, context }) => {
+  // A long flow (two rounds, a paste, a drag): it runs close to the default 30 s, so it gets its own budget.
+  test.setTimeout(Math.max(test.info().timeout, 60_000))
   await context.grantPermissions(["clipboard-read", "clipboard-write"])
   const key = uniqueKey("ASK")
   const task = `${key}-1`
@@ -48,7 +50,7 @@ test("CEL-47: an agent asks with --wait; Lucas answers from the sidebar (several
     "  - prompt: Which extras?",
     "    kind: any",
     "    options: [Filters, Recent searches]",
-    "  - prompt: Anything else before I build it?",
+    "  - prompt: Which empty state should the new page keep?",
     "links:",
     "  - { url: \"http://127.0.0.1:4747/CEL/pages/search-scope\", caption: The scope }",
   ].join("\n"))
@@ -120,11 +122,12 @@ test("CEL-47: an agent asks with --wait; Lucas answers from the sidebar (several
   const second = ask.locator('[data-question="q2"]')
   await second.getByRole("checkbox", { name: /None of these/ }).click()
   await expect(second.getByText("“None of these” needs a comment that says what instead.")).toBeVisible()
-  await expect(ask.locator("[data-ask-progress]")).toHaveText("1 of 3 answered")
-  await second.getByRole("textbox", { name: "Comment on question 2" }).fill("Neither yet: a saved-search list later.")
+  // Question 3 is text only, so it's optional (CEL-116): it already counts as answered.
   await expect(ask.locator("[data-ask-progress]")).toHaveText("2 of 3 answered")
+  await second.getByRole("textbox", { name: "Comment on question 2" }).fill("Neither yet: a saved-search list later.")
+  await expect(ask.locator("[data-ask-progress]")).toHaveText("All answered")
 
-  await caption(page, "Question 3, a few words")
+  await caption(page, "Question 3 is optional; he adds a few words anyway")
   await ask.getByRole("textbox", { name: "Comment on question 3" }).fill("Keep the empty state from the old page.")
   await expect(ask.locator("[data-ask-progress]")).toHaveText("All answered")
   await page.screenshot({ path: path.join(SHOTS, "cel-47-answers-drafted.png") })
@@ -157,7 +160,7 @@ test("CEL-47: an agent asks with --wait; Lucas answers from the sidebar (several
   expect(out).toContain(`answered "Search results layout" on ${task}`)
   expect(out).toContain("1. Which layout?\n   Picked: Peek: list + preview (your recommendation), Palette: one line per result\n   Comment: Both, behind a toggle.")
   expect(out).toContain("2. Which extras?\n   Picked: None of these\n   Comment: Neither yet: a saved-search list later.")
-  expect(out).toContain("3. Anything else before I build it?\n   Comment: Keep the empty state from the old page.")
+  expect(out).toContain("3. Which empty state should the new page keep?\n   Comment: Keep the empty state from the old page.")
   const saved = /Screenshot: (\S+)/.exec(out)![1]!
   // The clipboard re-encodes an image, so compare what it shows: a PNG of the same size as the one copied.
   expect(pngSize(saved)).toEqual(pngSize(pasted))
