@@ -8,8 +8,8 @@ import { spawn } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import type { Page } from "@playwright/test"
 import { animationsSettled, caption, card, column, createProject, dragCard, expect, test, uniqueKey } from "./fixtures.ts"
+import { copyImage, hideTerminal, pngSize, showTerminal } from "./agentScreen.ts"
 import { celloAs, SHOTS } from "./packets.ts"
 
 const SESSION = "e2e0asks-agent-session"
@@ -26,37 +26,6 @@ const inBackground = (...args: string[]) => {
   child.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()))
   child.stderr.on("data", (chunk: Buffer) => (out += chunk.toString()))
   return new Promise<{ code: number | null; out: string }>((resolve) => child.on("close", (code) => resolve({ code, out: out.trim() })))
-}
-
-/** The agent's terminal, drawn at the bottom left so the video shows its side next to the board. */
-const showTerminal = async (page: Page, command: string, output: string) => {
-  await page.evaluate(([cmd, out]) => {
-    let el = document.getElementById("e2e-terminal")
-    if (!el) {
-      el = document.createElement("pre")
-      el.id = "e2e-terminal"
-      el.setAttribute("aria-label", "Agent terminal")
-      Object.assign(el.style, {
-        position: "fixed", zIndex: "2147483646", left: "24px", bottom: "84px", width: "760px", maxHeight: "70vh", overflow: "hidden",
-        margin: "0", padding: "14px 16px", borderRadius: "10px", background: "rgb(16 16 20 / .94)", color: "#e8e8ec",
-        font: "12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace", whiteSpace: "pre-wrap", boxShadow: "0 12px 40px rgb(0 0 0 / .35)",
-      })
-      document.body.append(el)
-    }
-    el.textContent = `${el.textContent ? `${el.textContent}\n\n` : ""}agent session $ ${cmd}\n${out}`
-    el.scrollTop = el.scrollHeight
-  }, [command, output] as const)
-}
-
-const hideTerminal = (page: Page) => page.evaluate(() => document.getElementById("e2e-terminal")?.remove())
-
-/** Puts a PNG on the clipboard, the way a screenshot tool leaves one. */
-const copyImage = async (page: Page, file: string) => {
-  const base64 = fs.readFileSync(file).toString("base64")
-  await page.evaluate(async (data) => {
-    const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0))
-    await navigator.clipboard.write([new ClipboardItem({ "image/png": new Blob([bytes], { type: "image/png" }) })])
-  }, base64)
 }
 
 test("CEL-47: an agent asks with --wait; Lucas answers from the sidebar (several picks, None of these, a pasted screenshot); the agent gets the answers; round 2 follows, and Lucas moving the card withdraws it", async ({ page, context }) => {
@@ -203,11 +172,6 @@ test("CEL-47: an agent asks with --wait; Lucas answers from the sidebar (several
   expect(out).toContain("3. Anything else before I build it?\n   Comment: Keep the empty state from the old page.")
   const saved = /Screenshot: (\S+)/.exec(out)![1]!
   // The clipboard re-encodes an image, so compare what it shows: a PNG of the same size as the one copied.
-  const pngSize = (file: string) => {
-    const bytes = fs.readFileSync(file)
-    expect(bytes.subarray(1, 4).toString()).toBe("PNG")
-    return [bytes.readUInt32BE(16), bytes.readUInt32BE(20)]
-  }
   expect(pngSize(saved)).toEqual(pngSize(pasted))
   await expect(page.getByLabel("Agent terminal")).toContainText("Picked: None of these")
   await page.screenshot({ path: path.join(SHOTS, "cel-47-agent-gets-answers.png") })
