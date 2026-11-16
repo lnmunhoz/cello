@@ -1,12 +1,12 @@
-// CEL-55 + CEL-69: the sidebar's "Agents working" entries and the task panel show the agent mark the
-// cards show, in the same mood, next to the presence words. Rendered to markup: no DOM in unit tests.
+// CEL-55 + CEL-69: the (kept, unused) per-agent list and the task panel show the agent mark the cards
+// show, in the same mood, next to the presence words. The sidebar's "Agents working" is one link (CEL-65). Rendered to markup: no DOM in unit tests.
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Status, Task } from "@cello/contract/entities"
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterContextProvider } from "@tanstack/react-router"
 import { createElement, Fragment } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { AgentsWorking, PanelWork, ProvenanceRows } from "./Presence.tsx"
+import { AgentsWorking, AgentsWorkingList, PanelWork, ProvenanceRows } from "./Presence.tsx"
 
 const now = Date.now()
 const status = (id: string, name: string, category: Status["category"]): Status => ({
@@ -60,13 +60,23 @@ const routed = (node: ReturnType<typeof createElement>, url = "/") => {
   return renderToStaticMarkup(createElement(RouterContextProvider, { router, children: node }))
 }
 
-describe("Agents working: each entry shows the agent mark in its card's mood (CEL-55)", () => {
+describe("Agents working in the sidebar: one link to the Agents page, with the count (CEL-65)", () => {
   const html = routed(createElement(AgentsWorking, { board, workspaceId: "w1", className: "" }))
 
-  it("its heading is a link to the Agents page, with the count (CEL-65)", () => {
+  it("is a link to the Agents page, with the count", () => {
     const link = html.match(/<a [^>]*data-agents-working="2"[^>]*>/)?.[0]
     expect(link).toContain('href="/agents"')
   })
+
+  it("lists no agents under it: the Agents page does (Lucas, Nov 16)", () => {
+    expect(html).not.toContain("data-agents-list")
+    expect(html).not.toContain("data-working-session")
+  })
+})
+
+// The per-agent list the sidebar had, kept for reference (not shown anywhere).
+describe("the kept per-agent list: each entry shows the agent mark in its card's mood (CEL-55)", () => {
+  const html = routed(createElement(AgentsWorkingList, { board, workspaceId: "w1" }))
 
   it("the subagent building its task: working, in its colour, with its presence words", () => {
     const mark = markIn(html, `data-working-agent="${builder.agentId}"`)

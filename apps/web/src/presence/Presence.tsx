@@ -485,25 +485,35 @@ function WorkingLine({ who, id, live: holder, look, keys, nested, title, data }:
 
 /**
  * Under Review in the expanded sidebar: "Agents working 4", counting each working session and each
- * working subagent (CEL-55), then the list: each session ("2fd0505c · orchestrator" when it has
- * subagents) with its subagents under it, each with the task it's on.
+ * working subagent (CEL-55). It opens the Agents page (CEL-65), marked as the current page while it's
+ * open, like Review; the agents are listed there, not under it.
  */
 export function AgentsWorking({ board, workspaceId, className }: { board: BoardState; workspaceId: string; className: string }) {
   const { sessions, count, now } = useAgentsWorking(board, workspaceId)
+  const lead = sessions.find((s) => s.presence === "active")
+  return (
+    <Link to="/agents" activeOptions={{ includeSearch: false }} className={className} data-agents-working={count} title={workingTitle(sessions, now)}>
+      <span className="flex size-3.5 items-center justify-center">
+        {lead ? <PresenceDot of={lead.session} color={sessionColor(lead.session)} size={7} /> : <i className="size-1.5 rounded-full bg-line-strong" />}
+      </span>
+      Agents working
+      <span className="ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-hover px-1.5 text-[11px] font-semibold tabular-nums text-ink">
+        {count}
+      </span>
+    </Link>
+  )
+}
+
+/**
+ * Kept for reference (Lucas, Nov 16): the sidebar's per-agent list, replaced by the Agents page. Not
+ * rendered anywhere. Each session ("2fd0505c · orchestrator" when it has subagents) with its
+ * subagents under it, each with the task it's on, in its card's mood (CEL-55, CEL-69).
+ */
+export function AgentsWorkingList({ board, workspaceId }: { board: BoardState; workspaceId: string }) {
+  const { sessions, now } = useAgentsWorking(board, workspaceId)
   const listed = sessions.filter((s) => s.presence !== "ended")
-  const lead = listed.find((s) => s.presence === "active")
   return (
     <>
-      {/* Opens the Agents page (CEL-65), marked as the current page while it's open, like Review. */}
-      <Link to="/agents" activeOptions={{ includeSearch: false }} className={className} data-agents-working={count} title={workingTitle(sessions, now)}>
-        <span className="flex size-3.5 items-center justify-center">
-          {lead ? <PresenceDot of={lead.session} color={sessionColor(lead.session)} size={7} /> : <i className="size-1.5 rounded-full bg-line-strong" />}
-        </span>
-        Agents working
-        <span className="ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-hover px-1.5 text-[11px] font-semibold tabular-nums text-ink">
-          {count}
-        </span>
-      </Link>
       {listed.length > 0 ? (
         <ul aria-label="Agents working" className="flex flex-col" data-agents-list>
           {listed.flatMap((s) => [

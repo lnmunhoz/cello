@@ -74,7 +74,8 @@ export function EvidenceBadge({ task, board, opens = false, size = "sm" }: { tas
         e.stopPropagation()
         openEvidence(first, review.attachments, e.currentTarget)
       }}
-      className={`${style.look} cursor-pointer outline-none hover:border-line-strong hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ring`}
+      // Positioned, so it sits above a card's stretched title link (the Agents page) and takes its own clicks.
+      className={`${style.look} relative cursor-pointer outline-none hover:border-line-strong hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ring`}
     >
       {content}
     </button>

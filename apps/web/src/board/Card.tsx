@@ -3,6 +3,7 @@ import { openAskOf } from "@cello/client/sync/asks"
 import { openReviewOf } from "@cello/client/sync/reviews"
 import type { Task } from "@cello/contract/entities"
 import { CalendarIcon, ChevronRightIcon } from "lucide-react"
+import type { ReactNode } from "react"
 import { Chip } from "../components/ui/Chip.tsx"
 import { PriorityIcon } from "../components/ui/PriorityIcon.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
@@ -17,9 +18,17 @@ import { CommentCount } from "../task/CommentCount.tsx"
  * What a card shows: key and parent breadcrumb, status and title, then priority, due date and labels
  * (a row only when there is one of them), who's on it and its stage (CEL-35), and who made it and
  * changed or commented on it last (CEL-5), with its comment count. While an agent is at work on it, an
- * edge in its colour (CEL-76). `laned`: its column's lanes already say the stage.
+ * edge in its colour (CEL-76). `laned`: its column's lanes already say the stage. `work={false}`: no
+ * work line, where the page around the card already names the agent (the Agents page, CEL-65).
+ * `titleLink`: wraps the title, for a card that is a container with its title as the link.
  */
-export function CardBody({ task, board, laned = false }: { task: Task; board: BoardState; laned?: boolean }) {
+export function CardBody({ task, board, laned = false, work = true, titleLink }: {
+  task: Task
+  board: BoardState
+  laned?: boolean
+  work?: boolean
+  titleLink?: (title: string) => ReactNode
+}) {
   const status = board.statuses[task.statusId]
   // An agent at work on it right now (CEL-76): the edge, and the status icon's turn per check-in.
   const activity = useCardActivity(task, board)
@@ -50,7 +59,7 @@ export function CardBody({ task, board, laned = false }: { task: Task; board: Bo
           </span>
         ) : null}
         <span className="text-[13px] leading-snug font-medium text-ink" data-card-title>
-          {task.title}
+          {titleLink ? titleLink(task.title) : task.title}
         </span>
       </span>
       {chips ? (
@@ -70,7 +79,7 @@ export function CardBody({ task, board, laned = false }: { task: Task; board: Bo
           <EvidenceBadge task={task} board={board} opens />
         </span>
       ) : null}
-      <CardWork task={task} board={board} stage={!laned} />
+      {work ? <CardWork task={task} board={board} stage={!laned} /> : null}
       <span className="flex min-w-0 items-center justify-between gap-2">
         <ProvenanceLine task={task} board={board} />
         <CommentCount task={task} />

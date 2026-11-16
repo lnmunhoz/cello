@@ -159,6 +159,8 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   const sidebarLink = page.locator('aside[data-sidebar="expanded"] a[data-agents-working]')
   await caption(page, "Agents working in the sidebar is a link now: click it")
   await expect(sidebarLink).toHaveAttribute("data-agents-working", "4")
+  // Just the link and its count: the agents are listed on the Agents page, not under it (Lucas, Nov 16).
+  await expect(page.locator('aside[data-sidebar="expanded"] [data-agents-list]')).toHaveCount(0)
   await sidebarLink.click()
   await expect(page).toHaveURL(/\/agents$/)
   await expect(sidebarLink).toHaveAttribute("data-status", "active")
@@ -198,7 +200,7 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   await expect(builderRow.locator("[data-agent-facts]")).toContainText("SessionClaude Code session 2fd0505c")
   const builderCard = builderRow.locator('[data-agents-card="CLO-1"]')
   await expect(builderCard).toContainText("Agents working: a page of every working agent")
-  await expect(builderCard.locator("[data-card-work]")).toBeHidden()
+  await expect(builderCard.locator("[data-card-work]")).toHaveCount(0)
   // The edge of the agent at work on it (CEL-76) sits on this card, not somewhere up the page.
   const [cardBox, edgeBox] = [await builderCard.boundingBox(), await builderCard.locator("[data-activity-edge]").boundingBox()]
   expect(edgeBox!.y).toBeGreaterThanOrEqual(cardBox!.y)
@@ -272,6 +274,49 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
     hook("subagent-stop", { session_id: ORCHESTRATOR, agent_id: id, agent_type: type, hook_event_name: "SubagentStop" })
   }
   for (const [session, key] of [[ORCHESTRATOR, "CLO-1"], [ORCHESTRATOR, "CLO-2"], [ASKER, "CLO-3"], [QUIET, "CLO-4"]] as const) cli(session)("task", "release", key)
+})
+
+test("CEL-65: an open row's card is not one big link: its evidence badge opens the evidence, the card's title link opens the task", async ({ page, cello }) => {
+  const SUBMITTER = "d1e2f3a4-0b1c-4d2e-8f3a-4b5c6d7e8f90"
+  const project = await seedProject(cello, "Packets", "PKT")
+  const { statuses } = await defaultWorkspace(cello)
+  await cello.run((c) =>
+    c["task.create"]({ commandId: newCommandId(), projectId: project.id, title: "Review packets on the Agents page", priority: 2, labelIds: [], statusId: statuses.Todo!.id })
+  )
+  // A session claims it and hands it in with a real screenshot: it still holds the task, now with open evidence.
+  await page.goto("/PKT/issues")
+  const shot = path.join(work, "pkt-board.png")
+  await page.screenshot({ path: shot })
+  cli(SUBMITTER)("task", "claim", "PKT-1")
+  cli(SUBMITTER)("task", "submit", "PKT-1", "--summary", "The packet.", "--step", "Open it", "--attach", shot, "--caption", "The board")
+  const row = page.locator(`[data-agent-row="session:${await sessionId(cello, SUBMITTER)}"]`)
+
+  await page.goto("/agents")
+  await caption(page, "Open the agent: its card has the packet's evidence badge")
+  await row.getByRole("button").first().click()
+  const card = row.locator('[data-agents-card="PKT-1"]')
+  const badge = card.locator("[data-evidence-badge]")
+  await expect(badge).toContainText("1")
+  // The card is a container, not a link around the badge: no button inside a link.
+  await expect(card).not.toHaveAttribute("href")
+  expect(await badge.evaluate((el) => el.closest("a") === null)).toBe(true)
+  await expect(card.getByRole("link", { name: "Review packets on the Agents page" })).toHaveAttribute("href", "/PKT/1")
+
+  await caption(page, "Click the evidence badge: the screenshot opens, the task doesn't")
+  await badge.click()
+  const modal = page.locator("[data-image-modal]")
+  await expect(modal).toBeVisible()
+  await expect(page).toHaveURL(/\/agents/)
+  await page.keyboard.press("Escape")
+  await expect(modal).toHaveCount(0)
+  await expect(page).toHaveURL(/\/agents/)
+
+  await caption(page, "Click elsewhere on the card: the task opens")
+  const box = (await card.boundingBox())!
+  await page.mouse.click(box.x + box.width - 12, box.y + box.height - 8)
+  await expect(page).toHaveURL(/\/PKT\/1/)
+
+  cli(SUBMITTER)("task", "release", "PKT-1")
 })
 
 test("CEL-65: on the rail, the bot opens the Agents page too", async ({ page }) => {
