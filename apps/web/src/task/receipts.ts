@@ -11,11 +11,11 @@ import { agentOn, agentPresence, agentWho, sessionWho, type Who, whoOf } from ".
 /**
  * One of Lucas's comments, as it travels: unsent (no agent held the task, so it went nowhere), sent (in
  * the session's inbox, not taken yet), delivered (the session took it, `after` ms later), answered (the
- * session or a subagent of it commented after it or reacted to it, `after` ms later).
+ * session or a subagent of it commented or reacted after taking it, `after` ms after it was written).
  */
 export type Receipt =
   | { readonly state: "unsent" }
-  | { readonly state: "sent"; readonly to: Who }
+  | { readonly state: "sent"; readonly to: Who; readonly sessionId: string }
   | { readonly state: "delivered"; readonly to: Who; readonly at: number; readonly after: number; readonly via: DeliveryVia | null }
   | { readonly state: "answered"; readonly to: Who; readonly by: Who; readonly at: number; readonly after: number; readonly emoji: string | null }
 
@@ -40,16 +40,21 @@ export const receiptOf = (comment: Comment, comments: ReadonlyArray<Comment>, bo
   const delivery = comment.delivery ?? null
   if (delivery === null) return { state: "unsent" }
   const to = sessionName(board, delivery.sessionId)
-  const reply = comments.find((c) => c.sessionId === delivery.sessionId && c.createdAt > comment.createdAt && c.deletedAt === null)
-  const reaction = (comment.reactions ?? []).find((r) => r.sessionId === delivery.sessionId)
+  // Only what the session wrote once it had the comment answers it: a reply typed before it took it
+  // was about something else.
+  const readAt = delivery.readAt
+  const reply = readAt === null
+    ? undefined
+    : comments.find((c) => c.sessionId === delivery.sessionId && c.createdAt >= readAt && c.createdAt > comment.createdAt && c.deletedAt === null)
+  const reaction = readAt === null ? undefined : (comment.reactions ?? []).find((r) => r.sessionId === delivery.sessionId && r.createdAt >= readAt)
   const answer = reply && (!reaction || reply.createdAt <= reaction.createdAt)
     ? { by: whoOf(board, reply.actorId, reply.sessionId, reply.agentId), at: reply.createdAt, emoji: null }
     : reaction
     ? { by: whoOf(board, reaction.actorId, reaction.sessionId, reaction.agentId), at: reaction.createdAt, emoji: reaction.emoji }
     : null
   if (answer) return { state: "answered", to, ...answer, after: answer.at - comment.createdAt }
-  if (delivery.readAt === null) return { state: "sent", to }
-  return { state: "delivered", to, at: delivery.readAt, after: delivery.readAt - comment.createdAt, via: delivery.via }
+  if (readAt === null) return { state: "sent", to, sessionId: delivery.sessionId }
+  return { state: "delivered", to, at: readAt, after: readAt - comment.createdAt, via: delivery.via }
 }
 
 /**
@@ -112,6 +117,29 @@ export const pendingWords = (reach: Reach): string =>
     : reach.presence === "active" || reach.worker
     ? `${reach.who.short} gets it at its next step`
     : `${reach.who.short} is idle, gets it when it next works`
+
+/**
+ * What a comment not taken yet waits for: the holder's next step (pendingWords), or, once the claim has
+ * moved on from the session it went to, that session's inbox.
+ */
+export const sentWords = (r: Extract<Receipt, { state: "sent" }>, task: Task, reach: Reach): string =>
+  r.sessionId === task.assigneeSessionId ? pendingWords(reach) : `waiting in ${r.to.short}'s inbox; ${r.to.short} no longer holds this task`
+
+/** When receipts started (CEL-76): a comment from before can't say where it went. */
+export const RECEIPTS_SINCE = Date.UTC(2026, 10, 16)
+
+/**
+ * How loud "Not delivered" is: a warning (`warn`) where an agent could have taken the comment (the task
+ * is open and agents work on it), else quiet (a Done task, one no agent ever touched, a comment from
+ * before receipts).
+ */
+export const unsentTone = (comment: Comment, comments: ReadonlyArray<Comment>, task: Task, board: BoardState): "warn" | "quiet" => {
+  const category = board.statuses[task.statusId]?.category
+  if (category === "completed" || category === "canceled" || comment.createdAt < RECEIPTS_SINCE) return "quiet"
+  const agentsOnIt = task.assigneeSessionId !== null || task.createdBySessionId !== null || task.updatedBySessionId !== null ||
+    comments.some((c) => c.sessionId !== null || (c.delivery ?? null) !== null)
+  return agentsOnIt ? "warn" : "quiet"
+}
 
 const VIA: Record<DeliveryVia, string> = { hook: "its hook", inbox: "cello inbox", wait: "its waiting cello inbox --wait" }
 

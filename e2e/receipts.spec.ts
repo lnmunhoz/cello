@@ -122,6 +122,10 @@ test("CEL-76: Lucas's comments show Sent, Delivered and Answered live, and the l
 
   await say(thread, "And on a phone width.")
   await expect(receipt(thread, 3)).toHaveAttribute("data-receipt", "sent")
+  await caption(page, "The session writes on the card before it has taken that comment: not an answer to it, so it stays Sent")
+  await agent.run((c) => c["comment.add"]({ commandId: newCommandId(), taskId, body: "Dark mode checked: it reads fine." }))
+  await expect(thread.locator("[data-comment-id]")).toHaveCount(5)
+  await expect(receipt(thread, 3)).toHaveAttribute("data-receipt", "sent")
   await shoot(page, "thread", thread)
 
   await caption(page, "The agent ends its turn with cello inbox --wait running: the line says it gets a comment in about a second")
@@ -135,8 +139,8 @@ test("CEL-76: Lucas's comments show Sent, Delivered and Answered live, and the l
   await caption(page, "Lucas comments: the waiter takes it at once, ✓ Delivered under a second")
   await say(thread, "Are you there? This should wake you.")
   expect(await waiter).toContain("Are you there?")
-  await expect(receipt(thread, 4)).toHaveText("Delivered to c76e2e01 · <1s")
-  await expect(receipt(thread, 4)).toHaveAttribute("title", /through its waiting cello inbox --wait$/)
+  await expect(receipt(thread, 5)).toHaveText("Delivered to c76e2e01 · <1s")
+  await expect(receipt(thread, 5)).toHaveAttribute("title", /through its waiting cello inbox --wait$/)
   // The waiter has gone: back to working.
   await expect(line).toHaveText("c76e2e01 is active now and gets your comment at its next step.")
   await shoot(page, "woken", thread)
@@ -146,7 +150,9 @@ test("CEL-76: Lucas's comments show Sent, Delivered and Answered live, and the l
   await expect(line).toHaveText("No agent holds this task, so nobody will get this comment.")
   await expect(line).toHaveAttribute("data-next-comment", "warn")
   await say(thread, "Can someone pick this up?")
-  await expect(receipt(thread, 5)).toHaveText("Not delivered: no agent held this task")
+  await expect(receipt(thread, 6)).toHaveText("Not delivered: no agent held this task")
+  // Agents worked on this task, so a comment nobody got is a warning, in red.
+  await expect(receipt(thread, 6)).toHaveAttribute("data-tone", "warn")
   await shoot(page, "nobody", thread)
 
   for (const client of [agent, builder]) await client.close()

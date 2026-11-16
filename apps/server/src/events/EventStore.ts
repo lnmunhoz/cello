@@ -156,9 +156,11 @@ const make = Effect.gen(function* () {
     Effect.withSpan("EventStore.latestSeq"),
   )
 
+  // A session taking a comment (CEL-76) is a receipt, not activity: Recent activity leaves it out.
   const recent = Effect.fn("EventStore.recent")(function* (projectId: string, limit: number) {
     const rows = yield* sql<EventRow>`
       SELECT * FROM events WHERE project_id = ${projectId} AND entity_type IN ('task', 'comment', 'review', 'ask')
+        AND type != 'comment.delivered'
       ORDER BY seq DESC LIMIT ${limit}`
     return rows.map(decodeRow)
   }, Effect.orDie)

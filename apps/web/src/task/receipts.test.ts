@@ -2,7 +2,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, Comment, Reaction, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { durationShort, pendingWords, reachOf, reachWords, receiptOf, receiptTitle } from "./receipts.ts"
+import { durationShort, pendingWords, reachOf, reachWords, receiptOf, receiptTitle, sentWords, unsentTone } from "./receipts.ts"
 
 const MIN = 60_000
 const now = Date.UTC(2026, 10, 16, 12)
@@ -81,12 +81,20 @@ describe("receiptOf", () => {
     expect(receiptTitle(delivered)).toBe("Claude Code session s1 took it 12s after you sent it, through its hook")
   })
 
-  it("answered once the session or one of its subagents comments after it, even before the delivery shows", () => {
-    const c = comment("c", now - 5 * MIN, sentTo("s1"))
+  it("answered once the session or one of its subagents comments after taking it", () => {
+    const c = comment("c", now - 5 * MIN, sentTo("s1", now - 4 * MIN, "hook"))
     const reply = comment("r", now - 2 * MIN, { actorId: "claude", sessionId: "s1", agentId: "a13bfb89aa" })
     const other = comment("o", now - 3 * MIN, { actorId: "claude", sessionId: "s9" })
     const before = comment("b", now - 6 * MIN, { actorId: "claude", sessionId: "s1" })
     expect(receiptOf(c, [before, c, other, reply], state)).toMatchObject({ state: "answered", by: { short: "cello-builder · a13bfb89" }, after: 3 * MIN })
+  })
+
+  it("a reply the session wrote before it took the comment isn't an answer to it: Sent, or Delivered once taken", () => {
+    const reply = comment("r", now - 2 * MIN, { actorId: "claude", sessionId: "s1" })
+    const untaken = comment("c", now - 5 * MIN, sentTo("s1"))
+    expect(receiptOf(untaken, [untaken, reply], state)).toMatchObject({ state: "sent" })
+    const takenLater = comment("c", now - 5 * MIN, sentTo("s1", now - MIN, "hook"))
+    expect(receiptOf(takenLater, [takenLater, reply], state)).toMatchObject({ state: "delivered" })
   })
 
   it("answered by a reaction from that session (CEL-77); Lucas's own reaction or another session's doesn't count", () => {
@@ -94,11 +102,50 @@ describe("receiptOf", () => {
       id, commentId: "c", taskId: "t1", emoji: "👍", actorId: sessionId ? "claude" : "lucas", sessionId, createdAt: at,
     })
     const mine = comment("c", now - 5 * MIN, { ...sentTo("s1", now - 4 * MIN, "hook"), reactions: [reaction("x", null, now - 4 * MIN), reaction("y", "s9", now - 4 * MIN)] })
+    // A reaction from before it took the comment doesn't answer it either.
+    const early = { ...mine, delivery: { sessionId: "s1", readAt: null, via: null }, reactions: [reaction("w", "s1", now - 4 * MIN)] }
+    expect(receiptOf(early, [early], state)).toMatchObject({ state: "sent" })
     expect(receiptOf(mine, [mine], state)).toMatchObject({ state: "delivered" })
     const thumbs = { ...mine, reactions: [...mine.reactions!, reaction("z", "s1", now - 3 * MIN)] }
     const answered = receiptOf(thumbs, [thumbs], state)!
     expect(answered).toMatchObject({ state: "answered", emoji: "👍", after: 2 * MIN })
     expect(receiptTitle(answered)).toBe("Claude Code session s1 reacted 👍 2m after you sent it")
+  })
+})
+
+describe("sentWords: what a comment not taken yet waits for", () => {
+  it("the holder's next step, or, once the claim moved on, the inbox it waits in", () => {
+    const state = board([task()], [session("s1"), session("s2")])
+    const reach = reachOf(state, task(), now)
+    expect(sentWords({ state: "sent", to: { kind: "agent", name: "x", short: "s1", color: "" }, sessionId: "s1" }, task(), reach)).toBe("s1 gets it at its next step")
+    expect(sentWords({ state: "sent", to: { kind: "agent", name: "x", short: "s2", color: "" }, sessionId: "s2" }, task(), reach))
+      .toBe("waiting in s2's inbox; s2 no longer holds this task")
+    const released = task({ assigneeActorId: null, assigneeSessionId: null })
+    expect(sentWords({ state: "sent", to: { kind: "agent", name: "x", short: "s1", color: "" }, sessionId: "s1" }, released, reachOf(state, released, now)))
+      .toBe("waiting in s1's inbox; s1 no longer holds this task")
+  })
+})
+
+describe("unsentTone: Not delivered is a warning only where an agent could have taken it", () => {
+  const status = (category: "started" | "completed") => ({
+    id: "prog", workspaceId: "w1", name: category === "started" ? "In Progress" : "Done", category, position: "a0", color: "#999", hidden: false,
+    createdAt: 1, updatedAt: 1,
+  })
+  const withStatus = (category: "started" | "completed") => ({ ...board([task()], [session("s1")]), statuses: { prog: status(category) } })
+  const free = task({ assigneeActorId: null, assigneeSessionId: null, updatedBySessionId: "s1" })
+
+  it("warns on a task agents work on, while it's open", () => {
+    const c = comment("c", now - MIN, { delivery: null })
+    expect(unsentTone(c, [c], free, withStatus("started"))).toBe("warn")
+  })
+
+  it("quiet on a Done task, a task no agent ever touched, or a comment from before receipts existed", () => {
+    const c = comment("c", now - MIN, { delivery: null })
+    expect(unsentTone(c, [c], free, withStatus("completed"))).toBe("quiet")
+    const untouched = task({ assigneeActorId: null, assigneeSessionId: null })
+    expect(unsentTone(c, [c], untouched, withStatus("started"))).toBe("quiet")
+    const old = comment("o", Date.UTC(2026, 10, 10), { delivery: null })
+    expect(unsentTone(old, [old], free, withStatus("started"))).toBe("quiet")
   })
 })
 

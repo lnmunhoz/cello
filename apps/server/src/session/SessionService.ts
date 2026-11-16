@@ -270,6 +270,17 @@ const make = Effect.gen(function* () {
         })).pipe(Effect.provideService(Caller, { actorId: session.actorId, sessionId }))
     }).pipe(Effect.orDie)
 
+  /** One wait of the session ended: true when it was the last. */
+  const release = (id: string): boolean => {
+    const n = (waiters.get(id) ?? 1) - 1
+    if (n > 0) {
+      waiters.set(id, n)
+      return false
+    }
+    waiters.delete(id)
+    return true
+  }
+
   const waitingWhile = <A, E, R>(wait: Effect.Effect<A, E, R>) =>
     Effect.gen(function* () {
       const id = (yield* Caller).sessionId
@@ -278,20 +289,17 @@ const make = Effect.gen(function* () {
         Effect.suspend(() => {
           const n = (waiters.get(id) ?? 0) + 1
           waiters.set(id, n)
-          return n === 1 ? tellWaiting(id, true) : Effect.void
+          if (n > 1) return Effect.void
+          // Counted first, so a second wait arriving meanwhile doesn't tell the boards again; taken back
+          // if telling them fails, since then the release (and its "stopped") never runs.
+          return tellWaiting(id, true).pipe(Effect.onError(() => Effect.sync(() => release(id))))
         }),
         () => wait,
         () =>
-          Effect.suspend(() => {
-            const n = (waiters.get(id) ?? 1) - 1
-            if (n > 0) {
-              waiters.set(id, n)
-              return Effect.void
-            }
-            waiters.delete(id)
+          Effect.suspend(() =>
             // A server stopping mid-wait may not get to tell anyone: its restart starts with no waiters.
-            return tellWaiting(id, false).pipe(Effect.catchCause(() => Effect.void))
-          }),
+            release(id) ? tellWaiting(id, false).pipe(Effect.catchCause(() => Effect.void)) : Effect.void
+          ),
       )
     })
 

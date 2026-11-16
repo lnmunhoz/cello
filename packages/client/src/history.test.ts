@@ -41,6 +41,12 @@ describe("describeEvent", () => {
     expect(describeEvent(ev({ type: "reaction.removed", reaction }), state)).toBe("Lucas took back their 👍")
   })
 
+  it("says a session took the human's comment (CEL-76)", () => {
+    const delivered = ev({ type: "comment.delivered", commentId: "c", taskId: "t", session: "s1", via: "hook" })
+    expect(describeEvent(delivered, state, "Claude Code session 2fd0505c")).toBe("Claude Code session 2fd0505c took Lucas's comment")
+    expect(describeEvent(delivered, { ...state, actors: {} }, "Claude Code session 2fd0505c")).toBe("Claude Code session 2fd0505c took a comment")
+  })
+
   it("names the stage by its label, and says when it was cleared", () => {
     expect(describeEvent(ev({ type: "task.stage_changed", id: "t", version: 2, before: null, after: "review" }), state)).toBe(
       "Lucas set the stage to Agent review",

@@ -64,6 +64,10 @@ export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | 
       return `${who} reacted ${e.reaction.emoji} to a comment`
     case "reaction.removed":
       return `${who} took back their ${e.reaction.emoji}`
+    case "comment.delivered": {
+      const human = Object.values(state.actors).find((a) => a.kind === "human")
+      return human ? `${who} took ${human.name}'s comment` : `${who} took a comment`
+    }
     case "review.submitted":
       return `${who} submitted a review`
     case "review.decided":

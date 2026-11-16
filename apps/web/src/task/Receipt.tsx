@@ -6,7 +6,7 @@ import type { Comment, Task } from "@cello/contract/entities"
 import { CheckCheckIcon, CheckIcon, CircleSlashIcon, ClockIcon } from "lucide-react"
 import { AgentMark, type AgentMood } from "../components/ui/AgentMark.tsx"
 import { useNow } from "../presence/useNow.ts"
-import { durationShort, pendingWords, type Reach, reachOf, reachWords, receiptOf, receiptTitle } from "./receipts.ts"
+import { durationShort, type Reach, reachOf, reachWords, receiptOf, receiptTitle, sentWords, unsentTone } from "./receipts.ts"
 
 /** The ticks under one of Lucas's comments; nothing under an agent's. */
 export function ReceiptTicks({ board, task, comment, comments }: { board: BoardState; task: Task; comment: Comment; comments: ReadonlyArray<Comment> }) {
@@ -16,18 +16,20 @@ export function ReceiptTicks({ board, task, comment, comments }: { board: BoardS
   const base = "ml-auto flex shrink-0 items-center gap-1 text-[11px] leading-4"
   const title = receiptTitle(r)
   switch (r.state) {
-    case "unsent":
+    case "unsent": {
+      const tone = unsentTone(comment, comments, task, board)
       return (
-        <p className={`${base} text-danger`} data-receipt="unsent" title={title}>
+        <p className={`${base} ${tone === "warn" ? "text-danger" : "text-faint"}`} data-receipt="unsent" data-tone={tone} title={title}>
           <CircleSlashIcon aria-hidden className="size-3" />
           Not delivered: no agent held this task
         </p>
       )
+    }
     case "sent":
       return (
         <p className={`${base} text-faint`} data-receipt="sent" title={title}>
           <ClockIcon aria-hidden className="size-3" />
-          Sent · {pendingWords(reachOf(board, task, now))}
+          Sent · {sentWords(r, task, reachOf(board, task, now))}
         </p>
       )
     case "delivered":
