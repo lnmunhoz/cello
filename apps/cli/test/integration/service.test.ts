@@ -121,7 +121,7 @@ describe("cello service install", () => {
       expect(fs.existsSync(plist)).toBe(false)
     }).pipe(Effect.scoped))
 
-  // UNDER_LOAD: a `cello start` process, then stopping it (1.1 s idle, 5.3 s at load ~110).
+  // UNDER_LOAD: the process is the point. A `cello start` process, then stopping it: 1.1 s idle, 5.3 s at load ~110.
   it.live("refuses while a Cello server started another way holds the data folder; --replace stops that server, and only it", () =>
     Effect.gen(function* () {
       const { dataDir, install, plist } = yield* setup()
@@ -174,7 +174,7 @@ describe("cello service install", () => {
         expect(isAlive(reused.pid)).toBe(true)
         expect(fs.existsSync(plist)).toBe(false)
       }).pipe(Effect.scoped),
-    UNDER_LOAD, // a server, a process, ps and lsof: 2.5 s at load ~110
+    UNDER_LOAD, // the process is the point: a live pid, read with ps and lsof, beside a server; 2.5 s at load ~110
   )
 
   it.live("a failed install that stopped another folder's service names that folder, not the new one", () =>
