@@ -196,6 +196,7 @@ describe("cello init", () => {
           "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
           "The board names each subagent working under a session (a builder, a reviewer) and the task it was launched on: it hears them start, work and finish.",
           "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. Start Claude Code with CELLO_ALLOW_ARTIFACTS=1 when you want one.",
+          "Agents here can't ask you questions in Claude's own window: they're told to ask on the card, where the task waits in Needs input. Start Claude Code with CELLO_ALLOW_ASK_USER=1 when you want questions in the terminal.",
           "Agents here can't edit files in the repo until their session has claimed a Cello task: they're told to create or claim one first. Start Claude Code with CELLO_ALLOW_UNTRACKED=1 to turn that off.",
           "The plugin gives new sessions /cello:orchestrate (run tasks through builder and reviewer agents), /cello:work (do one task in this thread) and the cello skill.",
           "New Claude Code sessions pick them up.",
@@ -205,7 +206,7 @@ describe("cello init", () => {
       const settings = JSON.parse(fs.readFileSync(file, "utf8"))
       expect(settings.hooks.Stop[0].hooks[0].command).toBe("cello hook claude stop")
       // The artifact guard (CEL-57) and the claim guard (CEL-61) come with it.
-      expect(settings.hooks.PreToolUse).toEqual([{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }])
+      expect(settings.hooks.PreToolUse).toEqual([{ matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }])
       // And the plugin (CEL-64).
       expect(settings.enabledPlugins).toEqual({ "cello@cello": true })
       // And the rule that lets `cello` skip Claude Code's permission check (CEL-90).

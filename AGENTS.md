@@ -40,6 +40,7 @@ Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port
   - act on them, then answer on the card with `cello task comment CEL-n "…"` (`--body-file -` for markdown); a sent-back task goes back to Lucas with `cello task submit`
   - `docs/cli.md`, "Comments from the human reach your session", has the details
 - **Decisions that are Lucas's are asked on the card, never in the terminal** (CEL-47): which design option, which stages, what wording, anything a task or scope leaves to him.
+  - never Claude's `AskUserQuestion` (the hook denies it; CEL-124): its dialog blocks the session while the card says idle. If no open task of yours fits (yours was approved, or it's a new decision), create one (`cello task create "<the decision>" --status Todo`), claim it and ask there
   - `cello task ask CEL-n --file ask.yaml --wait` (run it in the background): questions with options, a recommended option always with its reason (`because`), and the evidence to decide from
   - scopes always attach their screenshots and link the scope page
   - one ask per task at a time; asking again replaces the open one, `--withdraw` takes it back

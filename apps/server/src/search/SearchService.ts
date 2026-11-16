@@ -14,6 +14,7 @@ import type { DocumentKind, Project, ProjectRef, ReviewDecision, StatusCategory 
 import { Invalid, NotFound } from "@cello/contract/errors"
 import { SEARCH_KINDS, type SearchGroup, type SearchHit, type SearchKind, type SearchResults } from "@cello/contract/search"
 import { clipAround, fromMarked, MARK_CLOSE, MARK_OPEN, matchesAll, oneLine, searchTerms, wordPrefixRanges, type Marked } from "@cello/shared/search"
+import { isClosedCategory } from "@cello/shared/status"
 import { formatTaskKey, parseTaskKey } from "@cello/shared/taskKey"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -43,7 +44,6 @@ export const MAX_LIMIT = 50
 const WEIGHTS = "20.0, 10.0, 1.0"
 /** A closed task's score, against an open one's. */
 const CLOSED_FACTOR = 0.8
-const CLOSED: ReadonlySet<StatusCategory> = new Set(["completed", "canceled"])
 /** How long a hit's `text` gets, around its first match. */
 const TEXT_MAX = 2000
 /** How long its `snippet` gets: FTS5 picks the window, this caps it. */
@@ -114,7 +114,7 @@ const make = Effect.gen(function* () {
         refId: r.ref_id,
         projectId: r.project_id,
         taskId: r.task_id,
-        score: -r.rank * (r.kind === "task" && r.category !== null && CLOSED.has(r.category) ? CLOSED_FACTOR : 1),
+        score: -r.rank * (r.kind === "task" && r.category !== null && isClosedCategory(r.category) ? CLOSED_FACTOR : 1),
         taskUpdatedAt: r.task_updated_at ?? 0,
         table,
       }))

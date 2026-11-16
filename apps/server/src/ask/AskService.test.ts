@@ -436,6 +436,25 @@ describe("only the session holding the claim asks and withdraws", () => {
         reason: `claim ${loose.key} first (cello task claim ${loose.key}): only the session working on a task asks on it`,
       })
     })))
+
+  // CEL-124: approving a task ended its session's claim, and "claim it first" can't work on a Done
+  // task, so the session asked in Claude's own window instead. A closed task names the way out.
+  it.effect("a Done or Canceled task is refused with the follow-up path, whichever session asks; nothing moves", () =>
+    run(Effect.gen(function* () {
+      const { asks, tasks, status, task, files } = yield* setup
+      const follow = (key: string, name: string) => ({
+        _tag: "Invalid",
+        field: "key",
+        reason: `${key} is ${name}: create a follow-up task for this decision (cello task create "<the decision>" --status Todo), claim it, and ask there`,
+      })
+      yield* tasks.move({ commandId: cmd(), id: task.id, statusId: status["Done"]!.id })
+      expect(yield* Effect.flip(agent(asks.create(question(files))))).toMatchObject(follow("CEL-1", "Done"))
+      expect(yield* Effect.flip(other(asks.create(question(files))))).toMatchObject(follow("CEL-1", "Done"))
+      const { result: dropped } = yield* tasks.create({ commandId: cmd(), projectId: task.projectId, title: "Dropped", statusId: status["Canceled"]!.id })
+      expect(yield* Effect.flip(agent(asks.create({ ...question(files), key: dropped.key })))).toMatchObject(follow(dropped.key, "Canceled"))
+      expect((yield* tasks.byKey("CEL-1")).statusId).toBe(status["Done"]!.id)
+      expect(yield* asks.list(task.id)).toEqual([])
+    })))
 })
 
 describe("AskService.withdraw", () => {
