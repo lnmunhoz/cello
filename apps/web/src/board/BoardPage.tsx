@@ -1,6 +1,5 @@
 import { ORDERING_LABELS, orderTasks, type Ordering } from "@cello/client/sync/ordering"
 import { boardColumns, projectByKey } from "@cello/client/sync/selectors"
-import { stageInfo } from "@cello/contract/stages"
 import { stageStatus } from "@cello/shared/review"
 import { needsInputFold } from "@cello/client/sync/asks"
 import type { BoardState } from "@cello/client/sync/applyEvents"
@@ -26,8 +25,9 @@ import { withHoles, type Hole } from "./cursors/holes.ts"
 import { useAgentCursors } from "./cursors/useAgentCursors.ts"
 import { activityOf } from "../presence/Activity.tsx"
 import { LaneHeading } from "../presence/Presence.tsx"
+import { useNow } from "../presence/useNow.ts"
 import { InlineCreate } from "./InlineCreate.tsx"
-import { laneDrop, laneHeadings, stageLanes } from "./lanes.ts"
+import { inLaneOrder, laneDrop, laneHeadings, laneInfo, taskLane, withLanes } from "./lanes.ts"
 import { useStageLanes } from "./useStageLanes.ts"
 import { useNeedsInputColumn } from "./needsInputColumn.ts"
 import { Kanban, KanbanCard, KanbanColumn } from "./kanban.tsx"
@@ -99,6 +99,10 @@ function Board({
   // Display → "Group In Progress by stage": that one column shows a lane per stage (CEL-35).
   const lanesOn = useStageLanes()
   const lanedId = lanesOn ? (stageStatus([...columns.visible, ...columns.hidden])?.id ?? null) : null
+  // A task's lane: its stage, else Working while an agent on it is active (CEL-105). The clock moves a
+  // task out of Working once its agent goes quiet.
+  const now = useNow()
+  const laneKeyOf = (t: Task) => taskLane(board, t, now)
 
   // With the Needs input column off (the default), its cards sit at the bottom of In Progress, badged.
   const fold = needsInputFold([...columns.visible, ...columns.hidden], useNeedsInputColumn())
@@ -109,7 +113,7 @@ function Board({
     const own = orderTasks(keep(columns.tasks[s.id] ?? []), ordering)
     return [s.id, [
       // In the laned column (Display → Group In Progress by stage) its own cards go lane by lane (CEL-35).
-      ...(s.id === lanedId ? stageLanes(own).flatMap((lane) => lane.tasks) : own),
+      ...(s.id === lanedId ? inLaneOrder(own, laneKeyOf) : own),
       ...(s.id === fold?.into ? orderTasks(keep(columns.tasks[fold.from] ?? []), ordering) : []),
     ]]
   }))
@@ -134,7 +138,7 @@ function Board({
     // Folded cards sit below In Progress's own, which are all the placement counts.
     // The drop's index is among the cards shown; a filter (CEL-52) may hide some of the column's.
     const drop = found.to === lanedId
-      ? laneDrop(found, next[found.to] ?? [], task.statusId, ordering, columns.tasks[found.to] ?? [])
+      ? laneDrop(found, next[found.to] ?? [], task.statusId, ordering, withLanes(columns.tasks[found.to] ?? [], laneKeyOf))
       : dropOf({ ...found, index: indexAmong(next[found.to] ?? [], found, target) }, task.statusId, ordering, target)
     if (drop) move({ id: task.id, ...drop })
   }
@@ -219,7 +223,7 @@ function Board({
                         // Folded Needs input cards (CEL-47) are a group of their own under the lanes.
                         const laneOf = (id: string) => {
                           const t = board.tasks[id]
-                          return t && t.statusId !== status.id ? WAITING_LANE : (t?.stage ?? null)
+                          return t && t.statusId !== status.id ? WAITING_LANE : t ? laneKeyOf(t) : null
                         }
                         const headings = laned
                           ? new Map([...laneHeadings(cards, laneOf, movingKey)].map(([i, h]) => [cards[i]!, h]))
@@ -229,7 +233,7 @@ function Board({
                           if (!task) return []
                           if (hole) return [<HoleCard key={`hole-${hole.id}`} hole={hole} task={task} board={board} />]
                           const heading = headings?.get(id)
-                          const stage = heading?.stage ? (stageInfo(heading.stage) ?? null) : null
+                          const stage = heading ? laneInfo(heading.stage) : null
                           return [
                             ...(heading
                               ? [<LaneHeading key={`lane-${heading.stage ?? "none"}`} stage={stage} waiting={heading.stage === WAITING_LANE} count={heading.count} />]

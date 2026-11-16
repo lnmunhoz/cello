@@ -1,7 +1,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { agentMood, agentsWorkingCount, markEntry, type MarkSeen, provenanceLine, provenanceOf, whoOf, workingSessions } from "./model.ts"
+import { agentMood, agentsWorkingCount, holderActive, markEntry, stepOf, type MarkSeen, provenanceLine, provenanceOf, whoOf, workingSessions } from "./model.ts"
 
 const MIN = 60_000
 const now = Date.UTC(2026, 10, 15, 12)
@@ -23,6 +23,12 @@ const agent = (sessionId: string, agentId: string, extra: Partial<SessionAgent> 
   startedAt: now - 30 * MIN, lastSeenAt: now - MIN, endedAt: null, ...extra,
 })
 
+const STATUSES = {
+  prog: { id: "prog", workspaceId: "w1", name: "In Progress", category: "started", position: "a1", color: "#f59e0b", hidden: false, createdAt: 1, updatedAt: 1 },
+  needs: { id: "needs", workspaceId: "w1", name: "Needs input", category: "waiting", position: "a2", color: "#f97316", hidden: false, createdAt: 1, updatedAt: 1 },
+  review: { id: "review", workspaceId: "w1", name: "In Review", category: "started", position: "a3", color: "#8b5cf6", hidden: false, createdAt: 1, updatedAt: 1 },
+} as const
+
 const board = (tasks: Task[], sessions: AgentSession[], agents: SessionAgent[] = []): BoardState => ({
   seq: 1,
   actors: {
@@ -31,7 +37,7 @@ const board = (tasks: Task[], sessions: AgentSession[], agents: SessionAgent[] =
   },
   workspaces: {},
   projects: { p1: { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", color: "#000", description: "", repoPath: null, createdAt: 1, updatedAt: 1, archivedAt: null } },
-  statuses: {},
+  statuses: STATUSES,
   labels: {},
   tasks: Object.fromEntries(tasks.map((t) => [t.id, t])),
   sessions: Object.fromEntries(sessions.map((s) => [s.id, s])),
@@ -83,6 +89,60 @@ describe("provenanceOf", () => {
   it("a task Lucas holds has a holder with no session; an unclaimed one has none", () => {
     expect(provenanceOf(board([], []), task("t", { assigneeActorId: "lucas" })).holder).toMatchObject({ who: { short: "Lucas" }, session: null })
     expect(provenanceOf(board([], []), task("t")).holder).toBeNull()
+  })
+})
+
+describe("holderActive (CEL-105)", () => {
+  it("is true while the agent session holding the claim is active", () => {
+    const held = task("t", { assigneeActorId: "claude", assigneeSessionId: "8a41c9e2" })
+    expect(holderActive(board([held], [session("8a41c9e2")]), held, now)).toBe(true)
+  })
+
+  it("is false once the session is quiet or has ended", () => {
+    const held = task("t", { assigneeActorId: "claude", assigneeSessionId: "8a41c9e2" })
+    expect(holderActive(board([held], [session("8a41c9e2", { lastSeenAt: now - 20 * MIN })]), held, now)).toBe(false)
+    expect(holderActive(board([held], [session("8a41c9e2", { endedAt: now - MIN })]), held, now)).toBe(false)
+  })
+
+  it("is true while a subagent works on it, even when the holding session is quiet", () => {
+    const held = task("t", { assigneeActorId: "claude", assigneeSessionId: "2fd0505c" })
+    const state = board([held], [session("2fd0505c", { lastSeenAt: now - 20 * MIN })], [agent("2fd0505c", "a13bfb89", { taskId: "t" })])
+    expect(holderActive(state, held, now)).toBe(true)
+  })
+
+  it("is false for a task Lucas holds, and for one nobody holds", () => {
+    expect(holderActive(board([], []), task("t", { assigneeActorId: "lucas" }), now)).toBe(false)
+    expect(holderActive(board([], []), task("u"), now)).toBe(false)
+  })
+})
+
+describe("stepOf: the step a card, row or panel shows (CEL-105)", () => {
+  it("the stage when it has one", () => {
+    const held = task("t", { assigneeActorId: "claude", assigneeSessionId: "8a41c9e2", stage: "designing" })
+    expect(stepOf(board([held], [session("8a41c9e2")]), held, now)?.label).toBe("Designing")
+  })
+
+  it("Working with no stage while its agent is active, and nothing once the agent is quiet or ended", () => {
+    const held = task("t", { assigneeActorId: "claude", assigneeSessionId: "8a41c9e2" })
+    expect(stepOf(board([held], [session("8a41c9e2")]), held, now)).toMatchObject({ id: "working", label: "Working" })
+    expect(stepOf(board([held], [session("8a41c9e2", { lastSeenAt: now - 20 * MIN })]), held, now)).toBeNull()
+    expect(stepOf(board([held], [session("8a41c9e2", { endedAt: now - MIN })]), held, now)).toBeNull()
+  })
+
+  it("Working only in In Progress: a task waiting in Needs input (its session active, running --wait) isn't Working; a stage still shows there", () => {
+    const waiting = task("t", { assigneeActorId: "claude", assigneeSessionId: "8a41c9e2", statusId: "needs" })
+    expect(stepOf(board([waiting], [session("8a41c9e2")]), waiting, now)).toBeNull()
+    const staged = { ...waiting, stage: "building" as const }
+    expect(stepOf(board([staged], [session("8a41c9e2")]), staged, now)?.label).toBe("Building")
+    const inReview = { ...waiting, statusId: "review" }
+    expect(stepOf(board([inReview], [session("8a41c9e2")]), inReview, now)).toBeNull()
+  })
+
+  it("provenanceOf carries it, next to the stage itself", () => {
+    const held = task("t", { assigneeActorId: "claude", assigneeSessionId: "8a41c9e2" })
+    const p = provenanceOf(board([held], [session("8a41c9e2")]), held, now)
+    expect(p.stage).toBeNull()
+    expect(p.step?.label).toBe("Working")
   })
 })
 

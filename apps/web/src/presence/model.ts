@@ -8,7 +8,7 @@ import { type StageInfo, stageInfo } from "@cello/contract/stages"
 import { isNeedsInputStatus } from "@cello/shared/ask"
 import { colorFromSeed } from "@cello/shared/color"
 import { agoShort, type Presence, presenceOf, type SessionLike } from "@cello/shared/presence"
-import { isReviewStatus } from "@cello/shared/review"
+import { isReviewStatus, stageStatus } from "@cello/shared/review"
 import type { AgentMood } from "../components/ui/AgentMark.tsx"
 import { formatDay } from "../lib/format.ts"
 
@@ -46,6 +46,8 @@ export interface Provenance {
   readonly changeVerb: "changed" | "commented"
   readonly holder: Holder | null
   readonly stage: StageInfo | null
+  /** What the card, the row and the panel say: the stage, else Working while its agent is active (stepOf). */
+  readonly step: StageInfo | null
 }
 
 const shortId = (s: AgentSession) => (s.externalId ?? s.id).slice(0, 8)
@@ -128,8 +130,45 @@ export const provenanceOf = (board: BoardState, task: Task, now: number = Date.n
       ? null
       : { who: session ? sessionWho(session) : whoOf(board, task.assigneeActorId, task.assigneeSessionId), session, agent: null },
     stage: task.stage === null ? null : (stageInfo(task.stage) ?? null),
+    step: stepOf(board, task, now),
   }
 }
+
+/**
+ * Where a task with no stage goes while its agent is active (CEL-105): a session working by itself may
+ * never set one, and "No stage" made its task look stuck. Not a stage: nobody sets it, the board works it
+ * out, so the board stays truthful when an agent forgets.
+ */
+export const WORKING_LANE = "working"
+
+export const WORKING: StageInfo = { id: WORKING_LANE, label: "Working", icon: "activity", color: "var(--muted)", when: "an agent is on it and hasn't set a stage" }
+
+/**
+ * Whether an agent on the task is active right now (CEL-105): the subagent working on it, else the agent
+ * session holding its claim. Lucas has no presence, so a task he holds is never active this way.
+ */
+export const holderActive = (board: BoardState, task: Task, now: number): boolean => {
+  if (agentOn(board, task, now) !== null) return true
+  const session = task.assigneeSessionId === null ? undefined : board.sessions[task.assigneeSessionId]
+  return session !== undefined && presenceOf(session, now) === "active"
+}
+
+/** Whether the task is in its workspace's In Progress (its first started status), where stages live. */
+const inStageStatus = (board: BoardState, task: Task): boolean => {
+  const status = board.statuses[task.statusId]
+  if (!status) return false
+  return stageStatus(Object.values(board.statuses).filter((s) => s.workspaceId === status.workspaceId))?.id === status.id
+}
+
+/**
+ * Whether a task with no stage counts as Working: in In Progress with an agent on it active. Elsewhere it
+ * doesn't: waiting in Needs input, its session stays active (`cello task ask --wait`), but it's waiting.
+ */
+export const workingNow = (board: BoardState, task: Task, now: number): boolean => inStageStatus(board, task) && holderActive(board, task, now)
+
+/** The step a task is at: its stage (wherever it's carried), else Working (workingNow), else none. */
+export const stepOf = (board: BoardState, task: Task, now: number): StageInfo | null =>
+  task.stage !== null ? (stageInfo(task.stage) ?? null) : workingNow(board, task, now) ? WORKING : null
 
 /**
  * "Lucas created · 8a41c9e2 changed 4m ago", "Lucas created · 2fd0505c commented just now",

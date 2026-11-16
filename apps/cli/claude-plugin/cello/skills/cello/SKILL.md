@@ -11,6 +11,7 @@ Cello is a task board shared by a person and their coding agents. Agents use it 
 - **Work starts as a task.** Questions and brainstorming need none. A request to build, fix, change or write does: check the board (`cello task list`), else `cello task create` with the person's words, before you read code or plan.
 - Todo is ready to build; Backlog is ideas still being discussed. Nobody builds from Backlog.
 - `cello task claim <KEY>` before you work on it. Put the key in every commit message.
+- **Mark your step** with `cello task stage <KEY>`, whoever you are: on your own, `designing` while you plan or write a spec, `building` once you write code, `merged` once it's merged; an orchestrator, `building`, `review`, `fixing`, `merged`. A task with no stage shows only as Working while you're active, which can't say which step.
 - Test first. Comment progress and decisions with `cello task comment`.
 - **Decisions that are the person's** (a design option, a scope, wording) are asked on the card with `cello task ask`, never in the terminal.
 - Their comments reach your session by themselves with the hooks (else `cello inbox`). Answer on the card.
