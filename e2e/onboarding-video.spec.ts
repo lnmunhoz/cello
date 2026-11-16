@@ -577,7 +577,8 @@ test("① Agents working: three sessions at once, their subagents starting, chec
   toolCall("applePayReviewer", "Read")
   stop("emailReviewer")
   asSession("email")("task", "stage", email, "fixing")
-  await expect(page.locator(`[data-agent-row$="/${SUBAGENTS.emailReviewer.id}"]`)).toHaveCount(0)
+  // A stopped subagent leaves the working rows for Finished today (CEL-55's finished group), not the page.
+  await expect(page.locator(`[data-agent-row$="/${SUBAGENTS.emailReviewer.id}"]`)).toHaveAttribute("data-agent-group", "finished")
   toolCall("speedBuilder", "Edit")
   asSubagent("speedBuilder")("task", "stage", speed, "fixing")
   toolCall("applePayReviewer", "Bash")
