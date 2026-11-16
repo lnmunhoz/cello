@@ -59,6 +59,9 @@ interface AgentRow {
   transcript_path?: string | null
   current_step?: string | null
   current_step_at?: number | null
+  /** CEL-119; left out by selects that don't need them. */
+  model?: string | null
+  effort?: string | null
 }
 
 export const toAgent = (r: AgentRow): SessionAgent => ({
@@ -73,6 +76,8 @@ export const toAgent = (r: AgentRow): SessionAgent => ({
   hasLog: r.transcript_path != null,
   currentStep: r.current_step ?? null,
   currentStepAt: r.current_step_at ?? null,
+  model: r.model ?? null,
+  effort: r.effort ?? null,
 })
 
 export class AgentService extends Context.Service<AgentService, {

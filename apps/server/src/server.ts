@@ -16,6 +16,7 @@ import * as RpcSerialization from "effect/rpc/RpcSerialization"
 import * as RpcServer from "effect/rpc/RpcServer"
 import { CelloRpcs } from "@cello/contract/rpcs"
 import * as AgentLogService from "./agentLog/AgentLogService.ts"
+import * as ModelService from "./session/ModelService.ts"
 import { claudeProjectsDir } from "./agentLog/transcriptPath.ts"
 import * as BackupSchedule from "./backup/BackupSchedule.ts"
 import * as BackupService from "./backup/BackupService.ts"
@@ -104,9 +105,11 @@ const wake = (options: ServerOptions) => {
       quiet: options.wake?.quiet,
     })
   }))
-  // An agent's live log (CEL-106) reads woken runs' logs too, so it sits on the same config.
-  const logs = AgentLogService.layer({ projectsDir: options.claudeProjectsDir ?? claudeProjectsDir(process.env, os.homedir()) })
-  return Layer.merge(WakeService.layer, logs).pipe(
+  // An agent's live log (CEL-106) reads woken runs' logs too, so it sits on the same config. Which model
+  // a caller is on (CEL-119) is read from the same transcripts.
+  const projectsDir = options.claudeProjectsDir ?? claudeProjectsDir(process.env, os.homedir())
+  const logs = AgentLogService.layer({ projectsDir })
+  return Layer.mergeAll(WakeService.layer, logs, ModelService.layer({ projectsDir })).pipe(
     Layer.provideMerge(SessionHost.layer),
     Layer.provideMerge(AgentDriver.layer([claudeCode()])),
     Layer.provideMerge(config),

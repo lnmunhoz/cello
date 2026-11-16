@@ -6,6 +6,7 @@ import { currentStepOf, durationWords, previewOf } from "@cello/client/sync/agen
 import type { FinishedAgent, WorkingSessionOf } from "@cello/client/sync/agents"
 import type { LogStep, LogUpdate } from "@cello/contract/agentLog"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
+import { modelLabel } from "@cello/shared/model"
 import { presenceWords } from "@cello/shared/presence"
 import { columns, plural, sessionName, shortSession } from "./format.ts"
 
@@ -57,6 +58,12 @@ export const findAgent = (
 
 const keys = (tasks: ReadonlyArray<Pick<Task, "key">>) => tasks.map((t) => t.key).join(", ")
 
+/** " (Sonnet 5.5, medium)": the model an agent is on, when it's known (CEL-119). */
+const model = (agent: Pick<SessionAgent, "model" | "effort">) => {
+  const label = modelLabel(agent.model, agent.effort)
+  return label ? ` (${label})` : ""
+}
+
 const LOG_HINT = "`cello agents log <id>` prints one's log: a session's short id (2fd0505c) or a subagent's (cello-builder/a13bfb89)."
 
 /** "14:02", in local time. */
@@ -78,14 +85,14 @@ export const agentsText = (input: {
   const working = input.working.filter((w) => w.presence !== "ended")
   const rows = working.flatMap((w) => [
     [
-      `  ${sessionName(w.session)}`,
+      `  ${sessionName(w.session, w.session)}`,
       w.agents.length > 0 ? "orchestrator" : "session",
       presenceWords(w.session, input.now),
       w.tasks.length > 0 ? `holds ${keys(w.tasks)}` : "",
       currentStepOf({ presence: w.presence, session: w.session, agent: null }) ?? "",
     ],
     ...w.agents.map((a) => [
-      `    ${agentId(a.agent)}`,
+      `    ${agentId(a.agent)}${model(a.agent)}`,
       "",
       presenceWords(a.agent, input.now),
       a.task ? `on ${a.task.key}` : "",

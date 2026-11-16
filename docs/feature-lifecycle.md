@@ -20,7 +20,7 @@ flowchart TD
     C --> BU["⑤ Build<br/>builder agent, own worktree, test first"]
     BU --> RV["⑥ Review<br/>a fresh reviewer agent"]
     RV -->|findings| BU
-    RV -->|clean| M["⑦ Merge and deploy<br/>whole suite, push, live server updated"]
+    RV -->|clean| M["⑦ Merge and deploy<br/>related tests, push, live server updated"]
     M --> P["⑧ Submit<br/>review packet with videos: In Review"]
     P --> L{"⑨ Lucas on the Review page"}
     L -->|Approve| D(["Done"])
@@ -127,7 +127,7 @@ flowchart TD
 
 The orchestrator merges the branch into main (`cello task stage CEL-n merged`) and checks everything together:
 
-1. **The whole suite:** unit and integration tests, typecheck, the CLI-docs check, and the full Docker run (browser and desktop end-to-end).
+1. **The checks:** unit and integration tests, typecheck and the CLI-docs check in full, plus only the e2e specs related to the change. The full e2e suite runs only when the change touches what every screen shares (app shell, routing, e2e helpers, test setup, configs, dependencies), before a release, or when Lucas asks (AGENTS.md, "Pick the e2e specs").
 2. **Push** to GitHub.
 3. **Deploy to Lucas's board** when the server or web app changed: back up with `cello backup`, rebuild the `cello` binary, restart the server on 4747 (`cello service restart` once the background service is installed). A database migration runs at that restart, which is why the backup comes first.
 
