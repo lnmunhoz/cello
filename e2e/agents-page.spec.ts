@@ -5,16 +5,13 @@
 // them (Waiting on you, Working, Quiet), puts subagents under their session, opens one row at a time to
 // show its card, links a waiting agent to answering on Review, works from the keyboard, and follows the
 // agents live. Stills in light and dark go to e2e/videos/ (cel-65-*.png). Agent cursors are off.
-import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import type { Locator, Page } from "@playwright/test"
 import { animationsSettled, caption, captionWithUrl, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, test } from "./fixtures.ts"
+import { celloIn, claudeHooks } from "./claudeHooks.ts"
 import { SHOTS } from "./packets.ts"
-
-const root = path.resolve(import.meta.dirname, "..")
-const SERVER_PORT = Number(process.env.CELLO_E2E_SERVER_PORT ?? 4791)
 
 const ORCHESTRATOR = "2fd0505c-417a-4167-acfe-2d66080fcae0"
 const ASKER = "8a41c9e2-5b1d-4c7e-9a0f-3e2b1c4d5e6f"
@@ -28,42 +25,12 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), "cel65-"))
 const cwd = path.join(work, "cello")
 fs.mkdirSync(cwd, { recursive: true })
 
-/**
- * The real `cello` CLI from source against the e2e server, as Claude Code session `session` (the
- * Playwright worker's pid stands in for Claude Code's, so the session stays alive), with `agent` as
- * CELLO_AGENT and `stdin` piped in (a hook's JSON).
- */
-const cli = (session: string | null, options: { agent?: string; stdin?: string } = {}) => (...args: string[]) => {
-  const result = spawnSync("bun", [path.join(root, "apps/cli/src/bin.ts"), ...args], {
-    cwd,
-    encoding: "utf8",
-    input: options.stdin ?? "",
-    env: {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      CELLO_PORT: String(SERVER_PORT),
-      CLAUDE_PID: String(process.pid),
-      ...(session ? { CLAUDE_CODE_SESSION_ID: session } : {}),
-      ...(options.agent ? { CELLO_AGENT: options.agent } : {}),
-    },
-  })
-  if (result.status !== 0) throw new Error(`cello ${args.join(" ")} failed: ${result.stderr}`)
-  return result.stdout.trim()
-}
+const cli = celloIn(cwd)
+const hooks = claudeHooks(cwd)
+const hook = hooks.hook
 
-/** A Claude Code hook firing: `cello hook claude <event>` with the hook's JSON on stdin, as Claude Code runs it. */
-const hook = (event: string, input: Record<string, unknown>) => cli(null, { stdin: JSON.stringify({ cwd, ...input }) })("hook", "claude", event)
-
-/** The orchestrator launches a subagent with the Agent tool: SubagentStart, the launch (naming its task), its first tool call. */
-const launch = (id: string, type: string, description: string) => {
-  hook("subagent-start", { session_id: ORCHESTRATOR, agent_id: id, agent_type: type, hook_event_name: "SubagentStart" })
-  hook("post-tool-use", {
-    session_id: ORCHESTRATOR, hook_event_name: "PostToolUse", tool_name: "Agent",
-    tool_input: { subagent_type: type, description, prompt: `${description}. Read AGENTS.md first.` },
-    tool_response: { agentId: id, status: "async_launched" },
-  })
-  hook("post-tool-use", { session_id: ORCHESTRATOR, agent_id: id, agent_type: type, hook_event_name: "PostToolUse", tool_name: "Read", tool_input: {} })
-}
+/** The orchestrator launches a subagent with the Agent tool. */
+const launch = (id: string, type: string, description: string) => hooks.launch(ORCHESTRATOR, id, type, description)
 
 const askFile = (title: string, prompt: string) => {
   const file = path.join(work, `${title.replace(/\W+/g, "-")}.yaml`)
