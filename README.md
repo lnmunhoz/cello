@@ -111,7 +111,15 @@ Cello's own backlog lives on a Cello board. Most of it was built by agents claim
 
 ## Try it
 
-There are no releases yet: Cello runs from source. You need macOS, [Bun](https://bun.sh) 1.4.4 and git.
+**The easy way: let your agent do it.** Open your coding agent (Claude Code, for example) in the project you want to track, and tell it:
+
+```text
+Set up Cello for this project: https://github.com/lnmunhoz/cello
+```
+
+It follows [docs/agent-setup.md](docs/agent-setup.md): installs and builds Cello, starts it on your machine, connects your project to a board, and helps you fill it with your first tasks.
+
+**By hand:** there are no releases yet, so Cello runs from source. You need macOS, [Bun](https://bun.sh) 1.4.4 and git.
 
 ```bash
 git clone https://github.com/lnmunhoz/cello.git && cd cello
