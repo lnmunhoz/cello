@@ -13,11 +13,8 @@ export const WEB_URL = `http://localhost:${process.env.CELLO_WEB_PORT ?? 5199}`
 /** Where the specs save stills for the report, next to the videos. */
 export const SHOTS = path.join(import.meta.dirname, "videos")
 
-/**
- * Runs the `cello` CLI from source against the e2e server, as Claude Code session `session` (null: no
- * session in the environment, the way Claude Code runs a hook), with `stdin` piped in.
- */
-export const celloAs = (session: string | null, options: { readonly stdin?: string } = {}) => (...args: string[]) => {
+/** The same as celloAs, but a failing command is returned, not thrown: its exit code, stdout and stderr. */
+export const celloRun = (session: string | null, options: { readonly stdin?: string } = {}) => (...args: string[]) => {
   const result = spawnSync("bun", [path.join(root, "apps/cli/src/bin.ts"), ...args], {
     cwd: root,
     encoding: "utf8",
@@ -29,8 +26,17 @@ export const celloAs = (session: string | null, options: { readonly stdin?: stri
       ...(session === null ? {} : { CLAUDE_CODE_SESSION_ID: session, CLAUDE_PID: String(process.pid) }),
     },
   })
+  return { status: result.status, stdout: result.stdout.trim(), stderr: result.stderr.trim() }
+}
+
+/**
+ * Runs the `cello` CLI from source against the e2e server, as Claude Code session `session` (null: no
+ * session in the environment, the way Claude Code runs a hook), with `stdin` piped in.
+ */
+export const celloAs = (session: string | null, options: { readonly stdin?: string } = {}) => (...args: string[]) => {
+  const result = celloRun(session, options)(...args)
   if (result.status !== 0) throw new Error(`cello ${args.join(" ")} failed: ${result.stderr}`)
-  return result.stdout.trim()
+  return result.stdout
 }
 
 /** Runs the `cello` CLI from source as a Claude Code session, against the e2e server. */
