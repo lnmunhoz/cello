@@ -56,6 +56,22 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    Nothing to write to the testing profile yet. Set fields as the repo gets them: \`cello profile set <field> "<value>"\`.
    \`\`\`
 
+   It never writes a value it can't settle from the files alone. A value built from an environment variable resolves to the default the file gives (\`http://localhost:\${WEB_PORT}\` with \`const WEB_PORT = Number(process.env.WEB_PORT ?? 5199)\` is \`http://localhost:5199\`); with no default in the file, the field is left out and an **unknown** line says why. Each Playwright config (the root's and each workspace package's) is its own e2e surface: \`desktop\` when its package depends on Electron or the config uses \`_electron\`, else \`web\`, each with its own run command. When an e2e run goes through Docker or a wrapper script instead of the tool itself, the finished videos land where the wrapper puts them, not in Playwright's folder, so the videos and screenshots folders are left out and the report says to set them. In a repo like that:
+
+   \`\`\`
+   Testing: detected web (Vite) · desktop (Electron) · CLI · bun · Vitest · Playwright
+     ready        unit tests           Vitest: bun run test
+     partial      e2e video            Playwright: bun run test:e2e (web), bun run test:docker:desktop (desktop)
+                  → set e2e.web.videos to the folder its finished videos land in: the run goes through \`bun scripts/test-in-docker.ts e2e\`, not straight to Playwright; set e2e.desktop.videos to …
+     partial      screenshots          Playwright can take them
+                  → Set e2e.web.screenshots to the folder its screenshots land in: …
+     ready        terminal transcript  commands to run and save with their output
+     unknown      app.url              baseURL in playwright.config.ts is \`process.env.BASE_URL\`, which names a variable with no default there
+                  → Set it with \`cello profile set app.url "<value>"\` once you know it.
+   \`\`\`
+
+   Find those folders (run the e2e once and see where its videos land) and set them with \`cello profile set e2e.web.videos "<folder>"\`, so builders after you pick the videos up from the right place.
+
    - **Tell the human what's missing.** A missing or partial line means builders here can't bring the evidence a packet needs (a video of the flow, above all). Say so when you report the setup, with the suggestion, so they can decide whether to set it up.
    - The defaults are fine unless the human named the project or its key: then pass \`--name "Thai Lookup"\` and \`--key THAI\`.
    - If the key is taken, it says which project has it: pick another, or leave \`--key\` out and Cello picks a free one (CEL, then CELL, CELLO, CEL2…).
@@ -1188,7 +1204,7 @@ cello init [flags]
 | \`--agents-md\` | Also add the "Tracking work in Cello" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), or bring the one there up to date. |
 | \`--replace\` | With --agents-md: swap an old "Tracking work in Cello" section that has lines Cello didn't write for Cello's current one (the old file is kept as .bak). Without it, such a section is left as it is. |
 | \`--skip-detect\` | Don't inspect the repo: no testing report, and the testing profile is left as it is. |
-| \`--json\` | Print JSON: created, project, url, testing ({ detection: { stack, packageManager, tools, fields, readiness }, written, kept }), profile (the testing profile after it), hooks ({ file, changed, pluginFolder }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged, customised or foreign, backup, diff }), each null when not asked for or not reached, and error when detection, --hooks or --agents-md failed. |
+| \`--json\` | Print JSON: created, project, url, testing ({ detection: { stack, packageManager, tools, fields, unresolved ([{ field, why }]: found but not settled, so not written), readiness }, written, kept }), profile (the testing profile after it), hooks ({ file, changed, pluginFolder }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged, customised or foreign, backup, diff }), each null when not asked for or not reached, and error when detection, --hooks or --agents-md failed. |
 
 ### cello profile
 

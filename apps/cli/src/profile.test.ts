@@ -42,6 +42,18 @@ describe("the testing profile in the CLI (CEL-89)", () => {
     ])
   })
 
+  it("a field detection couldn't settle gets a line saying why, and how to set it (CEL-96)", () => {
+    const found = detectRepo({
+      paths: ["playwright.config.ts"],
+      packages: [],
+      texts: { "playwright.config.ts": "use: { baseURL: process.env.BASE_URL, video: \"on\" }" },
+    }, { ffmpeg: true, docker: true, playwrightBrowsers: true })
+    expect(readinessLines(found).slice(-2)).toEqual([
+      "  unknown      app.url              baseURL in playwright.config.ts is `process.env.BASE_URL`, which names a variable with no default there",
+      "               → Set it with `cello profile set app.url \"<value>\"` once you know it.",
+    ])
+  })
+
   it("says what init wrote into the profile and what it kept", () => {
     expect(wroteLines({ written: ["install", "unit"], kept: ["typecheck"], found: 3 })).toEqual([
       "Wrote install, unit to the testing profile; kept typecheck, which an agent or the human set. See `cello profile`.",

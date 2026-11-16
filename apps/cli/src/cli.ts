@@ -2148,7 +2148,7 @@ const init = Command.make("init", {
   json: Flag.Boolean("json").pipe(
     Flag.withDefault(false),
     Flag.withDescription(
-      "Print JSON: created, project, url, testing ({ detection: { stack, packageManager, tools, fields, readiness }, written, kept }), " +
+      "Print JSON: created, project, url, testing ({ detection: { stack, packageManager, tools, fields, unresolved ([{ field, why }]: found but not settled, so not written), readiness }, written, kept }), " +
         "profile (the testing profile after it), hooks ({ file, changed, pluginFolder }) and agentsMd ({ file, changed, change: added, " +
         "updated, replaced, unchanged, customised or foreign, backup, diff }), each null when not asked for or not reached, and error " +
         "when detection, --hooks or --agents-md failed.",

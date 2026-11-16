@@ -32,6 +32,11 @@ export const readinessLines = (found: Detection): string[] => {
     ...found.readiness.flatMap((r) => {
       return [`  ${r.state.padEnd(11)}  ${r.kind.padEnd(19)}  ${r.note}`, ...(r.suggestion ? [`               → ${r.suggestion}`] : [])]
     }),
+    // CEL-96: what it saw but couldn't settle, left out of the profile instead of written half-resolved.
+    ...found.unresolved.flatMap((u) => [
+      `  ${"unknown".padEnd(11)}  ${u.field.padEnd(19)}  ${u.why}`,
+      `               → Set it with \`cello profile set ${u.field} "<value>"\` once you know it.`,
+    ]),
   ]
 }
 
