@@ -623,7 +623,7 @@ cello inbox --wait --json   # the same as JSON: items, claimed
 - **It doesn't poll the board:** it listens on the server's event stream. When the server restarts (every deploy does), it says so on stderr, "The Cello server on port 4747 went away; reconnecting for up to 2 minutes…", reconnects and carries on; nothing is taken twice. If the server stays away for 2 minutes, it exits 1 with "The Cello server on port 4747 went away and didn't come back within 2 minutes, so this stopped waiting." Start it (\`cello start\`) and run \`--wait\` again. \`cello wait\` and \`cello task ask --wait\` ride out a restart the same way (Questions for the human).
 - **One per session.** While it waits it holds a lock file (\`$TMPDIR/cello-inbox-wait/<hash of port and session>\`, holding its pid and when it started) and says so on stderr: \`Waiting for new comments, Send back notes, answers and ended claims for this session (pid 4242)…\`. A second \`cello inbox --wait\` for the same session leaves at once, saying on stderr \`\`Already waiting: a \`cello inbox --wait\` (pid 4242) is running for this session, and it wakes you when something new arrives.\`\` (with \`--json\`: \`{"waiting": true, "pid": 4242}\`). The lock goes when it ends, however it ends.
 - **It never outlives your session.** It stops, taking nothing, once the Claude Code that started it is gone (it checks \`CLAUDE_PID\` every second), and after a day with nothing new it stops and says so: "Nothing new for this session in 24 hours, so \`cello inbox --wait\` stopped. If you still hold a claim, start it again in the background." A lock whose pid is dead, or that's older than a day (its pid may belong to another process by then), is ignored.
-- **It shares nicely:** the hooks and \`cello inbox\` take from the same inbox, so whichever gets an item first hands it over and the others never see it. Answers a \`cello task ask --wait\` (or \`cello wait\`) is waiting for stay with that command.
+- **It shares nicely:** the hooks and \`cello inbox\` take from the same inbox, so whichever gets an item first hands it over and the others never see it. Answers a \`cello task ask --wait\` (or \`cello wait\`) is waiting for stay with that command; if a server restart lets the hook take them first, that command says they already arrived instead of printing them again.
 - **Start it again after it wakes you,** when you end that turn too: it hands over one batch and exits.
 
 **The Stop hook asks for it.** When you stop with nothing new, while you hold a claimed task and no waiter is running for your session, the Stop hook keeps you going once with:
@@ -792,6 +792,13 @@ What happens:
    - **with \`--wait\`:** the command blocks until they send, then prints the answers and exits. Run it in the background (Claude Code: \`run_in_background\`), so your session wakes when they arrive.
    - **without it:** the hook delivers them like a comment (see Comments from the human reach your session), or \`cello wait CEL-43\` waits for them later (after a restart, say).
    - **a server restart doesn't stop the wait.** Every deploy restarts the server; \`--wait\` and \`cello wait\` say so on stderr ("The Cello server on port 4747 went away; reconnecting for up to 2 minutes…"), reconnect, and keep waiting on the same ask: nothing is asked again, and the answers are still printed once (or that the ask was withdrawn, if it was meanwhile). If the server stays away for 2 minutes they exit 1 with "…didn't come back within 2 minutes, so this stopped waiting. Start it (\`cello start\`), then run \`cello wait CEL-43\` again."; the ask is still open, so \`cello wait CEL-43\` picks it up once the server is back.
+   - **answers that already reached you aren't printed again.** If the hook or \`cello inbox\` took them first (the human answered while the wait was reconnecting), or an earlier \`cello wait\` printed them, the wait prints one line instead and exits 0:
+
+     \`\`\`
+     The answers to "Search layout" on CEL-43 already reached this session (through the hook, 2m ago). \`cello task answers CEL-43\` shows them again.
+     \`\`\`
+
+     With \`--json\` it prints the ask as usual, plus \`alreadyDelivered: { via, at }\` (\`via\` is \`hook\`, \`inbox\` or \`wait\`; null when the wait handed them over itself). A withdrawn ask is reported as withdrawn either way.
    - \`cello task answers CEL-43\` prints the latest answers again any time (\`--all\`: every round); \`--json\` for scripts.
 
 **The file** (JSON or YAML; paths are relative to it):
@@ -1459,7 +1466,7 @@ cello label archive [flags] <name>
 
 ### cello wait
 
-Wait for the human to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered. Rides out a server restart; exits 1 if the server stays away for 2 minutes.
+Wait for the human to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered. When the answers already reached this session (the hook, \`cello inbox\` or an earlier wait took them), it says so in one line instead. Rides out a server restart; exits 1 if the server stays away for 2 minutes.
 
 \`\`\`
 cello wait [flags] <key>

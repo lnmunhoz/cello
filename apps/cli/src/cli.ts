@@ -51,7 +51,7 @@ import * as Flag from "effect/cli/Flag"
 import * as GlobalFlag from "effect/cli/GlobalFlag"
 import { addAgentsSection, agentsFile, type AgentsResult } from "./agentsMd.ts"
 import { roundLabel } from "@cello/client/sync/asks"
-import { answerLines, askResultText, askSpecFromArgs, askSpecFromFile, roundsText } from "./ask.ts"
+import { alreadyDeliveredText, answerLines, askResultText, askSpecFromArgs, askSpecFromFile, roundsText } from "./ask.ts"
 import { buildsText } from "./builds.ts"
 import {
   ALLOW_ARTIFACTS_VARIABLE,
@@ -848,19 +848,26 @@ const humanName = (actors: ReadonlyArray<Actor>) => actors.find((a) => a.kind ==
 
 /**
  * Waits for the task's latest ask to close, then prints the answers (screenshots saved as files) or why
- * there are none. Rides out a server restart (CEL-78): a closed ask is just read again, so nothing is
- * printed twice.
+ * there are none. Rides out a server restart (CEL-78): a closed ask is just read again, and every try
+ * sends the same command id, so a reply lost to the restart still gets this wait's answers. When the
+ * hook or `cello inbox` took them while it was reconnecting, it says so in one line instead of printing
+ * them a second time.
  */
 const waitAndPrint = (key: string, json: boolean) =>
   Effect.gen(function* () {
-    const { ask, detail } = yield* throughRestarts((client) =>
+    const commandId = newCommandId()
+    // The wait last, so nothing after it can fail and send the wait round again.
+    const { waited, detail } = yield* throughRestarts((client) =>
       Effect.gen(function* () {
-        const ask = yield* client["ask.wait"]({ key })
-        return { ask, detail: yield* client["task.get"]({ key }) }
+        const detail = yield* client["task.get"]({ key })
+        return { detail, waited: yield* client["ask.wait"]({ key, commandId }) }
       }), `cello wait ${key}`)
-    const files = yield* saveScreenshots(askScreenshots(ask))
-    if (json) return yield* printJson({ ask, files: Object.fromEntries(files) })
-    yield* print(askResultText(ask, detail.task.key, humanName(detail.actors), files, (yield* CliEnv).now()))
+    const { alreadyDelivered = null, ...ask } = waited
+    const now = (yield* CliEnv).now()
+    if (alreadyDelivered !== null && !json) return yield* print(alreadyDeliveredText(ask, detail.task.key, alreadyDelivered, now))
+    const files = alreadyDelivered === null ? yield* saveScreenshots(askScreenshots(ask)) : new Map<string, string>()
+    if (json) return yield* printJson({ ask, files: Object.fromEntries(files), alreadyDelivered })
+    yield* print(askResultText(ask, detail.task.key, humanName(detail.actors), files, now))
   })
 
 const ask = Command.make("ask", {
@@ -976,6 +983,7 @@ const answers = Command.make("answers", {
 const waitCommand = Command.make("wait", { key, json }, (input) => waitAndPrint(input.key, input.json)).pipe(
   Command.withDescription(
     "Wait for the human to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered. " +
+      "When the answers already reached this session (the hook, `cello inbox` or an earlier wait took them), it says so in one line instead. " +
       "Rides out a server restart; exits 1 if the server stays away for 2 minutes.",
   ),
 )
