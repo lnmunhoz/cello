@@ -9,7 +9,8 @@
 // - detection (`detected: true`) is a whole detection: it writes only fields that are unset or were
 //   detected before and keeps the rest; finding the same value again changes nothing (setting it by hand
 //   confirms it). It takes no `unset`, but clears the fields still marked detected that it doesn't name:
-//   no longer found, or no longer trusted, like CEL-89's half-resolved URLs (CEL-96)
+//   no longer found, or no longer trusted, like CEL-89's half-resolved URLs (CEL-96). A detection that
+//   found nothing at all clears nothing
 import type { ProfileField, ProfileSource, ProjectRef, TestingProfile } from "@cello/contract/entities"
 import { Invalid, NotFound, ProfileFieldLocked } from "@cello/contract/errors"
 import type { Caller, ProfileWrite } from "@cello/contract/rpcs"
@@ -98,7 +99,9 @@ const make = Effect.gen(function* () {
         const confirmed: string[] = []
         const kept: string[] = []
         const cleared: string[] = []
-        if (source === "detected") {
+        // A detection that found nothing at all is a checkout with nothing to read (a branch without the
+        // project's files, a sparse or fresh checkout), not a repo that dropped everything: it clears nothing.
+        if (source === "detected" && wanted.size > 0) {
           for (const before of current.values()) {
             if (before.source !== "detected" || wanted.has(before.field)) continue
             yield* sql`DELETE FROM profile_fields WHERE project_id = ${project.id} AND field = ${before.field}`

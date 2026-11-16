@@ -188,7 +188,7 @@ export const CelloRpcs = RpcGroup.make(
   // Sets and unsets fields in one command. The caller is the source: the human, or an agent, who can't
   // change a field the human set (ProfileFieldLocked). `detected` (`cello init`) is a whole detection: it
   // writes only fields that are unset or were detected before, keeps the rest, takes no `unset`, and clears
-  // the fields still marked detected that it doesn't name (no longer found).
+  // the fields still marked detected that it doesn't name (no longer found); an empty detection clears nothing.
   Rpc.make("profile.set", {
     payload: {
       commandId,

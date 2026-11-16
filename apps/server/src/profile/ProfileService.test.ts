@@ -118,11 +118,20 @@ describe("ProfileService", () => {
         ["app.url", "http://localhost:${WEB_PORT}", "http://localhost:5199"],
         ["e2e.web.videos", "test-results/playwright", null],
       ])
-      // A detection that finds nothing clears every detected field, and only those.
-      expect((yield* set({}, { detected: true })).result).toMatchObject({ written: [], cleared: ["install", "app.url"] })
-      expect(yield* values).toEqual({ unit: "bun run test (human)", typecheck: "bun run typecheck (agent)" })
+      // A detection that names one field clears every other detected one, and only those.
+      expect((yield* set({ "app.url": "http://localhost:5199" }, { detected: true })).result).toMatchObject({ written: [], cleared: ["install"] })
+      expect(yield* values).toEqual({ "unit": "bun run test (human)", "typecheck": "bun run typecheck (agent)", "app.url": "http://localhost:5199 (detected)" })
       // A hand-made write never clears what it doesn't name.
       expect((yield* agent(set({ install: "bun i" }))).result).toMatchObject({ cleared: [] })
+    })))
+
+  it.effect("a detection that found nothing clears nothing: a checkout with no package.json (a bare branch, a sparse checkout) keeps the profile (CEL-96)", () =>
+    run(Effect.gen(function* () {
+      const { set, values } = yield* setup
+      yield* set({ "install": "bun install", "app.url": "http://localhost:5199" }, { detected: true })
+      const empty = yield* set({}, { detected: true })
+      expect(empty).toMatchObject({ seq: null, result: { written: [], cleared: [], kept: [] } })
+      expect(yield* values).toEqual({ "install": "bun install (detected)", "app.url": "http://localhost:5199 (detected)" })
     })))
 
   it.effect("refuses unknown fields and bad values, naming the field", () =>

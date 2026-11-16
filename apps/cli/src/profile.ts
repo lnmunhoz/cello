@@ -41,16 +41,18 @@ export const readinessLines = (found: Detection): string[] => {
 }
 
 /**
- * What `cello init` wrote into the profile from detection (`found`: how many fields it detected), what it
- * left, and the detected fields it cleared because this run didn't find them (CEL-96).
+ * What `cello init` wrote into the profile from detection (`found`: how many fields it detected; `profile`:
+ * how many the profile has after it), what it left, and the detected fields it cleared because this run
+ * didn't find them (CEL-96). Finding nothing clears nothing (the server's rule), so the profile stays.
  */
 export const wroteLines = (
-  done: { readonly written: ReadonlyArray<string>; readonly kept: ReadonlyArray<string>; readonly cleared: ReadonlyArray<string>; readonly found: number },
+  done: { readonly written: ReadonlyArray<string>; readonly kept: ReadonlyArray<string>; readonly cleared: ReadonlyArray<string>; readonly found: number; readonly profile: number },
 ): string[] => {
   const cleared = done.cleared.length ? `Cleared ${andList([...done.cleared])}: detected before, not found this time.` : null
   if (done.written.length === 0 && done.kept.length === 0) {
     if (cleared) return [`${cleared} See \`cello profile\`.`]
     if (done.found > 0) return ["The testing profile already has everything found. See `cello profile`."]
+    if (done.profile > 0) return ["Found nothing to detect here; kept the testing profile as it is."]
     return [`Nothing to write to the testing profile yet. Set fields as the repo gets them: ${SET_HINT}.`]
   }
   const wrote = done.written.length ? `Wrote ${done.written.join(", ")} to the testing profile` : "Wrote nothing new to the testing profile"

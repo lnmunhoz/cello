@@ -148,6 +148,24 @@ describe("cello init's testing report (CEL-89)", () => {
       expect(fields["app.url"]).toBeUndefined()
       expect(fields["e2e.web.videos"]).toBeUndefined()
     }).pipe(Effect.scoped))
+
+  it.live("init from a worktree with none of the repo's files finds nothing and keeps the profile as it is (CEL-96)", () =>
+    Effect.gen(function* () {
+      const { dataDir, agent } = yield* setup
+      const repo = gitRepo(dataDir, "shop")
+      const git = (cwd: string, ...args: string[]) => Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd })
+      // A first commit without the app's files, so a worktree of it has no package.json.
+      git(repo, "commit", "-q", "--allow-empty", "-m", "init")
+      write(repo, VITE_APP)
+      yield* agent(repo)("init")
+      const before = JSON.parse((yield* agent(repo)("profile", "--json")).out).fields
+      expect(before.length).toBeGreaterThan(5)
+      const worktree = path.join(dataDir, "bare-branch")
+      git(repo, "worktree", "add", "-q", worktree)
+      const empty = yield* agent(fs.realpathSync(worktree))("init")
+      expect(empty.out.split("\n").at(-1)).toBe("Found nothing to detect here; kept the testing profile as it is.")
+      expect(JSON.parse((yield* agent(repo)("profile", "--json")).out).fields).toEqual(before)
+    }).pipe(Effect.scoped))
 })
 
 describe("cello profile (CEL-89)", () => {
