@@ -6,9 +6,11 @@ import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import type { StageInfo } from "@cello/contract/stages"
 import { agoShort, type Presence, presenceOf, presenceWords, type SessionLike } from "@cello/shared/presence"
-import { BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, type LucideIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
+import { ActivityIcon, BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, type LucideIcon, PencilRulerIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
 import { type ReactNode, useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"
+import { WORKING } from "../board/lanes.ts"
+import { workingOption } from "../board/workingOption.ts"
 import { AgentMark, type AgentMood } from "../components/ui/AgentMark.tsx"
 import { formatDay } from "../lib/format.ts"
 import { drawnMarks } from "./drawnMarks.ts"
@@ -31,7 +33,14 @@ import {
 } from "./model.ts"
 import { useNow } from "./useNow.ts"
 
-const STAGE_ICONS: Record<string, LucideIcon> = { hammer: HammerIcon, "scan-eye": ScanEyeIcon, wrench: WrenchIcon, "git-merge": GitMergeIcon }
+const STAGE_ICONS: Record<string, LucideIcon> = {
+  "pencil-ruler": PencilRulerIcon,
+  hammer: HammerIcon,
+  "scan-eye": ScanEyeIcon,
+  wrench: WrenchIcon,
+  "git-merge": GitMergeIcon,
+  activity: ActivityIcon,
+}
 
 const PRESENCE_TEXT: Record<Presence, string> = { active: "text-ink", idle: "text-idle", ended: "text-faint" }
 
@@ -62,7 +71,7 @@ export function StageChip({ stage }: { stage: StageInfo }) {
 }
 
 /**
- * A lane's heading in the In Progress column: the stage, "No stage", or "Needs input" (`waiting`: the
+ * A lane's heading in the In Progress column: the stage, Working (CEL-105), "No stage", or "Needs input" (`waiting`: the
  * folded Needs input cards below the lanes), and how many cards it holds.
  */
 export function LaneHeading({ stage, count, waiting = false }: { stage: StageInfo | null; count: number; waiting?: boolean }) {
@@ -243,14 +252,17 @@ function HolderWords({
 /**
  * The card's work line, while an agent works on the task or it has a stage: who's on it (the subagent
  * working on it, else the agent session holding it) and whether it's working, then the stage at the
- * right. `stage: false` leaves the stage out (its lane says it).
+ * right. `stage: false` leaves the stage out (its lane says it). With no stage and its agent active it
+ * says Working (CEL-105), unless a Working lane already does.
  */
 export function CardWork({ task, board, stage = true }: { task: Task; board: BoardState; stage?: boolean }) {
   const now = useNow()
   const p = provenanceOf(board, task, now)
   const holder = live(board, p.holder)
   const { mark, leaving } = useTaskMark(task, board, holder)
-  const shownStage = stage ? p.stage : null
+  const working = p.stage === null && holder !== null && presenceOf(holder.subject, now) === "active" ? WORKING : null
+  // Option A's lane says Working; option B's lanes don't, so its card always does (CEL-105 scope).
+  const shownStage = stage ? (p.stage ?? working) : workingOption === "B" ? working : null
   if (!holder && !shownStage && !leaving) return null
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-xs" data-card-work>

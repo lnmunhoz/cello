@@ -121,9 +121,9 @@ test("CEL-35: Display → Group In Progress by stage splits the column into lane
   await expect(progress.locator("[data-lane]")).toHaveCount(0)
   await expect(card(page, review).locator('[data-stage="review"]')).toBeVisible()
 
-  await caption(page, "Display → Group In Progress by stage: a lane per stage, in order, then the tasks with no stage")
+  await caption(page, "Display → Group In Progress by stage: a lane per stage, in order, then Working for the task its agent is on with no stage")
   await groupByStage(page, true)
-  await expect(progress.locator("[data-lane]")).toHaveText([/Building\s*1/, /Agent review\s*1/, /Fixing findings\s*1/, /No stage\s*1/])
+  await expect(progress.locator("[data-lane]")).toHaveText([/Building\s*1/, /Agent review\s*1/, /Fixing findings\s*1/, /Working\s*1/])
   await expect(progress.locator("[data-task-key]").nth(0)).toHaveAttribute("data-task-key", building)
   await expect(progress.locator("[data-task-key]").nth(1)).toHaveAttribute("data-task-key", review)
   await expect(progress.locator("[data-task-key]").nth(2)).toHaveAttribute("data-task-key", fixing)
@@ -196,7 +196,7 @@ test("CEL-35: Display → Group In Progress by stage splits the column into lane
   await page.goto(`/${key}/issues`)
   await groupByStage(page, true)
   await agent.run((c) => c["ask.create"]({ commandId: newCommandId(), key: fixing, title: "Which fix?", questions: [{ prompt: "Ship the narrower drop zone?" }], files: [], links: [] }))
-  await expect(progress.locator("[data-lane]")).toHaveText([/Building\s*1/, /Agent review\s*1/, /No stage\s*1/, /Needs input\s*1/])
+  await expect(progress.locator("[data-lane]")).toHaveText([/Building\s*1/, /Agent review\s*1/, /Working\s*1/, /Needs input\s*1/])
   await expect(progress.locator("[data-task-key]").nth(3)).toHaveAttribute("data-task-key", fixing)
   await expect(card(page, fixing).locator('[data-stage="fixing"]')).toBeVisible()
 
@@ -207,7 +207,7 @@ test("CEL-35: Display → Group In Progress by stage splits the column into lane
   await page.keyboard.press("Escape")
   await expect(page.getByRole("dialog", { name: "Display options" })).toBeHidden()
   await expect(column(page, "Needs input").locator(`[data-task-key="${fixing}"]`)).toBeVisible()
-  await expect(progress.locator("[data-lane]")).toHaveText([/Building\s*1/, /Agent review\s*1/, /No stage\s*1/])
+  await expect(progress.locator("[data-lane]")).toHaveText([/Building\s*1/, /Agent review\s*1/, /Working\s*1/])
   await page.screenshot({ path: path.join(SHOTS, "cel-35-lanes-and-needs-input-light.png") })
 
   await agent.run((c) => c["ask.withdraw"]({ commandId: newCommandId(), key: fixing }))
