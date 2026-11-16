@@ -47,3 +47,9 @@ export const cropFor = (viewports: ReadonlyArray<Size | null>, video: Size = VID
   const crop = { width: even(Math.round(width * scale)), height: even(Math.round(height * scale)) }
   return crop.width >= video.width && crop.height >= video.height ? null : crop
 }
+
+/** Playwright's `video` option, as a spec or the config sets it. */
+type VideoOption = string | { readonly mode: string; readonly size?: Size }
+
+/** The size of the video Playwright records for `video`: the spec's own when it gave one, else VIDEO_SIZE. */
+export const videoSizeOf = (video: VideoOption): Size => (typeof video === "object" && video.size ? video.size : VIDEO_SIZE)
