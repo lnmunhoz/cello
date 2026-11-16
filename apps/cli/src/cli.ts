@@ -22,6 +22,7 @@ import {
   type Label,
   LABEL_GROUPS,
   type LabelGroup,
+  type Milestone,
   type Priority,
   type ProjectRef,
   type Review,
@@ -41,6 +42,7 @@ import { formatBytes } from "@cello/shared/bytes"
 import { colorFromSeed } from "@cello/shared/color"
 import { cleanReaction, groupReactions } from "@cello/shared/reaction"
 import { type Detection, detectRepo } from "@cello/shared/detect"
+import { progressText } from "@cello/shared/milestone"
 import { missingFields } from "@cello/shared/testingProfile"
 import { shortCommit } from "@cello/shared/build"
 import { APP_VERSION } from "@cello/shared/version"
@@ -120,6 +122,7 @@ import {
   WAITING,
 } from "./inboxWait.ts"
 import { groupWord, labelArgs, labelListText, labelNames, parseChanges, parseGroup, resolveChanges } from "./labels.ts"
+import { contextMilestones, milestoneHeader, milestoneLine, milestoneListText, milestoneNamed, parseDue } from "./milestones.ts"
 import { openTarget } from "./open.ts"
 import { pageFiles } from "./pageFiles.ts"
 import { reconnecting, reconnectGrace } from "./reconnect.ts"
@@ -407,6 +410,7 @@ const context = Command.make("context", { project, json }, (input) =>
       }`,
       `Statuses  ${visible.join(" · ")}${hidden.length ? ` (hidden: ${hidden.join(", ")})` : ""}`,
       `Labels    ${ctx.labels.map((l) => l.name).join(" · ") || "none yet"}`,
+      `Milestones  ${contextMilestones(ctx.openMilestones ?? [], ctx.milestones.length)}`,
       ...(ctx.profile ? contextProfileLines(ctx.profile) : []),
     ]
     if (ctx.inbox.length) {
@@ -449,7 +453,7 @@ const context = Command.make("context", { project, json }, (input) =>
     ])).map((l) => `  ${l}`))
     if (ctx.recent.length === 0) lines.push("  none yet")
     yield* print(lines.join("\n"))
-  })).pipe(Command.withDescription("Start here: the project, its statuses and labels, new comments for you, your claims and recent activity."))
+  })).pipe(Command.withDescription("Start here: the project, its statuses, labels and open milestones, new comments for you, your claims and recent activity."))
 
 /** Lines indented by two spaces; blank lines stay blank. */
 const indent = (lines: ReadonlyArray<string>) => lines.map((l) => (l === "" ? l : `  ${l}`))
@@ -458,10 +462,12 @@ const indent = (lines: ReadonlyArray<string>) => lines.map((l) => (l === "" ? l 
 const byIds = (names: {
   readonly statuses: ReadonlyArray<Status>
   readonly labels: ReadonlyArray<{ id: string; name: string }>
+  readonly milestones?: ReadonlyArray<Milestone>
   readonly sessions: ReadonlyArray<AgentSession>
 }) => ({
   statuses: Object.fromEntries(names.statuses.map((s) => [s.id, s])),
   labels: Object.fromEntries(names.labels.map((l) => [l.id, l])) as never,
+  milestones: Object.fromEntries((names.milestones ?? []).map((m) => [m.id, m])),
   sessionName: (id: string) => {
     const session = names.sessions.find((s) => s.id === id)
     return session ? sessionName(session) : undefined
@@ -486,6 +492,7 @@ const list = Command.make("list", {
   json,
   status: Flag.String("status").pipe(Flag.optional, Flag.withDescription("Only this status, by name (e.g. Backlog, Done). Without it: Todo and In Progress.")),
   label: Flag.String("label").pipe(Flag.optional, Flag.withDescription("Only tasks with this label.")),
+  milestone: Flag.String("milestone").pipe(Flag.optional, Flag.withDescription("Only tasks in this milestone, by name; none for tasks without one.")),
   mine: Flag.Boolean("mine").pipe(Flag.withDefault(false), Flag.withDescription("Only tasks you've claimed.")),
 }, (input) =>
   Effect.gen(function* () {
@@ -495,13 +502,16 @@ const list = Command.make("list", {
         project: ref,
         ...(Option.isSome(input.status) ? { status: input.status.value } : {}),
         ...(Option.isSome(input.label) ? { label: input.label.value } : {}),
+        ...(Option.isSome(input.milestone) ? { milestone: input.milestone.value } : {}),
         ...(input.mine ? { mine: true } : {}),
       })
     )
     if (input.json) return yield* printJson(result)
     if (result.tasks.length === 0) {
       const which = Option.isSome(input.status) ? `${input.status.value} tasks` : "open tasks"
-      return yield* print(`No ${which}${input.mine ? " claimed by you" : ""} in ${result.project.key}.`)
+      const named = Option.isSome(input.milestone) ? milestoneNamed(result.milestones, input.milestone.value, result.project.key, true) : undefined
+      const inMilestone = named === undefined || typeof named === "string" ? "" : named === null ? " without a milestone" : ` in milestone ${named.name}`
+      return yield* print(`No ${which}${input.mine ? " claimed by you" : ""}${inMilestone} in ${result.project.key}.`)
     }
     yield* print(taskRows(result, result.tasks).join("\n"))
   })).pipe(Command.withDescription("Tasks in the current project: Todo and In Progress unless --status picks another."))
@@ -513,13 +523,14 @@ const get = Command.make("get", { key, json }, (input) =>
     const now = (yield* CliEnv).now()
     const { task } = detail
     const labels = labelNames(task, detail.labels)
+    const milestone = detail.milestones.find((m) => m.id === task.milestoneId)
     const claim = claimOf(detail, task)
     const stage = task.stage === null ? undefined : stageInfo(task.stage)
     const changed = task.updatedByActorId === null ? null : author(detail, task.updatedByActorId, task.updatedBySessionId, task.updatedByAgentId)
     const lines = [
       `${task.key}  ${task.title}`,
       `Status: ${statusName(detail, task.statusId)}${stage ? ` · Stage: ${stage.label}` : ""} · Priority: ${PRIORITY_NAMES[task.priority]}` +
-      `${labels.length ? ` · Labels: ${labels.join(", ")}` : ""}`,
+      `${labels.length ? ` · Labels: ${labels.join(", ")}` : ""}${milestone ? ` · Milestone: ${milestone.name}` : ""}`,
       ...(claim ? [`Claimed by: ${claim}`] : task.assigneeActorId ? [`Assigned to: ${author(detail, task.assigneeActorId, null)}`] : []),
       `Created by ${author(detail, task.createdByActorId, task.createdBySessionId)}, ${ago(task.createdAt, now)}`,
       ...(changed && task.version > 1 ? [`Last changed by ${changed}, ${ago(task.updatedAt, now)}`] : []),
@@ -566,7 +577,7 @@ const get = Command.make("get", { key, json }, (input) =>
     lines.push(...columns(detail.history.map((e) => [ago(e.ts, now), describeEvent(e, { ...byIds(detail), actors: {} }, author(detail, e.actorId, e.sessionId, e.agentId, e))]))
       .map((l) => `  ${l}`))
     yield* print(lines.join("\n"))
-  })).pipe(Command.withDescription("One task in full: description, labels, claim, pages, review packets with the human's notes, comments, history."))
+  })).pipe(Command.withDescription("One task in full: description, labels, milestone, claim, pages, review packets with the human's notes, comments, history."))
 
 const create = Command.make("create", {
   title: Argument.String("title").pipe(Argument.withDescription("The task's title, in quotes.")),
@@ -580,6 +591,7 @@ const create = Command.make("create", {
   ),
   priority: Flag.String("priority").pipe(Flag.optional, Flag.withDescription("urgent, high, medium, low or none.")),
   label: Flag.String("label").pipe(Flag.atLeast(0), Flag.withDescription("A label name; repeat it, or separate names with commas.")),
+  milestone: Flag.String("milestone").pipe(Flag.optional, Flag.withDescription("An open milestone of the project, by name (`cello milestone list`).")),
   parent: Flag.String("parent").pipe(Flag.optional, Flag.withDescription("Parent task key.")),
 }, (input) =>
   Effect.gen(function* () {
@@ -593,6 +605,7 @@ const create = Command.make("create", {
         const status = Option.isSome(input.status) ? yield* byName("status", ctx.statuses, input.status.value) : undefined
         const names = input.label.flatMap((value) => value.split(",")).filter((l) => l.trim())
         const labels = yield* Effect.forEach(names, (name) => byName("label", ctx.labels, name))
+        const milestone = Option.isSome(input.milestone) ? yield* milestoneOrFail(ctx.milestones, input.milestone.value, ctx.project.key, false) : null
         const parent = Option.isSome(input.parent) ? (yield* client["task.get"]({ key: input.parent.value })).task : undefined
         const result = yield* client["task.create"]({
           commandId: newCommandId(),
@@ -602,14 +615,15 @@ const create = Command.make("create", {
           ...(status ? { statusId: status.id } : {}),
           ...(priority === undefined ? {} : { priority }),
           ...(labels.length ? { labelIds: labels.map((l) => l.id) } : {}),
+          ...(milestone ? { milestoneId: milestone.id } : {}),
           ...(parent ? { parentId: parent.id } : {}),
         })
-        return { ...result, names: ctx }
+        return { ...result, names: ctx, milestone }
       })
     )
-    const { names, ...response } = written
+    const { names, milestone, ...response } = written
     if (input.json) return yield* printJson(response)
-    yield* print(`Created ${taskLine(names, response.result)}`)
+    yield* print(`Created ${taskLine(names, response.result)}${milestone ? `  · ${milestone.name}` : ""}`)
   })).pipe(Command.withDescription("Create a task in the current project (Todo unless --status says otherwise)."))
 
 const claim = Command.make("claim", { key, json }, (input) =>
@@ -779,6 +793,7 @@ const edit = Command.make("edit", {
   description: Flag.String("description").pipe(Flag.optional, Flag.withDescription("A new description, in markdown; replaces the old one.")),
   bodyFile: Flag.String("body-file").pipe(Flag.optional, Flag.withDescription("Read the new description from a file; - is stdin.")),
   priority: Flag.String("priority").pipe(Flag.optional, Flag.withDescription("urgent, high, medium, low or none.")),
+  milestone: Flag.String("milestone").pipe(Flag.optional, Flag.withDescription("Put it in this open milestone, by name; none takes it out.")),
   json,
 }, (input) =>
   Effect.gen(function* () {
@@ -786,20 +801,43 @@ const edit = Command.make("edit", {
       title: Option.getOrUndefined(input.title),
       description: yield* bodyText(input.description, input.bodyFile),
       priority: Option.getOrUndefined(input.priority),
+      milestone: Option.getOrUndefined(input.milestone),
     })
     if (typeof fields === "string") return yield* new CliFailure({ message: fields })
-    const response = yield* withClient((client) =>
+    const written = yield* withClient((client) =>
       Effect.gen(function* () {
-        const { task } = yield* client["task.get"]({ key: input.key })
-        return yield* client["task.update"]({ commandId: newCommandId(), id: task.id, expectedVersion: task.version, ...fields })
+        const detail = yield* client["task.get"]({ key: input.key })
+        const milestone = Option.isSome(input.milestone)
+          ? yield* milestoneOrFail(detail.milestones, input.milestone.value, detail.project.key, true)
+          : undefined
+        const update = Object.keys(fields).length
+          ? yield* client["task.update"]({ commandId: newCommandId(), id: detail.task.id, expectedVersion: detail.task.version, ...fields })
+          : null
+        const moved = milestone === undefined
+          ? null
+          : yield* client["task.setMilestone"]({ commandId: newCommandId(), id: detail.task.id, milestoneId: milestone?.id ?? null })
+        return { update, moved, milestone }
       })
     )
-    if (input.json) return yield* printJson(response)
-    const task = response.result
-    yield* print(response.seq === null ? `Nothing to change on ${task.key}  ${task.title}` : `Edited ${task.key}  ${task.title}`)
+    const { update, moved, milestone } = written
+    if (input.json) return yield* printJson(moved ?? update)
+    const lines: string[] = []
+    if (update) lines.push(update.seq === null ? `Nothing to change on ${update.result.key}  ${update.result.title}` : `Edited ${update.result.key}  ${update.result.title}`)
+    if (moved) {
+      const task = moved.result
+      const where = milestone ? `is ${moved.seq === null ? "already " : ""}in ${milestone.name}` : moved.seq === null ? "has no milestone" : "has no milestone now"
+      lines.push(`${task.key} ${where}  ${task.title}`)
+    }
+    yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
-    "Change a task's title, description or priority; only the flags you give change. Any task, claimed or not; the human's edits end a claim as their other changes do.",
+    "Change a task's title, description, priority or milestone; only the flags you give change. Any task, claimed or not; the human's edits end a claim as their other changes do (a milestone doesn't: it's planning).",
   ))
+
+/** A milestone of the project by name (`none`: no milestone, where allowed), or a failure with the names and close matches. */
+const milestoneOrFail = (milestones: ReadonlyArray<Milestone>, name: string, projectKey: string, allowNone: boolean) => {
+  const found = milestoneNamed(milestones, name, projectKey, allowNone)
+  return typeof found === "string" ? Effect.fail(new CliFailure({ message: found })) : Effect.succeed(found)
+}
 
 const submit = Command.make("submit", {
   key,
@@ -1204,6 +1242,142 @@ const labelArchive = Command.make("archive", { name: labelName, project, json },
 const label = Command.make("label").pipe(
   Command.withDescription("The project's labels (each project has its own): list, create, update, archive. Put them on tasks with `cello task label`."),
   Command.withSubcommands([labelList, labelCreate, labelUpdate, labelArchive]),
+)
+
+// ── milestones ──────────────────────────────────────────────────────────────────────────────────
+
+const milestoneName = Argument.String("name").pipe(Argument.withDescription("The milestone's name; any case."))
+const goalFlag = Flag.String("goal").pipe(Flag.optional, Flag.withDescription("What it's for, in one line (markdown)."))
+const dueFlag = Flag.String("due").pipe(Flag.optional, Flag.withDescription("Its target date, like 2026-12-01; none clears it."))
+
+/** `--due`, read; a bad date fails before anything is sent. */
+const readDue = (value: Option.Option<string>) =>
+  Effect.gen(function* () {
+    if (Option.isNone(value)) return undefined
+    const due = parseDue(value.value)
+    if (due !== null && typeof due === "object") return yield* new CliFailure({ message: due.invalid })
+    return due
+  })
+
+/** The project's milestones with progress, and one of them by name, or a failure listing them. */
+const milestoneIn = (client: CelloClient["Service"], ref: ProjectRef, name: string) =>
+  Effect.gen(function* () {
+    const list = yield* client["milestone.list"]({ project: ref })
+    const found = yield* milestoneOrFail(list.milestones.map((s) => s.milestone), name, list.project.key, false)
+    return { list, found: found!, progress: list.milestones.find((s) => s.milestone.id === found!.id)!.progress }
+  })
+
+const milestoneList = Command.make("list", { project, json }, (input) =>
+  Effect.gen(function* () {
+    const ref = yield* projectRef(input.project)
+    const list = yield* withClient((client) => client["milestone.list"]({ project: ref }))
+    if (input.json) return yield* printJson(list)
+    yield* print(milestoneListText(list, (yield* CliEnv).now()))
+  })).pipe(Command.withDescription(
+    "The project's milestones in order: each one open or closed, how far along (done of total, Canceled not counted), its target date and goal.",
+  ))
+
+const milestoneShow = Command.make("show", { name: milestoneName, project, json }, (input) =>
+  Effect.gen(function* () {
+    const ref = yield* projectRef(input.project)
+    const detail = yield* withClient((client) => client["milestone.get"]({ project: ref, name: input.name }))
+    if (input.json) return yield* printJson(detail)
+    const lines = milestoneHeader(detail.milestone, detail.progress, (yield* CliEnv).now())
+    if (detail.tasks.length) lines.push("", ...taskRows(detail, detail.tasks))
+    else lines.push("", `No tasks in it yet: \`cello task edit KEY --milestone ${detail.milestone.name}\` puts one in.`)
+    yield* print(lines.join("\n"))
+  })).pipe(Command.withDescription("One milestone: its goal, date and progress, then its tasks by status (archived ones left out)."))
+
+const milestoneCreate = Command.make("create", { name: milestoneName, goal: goalFlag, due: dueFlag, project, json }, (input) =>
+  Effect.gen(function* () {
+    const due = yield* readDue(input.due)
+    const ref = yield* projectRef(input.project)
+    const response = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const { project: target } = yield* client["milestone.list"]({ project: ref })
+        return yield* client["milestone.create"]({
+          commandId: newCommandId(),
+          projectId: target.id,
+          name: input.name,
+          ...(Option.isSome(input.goal) ? { goal: input.goal.value } : {}),
+          ...(due === undefined ? {} : { targetDate: due }),
+        })
+      })
+    )
+    if (input.json) return yield* printJson(response)
+    yield* print(`Created milestone ${milestoneLine(response.result)}`)
+  })).pipe(Command.withDescription(
+    "Make a milestone in the project, last in its order. A name already taken in the project, in any case, is refused; another project may use the same name.",
+  ))
+
+const milestoneEdit = Command.make("edit", {
+  name: milestoneName,
+  rename: Flag.String("name").pipe(Flag.optional, Flag.withDescription("A new name for the milestone.")),
+  goal: goalFlag,
+  due: dueFlag,
+  before: Flag.String("before").pipe(Flag.optional, Flag.withDescription("Move it right before this milestone in the order.")),
+  after: Flag.String("after").pipe(Flag.optional, Flag.withDescription("Move it right after this milestone in the order.")),
+  project,
+  json,
+}, (input) =>
+  Effect.gen(function* () {
+    if ([input.rename, input.goal, input.due, input.before, input.after].every(Option.isNone)) {
+      return yield* new CliFailure({ message: "Say what to change: --name, --goal \"…\", --due 2026-12-01 (or none), --before or --after another milestone." })
+    }
+    const due = yield* readDue(input.due)
+    const ref = yield* projectRef(input.project)
+    const response = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const { list, found } = yield* milestoneIn(client, ref, input.name)
+        const all = list.milestones.map((s) => s.milestone)
+        const neighbor = (value: Option.Option<string>) =>
+          Option.isNone(value) ? Effect.succeed(undefined) : Effect.map(milestoneOrFail(all, value.value, list.project.key, false), (m) => m!.id)
+        // "--before M2": M2 comes right below it; "--after M2": right above.
+        const below = yield* neighbor(input.before)
+        const above = yield* neighbor(input.after)
+        return yield* client["milestone.update"]({
+          commandId: newCommandId(),
+          id: found.id,
+          ...(Option.isSome(input.rename) ? { name: input.rename.value } : {}),
+          ...(Option.isSome(input.goal) ? { goal: input.goal.value } : {}),
+          ...(due === undefined ? {} : { targetDate: due }),
+          ...(below === undefined ? {} : { after: below }),
+          ...(above === undefined ? {} : { before: above }),
+        })
+      })
+    )
+    if (input.json) return yield* printJson(response)
+    yield* print(response.seq === null ? `Milestone ${response.result.name} is already like that.` : `Updated milestone ${milestoneLine(response.result)}`)
+  })).pipe(Command.withDescription("Rename a milestone, change its goal or target date, or move it in the project's order."))
+
+/** Close or reopen: the human's only; the server refuses an agent. */
+const milestoneState = (closing: boolean) =>
+  Command.make(closing ? "close" : "reopen", { name: milestoneName, project, json }, (input) =>
+    Effect.gen(function* () {
+      const ref = yield* projectRef(input.project)
+      const written = yield* withClient((client) =>
+        Effect.gen(function* () {
+          const { found, progress } = yield* milestoneIn(client, ref, input.name)
+          const response = yield* client[closing ? "milestone.close" : "milestone.reopen"]({ commandId: newCommandId(), id: found.id })
+          return { response, progress }
+        })
+      )
+      if (input.json) return yield* printJson(written.response)
+      const { response, progress } = written
+      const name = response.result.name
+      if (response.seq === null) return yield* print(`Milestone ${name} is already ${closing ? "closed" : "open"}.`)
+      yield* print(closing ? `Closed milestone ${name} (${progressText(progress)}).` : `Reopened milestone ${name}.`)
+    })).pipe(Command.withDescription(
+      closing
+        ? "Close a milestone when its work is done: the human's only, like approving a review (agents are refused). Its tasks stay in it."
+        : "Reopen a closed milestone, so tasks can go in it again: the human's only.",
+    ))
+
+const milestone = Command.make("milestone").pipe(
+  Command.withDescription(
+    "The project's milestones (each project has its own): list, show, create, edit, close, reopen. Put tasks in one with `cello task edit KEY --milestone NAME`.",
+  ),
+  Command.withSubcommands([milestoneList, milestoneShow, milestoneCreate, milestoneEdit, milestoneState(true), milestoneState(false)]),
 )
 
 // ── documents ───────────────────────────────────────────────────────────────────────────────────
@@ -2682,7 +2856,7 @@ const service = Command.make("service").pipe(
 
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, init, profile, task, label, waitCommand, inbox, sessions, agents, doc, openCommand, searchCommand, whoami, guide, install, uninstall, hook, startCommand, service, backup, restoreCommand, buildsCommand]),
+  Command.withSubcommands([context, init, profile, task, label, milestone, waitCommand, inbox, sessions, agents, doc, openCommand, searchCommand, whoami, guide, install, uninstall, hook, startCommand, service, backup, restoreCommand, buildsCommand]),
   Command.withGlobalFlags([AgentFlag]),
 )
 

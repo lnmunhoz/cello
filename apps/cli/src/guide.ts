@@ -144,8 +144,9 @@ Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.loca
 
 - **Workspace:** a group of projects that share statuses and views.
 - **Label:** a name and a colour on a task. Each project has its own labels: CEL's \`bug\` and THAI's \`bug\` are two labels. A task can carry several of its project's labels. \`cello label list\` shows them; see Labels.
+- **Milestone:** a goal for a project ("M3 · Watching agents"), with an optional target date, in the order the human sets. Each task is in at most one. How far along it is (done of total) is counted from its tasks' statuses, never typed in. Each project has its own milestones. Agents create, edit and assign them; only the human closes one, like approving a review. See Milestones.
 - **Project:** one product, usually one git repository, with its own key (\`CEL\`). The CLI works out the project from the repository you're in; \`--project KEY\` picks another.
-- **Task:** a card, keyed \`<PROJECT>-<number>\` (\`CEL-12\`). It has a title, a markdown description, a status, a priority, labels, an optional parent task, comments and a history.
+- **Task:** a card, keyed \`<PROJECT>-<number>\` (\`CEL-12\`). It has a title, a markdown description, a status, a priority, labels, an optional milestone, an optional parent task, comments and a history.
 - **Status:** a column on the board, shared by the workspace. Names match in any case. \`cello context\` lists a workspace's own; the defaults are:
 
   | Status | What it means | How a task gets there |
@@ -191,13 +192,14 @@ Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.loca
 cello context
 \`\`\`
 
-It shows the project, its statuses (hidden ones in brackets), its labels, its testing profile (how to test and collect evidence here, each field with who set it, and what's missing), new comments from the human on tasks you've claimed (shown, not taken; see Comments from the human reach your session), the tasks your session has claimed, claims you lost and why, and recent activity:
+It shows the project, its statuses (hidden ones in brackets), its labels, its open milestones with how many of their tasks are done, its testing profile (how to test and collect evidence here, each field with who set it, and what's missing), new comments from the human on tasks you've claimed (shown, not taken; see Comments from the human reach your session), the tasks your session has claimed, claims you lost and why, and recent activity:
 
 \`\`\`
 Project   CEL · Cello · /Users/lnmunhoz/projects/cello
 You       Claude Code session 2fd0505c (cli)
 Statuses  Todo · In Progress · Needs input · In Review · Done (hidden: Backlog, Canceled)
-Labels    M2 · M3 · server · ui
+Labels    feature · server · ui
+Milestones  M3 6/11 done (due 2026-12-01) · M4 0/2 done
 Testing   how to test this repo and collect evidence; current best knowledge, so fix it with \`cello profile set\` when it's wrong
   install          bun install  (detected)
   unit             bun run test  (detected)
@@ -324,12 +326,13 @@ The human makes promo videos, icons and designs for each project. A place in Cel
 link them to tasks, and sync them later.
 EOF
 
-# A subtask, with two labels
-cello task create "Restore refuses while a server runs" --parent CEL-23 --label server,M2
+# A subtask, with two labels, in milestone M3
+cello task create "Restore refuses while a server runs" --parent CEL-23 --label server,feature --milestone M3
 \`\`\`
 
 - **Todo or Backlog:** Todo means agreed and ready to build. When the human says "add to the backlog", use \`--status Backlog\`.
 - **Labels must already exist.** \`cello label list\` lists them, and an unknown label fails with the real names. \`cello label create\` makes a new one (see Labels).
+- **So must the milestone,** and it must be open: \`cello milestone list\` shows them, \`cello milestone create\` makes one (see Milestones).
 - **Priority:** \`urgent\`, \`high\`, \`medium\`, \`low\` or \`none\`.
 - **Long descriptions:** use \`--body-file -\` with a heredoc, or \`--body-file notes.md\`.
 
@@ -346,9 +349,14 @@ The width is kept per project.
 EOF
 
 cello task edit CEL-12 --priority urgent --description "Short and new."
+
+cello task edit CEL-12 --milestone M3     # put it in a milestone (moves it from another)
+# CEL-12 is in M3  Sidebar: collapse, resize and remember the width
+cello task edit CEL-12 --milestone none   # take it out
+# CEL-12 has no milestone now  Sidebar: collapse, resize and remember the width
 \`\`\`
 
-- **Only the flags you give change.** \`--title\`, \`--description\` (or \`--body-file\`, a file or \`-\` for stdin) and \`--priority\` (\`urgent\`, \`high\`, \`medium\`, \`low\`, \`none\`), in any mix; together they're one change, one line in the history. With none of them it refuses and changes nothing. The same values again change nothing and say so ("Nothing to change on CEL-12  …").
+- **Only the flags you give change.** \`--title\`, \`--description\` (or \`--body-file\`, a file or \`-\` for stdin) and \`--priority\` (\`urgent\`, \`high\`, \`medium\`, \`low\`, \`none\`), in any mix; together they're one change, one line in the history. \`--milestone\` is a change of its own, with its own line ("put it in M3"). With none of them it refuses and changes nothing. The same values again change nothing and say so ("Nothing to change on CEL-12  …").
 - **The description is replaced, not added to.** To add a note, comment instead. To keep part of the old text, read it first: \`cello task get CEL-12 --json | jq -r '.task.description'\`.
 - **Who edits:** you, on any task, claimed or not; editing isn't guarded by a claim, and another session's claim stays. When the human edits a task you hold, your claim ends, as with any change they make to it, and your session is told (see Claim in Concepts).
 - **If someone changes the task at the same moment,** it fails with "It was changed by … in the meantime"; run it again.
@@ -359,6 +367,7 @@ cello task edit CEL-12 --priority urgent --description "Short and new."
 cello task list                          # Todo and In Progress
 cello task list --status Backlog         # any status by name, hidden ones too
 cello task list --status Done --label ui
+cello task list --milestone M3           # open tasks in a milestone; --milestone none for tasks without one
 cello task list --mine                   # what your session has claimed
 cello task get CEL-12                    # everything about one task
 cello task get CEL-12 --json | jq -r '.task.description'
@@ -452,14 +461,14 @@ cello task list
 
 Labels say what a task is about: what kind of work, which part of the product. **Each project has its own labels**: the \`cello label\` commands, \`cello context\`, \`cello task label\` and \`cello search\` see only the current project's (the repository you're in, or \`--project KEY\`), and a task can only carry labels of its own project. Each label has a name (unique in its project, ignoring case), a colour and a group. Two projects can each have a label of the same name, such as \`bug\`; they're separate labels, and changing or archiving one leaves the other alone. Each project has its own convention for them; Cello's own board, for one, gives each task one kind (feature, bug, polish, chore, docs) and one or more areas (board, cli, agents…).
 
-**Groups** say what a label means, so the board's filter can sort them: **kind** (the kind of work: feature, bug…), **area** (the part of the product: board, cli…), **milestone** (M2, M3) or **none** (the default; every screen calls it **Other**). The Issues tab's filter panel lists labels under Kind, Area, Milestone and Other, and matches any label within a group and every group picked: ticking \`bug\` and \`agents\` shows the bugs in agents.
+**Groups** say what a label means, so the board's filter can sort them: **kind** (the kind of work: feature, bug…), **area** (the part of the product: board, cli…), **milestone** or **none** (the default; every screen calls it **Other**). Milestones are their own thing now (see Milestones): Cello turned the Milestone labels it had (M2, M3) into milestones and removed the labels, so don't make new Milestone labels. The Issues tab's filter panel lists labels under Kind, Area, Milestone and Other, and matches any label within a group and every group picked: ticking \`bug\` and \`agents\` shows the bugs in agents.
 
 \`\`\`bash
 cello label list                                           # the project's labels: colour, and how many of its tasks carry each, under its group
 cello label list --project THAI                            # another project's labels
 cello label create board --color "#5B9A74" --group area    # a new label; without --color, one is picked from the name; without --group, none
 cello label update server --color "#8D7B68"                # recolour; --name renames; --group regroups
-cello label update M2 --group milestone
+cello label update docs --group kind
 cello label archive ui                                     # retire one
 
 cello task label CEL-12 +board +cli -ui                    # add and remove a task's labels, in one change
@@ -501,6 +510,45 @@ Until some label has a group, \`cello label list\` is one list without headings.
   - When you replace a label (say \`ui\` by areas), relabel its tasks first (\`cello task label CEL-12 +board -ui\`), so no card is left without one, then archive it.
 - **Colours:** \`--color\` takes \`#RRGGBB\`. Quote it in the shell (\`"#5B9A74"\`), since an unquoted \`#\` can start a comment.
 
+
+## Milestones
+
+A milestone is a goal for a project, such as "M3 · Watching agents", with an optional target date. **Each task is in at most one milestone**, and the milestone's progress is counted from its tasks: done of total, where Done counts as done, Canceled is left out of the total, and Backlog is counted but shown apart (it isn't committed yet). Nobody types progress in; it moves as cards move. **Each project has its own milestones**, in the order the human sets (M2 before M3), each open or closed. The card shows its milestone next to the labels, and the task panel has a Milestone picker.
+
+\`\`\`bash
+cello milestone list                                              # every milestone in order: open or closed, progress, date, goal
+cello milestone show M3                                           # one milestone: goal, date, progress, then its tasks by status
+cello milestone create M4 --goal "Releases" --due 2026-12-01      # a new one, last in the order
+cello milestone edit M4 --due none --goal "Releases and updates"  # --name renames; --due none clears the date
+cello milestone edit M4 --before M3                               # move it in the order (--after works too)
+
+cello task create "Release notes" --milestone M4                  # a new task in it
+cello task edit CEL-12 --milestone M4                             # put a task in it (moves it out of another)
+cello task edit CEL-12 --milestone none                           # take it out
+cello task list --milestone M4                                    # its open tasks; --status picks another status
+\`\`\`
+
+\`\`\`
+$ cello milestone list
+M2  closed  7 of 7 done · 100%  closed 2d ago
+M3  open    6 of 11 done · 55%  due 2026-12-01  Watching agents
+M4  open    0 of 2 done         due 2026-12-15  Releases
+
+$ cello milestone show M3
+M3 · open · due 2026-12-01
+Watching agents
+6 of 11 done · 55%: 1 in review, 2 in progress, 1 to do, 1 in Backlog (1 canceled, not counted)
+
+CEL-30  Backlog      Filters on the Milestones page
+CEL-31  Todo         Burn-up chart
+…
+\`\`\`
+
+- **\`cello context\` lists the open milestones** with done of total ("M3 6/11 done (due 2026-12-01)"), so you know what's current. \`cello task get\` shows a task's milestone on its status line, and its history says each change ("put it in M3", "moved it from M2 to M3", "took it out of M3").
+- **Names match in any case,** and an unknown one is refused with the project's milestones and close matches; nothing is created on the fly. A name is unique in its project, in any case, closed milestones included; another project may use the same name.
+- **Only open milestones take tasks.** Putting a task in a closed one is refused ("M2 is closed: put tasks in an open milestone, or reopen M2 first"). A task already in it when it closed stays there.
+- **Who does what:** you and the human create, edit and reorder milestones, and put tasks in and out of them, on any task: a milestone change isn't guarded by a claim, and it doesn't end anyone's claim, the human's included (it's planning, not taking the work over). **Closing and reopening are the human's only**, like approving a review: \`cello milestone close\` and \`cello milestone reopen\` refuse an agent ("Only Ana Souza can close a milestone…"). When a milestone's work looks done, say so on your task's card.
+- **The old Milestone labels:** Cello turned each label in the Milestone group into a milestone of the same name, in name order, with its tasks, then removed the labels. A task that had two (M2 and M3) went to the later one, and its history says so ("Cello turned its M3 label into the milestone M3 (it also had M2…)").
 ## Comments
 
 \`\`\`bash
@@ -1312,7 +1360,7 @@ Generated from the CLI's own \`--help\` by \`bun run docs:cli\`. Don't edit it b
 
 ### cello context
 
-Start here: the project, its statuses and labels, new comments for you, your claims and recent activity.
+Start here: the project, its statuses, labels and open milestones, new comments for you, your claims and recent activity.
 
 \`\`\`
 cello context [flags]
@@ -1398,11 +1446,12 @@ cello task list [flags]
 | \`--json\` | Print JSON for scripts. |
 | \`--status string\` | Only this status, by name (e.g. Backlog, Done). Without it: Todo and In Progress. |
 | \`--label string\` | Only tasks with this label. |
+| \`--milestone string\` | Only tasks in this milestone, by name; none for tasks without one. |
 | \`--mine\` | Only tasks you've claimed. |
 
 ### cello task get
 
-One task in full: description, labels, claim, pages, review packets with the human's notes, comments, history.
+One task in full: description, labels, milestone, claim, pages, review packets with the human's notes, comments, history.
 
 \`\`\`
 cello task get [flags] <key>
@@ -1431,11 +1480,12 @@ cello task create [flags] <title>
 | \`--status string\` | Status by name. Default: the first visible one (Todo). Backlog for ideas that still need discussing. |
 | \`--priority string\` | urgent, high, medium, low or none. |
 | \`--label string\` | A label name; repeat it, or separate names with commas. |
+| \`--milestone string\` | An open milestone of the project, by name (\`cello milestone list\`). |
 | \`--parent string\` | Parent task key. |
 
 ### cello task edit
 
-Change a task's title, description or priority; only the flags you give change. Any task, claimed or not; the human's edits end a claim as their other changes do.
+Change a task's title, description, priority or milestone; only the flags you give change. Any task, claimed or not; the human's edits end a claim as their other changes do (a milestone doesn't: it's planning).
 
 \`\`\`
 cello task edit [flags] <key>
@@ -1448,6 +1498,7 @@ cello task edit [flags] <key>
 | \`--description string\` | A new description, in markdown; replaces the old one. |
 | \`--body-file string\` | Read the new description from a file; - is stdin. |
 | \`--priority string\` | urgent, high, medium, low or none. |
+| \`--milestone string\` | Put it in this open milestone, by name; none takes it out. |
 | \`--json\` | Print JSON for scripts. |
 
 ### cello task claim
@@ -1667,6 +1718,96 @@ cello label archive [flags] <name>
 | | |
 | --- | --- |
 | \`name string\` | The label's name; any case. |
+| \`--project string\` | Project key, instead of the working folder's. |
+| \`--json\` | Print JSON for scripts. |
+
+### cello milestone list
+
+The project's milestones in order: each one open or closed, how far along (done of total, Canceled not counted), its target date and goal.
+
+\`\`\`
+cello milestone list [flags]
+\`\`\`
+
+| | |
+| --- | --- |
+| \`--project string\` | Project key, instead of the working folder's. |
+| \`--json\` | Print JSON for scripts. |
+
+### cello milestone show
+
+One milestone: its goal, date and progress, then its tasks by status (archived ones left out).
+
+\`\`\`
+cello milestone show [flags] <name>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`name string\` | The milestone's name; any case. |
+| \`--project string\` | Project key, instead of the working folder's. |
+| \`--json\` | Print JSON for scripts. |
+
+### cello milestone create
+
+Make a milestone in the project, last in its order. A name already taken in the project, in any case, is refused; another project may use the same name.
+
+\`\`\`
+cello milestone create [flags] <name>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`name string\` | The milestone's name; any case. |
+| \`--goal string\` | What it's for, in one line (markdown). |
+| \`--due string\` | Its target date, like 2026-12-01; none clears it. |
+| \`--project string\` | Project key, instead of the working folder's. |
+| \`--json\` | Print JSON for scripts. |
+
+### cello milestone edit
+
+Rename a milestone, change its goal or target date, or move it in the project's order.
+
+\`\`\`
+cello milestone edit [flags] <name>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`name string\` | The milestone's name; any case. |
+| \`--name string\` | A new name for the milestone. |
+| \`--goal string\` | What it's for, in one line (markdown). |
+| \`--due string\` | Its target date, like 2026-12-01; none clears it. |
+| \`--before string\` | Move it right before this milestone in the order. |
+| \`--after string\` | Move it right after this milestone in the order. |
+| \`--project string\` | Project key, instead of the working folder's. |
+| \`--json\` | Print JSON for scripts. |
+
+### cello milestone close
+
+Close a milestone when its work is done: the human's only, like approving a review (agents are refused). Its tasks stay in it.
+
+\`\`\`
+cello milestone close [flags] <name>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`name string\` | The milestone's name; any case. |
+| \`--project string\` | Project key, instead of the working folder's. |
+| \`--json\` | Print JSON for scripts. |
+
+### cello milestone reopen
+
+Reopen a closed milestone, so tasks can go in it again: the human's only.
+
+\`\`\`
+cello milestone reopen [flags] <name>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`name string\` | The milestone's name; any case. |
 | \`--project string\` | Project key, instead of the working folder's. |
 | \`--json\` | Print JSON for scripts. |
 
