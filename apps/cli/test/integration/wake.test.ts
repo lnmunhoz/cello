@@ -7,7 +7,7 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { newCommandId } from "@cello/client/client"
-import type { CelloEvent } from "@cello/contract/events"
+import type { StreamedEvent } from "@cello/contract/events"
 import { startServer, tempDataDir } from "@cello/server/testing/servers"
 import { claudeArgs, projectFolderName } from "@cello/server/wake/agents/claudeCode"
 import { describe, expect, it } from "@effect/vitest"
@@ -87,7 +87,7 @@ describe("waking a session (CEL-92)", () => {
       const scope = { workspaceId }
       const from = (yield* human["snapshot.get"]({ scope })).seq
       const ended = yield* Effect.forkChild(human["events.subscribe"]({ scope, afterSeq: from }).pipe(
-        Stream.filter((e: CelloEvent) => e.type === "session.run_ended"),
+        Stream.filter((e: StreamedEvent) => e.type === "session.run_ended"),
         Stream.runHead,
       ))
       expect((yield* me("task", "comment", "CEL-1", "Please use the other icon")).failure).toBeNull()

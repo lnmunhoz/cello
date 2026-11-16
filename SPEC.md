@@ -309,6 +309,7 @@ The browser keeps two kinds of state, in two places:
 1. On connect, `snapshot.get` returns the rows plus the sequence number they're current to.
 2. `events.subscribe({ afterSequence })` streams every later event. A pure function, `applyEvents(snapshot, events)`, ignores anything at or below the snapshot's number, keeps unchanged rows as the same objects so React skips them, and applies a batch with one index.
 3. After a reconnect, the client resumes from the last number it saw. If the server says the gap is too big, it takes a fresh snapshot.
+   - An event the client can't read (a tab on an older build, after the server started on a newer one that added an event type) arrives as `unreadable` with only its number and type. The client skips it, moves its number past it and stays live, counts it, and asks the server which build it runs, so the reload bar offers the new build (CEL-131).
 4. Subscriptions are scoped. A project's board subscribes to that project; All projects subscribes to the workspace.
 
 **Views** are derived atoms over the task rows. The board, list, table and All projects views read their filters, grouping and sort from the URL. Switching "this project" to "all projects" changes one input.

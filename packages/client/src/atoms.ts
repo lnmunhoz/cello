@@ -88,13 +88,21 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     return AsyncResult.isSuccess(synced) ? synced.value.connection : null
   })
 
+  /** How many events the stream skipped because this build can't read them (CEL-131). */
+  const unreadableAtom = Atom.make((get) => {
+    const synced = get(syncedAtom)
+    return AsyncResult.isSuccess(synced) ? synced.value.unreadable : 0
+  })
+
   /**
    * The server's build (CEL-37), asked for each time the connection goes live: a server restarted on a
-   * new build is noticed as soon as the tab reconnects to it. While reconnecting it waits, keeping the
-   * last answer.
+   * new build is noticed as soon as the tab reconnects to it. Asked again each time the stream skips an
+   * event this build can't read (CEL-131): the server runs a newer build, and the reload bar should
+   * hear of it. While reconnecting it waits, keeping the last answer.
    */
   const serverBuildAtom = runtime
     .atom((get) => {
+      get(unreadableAtom)
       const live = get(connectionAtom) === "live"
       return Effect.gen(function* () {
         if (!live) return yield* Effect.never

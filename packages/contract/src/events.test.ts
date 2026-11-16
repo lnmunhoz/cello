@@ -1,5 +1,6 @@
+import * as Schema from "effect/Schema"
 import { describe, expect, it } from "vitest"
-import { decodeEvent, UnknownSchemaVersion } from "./events.ts"
+import { CelloEvent, decodeEvent, StreamedEvent, UnknownSchemaVersion } from "./events.ts"
 
 const envelope = {
   seq: 7,
@@ -211,5 +212,37 @@ describe("decodeEvent", () => {
 
   it("rejects a payload that doesn't match its type", () => {
     expect(() => decodeEvent({ ...envelope, schemaVersion: 1, type: "task.archived" })).toThrow()
+  })
+})
+
+// What `events.subscribe` streams (CEL-131): a client running an older build must skip an event a newer
+// server writes instead of failing its stream on it.
+describe("StreamedEvent", () => {
+  const decode = Schema.decodeUnknownSync(StreamedEvent)
+  const archived = { ...envelope, schemaVersion: 1, type: "task.archived", id: "t-1", version: 3 }
+
+  it("decodes an event this build knows as itself", () => {
+    expect(decode(archived)).toEqual(Schema.decodeUnknownSync(CelloEvent)(archived))
+  })
+
+  it("reads an event of a type this build doesn't know as unreadable, keeping its seq and type", () => {
+    expect(decode({ ...envelope, schemaVersion: 1, type: "test.from-a-newer-build", note: "only a newer build reads this" }))
+      .toEqual({ type: "unreadable", seq: 7, sentType: "test.from-a-newer-build" })
+  })
+
+  it("reads a known type in a shape this build can't read, or a newer schema version, as unreadable too", () => {
+    expect(decode({ ...envelope, schemaVersion: 1, type: "task.archived" })).toEqual({ type: "unreadable", seq: 7, sentType: "task.archived" })
+    expect(decode({ ...envelope, schemaVersion: 1, type: "session.orchestrating", session: "s-1", on: true }))
+      .toEqual({ type: "unreadable", seq: 7, sentType: "session.orchestrating" })
+    expect(decode({ ...archived, schemaVersion: 2 })).toEqual({ type: "unreadable", seq: 7, sentType: "task.archived" })
+  })
+
+  it("still refuses something that isn't an event at all: without a seq there is nothing to skip past", () => {
+    expect(() => decode({ type: "task.archived" })).toThrow()
+  })
+
+  it("sends a known event exactly as before, so older clients see no change on the wire", () => {
+    const event = Schema.decodeUnknownSync(CelloEvent)(archived)
+    expect(Schema.encodeSync(StreamedEvent)(event)).toEqual(Schema.encodeSync(CelloEvent)(event))
   })
 })
