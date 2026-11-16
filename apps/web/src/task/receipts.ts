@@ -1,0 +1,158 @@
+// Delivery receipts on Lucas's comments (CEL-76), and who gets the next one. A comment says where it went
+// (`delivery`: the session holding the claim when he wrote it) and when that session took it
+// (`comment.delivered`); it's answered once that session, or a subagent of it, comments after it or
+// reacts to it (CEL-77). Who gets the next one comes from the claim, the holder's presence (CEL-35) and
+// whether a `cello inbox --wait` of it is open (`waiting`).
+import type { BoardState } from "@cello/client/sync/applyEvents"
+import type { Comment, DeliveryVia, Task } from "@cello/contract/entities"
+import { agoShort, type Presence, presenceOf } from "@cello/shared/presence"
+import { agentOn, agentPresence, agentWho, sessionWho, type Who, whoOf } from "../presence/model.ts"
+
+/**
+ * One of Lucas's comments, as it travels: unsent (no agent held the task, so it went nowhere), sent (in
+ * the session's inbox, not taken yet), delivered (the session took it, `after` ms later), answered (the
+ * session or a subagent of it commented or reacted after taking it, `after` ms after it was written).
+ */
+export type Receipt =
+  | { readonly state: "unsent" }
+  | { readonly state: "sent"; readonly to: Who; readonly sessionId: string }
+  | { readonly state: "delivered"; readonly to: Who; readonly at: number; readonly after: number; readonly via: DeliveryVia | null }
+  | { readonly state: "answered"; readonly to: Who; readonly by: Who; readonly at: number; readonly after: number; readonly emoji: string | null }
+
+/** "<1s", "12s", "3m", "2h": how long something took. */
+export const durationShort = (ms: number): string => {
+  if (ms < 1000) return "<1s"
+  const s = Math.round(ms / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m`
+  return `${Math.floor(m / 60)}h`
+}
+
+const sessionName = (board: BoardState, sessionId: string): Who => {
+  const s = board.sessions[sessionId]
+  return s ? sessionWho(s) : { kind: "agent", name: "an agent session", short: sessionId.slice(0, 8), color: "var(--faint)" }
+}
+
+/** A comment's receipt; null for an agent's own comment (receipts are for Lucas's). */
+export const receiptOf = (comment: Comment, comments: ReadonlyArray<Comment>, board: BoardState): Receipt | null => {
+  if (comment.sessionId !== null) return null
+  const delivery = comment.delivery ?? null
+  if (delivery === null) return { state: "unsent" }
+  const to = sessionName(board, delivery.sessionId)
+  // Only what the session wrote once it had the comment answers it: a reply typed before it took it
+  // was about something else.
+  const readAt = delivery.readAt
+  const reply = readAt === null
+    ? undefined
+    : comments.find((c) => c.sessionId === delivery.sessionId && c.createdAt >= readAt && c.createdAt > comment.createdAt && c.deletedAt === null)
+  const reaction = readAt === null ? undefined : (comment.reactions ?? []).find((r) => r.sessionId === delivery.sessionId && r.createdAt >= readAt)
+  const answer = reply && (!reaction || reply.createdAt <= reaction.createdAt)
+    ? { by: whoOf(board, reply.actorId, reply.sessionId, reply.agentId), at: reply.createdAt, emoji: null }
+    : reaction
+    ? { by: whoOf(board, reaction.actorId, reaction.sessionId, reaction.agentId), at: reaction.createdAt, emoji: reaction.emoji }
+    : null
+  if (answer) return { state: "answered", to, ...answer, after: answer.at - comment.createdAt }
+  if (readAt === null) return { state: "sent", to, sessionId: delivery.sessionId }
+  return { state: "delivered", to, at: readAt, after: readAt - comment.createdAt, via: delivery.via }
+}
+
+/**
+ * Who gets the next comment on a task: nobody (no agent holds it), or the session holding the claim,
+ * with its presence, whether a `cello inbox --wait` of it is open, and the subagent working on the task
+ * for it, if one is (the session, not the subagent, takes the comment).
+ */
+export type Reach =
+  | { readonly kind: "nobody" }
+  | {
+    readonly kind: "agent"
+    readonly who: Who
+    readonly presence: Presence
+    readonly lastSeenAt: number
+    readonly waiting: boolean
+    readonly worker: Who | null
+  }
+
+export const reachOf = (board: BoardState, task: Task, now: number): Reach => {
+  const id = task.assigneeSessionId
+  const session = id === null ? undefined : board.sessions[id]
+  if (!session) return { kind: "nobody" }
+  const agent = agentOn(board, task, now)
+  const worker = agent && agentPresence(board, agent, now) === "active" ? agentWho(agent, session) : null
+  return {
+    kind: "agent",
+    who: sessionWho(session),
+    presence: presenceOf(session, now),
+    lastSeenAt: session.lastSeenAt,
+    waiting: session.waiting === true,
+    worker,
+  }
+}
+
+/** ok: it arrives soon. idle: it waits in the inbox until the agent works again. warn: nobody will get it. */
+export type ReachTone = "ok" | "idle" | "warn"
+
+/** What the line under the comment box says about who gets the next comment, and how soon. */
+export const reachWords = (reach: Reach, now: number): { readonly tone: ReachTone; readonly text: string } => {
+  if (reach.kind === "nobody") return { tone: "warn", text: "No agent holds this task, so nobody will get this comment." }
+  const name = reach.who.short
+  if (reach.presence === "ended") return { tone: "warn", text: `${name} has ended, so nobody will get this unless it resumes.` }
+  if (reach.waiting) return { tone: "ok", text: `${name} is waiting for you: it gets your comment in about a second.` }
+  if (reach.presence === "active" || reach.worker) {
+    return reach.worker
+      ? { tone: "ok", text: `${reach.worker.short} is working on it now. ${name} gets your comment at its next step.` }
+      : { tone: "ok", text: `${name} is active now and gets your comment at its next step.` }
+  }
+  return { tone: "idle", text: `${name} is idle (seen ${agoShort(reach.lastSeenAt, now)}) and isn't waiting: it gets this when it next works.` }
+}
+
+/** What a comment not taken yet is waiting for: "2fd0505c gets it at its next step". */
+export const pendingWords = (reach: Reach): string =>
+  reach.kind === "nobody"
+    ? "nobody holds the task now"
+    : reach.presence === "ended"
+    ? `${reach.who.short} has ended`
+    : reach.waiting
+    ? `${reach.who.short} gets it in about a second`
+    : reach.presence === "active" || reach.worker
+    ? `${reach.who.short} gets it at its next step`
+    : `${reach.who.short} is idle, gets it when it next works`
+
+/**
+ * What a comment not taken yet waits for: the holder's next step (pendingWords), or, once the claim has
+ * moved on from the session it went to, that session's inbox.
+ */
+export const sentWords = (r: Extract<Receipt, { state: "sent" }>, task: Task, reach: Reach): string =>
+  r.sessionId === task.assigneeSessionId ? pendingWords(reach) : `waiting in ${r.to.short}'s inbox; ${r.to.short} no longer holds this task`
+
+/** When receipts started (CEL-76): a comment from before can't say where it went. */
+export const RECEIPTS_SINCE = Date.UTC(2026, 10, 16)
+
+/**
+ * How loud "Not delivered" is: a warning (`warn`) where an agent could have taken the comment (the task
+ * is open and agents work on it), else quiet (a Done task, one no agent ever touched, a comment from
+ * before receipts).
+ */
+export const unsentTone = (comment: Comment, comments: ReadonlyArray<Comment>, task: Task, board: BoardState): "warn" | "quiet" => {
+  const category = board.statuses[task.statusId]?.category
+  if (category === "completed" || category === "canceled" || comment.createdAt < RECEIPTS_SINCE) return "quiet"
+  const agentsOnIt = task.assigneeSessionId !== null || task.createdBySessionId !== null || task.updatedBySessionId !== null ||
+    comments.some((c) => c.sessionId !== null || (c.delivery ?? null) !== null)
+  return agentsOnIt ? "warn" : "quiet"
+}
+
+const VIA: Record<DeliveryVia, string> = { hook: "its hook", inbox: "cello inbox", wait: "its waiting cello inbox --wait" }
+
+/** The tick's hover: who took it, how and when. */
+export const receiptTitle = (r: Receipt): string => {
+  switch (r.state) {
+    case "unsent":
+      return "No agent held this task when you wrote it, so nobody got it"
+    case "sent":
+      return `Waiting in ${r.to.name}'s inbox`
+    case "delivered":
+      return `${r.to.name} took it ${durationShort(r.after)} after you sent it${r.via ? `, through ${VIA[r.via]}` : ""}`
+    case "answered":
+      return `${r.by.name} ${r.emoji ? `reacted ${r.emoji}` : "answered"} ${durationShort(r.after)} after you sent it`
+  }
+}

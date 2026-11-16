@@ -2,6 +2,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as CommentService from "../comment/CommentService.ts"
+import * as InboxService from "../inbox/InboxService.ts"
 import * as LabelService from "../label/LabelService.ts"
 import * as ProjectService from "../project/ProjectService.ts"
 import * as Seed from "../persistence/Seed.ts"
@@ -110,6 +111,18 @@ describe("ContextService.context", () => {
         ["review.withdrawn", one.key],
       ])
     }).pipe(Effect.scoped)))
+
+  it.effect("a session taking Lucas's comment (comment.delivered, CEL-76) stays out of Recent activity", () =>
+    run(Effect.gen(function* () {
+      const { context, tasks, one } = yield* setup
+      yield* agent(tasks.claim({ commandId: cmd(), key: one.key }))
+      yield* (yield* CommentService.CommentService).add({ commandId: cmd(), taskId: one.id, body: "Did this reach you?" })
+      const inbox = yield* InboxService.InboxService
+      expect((yield* agent(inbox.take({ unreadOnly: true }))).items).toHaveLength(1)
+      const ctx = yield* agent(context.context({ key: "CEL" }))
+      expect(ctx.recent.map((a) => a.event.type)).not.toContain("comment.delivered")
+      expect(ctx.recent[0]).toMatchObject({ event: { type: "comment.added" }, taskKey: one.key })
+    })))
 
   it.effect("fails with NotFound for a folder no project is linked to", () =>
     run(Effect.gen(function* () {

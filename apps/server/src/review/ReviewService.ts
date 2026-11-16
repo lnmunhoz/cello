@@ -187,8 +187,7 @@ const make = Effect.gen(function* () {
         if (done === null) return yield* new Invalid({ field: "key", reason: "this workspace has no completed status" })
         // Before the move, while the agent still holds the task: the comment reaches it.
         if (shots.length > 0) {
-          const comment = yield* comments.addWithin(context, { taskId: task.id, body: input.note ?? "", attachmentIds: shots })
-          yield* inbox.deliverWithin(context, comment, "comment")
+          yield* comments.addWithin(context, { taskId: task.id, body: input.note ?? "", attachmentIds: shots }, "comment")
         }
         return yield* tasks.moveWithin(context, { id: task.id, statusId: done.id })
       }))
@@ -202,8 +201,7 @@ const make = Effect.gen(function* () {
         if (started === null) return yield* new Invalid({ field: "key", reason: "this workspace has no started status" })
         // Sent back to the same agent: its claim stays, and the note waits for it as a comment, in its inbox.
         const moved = yield* tasks.moveWithin(context, { id: task.id, statusId: started.id, keepClaim: true })
-        const comment = yield* comments.addWithin(context, { taskId: task.id, body: note, attachmentIds: input.attachmentIds })
-        yield* inbox.deliverWithin(context, comment, "send_back")
+        yield* comments.addWithin(context, { taskId: task.id, body: note, attachmentIds: input.attachmentIds }, "send_back")
         return moved
       }))
   })

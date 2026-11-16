@@ -199,6 +199,11 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   const builderCard = builderRow.locator('[data-agents-card="CLO-1"]')
   await expect(builderCard).toContainText("Agents working: a page of every working agent")
   await expect(builderCard.locator("[data-card-work]")).toBeHidden()
+  // The edge of the agent at work on it (CEL-76) sits on this card, not somewhere up the page.
+  const [cardBox, edgeBox] = [await builderCard.boundingBox(), await builderCard.locator("[data-activity-edge]").boundingBox()]
+  expect(edgeBox!.y).toBeGreaterThanOrEqual(cardBox!.y)
+  expect(edgeBox!.y + edgeBox!.height).toBeLessThanOrEqual(cardBox!.y + cardBox!.height)
+  expect(Math.abs(edgeBox!.x - cardBox!.x)).toBeLessThan(4)
   await expect(builderRow.locator("[data-log-placeholder]")).toContainText("Live log")
   await shoot(page, "open")
 

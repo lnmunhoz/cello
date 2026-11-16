@@ -198,6 +198,24 @@ describe("screenshots in comments", () => {
     }).pipe(Effect.scoped))
 })
 
+describe("receipts: Lucas sees how his comment was taken (CEL-76)", () => {
+  it.live("the hook takes it as the hook, `cello inbox` as cello inbox; the comment carries which session took it", () =>
+    Effect.gen(function* () {
+      const { hook, me, x, human } = yield* setup
+      yield* me("task", "comment", "CEL-1", "Taken by the hook")
+      yield* hook("post-tool-use", { session_id: X, cwd: "/tmp", hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: {} })
+      yield* me("task", "comment", "CEL-1", "Taken by cello inbox")
+      yield* x("inbox", "--new")
+      const taskId = (yield* human["task.get"]({ key: "CEL-1" })).task.id
+      const list = yield* human["comment.list"]({ taskId })
+      expect(list.map((c) => [c.body, c.delivery?.via, c.delivery?.readAt === null])).toEqual([
+        ["Taken by the hook", "hook", false],
+        ["Taken by cello inbox", "inbox", false],
+      ])
+      expect(new Set(list.map((c) => c.delivery?.sessionId)).size).toBe(1)
+    }).pipe(Effect.scoped))
+})
+
 describe("cello hook claude", () => {
   it.live("Stop: hands the comments back as hook feedback when something is new; otherwise it only asks for a waiter (CEL-74)", () =>
     Effect.gen(function* () {

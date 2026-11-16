@@ -36,6 +36,8 @@
   --danger: #d9473f;
   /* An agent session holding a claim that has gone quiet ("seen 2h ago", CEL-35). */
   --idle: #b45309;
+  /* A comment its agent answered (CEL-76): the receipt's ✓✓. */
+  --answered: #0f9d76;
   --ring: #5e6ad2;
   --shadow: 0 1px 2px rgb(16 16 20 / 0.06), 0 0 0 1px rgb(16 16 20 / 0.04);
   --shadow-pop: 0 8px 28px rgb(16 16 20 / 0.14), 0 0 0 1px rgb(16 16 20 / 0.06);
@@ -58,6 +60,7 @@
   --accent-ink: #0e0e10;
   --danger: #ef6a61;
   --idle: #f59e0b;
+  --answered: #34d399;
   --ring: #7c85e8;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 0 0 1px rgb(255 255 255 / 0.04);
   --shadow-pop: 0 10px 30px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.06);
@@ -80,6 +83,7 @@
   --color-accent-ink: var(--accent-ink);
   --color-danger: var(--danger);
   --color-idle: var(--idle);
+  --color-answered: var(--answered);
   --color-ring: var(--ring);
   --shadow-card: var(--shadow);
   --shadow-pop: var(--shadow-pop);
@@ -525,5 +529,58 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .presence-ripple {
     display: none;
+  }
+}
+
+/*
+ * A card while an agent works on its task (CEL-76, presence/Activity.tsx): a thin static edge in the
+ * agent's colour; per check-in a soft flash of the edge and one turn of the status icon's half fill
+ * (components/ui/StatusIcon.tsx). Both end invisible or where they started, with no fill: nothing is
+ * left running or held. Reduced motion keeps the edge and drops both motions.
+ */
+.activity-edge {
+  position: absolute;
+  left: -1px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 9999px;
+  opacity: 0.75;
+  pointer-events: none;
+}
+/* Opacity only (no blur or shadow), so the flash costs the main thread nothing while cards fly about. */
+.activity-edge-flash {
+  position: absolute;
+  inset: -3px -1px;
+  border-radius: 9999px;
+  opacity: 0;
+  animation: activity-edge-flash 0.9s ease-out;
+}
+@keyframes activity-edge-flash {
+  from {
+    opacity: 0.9;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.status-turn {
+  transform-origin: 7px 7px;
+  animation: status-turn 0.9s cubic-bezier(0.45, 0, 0.25, 1);
+}
+@keyframes status-turn {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-edge-flash {
+    display: none;
+  }
+  .status-turn {
+    animation: none;
   }
 }

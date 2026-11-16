@@ -1565,7 +1565,7 @@ const deliverToClaude = (event: DeliveryEvent) =>
     }
     // Taken and marked read in one step: a comment is handed over once, even to hooks running at the
     // same time, and a Stop hook can't loop on it (stop_hook_active needs no special case).
-    const { items, claimed, human } = yield* withClient((client) => client["inbox.take"]({ unreadOnly: true }), { headers })
+    const { items, claimed, human } = yield* withClient((client) => client["inbox.take"]({ unreadOnly: true, via: "hook" }), { headers })
     // On Stop the session may be going idle: if it holds a claim and nothing waits for it, it's asked
     // to start `cello inbox --wait` (CEL-74), by a line after what's handed over, or else by a nudge.
     const lock = waiterLockFile(waiterLockDir(env), { port: String(portOf(env)), session: hookSession(hook, env)! })

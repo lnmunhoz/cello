@@ -4,13 +4,14 @@
 // answers to an ask (CEL-47) go to the claim holder too, else to the session that asked. Agents'
 // comments (their own or another session's) are never delivered, and nothing reaches a session after
 // its claim ends. `take` hands the new items over and marks them read in one statement, so each item
-// reaches the session once, even when several hooks ask at the same time. Read marks belong to the
-// session, not the board, so they write no events (like a session's `last_seen_at`). `wait` (CEL-74)
-// blocks until there is something to take, so an idle agent session (`cello inbox --wait` running in
-// its background) wakes when Lucas writes. Lucas's emoji reaction to an agent's comment (CEL-77) reaches
+// reaches the session once, even when several hooks ask at the same time. Taking a comment (or a Send
+// back note) also writes `comment.delivered`, in the same transaction, so Lucas sees its receipt
+// (CEL-76); other items' read marks stay the session's own. `wait` (CEL-74) blocks until there is
+// something to take, so an idle agent session (`cello inbox --wait` running in its background) wakes
+// when Lucas writes; while it's open the session counts as waiting (SessionService.waitingWhile). Lucas's emoji reaction to an agent's comment (CEL-77) reaches
 // the session that wrote it, else the claim holder; the reaction row itself is the item
 // (`comment_reactions.notify_session_id`, `read_at`), so the inbox reads both tables.
-import type { Ask, Comment, InboxItem, Reaction } from "@cello/contract/entities"
+import type { Ask, Comment, DeliveryVia, InboxItem, Reaction } from "@cello/contract/entities"
 import { Caller } from "@cello/contract/rpcs"
 import type { Inbox } from "@cello/contract/views"
 import * as Clock from "effect/Clock"
@@ -22,7 +23,7 @@ import * as Stream from "effect/Stream"
 import * as SqlClient from "effect/sql/SqlClient"
 import type { SqlError } from "effect/sql/SqlError"
 import { formatTaskKey } from "@cello/shared/taskKey"
-import type * as Commands from "../commands/Commands.ts"
+import * as Commands from "../commands/Commands.ts"
 import * as EventLog from "../events/EventLog.ts"
 import { newId } from "../persistence/ids.ts"
 import { selectInboxItems, selectReactionItems } from "../persistence/rows.ts"
@@ -32,12 +33,22 @@ import { SessionService } from "../session/SessionService.ts"
 /** How many items read before `take` returns as `earlier`. */
 export const EARLIER = 10
 
+/** The comment being added, as `deliverWithin` needs it (before it's read back). */
+export type NewlyAdded = Pick<Comment, "id" | "taskId" | "createdAt">
+
+/** What `take` hands over and how it says the session took it: its hook, `cello inbox` (the default), or a wait. */
+export interface TakeQuery {
+  readonly unreadOnly?: boolean
+  readonly via?: DeliveryVia
+}
+
 export class InboxService extends Context.Service<InboxService, {
   /**
    * Hands the caller its new items and marks them read, atomically: a second take, even a concurrent
    * one, never gets the same item. Also returns the latest read ones unless `unreadOnly`. Empty for the human.
+   * Each comment it hands over gets a `comment.delivered` event, `via` saying who took it (CEL-76).
    */
-  readonly take: (query: { readonly unreadOnly?: boolean }) => Effect.Effect<Inbox, never, Caller>
+  readonly take: (query: TakeQuery) => Effect.Effect<Inbox, never, Caller>
   /**
    * Waits until the caller has new items, then takes them as `take({ unreadOnly: true })` does. At once
    * when some are waiting, and for the human (empty). Every change on the board that commits wakes it
@@ -48,9 +59,10 @@ export class InboxService extends Context.Service<InboxService, {
   readonly unread: Effect.Effect<ReadonlyArray<InboxItem>, never, Caller>
   /**
    * For the command that adds a comment: delivers it, in that command's transaction, to whoever should
-   * get it (see the top of this file). `send_back` is a review's note, added by the same command.
+   * get it (see the top of this file). `send_back` is a review's note, added by the same command. Runs
+   * before the command reads the comment back, so `comment.added` carries where it went (CEL-76).
    */
-  readonly deliverWithin: (context: Commands.WriteContext, comment: Comment, kind: "comment" | "send_back") => Effect.Effect<void, SqlError>
+  readonly deliverWithin: (context: Commands.WriteContext, comment: NewlyAdded, kind: "comment" | "send_back") => Effect.Effect<void, SqlError>
   /**
    * For the command that answers an ask (CEL-47): delivers the answers, in that command's
    * transaction, to the session holding the task's claim, else to the session that asked.
@@ -77,11 +89,12 @@ export class InboxService extends Context.Service<InboxService, {
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const sessions = yield* SessionService
+  const commands = yield* Commands.Commands
   const log = yield* EventLog.EventLog
   const human = yield* Seed.HumanActor
 
   /** Who gets a human comment: the task's claim holder, else for a Send back the packet's submitter. */
-  const recipientOf = (context: Commands.WriteContext, comment: Comment, kind: "comment" | "send_back") =>
+  const recipientOf = (context: Commands.WriteContext, comment: NewlyAdded, kind: "comment" | "send_back") =>
     Effect.gen(function* () {
       const [task] = yield* sql<{ assignee_session_id: string | null }>`SELECT assignee_session_id FROM tasks WHERE id = ${comment.taskId}`
       if (task?.assignee_session_id) return task.assignee_session_id
@@ -93,7 +106,7 @@ const make = Effect.gen(function* () {
       return review?.session_id ?? null
     })
 
-  const deliverWithin = (context: Commands.WriteContext, comment: Comment, kind: "comment" | "send_back") =>
+  const deliverWithin = (context: Commands.WriteContext, comment: NewlyAdded, kind: "comment" | "send_back") =>
     Effect.gen(function* () {
       if (context.caller.sessionId !== null) return
       const sessionId = yield* recipientOf(context, comment, kind)
@@ -164,13 +177,15 @@ const make = Effect.gen(function* () {
       )
     }).pipe(Effect.withSpan("InboxService.handOverAnswers"))
 
-  const take = Effect.fn("InboxService.take")(function* (query: { readonly unreadOnly?: boolean }) {
+  const take = Effect.fn("InboxService.take")(function* (query: TakeQuery) {
     const caller = yield* Caller
     const sessionId = caller.sessionId
     if (sessionId === null) return { session: null, items: [], earlier: [], claimed: [], human: human.name }
     const [session] = yield* sessions.byIds([sessionId])
-    const now = yield* Clock.currentTimeMillis
-    return yield* sql.withTransaction(Effect.gen(function* () {
+    const via = query.via ?? "inbox"
+    // A command with no receipt (nobody retries a take), so each comment handed over writes its
+    // `comment.delivered` in the same transaction as its read mark.
+    const written = yield* commands.write({ commandId: crypto.randomUUID(), rpc: "inbox.take", receipt: false }, ({ now, emit }) => Effect.gen(function* () {
       const earlier = query.unreadOnly ? [] : inOrder([
         ...yield* selectInboxItems(
           sql,
@@ -186,10 +201,21 @@ const make = Effect.gen(function* () {
       // One statement marks and claims them: whoever runs it first gets them, nobody else does. Answers a
       // live `cello wait` is about to hand over are left to it.
       const waitedOn = heldBy(sessionId)
-      const taken = yield* sql<{ id: string }>`
-        UPDATE inbox_items SET read_at = ${now} WHERE session_id = ${sessionId} AND read_at IS NULL
+      const taken = yield* sql<{ id: string; comment_id: string | null; task_id: string }>`
+        UPDATE inbox_items SET read_at = ${now}, read_via = ${via} WHERE session_id = ${sessionId} AND read_at IS NULL
           AND ${waitedOn.length === 0 ? sql`1 = 1` : sql`(ask_id IS NULL OR ask_id NOT IN ${sql.in(waitedOn)})`}
-        RETURNING id`
+        RETURNING id, comment_id, task_id`
+      // Comments and Send back notes (the items holding a comment) get their receipt.
+      for (const item of taken) {
+        if (item.comment_id === null) continue
+        const [place] = yield* sql<{ project_id: string; workspace_id: string }>`
+          SELECT t.project_id, p.workspace_id FROM tasks t JOIN projects p ON p.id = t.project_id WHERE t.id = ${item.task_id}`
+        if (!place) continue
+        yield* emit(
+          { type: "comment.delivered", commentId: item.comment_id, taskId: item.task_id, session: sessionId, via },
+          { workspaceId: place.workspace_id, projectId: place.project_id },
+        )
+      }
       const reacted = yield* sql<{ id: string }>`
         UPDATE comment_reactions SET read_at = ${now} WHERE notify_session_id = ${sessionId} AND read_at IS NULL RETURNING id`
       const items = inOrder([
@@ -201,21 +227,22 @@ const make = Effect.gen(function* () {
         WHERE t.assignee_session_id = ${sessionId} AND t.archived_at IS NULL ORDER BY p.key, t.number`
       return { session: session ?? null, items, earlier, claimed: held.map((t) => formatTaskKey(t.project_key, t.number)), human: human.name }
     }))
+    return written.result
   }, Effect.orDie)
 
   const wait = Effect.gen(function* () {
     // Joined before the first take: an item committed after that take publishes an event we get.
     const events = yield* log.live
-    const first = yield* take({ unreadOnly: true })
+    const first = yield* take({ unreadOnly: true, via: "wait" })
     if (first.session === null || first.items.length > 0) return first
     // Each committed change may have delivered something; take again (a cheap update when it didn't).
     const next = yield* events.pipe(
-      Stream.mapEffect(() => take({ unreadOnly: true })),
+      Stream.mapEffect(() => take({ unreadOnly: true, via: "wait" })),
       Stream.filter((taken) => taken.items.length > 0),
       Stream.runHead,
     )
     return Option.getOrElse(next, () => first)
-  }).pipe(Effect.scoped, Effect.withSpan("InboxService.wait"))
+  }).pipe(Effect.scoped, sessions.waitingWhile, Effect.withSpan("InboxService.wait"))
 
   const unread = Effect.gen(function* () {
     const caller = yield* Caller

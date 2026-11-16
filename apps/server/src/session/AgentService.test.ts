@@ -104,7 +104,7 @@ describe("AgentService.report and checkIn: the hooks", () => {
       ])
     })))
 
-  it.effect("a subagent's tool calls check it in under its session: one agent.seen, then at most one every 2 minutes", () =>
+  it.effect("a subagent's tool calls check it in under its session: one agent.seen, then at most one a minute (CEL-76)", () =>
     run(Effect.gen(function* () {
       const { first } = yield* board
       const agents = yield* AgentService
@@ -114,15 +114,15 @@ describe("AgentService.report and checkIn: the hooks", () => {
 
       yield* TestClock.adjust("30 seconds")
       yield* agents.checkIn(yield* sessions.resolve(builder))
-      yield* TestClock.adjust("89 seconds")
+      yield* TestClock.adjust("29 seconds")
       yield* agents.checkIn(yield* sessions.resolve(builder))
       expect(yield* agentSeen).toHaveLength(before)
       yield* TestClock.adjust("1 second")
       yield* agents.checkIn(yield* sessions.resolve(builder))
       const seen = yield* agentSeen
       expect(seen).toHaveLength(before + 1)
-      expect(seen.at(-1)).toMatchObject({ agent_id: builder.agent, agent: { agentId: builder.agent, lastSeenAt: 120_000, taskId: first.id } })
-      expect((yield* agentRows)[0]?.last_seen_at).toBe(120_000)
+      expect(seen.at(-1)).toMatchObject({ agent_id: builder.agent, agent: { agentId: builder.agent, lastSeenAt: 60_000, taskId: first.id } })
+      expect((yield* agentRows)[0]?.last_seen_at).toBe(60_000)
     })))
 
   it.effect("two agents of one session both show: each its own row, both in the snapshot, with their session", () =>

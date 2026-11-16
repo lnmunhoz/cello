@@ -59,9 +59,11 @@ export const IDLE_CLAIM_MS = 2 * 60 * 60 * 1000
 /**
  * Boards hear a session check in at most this often (per workspace), however many calls it makes.
  * Well inside ACTIVE_MS (5 min, @cello/shared/presence), so a working session reads "active now"
- * throughout, with few `session.seen` rows in the log.
+ * throughout. Each one plays the card's burst (CEL-69, CEL-76), so a minute keeps a busy card moving
+ * now and then; it's one `session.seen` row per working session and workspace a minute (was 2 minutes;
+ * docs/internals/receipts-and-activity.md has the numbers).
  */
-export const PRESENCE_EVERY_MS = 2 * 60_000
+export const PRESENCE_EVERY_MS = 60_000
 
 /**
  * Marks a session ended, but only if nothing changed since `seen` was read: still not ended and not
@@ -101,6 +103,12 @@ export class SessionService extends Context.Service<SessionService, {
    * are marked ended, and their boards hear it. Returns how many. PresenceWatch runs it on a timer.
    */
   readonly sweep: Effect.Effect<number>
+  /**
+   * Runs `wait` (an `inbox.wait`, CEL-76) with the calling session counted as waiting: `byIds` says so
+   * while any of its waits is open, and boards hear `session.waiting` when the first opens and the
+   * last closes, however it ends (a comment, a dropped connection, a stopping server). The human: none.
+   */
+  readonly waitingWhile: <A, E, R>(wait: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | Caller>
 }>()("cello/SessionService") {}
 
 interface SessionRow {
@@ -138,6 +146,8 @@ const make = Effect.gen(function* () {
   const commands = yield* Commands.Commands
   /** When each `<session> <workspace>` last got a session.seen. In memory: a restart sends one again. */
   const heard = new Map<string, number>()
+  /** Sessions with an `inbox.wait` open right now (CEL-76), and how many. In memory: a restart has none. */
+  const waiters = new Map<string, number>()
 
   /** The agent actor for a client, created with a color from the first session that names it. */
   const actorFor = (client: string, session: string, now: number) =>
@@ -186,7 +196,7 @@ const make = Effect.gen(function* () {
   const byIds = Effect.fn("SessionService.byIds")(function* (ids: ReadonlyArray<string>) {
     if (ids.length === 0) return []
     const rows = yield* sql<SessionRow>`SELECT * FROM agent_sessions WHERE ${sql.in("id", [...new Set(ids)])} ORDER BY started_at, id`
-    return rows.map(toSession)
+    return rows.map((r) => ({ ...toSession(r), waiting: waiters.has(r.id) }))
   }, Effect.orDie)
 
   /** The workspaces where a session holds a claim on a task that isn't archived. */
@@ -247,7 +257,53 @@ const make = Effect.gen(function* () {
     return ended
   }).pipe(Effect.orDie, Effect.withSpan("SessionService.sweep"))
 
-  return SessionService.of({ resolve, byIds, checkIn, sweep })
+  /** Tells the boards where the session holds claims that it started or stopped waiting. */
+  const tellWaiting = (sessionId: string, waiting: boolean) =>
+    Effect.gen(function* () {
+      const [session] = yield* byIds([sessionId])
+      if (!session) return
+      const workspaceIds = yield* claimWorkspaces(sessionId)
+      if (workspaceIds.length === 0) return
+      yield* commands.write({ commandId: crypto.randomUUID(), rpc: "session.waiting", receipt: false }, ({ emit }) =>
+        Effect.forEach(workspaceIds, (workspaceId) => emit({ type: "session.waiting", session: sessionId, waiting }, { workspaceId, projectId: null }), {
+          discard: true,
+        })).pipe(Effect.provideService(Caller, { actorId: session.actorId, sessionId }))
+    }).pipe(Effect.orDie)
+
+  /** One wait of the session ended: true when it was the last. */
+  const release = (id: string): boolean => {
+    const n = (waiters.get(id) ?? 1) - 1
+    if (n > 0) {
+      waiters.set(id, n)
+      return false
+    }
+    waiters.delete(id)
+    return true
+  }
+
+  const waitingWhile = <A, E, R>(wait: Effect.Effect<A, E, R>) =>
+    Effect.gen(function* () {
+      const id = (yield* Caller).sessionId
+      if (id === null) return yield* wait
+      return yield* Effect.acquireUseRelease(
+        Effect.suspend(() => {
+          const n = (waiters.get(id) ?? 0) + 1
+          waiters.set(id, n)
+          if (n > 1) return Effect.void
+          // Counted first, so a second wait arriving meanwhile doesn't tell the boards again; taken back
+          // if telling them fails, since then the release (and its "stopped") never runs.
+          return tellWaiting(id, true).pipe(Effect.onError(() => Effect.sync(() => release(id))))
+        }),
+        () => wait,
+        () =>
+          Effect.suspend(() =>
+            // A server stopping mid-wait may not get to tell anyone: its restart starts with no waiters.
+            release(id) ? tellWaiting(id, false).pipe(Effect.catchCause(() => Effect.void)) : Effect.void
+          ),
+      )
+    })
+
+  return SessionService.of({ resolve, byIds, checkIn, sweep, waitingWhile })
 })
 
 export const layer = Layer.effect(SessionService, make)

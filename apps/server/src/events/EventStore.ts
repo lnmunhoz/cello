@@ -49,6 +49,10 @@ export const entityOf = (body: EventBody): { readonly type: string; readonly id:
       return { type, id: body.task.id }
     case "comment.added":
       return { type, id: body.comment.id }
+    case "comment.delivered":
+      return { type, id: body.commentId }
+    case "session.waiting":
+      return { type, id: body.session }
     case "reaction.added":
     case "reaction.removed":
       return { type, id: body.reaction.id }
@@ -152,9 +156,11 @@ const make = Effect.gen(function* () {
     Effect.withSpan("EventStore.latestSeq"),
   )
 
+  // A session taking a comment (CEL-76) is a receipt, not activity: Recent activity leaves it out.
   const recent = Effect.fn("EventStore.recent")(function* (projectId: string, limit: number) {
     const rows = yield* sql<EventRow>`
       SELECT * FROM events WHERE project_id = ${projectId} AND entity_type IN ('task', 'comment', 'review', 'ask')
+        AND type != 'comment.delivered'
       ORDER BY seq DESC LIMIT ${limit}`
     return rows.map(decodeRow)
   }, Effect.orDie)

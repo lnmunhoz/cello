@@ -17,6 +17,7 @@ import { uploadUrl } from "../screenshots/screenshots.ts"
 import { useScreenshotUpload } from "../screenshots/useScreenshotUpload.ts"
 import { addScreenshot, removeScreenshot, toComment, useCommentDraft } from "./commentDraft.ts"
 import { Reactions } from "./Reactions.tsx"
+import { NextCommentLine, ReceiptTicks } from "./Receipt.tsx"
 import type { TaskSearch } from "./view.ts"
 
 interface CommentsProps {
@@ -31,7 +32,8 @@ interface CommentsProps {
  * A task's comments, oldest first, and a box to add one (⌘Enter or Comment): in the task panel, and under
  * an open packet on the Review page. The box takes pasted and dropped screenshots (CEL-73); its words and
  * screenshots are the task's comment draft, kept on this device until sent (the Review page's Send back
- * and Approve read it too).
+ * and Approve read it too). Lucas's comments carry their receipts, and a line under the box says where
+ * the next one goes (CEL-76).
  */
 export function Comments({ board, task, placeholder = "Leave a comment…", actions }: CommentsProps) {
   const result = useAtomValue(commentsFamily(task.id))
@@ -58,7 +60,15 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
       {AsyncResult.isInitial(result) ? <p className="text-xs text-faint">Loading comments…</p> : null}
       <ul className="flex flex-col gap-2">
         {comments.map((c) => (
-          <CommentItem key={c.id} board={board} comment={c} author={whoOf(board, c.actorId, c.sessionId, c.agentId)} target={c.id === target} />
+          <CommentItem
+            key={c.id}
+            board={board}
+            task={task}
+            comment={c}
+            comments={comments}
+            author={whoOf(board, c.actorId, c.sessionId, c.agentId)}
+            target={c.id === target}
+          />
         ))}
       </ul>
       <div className="flex flex-col gap-2">
@@ -78,6 +88,7 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
           }}
         />
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <NextCommentLine board={board} task={task} />
           {uploading > 0 ? <span className="text-xs text-muted">Uploading…</span> : null}
           <Button variant="secondary" size={actions ? "md" : "sm"} onClick={submit} disabled={toSend === null}>
             Comment
@@ -89,8 +100,15 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
   )
 }
 
-/** `target`: the comment the task was opened at; it's scrolled to on arrival and flashes once. */
-function CommentItem({ board, comment, author, target }: { board: BoardState; comment: Comment; author: Who; target: boolean }) {
+/** `target`: the comment the task was opened at; it's scrolled to on arrival and flashes once. `comments`: the thread, for its receipt. */
+function CommentItem({ board, task, comment, comments, author, target }: {
+  board: BoardState
+  task: Task
+  comment: Comment
+  comments: ReadonlyArray<Comment>
+  author: Who
+  target: boolean
+}) {
   const edit = useAtomSet(commands.editComment, { mode: "promiseExit" })
   const remove = useAtomSet(commands.deleteComment)
   const [draft, setDraft] = useState<string | null>(null)
@@ -163,8 +181,13 @@ function CommentItem({ board, comment, author, target }: { board: BoardState; co
         </div>
       )}
       <ScreenshotThumbs shots={comment.attachments ?? []} size="sm" label="Screenshots" />
-      {/* The footer: emoji reactions (CEL-77). */}
-      {draft === null ? <Reactions board={board} comment={comment} /> : null}
+      {/* The footer: emoji reactions (CEL-77), and Lucas's receipt at the right (CEL-76). */}
+      {draft === null ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Reactions board={board} comment={comment} />
+          <ReceiptTicks board={board} task={task} comment={comment} comments={comments} />
+        </div>
+      ) : null}
     </li>
   )
 }

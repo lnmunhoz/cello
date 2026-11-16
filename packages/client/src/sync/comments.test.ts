@@ -41,6 +41,13 @@ describe("applyCommentEvents", () => {
     expect(next[1]).toBe(start[1])
   })
 
+  it("fills in a comment's receipt when its session takes it (CEL-76)", () => {
+    const start = [{ ...comment("a"), delivery: { sessionId: "s1", readAt: null, via: null } }, comment("b")]
+    const next = applyCommentEvents(start, "t1", [ev(1, { type: "comment.delivered", commentId: "a", taskId: "t1", session: "s1", via: "hook" })])
+    expect(next[0]!.delivery).toEqual({ sessionId: "s1", readAt: 101, via: "hook" })
+    expect(next[1]).toBe(start[1])
+  })
+
   it("doesn't add a comment twice", () => {
     const start = [comment("a")]
     expect(applyCommentEvents(start, "t1", [ev(1, { type: "comment.added", comment: comment("a") })])).toHaveLength(1)
