@@ -198,7 +198,9 @@ test("CEL-47: Lucas expands a question full screen, compares its three options i
   await page.screenshot({ path: path.join(SHOTS, "cel-47-compare-narrow.png") })
   await view.getByRole("button", { name: "Close" }).click()
   await expect(view).toBeHidden()
-  // The specs share one server: no ask left open to count in the next one's sidebar.
+  // The specs share one server: no ask left open to count in the next one's sidebar, and no claim held
+  // by an active agent, whose mark would keep thinking in the next ones' Agents working (CEL-69).
   agent("task", "ask", task, "--withdraw")
+  agent("task", "release", task)
   fs.rmSync(dir, { recursive: true, force: true })
 })

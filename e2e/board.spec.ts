@@ -3,6 +3,7 @@ import {
   caption,
   card,
   column,
+  contentAnimations,
   createProject,
   defaultWorkspace,
   dragCard,
@@ -51,7 +52,7 @@ test("19: move a card with the keyboard; the move survives a reload", async ({ p
   await expect(column(page, "In Progress").locator(`[data-task-key="${key}-1"]`)).toBeVisible()
   await expect(column(page, "Todo").locator(`[data-task-key="${key}-2"]`)).toBeVisible()
   // An idle board runs no animations.
-  expect(await page.evaluate(() => document.getAnimations().length)).toBe(0)
+  expect(await contentAnimations(page)).toBe(0)
   await caption(page, `${key}-1 is still in In Progress after the reload`)
 })
 

@@ -7,28 +7,14 @@
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import type { Page } from "@playwright/test"
 import { animationsSettled, caption, card, column, createProject, dragCard, expect, test, uniqueKey } from "./fixtures.ts"
-import { celloAs, celloInBackground, SHOTS, showTerminal as drawTerminal } from "./packets.ts"
+import { copyImage, hideTerminal, pngSize, showTerminal } from "./agentScreen.ts"
+import { celloAs, celloInBackground, SHOTS } from "./packets.ts"
 
 const SESSION = "e2e0asks-agent-session"
 
 /** `cello …` in the background, as the agent session: resolves with what it printed once it exits. */
 const inBackground = celloInBackground(SESSION)
-
-/** The agent's terminal, drawn at the bottom left so the video shows its side next to the board; it doesn't move the pointer. */
-const showTerminal = (page: Page, command: string, output: string) => drawTerminal(page, command, output, { hover: false, empty: "" })
-
-const hideTerminal = (page: Page) => page.evaluate(() => document.getElementById("e2e-terminal")?.remove())
-
-/** Puts a PNG on the clipboard, the way a screenshot tool leaves one. */
-const copyImage = async (page: Page, file: string) => {
-  const base64 = fs.readFileSync(file).toString("base64")
-  await page.evaluate(async (data) => {
-    const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0))
-    await navigator.clipboard.write([new ClipboardItem({ "image/png": new Blob([bytes], { type: "image/png" }) })])
-  }, base64)
-}
 
 test("CEL-47: an agent asks with --wait; Lucas answers from the sidebar (several picks, None of these, a pasted screenshot); the agent gets the answers; round 2 follows, and Lucas moving the card withdraws it", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"])
@@ -174,11 +160,6 @@ test("CEL-47: an agent asks with --wait; Lucas answers from the sidebar (several
   expect(out).toContain("3. Anything else before I build it?\n   Comment: Keep the empty state from the old page.")
   const saved = /Screenshot: (\S+)/.exec(out)![1]!
   // The clipboard re-encodes an image, so compare what it shows: a PNG of the same size as the one copied.
-  const pngSize = (file: string) => {
-    const bytes = fs.readFileSync(file)
-    expect(bytes.subarray(1, 4).toString()).toBe("PNG")
-    return [bytes.readUInt32BE(16), bytes.readUInt32BE(20)]
-  }
   expect(pngSize(saved)).toEqual(pngSize(pasted))
   await expect(page.getByLabel("Agent terminal")).toContainText("Picked: None of these")
   await page.screenshot({ path: path.join(SHOTS, "cel-47-agent-gets-answers.png") })

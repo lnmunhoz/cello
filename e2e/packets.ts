@@ -67,36 +67,6 @@ export const celloInBackground = (session: string) => (...args: string[]) => {
   return Object.assign(done, { printed })
 }
 
-/**
- * Draws an agent's terminal at the bottom left of the page and appends a command and what it printed,
- * so the video shows the agent's side next to the board. By default it then points at it, and an empty
- * output reads "(prints nothing)"; `hover: false` and `empty` change that.
- */
-export const showTerminal = async (
-  page: Page,
-  command: string,
-  output: string,
-  { hover = true, empty = "(prints nothing)" }: { readonly hover?: boolean; readonly empty?: string } = {},
-) => {
-  await page.evaluate(([cmd, out, none]) => {
-    let el = document.getElementById("e2e-terminal")
-    if (!el) {
-      el = document.createElement("pre")
-      el.id = "e2e-terminal"
-      el.setAttribute("aria-label", "Agent terminal")
-      Object.assign(el.style, {
-        position: "fixed", zIndex: "2147483646", left: "24px", bottom: "84px", width: "760px", maxHeight: "70vh", overflow: "hidden",
-        margin: "0", padding: "14px 16px", borderRadius: "10px", background: "rgb(16 16 20 / .94)", color: "#e8e8ec",
-        font: "12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace", whiteSpace: "pre-wrap", boxShadow: "0 12px 40px rgb(0 0 0 / .35)",
-      })
-      document.body.append(el)
-    }
-    el.textContent = `${el.textContent ? `${el.textContent}\n\n` : ""}agent session $ ${cmd}\n${out || none}`
-    el.scrollTop = el.scrollHeight
-  }, [command, output, empty] as const)
-  if (hover) await page.getByLabel("Agent terminal").hover()
-}
-
 /** A real MP4 (a test pattern) at `file`. VP9 inside: Playwright's Chromium has no H.264. */
 export const testVideo = (file: string) => {
   const ffmpeg = spawnSync("ffmpeg", [

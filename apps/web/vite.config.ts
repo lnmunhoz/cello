@@ -6,11 +6,13 @@ import { buildStamp } from "./buildStamp.ts"
 
 const server = process.env.CELLO_SERVER ?? "127.0.0.1:4748"
 
-// The socket, review evidence (videos, screenshots) and the screenshots pasted into answers go to the Cello server.
+// The socket, review evidence (videos, screenshots) and the screenshots pasted into answers and comments
+// (CEL-73: only POST /tasks/<id>/uploads, so no page path is caught) go to the Cello server.
 const proxy = {
   "/rpc": { target: `ws://${server}`, ws: true },
   "/attachments": { target: `http://${server}` },
   "/asks": { target: `http://${server}` },
+  "^/tasks/[^/]+/uploads": { target: `http://${server}` },
 }
 
 export default defineConfig({

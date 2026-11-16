@@ -1,9 +1,11 @@
 // How an agent session reads what reached it (CEL-15): Lucas's comments, Send back notes, his
 // answers to the questions it asked on a card and word that he withdrew one by moving the card (CEL-47).
 // `cello inbox`, `cello context` and the Claude Code hook print items the same way, so the agent sees one
-// format wherever they arrive.
-import type { InboxItem } from "@cello/contract/entities"
-import { answerLines } from "./ask.ts"
+// format wherever they arrive. Screenshots in Lucas's answers and comments (CEL-73) are saved to temp
+// files first, and the text names the files.
+import * as path from "node:path"
+import type { Ask, Attachment, Comment, InboxItem } from "@cello/contract/entities"
+import { answerLines, answerScreenshots, screenshotLine } from "./ask.ts"
 import { ago, andList } from "./format.ts"
 
 /**
@@ -12,10 +14,35 @@ import { ago, andList } from "./format.ts"
  */
 export const MAX_DELIVERY = 9_500
 
-/** Where the screenshots in answers were saved: attachment id → local path. */
+/** Where the screenshots in answers and comments were saved: attachment id → local path. */
 export type SavedFiles = ReadonlyMap<string, string>
 
 const NO_FILES: SavedFiles = new Map()
+
+/** A screenshot to save, and the file it goes to, relative to the temp folder. */
+export interface ScreenshotFile {
+  readonly attachment: Attachment
+  readonly file: string
+}
+
+/** Lucas's answer screenshots: `cello-answers/<ask id>/q1-1.png`, `…/note-1.png`. */
+export const askScreenshots = (ask: Ask): ScreenshotFile[] =>
+  answerScreenshots(ask).map(({ attachment, fileName }) => ({ attachment, file: path.join("cello-answers", ask.id, fileName) }))
+
+/** A comment's screenshots: `cello-comments/<comment id>/1.png`, `2.webp`, … */
+export const commentScreenshots = (comment: Comment): ScreenshotFile[] =>
+  (comment.attachments ?? []).map((attachment, i) => ({
+    attachment,
+    file: path.join("cello-comments", comment.id, `${i + 1}${path.extname(attachment.name).toLowerCase() || ".png"}`),
+  }))
+
+/** Every screenshot in what reached the agent: in answers and in comments (a reaction quotes your own comment, so none). */
+export const inboxScreenshots = (items: ReadonlyArray<InboxItem>): ScreenshotFile[] =>
+  items.flatMap((i) => (i.kind === "answers" ? askScreenshots(i.ask) : i.kind === "withdrawn" || i.kind === "reaction" ? [] : commentScreenshots(i.comment)))
+
+/** A comment's words, then a line per screenshot naming the file it was saved to. */
+export const commentText = (comment: Comment, files: SavedFiles): string =>
+  [comment.body.trim(), ...(comment.attachments ?? []).map((a) => screenshotLine(a, files))].filter((l) => l !== "").join("\n")
 
 const who = (item: InboxItem) => {
   switch (item.kind) {
@@ -52,7 +79,7 @@ const textOf = (item: InboxItem, files: SavedFiles) => {
     case "reaction":
       return quoteOf(item.comment.body)
     default:
-      return item.comment.body.trim()
+      return commentText(item.comment, files)
   }
 }
 
@@ -107,6 +134,7 @@ const headOf = (items: ReadonlyArray<InboxItem>) => {
 export const deliveryText = (items: ReadonlyArray<InboxItem>, now: number, files: SavedFiles = NO_FILES): string => {
   const count = items.length
   const comments = items.filter((i) => i.kind === "comment" || i.kind === "send_back")
+  const withShots = comments.some((i) => i.kind !== "answers" && i.kind !== "withdrawn" && (i.comment.attachments?.length ?? 0) > 0)
   const answered = unique(items.filter((i) => i.kind === "answers").map((i) => i.taskKey))
   const withdrawn = unique(items.filter((i) => i.kind === "withdrawn").map((i) => i.taskKey))
   const sentBack = unique(items.filter((i) => i.kind === "send_back").map((i) => i.taskKey))
@@ -114,7 +142,7 @@ export const deliveryText = (items: ReadonlyArray<InboxItem>, now: number, files
   const human = items[0]?.author ?? "Lucas"
   const tail = [
     ...(comments.length
-      ? [`Act on ${comments.length === 1 ? "it" : "them"} now, then answer on the card: ${answerHint(comments.map((i) => i.taskKey))}, so ${human} sees your reply there.`]
+      ? [`Act on ${comments.length === 1 ? "it" : "them"} now${withShots ? ` (${comments.length === 1 ? "its" : "their"} screenshots are files you can open)` : ""}, then answer on the card: ${answerHint(comments.map((i) => i.taskKey))}, so ${human} sees your reply there.`]
       : []),
     ...(sentBack.length
       ? [`For a task ${human} sent back, fix what the note asks, then hand it in again with \`cello task submit ${sentBack[0]}\`${sentBack.length > 1 ? ` (${sentBack.slice(1).join(", ")} the same way)` : ""}.`]

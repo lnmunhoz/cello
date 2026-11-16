@@ -110,7 +110,7 @@ Why: Anthropic's own results put Sonnet 5.5 level with or above Opus 5.5 on term
 - **Write it once.** Before writing a helper, look for one. Shared pure logic goes in `packages/shared` (with tests) or `packages/contract`; domain rules live in the owning service. The second copy of anything moves to a shared module and the first copy is deleted.
 - **Storage failures are defects** (`Effect.orDie` at the service edge). API errors are only the tagged errors in `packages/contract/src/errors.ts`.
 - **Effect style** follows T3 Code (`~/projects/t3code`): `Context.Service` classes, layers, `Effect.fn("Service.method")` for service methods. Effect's own source and tests are in `~/projects/t3code/.repos/effect` when the docs aren't enough.
-- **UI primitives own their look.** `apps/web/src/components/ui` components take a `variant` or `size`; don't restyle them with `className`. No `useMemo`/`useCallback` (React Compiler). Animations only run when an event arrives; an idle board runs none.
+- **UI primitives own their look.** `apps/web/src/components/ui` components take a `variant` or `size`; don't restyle them with `className`. No `useMemo`/`useCallback` (React Compiler). Animations only run when an event arrives or while an agent is working on a card (its agent mark); an idle board runs none.
 - **Docs:** `docs/internals/` holds decisions and cross-cutting constraints only. Specs, plans and reports are published into Cello with `cello doc publish` (`--kind spec` for a spec), one page per detailed phase; the page reader follows the doc-kit look (`~/.claude/doc-kit/`).
 
 ## Commands

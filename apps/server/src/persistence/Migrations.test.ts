@@ -487,7 +487,48 @@ describe("migration 0011_agents", () => {
     }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
 })
 
-/** Every migration before 0013 (CEL-77): whatever lands before it at merge (CEL-73's 0012) runs too. */
+/** Up to 0011 (CEL-55): 0012 links attachments to comments, and has its own test. */
+const throughAgents = SqliteMigrator.run({
+  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0012"))),
+  table: "migrations",
+}).pipe(Effect.orDie)
+
+// CEL-73: screenshots in comments. Additive only: a nullable comment column on attachments, null on every
+// row there is (evidence, an ask's files, Lucas's answer screenshots), and an index. Nothing is rebuilt.
+describe("migration 0012_comment_attachments", () => {
+  it.effect("adds a comment column to attachments, null on every row it finds, and changes nothing else", () =>
+    Effect.gen(function* () {
+      yield* throughAgents
+      yield* realisticBoard
+      const sql = yield* SqlClient.SqlClient
+      const before = yield* allRows
+
+      yield* Migrations.run
+      // The reactions table is 0013's (CEL-77), with its own test below.
+      const { comment_reactions: _reactions, ...after } = yield* allRows
+      const attachments = (after["attachments"] as ReadonlyArray<Record<string, unknown>>).map(({ comment_id, ...rest }) => {
+        expect(comment_id).toBeNull()
+        return rest
+      })
+      expect({ ...after, attachments }).toEqual(before)
+      expect(yield* sql`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'attachments_comment'`).toEqual([{ name: "attachments_comment" }])
+
+      // A screenshot belongs to a comment that exists.
+      yield* sql`INSERT INTO attachments (id, task_id, comment_id, kind, name, path, mime, bytes, actor_id, created_at)
+        VALUES ('f9', 't7', 'c1', 'image', 'shot.png', 't7/f9.png', 'image/png', 3, 'human', 9)`
+      expect((yield* Effect.exit(sql`INSERT INTO attachments (id, task_id, comment_id, kind, name, actor_id, created_at)
+        VALUES ('f10', 't7', 'nope', 'image', 'x.png', 'human', 10)`))._tag).toBe("Failure")
+
+      // The next start runs the migrations again: nothing changes.
+      const migrated = yield* allRows
+      yield* Migrations.run
+      expect(yield* allRows).toEqual(migrated)
+      expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
+      expect(yield* sql`PRAGMA foreign_key_check`).toEqual([])
+    }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
+})
+
+/** Every migration before 0013 (CEL-77), CEL-73's 0012 included. */
 const beforeReactions = SqliteMigrator.run({
   loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0013"))),
   table: "migrations",

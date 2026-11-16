@@ -187,26 +187,6 @@ export const Reaction = Schema.Struct({
 })
 export type Reaction = typeof Reaction.Type
 
-export const Comment = Schema.Struct({
-  id: Id,
-  taskId: Id,
-  body: Schema.String,
-  actorId: Id,
-  sessionId: Schema.NullOr(Id),
-  /** The subagent of the session that wrote it (CEL-55); absent or null when the session itself did. */
-  agentId: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  createdAt: Millis,
-  updatedAt: Millis,
-  deletedAt: Schema.NullOr(Millis),
-  /**
-   * Its emoji reactions (CEL-77), oldest first. Read with the comment, so `comment.added` carries an
-   * empty list; events stored before reactions existed leave it out. A reaction changing is its own
-   * event (`reaction.added`, `reaction.removed`), never a comment event.
-   */
-  reactions: Schema.optionalKey(Schema.Array(Reaction)),
-})
-export type Comment = typeof Comment.Type
-
 export const AttachmentKind = Schema.Literals(["image", "video", "file", "link"])
 export type AttachmentKind = typeof AttachmentKind.Type
 
@@ -240,6 +220,32 @@ export const Attachment = Schema.Struct({
   deletedAt: Schema.NullOr(Millis),
 })
 export type Attachment = typeof Attachment.Type
+
+export const Comment = Schema.Struct({
+  id: Id,
+  taskId: Id,
+  body: Schema.String,
+  actorId: Id,
+  sessionId: Schema.NullOr(Id),
+  /** The subagent of the session that wrote it (CEL-55); absent or null when the session itself did. */
+  agentId: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  createdAt: Millis,
+  updatedAt: Millis,
+  deletedAt: Schema.NullOr(Millis),
+  /**
+   * Its screenshots (CEL-73): images Lucas pasted or dropped into the comment box, or an agent attached
+   * with `cello task comment --attach`. The server always sends it; comments in events stored before
+   * CEL-73 have no key, which means none.
+   */
+  attachments: Schema.optionalKey(Schema.Array(Attachment)),
+  /**
+   * Its emoji reactions (CEL-77), oldest first. Read with the comment, so `comment.added` carries an
+   * empty list; events stored before reactions existed leave it out. A reaction changing is its own
+   * event (`reaction.added`, `reaction.removed`), never a comment event.
+   */
+  reactions: Schema.optionalKey(Schema.Array(Reaction)),
+})
+export type Comment = typeof Comment.Type
 
 /**
  * How a review closed. `superseded`: a newer review of the same task replaced it before anyone decided.

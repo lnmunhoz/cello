@@ -366,9 +366,15 @@ cello task comment CEL-12 --body-file - <<'EOF'
 - Collapsed rows work, with j/k and Enter
 - Next: open the next row after Approve
 EOF
+
+# With screenshots: shown under the text as thumbnails that open full size
+cello task comment CEL-12 "The empty state, built" --attach empty-state.png --attach empty-state-dark.png
+# Commented on CEL-12 with 2 images
 ```
 
 Comments are markdown, rendered on the card, and links in them can be clicked. Task keys (e.g. CEL-12) link to the task, with its live status; keys of unknown tasks, and keys in backticks or code blocks, stay plain. Answer Lucas's comments and Send back notes on the card, so the conversation stays with the task. His comments come to your session by themselves (next section).
+
+**Screenshots in comments.** `--attach` takes an image (PNG, JPEG, GIF, WebP or AVIF, up to 50 MB), relative to the folder you run it in; repeat it for more. A comment with screenshots needs no text. Anything else is refused ("notes.txt isn't an image (PNG, JPEG, GIF, WebP or AVIF)"): test output and videos go in a review packet. Lucas pastes (⌘V) or drops screenshots into the comment box in the task panel and on the Review page; they reach you as files (next section). `cello task get CEL-12` saves every comment's screenshots to temp files and prints their paths under the comment's text (`Screenshot: /var/folders/…/T/cello-comments/<comment id>/1.png`); `--json` has them as each comment's `attachments`.
 
 A comment counts as activity on its task: adding, editing or deleting one moves the task's last change (`updatedAt`, "Last changed by" in `cello task get`) to you, and the card says "2fd0505c commented just now". It's not a status change, so it never ends anyone's claim. `cello task get CEL-12 --json` has them as `.task.commentCount` and `.task.lastCommentAt`.
 
@@ -432,6 +438,19 @@ CEL-22  Review page: collapsed rows, one packet open at a time
 Act on it now, then answer on the card: `cello task comment CEL-22 "…"` (or `--body-file -` for markdown), so Lucas N. Munhoz sees your reply there.
 For a task Lucas N. Munhoz sent back, fix what the note asks, then hand it in again with `cello task submit CEL-22`.
 ```
+
+**Screenshots come as files.** When Lucas pastes screenshots into a comment or a Send back note, the hook, `cello inbox` and `cello context` save each one to a temp file and print its path under the text, so you can open it (Claude Code's Read tool shows images):
+
+```
+CEL-22  Review page: collapsed rows, one packet open at a time
+  Lucas N. Munhoz commented, just now
+    The rows overlap here:
+    Screenshot: /var/folders/…/T/cello-comments/01JD…/1.png
+
+Act on it now (its screenshots are files you can open), then answer on the card: `cello task comment CEL-22 "…"` (or `--body-file -` for markdown), so Lucas N. Munhoz sees your reply there.
+```
+
+One that can't be fetched (the server stopped in between) shows the path the server serves it at instead (`Screenshot: /attachments/<id>`).
 
 **Lucas's reactions come the same way.** When he reacts to a comment your session wrote (a 👍 under "Shall I merge it?"), it reaches your session once, through the hooks, `cello inbox` or `cello inbox --wait`, even if you no longer hold the task's claim. Once your session has ended it goes to whoever holds the claim instead, and to no one when nobody does. If he takes the reaction back before it reaches you, it never arrives. It quotes the start of your comment:
 
@@ -1018,7 +1037,7 @@ cello task label [flags] <key> [<changes...>]
 
 ### cello task comment
 
-Add a markdown comment to a task: progress, a question, an answer to Lucas.
+Add a markdown comment to a task: progress, a question, an answer to Lucas. --attach adds screenshots.
 
 ```
 cello task comment [flags] <key> [<text>]
@@ -1029,6 +1048,7 @@ cello task comment [flags] <key> [<text>]
 | `key string` | A task key, e.g. CEL-3. |
 | `text string` | The comment, in quotes; markdown renders on the card. (optional) |
 | `--body-file string` | Read the comment from a file; - is stdin. |
+| `--attach string` | An image (PNG, JPEG, GIF, WebP or AVIF) shown under the comment as a thumbnail; repeatable. |
 | `--json` | Print JSON for scripts. |
 
 ### cello task react
