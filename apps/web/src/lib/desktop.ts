@@ -8,11 +8,28 @@ import { openImageModal } from "../viewer/imageModal.ts"
 import { showInViewer } from "../viewer/store.ts"
 import { openTarget, taskRoute, type OpenTarget, type OpenTaskMessage, type ViewerItem } from "../viewer/viewer.ts"
 
+/**
+ * The desktop app asks for a restart (CEL-75): its own build on disk changed since it started
+ * (`updated`), or it runs from a build folder while /Applications has a copy (`elsewhere`). `key`
+ * changes when the situation does.
+ */
+export type DesktopAppNotice =
+  | { readonly kind: "updated"; readonly key: string }
+  | { readonly kind: "elsewhere"; readonly key: string; readonly running: string }
+
 /** What the desktop app's preload puts on `window.celloDesktop`. Only http(s) URLs are accepted. */
 export interface CelloDesktop {
   readonly isDesktop: true
   openPanel(url: string, title?: string): void
   closePanel(): void
+  /**
+   * Calls `listener` with the app's current notice (null for none) now and on each change, until the
+   * returned function is called. Missing in desktop builds before CEL-75, which a newer server's web
+   * app can still be loaded into.
+   */
+  onAppNotice?(listener: (notice: DesktopAppNotice | null) => void): () => void
+  /** Quits and starts the app again, from /Applications when it ran from another copy. */
+  restartApp?(): void
 }
 
 declare global {

@@ -3,9 +3,10 @@
 // window-state.json; the panel's URL lives only as long as the app runs.
 import * as fs from "node:fs"
 import { BaseWindow, nativeTheme, screen, shell, webContents, WebContentsView, type WebContents } from "electron"
-import { BOARD_OPEN, BOARD_OPEN_TASK, PANEL_CLOSE, PANEL_OPEN } from "../ipc.ts"
+import { APP_NOTICE, APP_RESTART, BOARD_OPEN, BOARD_OPEN_TASK, PANEL_CLOSE, PANEL_OPEN } from "../ipc.ts"
 import { Panel } from "../panel/Panel.ts"
 import { boardNavigationAction, boardWindowOpenAction } from "../panel/urls.ts"
+import type { BoardNotice } from "../update/appUpdate.ts"
 import { appCommandDirection, goInHistory, type HistoryDirection, historyShortcut, swipeDirection } from "./history.ts"
 import {
   clampPanelWidth,
@@ -24,6 +25,8 @@ export interface MainWindowOptions {
   readonly chromePreload: string
   readonly chromeHtml: string
   readonly platform: NodeJS.Platform
+  /** The board's Restart button on the app's restart notice (CEL-75). */
+  readonly restartApp: () => void
 }
 
 const SAVE_DELAY_MS = 400
@@ -53,6 +56,7 @@ export class MainWindow {
   readonly panel: Panel
   #state: WindowState
   #origin: string | null = null
+  #notice: BoardNotice | null = null
   #saveTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(private readonly options: MainWindowOptions) {
@@ -194,6 +198,9 @@ export class MainWindow {
       if (typeof url === "string") this.panel.open(url, typeof title === "string" ? title : undefined)
     })
     board.ipc.on(PANEL_CLOSE, () => this.panel.close())
+    board.ipc.on(APP_RESTART, () => this.options.restartApp())
+    // A reload starts the preload afresh: tell it the app's notice again.
+    board.on("did-finish-load", () => board.send(APP_NOTICE, this.#notice))
     // Links that want a new window, and links off the board's origin, open in the panel.
     board.setWindowOpenHandler(({ url }) => {
       this.#route(url, boardWindowOpenAction(url, this.#origin))
@@ -206,6 +213,13 @@ export class MainWindow {
       event.preventDefault()
       this.#route(url, action)
     })
+  }
+
+  /** The app's restart notice (CEL-75), or null: the board shows it, and gets it again after each load. */
+  showAppNotice(notice: BoardNotice | null): void {
+    if (this.#notice?.key === notice?.key) return
+    this.#notice = notice
+    if (!this.board.webContents.isDestroyed()) this.board.webContents.send(APP_NOTICE, notice)
   }
 
   /** A task clicked in the panel: the board opens it (its router, no reload) and takes the focus; the panel stays. */

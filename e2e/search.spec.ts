@@ -83,14 +83,15 @@ const TARGET = "The evidence video stops before the inbox shows the comment. Can
 async function seed(human: PromiseClient, baseURL: string) {
   const { statuses } = await defaultWorkspace(human)
   if ((await human.run((c) => c["snapshot.get"]({}))).projects.some((p) => p.key === "CEL")) return
-  const labels = Object.fromEntries((await seedLabels(human, [
-    { name: "ui", color: "#5E6AD2" },
-    { name: "server", color: "#26B5CE" },
-    { name: "cli", color: "#4CB782" },
-  ])).map((l) => [l.name, l.id]))
   const agent = await openClient(`${baseURL.replace(/^http/, "ws")}/rpc`, { "x-cello-session": "e2e-search-agent", "x-cello-client": "Claude Code" })
   for (const [key, name, tasks] of [["CEL", "Cello", CEL], ["THAI", "ThaiLookup", THAI]] as const) {
     const project = await seedProject(human, name, key)
+    // Each project has its own labels (CEL-80).
+    const labels = Object.fromEntries((await seedLabels(human, project.id, [
+      { name: "ui", color: "#5E6AD2" },
+      { name: "server", color: "#26B5CE" },
+      { name: "cli", color: "#4CB782" },
+    ])).map((l) => [l.name, l.id]))
     for (const t of tasks) {
       await human.run((c) => c["task.create"]({
         commandId: newCommandId(),

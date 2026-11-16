@@ -25,21 +25,23 @@ const task = (id: string, extra: Partial<Task> = {}): Task => ({
   createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, version: 1, createdAt: 1, updatedAt: 1,
   archivedAt: null, ...extra,
 })
-const label = (id: string, group: LabelGroup, workspaceId = "w1"): Label => ({
-  id, workspaceId, name: id, color: "#000", group, createdAt: 0, updatedAt: 0, archivedAt: null,
+const label = (id: string, group: LabelGroup, projectId = "p1", workspaceId = "w1"): Label => ({
+  id, workspaceId, projectId, name: id, color: "#000", group, createdAt: 0, updatedAt: 0, archivedAt: null,
 })
 const actor = (id: string, kind: Actor["kind"]): Actor => ({ id, kind, name: id, client: null, color: "#000", createdAt: 0 })
 
 const board = {
-  projects: { p1: { id: "p1", workspaceId: "w1" } },
+  projects: { p1: { id: "p1", workspaceId: "w1" }, p2: { id: "p2", workspaceId: "w1" }, p3: { id: "p3", workspaceId: "w2" } },
   labels: {
     bug: label("bug", "kind"),
     feature: label("feature", "kind"),
     agents: label("agents", "area"),
     board: label("board", "area"),
     m2: { ...label("m2", "milestone"), name: "M2" },
+    // Another project's bug (CEL-80): not p1's, but the same "bug" in All projects.
+    "p2-bug": { ...label("p2-bug", "kind", "p2"), name: "Bug" },
     // Another workspace's label with a taken name: never this workspace's.
-    other: { ...label("other", "area", "w2"), name: "bug" },
+    other: { ...label("other", "area", "p3", "w2"), name: "bug" },
   },
   actors: { me: actor("me", "human"), claude: actor("claude", "agent") },
   // c's packet waits in In Review; d's was left open when d moved on (before CEL-71): it isn't waiting.
@@ -49,7 +51,7 @@ const board = {
   asks: { k1: { id: "k1", taskId: "a" } },
 } as unknown as BoardState
 const now = new Date(2026, 10, 15, 12).getTime()
-const c = matchContext(board, "w1", now)
+const c = matchContext(board, { projectId: "p1" }, now)
 
 // a: a bug in agents, urgent, overdue, waiting on Lucas's answers.
 const a = task("a", { labelIds: ["bug", "agents"], priority: 1, dueDate: "2026-11-10" })
@@ -78,7 +80,7 @@ describe("labels: any within a group, all across groups (CEL-52)", () => {
   })
 
   it("an archived label stops matching", () => {
-    const archived = matchContext({ ...board, labels: { ...board.labels, m2: { ...board.labels["m2"]!, archivedAt: 5 } } }, "w1", now)
+    const archived = matchContext({ ...board, labels: { ...board.labels, m2: { ...board.labels["m2"]!, archivedAt: 5 } } }, { projectId: "p1" }, now)
     expect(all.filter((t) => matches(t, { ...EMPTY_FILTER, labels: ["bug", "m2"] }, archived)).map((t) => t.id)).toEqual(["a", "c"])
   })
 
@@ -91,6 +93,20 @@ describe("labels: any within a group, all across groups (CEL-52)", () => {
     // bug, with agents → a.
     expect(labelCount(all, f, c, "bug")).toBe(1)
     expect(labelCount(all, EMPTY_FILTER, c, "agents")).toBe(2)
+  })
+
+  it("a project matches its own labels only; All projects matches every project's label of that name (CEL-80)", () => {
+    // e: THAI's task with THAI's own Bug.
+    const e = task("e", { projectId: "p2", labelIds: ["p2-bug"] })
+    const f = { ...EMPTY_FILTER, labels: ["bug"] }
+    expect([...all, e].filter((t) => matches(t, f, c)).map((t) => t.id)).toEqual(["a", "c"])
+    expect(c.labels.get("bug")).toEqual([{ id: "bug", group: "kind" }])
+    const everywhere = matchContext(board, { workspaceId: "w1" }, now)
+    expect([...all, e].filter((t) => matches(t, f, everywhere)).map((t) => t.id)).toEqual(["a", "c", "e"])
+    expect(labelCount([...all, e], EMPTY_FILTER, everywhere, "bug")).toBe(3)
+    // Only another project has it: a project filter leaves the name out, All projects keeps it.
+    expect(matchContext(board, { projectId: "p2" }, now).labels.has("agents")).toBe(false)
+    expect(everywhere.labels.has("agents")).toBe(true)
   })
 })
 

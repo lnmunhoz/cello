@@ -2,7 +2,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, Comment, Reaction, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { durationShort, pendingWords, reachOf, reachWords, receiptOf, receiptTitle, sentWords, unsentTone } from "./receipts.ts"
+import { commentStatus, durationShort, reachOf, reachWords, receiptOf, receiptTitle, sentWords, statusCommentId, unsentTone } from "./receipts.ts"
 
 const MIN = 60_000
 const now = Date.UTC(2026, 10, 16, 12)
@@ -113,16 +113,12 @@ describe("receiptOf", () => {
   })
 })
 
-describe("sentWords: what a comment not taken yet waits for", () => {
-  it("the holder's next step, or, once the claim moved on, the inbox it waits in", () => {
-    const state = board([task()], [session("s1"), session("s2")])
-    const reach = reachOf(state, task(), now)
-    expect(sentWords({ state: "sent", to: { kind: "agent", name: "x", short: "s1", color: "" }, sessionId: "s1" }, task(), reach)).toBe("s1 gets it at its next step")
-    expect(sentWords({ state: "sent", to: { kind: "agent", name: "x", short: "s2", color: "" }, sessionId: "s2" }, task(), reach))
-      .toBe("waiting in s2's inbox; s2 no longer holds this task")
-    const released = task({ assigneeActorId: null, assigneeSessionId: null })
-    expect(sentWords({ state: "sent", to: { kind: "agent", name: "x", short: "s1", color: "" }, sessionId: "s1" }, released, reachOf(state, released, now)))
-      .toBe("waiting in s1's inbox; s1 no longer holds this task")
+describe("sentWords: what the Sent tick adds", () => {
+  it("nothing while it went to the holder (the status row says how soon), else the inbox it waits in once the claim moved on", () => {
+    const sent = (sessionId: string) => ({ state: "sent" as const, to: { kind: "agent" as const, name: "x", short: sessionId, color: "" }, sessionId })
+    expect(sentWords(sent("s1"), task())).toBeNull()
+    expect(sentWords(sent("s2"), task())).toBe("waiting in s2's inbox; s2 no longer holds this task")
+    expect(sentWords(sent("s1"), task({ assigneeActorId: null, assigneeSessionId: null }))).toBe("waiting in s1's inbox; s1 no longer holds this task")
   })
 })
 
@@ -149,38 +145,107 @@ describe("unsentTone: Not delivered is a warning only where an agent could have 
   })
 })
 
-describe("reachOf, reachWords and pendingWords: who gets the next comment", () => {
+describe("reachOf and reachWords: how soon the holder gets a comment", () => {
   it("nobody, when no agent holds the task", () => {
     const free = task({ assigneeActorId: null, assigneeSessionId: null })
     const reach = reachOf(board([free], []), free, now)
     expect(reach).toEqual({ kind: "nobody" })
-    expect(reachWords(reach, now)).toEqual({ tone: "warn", text: "No agent holds this task, so nobody will get this comment." })
-    expect(pendingWords(reach)).toBe("nobody holds the task now")
+    expect(reachWords(reach)).toEqual({ tone: "warn", text: "No agent holds this task: nobody will get this" })
   })
 
-  it("active: the session gets it at its next step; with a subagent on it, the subagent is named too (CEL-55)", () => {
+  it("active, or a subagent of it working on the task (CEL-55): the session gets it at its next step", () => {
     const alone = reachOf(board([task()], [session("s1")]), task(), now)
-    expect(reachWords(alone, now)).toEqual({ tone: "ok", text: "s1 is active now and gets your comment at its next step." })
-    expect(pendingWords(alone)).toBe("s1 gets it at its next step")
-    const withBuilder = reachOf(board([task()], [session("s1")], [builder()]), task(), now)
-    expect(reachWords(withBuilder, now).text).toBe("cello-builder · a13bfb89 is working on it now. s1 gets your comment at its next step.")
+    expect(reachWords(alone)).toEqual({ tone: "ok", text: "s1 gets this at its next step" })
+    const withBuilder = reachOf(board([task()], [session("s1", { lastSeenAt: now - 20 * MIN })], [builder()]), task(), now)
+    expect(withBuilder).toMatchObject({ presence: "idle", worker: { short: "cello-builder · a13bfb89" } })
+    expect(reachWords(withBuilder)).toEqual({ tone: "ok", text: "s1 gets this at its next step" })
   })
 
   it("waiting: a `cello inbox --wait` is open, so it gets the comment in about a second", () => {
     const reach = reachOf(board([task()], [session("s1", { lastSeenAt: now - 20 * MIN, waiting: true })]), task(), now)
-    expect(reachWords(reach, now)).toEqual({ tone: "ok", text: "s1 is waiting for you: it gets your comment in about a second." })
-    expect(pendingWords(reach)).toBe("s1 gets it in about a second")
+    expect(reachWords(reach)).toEqual({ tone: "ok", text: "s1 is waiting for you: it gets this in about a second" })
   })
 
   it("idle with no waiter: it gets it when it next works", () => {
     const reach = reachOf(board([task()], [session("s1", { lastSeenAt: now - 20 * MIN })]), task(), now)
-    expect(reachWords(reach, now)).toEqual({ tone: "idle", text: "s1 is idle (seen 20m ago) and isn't waiting: it gets this when it next works." })
-    expect(pendingWords(reach)).toBe("s1 is idle, gets it when it next works")
+    expect(reachWords(reach)).toEqual({ tone: "idle", text: "s1 is idle: it gets this when it next works" })
   })
 
-  it("ended: nobody gets it unless the session resumes, even with a waiter left over", () => {
+  it("ended: it gets it only if the session is resumed, even with a waiter left over", () => {
     const reach = reachOf(board([task()], [session("s1", { endedAt: now - 10 * MIN, waiting: true })]), task(), now)
-    expect(reachWords(reach, now)).toEqual({ tone: "warn", text: "s1 has ended, so nobody will get this unless it resumes." })
-    expect(pendingWords(reach)).toBe("s1 has ended")
+    expect(reachWords(reach)).toEqual({ tone: "idle", text: "s1 ended: it gets this if the session is resumed" })
+  })
+})
+
+describe("statusCommentId: the status row follows Lucas's latest comment", () => {
+  it("his latest, even with agent comments after it; none without one of his", () => {
+    const mine = comment("a", now - 5 * MIN)
+    const later = comment("b", now - 3 * MIN)
+    const agent = comment("r", now - MIN, { actorId: "claude", sessionId: "s1" })
+    expect(statusCommentId([mine, later, agent])).toBe("b")
+    expect(statusCommentId([agent])).toBeNull()
+    expect(statusCommentId([])).toBeNull()
+  })
+})
+
+describe("commentStatus: what the row under Lucas's latest comment says", () => {
+  const status = (c: Comment, state: BoardState, t: Task = task(), thread: Comment[] = [c]) => commentStatus(c, thread, t, state, now)
+  const active = board([task()], [session("s1")])
+
+  it("not taken yet: how soon the holder gets it, in the holder's state", () => {
+    const sent = comment("c", now - MIN, sentTo("s1"))
+    expect(status(sent, active)).toMatchObject({ tone: "ok", text: "s1 gets this at its next step", reach: { kind: "agent" } })
+    expect(status(sent, board([task()], [session("s1", { lastSeenAt: now - 20 * MIN, waiting: true })])))
+      .toMatchObject({ tone: "ok", text: "s1 is waiting for you: it gets this in about a second" })
+    expect(status(sent, board([task()], [session("s1", { lastSeenAt: now - 20 * MIN })])))
+      .toMatchObject({ tone: "idle", text: "s1 is idle: it gets this when it next works" })
+    expect(status(sent, board([task()], [session("s1", { endedAt: now - 10 * MIN })])))
+      .toMatchObject({ tone: "idle", text: "s1 ended: it gets this if the session is resumed" })
+  })
+
+  it("taken, while the holder works: it got it and is working on it", () => {
+    const taken = comment("c", now - MIN, sentTo("s1", now - MIN + 2_000, "hook"))
+    expect(status(taken, active)).toMatchObject({ tone: "ok", text: "s1 got your comment and is working on it…", reach: { kind: "agent" } })
+    const idleWithBuilder = board([task()], [session("s1", { lastSeenAt: now - 20 * MIN })], [builder()])
+    expect(status(taken, idleWithBuilder)).toMatchObject({ text: "s1 got your comment and is working on it…" })
+  })
+
+  it("taken, then the holder stopped without answering: it got it but hasn't answered", () => {
+    const taken = comment("c", now - 30 * MIN, sentTo("s1", now - 29 * MIN, "hook"))
+    expect(status(taken, board([task()], [session("s1", { lastSeenAt: now - 20 * MIN })])))
+      .toMatchObject({ tone: "idle", text: "s1 got your comment but hasn't answered yet" })
+    // Ended its turn with `cello inbox --wait` running: waiting for Lucas, not working on it.
+    expect(status(taken, board([task()], [session("s1", { waiting: true })])))
+      .toMatchObject({ tone: "idle", text: "s1 got your comment but hasn't answered yet" })
+    const released = task({ assigneeActorId: null, assigneeSessionId: null })
+    expect(status(taken, board([released], [session("s1")]), released))
+      .toEqual({ tone: "idle", text: "s1 got your comment but hasn't answered yet", reach: null })
+  })
+
+  it("answered (a reply or reaction after taking it): no row", () => {
+    const taken = comment("c", now - 5 * MIN, sentTo("s1", now - 4 * MIN, "hook"))
+    const reply = comment("r", now - 2 * MIN, { actorId: "claude", sessionId: "s1" })
+    expect(status(taken, active, task(), [taken, reply])).toBeNull()
+  })
+
+  it("went to nobody: warns while nobody holds the task and agents work on it; else no row", () => {
+    const free = task({ assigneeActorId: null, assigneeSessionId: null, updatedBySessionId: "s1" })
+    const c = comment("c", now - MIN, { delivery: null })
+    expect(status(c, board([free], [session("s1")]), free)).toEqual({ tone: "warn", text: "No agent holds this task: nobody will get this", reach: { kind: "nobody" } })
+    // A task no agent ever touched: a plain thread, no warning under each comment.
+    const untouched = task({ assigneeActorId: null, assigneeSessionId: null })
+    expect(status(c, board([untouched], []), untouched)).toBeNull()
+    // Claimed after it was written: it still went nowhere (its tick says Not delivered), so no row promising otherwise.
+    expect(status(c, active)).toBeNull()
+  })
+
+  it("still waiting in a session that let the task go: no row (its tick names that inbox)", () => {
+    const sent = comment("c", now - MIN, sentTo("s2"))
+    expect(status(sent, board([task()], [session("s1"), session("s2")]))).toBeNull()
+  })
+
+  it("an agent's comment has no row", () => {
+    const own = comment("c", now - MIN, { actorId: "claude", sessionId: "s1" })
+    expect(status(own, active)).toBeNull()
   })
 })

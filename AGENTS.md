@@ -4,7 +4,7 @@ A local task board for one developer and their AI coding agents. The design is i
 
 ## Glossary
 
-- **workspace**: a group of projects that share board columns (statuses), labels and views.
+- **workspace**: a group of projects that share board columns (statuses) and views. Labels are per project.
 - **project**: one product, usually one repository, with its own task key (`THAI`) and backlog.
 - **task**: a card. Its key is `<PROJECT>-<number>`, e.g. `THAI-12`.
 - **event**: one row in `events`, written in the same transaction as the change. Every change is an event.

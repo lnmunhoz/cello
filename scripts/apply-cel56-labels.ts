@@ -1,6 +1,6 @@
 // CEL-56: puts the approved labels on the CEL board, through the `cello` CLI only.
 //
-//   bun scripts/apply-cel56-labels.ts [--project CEL] [--dry-run] [--archive-ui]
+//   bun scripts/apply-cel56-labels.ts [--project CEL] [--dry-run]
 //
 // 1. Creates the 5 kinds and 15 areas, with the page's colours (kinds one colour each, areas one
 //    quieter colour per group), and recolours `server`, which stays as an area. Each goes in its
@@ -9,9 +9,8 @@
 //    off `ui` and any kind or area the table doesn't give it. Other labels (M2, M3) are left alone.
 //    A task the table doesn't list only loses `ui`. Archived tasks aren't listed, so they keep `ui`,
 //    hidden once it's archived.
-// 3. Archives `ui`, last, which can't be undone. When tasks in the workspace's other projects carry
-//    it, archiving would hide it on them too: the script then leaves it and says so, unless
-//    --archive-ui says to go ahead.
+// 3. Archives `ui`, last, which can't be undone. Labels belong to one project (CEL-80), so archiving
+//    it hides it on this project's tasks only.
 //
 // Running it again changes nothing: every step checks first. --dry-run prints what it would do.
 // CELLO_CLI names the command to run ("cello" by default; "bun apps/cli/src/bin.ts" from source),
@@ -137,7 +136,6 @@ export type Cli = (args: ReadonlyArray<string>) => Promise<{ readonly out: strin
 interface ListedLabel {
   readonly label: { readonly id: string; readonly name: string; readonly color: string; readonly group: string; readonly archivedAt: number | null }
   readonly tasks: number
-  readonly otherProjects: number
 }
 interface ListedTask {
   readonly key: string
@@ -147,7 +145,7 @@ interface ListedTask {
 /** Applies the labels; returns one line per change made (or that would be, with `dryRun`). */
 export const apply = async (
   cli: Cli,
-  options: { readonly project: string; readonly dryRun: boolean; readonly archiveUi?: boolean },
+  options: { readonly project: string; readonly dryRun: boolean },
 ): Promise<string[]> => {
   const { project, dryRun } = options
   const lines: string[] = []
@@ -218,18 +216,9 @@ export const apply = async (
   // 3. Retire `ui`.
   const retired = (await labelList()).find((l) => l.label.name.toLowerCase() === RETIRED)
   if (retired !== undefined && retired.label.archivedAt === null) {
-    const elsewhere = retired.otherProjects === 0
-      ? null
-      : `${retired.otherProjects} ${retired.otherProjects === 1 ? "task" : "tasks"} in other projects of the workspace ` +
-        `${retired.otherProjects === 1 ? "carries" : "carry"} ${RETIRED}; archiving hides it on them too, and it can't be undone.`
-    if (elsewhere !== null && options.archiveUi !== true) {
-      lines.push(`Not archiving ${RETIRED}: ${elsewhere} Run again with --archive-ui to archive it anyway.`)
-    } else {
-      if (elsewhere !== null) lines.push(`Warning: ${elsewhere}`)
-      const line = `label ${retired.label.name} (it can't be undone: there's no unarchive)`
-      lines.push(dryRun ? `Would: archive ${line}` : `archived ${line}`)
-      if (!dryRun) await call(["label", "archive", retired.label.name, "--project", project])
-    }
+    const line = `label ${retired.label.name} (it can't be undone: there's no unarchive)`
+    lines.push(dryRun ? `Would: archive ${line}` : `archived ${line}`)
+    if (!dryRun) await call(["label", "archive", retired.label.name, "--project", project])
   }
 
   if (lines.length === 0) lines.push(`Nothing to change: ${project}'s labels already match the CEL-56 table.`)
@@ -253,7 +242,6 @@ if (import.meta.main) {
     const lines = await apply(processCli(command), {
       project,
       dryRun: args.includes("--dry-run"),
-      archiveUi: args.includes("--archive-ui"),
     })
     console.log(lines.join("\n"))
   } catch (error) {

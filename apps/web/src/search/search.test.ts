@@ -57,7 +57,7 @@ describe("opening a result", () => {
   it("a document opens its page, a project its issues, a label Settings", () => {
     expect(targetOf(hit({ kind: "document", id: "d", slug: "scope" }), false)).toEqual({ to: "page", projectKey: "CEL", slug: "scope" })
     expect(targetOf(hit({ kind: "project", id: "p", projectKey: "THAI" }), false)).toEqual({ to: "issues", projectKey: "THAI" })
-    expect(targetOf(hit({ kind: "label", id: "l" }), false)).toEqual({ to: "settings" })
+    expect(targetOf(hit({ kind: "label", id: "l", projectKey: "THAI" }), false)).toEqual({ to: "settings", projectKey: "THAI" })
   })
 })
 

@@ -342,13 +342,13 @@ export async function seedProject(cello: PromiseClient, name: string, key: strin
   return (await cello.run((c) => c["project.create"]({ commandId: newCommandId(), workspaceId, name, key }))).result
 }
 
-/** Labels in the default workspace, reusing any that already exist with the same name. */
-export async function seedLabels(cello: PromiseClient, labels: ReadonlyArray<{ name: string; color: string }>): Promise<Label[]> {
-  const { workspaceId, labels: existing } = await defaultWorkspace(cello)
+/** Labels in a project (each project has its own, CEL-80), reusing any it already has with the same name. */
+export async function seedLabels(cello: PromiseClient, projectId: string, labels: ReadonlyArray<{ name: string; color: string }>): Promise<Label[]> {
+  const { labels: existing } = await defaultWorkspace(cello)
   const out: Label[] = []
   for (const { name, color } of labels) {
-    const found = existing.find((l) => l.name === name && l.archivedAt === null)
-    out.push(found ?? (await cello.run((c) => c["label.create"]({ commandId: newCommandId(), workspaceId, name, color }))).result)
+    const found = existing.find((l) => l.projectId === projectId && l.name === name && l.archivedAt === null)
+    out.push(found ?? (await cello.run((c) => c["label.create"]({ commandId: newCommandId(), projectId, name, color }))).result)
   }
   return out
 }

@@ -1,4 +1,4 @@
-// Workspaces: groups of projects that share statuses, labels and views.
+// Workspaces: groups of projects that share statuses and views (labels are per project, CEL-80).
 import type { Workspace } from "@cello/contract/entities"
 import { Invalid, NotFound } from "@cello/contract/errors"
 import type { Caller } from "@cello/contract/rpcs"

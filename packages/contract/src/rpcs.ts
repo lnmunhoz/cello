@@ -165,8 +165,9 @@ export const CelloRpcs = RpcGroup.make(
     error: Schema.Union([NotFound, Invalid]),
   }),
 
+  // A label is made in one project (CEL-80); its name must be free there, in any case, archived labels included.
   Rpc.make("label.create", {
-    payload: { commandId, workspaceId: Id, name: Schema.String, color: Schema.String, group: Schema.optionalKey(LabelGroup) },
+    payload: { commandId, projectId: Id, name: Schema.String, color: Schema.String, group: Schema.optionalKey(LabelGroup) },
     success: write(Label),
     error: Schema.Union([NotFound, Invalid]),
   }),
@@ -246,7 +247,7 @@ export const CelloRpcs = RpcGroup.make(
     error: Schema.Union([NotFound, Invalid]),
   }),
   Rpc.make("task.get", { payload: { key: Schema.String }, success: TaskDetail, error: NotFound }),
-  // The project's workspace labels, archived ones too, with how many tasks carry each.
+  // The project's labels, archived ones too, with how many of its tasks carry each.
   Rpc.make("label.list", { payload: { project: ProjectRef }, success: LabelList, error: Schema.Union([NotFound, Invalid]) }),
   Rpc.make("task.claim", {
     payload: { commandId, key: Schema.String },

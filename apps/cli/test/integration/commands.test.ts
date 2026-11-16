@@ -20,8 +20,8 @@ const setup = Effect.gen(function* () {
   const repo = gitRepo(dataDir, "cello")
   const human = yield* connect(port)
   const workspaceId = (yield* human["snapshot.get"]({})).workspaces[0]!.id
-  yield* human["project.create"]({ commandId: newCommandId(), workspaceId, name: "Cello", key: "CEL", repoPath: repo })
-  yield* human["label.create"]({ commandId: newCommandId(), workspaceId, name: "cli", color: "#26B5CE" })
+  const { result: project } = yield* human["project.create"]({ commandId: newCommandId(), workspaceId, name: "Cello", key: "CEL", repoPath: repo })
+  yield* human["label.create"]({ commandId: newCommandId(), projectId: project.id, name: "cli", color: "#26B5CE" })
   return {
     port,
     repo,

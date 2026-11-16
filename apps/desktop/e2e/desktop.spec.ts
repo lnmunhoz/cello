@@ -11,12 +11,15 @@ import {
   celloAsAgent,
   cleanup,
   COMMAND_OR_CONTROL,
+  DESKTOP_DIR,
   entryOf,
   freePort,
   isAlive,
   launchApp,
+  overwrite,
   pressKey,
   readLock,
+  relaunchedApp,
   SCREENSHOTS_DIR,
   secondLaunch,
   slug,
@@ -27,6 +30,7 @@ import {
   VIDEOS_DIR,
   VIEW,
   views,
+  watchForRelaunch,
 } from "./support.ts"
 
 const ARTIFACT = "https://claude.ai/artifact/RNpQF3GNVbCdMLNVWJqoYh"
@@ -546,6 +550,85 @@ test("CEL-37: the board in the app notices a new Cello build when the server res
   await expect(footer).toContainText("build bbbbbbb")
   await expect(bar).toHaveCount(0)
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "reload-desktop-build-b.png"))
+})
+
+test("CEL-75: when a new build of the app lands on disk, the board says so; Later hides it until the next build; Restart starts a new app on it", async ({}, testInfo) => {
+  const site = await testSite()
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const server = await startCello(dataDir)
+  const env = { CELLO_PORT: String(server.port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-") }
+  const app = await launchApp(env)
+  const video = record(app, testInfo.title)
+  const { board, panel } = await appPages(app, server.url)
+  const bar = board.locator("[data-app-restart-bar]")
+  const writeStamp = overwrite(path.join(DESKTOP_DIR, "dist-electron/build.json"))
+  const focusWindow = () => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.emit("focus"))
+
+  await video.caption("The app runs the build it started with: no notice")
+  await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
+  await focusWindow()
+  await expect(bar).toHaveCount(0)
+
+  await video.caption("A new build of the app lands on disk (bun run build rewrites dist-electron/build.json) while it runs")
+  writeStamp(`${JSON.stringify({ builtAt: "2026-11-16T05:00:00.000Z", commit: "bbbbbbb" })}\n`)
+
+  await video.caption("An agent opens a cello:// link: the app follows it, and says it was updated")
+  expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(site.url)}`])).toBe(0)
+  await panel.waitForURL(site.url)
+  await expect(bar).toHaveAttribute("data-app-restart-bar", "updated")
+  await expect(bar).toContainText("The Cello app was updated")
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "app-restart-bar-light.png"))
+  await board.getByRole("button", { name: "Use dark theme" }).click()
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "app-restart-bar-dark.png"))
+  await board.getByRole("button", { name: "Use light theme" }).click()
+
+  await video.caption("Later (×) hides it; switching back to the app doesn't bring it back for the same build")
+  await bar.getByRole("button", { name: "Later" }).click()
+  await expect(bar).toHaveCount(0)
+  await focusWindow()
+  await expect(bar).toHaveCount(0)
+
+  await video.caption("Another build lands: the next time the window takes focus, the notice is back")
+  writeStamp(`${JSON.stringify({ builtAt: "2026-11-16T06:00:00.000Z", commit: "ccccccc" })}\n`)
+  await focusWindow()
+  await expect(bar).toHaveAttribute("data-app-restart-bar", "updated")
+
+  await video.caption("Restart: the app quits and a new one starts, on the new build (the video ends here; the window closes)")
+  const oldPid = await app.evaluate(() => process.pid)
+  const relaunched = watchForRelaunch(env.CELLO_DESKTOP_USER_DATA)
+  const closed = app.waitForEvent("close")
+  await recording!.stop()
+  recording = null
+  await bar.getByRole("button", { name: "Restart" }).click()
+  await closed
+  const next = await relaunchedApp(await relaunched, server.url)
+  expect(next.pid).not.toBe(oldPid)
+  const fresh = next.board
+  await expect(fresh.getByRole("button", { name: "New project" }).first()).toBeVisible()
+  // It loaded the build on disk, so it has nothing to say.
+  await expect(fresh.locator("[data-app-restart-bar]")).toHaveCount(0)
+  await fresh.screenshot({ path: path.join(SCREENSHOTS_DIR, "app-restarted-board.png") })
+})
+
+test("CEL-75: a Cello running from a build folder offers a restart from /Applications", async ({}, testInfo) => {
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const server = await startCello(dataDir)
+  const app = await launchApp({ CELLO_PORT: String(server.port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-") })
+  const video = record(app, testInfo.title)
+  const { board } = await appPages(app, server.url)
+  const bar = board.locator("[data-app-restart-bar]")
+  await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
+
+  // Only a packaged macOS app can run from a build folder; here main sends the notice it would send.
+  await video.caption("The app runs from apps/desktop/dist/mac-arm64/Cello.app while /Applications has a copy")
+  const running = "/Users/me/projects/cello/apps/desktop/dist/mac-arm64/Cello.app"
+  await app.evaluate(({ BaseWindow }, notice) => {
+    ;(BaseWindow.getAllWindows()[0]!.contentView.children[0] as Electron.WebContentsView).webContents.send("cello:app-notice", notice)
+  }, { kind: "elsewhere", key: `elsewhere:${running}`, running })
+  await expect(bar).toHaveAttribute("data-app-restart-bar", "elsewhere")
+  await expect(bar).toContainText("Cello is running from a build folder")
+  await expect(bar.getByRole("button", { name: "Restart from Applications" })).toBeVisible()
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "app-restart-bar-elsewhere-light.png"))
 })
 
 test("starts the bundled cello when no server is running, and stops it on quit", async ({}, testInfo) => {

@@ -975,7 +975,7 @@ const labelList = Command.make("list", { project, json }, (input) =>
     if (input.json) return yield* printJson(list)
     yield* print(labelListText(list))
   })).pipe(Command.withDescription(
-    "The workspace's labels: each one's colour and how many tasks carry it (in this project, and in the workspace's other projects), then the archived ones.",
+    "The project's labels: each one's colour and how many of its tasks carry it, under its group, then the archived ones. Other projects' labels aren't listed.",
   ))
 
 const groupFlag = Flag.String("group").pipe(
@@ -1011,7 +1011,7 @@ const labelCreate = Command.make("create", {
         const { project: target } = yield* client["label.list"]({ project: ref })
         return yield* labelInvalid(client["label.create"]({
           commandId: newCommandId(),
-          workspaceId: target.workspaceId,
+          projectId: target.id,
           name: input.name,
           color: Option.getOrElse(input.color, () => colorFromSeed(input.name.trim().toLowerCase())),
           ...(group === undefined ? {} : { group }),
@@ -1021,7 +1021,7 @@ const labelCreate = Command.make("create", {
     if (input.json) return yield* printJson(response)
     yield* print(`Created label ${labelLine(response.result, group !== undefined)}`)
   })).pipe(Command.withDescription(
-    "Make a label in the project's workspace (every project in it shares its labels). A name already taken, in any case and by archived labels too, is refused.",
+    "Make a label in the project (each project has its own labels). A name already taken in the project, in any case and by archived labels too, is refused; another project may use the same name.",
   ))
 
 const labelUpdate = Command.make("update", {
@@ -1073,21 +1073,17 @@ const labelArchive = Command.make("archive", { name: labelName, project, json },
     if (input.json) return yield* printJson(written.response)
     const { response, found, key: projectKey } = written
     if (response.seq === null) return yield* print(`Label ${response.result.name} was already archived.`)
-    const carriers = [
-      ...(found.tasks ? [`${plural(found.tasks, "task")} in ${projectKey}`] : []),
-      ...(found.otherProjects ? [`${found.otherProjects} in other projects`] : []),
-    ]
-    const one = found.tasks + found.otherProjects === 1
-    const where = carriers.length
-      ? ` It no longer shows on the ${andList(carriers)} that ${one ? "carries" : "carry"} it (${one ? "the task keeps" : "they keep"} the link underneath),`
+    const one = found.tasks === 1
+    const where = found.tasks
+      ? ` It no longer shows on the ${plural(found.tasks, "task")} in ${projectKey} that ${one ? "carries" : "carry"} it (${one ? "the task keeps" : "they keep"} the link underneath),`
       : " No task carries it. It"
     yield* print(`Archived label ${response.result.name}.${where} can't be added to tasks, and its name stays taken.`)
   })).pipe(Command.withDescription(
-    "Archive a label: it disappears from cards, pickers and `cello context`, and can't be added to tasks any more. Tasks keep the link underneath, out of sight, and its name stays taken. Applies to every project in the workspace.",
+    "Archive a label: it disappears from cards, pickers and `cello context`, and can't be added to tasks any more. Tasks keep the link underneath, out of sight, and its name stays taken. Only this project's label: another project's label of the same name stays.",
   ))
 
 const label = Command.make("label").pipe(
-  Command.withDescription("Labels, shared by the projects of a workspace: list, create, update, archive. Put them on tasks with `cello task label`."),
+  Command.withDescription("The project's labels (each project has its own): list, create, update, archive. Put them on tasks with `cello task label`."),
   Command.withSubcommands([labelList, labelCreate, labelUpdate, labelArchive]),
 )
 

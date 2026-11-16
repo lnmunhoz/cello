@@ -1,6 +1,7 @@
 import { Outlet, useSearch } from "@tanstack/react-router"
 import { useShortcut } from "@ui-sdk/react/shortcuts"
 import { useState } from "react"
+import { NoticeStack } from "../components/ui/NoticeBar.tsx"
 import { useStoredWidth } from "../components/ui/ResizeHandle.tsx"
 import { Toaster } from "../components/ui/Toast.tsx"
 import { isEmbed } from "../lib/embed.ts"
@@ -12,6 +13,7 @@ import { COMMAND_BAR_SHORTCUT } from "../search/layout.ts"
 import { ImageModal } from "../viewer/ImageModal.tsx"
 import { ViewerPanel } from "../viewer/ViewerPanel.tsx"
 import { ConnectionStatus } from "./ConnectionStatus.tsx"
+import { AppRestartBar } from "./AppRestartBar.tsx"
 import { ReloadBar } from "./ReloadBar.tsx"
 import { ShowSidebarButton, Sidebar, SidebarContext } from "./Sidebar.tsx"
 import {
@@ -91,7 +93,10 @@ export function AppShell() {
         <CommandBar open={searching} onOpenChange={setSearching} onToggleSidebar={() => change(toggleSidebar(sidebar))} />
         {workspaceId ? <NewProjectDialog open={newProject} onOpenChange={setNewProject} workspaceId={workspaceId} /> : null}
         <ImageModal />
-        <ReloadBar />
+        <NoticeStack>
+          <ReloadBar />
+          <AppRestartBar />
+        </NoticeStack>
         <Toaster />
       </div>
     </SidebarContext>
@@ -121,5 +126,9 @@ export function EmbeddedShell() {
  * native panel), not inside the board's viewer iframe, where the board's bar already asks.
  */
 function TopReloadBar() {
-  return window === window.top ? <ReloadBar /> : null
+  return window === window.top ? (
+    <NoticeStack>
+      <ReloadBar />
+    </NoticeStack>
+  ) : null
 }

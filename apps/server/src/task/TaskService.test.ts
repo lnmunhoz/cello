@@ -79,8 +79,8 @@ describe("TaskService.create", () => {
     run(Effect.gen(function* () {
       const tasks = yield* TaskService.TaskService
       const labels = yield* LabelService.LabelService
-      const { workspace, status, project } = yield* setupProject
-      const { result: bug } = yield* labels.create({ commandId: cmd(), workspaceId: workspace.id, name: "Bug", color: "#ff0000" })
+      const { status, project } = yield* setupProject
+      const { result: bug } = yield* labels.create({ commandId: cmd(), projectId: project.id, name: "Bug", color: "#ff0000" })
 
       const { result: first } = yield* tasks.create({ commandId: cmd(), projectId: project.id, title: "A" })
       const { result: second } = yield* tasks.create({
@@ -293,9 +293,9 @@ describe("TaskService labels and archiving", () => {
     run(Effect.gen(function* () {
       const tasks = yield* TaskService.TaskService
       const labels = yield* LabelService.LabelService
-      const { workspace, project } = yield* setupProject
+      const { project } = yield* setupProject
       const label = (name: string) =>
-        labels.create({ commandId: cmd(), workspaceId: workspace.id, name, color: "#00FF00" }).pipe(Effect.map((w) => w.result))
+        labels.create({ commandId: cmd(), projectId: project.id, name, color: "#00FF00" }).pipe(Effect.map((w) => w.result))
       const bug = yield* label("Bug")
       const ui = yield* label("UI")
       const { result: task } = yield* tasks.create({ commandId: cmd(), projectId: project.id, title: "T", labelIds: [bug.id] })
@@ -305,6 +305,21 @@ describe("TaskService labels and archiving", () => {
       expect(result.version).toBe(2)
       const noop = yield* tasks.setLabels({ commandId: cmd(), id: task.id, add: [ui.id], remove: [] })
       expect(noop.seq).toBeNull()
+    })))
+
+  it.effect("a label from another project is refused (CEL-80), on create and on setLabels, and nothing changes", () =>
+    run(Effect.gen(function* () {
+      const tasks = yield* TaskService.TaskService
+      const labels = yield* LabelService.LabelService
+      const { workspace, project } = yield* setupProject
+      const { result: thai } = yield* setupProjectWithKey(workspace.id, "THAI")
+      const { result: celBug } = yield* labels.create({ commandId: cmd(), projectId: project.id, name: "bug", color: "#EF4444" })
+      const { result: decks } = yield* labels.create({ commandId: cmd(), projectId: thai.id, name: "decks", color: "#8D7B68" })
+      const refusal = { _tag: "Invalid", field: "labels", reason: `"decks" is a label of THAI, not CEL: each project has its own labels` }
+      expect(yield* Effect.flip(tasks.create({ commandId: cmd(), projectId: project.id, title: "T", labelIds: [decks.id] }))).toMatchObject(refusal)
+      const { result: task } = yield* tasks.create({ commandId: cmd(), projectId: project.id, title: "T", labelIds: [celBug.id] })
+      expect(yield* Effect.flip(tasks.setLabels({ commandId: cmd(), id: task.id, add: [decks.id], remove: [celBug.id] }))).toMatchObject(refusal)
+      expect((yield* tasks.byKey(task.key)).labelIds).toEqual([celBug.id])
     })))
 
   it.effect("archive and unarchive toggle archivedAt and bump the version", () =>

@@ -208,7 +208,7 @@ describe("SearchService.query", () => {
 
   it.effect("searches one workspace, or one project; leaves out archived projects; finds projects and labels by name", () =>
     run(Effect.gen(function* () {
-      const { find, task, workspace, search } = yield* setup
+      const { find, task, workspace, project, search } = yield* setup
       const projects = yield* ProjectService.ProjectService
       const { result: thai } = yield* projects.create({ commandId: cmd(), workspaceId: workspace.id, name: "Thai Lookup", key: "THAI" })
       const { result: gone } = yield* projects.create({ commandId: cmd(), workspaceId: workspace.id, name: "Gone", key: "GONE" })
@@ -220,19 +220,24 @@ describe("SearchService.query", () => {
       const { result: other } = yield* (yield* WorkspaceService.WorkspaceService).create({ commandId: cmd(), name: "Work" })
       const { result: work } = yield* projects.create({ commandId: cmd(), workspaceId: other.id, name: "Work", key: "WRK" })
       yield* tasks.create({ commandId: cmd(), projectId: work.id, title: "Lookup elsewhere" })
-      yield* (yield* LabelService.LabelService).create({ commandId: cmd(), workspaceId: workspace.id, name: "Lookups", color: "#22C55E" })
+      // Labels belong to a project (CEL-80): CEL's and THAI's, each named by its project's key.
+      const labels = yield* LabelService.LabelService
+      yield* labels.create({ commandId: cmd(), projectId: project.id, name: "Lookups", color: "#22C55E" })
+      yield* labels.create({ commandId: cmd(), projectId: thai.id, name: "lookup-ui", color: "#3B82F6" })
 
       const all = yield* find("lookup")
       expect(shape(all)).toEqual([
         ["task", 2, ["THAI-1", "CEL-1"]],
         ["project", 1, ["Thai Lookup"]],
-        ["label", 1, ["Lookups"]],
+        ["label", 2, ["Lookups", "lookup-ui"]],
       ])
       expect(all.groups[1]!.hits[0]).toMatchObject({ kind: "project", id: thai.id, projectKey: "THAI", titleRanges: [[5, 11]], color: thai.color })
-      expect(all.groups[2]!.hits[0]).toMatchObject({ kind: "label", color: "#22C55E", titleRanges: [[0, 6]] })
+      expect(all.groups[2]!.hits.map((h) => [h.projectKey, h.color])).toEqual([["CEL", "#22C55E"], ["THAI", "#3B82F6"]])
+      expect(all.groups[2]!.hits[0]).toMatchObject({ kind: "label", titleRanges: [[0, 6]] })
 
+      // One project's search finds only its own labels.
       const one = yield* search.query({ query: "lookup", project: { key: "THAI" } })
-      expect(shape(one)).toEqual([["task", 1, ["THAI-1"]], ["project", 1, ["Thai Lookup"]], ["label", 1, ["Lookups"]]])
+      expect(shape(one)).toEqual([["task", 1, ["THAI-1"]], ["project", 1, ["Thai Lookup"]], ["label", 1, ["lookup-ui"]]])
       expect(shape(yield* search.query({ query: "lookup", workspaceId: other.id }))).toEqual([["task", 1, ["WRK-1"]]])
       // A project's key finds it too.
       expect(shape(yield* find("thai"))).toEqual([["project", 1, ["Thai Lookup"]]])

@@ -10,7 +10,7 @@ const status: Status = {
   id: "todo", workspaceId: "w1", name: "Todo", category: "unstarted", position: "a0", color: "#999", hidden: false, createdAt: 1, updatedAt: 1,
 }
 const label = (id: string, name: string, extra: Partial<Label> = {}): Label => ({
-  id, workspaceId: "w1", name, color: "#5e6ad2", group: "none", createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
+  id, workspaceId: "w1", projectId: "p1", name, color: "#5e6ad2", group: "none", createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
 })
 const task = (id: string, number: number, extra: Partial<Task> = {}): Task => ({
   id, projectId: "p1", number, key: `CEL-${number}`, title: `Task ${number}`, description: "", statusId: "todo", priority: 0,

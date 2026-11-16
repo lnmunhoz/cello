@@ -112,7 +112,7 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   test.setTimeout(240_000)
   const project = await seedProject(cello, "Cello", "CLO")
   const { statuses } = await defaultWorkspace(cello)
-  const [ui, agents, comments] = await seedLabels(cello, [
+  const [ui, agents, comments] = await seedLabels(cello, project.id, [
     { name: "ui", color: "#5e6ad2" },
     { name: "agents", color: "#10b981" },
     { name: "comments", color: "#f59e0b" },

@@ -6,6 +6,7 @@ import { closeMatches, labelArgs, labelListText, parseChanges, parseGroup, resol
 const label = (name: string, color = "#3B82F6", archivedAt: number | null = null): Label => ({
   id: `id-${name}`,
   workspaceId: "w",
+  projectId: "p",
   name,
   color,
   group: "none",
@@ -78,14 +79,14 @@ describe("labelListText", () => {
     const text = labelListText({
       project: { key: "CEL" } as never,
       labels: [
-        { label: label("board", "#5B9A74"), tasks: 9, otherProjects: 2 },
-        { label: label("feature", "#3B82F6"), tasks: 1, otherProjects: 0 },
-        { label: label("idle", "#6B7280"), tasks: 0, otherProjects: 0 },
-        { label: label("ui", "#3B82F6", 1), tasks: 31, otherProjects: 0 },
+        { label: label("board", "#5B9A74"), tasks: 9 },
+        { label: label("feature", "#3B82F6"), tasks: 1 },
+        { label: label("idle", "#6B7280"), tasks: 0 },
+        { label: label("ui", "#3B82F6", 1), tasks: 31 },
       ],
     })
     expect(text).toBe([
-      "board    #5B9A74  9 tasks in CEL · 2 in other projects",
+      "board    #5B9A74  9 tasks in CEL",
       "feature  #3B82F6  1 task in CEL",
       "idle     #6B7280  no tasks",
       "",
@@ -95,12 +96,12 @@ describe("labelListText", () => {
 
   it("says when there are none yet", () => {
     expect(labelListText({ project: { key: "CEL" } as never, labels: [] })).toBe(
-      "No labels yet in CEL's workspace. Make one with `cello label create <name> --color #3B82F6`.",
+      "No labels yet in CEL. Make one with `cello label create <name> --color #3B82F6`.",
     )
   })
 
   it("heads each group once any label has one (CEL-52): kind, area, milestone, then the rest, columns lined up across them", () => {
-    const grouped = (name: string, group: Label["group"]) => ({ label: { ...label(name), group }, tasks: 1, otherProjects: 0 })
+    const grouped = (name: string, group: Label["group"]) => ({ label: { ...label(name), group }, tasks: 1 })
     const text = labelListText({
       project: { key: "CEL" } as never,
       labels: [grouped("M2", "milestone"), grouped("agents", "area"), grouped("bug", "kind"), grouped("feature", "kind"), grouped("misc", "none")],

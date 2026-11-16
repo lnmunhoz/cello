@@ -192,11 +192,21 @@ const make = Effect.gen(function* () {
       Effect.map((rows) => rows[0]!.id),
     )
 
-  const requireLabels = (workspaceId: string, labelIds: ReadonlyArray<string>) =>
+  /** Live labels of the task's own project (CEL-80): another project's label is refused, not just missing. */
+  const requireLabels = (projectId: string, labelIds: ReadonlyArray<string>) =>
     Effect.forEach(labelIds, (id) =>
-      sql<{ id: string }>`
-        SELECT id FROM labels WHERE id = ${id} AND workspace_id = ${workspaceId} AND archived_at IS NULL`.pipe(
-        Effect.flatMap((rows) => rows[0] ? Effect.void : Effect.fail(new NotFound({ entity: "label", id }))),
+      sql<{ project_id: string; name: string; label_key: string; task_key: string }>`
+        SELECT l.project_id, l.name, lp.key AS label_key, tp.key AS task_key
+        FROM labels l JOIN projects lp ON lp.id = l.project_id JOIN projects tp ON tp.id = ${projectId}
+        WHERE l.id = ${id} AND l.archived_at IS NULL`.pipe(
+        Effect.flatMap(([label]): Effect.Effect<void, NotFound | Invalid> => {
+          if (!label) return Effect.fail(new NotFound({ entity: "label", id }))
+          if (label.project_id === projectId) return Effect.void
+          return Effect.fail(new Invalid({
+            field: "labels",
+            reason: `"${label.name}" is a label of ${label.label_key}, not ${label.task_key}: each project has its own labels`,
+          }))
+        }),
       ), { discard: true })
 
   /** A parent must be another task in the same project, and not one of the task's own descendants. */
@@ -304,7 +314,7 @@ const make = Effect.gen(function* () {
         const statusId = input.statusId ?? (yield* defaultStatus(workspaceId))
         if (input.statusId !== undefined) yield* requireStatus(workspaceId, statusId)
         const labelIds = [...new Set(input.labelIds ?? [])]
-        yield* requireLabels(workspaceId, labelIds)
+        yield* requireLabels(input.projectId, labelIds)
         const parentId = input.parentId ?? null
         if (parentId !== null) yield* requireParent(input.projectId, null, parentId)
         const { position } = yield* placed(place(yield* column(input.projectId, statusId), input))
@@ -477,7 +487,7 @@ const make = Effect.gen(function* () {
         const added = [...new Set(input.add)].filter((id) => !current.labelIds.includes(id))
         const removed = [...new Set(input.remove)].filter((id) => current.labelIds.includes(id))
         if (added.length === 0 && removed.length === 0) return current
-        yield* requireLabels(workspaceId, added)
+        yield* requireLabels(current.projectId, added)
         yield* Effect.forEach(added, (labelId) =>
           sql`INSERT INTO task_labels (task_id, label_id, created_at) VALUES (${current.id}, ${labelId}, ${now})`, {
           discard: true,

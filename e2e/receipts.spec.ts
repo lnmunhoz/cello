@@ -1,7 +1,8 @@
 // CEL-76: Lucas sees whether his comment reached the agent, live, like a messenger's ticks: Sent, then
 // ✓ Delivered to the session once it takes it (its hook, `cello inbox`, or a waiting `cello inbox --wait`),
-// then ✓✓ Answered once it comments after it or reacts to it. The line under the comment box says where
-// the next comment goes: working (next step), waiting (about a second), idle without a waiter, nobody. It
+// then ✓✓ Answered once it comments after it or reacts to it. Under his latest comment, until it's answered,
+// a status row in the thread says where it stands, like a chat's typing indicator: gets it at its next step,
+// got it and is working on it, idle, nobody (the line that used to sit under the comment box is gone). It
 // works on the Review page too. And a card an agent works on shows a thin edge in its colour, with one
 // flash and one turn of the status icon per check-in. Agents are real sessions over RPC, the waiter a real
 // `cello inbox --wait` from the CLI. Stills go to e2e/videos/cel-76-*.
@@ -64,6 +65,11 @@ const shoot = (page: Page, name: string, target: Page | Locator = page) =>
 
 const comments = (page: Page, key: string) => taskPanel(page, key).getByRole("region", { name: "Comments" })
 const receipt = (thread: Locator, n: number) => thread.locator("[data-comment-id]").nth(n).locator("[data-receipt]")
+/** The status row, wherever it is in the thread (there's at most one). */
+const statusRow = (thread: Locator) => thread.locator("[data-comment-status]")
+/** The status row right after comment `n`, if it's there. */
+const statusAfter = (thread: Locator, n: number) =>
+  thread.locator("[data-comment-id]").nth(n).locator("xpath=following-sibling::li[1][@data-comment-status]")
 
 /** Lucas writes in the box and sends it. */
 async function say(thread: Locator, text: string) {
@@ -72,7 +78,7 @@ async function say(thread: Locator, text: string) {
   await expect(thread.getByLabel("New comment")).toHaveValue("")
 }
 
-test("CEL-76: Lucas's comments show Sent, Delivered and Answered live, and the line under the box says where the next one goes", async ({ page, cello, baseURL }) => {
+test("CEL-76: Lucas's comments show Sent, Delivered and Answered live, and a status row under his latest says where it stands", async ({ page, cello, baseURL }) => {
   const key = uniqueKey("RCPT")
   const project = await seedProject(cello, "Receipts", key)
   const { statuses } = await defaultWorkspace(cello)
@@ -85,74 +91,86 @@ test("CEL-76: Lucas's comments show Sent, Delivered and Answered live, and the l
 
   await page.goto(`/${key}/1`)
   const thread = comments(page, task)
-  const line = thread.locator("[data-next-comment]")
-  await caption(page, `Session c76e2e01 is working on ${task}: the line under the box says a comment reaches it at its next step`)
-  await expect(line).toHaveText("c76e2e01 is active now and gets your comment at its next step.")
-  await expect(line).toHaveAttribute("data-next-comment", "ok")
+  await caption(page, `Session c76e2e01 is working on ${task}: no comment yet, so no status row, and no line under the box`)
+  await expect(thread.getByLabel("New comment")).toBeVisible()
+  await expect(thread.locator("[data-next-comment]")).toHaveCount(0)
+  await expect(statusRow(thread)).toHaveCount(0)
 
-  await caption(page, "Lucas comments: Sent, waiting for the agent's next step")
+  await caption(page, "Lucas comments: Sent, and a row under it says the agent gets it at its next step")
   await say(thread, "Does the receipt show under my comment?")
-  await expect(receipt(thread, 0)).toHaveText("Sent · c76e2e01 gets it at its next step")
+  await expect(receipt(thread, 0)).toHaveText("Sent")
+  await expect(statusAfter(thread, 0)).toHaveText("c76e2e01 gets this at its next step")
+  await expect(statusAfter(thread, 0)).toHaveAttribute("data-comment-status", "ok")
 
-  await caption(page, "The agent's hook takes it on its next tool call: ✓ Delivered, live, with how long it took")
+  await caption(page, "The agent's hook takes it on its next tool call: ✓ Delivered, and the row says it's working on it")
   await take("hook")
   await expect(receipt(thread, 0)).toHaveAttribute("data-receipt", "delivered")
   await expect(receipt(thread, 0)).toContainText(/^Delivered to c76e2e01 · /)
   await expect(receipt(thread, 0)).toHaveAttribute("title", /through its hook$/)
+  await expect(statusAfter(thread, 0)).toHaveText("c76e2e01 got your comment and is working on it…")
+  await shoot(page, "status-working", thread)
 
-  await caption(page, "Its cello-builder answers on the card: ✓✓ Answered")
+  await caption(page, "Its cello-builder answers on the card: ✓✓ Answered, and the row goes away")
   await agent.run((c) => c["agent.report"]({ agentId: BUILDER, agentType: "cello-builder", state: "launched", description: `${task} receipts`, prompt: "Build it" }))
   const builder = await as(baseURL!, SESSION, { id: BUILDER, type: "cello-builder" })
   await builder.run((c) => c["whoami"]({ project: {} }))
   const taskId = (await cello.run((c) => c["task.get"]({ key: task }))).task.id
   await builder.run((c) => c["comment.add"]({ commandId: newCommandId(), taskId, body: "Yes: it reads Delivered, and Answered now that I've replied." }))
   await expect(receipt(thread, 0)).toHaveText(/^Answered by cello-builder · b1d2c3e4 · /)
-  await expect(line).toHaveText("cello-builder · b1d2c3e4 is working on it now. c76e2e01 gets your comment at its next step.")
+  await expect(statusRow(thread)).toHaveCount(0)
 
-  await caption(page, "A second comment: taken by cello inbox, answered with a 👍 from the session")
+  await caption(page, "A second comment: the row moves under it; taken by cello inbox, answered with a 👍 from the session")
   await say(thread, "Good. Check it in dark mode too.")
   await expect(receipt(thread, 2)).toHaveAttribute("data-receipt", "sent")
+  await expect(statusAfter(thread, 2)).toHaveText("c76e2e01 gets this at its next step")
   await take("inbox")
   await expect(receipt(thread, 2)).toHaveAttribute("data-receipt", "delivered")
   await expect(receipt(thread, 2)).toHaveAttribute("title", /through cello inbox$/)
+  await expect(statusAfter(thread, 2)).toHaveText("c76e2e01 got your comment and is working on it…")
   const second = (await cello.run((c) => c["comment.list"]({ taskId })))[2]!
   await agent.run((c) => c["comment.react"]({ commandId: newCommandId(), commentId: second.id, emoji: "👍", on: true }))
   await expect(receipt(thread, 2)).toHaveAttribute("data-receipt", "answered")
   await expect(receipt(thread, 2)).toHaveAttribute("title", /reacted 👍/)
+  await expect(statusRow(thread)).toHaveCount(0)
 
   await say(thread, "And on a phone width.")
   await expect(receipt(thread, 3)).toHaveAttribute("data-receipt", "sent")
-  await caption(page, "The session writes on the card before it has taken that comment: not an answer to it, so it stays Sent")
+  await caption(page, "The session writes on the card before it has taken that comment: not an answer to it, so it stays Sent, and the row stays under it")
   await agent.run((c) => c["comment.add"]({ commandId: newCommandId(), taskId, body: "Dark mode checked: it reads fine." }))
   await expect(thread.locator("[data-comment-id]")).toHaveCount(5)
   await expect(receipt(thread, 3)).toHaveAttribute("data-receipt", "sent")
+  await expect(statusAfter(thread, 3)).toHaveText("c76e2e01 gets this at its next step")
+  await expect(statusRow(thread)).toHaveCount(1)
   await shoot(page, "thread", thread)
 
-  await caption(page, "The agent ends its turn with cello inbox --wait running: the line says it gets a comment in about a second")
+  await caption(page, "The agent ends its turn with cello inbox --wait running, without answering: the row says so")
   await builder.run((c) => c["agent.report"]({ agentId: BUILDER, agentType: "cello-builder", state: "stopped" }))
   await take("hook") // the Stop hook takes the third comment
   await expect(receipt(thread, 3)).toHaveAttribute("data-receipt", "delivered")
   const waiter = startWaiter(SESSION)
-  await expect(line).toHaveText("c76e2e01 is waiting for you: it gets your comment in about a second.")
+  await expect(statusAfter(thread, 3)).toHaveText("c76e2e01 got your comment but hasn't answered yet")
+  await expect(statusAfter(thread, 3)).toHaveAttribute("data-comment-status", "idle")
   await shoot(page, "waiting", thread)
 
-  await caption(page, "Lucas comments: the waiter takes it at once, ✓ Delivered under a second")
+  await caption(page, "Lucas comments: the waiter takes it at once, ✓ Delivered under a second, and the row says it's on it")
   await say(thread, "Are you there? This should wake you.")
   expect(await waiter).toContain("Are you there?")
   await expect(receipt(thread, 5)).toHaveText("Delivered to c76e2e01 · <1s")
   await expect(receipt(thread, 5)).toHaveAttribute("title", /through its waiting cello inbox --wait$/)
   // The waiter has gone: back to working.
-  await expect(line).toHaveText("c76e2e01 is active now and gets your comment at its next step.")
+  await expect(statusAfter(thread, 5)).toHaveText("c76e2e01 got your comment and is working on it…")
   await shoot(page, "woken", thread)
 
-  await caption(page, "The agent lets the task go: nobody holds it, so the line warns, and a comment goes nowhere")
+  await caption(page, "The agent lets the task go: a comment goes nowhere, and the row under it warns")
   await agent.run((c) => c["task.release"]({ commandId: newCommandId(), key: task }))
-  await expect(line).toHaveText("No agent holds this task, so nobody will get this comment.")
-  await expect(line).toHaveAttribute("data-next-comment", "warn")
+  await expect(statusAfter(thread, 5)).toHaveText("c76e2e01 got your comment but hasn't answered yet")
   await say(thread, "Can someone pick this up?")
   await expect(receipt(thread, 6)).toHaveText("Not delivered: no agent held this task")
   // Agents worked on this task, so a comment nobody got is a warning, in red.
   await expect(receipt(thread, 6)).toHaveAttribute("data-tone", "warn")
+  await expect(statusAfter(thread, 6)).toHaveText("No agent holds this task: nobody will get this")
+  await expect(statusAfter(thread, 6)).toHaveAttribute("data-comment-status", "warn")
+  await expect(statusRow(thread)).toHaveCount(1)
   await shoot(page, "nobody", thread)
 
   for (const client of [agent, builder]) await client.close()
@@ -177,9 +195,9 @@ test("CEL-76: an idle agent without a waiter gets the comment when it next works
   await page.clock.setFixedTime(Date.now() + 20 * 60_000)
   await page.goto(`/${key}/1`)
   const thread = comments(page, task)
-  await expect(thread.locator("[data-next-comment]")).toHaveText("c76e2e02 is idle (seen 20m ago) and isn't waiting: it gets this when it next works.")
-  await expect(thread.locator("[data-next-comment]")).toHaveAttribute("data-next-comment", "idle")
-  await expect(receipt(thread, 0)).toHaveText("Sent · c76e2e02 is idle, gets it when it next works")
+  await expect(receipt(thread, 0)).toHaveText("Sent")
+  await expect(statusAfter(thread, 0)).toHaveText("c76e2e02 is idle: it gets this when it next works")
+  await expect(statusAfter(thread, 0)).toHaveAttribute("data-comment-status", "idle")
   await shoot(page, "idle", thread)
   await context.close()
   await agent.close()
@@ -202,12 +220,15 @@ test("CEL-76: the Review page's comments carry their receipts too", async ({ pag
   await page.goto(`/review?open=${task}`)
   const article = page.getByRole("article", { name: new RegExp(`${task}\\b`) })
   const thread = article.getByRole("region", { name: "Comments" })
-  await caption(page, "On the Review page, Lucas comments under the open packet: Sent, then Delivered once the agent takes it")
-  await expect(thread.locator("[data-next-comment]")).toContainText("c76e2e03")
+  await caption(page, "On the Review page, Lucas comments under the open packet: Sent, then Delivered once the agent takes it, with the status row under it")
+  await expect(thread.getByLabel("New comment")).toBeVisible()
+  await expect(thread.locator("[data-next-comment]")).toHaveCount(0)
   await say(thread, "One more thing before I approve: the empty state.")
   await expect(receipt(thread, 0)).toHaveAttribute("data-receipt", "sent")
+  await expect(statusAfter(thread, 0)).toHaveText("c76e2e03 gets this at its next step")
   await agent.run((c) => c["inbox.take"]({ unreadOnly: true, via: "hook" }))
   await expect(receipt(thread, 0)).toHaveAttribute("data-receipt", "delivered")
+  await expect(statusAfter(thread, 0)).toHaveText("c76e2e03 got your comment and is working on it…")
   await shoot(page, "review", article)
   await agent.close()
 })

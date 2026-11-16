@@ -1,19 +1,27 @@
 // The task panel's labels, parent and comments, against the real server.
-import { addTasks, caption, card, createProject, expect, seedLabels, taskPanel, test, uniqueKey } from "./fixtures.ts"
+import { addTasks, caption, card, createProject, expect, seedLabels, seedProject, taskPanel, test, uniqueKey } from "./fixtures.ts"
 
-test("labels: add two labels in the task panel and remove one; the card shows the labels left", async ({ page, cello }) => {
+test("labels: add two labels in the task panel and remove one; the card shows the labels left; another project's labels aren't offered (CEL-80)", async ({ page, cello }) => {
   const key = uniqueKey("LABL")
-  // Not "Bug": filters.spec.ts seeds CEL-56's "bug" on the same server, and label names are unique in any case.
-  await seedLabels(cello, [{ name: "Frontend", color: "#4ea7fc" }, { name: "Regression", color: "#eb5757" }])
-  await createProject(page, "Labels test", key)
+  const otherKey = uniqueKey("LABO")
+  // Each project has its own labels: this one's Frontend and Regression, and another project's Decks and Frontend.
+  const project = await seedProject(cello, "Labels test", key)
+  await seedLabels(cello, project.id, [{ name: "Frontend", color: "#4ea7fc" }, { name: "Regression", color: "#eb5757" }])
+  const other = await seedProject(cello, "Other labels", otherKey)
+  await seedLabels(cello, other.id, [{ name: "Decks", color: "#8d7b68" }, { name: "Frontend", color: "#4ea7fc" }])
+  await page.goto(`/${key}/issues`)
   await addTasks(page, "Todo", ["Fix the login form"])
   await card(page, `${key}-1`).click()
   const panel = taskPanel(page, `${key}-1`)
   const chips = card(page, `${key}-1`).locator("[data-card-chips]")
   const labels = panel.getByRole("combobox", { name: "Labels", exact: true })
 
-  await caption(page, "Add the labels Frontend and Regression")
+  await caption(page, "The picker offers this project's labels only: Frontend and Regression, not the other project's Decks")
   await labels.click()
+  await expect(page.getByRole("option")).toHaveText(["Frontend", "Regression"])
+  await expect(page.getByRole("option", { name: "Decks" })).toHaveCount(0)
+
+  await caption(page, "Add the labels Frontend and Regression")
   await page.getByRole("option", { name: "Frontend" }).click()
   await page.getByRole("option", { name: "Regression" }).click()
   await page.keyboard.press("Escape")

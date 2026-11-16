@@ -55,6 +55,14 @@ describe("decodeEvent", () => {
     ).toThrow()
   })
 
+  it("reads a label stored before CEL-80 as in no project, and keeps the project of one stored after", () => {
+    const label = { id: "l-1", workspaceId: "ws-1", name: "bug", color: "#EF4444", group: "kind", createdAt: 1, updatedAt: 1, archivedAt: null }
+    const old = decodeEvent({ ...envelope, schemaVersion: 1, type: "label.created", label })
+    expect(old.type === "label.created" && old.label.projectId).toBe("")
+    const now = decodeEvent({ ...envelope, schemaVersion: 1, type: "label.created", label: { ...label, projectId: "p-1" } })
+    expect(now.type === "label.created" && now.label.projectId).toBe("p-1")
+  })
+
   it("decodes a stage change and a session check-in, and refuses a stage that isn't in the list", () => {
     const changed = decodeEvent({ ...envelope, schemaVersion: 1, type: "task.stage_changed", id: "t-1", version: 3, before: null, after: "review" })
     expect(changed.type === "task.stage_changed" && changed.after).toBe("review")
