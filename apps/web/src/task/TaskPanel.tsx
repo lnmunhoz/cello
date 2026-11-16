@@ -34,6 +34,7 @@ import { WakeRow } from "./WakeRow.tsx"
 import { Comments } from "./Comments.tsx"
 import { COPY_KEY_SHORTCUT, taskForAgent } from "./copy.ts"
 import { History } from "./History.tsx"
+import { MilestonePicker } from "./MilestonePicker.tsx"
 import { TaskPages } from "./TaskPages.tsx"
 import { searchForView, TASK_PANEL_WIDTH, TASK_VIEW_SHORTCUT, taskPlacement, taskViewOf, viewToggle, type TaskPlacement, type TaskSearch, type TaskView } from "./view.ts"
 
@@ -362,6 +363,10 @@ function Properties({ board, project, task }: { board: BoardState; project: Proj
             if (add.length || remove.length) setLabels({ id: task.id, add, remove })
           }}
         />
+      </dd>
+      <dt className="text-muted">Milestone</dt>
+      <dd>
+        <MilestonePicker board={board} task={task} />
       </dd>
       <dt className="text-muted">Due date</dt>
       <dd className="px-2">

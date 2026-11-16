@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { provenanceOf, sessionColor } from "../presence/model.ts"
 import { CardBody } from "./Card.tsx"
+import { showCardMilestone } from "./cardMilestone.ts"
 
 const status: Status = {
   id: "todo", workspaceId: "w1", name: "Todo", category: "unstarted", position: "a0", color: "#999", hidden: false, createdAt: 1, updatedAt: 1,
@@ -29,7 +30,10 @@ const board: BoardState = {
   sessions: {}, agents: {},
   reviews: {},
   asks: {},
-  documents: {}, wakes: {}, milestones: {},
+  documents: {}, wakes: {},
+  milestones: {
+    m3: { id: "m3", projectId: "p1", name: "M3", goal: "", targetDate: null, position: "a0", state: "open", closedAt: null, createdAt: 1, updatedAt: 1 },
+  },
 }
 
 /** The card's markup. Tests read it as text: there is no DOM in the unit tests. */
@@ -58,6 +62,22 @@ describe("CardBody", () => {
     const html = render(task("t2", 2, { labelIds: ["bug", "old"] }))
     expect(html).toContain(">Bug<")
     expect(html).not.toContain(">Old<")
+  })
+
+  it("shows its milestone as a chip after the labels (CEL-113), unless Display hides it", () => {
+    const html = render(task("t2", 2, { milestoneId: "m3" }))
+    expect(html).toContain("data-card-chips")
+    expect(html).toMatch(/data-card-milestone[^>]*title="Milestone M3"/)
+    expect(html).toContain(">M3<")
+    expect(render(task("t3", 3))).not.toContain("data-card-milestone")
+    showCardMilestone(false)
+    try {
+      const hidden = render(task("t2", 2, { milestoneId: "m3" }))
+      expect(hidden).not.toContain("data-card-milestone")
+      expect(hidden).not.toContain("data-card-chips")
+    } finally {
+      showCardMilestone(true)
+    }
   })
 
   it("shows the parent breadcrumb after the key of a sub-task", () => {

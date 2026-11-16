@@ -6,6 +6,7 @@ import { SegmentedControl, SegmentedControlItem } from "../components/ui/Segment
 import { Select } from "../components/ui/Select.tsx"
 import { Switch } from "../components/ui/Switch.tsx"
 import { showAgentCursors, useAgentCursorsShown } from "../board/cursors/settings.ts"
+import { showCardMilestone, useCardMilestone } from "../board/cardMilestone.ts"
 import { showNeedsInputColumn, useNeedsInputColumn } from "../board/needsInputColumn.ts"
 import { showStageLanes, useStageLanes } from "../board/useStageLanes.ts"
 import { layoutOf, searchFor, type Layout } from "./layout.ts"
@@ -64,6 +65,7 @@ export function DisplayOptions() {
           </dl>
           <NeedsInputColumnRow />
           <StageLanesRow />
+          <CardMilestoneRow />
           <AgentCursorsRow />
         </div>
       </PopoverContent>
@@ -89,6 +91,17 @@ function StageLanesRow() {
     <label className="flex items-center justify-between gap-3 border-t border-line pt-2 text-[13px]">
       <span className="text-muted">Group In Progress by stage</span>
       <Switch checked={on} onCheckedChange={(next) => showStageLanes(next)} />
+    </label>
+  )
+}
+
+/** A card's milestone chip (CEL-113): on unless turned off on this device. */
+function CardMilestoneRow() {
+  const on = useCardMilestone()
+  return (
+    <label className="flex items-center justify-between gap-3 border-t border-line pt-2 text-[13px]">
+      <span className="text-muted">Show milestone on cards</span>
+      <Switch checked={on} onCheckedChange={(next) => showCardMilestone(next)} />
     </label>
   )
 }

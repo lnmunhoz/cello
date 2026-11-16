@@ -2,7 +2,7 @@ import type { BoardState } from "@cello/client/sync/applyEvents"
 import { openAskOf } from "@cello/client/sync/asks"
 import { openReviewOf } from "@cello/client/sync/reviews"
 import type { Task } from "@cello/contract/entities"
-import { CalendarIcon, ChevronRightIcon } from "lucide-react"
+import { CalendarIcon, ChevronRightIcon, MilestoneIcon } from "lucide-react"
 import type { ReactNode } from "react"
 import { Chip } from "../components/ui/Chip.tsx"
 import { PriorityIcon } from "../components/ui/PriorityIcon.tsx"
@@ -13,10 +13,11 @@ import { CardWork, ProvenanceLine } from "../presence/Presence.tsx"
 import { QuestionsBadge } from "../ask/QuestionsBadge.tsx"
 import { EvidenceBadge } from "../review/EvidenceBadge.tsx"
 import { CommentCount } from "../task/CommentCount.tsx"
+import { useCardMilestone } from "./cardMilestone.ts"
 
 /**
- * What a card shows: key and parent breadcrumb, status and title, then priority, due date and labels
- * (a row only when there is one of them), who's on it and its stage (CEL-35), and who made it and
+ * What a card shows: key and parent breadcrumb, status and title, then priority, due date, labels and
+ * its milestone (CEL-113, unless Display hides it) (a row only when there is one of them), who's on it and its stage (CEL-35), and who made it and
  * changed or commented on it last (CEL-5), with its comment count. While an agent is at work on it, an
  * edge in its colour (CEL-76). `laned`: its column's lanes already say the stage. `work={false}`: no
  * work line, where the page around the card already names the agent (the Agents page, CEL-65).
@@ -34,7 +35,9 @@ export function CardBody({ task, board, laned = false, work = true, titleLink }:
   const activity = useCardActivity(task, board)
   const parent = task.parentId ? board.tasks[task.parentId] : undefined
   const labels = task.labelIds.map((id) => board.labels[id]).filter((l) => l !== undefined && l.archivedAt === null)
-  const chips = task.priority !== 0 || task.dueDate !== null || labels.length > 0 || openReviewOf(board, task.id) !== undefined ||
+  const milestoneShown = useCardMilestone()
+  const milestone = milestoneShown && task.milestoneId ? board.milestones[task.milestoneId] : undefined
+  const chips = task.priority !== 0 || task.dueDate !== null || labels.length > 0 || milestone !== undefined || openReviewOf(board, task.id) !== undefined ||
     openAskOf(board, task.id) !== undefined
   return (
     <>
@@ -75,6 +78,11 @@ export function CardBody({ task, board, laned = false, work = true, titleLink }:
               {l!.name}
             </Chip>
           ))}
+          {milestone ? (
+            <span data-card-milestone title={`Milestone ${milestone.name}${milestone.state === "closed" ? " (closed)" : ""}`}>
+              <Chip icon={<MilestoneIcon aria-hidden className="size-3" />}>{milestone.name}</Chip>
+            </span>
+          ) : null}
           <QuestionsBadge task={task} board={board} />
           <EvidenceBadge task={task} board={board} opens />
         </span>
