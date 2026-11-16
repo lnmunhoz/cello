@@ -17,6 +17,6 @@ Cello is a task board shared by a person and their coding agents. Agents use it 
 - When you end a turn while holding a claimed task, start `cello inbox --wait` in the background, so their comments wake you while you're idle.
 - In Progress means someone is on it now. Pausing: put the state on the card, move it back to Todo, `cello task release`.
 - Hand finished work in only with `cello task submit`: a summary, how to check it, and evidence.
-- Show reports, plans and evidence as Cello pages (`cello doc publish page.md --task <KEY>`).
+- Show reports, plans and evidence as Cello pages (`cello doc publish page.md --task <KEY>`), opened with `cello open <slug>`. In replies, link a page with the `cello://` link those commands print, never its http address: an http link opens your host's browser, not Cello.
 
 For several tasks, or work big enough for builder and reviewer agents, run `/cello:orchestrate`. For one task in this thread, `/cello:work`.

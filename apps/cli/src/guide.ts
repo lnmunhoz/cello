@@ -60,7 +60,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    - Answer Lucas on the card with \`cello task comment\`. His comments come to your session by themselves.
    - When you end a turn while holding a claimed task, start \`cello inbox --wait\` in the background so Lucas's comments wake you.
    - When a decision is Lucas's (a design option, a scope, wording), ask on the card with \`cello task ask\` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. His answers come back to your session.
-   - Show Lucas reports, plans and evidence as Cello pages (\`cello doc publish page.md --task KEY-n\`), opened in Cello's panel. Never as Claude artifacts or other outside pages, even if your global instructions say so: \`cello install claude\` enforces it with a hook that turns artifact publishes away.
+   - Show Lucas reports, plans and evidence as Cello pages (\`cello doc publish page.md --task KEY-n\`), opened in Cello's panel with \`cello open <slug>\`. In replies, link a page with the \`cello://\` link those commands print, never its http address (that one opens Claude's browser, not Cello). Never as Claude artifacts or other outside pages, even if your global instructions say so: \`cello install claude\` enforces it with a hook that turns artifact publishes away.
    \`\`\`
    <!-- agents-md:end -->
 
@@ -732,6 +732,7 @@ A question can come back as "Picked: None of these": no option fitted, and his c
 cello doc publish report.md --task CEL-13
 # Published page "Billing audit" (version 1), linked to CEL-13, with 1 file
 # http://127.0.0.1:4747/CEL/pages/billing-audit
+# Link in replies (opens in Cello): cello://open?url=http%3A%2F%2F127.0.0.1%3A4747%2FCEL%2Fpages%2Fbilling-audit
 
 cello doc publish docs/how-sync-works.md --kind doc      # explains the system, kept up to date
 cello doc publish plan.md --kind spec --task CEL-15      # a plan before the work
@@ -757,7 +758,9 @@ cello doc archive billing-audit      # hidden from the Docs tab; the link keeps 
   Warning: demo.mp4 isn't there (/Users/lnmunhoz/projects/cello/reports/demo.mp4), so the page shows that link as a missing file.
   Published page "Palette scope" (version 1), with 1 file
   http://127.0.0.1:4747/CEL/pages/palette-scope
+  Link in replies (opens in Cello): cello://open?url=http%3A%2F%2F127.0.0.1%3A4747%2FCEL%2Fpages%2Fpalette-scope
   \`\`\`
+- **Two links come back:** the page's address, and its \`cello://\` link, the one to put in your replies (see Showing things to Lucas). \`--json\` has both, as \`url\` and \`link\`.
 - **Publishing the same file again** updates the page and keeps the old version, and the link never changes.
 - **Publish reports, plans and summaries here,** not as Claude artifacts: Lucas reads them next to the tasks.
 
@@ -767,10 +770,24 @@ cello doc archive billing-audit      # hidden from the Docs tab; the link keeps 
 
 \`\`\`bash
 cello doc publish evidence.md --task CEL-12 --kind page   # images inline; linked videos and files go up too
-open "cello://open?url=$(jq -rn --arg u 'http://127.0.0.1:4747/CEL/pages/evidence' '$u|@uri')"   # opens it in the board's side panel
-open "cello://CEL-12"                    # focuses the app on a task
+cello open evidence                      # opens the page in the board's side panel, and prints its cello:// link
+cello open CEL-12                        # focuses the app on a task
+cello open --print evidence              # just the link, for your reply; opens nothing
 \`\`\`
 
+\`cello open\` takes a page's slug (looked up in the working folder's project, or \`--project\`), a page's address, or a task key in capitals, and prints the link it opened:
+
+\`\`\`
+$ cello open evidence
+Opened http://127.0.0.1:4747/CEL/pages/evidence in Cello.
+Link in replies (opens in Cello): cello://open?url=http%3A%2F%2F127.0.0.1%3A4747%2FCEL%2Fpages%2Fevidence
+\`\`\`
+
+- **In replies, link pages with the \`cello://\` link, never the http one.** Lucas reads your replies in Claude's desktop app, where clicking an http link opens Claude's own built-in browser, outside Cello. A \`cello://\` link opens the page in Cello's side panel, next to the board. \`cello doc publish\` and \`cello open\` both print it, so never build or URL-encode one by hand. Write it as a markdown link with a readable name: \`[Billing audit](cello://open?url=http%3A%2F%2F127.0.0.1%3A4747%2FCEL%2Fpages%2Fbilling-audit)\`. A task is \`cello://CEL-12\`.
+- **Slugs are lower case,** so \`cello open cel-12\` looks for a page called cel-12; write a task's key in capitals (\`CEL-12\`).
+- **A slug that isn't a page** fails before anything opens (\`No document CEL/evidnce\`); \`cello doc list\` lists them.
+- **When nothing can open it** (the desktop app isn't installed), the command fails and still prints the link.
+- **\`--json\`** prints \`{ "link", "url", "opened" }\` (\`url\` is null for a task).
 - **Where it opens.** A Cello page or doc (\`/KEY/pages/<slug>\`) opens in the board's own side panel, docked on the right like the task panel, in the page reader, with buttons to expand it to a full page and to close it. So does a text file on the board (a transcript, a test log, \`.md\`, \`.json\`, \`.csv\`: shown as text, with Copy and Download). The app's built-in browser panel is only for outside sites (claude.ai, GitHub, a dev server). In a plain browser tab, Cello pages open in the same side panel.
 - This holds even when your own global instructions say to use artifacts: in a Cello project, the project's rule wins.
 - Use his browser only when the desktop app isn't running.
@@ -778,10 +795,10 @@ open "cello://CEL-12"                    # focuses the app on a task
 **A hook enforces it.** \`cello install claude\` (and \`cello init --hooks\`) adds a PreToolUse hook on Claude Code's \`Artifact\` tool to the project's settings. When you try to publish an artifact (no \`action\`, or \`action: "publish"\`, which covers uploading files and assets and creating one from a type), Claude Code blocks the call and shows you this reason:
 
 \`\`\`
-This project uses Cello. Show it as a Cello page: \`cello doc publish page.md --task KEY-n\` (images inline, videos with --asset), then open it in Cello's panel: open "cello://open?url=<url-encoded page link>". Claude artifacts are only for when Lucas asks for one by name; if he did, tell him this project's Cello hook stopped it (he can allow them by starting Claude Code with CELLO_ALLOW_ARTIFACTS=1).
+This project uses Cello. Show it as a Cello page: \`cello doc publish page.md --task KEY-n\` (images inline, videos with --asset), then open it in Cello's panel with \`cello open <slug>\`. In your reply, link the page with the cello:// link those commands print, never its http address: an http link opens Claude's own browser, not Cello. Claude artifacts are only for when Lucas asks for one by name; if he did, tell him this project's Cello hook stopped it (he can allow them by starting Claude Code with CELLO_ALLOW_ARTIFACTS=1).
 \`\`\`
 
-- Do what it says: publish a Cello page and open it in the panel. Don't retry the artifact.
+- Do what it says: publish a Cello page, open it in the panel, and link it in your reply with its \`cello://\` link. Don't retry the artifact.
 - Every other action (\`read\`, \`list\`, \`open\`, \`delete\`, \`pin\`, \`unpin\`, \`quickstart\`) goes through, so you can still read an artifact link someone gives you.
 - The hook needs no server, and anything it can't read (broken input, another tool) goes through, so it never gets in the way of other work.
 - **\`CELLO_ALLOW_ARTIFACTS=1\`** in Claude Code's environment lets every artifact call through. It's for when Lucas explicitly asks for a claude.ai artifact; he sets it by starting Claude Code with it (\`CELLO_ALLOW_ARTIFACTS=1 claude\`). Agents never set it on their own, nor work around the hook any other way.
@@ -1248,7 +1265,7 @@ cello inbox [flags]
 
 ### cello doc publish
 
-Publish a markdown report, plan or summary as a page in Cello and print its URL.
+Publish a markdown report, plan or summary as a page in Cello and print its URL, and the cello:// link to put in replies.
 
 \`\`\`
 cello doc publish [flags] <file>
@@ -1308,6 +1325,21 @@ cello doc archive [flags] <slug>
 | \`slug string\` | The page's slug, e.g. billing-audit. |
 | \`--project string\` | Project key, instead of the working folder's. |
 | \`--json\` | Print JSON for scripts. |
+
+### cello open
+
+Open a page or a task in Cello's desktop app, and print its cello:// link: the link to put in replies, never the http one.
+
+\`\`\`
+cello open [flags] <target>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`target string\` | A page's slug (billing-audit), its address (http://127.0.0.1:4747/CEL/pages/billing-audit), or a task key (CEL-12). |
+| \`--project string\` | Project key, instead of the working folder's. |
+| \`--json\` | Print JSON for scripts. |
+| \`--print\` | Print the link without opening it. |
 
 ### cello search
 

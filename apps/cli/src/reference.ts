@@ -64,7 +64,7 @@ export const helpFor = (args: ReadonlyArray<string>) =>
       error: (...parts: ReadonlyArray<unknown>) => lines.push(parts.join(" ")),
     })
     yield* run([...args, "--help"]).pipe(
-      Effect.provideService(CliEnv, { env: {}, cwd: ROOT, now: () => 0, readStdin: () => Promise.resolve(""), web: () => undefined }),
+      Effect.provideService(CliEnv, { env: {}, cwd: ROOT, now: () => 0, readStdin: () => Promise.resolve(""), web: () => undefined, open: () => Promise.resolve() }),
       Effect.provideService(Console.Console, capture),
       Effect.provide(BunServices.layer),
       Effect.ignore,

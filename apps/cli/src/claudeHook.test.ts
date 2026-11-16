@@ -268,7 +268,9 @@ describe("artifactGuard (CEL-57)", () => {
     }
     expect(ARTIFACT_DENY_REASON).toContain("This project uses Cello.")
     expect(ARTIFACT_DENY_REASON).toContain("`cello doc publish page.md --task KEY-n`")
-    expect(ARTIFACT_DENY_REASON).toContain("open \"cello://open?url=<url-encoded page link>\"")
+    // CEL-88: opened with `cello open`, and linked in the reply with the cello:// link, which opens Cello, not Claude's browser.
+    expect(ARTIFACT_DENY_REASON).toContain("`cello open <slug>`")
+    expect(ARTIFACT_DENY_REASON).toContain("link the page with the cello:// link those commands print, never its http address")
     // docs/cli.md quotes it word for word, so agents know what they'll read.
     expect(fs.readFileSync(path.resolve(import.meta.dirname, "../../../docs/cli.md"), "utf8")).toContain(`\n${ARTIFACT_DENY_REASON}\n`)
   })

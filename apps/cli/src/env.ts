@@ -23,6 +23,11 @@ export class CliEnv extends Context.Service<CliEnv, {
   readonly readStdin: () => Promise<string>
   /** The built web app for `cello start`: embedded in the binary, or apps/web/dist from source. */
   readonly web: () => WebFiles | undefined
+  /**
+   * Hands a link to the system to open (`cello open`, CEL-88): `open` on macOS, `xdg-open` on Linux
+   * for the binary (open.ts), a fake in tests, so a test never opens anything.
+   */
+  readonly open: (link: string) => Promise<void>
   /** This binary's build; tests may leave it out (no commit then). */
   readonly build?: CliBuild
   /**
