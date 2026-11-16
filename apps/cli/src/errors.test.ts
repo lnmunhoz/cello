@@ -23,7 +23,8 @@ describe("explain", () => {
   it("a profile field the human set: who set it, to what, and to ask on the card (CEL-89)", () => {
     expect(explain(new ProfileFieldLocked({ field: "unit", value: "bun run test", human: "Lucas" }), where)).toBe(
       "Lucas set unit himself (`bun run test`), so an agent can't change it. If it's wrong, ask him on the card " +
-        "(`cello task ask KEY --question \"…\"`), and say so in your packet.",
+        "on your task: `cello task ask <KEY-n> --title \"Change unit in the testing profile?\" --question \"…\" --option \"A\" --option \"B\"` " +
+        "(or --file ask.json; see `cello guide`, \"Questions for Lucas\"), and say so in your packet.",
     )
   })
 
