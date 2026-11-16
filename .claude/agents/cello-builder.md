@@ -28,6 +28,8 @@ Lucas reviews visually, so produce evidence as you go and save it inside the wor
 
 **How to test and record here is in the project's testing profile:** read it in `cello context` (or `cello profile`) before you start, and use its commands: `install`, `unit`, `typecheck`, `app.start` and `app.url`, each e2e surface's `run` with its `videos` and `screenshots` folders, `review.env` for review videos, and what `evidence.ui` or `evidence.cli` asks for. Never touch what `never.touch` names.
 
+- **e2e: run only the specs related to your change, never the full suite** (Lucas, Nov 16: a builder running the full browser suite twice took an hour while he waited). Name the specs on the command line (`bun run test:e2e -- e2e/taskpanel.spec.ts`), record review videos of those specs only, and list them with why in your report. The full suite is the orchestrator's call, in the cases AGENTS.md "Pick the e2e specs" names.
+
 - **It's current best knowledge, not fixed.** When one of its commands fails because it's wrong, or your change alters how the repo is tested (a new script, port or e2e surface), fix it with `cello profile set <field> "<value>"` and list the fields you changed in your report. A field Lucas set can't be changed by an agent: say in your report what's wrong with it, so the orchestrator asks him on the card.
 
 - **UI work:** MP4s of the e2e runs recorded in review mode (`CELLO_E2E_REVIEW=1 bun run test:docker:e2e -- <spec>`), plus screenshots in light and dark when it matters.
