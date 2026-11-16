@@ -1,19 +1,14 @@
 // `cello inbox --wait`'s side of the machine (CEL-74): the lock file that tells the Stop hook a waiter
-// is running for a session, and how long it keeps reconnecting to a server that went away.
+// is running for a session. Reconnecting to a server that went away is tested in reconnect.test.ts.
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 import {
   acquireWaiter,
-  afterDown,
-  CONNECTED_MS,
   MAX_WAIT_MS,
   maxWait,
   readWaiter,
-  RECONNECT_GRACE_MS,
-  reconnectDelay,
-  reconnectGrace,
   releaseWaiter,
   STALE_AFTER_MAX_MS,
   waiterLockDir,
@@ -114,44 +109,11 @@ describe("the waiter lock", () => {
   })
 })
 
-describe("afterDown: what a waiter does when it finds the server down", () => {
-  const quick = (at: number) => ({ started: at, ended: at + 5 })
-
-  it("pauses, backing off, and gives up once the server has been away for the whole grace", () => {
-    const first = afterDown(null, quick(1_000), 2_000)!
-    expect(first).toEqual({ outage: { since: 1_005, attempt: 1 }, pause: 250 })
-    const second = afterDown(first.outage, quick(1_260), 2_000)!
-    expect(second).toEqual({ outage: { since: 1_005, attempt: 2 }, pause: 500 })
-    expect(afterDown(second.outage, quick(3_000), 2_000)).toBeNull()
-  })
-
-  it("a call that ran for a while had a connection: dropping it starts a new outage", () => {
-    const old = { since: 0, attempt: 5 }
-    expect(afterDown(old, { started: 10_000, ended: 10_000 + CONNECTED_MS }, 2_000)).toEqual({
-      outage: { since: 10_000 + CONNECTED_MS, attempt: 1 },
-      pause: 250,
-    })
-  })
-
-  it("CELLO_WAIT_RECONNECT_MS sets the grace (tests shorten it); anything else keeps two minutes", () => {
-    expect(reconnectGrace({ CELLO_WAIT_RECONNECT_MS: "300" })).toBe(300)
-    expect(reconnectGrace({})).toBe(RECONNECT_GRACE_MS)
-    expect(reconnectGrace({ CELLO_WAIT_RECONNECT_MS: "soon" })).toBe(RECONNECT_GRACE_MS)
-    expect(RECONNECT_GRACE_MS).toBe(120_000)
-  })
-})
-
 describe("maxWait", () => {
   it("a waiter lives at most 24 hours (CELLO_WAIT_MAX_MS shortens it in tests)", () => {
     expect(MAX_WAIT_MS).toBe(24 * 60 * 60 * 1000)
     expect(maxWait({})).toBe(MAX_WAIT_MS)
     expect(maxWait({ CELLO_WAIT_MAX_MS: "300" })).toBe(300)
     expect(maxWait({ CELLO_WAIT_MAX_MS: "later" })).toBe(MAX_WAIT_MS)
-  })
-})
-
-describe("reconnectDelay", () => {
-  it("backs off from a quarter second to at most 5 seconds between tries", () => {
-    expect([0, 1, 2, 3, 4, 5, 6, 10].map(reconnectDelay)).toEqual([250, 500, 1000, 2000, 4000, 5000, 5000, 5000])
   })
 })

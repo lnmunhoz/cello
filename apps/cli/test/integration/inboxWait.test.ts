@@ -40,16 +40,24 @@ const setup = Effect.gen(function* () {
   yield* x("task", "claim", "CEL-1")
   const lock = waiterLockFile(waiterLockDir({ TMPDIR: tmp }), { port: String(port), session: X })
 
-  /** Starts `cello inbox --wait` as X (in this process) and returns once it says it's waiting, holding its lock. */
+  /**
+   * Starts `cello inbox --wait` as X (in this process) and returns once it says it's waiting, holding its
+   * lock. `wentAway` awaits its saying the server went away (CEL-78), or its end if it ended first.
+   */
   const startWaiter = (more: Record<string, string> = {}) =>
     Effect.gen(function* () {
       let ready = () => {}
+      let away = () => {}
       const waiting = new Promise<void>((resolve) => (ready = resolve))
-      const onErr = (line: string) => line.startsWith(WAITING) && ready()
+      const gone = new Promise<void>((resolve) => (away = resolve))
+      const onErr = (line: string) => {
+        if (line.startsWith(WAITING)) ready()
+        if (line.startsWith("The Cello server on port")) away()
+      }
       const fiber = yield* Effect.forkChild(cello({ port, env: { ...env, ...more }, cwd: repo, onErr })("inbox", "--wait"))
       // A waiter that ends before it waits (it failed) ends this too, instead of hanging the test.
       yield* Effect.raceFirst(Effect.promise(() => waiting), Fiber.await(fiber))
-      return fiber
+      return Object.assign(fiber, { wentAway: Effect.raceFirst(Effect.promise(() => gone), Effect.asVoid(Fiber.await(fiber))) })
     })
 
   return {
@@ -173,14 +181,18 @@ describe("cello inbox --wait", () => {
       expect(yield* Fiber.join(waiting)).toEqual(woken("For the first waiter"))
     }).pipe(Effect.scoped))
 
-  it.live("rides out a server restart: it reconnects to the new server and still gets the comment", () =>
+  it.live("rides out a server restart: says so on stderr, reconnects to the new server and still gets the comment", () =>
     Effect.gen(function* () {
       const { lock, port, dataDir, repo, tmp, stopServer, startWaiter } = yield* setup
       const waiting = yield* startWaiter()
       yield* stopServer
+      yield* waiting.wentAway
       yield* startServer(dataDir, { port })
       yield* cello({ port, env: { CELLO_SESSION: "me", TMPDIR: tmp }, cwd: repo })("task", "comment", "CEL-1", "After the restart")
-      expect(yield* Fiber.join(waiting)).toEqual(woken("After the restart"))
+      expect(yield* Fiber.join(waiting)).toEqual({
+        ...woken("After the restart"),
+        err: expect.stringMatching(new RegExp(`^${WAITING} \\(pid \\d+\\)…\nThe Cello server on port ${port} went away; reconnecting for up to 2 minutes…$`)),
+      })
       expect(fs.existsSync(lock)).toBe(false)
     }).pipe(Effect.scoped))
 
@@ -193,6 +205,7 @@ describe("cello inbox --wait", () => {
         out: "",
         failure: `The Cello server on port ${port} went away and didn't come back within 300 ms, so this stopped waiting. ` +
           "Start it (`cello start`), then run `cello inbox --wait` again.",
+        err: expect.stringContaining(`The Cello server on port ${port} went away; reconnecting for up to 300 ms…`),
       })
       expect(fs.existsSync(lock)).toBe(false)
     }).pipe(Effect.scoped))

@@ -130,6 +130,41 @@ describe("cello inbox", () => {
       expect((yield* x("context")).out).not.toContain("New comments for you")
     }).pipe(Effect.scoped))
 
+  it.live("Lucas moving X's claimed task back to Todo reaches X once: `cello context` lists it, `cello inbox --new` hands it over (CEL-46)", () =>
+    Effect.gen(function* () {
+      const { x, y, me } = yield* setup
+      expect((yield* me("task", "move", "CEL-1", "Todo")).out).toBe("Moved CEL-1  In Progress → Todo")
+
+      expect((yield* x("context")).out).toContain([
+        "New for you (1)",
+        "  CEL-1  Comments reach agents",
+        "    Lucas ended your claim, just now",
+        "      Lucas moved CEL-1 to Todo: your claim ended. Stop working on it.",
+        "  They stay new until the hook or `cello inbox` hands them over.",
+        "  Claim ended: stop working on CEL-1; see where it stands with `cello task get CEL-1`.",
+      ].join("\n"))
+      expect(yield* y("inbox", "--new")).toEqual({ out: "", failure: null })
+      expect(yield* x("inbox", "--new")).toEqual({
+        out: [
+          "Lucas ended your claim on a task in Cello:",
+          "",
+          "CEL-1  Comments reach agents",
+          "  Lucas ended your claim, just now",
+          "    Lucas moved CEL-1 to Todo: your claim ended. Stop working on it.",
+          "",
+          "Stop working on CEL-1: your claim on it ended. See where it stands with `cello task get CEL-1`. If you think the work should go on, say so on the card (`cello task comment CEL-1 \"…\"`) and leave the decision to Lucas.",
+        ].join("\n"),
+        failure: null,
+      })
+      // Once: nothing new after that, and the context no longer lists it.
+      expect(yield* x("inbox", "--new")).toEqual({ out: "", failure: null })
+      expect((yield* x("context")).out).not.toContain("New for you")
+      // X's own moves after claiming it again tell it nothing.
+      yield* x("task", "claim", "CEL-1")
+      yield* x("task", "move", "CEL-1", "Todo")
+      expect(yield* x("inbox", "--new")).toEqual({ out: "", failure: null })
+    }).pipe(Effect.scoped))
+
   it.live("the human has no inbox", () =>
     Effect.gen(function* () {
       const { me } = yield* setup

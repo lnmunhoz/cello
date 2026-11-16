@@ -188,8 +188,8 @@ export const ARTIFACT_DENY_REASON =
   "This project uses Cello. Show it as a Cello page: `cello doc publish page.md --task KEY-n` (images inline, videos with --asset), " +
   "then open it in Cello's panel with `cello open <slug>`. " +
   "In your reply, link the page with the cello:// link those commands print, never its http address: an http link opens Claude's own browser, not Cello. " +
-  "Claude artifacts are only for when Lucas asks for one by name; if he did, tell him this project's Cello hook stopped it " +
-  `(he can allow them by starting Claude Code with ${ALLOW_ARTIFACTS_VARIABLE}=1).`
+  "Claude artifacts are only for when the human asks for one by name; if they did, tell them this project's Cello hook stopped it " +
+  `(they can allow them by starting Claude Code with ${ALLOW_ARTIFACTS_VARIABLE}=1).`
 
 /**
  * Whether an Artifact call publishes: no action (the tool's default is publish) or "publish", which
@@ -233,7 +233,7 @@ const EDIT_TOOLS: Readonly<Record<string, string>> = { Edit: "file_path", Write:
 /** What the agent reads when its edit is turned away. */
 export const claimDenyReason = (projectKey: string) =>
   `Cello: this session hasn't claimed a task in ${projectKey}. Before editing for a request, check it exists (\`cello task list\`), ` +
-  `else \`cello task create "<title>"\` with Lucas's words, then \`cello task claim ${projectKey}-n\`.`
+  `else \`cello task create "<title>"\` with the human's words, then \`cello task claim ${projectKey}-n\`.`
 
 export interface ClaimCheck {
   /** The agent session whose claims count (subagents share their parent's). */

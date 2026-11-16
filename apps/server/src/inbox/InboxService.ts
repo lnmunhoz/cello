@@ -12,8 +12,11 @@
 // Once it hands something over the session counts as woken and working on it, seen at that moment, in
 // the same change (SessionService.wokeWithin). Lucas's emoji reaction to an agent's comment (CEL-77) reaches
 // the session that wrote it, else the claim holder; the reaction row itself is the item
-// (`comment_reactions.notify_session_id`, `read_at`), so the inbox reads both tables.
-import type { Ask, Comment, DeliveryVia, InboxItem, Reaction } from "@cello/contract/entities"
+// (`comment_reactions.notify_session_id`, `read_at`), so the inbox reads both tables. A change of
+// Lucas's that ends a session's claim (a move to another status, an edit, a label, archiving, his claim
+// or release) tells that session once, so it stops working on the task (`claim_ended`, CEL-46). His
+// approval ends the claim too but tells no one: the work is done.
+import type { Ask, ClaimEndCause, Comment, DeliveryVia, InboxItem, Reaction } from "@cello/contract/entities"
 import { Caller } from "@cello/contract/rpcs"
 import type { Inbox } from "@cello/contract/views"
 import * as Clock from "effect/Clock"
@@ -37,6 +40,13 @@ export const EARLIER = 10
 
 /** The comment being added, as `deliverWithin` needs it (before it's read back). */
 export type NewlyAdded = Pick<Comment, "id" | "taskId" | "createdAt">
+
+/** A claim the human just ended: the task, the session that held it, and what he did. */
+export interface ClaimEnded {
+  readonly taskId: string
+  readonly sessionId: string
+  readonly cause: ClaimEndCause
+}
 
 /** What `take` hands over and how it says the session took it: its hook, `cello inbox` (the default), or a wait. */
 export interface TakeQuery {
@@ -75,6 +85,12 @@ export class InboxService extends Context.Service<InboxService, {
    * that asked that its ask was withdrawn, and where the card went (`status`). Agents' moves tell no one.
    */
   readonly deliverWithdrawalWithin: (context: Commands.WriteContext, ask: Ask, status: string) => Effect.Effect<void, SqlError>
+  /**
+   * For the command in which a change of the human's ended an agent session's claim (CEL-46): tells
+   * that session, once, what he did (`cause`) and the status the card is in after the change, so it
+   * stops working on the task. Runs after the change is written. An agent's change tells no one.
+   */
+  readonly deliverClaimEndedWithin: (context: Commands.WriteContext, ended: ClaimEnded) => Effect.Effect<void, SqlError>
   /**
    * For the command in which the human reacted to a comment (CEL-77): when an agent session wrote it,
    * the reaction becomes that session's inbox item, or the claim holder's once that session ended.
@@ -135,6 +151,15 @@ const make = Effect.gen(function* () {
         VALUES (${newId(context.now)}, ${ask.sessionId}, ${ask.id}, ${ask.taskId}, 'withdrawn', ${status}, ${context.now})
         ON CONFLICT (session_id, ask_id) DO NOTHING`
     }).pipe(Effect.withSpan("InboxService.deliverWithdrawalWithin"))
+
+  const deliverClaimEndedWithin = (context: Commands.WriteContext, ended: ClaimEnded) =>
+    Effect.gen(function* () {
+      if (context.caller.sessionId !== null) return
+      const [status] = yield* sql<{ name: string }>`
+        SELECT s.name FROM tasks t JOIN statuses s ON s.id = t.status_id WHERE t.id = ${ended.taskId}`
+      yield* sql`INSERT INTO inbox_items (id, session_id, task_id, kind, detail, cause, created_at)
+        VALUES (${newId(context.now)}, ${ended.sessionId}, ${ended.taskId}, 'claim_ended', ${status?.name ?? null}, ${ended.cause}, ${context.now})`
+    }).pipe(Effect.withSpan("InboxService.deliverClaimEndedWithin"))
 
   const deliverReactionWithin = (context: Commands.WriteContext, comment: Comment, reaction: Reaction) =>
     Effect.gen(function* () {
@@ -265,6 +290,7 @@ const make = Effect.gen(function* () {
     deliverWithin,
     deliverAnswersWithin,
     deliverWithdrawalWithin,
+    deliverClaimEndedWithin,
     deliverReactionWithin,
     handOverAnswers,
   })

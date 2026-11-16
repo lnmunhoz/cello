@@ -500,9 +500,10 @@ export type Ask = typeof Ask.Type
 /**
  * Why something reached an agent's inbox: a comment on its task, the note of a review Lucas sent back,
  * his answers to the questions it asked on the card (CEL-47), his moving that card himself, which
- * withdrew the ask (`withdrawn`), or his emoji reaction to one of its comments (`reaction`, CEL-77).
+ * withdrew the ask (`withdrawn`), his emoji reaction to one of its comments (`reaction`, CEL-77), or a
+ * change of his to its task that ended its claim (`claim_ended`, CEL-46).
  */
-export const InboxKind = Schema.Literals(["comment", "send_back", "answers", "withdrawn", "reaction"])
+export const InboxKind = Schema.Literals(["comment", "send_back", "answers", "withdrawn", "reaction", "claim_ended"])
 export type InboxKind = typeof InboxKind.Type
 
 const inboxFields = {
@@ -544,8 +545,29 @@ export type InboxWithdrawn = typeof InboxWithdrawn.Type
 export const InboxReaction = Schema.Struct({ ...inboxFields, kind: Schema.Literal("reaction"), comment: Comment, emoji: Schema.String })
 export type InboxReaction = typeof InboxReaction.Type
 
-/** Something delivered to an agent session's inbox: a comment (CEL-15), Lucas's answers or a withdrawn ask (CEL-47), his reaction (CEL-77). */
-export const InboxItem = Schema.Union([InboxComment, InboxAnswers, InboxWithdrawn, InboxReaction])
+/**
+ * What Lucas did that ended a session's claim (CEL-46): moved the card to another status (`moved`),
+ * edited its fields (`edited`), changed its labels (`labels`), archived it (`archived`), claimed it
+ * himself (`claimed`) or released the session's claim (`released`). Approving its packet ends the
+ * claim too, but tells no one: the work is done.
+ */
+export const ClaimEndCause = Schema.Literals(["moved", "edited", "labels", "archived", "claimed", "released"])
+export type ClaimEndCause = typeof ClaimEndCause.Type
+
+/**
+ * A change Lucas made to a task the session held ended its claim (CEL-46): the session should stop
+ * working on it. `status` is where the card is after the change; `createdAt` is when he made it.
+ * Delivered once, to the session that held the claim. Moving a card out of Needs input tells the
+ * session that asked with its `withdrawn` item instead, so it doesn't hear it twice.
+ */
+export const InboxClaimEnded = Schema.Struct({ ...inboxFields, kind: Schema.Literal("claim_ended"), cause: ClaimEndCause, status: Schema.String })
+export type InboxClaimEnded = typeof InboxClaimEnded.Type
+
+/**
+ * Something delivered to an agent session's inbox: a comment (CEL-15), Lucas's answers or a withdrawn
+ * ask (CEL-47), his reaction (CEL-77), word that he ended its claim (CEL-46).
+ */
+export const InboxItem = Schema.Union([InboxComment, InboxAnswers, InboxWithdrawn, InboxReaction, InboxClaimEnded])
 export type InboxItem = typeof InboxItem.Type
 
 /** Docs, specs and pages share one table and one reader; `kind` says what a document is for. */

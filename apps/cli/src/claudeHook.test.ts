@@ -414,7 +414,7 @@ describe("the claim guard (CEL-61)", () => {
     it("the reason says what to do, with the project's key", () => {
       expect(claimDenyReason("THAI")).toBe(
         "Cello: this session hasn't claimed a task in THAI. Before editing for a request, check it exists (`cello task list`), else " +
-          "`cello task create \"<title>\"` with Lucas's words, then `cello task claim THAI-n`.",
+          "`cello task create \"<title>\"` with the human's words, then `cello task claim THAI-n`.",
       )
       // docs/cli.md quotes it word for word, so agents know what they'll read.
       expect(fs.readFileSync(path.resolve(import.meta.dirname, "../../../docs/cli.md"), "utf8")).toContain(`\n${claimDenyReason("KEY")}\n`)

@@ -99,12 +99,9 @@ import { type Env, IDENTITY_VARIABLES, identityHeaders, parseAgent } from "./ide
 import { askScreenshots, commentScreenshots, commentStart, commentText, deliveryText, inboxEntries, inboxScreenshots, type ScreenshotFile } from "./inbox.ts"
 import {
   acquireWaiter,
-  afterDown,
   maxWait,
-  type Outage,
   OWNER_CHECK_MS,
   readWaiter,
-  reconnectGrace,
   releaseWaiter,
   waiterLockDir,
   waiterLockFile,
@@ -113,6 +110,7 @@ import {
 import { groupWord, labelArgs, labelListText, labelNames, parseChanges, parseGroup, resolveChanges } from "./labels.ts"
 import { openTarget } from "./open.ts"
 import { pageFiles } from "./pageFiles.ts"
+import { reconnecting, reconnectGrace } from "./reconnect.ts"
 import { contextProfileLines, profileLines, readinessLines, wroteLines } from "./profile.ts"
 import { machineFacts, readRepoFacts } from "./repoFacts.ts"
 import { kindsOf, searchText } from "./search.ts"
@@ -178,6 +176,33 @@ const withClient = <A, E, B = never>(
       Effect.catch((error): Effect.Effect<A | B, unknown, CliEnv> =>
         options.whenDown !== undefined && Predicate.isTagged(error, "RpcClientError") ? options.whenDown : Effect.fail(error)),
       Effect.mapError((error) => error instanceof CliFailure ? error : new CliFailure({ message: explain(error, { port, now: now() }) })),
+    )
+  })
+
+/** "1500 ms", "45 seconds", "2 minutes": the largest unit that says it exactly. */
+const spanText = (ms: number) =>
+  ms % 60_000 === 0 && ms >= 120_000 ? `${ms / 60_000} minutes` : ms % 1_000 === 0 && ms >= 2_000 ? `${ms / 1_000} seconds` : `${ms} ms`
+
+/**
+ * `withClient` for a call that waits on Lucas, riding out a server restart (CEL-74, CEL-78): when no
+ * server answers, or the connection drops mid-call, it says so on stderr once, reconnects with backoff
+ * and calls again (reconnect.ts). After the grace it gives up, saying to run `again` once the server is back.
+ */
+const throughRestarts = <A, E>(use: (client: CelloClient["Service"]) => Effect.Effect<A, E | CliFailure, CelloClient>, again: string) =>
+  Effect.gen(function* () {
+    const { env } = yield* CliEnv
+    const port = portOf(env)
+    const grace = reconnectGrace(env)
+    return yield* reconnecting(
+      withClient((client) => Effect.map(use(client), Option.some), { whenDown: Effect.succeed(Option.none<A>()) }),
+      {
+        grace,
+        wentAway: Console.error(`The Cello server on port ${port} went away; reconnecting for up to ${spanText(grace)}…`),
+        gaveUp: Effect.fail(new CliFailure({
+          message: `The Cello server on port ${port} went away and didn't come back within ${spanText(grace)}, so this stopped waiting. ` +
+            `Start it (\`cello start\`), then run \`${again}\` again.`,
+        })),
+      },
     )
   })
 
@@ -366,13 +391,18 @@ const context = Command.make("context", { project, json }, (input) =>
     if (ctx.inbox.length) {
       const sentBack = ctx.inbox.find((i) => i.kind === "send_back")
       const answered = ctx.inbox.find((i) => i.kind === "answers")
+      const ended = ctx.inbox.find((i) => i.kind === "claim_ended")
+      const onlyComments = ctx.inbox.every((i) => i.kind === "comment" || i.kind === "send_back")
+      // An ended claim is nothing to answer.
+      const toAnswer = ctx.inbox.find((i) => i.kind !== "claim_ended")
       lines.push(
         "",
-        `${answered || ctx.inbox.some((i) => i.kind === "reaction") ? "New for you" : "New comments for you"} (${ctx.inbox.length})`,
+        `${onlyComments ? "New comments for you" : "New for you"} (${ctx.inbox.length})`,
         ...indent(inboxEntries(ctx.inbox, now, undefined, yield* saveScreenshots(inboxScreenshots(ctx.inbox)))),
-        `  Answer on the card: \`cello task comment ${ctx.inbox[0]!.taskKey} "…"\`. They stay new until the hook or \`cello inbox\` hands them over.`,
+        `  ${toAnswer ? `Answer on the card: \`cello task comment ${toAnswer.taskKey} "…"\`. ` : ""}They stay new until the hook or \`cello inbox\` hands them over.`,
         ...(sentBack ? [`  Sent back: fix it, then hand it in again with \`cello task submit ${sentBack.taskKey}\`.`] : []),
         ...(answered ? [`  Answered: ${answered.taskKey} is back in progress; carry on with the answers.`] : []),
+        ...(ended ? [`  Claim ended: stop working on ${ended.taskKey}; see where it stands with \`cello task get ${ended.taskKey}\`.`] : []),
       )
     }
     lines.push(
@@ -505,7 +535,7 @@ const get = Command.make("get", { key, json }, (input) =>
     lines.push(...columns(detail.history.map((e) => [ago(e.ts, now), describeEvent(e, { ...byIds(detail), actors: {} }, author(detail, e.actorId, e.sessionId, e.agentId))]))
       .map((l) => `  ${l}`))
     yield* print(lines.join("\n"))
-  })).pipe(Command.withDescription("One task in full: description, labels, claim, pages, review packets with Lucas's notes, comments, history."))
+  })).pipe(Command.withDescription("One task in full: description, labels, claim, pages, review packets with the human's notes, comments, history."))
 
 const create = Command.make("create", {
   title: Argument.String("title").pipe(Argument.withDescription("The task's title, in quotes.")),
@@ -608,7 +638,7 @@ const stage = Command.make("stage", {
     yield* print(next === null ? `Cleared the stage of ${task.key}  ${where}` : `${task.key} is now ${stageInfo(next)!.label}  ${where}`)
   })).pipe(Command.withDescription(
     "Say where your claimed task is inside In Progress, so the board shows it: building, agent review, fixing findings, merged. " +
-      "Only the session holding the claim (or Lucas), only in In Progress. Asking Lucas (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.",
+      "Only the session holding the claim (or the human), only in In Progress. Asking the human (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.",
   ))
 
 const move = Command.make("move", {
@@ -661,12 +691,12 @@ const comment = Command.make("comment", {
     if (input.json) return yield* printJson(response)
     const shots = files.length === 0 ? "" : files.length === 1 ? " with 1 image" : ` with ${files.length} images`
     yield* print(`Commented on ${input.key.toUpperCase()}${shots}`)
-  })).pipe(Command.withDescription("Add a markdown comment to a task: progress, a question, an answer to Lucas. --attach adds screenshots."))
+  })).pipe(Command.withDescription("Add a markdown comment to a task: progress, a question, an answer to the human. --attach adds screenshots."))
 
 const react = Command.make("react", {
   key,
   comment: Argument.String("comment").pipe(
-    Argument.withDescription("The comment's id (`cello task get` shows it after each comment's author), or `last` for Lucas's newest comment on the task."),
+    Argument.withDescription("The comment's id (`cello task get` shows it after each comment's author), or `last` for the human's newest comment on the task."),
   ),
   emoji: Argument.String("emoji").pipe(Argument.withDescription("One emoji, e.g. 👍 ✅ 👀 ❤️ 🎉.")),
   remove: Flag.Boolean("remove").pipe(Flag.withDefault(false), Flag.withDescription("Take your reaction with that emoji back instead.")),
@@ -703,10 +733,10 @@ const react = Command.make("react", {
         : changed ? `Reacted ${emoji} to ${whose}: "${commentStart(target.body)}"` : `You had already reacted ${emoji} to ${whose}`,
     )
   })).pipe(Command.withDescription(
-    "React to a comment with an emoji: a quick answer that needs no words (👍 to Lucas's \"go ahead\"). Once per emoji; --remove takes it back. " +
-      "Lucas's reactions to your comments reach your session like his comments do.",
+    "React to a comment with an emoji: a quick answer that needs no words (👍 to the human's \"go ahead\"). Once per emoji; --remove takes it back. " +
+      "The human's reactions to your comments reach your session like their comments do.",
   ), Command.withExamples([
-    { command: "cello task react CEL-3 last 👍", description: "Thumbs up on Lucas's newest comment" },
+    { command: "cello task react CEL-3 last 👍", description: "Thumbs up on the human's newest comment" },
     { command: "cello task react CEL-3 01JD2X7Q8M4K5N6P7R8S9T0V1W ✅", description: "A check on one comment, by its id" },
     { command: "cello task react CEL-3 last 👍 --remove", description: "Take the thumbs up back" },
   ]))
@@ -736,7 +766,7 @@ const edit = Command.make("edit", {
     const task = response.result
     yield* print(response.seq === null ? `Nothing to change on ${task.key}  ${task.title}` : `Edited ${task.key}  ${task.title}`)
   })).pipe(Command.withDescription(
-    "Change a task's title, description or priority; only the flags you give change. Any task, claimed or not; Lucas's edits end a claim as his other changes do.",
+    "Change a task's title, description or priority; only the flags you give change. Any task, claimed or not; the human's edits end a claim as their other changes do.",
   ))
 
 const submit = Command.make("submit", {
@@ -776,13 +806,13 @@ const submit = Command.make("submit", {
     )
     if (input.json) return yield* printJson(written.response)
     const { before, response } = written
-    const human = before.actors.find((a) => a.kind === "human")?.name ?? "Lucas"
+    const human = humanName(before.actors)
     yield* print([
       `Submitted ${response.result.task.key} for review  ${statusName(before, before.task.statusId)} → ${statusName(before, response.result.task.statusId)}`,
       `  ${packetCounts(response.result.review)}`,
       `  ${human} reviews it at http://127.0.0.1:${portOf(env)}/review`,
     ].join("\n"))
-  })).pipe(Command.withDescription("Hand finished work to Lucas: a review packet (summary, steps, evidence) that moves the task to In Review."))
+  })).pipe(Command.withDescription("Hand finished work to the human: a review packet (summary, steps, evidence) that moves the task to In Review."))
 
 // ── needs input (CEL-47) ────────────────────────────────────────────────────────────────────────
 
@@ -814,17 +844,20 @@ const saveScreenshots = (shots: ReadonlyArray<ScreenshotFile>) =>
     return saved as ReadonlyMap<string, string>
   })
 
-const humanName = (actors: ReadonlyArray<Actor>) => actors.find((a) => a.kind === "human")?.name ?? "Lucas"
+const humanName = (actors: ReadonlyArray<Actor>) => actors.find((a) => a.kind === "human")?.name ?? "the human"
 
-/** Waits for the task's latest ask to close, then prints the answers (screenshots saved as files) or why there are none. */
+/**
+ * Waits for the task's latest ask to close, then prints the answers (screenshots saved as files) or why
+ * there are none. Rides out a server restart (CEL-78): a closed ask is just read again, so nothing is
+ * printed twice.
+ */
 const waitAndPrint = (key: string, json: boolean) =>
   Effect.gen(function* () {
-    const { ask, detail } = yield* withClient((client) =>
+    const { ask, detail } = yield* throughRestarts((client) =>
       Effect.gen(function* () {
         const ask = yield* client["ask.wait"]({ key })
         return { ask, detail: yield* client["task.get"]({ key }) }
-      })
-    )
+      }), `cello wait ${key}`)
     const files = yield* saveScreenshots(askScreenshots(ask))
     if (json) return yield* printJson({ ask, files: Object.fromEntries(files) })
     yield* print(askResultText(ask, detail.task.key, humanName(detail.actors), files, (yield* CliEnv).now()))
@@ -842,7 +875,7 @@ const ask = Command.make("ask", {
   question: Flag.String("question").pipe(Flag.atLeast(0), Flag.withDescription("A question; the --kind, --option, --recommend and --because after it belong to it.")),
   kind: Flag.String("kind").pipe(
     Flag.atLeast(0),
-    Flag.withDescription("one (Lucas picks one option; the default with options), any (any number) or text (no options; the default without)."),
+    Flag.withDescription("one (the human picks one option; the default with options), any (any number) or text (no options; the default without)."),
   ),
   option: Flag.String("option").pipe(Flag.atLeast(0), Flag.withDescription("An option: \"Label\" or \"Label|one-line description\"; repeat in order.")),
   recommend: Flag.String("recommend").pipe(Flag.atLeast(0), Flag.withDescription("The label of the option you recommend; --because must follow.")),
@@ -852,7 +885,10 @@ const ask = Command.make("ask", {
   link: Flag.String("link").pipe(Flag.atLeast(0), Flag.withDescription("A link to decide from, e.g. the scope page; repeatable.")),
   wait: Flag.Boolean("wait").pipe(
     Flag.withDefault(false),
-    Flag.withDescription("Block until Lucas answers (or the ask is withdrawn), then print the answers. Run it in the background."),
+    Flag.withDescription(
+      "Block until the human answers (or the ask is withdrawn), then print the answers. Run it in the background. " +
+        "Rides out a server restart; exits 1 if the server stays away for 2 minutes (the ask stays open: run `cello wait` then).",
+    ),
   ),
   withdraw: Flag.Boolean("withdraw").pipe(
     Flag.withDefault(false),
@@ -917,8 +953,8 @@ const ask = Command.make("ask", {
     }
     if (input.wait) yield* waitAndPrint(task.key, input.json)
   })).pipe(Command.withDescription(
-    "Ask Lucas to decide something, on the card: questions with options (one recommended, with a reason) and evidence. " +
-      "The task moves to Needs input until he answers; then it's back in In Progress and the answers reach you (hook, --wait or `cello wait`).",
+    "Ask the human to decide something, on the card: questions with options (one recommended, with a reason) and evidence. " +
+      "The task moves to Needs input until they answer; then it's back in In Progress and the answers reach you (hook, --wait or `cello wait`).",
   ))
 
 const answers = Command.make("answers", {
@@ -934,11 +970,14 @@ const answers = Command.make("answers", {
     if (input.json) return yield* printJson({ asks: shown, files: Object.fromEntries(files) })
     yield* print(roundsText(detail.asks, { all: input.all, taskKey: detail.task.key, human: humanName(detail.actors), files, now: (yield* CliEnv).now() }))
   })).pipe(Command.withDescription(
-    "Print Lucas's latest answers on a task again (--all: every round of questions); screenshots he pasted are saved to files and their paths printed.",
+    "Print the human's latest answers on a task again (--all: every round of questions); screenshots they pasted are saved to files and their paths printed.",
   ))
 
-const waitCommand =Command.make("wait", { key, json }, (input) => waitAndPrint(input.key, input.json)).pipe(
-  Command.withDescription("Wait for Lucas to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered."),
+const waitCommand = Command.make("wait", { key, json }, (input) => waitAndPrint(input.key, input.json)).pipe(
+  Command.withDescription(
+    "Wait for the human to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered. " +
+      "Rides out a server restart; exits 1 if the server stays away for 2 minutes.",
+  ),
 )
 
 // ── labels ──────────────────────────────────────────────────────────────────────────────────────
@@ -1470,7 +1509,7 @@ const restoreCommand = Command.make("restore", {
     "Put a backup's database and evidence files back in place of the current ones, in CELLO_DATA_DIR (default " +
       "~/.cello). Use it when the board's data is lost or damaged. Stop Cello first (Ctrl-C where `cello start` runs, or " +
       "quit the desktop app): restore refuses while a server holds the data folder. It first takes a safety backup of the " +
-      "current state (kind safety, \"before restoring <id>\"), so restoring that one undoes it. Agents run it only when Lucas asks.",
+      "current state (kind safety, \"before restoring <id>\"), so restoring that one undoes it. Agents run it only when the human asks.",
   ), Command.withShortDescription("Put a backup back in place of the current data (stop Cello first)."), Command.withExamples([
     { command: "cello backup list", description: "First, pick the backup to restore" },
     { command: "cello restore 20261115-120000", description: "Restore it; the current state is backed up first" },
@@ -1509,34 +1548,6 @@ const buildsCommand = Command.make("builds", {
 const NO_INBOX =
   "The human has no inbox: comments reach the agent session that claimed the task. Run this from an agent session (CLAUDE_CODE_SESSION_ID or CELLO_SESSION set)."
 
-/** "1500 ms", "45 seconds", "2 minutes": the largest unit that says it exactly. */
-const spanText = (ms: number) =>
-  ms % 60_000 === 0 && ms >= 120_000 ? `${ms / 60_000} minutes` : ms % 1_000 === 0 && ms >= 2_000 ? `${ms / 1_000} seconds` : `${ms} ms`
-
-/**
- * `inbox.wait` until it hands something over, reconnecting while the server restarts (CEL-74): a call
- * that finds it down pauses and tries again, and after the grace it gives up.
- */
-const waitForItems = Effect.gen(function* () {
-  const { env, now } = yield* CliEnv
-  const grace = reconnectGrace(env)
-  let outage: Outage | null = null
-  while (true) {
-    const started = now()
-    const taken = yield* withClient((client) => client["inbox.wait"]({}), { whenDown: Effect.succeed(null) })
-    if (taken !== null) return taken
-    const next = afterDown(outage, { started, ended: now() }, grace)
-    if (next === null) {
-      return yield* new CliFailure({
-        message: `The Cello server on port ${portOf(env)} went away and didn't come back within ${spanText(grace)}, so this stopped waiting. ` +
-          "Start it (`cello start`), then run `cello inbox --wait` again.",
-      })
-    }
-    outage = next.outage
-    yield* Effect.sleep(next.pause)
-  }
-})
-
 /**
  * `cello inbox --wait`: holds the session's waiter lock (CEL-74; a second waiter leaves at once) while
  * it waits for new items, then prints them as `--new` does. The lock goes when it ends, however it ends.
@@ -1559,7 +1570,7 @@ const waitForInbox = (json: boolean) =>
     // Whichever ends first: something to hand over, a day gone by, or the Claude Code that started it gone.
     const outcome = yield* Console.error(`${WAITING} (pid ${me.pid})…`).pipe(
       Effect.andThen(Effect.raceFirst(
-        Effect.map(waitForItems, (taken) => ({ taken })),
+        Effect.map(throughRestarts((client) => client["inbox.wait"]({}), "cello inbox --wait"), (taken) => ({ taken })),
         Effect.raceFirst(Effect.as(Effect.sleep(longest), { taken: null }), ownerGone(env)),
       )),
       Effect.ensuring(Effect.sync(() => releaseWaiter(file, me.id))),
@@ -1626,8 +1637,8 @@ const inbox = Command.make("inbox", {
     if (taken.earlier.length) lines.push("", "Earlier", ...indent(inboxEntries(taken.earlier, now, undefined, files)))
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
-    "Show the comments Lucas left on tasks this session claimed (Send back notes and answers to your asks too) and mark them read; each one arrives once. " +
-      "Use it when `cello context` lists new ones, or to reread what he said. With `cello install claude` they arrive by themselves while you work; " +
+    "Show the comments the human left on tasks this session claimed (Send back notes, answers to your asks, and word that a change of theirs ended your claim too) and mark them read; each one arrives once. " +
+      "Use it when `cello context` lists new ones, or to reread what they said. With `cello install claude` they arrive by themselves while you work; " +
       "`--wait` in the background wakes you with them when you've ended your turn. " +
       "Not from a subagent: it shares its parent's session and would take the parent's comments.",
   ))
@@ -2033,7 +2044,7 @@ const profileSet = Command.make("set", {
   })).pipe(Command.withDescription(
     "Set one field of the testing profile. Do it when a command in the profile fails or the repo changed (a new script, port or e2e " +
       "tool), and say so in your review packet. Setting the value it already has confirms it. An agent can't change a field the human set: " +
-      "ask him on the card with `cello task ask`.",
+      "ask them on the card with `cello task ask`.",
   ))
 
 const profileUnset = Command.make("unset", { field: profileField, project, json }, (input) =>
@@ -2166,7 +2177,7 @@ const init = Command.make("init", {
               // Another `cello init` may have linked it a moment ago; otherwise an archived project holds the path.
               const now = yield* linkedProject
               if (now) return { project: now, created: false }
-              return yield* new CliFailure({ message: `${repoPath} is ${e.reason}, so it can't be linked again. Ask Lucas what to do with it.` })
+              return yield* new CliFailure({ message: `${repoPath} is ${e.reason}, so it can't be linked again. Ask the human what to do with it.` })
             })),
         )
       })
@@ -2281,7 +2292,7 @@ const sessionsWake = Command.make("wake", {
     yield* print(wokeText(result.listed.session, result.written.result, log))
   })).pipe(Command.withDescription(
     "Wake an agent session now: Cello continues its conversation headless in its repo folder (`claude -p --resume`), as it does by itself " +
-      "30 s after Lucas comments on a task the session claimed and its process is gone. The same checks apply: waking on for the project, " +
+      "30 s after the human comments on a task the session claimed and its process is gone. The same checks apply: waking on for the project, " +
       "under the cap, its process gone, nothing listening; when one fails it says why and exits 1. For the human or an orchestrator, never for yourself.",
   ))
 
