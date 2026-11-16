@@ -36,15 +36,17 @@ export const TASK_VIEW_SHORTCUT = "f"
 
 /**
  * Where the open task sits in the project layout (project/ProjectLayout.tsx): docked on the right of
- * the main area at full height ("side"), as a page under the tabs in the board's place ("page"), or
- * nowhere. Expanded, or while the viewer is open: opening a page from the task moves the task to the
- * main area with the page beside it, so neither covers the other (CEL-117); closing the viewer docks
- * it again. Below 768 px a docked task takes the board's place too; that part is CSS (`md:`).
+ * the main area at full height ("side"), as a page under the tabs in the board's place ("page"),
+ * hidden under the viewer ("covered"), or nowhere. Expanded, or while the viewer is open: opening a
+ * page from the task moves the task to the main area with the page beside it, so neither covers the
+ * other (CEL-117); closing the viewer docks it again. A narrow window (`narrow`, below 768 px) has no
+ * room for both, so there the viewer covers the docked task, and Back or × brings it back. Below 768 px
+ * a docked task takes the board's place too; that part is CSS (`md:`).
  */
-export type TaskPlacement = "none" | "side" | "page"
+export type TaskPlacement = "none" | "side" | "covered" | "page"
 
-export const taskPlacement = (taskOpen: boolean, view: TaskView, viewerOpen: boolean): TaskPlacement =>
-  !taskOpen ? "none" : view === "full" || viewerOpen ? "page" : "side"
+export const taskPlacement = (taskOpen: boolean, view: TaskView, viewerOpen: boolean, narrow = false): TaskPlacement =>
+  !taskOpen ? "none" : view === "full" ? "page" : viewerOpen ? (narrow ? "covered" : "page") : "side"
 
 /**
  * What Expand / Collapse (and F) do where the task is: docked, it expands to a full page; in the main

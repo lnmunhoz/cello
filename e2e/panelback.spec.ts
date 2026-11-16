@@ -177,3 +177,40 @@ test("CEL-117: Back in the side panel returns to what it showed before: page →
   await caption(page, "Back always returns to what the side panel showed before")
   fs.rmSync(dir, { recursive: true, force: true })
 })
+
+test("CEL-117: in a narrow window (600 px) there's no room for both: the page covers the task, and Back or × brings the task back", async ({ page }) => {
+  const key = uniqueKey("PBN")
+  await createProject(page, "Panel narrow", key)
+  cello("task", "create", "Saved library: replace Chrome bookmarks", "--project", key)
+  cello("task", "create", "Import the bookmarks", "--project", key)
+  const dir = publish(key)
+  await page.setViewportSize({ width: 600, height: 900 })
+
+  await caption(page, "A 600 px window: the open task takes the board's place")
+  await page.goto(`/${key}/1`)
+  const panel = taskPanel(page, `${key}-1`)
+  const viewer = viewerOf(page)
+  await expect(panel).toHaveAttribute("data-placement", "side")
+
+  await captionWithUrl(page, "Click its page: the page covers the task, as before, with a Back to it")
+  await panel.getByRole("region", { name: "Pages" }).getByRole("link", { name: /Saved library: design/ }).click()
+  await expect(viewer.getByRole("heading", { level: 1, name: "Saved library: design" })).toBeVisible()
+  await expect(panel).toBeHidden()
+  // The page has the room to read: it isn't squeezed beside a task.
+  expect((await viewer.boundingBox())!.width).toBeGreaterThanOrEqual(320)
+
+  await caption(page, "Back: the task is there again")
+  await viewer.getByRole("button", { name: `Back to ${key}-1` }).click()
+  await expect(viewer).toHaveCount(0)
+  await expect(panel).toHaveAttribute("data-placement", "side")
+
+  await caption(page, "Open it again and close it with ×: the task is back too")
+  await panel.getByRole("region", { name: "Pages" }).getByRole("link", { name: /Saved library: design/ }).click()
+  await expect(panel).toBeHidden()
+  await viewer.getByRole("button", { name: "Close viewer" }).click()
+  await expect(viewer).toHaveCount(0)
+  await expect(panel).toHaveAttribute("data-placement", "side")
+  await expect(page).toHaveURL(new RegExp(`/${key}/1$`))
+  await caption(page, "One panel at a time in a narrow window")
+  fs.rmSync(dir, { recursive: true, force: true })
+})

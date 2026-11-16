@@ -40,8 +40,9 @@ import { searchForView, TASK_PANEL_WIDTH, TASK_VIEW_SHORTCUT, taskPlacement, tas
 /** How the open task shows (`?view=full`, view.ts); the board and the list hide behind a full page. */
 export const useTaskView = (): TaskView => taskViewOf(useSearch({ strict: false }) as TaskSearch)
 
-/** Where the open task sits (view.ts's `taskPlacement`): it follows the view and whether the viewer is open. */
-export const useTaskPlacement = (taskOpen: boolean): TaskPlacement => taskPlacement(taskOpen, useTaskView(), useViewerItem() !== null)
+/** Where the open task sits (view.ts's `taskPlacement`): it follows the view, whether the viewer is open and whether the window is narrow. */
+export const useTaskPlacement = (taskOpen: boolean): TaskPlacement =>
+  taskPlacement(taskOpen, useTaskView(), useViewerItem() !== null, useMediaQuery(`(max-width: ${NARROW_WIDTH - 1}px)`))
 
 /**
  * The open task: a side panel docked on the right of the main area at full height, `width` wide and
@@ -70,16 +71,17 @@ export function TaskPanel({
   const navigate = useNavigate()
   const view = useTaskView()
   // With the viewer open the task moves to the main area, the viewer beside it; closing the viewer
-  // docks it again. It's one element either way, so scroll and drafts stay.
+  // docks it again. In a narrow window the viewer covers it instead. It's one element either way, so
+  // scroll and drafts stay.
   const viewerOpen = useViewerItem() !== null
-  const placement = useTaskPlacement(true) === "page" ? "page" : "side"
+  const placement = useTaskPlacement(true)
   const full = placement === "page"
   // Below 768 px the panel takes the board's place, so there's no edge to drag.
   const narrow = useMediaQuery(`(max-width: ${NARROW_WIDTH - 1}px)`)
   const close = () => void navigate({ to: "/$projectKey/issues", params: { projectKey: project.key } })
   // Expand from the panel; collapse from the main area, closing the viewer beside it.
   const toggle = () => {
-    const next = viewToggle(placement)
+    const next = viewToggle(full ? "page" : "side")
     void navigate({
       to: "/$projectKey/$number",
       params: { projectKey: project.key, number: String(number) },
@@ -93,6 +95,7 @@ export function TaskPanel({
   useShortcut(task ? COPY_KEY_SHORTCUT : null, () => task && copyKey(task), { description: "Copy the open task's key" })
   return (
     <aside
+      hidden={placement === "covered"}
       aria-label={task ? `${task.key} details` : "Task details"}
       data-view={view}
       data-side-panel="task"

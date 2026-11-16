@@ -35,6 +35,8 @@ describe("an open task's view in the URL", () => {
     expect(behindTask("none")).toBe("")
     expect(behindTask("side")).toBe("max-md:hidden")
     expect(behindTask("page")).toBe("hidden")
+    // A narrow window: the viewer over the task, which already took the board's place.
+    expect(behindTask("covered")).toBe("max-md:hidden")
   })
 
   it("toggles between the two", () => {
@@ -59,6 +61,13 @@ describe("where the open task sits in the project layout", () => {
   it("with the viewer open, the task moves to the main area and the viewer sits beside it (CEL-117), never covering it", () => {
     expect(taskPlacement(true, "panel", true)).toBe("page")
     expect(taskPlacement(true, "full", true)).toBe("page")
+  })
+
+  it("in a narrow window (below 768 px) there's no room for both: the viewer covers the docked task, as before CEL-117", () => {
+    expect(taskPlacement(true, "panel", true, true)).toBe("covered")
+    expect(taskPlacement(true, "panel", false, true)).toBe("side")
+    expect(taskPlacement(true, "full", true, true)).toBe("page")
+    expect(taskPlacement(false, "panel", true, true)).toBe("none")
   })
 })
 
