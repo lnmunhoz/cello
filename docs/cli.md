@@ -510,6 +510,16 @@ Cello: you hold a claim on CEL-22, and nothing is waiting for Lucas's comments, 
 
 **Subagents share your session.** A subagent's `CLAUDE_CODE_SESSION_ID` is its parent's. Inside a subagent the hook hands nothing over, so comments reach the main conversation; it only checks the subagent in, under your session, so the board shows who is working on your task while it runs. Don't run `cello inbox` (or `cello inbox --wait`) from a subagent: it would take the parent's comments. `cello context` is safe anywhere, since it takes nothing.
 
+
+### When the session is closed
+
+Closing the terminal (or the Claude Code thread) ends the session. Nothing is lost; delivery pauses:
+
+1. **The waiter stops with it.** `cello inbox --wait` exits within a second once its Claude Code is gone, taking nothing.
+2. **Lucas's comments wait in that session's inbox.** On the card, the comment's receipt says the session ended, and the presence turns grey "ended" within about 30 seconds.
+3. **Resuming the session** (`claude --resume`, or reopening the thread) hands everything over at its first hook: its first tool call, or its first stop.
+4. **A new session that claims the task instead** doesn't receive what was sent to the old one; it reads it in the task's history (`cello task get CEL-12` shows every comment). New comments from then on go to the new session.
+
 ## Subagents
 
 When you run builders and reviewers with Claude Code's Agent tool, they all carry your `CLAUDE_CODE_SESSION_ID`. Cello still tells them apart: each is a **subagent** of your session, named by its type and the first 8 characters of its id ("cello-builder · a13bfb89", "general-purpose · add98dec"). The card it works on says "cello-builder · a13bfb89 active now", with your session in the hover and in the task panel; its comments and changes name it; and "Agents working" in the sidebar counts each working subagent and lists them under your session, each with its task.
