@@ -184,6 +184,9 @@ interface SessionRow {
   transcript_path?: string | null
   current_step?: string | null
   current_step_at?: number | null
+  /** CEL-119; left out by selects that don't need them. */
+  model?: string | null
+  effort?: string | null
 }
 
 export const toSession = (r: SessionRow): AgentSession => ({
@@ -200,6 +203,8 @@ export const toSession = (r: SessionRow): AgentSession => ({
   hasLog: r.transcript_path != null,
   currentStep: r.current_step ?? null,
   currentStepAt: r.current_step_at ?? null,
+  model: r.model ?? null,
+  effort: r.effort ?? null,
 })
 
 /** Client name for sessions that don't say which client they are. */

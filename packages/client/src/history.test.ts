@@ -147,3 +147,31 @@ describe("describeEvent with a name (CEL-55)", () => {
       .toBe("Lucas set the wake limit to 5 per task per hour")
   })
 })
+
+// CEL-119: the history names an agent with its role and model as the subject of a line ("cello-builder
+// (Sonnet 5.5), subagent of d0d47d35, set the stage…"), and by its plain name where it's possessive or
+// what Cello did to it.
+describe("describeEvent with a subject and a plain name (CEL-119)", () => {
+  const builder = { subject: "cello-builder (Sonnet 5.5), subagent of d0d47d35,", plain: "cello-builder · b1d3e5f7" }
+  const main = { subject: "Claude Code (Opus 5.5), main session d0d47d35,", plain: "Claude Code session d0d47d35" }
+
+  it("leads a line with the subject, its closing comma included", () => {
+    expect(describeEvent(ev({ type: "task.stage_changed", id: "t", version: 3, before: null, after: "review" }, "claude"), state, builder))
+      .toBe("cello-builder (Sonnet 5.5), subagent of d0d47d35, set the stage to Agent review")
+    expect(describeEvent(ev({ type: "comment.added", comment: {} as never }, "claude"), state, main)).toBe("Claude Code (Opus 5.5), main session d0d47d35, commented")
+  })
+
+  it("uses the plain name where it's possessive or what Cello did to the session", () => {
+    const run = { id: "r1", sessionId: "s1", taskId: "t1", why: "comment" as const, agentKind: "claude-code", mode: "auto", celloMode: "auto" as const, pid: 7, startedAt: 1_000, endedAt: 61_000, exitCode: 0, outcome: "completed" as const, error: null }
+    const session = { id: "s1", actorId: "claude", externalId: "d0d47d35", clientName: "Claude Code", entrypoint: null, cwd: null, pid: null, startedAt: 1, lastSeenAt: 2, endedAt: 3 }
+    expect(describeEvent(ev({ type: "session.seen", session }, "claude"), state, main)).toBe("Claude Code session d0d47d35's session ended")
+    expect(describeEvent(ev({ type: "task.claim_ended", id: "t", version: 4, from: { actorId: "claude", sessionId: "s1" }, reason: "human_change" }, "claude"), state, main))
+      .toMatch(/^Claude Code session d0d47d35's change ended/)
+    expect(describeEvent(ev({ type: "session.run_started", run }), state, main)).toBe("Cello woke Claude Code session d0d47d35 (a comment, mode auto)")
+    expect(describeEvent(ev({ type: "session.wake_scheduled", session: "s1", taskId: "t1", why: "comment", at: 31_000 }), state, main))
+      .toBe("Cello will wake Claude Code session d0d47d35 (a comment)")
+    expect(describeEvent(ev({ type: "session.not_woken", session: "s1", taskId: "t1", why: "comment", reason: "disabled" }), state, main))
+      .toMatch(/^Cello didn't wake Claude Code session d0d47d35:/)
+    expect(describeEvent(ev({ type: "session.run_ended", run }), state, main)).toBe("Claude Code session d0d47d35's woken run completed in 1 min")
+  })
+})

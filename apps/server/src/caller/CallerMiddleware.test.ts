@@ -1,3 +1,5 @@
+import * as fs from "node:fs"
+import * as path from "node:path"
 import { CallerMiddleware, Caller, IDENTITY_HEADERS } from "@cello/contract/rpcs"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -5,7 +7,9 @@ import * as Headers from "effect/http/Headers"
 import * as Layer from "effect/Layer"
 import * as Seed from "../persistence/Seed.ts"
 import { AgentService } from "../session/AgentService.ts"
+import * as ModelService from "../session/ModelService.ts"
 import { SessionService } from "../session/SessionService.ts"
+import { tempDataDir } from "../testing/tempDir.ts"
 import { services, TEST_HUMAN } from "../testing/TestLayers.ts"
 import * as CallerLayer from "./CallerMiddleware.ts"
 
@@ -23,8 +27,16 @@ const callerFor = (headers: Record<string, string>) =>
     return seen as unknown as Caller["Service"]
   }).pipe(Effect.scoped)
 
+/** Claude Code's projects folder for the test: transcripts are read from here only (CEL-119). */
+let projects = ""
+
 const run = <A, E>(effect: Effect.Effect<A, E, any>) =>
-  effect.pipe(Effect.provide(CallerLayer.layer.pipe(Layer.provideMerge(services())))) as Effect.Effect<A, E>
+  Effect.gen(function* () {
+    projects = path.join(yield* tempDataDir, "claude", "projects")
+    return yield* effect.pipe(
+      Effect.provide(CallerLayer.layer.pipe(Layer.provideMerge(ModelService.layer({ projectsDir: projects })), Layer.provideMerge(services()))),
+    )
+  }).pipe(Effect.scoped) as Effect.Effect<A, E>
 
 const cli = {
   [IDENTITY_HEADERS.session]: "2fd0505c-417a",
@@ -81,6 +93,7 @@ describe("CallerMiddleware", () => {
         Effect.provide(CallerLayer.layer),
         Effect.provideService(SessionService, fake),
         Effect.provideService(AgentService, agents),
+        Effect.provideService(ModelService.ModelService, ModelService.ModelService.of({ stamp: Effect.succeed })),
       )
       const result = yield* middleware(Effect.succeed("committed") as any, {
         client: {} as any,
@@ -117,5 +130,22 @@ describe("CallerMiddleware", () => {
       expect(agent).toEqual({ ...session, agentId: "a13bfb89" })
       expect(CallerLayer.identityFromHeaders(Headers.fromInput({ [IDENTITY_HEADERS.agent]: " a13bfb89 ", [IDENTITY_HEADERS.agentType]: "" })))
         .toEqual({ agent: "a13bfb89" })
+    })))
+
+  it.effect("the caller carries the model and effort its own transcript names (CEL-119), the session's and a subagent's", () =>
+    run(Effect.gen(function* () {
+      const reply = (model: string, effort: string) => `${JSON.stringify({ type: "assistant", effort, message: { model, content: [] } })}\n`
+      const sessionFile = path.join(projects, "-repo", "2fd0505c-417a.jsonl")
+      const agentFile = path.join(projects, "-repo", "2fd0505c-417a", "subagents", "agent-a13bfb89.jsonl")
+      fs.mkdirSync(path.dirname(agentFile), { recursive: true })
+      fs.writeFileSync(sessionFile, reply("claude-opus-5-5", "high"))
+      fs.writeFileSync(agentFile, reply("claude-haiku-5-5", "medium"))
+      const sub = { ...cli, [IDENTITY_HEADERS.agent]: "a13bfb89", [IDENTITY_HEADERS.agentType]: "Explore" }
+      const session = yield* callerFor({ ...cli, [IDENTITY_HEADERS.transcript]: sessionFile })
+      const agent = yield* callerFor({ ...sub, [IDENTITY_HEADERS.transcript]: agentFile })
+      expect([session.model, session.effort]).toEqual(["claude-opus-5-5", "high"])
+      expect([agent.model, agent.effort]).toEqual(["claude-haiku-5-5", "medium"])
+      // A later call without the hook's header still reads the transcript the hook reported.
+      expect((yield* callerFor(sub)).model).toBe("claude-haiku-5-5")
     })))
 })

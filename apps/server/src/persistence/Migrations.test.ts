@@ -400,7 +400,8 @@ const allRows = Effect.gen(function* () {
  * 0017's `inbox_items.cause` (CEL-46, null on every row it finds), 0018's session columns and its
  * `session_runs` and `wake_settings` tables (CEL-92, empty after migrating), 0019's transcript and
  * current step columns on sessions and subagents (CEL-106, null on every row it finds), and 0021's
- * `tasks.last_holder_session_id` and `inbox_items.reopened_from` (CEL-110, null on rows no claim event names).
+ * `tasks.last_holder_session_id` and `inbox_items.reopened_from` (CEL-110, null on rows no claim event names),
+ * and 0022's `model` and `effort` on comments, events, sessions and subagents (CEL-119, null on every row it finds).
  */
 const withoutLaterAdditions = (rows: Record<string, unknown>): Record<string, unknown> => {
   const { profile_fields: _profiles, session_runs: _runs, wake_settings: _wake, ...rest } = rows
@@ -413,15 +414,20 @@ const withoutLaterAdditions = (rows: Record<string, unknown>): Record<string, un
       ? { tasks: (rows["tasks"] as ReadonlyArray<Record<string, unknown>>).map(({ last_holder_session_id: _holder, ...row }) => row) }
       : {}),
     agent_sessions: ((rows["agent_sessions"] ?? []) as ReadonlyArray<Record<string, unknown>>).map(
-      ({ permission_mode: _mode, agent_kind: _kind, transcript_path: _path, current_step: _step, current_step_at: _at, ...row }) => row,
+      ({ permission_mode: _mode, agent_kind: _kind, transcript_path: _path, current_step: _step, current_step_at: _at, model: _m, effort: _e, ...row }) =>
+        row,
     ),
     ...("session_agents" in rows
       ? {
         session_agents: (rows["session_agents"] as ReadonlyArray<Record<string, unknown>>).map(
-          ({ transcript_path: _path, current_step: _step, current_step_at: _at, ...row }) => row,
+          ({ transcript_path: _path, current_step: _step, current_step_at: _at, model: _m, effort: _e, ...row }) => row,
         ),
       }
       : {}),
+    ...Object.fromEntries((["comments", "events"] as const).filter((t) => t in rows).map((t) => [
+      t,
+      (rows[t] as ReadonlyArray<Record<string, unknown>>).map(({ model: _m, effort: _e, ...row }) => row),
+    ])),
   }
 }
 
@@ -499,8 +505,9 @@ describe("migration 0011_agents", () => {
         ...after,
         // 0021's last holder (CEL-110): the board's claims were never events, so null too.
         tasks: strip(strip(after.tasks, "updated_by_agent_id"), "last_holder_session_id"),
-        comments: strip(after.comments, "agent_id"),
-        events: strip(after.events, "agent_id"),
+        // 0022's model and effort (CEL-119): nothing written before it has one.
+        comments: strip(strip(strip(after.comments, "agent_id"), "model"), "effort"),
+        events: strip(strip(strip(after.events, "agent_id"), "model"), "effort"),
       }).toEqual(before)
       expect(yield* sql`SELECT * FROM session_agents`).toEqual([])
 

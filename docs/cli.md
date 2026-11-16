@@ -778,16 +778,27 @@ Said    Starting with a failing test for the timer.
 ✓ Agent · cello-code-reviewer: CLO-7    (opens that subagent's row)
 ```
 
-**What `cello task get` shows:** the subagents launched on the task, and who did what.
+**What `cello task get` shows:** the subagents launched on the task, and who did what, with the model and effort that did it (see "Which model wrote it" below).
 
 ```
 Subagents on it (1)
-  cello-builder · a13bfb89 (under Claude Code session 2fd0505c): working, seen 1m ago
+  cello-builder · a13bfb89 (Sonnet 5.5, medium; under Claude Code session 2fd0505c): working, seen 1m ago
 
-Comments (1)
-  cello-builder · a13bfb89 (under Claude Code session 2fd0505c) · just now
+Comments (2)
+  Claude Code session 2fd0505c (Opus 5.5, high) · 5m ago
+    Plan: a timer that flips at 90 s
+  cello-builder · a13bfb89 (Sonnet 5.5, medium; under Claude Code session 2fd0505c) · just now
     Built; tests pass
 ```
+
+### Which model wrote it
+
+Every comment, history line and Agents page row an agent writes says whether it came from the **main session** (your conversation, which may run subagents) or a **subagent** of it, and the **model and effort** that wrote it: on the board "Claude Code · Main session · Opus 5.5 · high · 2fd0505c", "cello-builder · Subagent of 2fd0505c · Sonnet 5.5 · medium"; in the CLI "Claude Code session 2fd0505c (Opus 5.5, high)", "cello-builder · a13bfb89 (Sonnet 5.5, medium; under Claude Code session 2fd0505c)".
+
+- **Nothing to report.** Claude Code writes the model and effort of each reply to its transcript. As each `cello` command reaches the server, it reads the end of *your* transcript, the one the hooks reported (the session's, or with `--agent` the subagent's own), and takes the newest reply's. So a subagent is credited with its own model, not its parent's, as long as it gives `--agent`.
+- **Kept with what you wrote.** A comment and a history line keep the model they were written with. After `/model`, your next comments show the new one; older ones keep theirs.
+- **Unknown stays unknown.** Without the hooks (no transcript), before your first reply, for agents that aren't Claude Code, and for anything written before this existed, only the role shows: no model is guessed.
+- **`cello agents`** shows the model each agent is on now, after its id.
 
 ### Checking on your builders from the terminal
 
@@ -796,9 +807,9 @@ An orchestrator doesn't need the Agents page to see what its builders are doing:
 ```bash
 cello agents
 # Agents working (3):
-#   Claude Code session 2fd0505c    orchestrator  active now    holds CEL-7  Agent · cello-builder: CEL-7 pancake timer
-#     cello-builder/a13bfb89                      active now    on CEL-7     Bash · bun run test
-#     cello-code-reviewer/b77d0e11                seen 12m ago  on CEL-6
+#   Claude Code session 2fd0505c (Opus 5.5, high)  orchestrator  active now    holds CEL-7  Agent · cello-builder: CEL-7 pancake timer
+#     cello-builder/a13bfb89 (Sonnet 5.5, medium)                active now    on CEL-7     Bash · bun run test
+#     cello-code-reviewer/b77d0e11 (Sonnet 5.5, medium)          seen 12m ago  on CEL-6
 #
 # 1 agent finished today: `cello agents --all` lists them.
 # `cello agents log <id>` prints one's log: a session's short id (2fd0505c) or a subagent's (cello-builder/a13bfb89).

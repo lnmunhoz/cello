@@ -171,6 +171,22 @@ describe("agentsText: what `cello agents` prints", () => {
     ].join("\n"))
   })
 
+  it("names the model and effort each one is on after its id, when it's known (CEL-119)", () => {
+    const onModels = [{
+      ...working[0]!,
+      session: { ...orchestrator, model: "claude-opus-5-5", effort: "high" },
+      agents: [
+        { ...working[0]!.agents[0]!, agent: { ...builder, model: "claude-sonnet-5-5", effort: "medium" } },
+        working[0]!.agents[1]!,
+      ],
+    }]
+    expect(agentsText({ working: onModels, finished: [], all: false, now }).split("\n").slice(1, 4)).toEqual([
+      "  Claude Code session 2fd0505c (Opus 5.5, high)  orchestrator  active now    holds CEL-7, CEL-8  Agent · cello-builder: CEL-7",
+      "    cello-builder/a13bfb89 (Sonnet 5.5, medium)                active now    on CEL-7            Bash · bun run test",
+      "    cello-code-reviewer/b77d0e11                               seen 12m ago  on CEL-8",
+    ])
+  })
+
   it("--all lists the ones that finished today, newest first", () => {
     expect(agentsText({ working: [], finished, all: true, now })).toBe([
       "No agent is working.",

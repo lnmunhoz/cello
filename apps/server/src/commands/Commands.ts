@@ -82,6 +82,8 @@ const make = Effect.gen(function* () {
             actorId: caller.actorId,
             sessionId: caller.sessionId,
             agentId: caller.agentId ?? null,
+            model: caller.model ?? null,
+            effort: caller.effort ?? null,
             workspaceId: where.workspaceId,
             projectId: where.projectId,
           }).pipe(Effect.tap((event) => Effect.sync(() => events.push(event))))

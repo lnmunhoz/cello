@@ -11,6 +11,7 @@ import { Markdown } from "../components/ui/Markdown.tsx"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.tsx"
 import { commands, commentsFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
+import { Author } from "../presence/Author.tsx"
 import { type Who, whoOf } from "../presence/model.ts"
 import { ScreenshotBox, ScreenshotThumbs } from "../screenshots/Screenshots.tsx"
 import { uploadUrl } from "../screenshots/screenshots.ts"
@@ -71,7 +72,7 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
               task={task}
               comment={c}
               comments={comments}
-              author={whoOf(board, c.actorId, c.sessionId, c.agentId)}
+              author={whoOf(board, c.actorId, c.sessionId, c.agentId, c)}
               target={c.id === target}
             />
             {c.id === statusAfter ? <CommentStatusRow board={board} task={task} comment={c} comments={comments} /> : null}
@@ -139,10 +140,9 @@ function CommentItem({ board, task, comment, comments, author, target }: {
       className={`flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-3 py-2.5 shadow-card ${target ? "comment-flash" : ""}`}
     >
       <div className="flex items-center gap-2 text-xs">
-        {/* An agent session by its id, a subagent by its type and id with its session after it (CEL-55). */}
-        <span className="min-w-0 truncate" data-comment-author title={author.parent ? `${author.name}, under ${author.parent}` : author.name}>
-          <span className="font-medium text-ink">{author.name}</span>
-          {author.parentShort ? <span className="text-faint"> · under {author.parentShort}</span> : null}
+        {/* The main session or a subagent of it (CEL-55), and the model and effort that wrote it (CEL-119). */}
+        <span className="flex min-w-0" data-comment-author title={author.parent ? `${author.name}, under ${author.parent}` : author.name}>
+          <Author who={author} />
         </span>
         <span className="text-faint">
           {relativeTime(comment.createdAt)}

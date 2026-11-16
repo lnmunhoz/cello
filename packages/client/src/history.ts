@@ -20,11 +20,23 @@ const TAKEN_BECAUSE = { holder_exited: " (its session had exited)", holder_idle:
 export type HistoryNames = Pick<BoardState, "actors" | "statuses" | "labels"> & { readonly sessionName?: (sessionId: string) => string | undefined }
 
 /**
- * `name`: who did it, when the caller knows better than the actor's name ("Claude Code session
- * 2fd0505c", "cello-builder · a13bfb89", CEL-55); else the actor's name.
+ * Who did it, two ways (CEL-119): `subject` leads a line ("cello-builder (Sonnet 5.5), subagent of
+ * d0d47d35," set the stage…, its closing comma included), `plain` is the name where it's possessive or
+ * what Cello did to it ("Claude Code session d0d47d35's comment…", "Cello woke Claude Code session d0d47d35").
  */
-export const describeEvent = (e: CelloEvent, state: HistoryNames, name?: string): string => {
-  const who = name ?? state.actors[e.actorId]?.name ?? "Someone"
+export interface EventDoer {
+  readonly subject: string
+  readonly plain: string
+}
+
+/**
+ * `name`: who did it, when the caller knows better than the actor's name ("Claude Code session
+ * 2fd0505c", "cello-builder · a13bfb89", CEL-55; or a subject and a plain name, CEL-119); else the actor's name.
+ */
+export const describeEvent = (e: CelloEvent, state: HistoryNames, name?: string | EventDoer): string => {
+  const fallback = state.actors[e.actorId]?.name ?? "Someone"
+  const who = typeof name === "object" ? name.subject : name ?? fallback
+  const plain = typeof name === "object" ? name.plain : name ?? fallback
   const status = (id: string) => state.statuses[id]?.name ?? "another status"
   const label = (id: string) => state.labels[id]?.name ?? "a label"
   switch (e.type) {
@@ -54,15 +66,15 @@ export const describeEvent = (e: CelloEvent, state: HistoryNames, name?: string)
     case "task.released":
       return `${who} released it`
     case "task.claim_ended":
-      return `${who}'s change ended the agent's claim`
+      return `${plain}'s change ended the agent's claim`
     case "task.reopened": {
       const session = state.sessionName?.(e.session) ?? "the agent session that last held it"
-      return e.from === e.task.statusId ? `${who}'s comment gave it back to ${session}` : `${who}'s comment reopened it for ${session}`
+      return e.from === e.task.statusId ? `${plain}'s comment gave it back to ${session}` : `${plain}'s comment reopened it for ${session}`
     }
     case "task.stage_changed":
       return e.after === null ? `${who} cleared the stage` : `${who} set the stage to ${stageInfo(e.after)?.label ?? e.after}`
     case "session.seen":
-      return e.session.endedAt === null ? `${who} checked in` : `${who}'s session ended`
+      return e.session.endedAt === null ? `${who} checked in` : `${plain}'s session ended`
     case "agent.seen":
       return e.agent.endedAt === null ? `${who} checked in` : `${who} finished`
     case "comment.added":
@@ -110,14 +122,14 @@ export const describeEvent = (e: CelloEvent, state: HistoryNames, name?: string)
     }
     // Waking sessions (CEL-92): written as the session, about Cello's doing.
     case "session.wake_scheduled":
-      return `Cello will wake ${who} (${WAKE_WHY_TEXT[e.why]})`
+      return `Cello will wake ${plain} (${WAKE_WHY_TEXT[e.why]})`
     case "session.not_woken":
-      return `Cello didn't wake ${who}: ${NOT_WOKEN_TEXT[e.reason]}`
+      return `Cello didn't wake ${plain}: ${NOT_WOKEN_TEXT[e.reason]}`
     case "session.run_started":
-      return `Cello woke ${who} (${WAKE_WHY_TEXT[e.run.why]}, mode ${e.run.mode})`
+      return `Cello woke ${plain} (${WAKE_WHY_TEXT[e.run.why]}, mode ${e.run.mode})`
     case "session.run_ended": {
       const length = e.run.endedAt === null ? "" : ` ${runLength(e.run.endedAt - e.run.startedAt)}`
-      return `${who}'s woken run ${RUN_END_TEXT[e.run.outcome]}${length}${e.run.error ? `: ${e.run.error}` : ""}`
+      return `${plain}'s woken run ${RUN_END_TEXT[e.run.outcome]}${length}${e.run.error ? `: ${e.run.error}` : ""}`
     }
     case "wake.settings_changed": {
       const parts = [

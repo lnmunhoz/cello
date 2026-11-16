@@ -10,6 +10,7 @@ import * as Sqlite from "../persistence/Sqlite.ts"
 import * as AssetStore from "../review/AssetStore.ts"
 import type * as RepoPaths from "../project/repoPath.ts"
 import * as Services from "../services.ts"
+import * as ModelService from "../session/ModelService.ts"
 import * as SessionService from "../session/SessionService.ts"
 import { tempDataDir } from "./tempDir.ts"
 
@@ -42,10 +43,15 @@ export const asHuman = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     return yield* Effect.provideService(effect, Caller, { actorId: human.id, sessionId: null })
   })
 
-/** Runs `effect` as the agent session an identity resolves to, the way a CLI request would. */
+/**
+ * Runs `effect` as the agent session an identity resolves to, the way a CLI request would; with a
+ * ModelService provided, stamped with the model its transcript names, as CallerMiddleware does (CEL-119).
+ */
 export const asAgent = (identity: SessionService.Identity) =>
   <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     Effect.gen(function* () {
-      const caller = yield* (yield* SessionService.SessionService).resolve(identity)
+      const resolved = yield* (yield* SessionService.SessionService).resolve(identity)
+      const models = yield* Effect.serviceOption(ModelService.ModelService)
+      const caller = models._tag === "Some" ? yield* models.value.stamp(resolved) : resolved
       return yield* Effect.provideService(effect, Caller, caller)
     })
