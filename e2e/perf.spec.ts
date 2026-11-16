@@ -230,7 +230,8 @@ test("performance: 40 agents spinning at once stay near 60 fps (at least 55), wi
   }
   await page.goto(`/${key}/issues`)
   // Each agent reviewing: its mark rests in the thinking pose, nothing moving as the board draws.
-  await expect(page.locator('[data-agent-mood="thinking"]')).toHaveCount(40)
+  // (The sidebar's Agents working list shows the four sessions' marks too; these are the cards'.)
+  await expect(page.locator('[data-task-key] [data-agent-mood="thinking"]')).toHaveCount(40)
   expect(await page.evaluate(() => document.getAnimations().length)).toBe(0)
   await caption(page, "40 agents move their tasks to Building at once: 40 marks spin together. Counting 150 frames, then again once they've gone still")
 
@@ -252,7 +253,9 @@ test("performance: 40 agents spinning at once stay near 60 fps (at least 55), wi
             times.push(t)
             if (times.length <= 150) return void requestAnimationFrame(tick)
             observer.disconnect()
-            const running = document.getAnimations().filter((a) => a.playState === "running").length
+            // The cards' marks: the sidebar's session entries burst with them.
+            const onCard = (a: Animation) => ((a.effect as KeyframeEffect | null)?.target as Element | null)?.closest("[data-task-key]") != null
+            const running = document.getAnimations().filter((a) => a.playState === "running" && onCard(a)).length
             resolve({ gaps: times.slice(1).map((x, i) => x - times[i]!), longTasks, animations: running })
           }
           requestAnimationFrame(tick)
@@ -282,6 +285,7 @@ test("performance: 40 agents spinning at once stay near 60 fps (at least 55), wi
       let started = 0
       const on = (e: AnimationEvent) => {
         if (e.animationName !== "agent-spin" && e.animationName !== "agent-follow") return
+        if (!(e.target as Element).closest("[data-task-key]")) return
         if (++started < 80) return
         document.removeEventListener("animationstart", on)
         resolve()

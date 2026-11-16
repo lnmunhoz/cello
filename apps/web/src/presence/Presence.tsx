@@ -8,7 +8,7 @@ import type { StageInfo } from "@cello/contract/stages"
 import { agoShort, type Presence, presenceOf, presenceWords, type SessionLike } from "@cello/shared/presence"
 import { BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, type LucideIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
 import { type ReactNode, useEffect, useState } from "react"
-import { AgentMark } from "../components/ui/AgentMark.tsx"
+import { AgentMark, type AgentMood } from "../components/ui/AgentMark.tsx"
 import { formatDay } from "../lib/format.ts"
 import { drawnMarks } from "./drawnMarks.ts"
 import {
@@ -25,6 +25,7 @@ import {
   sessionWho,
   type Who,
   type Working,
+  type WorkingMark,
   workingSessions,
 } from "./model.ts"
 import { useNow } from "./useNow.ts"
@@ -129,34 +130,45 @@ const parentTitle = (who: Who) => (who.parent ? `${who.name}, under ${who.parent
 /** Which holder it is: the subagent, else the session. */
 const liveId = (h: LiveHolder | null) => (h === null ? null : h.holder.agent ? `agent:${h.holder.agent.agentId}` : `session:${h.holder.session?.id}`)
 
-/** The mark's size on cards and list rows: about a line of their 12 px text. */
+/** The mark's size on cards, list rows and in the task panel: about a line of their 12 px text. */
 const MARK_SIZE = 15
+
+/** The mark's size in the sidebar's Agents working list (CEL-55). */
+const SIDEBAR_MARK_SIZE = 14
 
 /** The mark's body: the holder's colour while it's active, amber when quiet and grey once ended, like the dot's rings. */
 const markBody = (color: string, presence: Presence) => (presence === "active" ? color : presence === "idle" ? "var(--idle)" : "var(--faint)")
 
-/** Each task's mark as last drawn, outliving the card for a column move (./drawnMarks.ts). */
+/** Each mark as last drawn, by where it is, outliving the card for a column move (./drawnMarks.ts). */
 const drawn = drawnMarks<MarkSeen & { readonly holder: LiveHolder | null }>()
 
 /**
- * The agent mark for a task's card or list row (CEL-69), in place of the presence dot. It follows whoever
- * the holder line names (a subagent, else the session: its colour and presence) and shows what it's
- * doing (agentMood). It moves only for an event seen on screen (markEntry), and every motion ends:
- * Done when the task moves into In Review or Done, the hop when it starts waiting in Needs input, and a
- * short burst of working or thinking when the agent starts it or checks in while at it. A busy agent
- * keeps moving, a quiet one goes still within seconds, and an idle board runs nothing. A page load, or
- * coming back to a card that was off screen, plays nothing: what's drawn first is the baseline. When
- * Lucas approves and the claim ends, the holder stays for Done, then leaves.
+ * The agent mark for a task's card or list row (CEL-69), in place of the presence dot, and for the task
+ * panel's (`place`, CEL-55). It follows whoever the holder line names (a subagent, else the session: its
+ * colour and presence) and shows what it's doing (agentMood). A page load, or coming back to a card that
+ * was off screen, plays nothing: what's drawn first is the baseline. When Lucas approves and the claim
+ * ends, the holder stays for Done, then leaves.
  */
-function useTaskMark(task: Task, board: BoardState, holder: LiveHolder | null): { mark: ReactNode; leaving: boolean } {
+function useTaskMark(task: Task, board: BoardState, holder: LiveHolder | null, place: "card" | "panel" | "panel-bar" = "card") {
   const now = useNow()
   const presence: Presence = holder ? presenceOf(holder.subject, now) : "ended"
-  const seen: MarkSeen = {
-    mood: agentMood(task.stage, board.statuses[task.statusId], presence),
-    statusId: task.statusId,
-    checkIn: holder ? holder.subject.lastSeenAt : null,
-  }
-  const [last, setLast] = useState(() => drawn.baseline(task.id, Date.now()) ?? { ...seen, holder })
+  const mood = agentMood(task.stage, board.statuses[task.statusId], presence)
+  // The card and the list row are never on screen together, so they share what the card drew.
+  return useAgentMark(place === "card" ? task.id : `${place}:${task.id}`, mood, task.statusId, holder, MARK_SIZE)
+}
+
+/**
+ * The agent mark, as the cards show it (CEL-69): `mood` in the holder's colour and presence. `id` says
+ * where it is drawn, for its baseline. It moves only for an event seen on screen (markEntry), and every
+ * motion ends: Done when the task moves into In Review or Done, the hop when it starts waiting in Needs
+ * input, and a short burst of working or thinking when the agent starts it or checks in while at it. A
+ * busy agent keeps moving, a quiet one goes still within seconds, and an idle board runs nothing.
+ */
+function useAgentMark(id: string, mood: AgentMood, statusId: string, holder: LiveHolder | null, size: number): { mark: ReactNode; leaving: boolean } {
+  const now = useNow()
+  const presence: Presence = holder ? presenceOf(holder.subject, now) : "ended"
+  const seen: MarkSeen = { mood, statusId, checkIn: holder ? holder.subject.lastSeenAt : null }
+  const [last, setLast] = useState(() => drawn.baseline(id, Date.now()) ?? { ...seen, holder })
   // The motion playing right now, if any; it clears once played.
   const [entry, setEntry] = useState<"done" | "waiting" | "burst" | null>(null)
   // Counts the motions started: the mark's key, so a check-in mid-burst starts it again.
@@ -176,10 +188,10 @@ function useTaskMark(task: Task, board: BoardState, holder: LiveHolder | null): 
   }
   // Only when what the mark shows changes: a 200-card board re-renders every card on each event.
   useEffect(() => {
-    drawn.seen(task.id, { mood: seen.mood, statusId: seen.statusId, checkIn: seen.checkIn, holder })
-  }, [task.id, seen.mood, seen.statusId, seen.checkIn, liveId(holder)])
+    drawn.seen(id, { mood: seen.mood, statusId: seen.statusId, checkIn: seen.checkIn, holder })
+  }, [id, seen.mood, seen.statusId, seen.checkIn, liveId(holder)])
   // Leaving the screen (not each re-render) starts the baseline's short lifetime.
-  useEffect(() => () => drawn.left(task.id, Date.now()), [task.id])
+  useEffect(() => () => drawn.left(id, Date.now()), [id])
   const shown = holder ?? gone
   if (shown === null) return { mark: null, leaving: false }
   const played = () => {
@@ -191,7 +203,7 @@ function useTaskMark(task: Task, board: BoardState, holder: LiveHolder | null): 
       key={plays}
       mood={seen.mood}
       play={entry !== null}
-      size={MARK_SIZE}
+      size={size}
       body={markBody(shown.color, holder ? presence : "active")}
       eye="white"
       onPlayed={played}
@@ -203,17 +215,16 @@ function useTaskMark(task: Task, board: BoardState, holder: LiveHolder | null): 
 }
 
 /**
- * "8a41c9e2 active now" or "cello-builder · a13bfb89 active now" next to its dot, coloured by presence;
- * a subagent's session is in the hover, and with `full` it's written after it. `boxed`: the dot sits in
- * an avatar-sized box, to line up with avatars. `mark`: drawn in place of the dot (the card's and the
- * row's agent mark, CEL-69).
+ * "8a41c9e2 active now" or "cello-builder · a13bfb89 active now" after its agent mark (CEL-69), coloured
+ * by presence; a subagent's session is in the hover, and with `full` it's written after it. `boxed`: the
+ * mark sits in an avatar-sized box, to line up with avatars.
  */
 function HolderWords({
-  live: { holder, subject, color },
+  live: { holder, subject },
   full = false,
   boxed = false,
   mark,
-}: { live: LiveHolder; full?: boolean; boxed?: boolean; mark?: ReactNode }) {
+}: { live: LiveHolder; full?: boolean; boxed?: boolean; mark: ReactNode }) {
   const now = useNow()
   const presence = presenceOf(subject, now)
   return (
@@ -222,14 +233,7 @@ function HolderWords({
       title={parentTitle(holder.who)}
       data-agent={holder.agent?.agentId}
     >
-      {mark ??
-        (boxed ? (
-          <span className="flex size-4 shrink-0 items-center justify-center">
-            <PresenceDot of={subject} color={color} />
-          </span>
-        ) : (
-          <PresenceDot of={subject} color={color} />
-        ))}
+      {boxed ? <span className="flex size-4 shrink-0 items-center justify-center">{mark}</span> : mark}
       <span className="truncate">
         <span className="font-medium">{full ? holder.who.name : holder.who.short}</span> {presenceWords(subject, now)}
         {full && holder.who.parentShort ? <span className="text-faint"> · under {holder.who.parentShort}</span> : null}
@@ -315,20 +319,20 @@ export function RowCreated({ task, board }: { task: Task; board: BoardState }) {
   )
 }
 
-/** In the task panel's top bar, after the key: "· ● 8a41c9e2 active now · 🔨 Building" (the full name is in Working on it). */
+/**
+ * In the task panel's top bar, after the key: "· 8a41c9e2 active now · 🔨 Building" after the card's agent
+ * mark, in the card's mood (the full name is in Working on it).
+ */
 export function PanelWork({ task, board }: { task: Task; board: BoardState }) {
   const now = useNow()
   const p = provenanceOf(board, task, now)
   const holder = live(board, p.holder)
-  if (!holder && !p.stage) return null
+  const { mark, leaving } = useTaskMark(task, board, holder, "panel-bar")
+  if (!holder && !p.stage && !leaving) return null
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-xs" data-panel-work>
-      {holder ? (
-        <>
-          <span className="text-faint">·</span>
-          <HolderWords live={holder} />
-        </>
-      ) : null}
+      {holder || leaving ? <span className="text-faint">·</span> : null}
+      {holder ? <HolderWords live={holder} mark={mark} /> : leaving ? mark : null}
       {p.stage ? (
         <>
           <span className="text-faint">·</span>
@@ -361,6 +365,8 @@ export function ProvenanceRows({ task, board }: { task: Task; board: BoardState 
   const p = provenanceOf(board, task, now)
   const holder = p.holder
   const shown = live(board, holder)
+  // Working on it shows who's on it now: once the claim ends, "Nobody" (the top bar plays Done's leaving).
+  const { mark } = useTaskMark(task, board, shown, "panel")
   const row = "flex h-8 min-w-0 items-center gap-2 px-2"
   return (
     <>
@@ -388,7 +394,7 @@ export function ProvenanceRows({ task, board }: { task: Task; board: BoardState 
       <dt className="text-muted">Working on it</dt>
       <dd className={row} data-working-on-it>
         {shown ? (
-          <HolderWords live={shown} full boxed />
+          <HolderWords live={shown} full boxed mark={mark} />
         ) : holder ? (
           <>
             <Avatar who={holder.who} />
@@ -422,27 +428,27 @@ const workingTitle = (sessions: ReadonlyArray<Working>, now: number) =>
       .join("\n")
 
 /**
- * One entry of the sidebar's list: a dot and who, and under it, faint, what it's on (the task keys).
- * Two lines, so a long agent name and a task key both fit the sidebar's width.
+ * One entry of the sidebar's list: its agent mark, in the mood its card shows (workingMark), and who,
+ * and under it, faint, what it's on (the task keys). Two lines, so a long agent name and a task key both
+ * fit the sidebar's width.
  */
-function WorkingLine({ who, id, subject, color, keys, nested, title, data }: {
+function WorkingLine({ who, id, live: holder, look, keys, nested, title, data }: {
   who: string
   /** A subagent's short id, after its type: never cut off, so two agents of one type tell apart. */
   id?: string
-  subject: SessionLike
-  color: string
+  live: LiveHolder
+  look: WorkingMark
   keys: string
   nested: boolean
   title: string
   data: Record<string, string>
 }) {
   const now = useNow()
-  const presence = presenceOf(subject, now)
+  const presence = presenceOf(holder.subject, now)
+  const { mark } = useAgentMark(`sidebar:${liveId(holder)}`, look.mood, look.statusId, holder, SIDEBAR_MARK_SIZE)
   return (
     <li className={`flex min-w-0 items-start gap-2 py-0.5 pr-2 text-xs ${nested ? "pl-6" : "pl-2"} ${PRESENCE_TEXT[presence]}`} title={title} {...data}>
-      <span className="flex h-4 w-3.5 shrink-0 items-center justify-center">
-        <PresenceDot of={subject} color={color} size={nested ? 6 : 7} />
-      </span>
+      <span className="flex size-4 shrink-0 items-center justify-center">{mark}</span>
       <span className="flex min-w-0 flex-col">
         <span className="flex min-w-0 leading-4" data-working-who>
           <span className="truncate">{who}</span>
@@ -480,8 +486,8 @@ export function AgentsWorking({ board, workspaceId, className }: { board: BoardS
             <WorkingLine
               key={s.session.id}
               who={s.agents.length ? `${s.who.short} · orchestrator` : s.who.short}
-              subject={s.session}
-              color={sessionColor(s.session)}
+              live={{ holder: { who: s.who, session: s.session, agent: null }, subject: s.session, color: sessionColor(s.session) }}
+              look={s.mark}
               keys={s.tasks.length ? `holds ${keysOf(s.tasks)}` : ""}
               nested={false}
               title={`${s.who.name}: ${presenceWords(s.session, now)}`}
@@ -492,8 +498,8 @@ export function AgentsWorking({ board, workspaceId, className }: { board: BoardS
                 key={`${a.agent.sessionId}/${a.agent.agentId}`}
                 who={a.agent.agentType ?? "agent"}
                 id={a.agent.agentId.slice(0, 8)}
-                subject={agentPresenceSubject(board, a.agent)}
-                color={a.who.color}
+                live={{ holder: { who: a.who, session: s.session, agent: a.agent }, subject: agentPresenceSubject(board, a.agent), color: a.who.color }}
+                look={a.mark}
                 keys={a.task ? `on ${a.task.key}` : ""}
                 nested
                 title={`${a.who.name}, under ${s.who.name}: ${presenceWords(a.agent, now)}${a.agent.description ? `\n${a.agent.description}` : ""}`}
