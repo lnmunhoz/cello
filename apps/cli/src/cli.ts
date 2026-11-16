@@ -98,12 +98,9 @@ import { type Env, IDENTITY_VARIABLES, identityHeaders, parseAgent } from "./ide
 import { askScreenshots, commentScreenshots, commentStart, commentText, deliveryText, inboxEntries, inboxScreenshots, type ScreenshotFile } from "./inbox.ts"
 import {
   acquireWaiter,
-  afterDown,
   maxWait,
-  type Outage,
   OWNER_CHECK_MS,
   readWaiter,
-  reconnectGrace,
   releaseWaiter,
   waiterLockDir,
   waiterLockFile,
@@ -112,6 +109,7 @@ import {
 import { groupWord, labelArgs, labelListText, labelNames, parseChanges, parseGroup, resolveChanges } from "./labels.ts"
 import { openTarget } from "./open.ts"
 import { pageFiles } from "./pageFiles.ts"
+import { reconnecting, reconnectGrace } from "./reconnect.ts"
 import { contextProfileLines, profileLines, readinessLines, wroteLines } from "./profile.ts"
 import { machineFacts, readRepoFacts } from "./repoFacts.ts"
 import { kindsOf, searchText } from "./search.ts"
@@ -176,6 +174,33 @@ const withClient = <A, E, B = never>(
       Effect.catch((error): Effect.Effect<A | B, unknown, CliEnv> =>
         options.whenDown !== undefined && Predicate.isTagged(error, "RpcClientError") ? options.whenDown : Effect.fail(error)),
       Effect.mapError((error) => error instanceof CliFailure ? error : new CliFailure({ message: explain(error, { port, now: now() }) })),
+    )
+  })
+
+/** "1500 ms", "45 seconds", "2 minutes": the largest unit that says it exactly. */
+const spanText = (ms: number) =>
+  ms % 60_000 === 0 && ms >= 120_000 ? `${ms / 60_000} minutes` : ms % 1_000 === 0 && ms >= 2_000 ? `${ms / 1_000} seconds` : `${ms} ms`
+
+/**
+ * `withClient` for a call that waits on Lucas, riding out a server restart (CEL-74, CEL-78): when no
+ * server answers, or the connection drops mid-call, it says so on stderr once, reconnects with backoff
+ * and calls again (reconnect.ts). After the grace it gives up, saying to run `again` once the server is back.
+ */
+const throughRestarts = <A, E>(use: (client: CelloClient["Service"]) => Effect.Effect<A, E | CliFailure, CelloClient>, again: string) =>
+  Effect.gen(function* () {
+    const { env } = yield* CliEnv
+    const port = portOf(env)
+    const grace = reconnectGrace(env)
+    return yield* reconnecting(
+      withClient((client) => Effect.map(use(client), Option.some), { whenDown: Effect.succeed(Option.none<A>()) }),
+      {
+        grace,
+        wentAway: Console.error(`The Cello server on port ${port} went away; reconnecting for up to ${spanText(grace)}…`),
+        gaveUp: Effect.fail(new CliFailure({
+          message: `The Cello server on port ${port} went away and didn't come back within ${spanText(grace)}, so this stopped waiting. ` +
+            `Start it (\`cello start\`), then run \`${again}\` again.`,
+        })),
+      },
     )
   })
 
@@ -814,15 +839,18 @@ const saveScreenshots = (shots: ReadonlyArray<ScreenshotFile>) =>
 
 const humanName = (actors: ReadonlyArray<Actor>) => actors.find((a) => a.kind === "human")?.name ?? "Lucas"
 
-/** Waits for the task's latest ask to close, then prints the answers (screenshots saved as files) or why there are none. */
+/**
+ * Waits for the task's latest ask to close, then prints the answers (screenshots saved as files) or why
+ * there are none. Rides out a server restart (CEL-78): a closed ask is just read again, so nothing is
+ * printed twice.
+ */
 const waitAndPrint = (key: string, json: boolean) =>
   Effect.gen(function* () {
-    const { ask, detail } = yield* withClient((client) =>
+    const { ask, detail } = yield* throughRestarts((client) =>
       Effect.gen(function* () {
         const ask = yield* client["ask.wait"]({ key })
         return { ask, detail: yield* client["task.get"]({ key }) }
-      })
-    )
+      }), `cello wait ${key}`)
     const files = yield* saveScreenshots(askScreenshots(ask))
     if (json) return yield* printJson({ ask, files: Object.fromEntries(files) })
     yield* print(askResultText(ask, detail.task.key, humanName(detail.actors), files, (yield* CliEnv).now()))
@@ -850,7 +878,10 @@ const ask = Command.make("ask", {
   link: Flag.String("link").pipe(Flag.atLeast(0), Flag.withDescription("A link to decide from, e.g. the scope page; repeatable.")),
   wait: Flag.Boolean("wait").pipe(
     Flag.withDefault(false),
-    Flag.withDescription("Block until Lucas answers (or the ask is withdrawn), then print the answers. Run it in the background."),
+    Flag.withDescription(
+      "Block until Lucas answers (or the ask is withdrawn), then print the answers. Run it in the background. " +
+        "Rides out a server restart; exits 1 if the server stays away for 2 minutes (the ask stays open: run `cello wait` then).",
+    ),
   ),
   withdraw: Flag.Boolean("withdraw").pipe(
     Flag.withDefault(false),
@@ -935,8 +966,11 @@ const answers = Command.make("answers", {
     "Print Lucas's latest answers on a task again (--all: every round of questions); screenshots he pasted are saved to files and their paths printed.",
   ))
 
-const waitCommand =Command.make("wait", { key, json }, (input) => waitAndPrint(input.key, input.json)).pipe(
-  Command.withDescription("Wait for Lucas to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered."),
+const waitCommand = Command.make("wait", { key, json }, (input) => waitAndPrint(input.key, input.json)).pipe(
+  Command.withDescription(
+    "Wait for Lucas to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered. " +
+      "Rides out a server restart; exits 1 if the server stays away for 2 minutes.",
+  ),
 )
 
 // ── labels ──────────────────────────────────────────────────────────────────────────────────────
@@ -1507,34 +1541,6 @@ const buildsCommand = Command.make("builds", {
 const NO_INBOX =
   "The human has no inbox: comments reach the agent session that claimed the task. Run this from an agent session (CLAUDE_CODE_SESSION_ID or CELLO_SESSION set)."
 
-/** "1500 ms", "45 seconds", "2 minutes": the largest unit that says it exactly. */
-const spanText = (ms: number) =>
-  ms % 60_000 === 0 && ms >= 120_000 ? `${ms / 60_000} minutes` : ms % 1_000 === 0 && ms >= 2_000 ? `${ms / 1_000} seconds` : `${ms} ms`
-
-/**
- * `inbox.wait` until it hands something over, reconnecting while the server restarts (CEL-74): a call
- * that finds it down pauses and tries again, and after the grace it gives up.
- */
-const waitForItems = Effect.gen(function* () {
-  const { env, now } = yield* CliEnv
-  const grace = reconnectGrace(env)
-  let outage: Outage | null = null
-  while (true) {
-    const started = now()
-    const taken = yield* withClient((client) => client["inbox.wait"]({}), { whenDown: Effect.succeed(null) })
-    if (taken !== null) return taken
-    const next = afterDown(outage, { started, ended: now() }, grace)
-    if (next === null) {
-      return yield* new CliFailure({
-        message: `The Cello server on port ${portOf(env)} went away and didn't come back within ${spanText(grace)}, so this stopped waiting. ` +
-          "Start it (`cello start`), then run `cello inbox --wait` again.",
-      })
-    }
-    outage = next.outage
-    yield* Effect.sleep(next.pause)
-  }
-})
-
 /**
  * `cello inbox --wait`: holds the session's waiter lock (CEL-74; a second waiter leaves at once) while
  * it waits for new items, then prints them as `--new` does. The lock goes when it ends, however it ends.
@@ -1557,7 +1563,7 @@ const waitForInbox = (json: boolean) =>
     // Whichever ends first: something to hand over, a day gone by, or the Claude Code that started it gone.
     const outcome = yield* Console.error(`${WAITING} (pid ${me.pid})…`).pipe(
       Effect.andThen(Effect.raceFirst(
-        Effect.map(waitForItems, (taken) => ({ taken })),
+        Effect.map(throughRestarts((client) => client["inbox.wait"]({}), "cello inbox --wait"), (taken) => ({ taken })),
         Effect.raceFirst(Effect.as(Effect.sleep(longest), { taken: null }), ownerGone(env)),
       )),
       Effect.ensuring(Effect.sync(() => releaseWaiter(file, me.id))),

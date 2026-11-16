@@ -5,6 +5,7 @@
 // of piling up. A lock whose pid is dead (the waiter was killed with -9) counts as absent, and so does
 // one older than a waiter can live (MAX_WAIT_MS), so a reused pid can't hold it for long. A waiter also
 // stops when the Claude Code that started it is gone (CLAUDE_PID), so it never outlives its session.
+// How it rides out a server restart is in reconnect.ts, shared with `cello wait` (CEL-78).
 //
 // Reading or writing the lock never throws: trouble reading it says "unknown" (the hook then lets the
 // stop through), and trouble writing it means the waiter carries on without a lock.
@@ -131,43 +132,4 @@ export const releaseWaiter = (file: string, id: string): void => {
   const holder = holderOf(file)
   // Left behind if it can't be removed: its pid dies with this process, so it then reads as stale.
   if (typeof holder !== "string" && holder.id === id) removeQuietly(file)
-}
-
-/** How long a waiter keeps reconnecting to a server that went away before it gives up (a restart takes seconds). */
-export const RECONNECT_GRACE_MS = 120_000
-
-/** The pause before reconnect try `attempt` (0 first): a quarter second, doubling, at most 5 seconds. */
-export const reconnectDelay = (attempt: number): number => Math.min(250 * 2 ** attempt, 5_000)
-
-/**
- * A call that lasted this long had a connection (a server that's down refuses at once), so when it
- * drops, a new outage starts and the grace starts over.
- */
-export const CONNECTED_MS = 5_000
-
-/** The server has been unreachable since `since`; `attempt` reconnects were made. */
-export interface Outage {
-  readonly since: number
-  readonly attempt: number
-}
-
-/**
- * After a call that found the server down (`started` and `ended` are when it ran): how long to pause
- * before the next try, and the outage so far; null once it has been down for the whole `grace`.
- */
-export const afterDown = (
-  outage: Outage | null,
-  call: { readonly started: number; readonly ended: number },
-  grace: number,
-): { readonly outage: Outage; readonly pause: number } | null => {
-  // A new outage always gets one more try; a running one ends once it has lasted the grace.
-  const current = outage === null || call.ended - call.started >= CONNECTED_MS ? { since: call.ended, attempt: 0 } : outage
-  if (current === outage && call.ended - outage.since >= grace) return null
-  return { outage: { since: current.since, attempt: current.attempt + 1 }, pause: reconnectDelay(current.attempt) }
-}
-
-/** The grace: RECONNECT_GRACE_MS, or CELLO_WAIT_RECONNECT_MS (tests shorten it). */
-export const reconnectGrace = (env: Env): number => {
-  const value = env.CELLO_WAIT_RECONNECT_MS ? Number(env.CELLO_WAIT_RECONNECT_MS) : Number.NaN
-  return Number.isFinite(value) && value >= 0 ? value : RECONNECT_GRACE_MS
 }
