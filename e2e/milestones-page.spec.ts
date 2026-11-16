@@ -329,7 +329,7 @@ test("CEL-132: the board grouped by milestone: a swimlane each, No milestone las
   await caption(page, `Drag ${moving} into closed M1's lane: refused, with a toast; it stays in M4`)
   await lane(page, "M1").evaluate((el) => el.scrollIntoView({ block: "center" }))
   await dragTo(page, card(page, moving), laneColumn(page, "M1", "Todo").locator('[role="list"]'), "below")
-  await expect(page.getByText("M1 is closed: reopen it on its page to put tasks in it.")).toBeVisible()
+  await expect(page.getByRole("region", { name: "Notifications" }).getByText("M1 is closed: reopen it on its page to put tasks in it.")).toBeVisible()
   await expect(laneColumn(page, "M4", "Todo").locator(`[data-task-key="${moving}"]`)).toBeVisible()
 
   await caption(page, "Scroll to the end: No milestone is the last lane")
