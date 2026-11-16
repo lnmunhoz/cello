@@ -156,7 +156,7 @@ function s3(u) {
   const away = io(prog(u, 8.4, 9.0));
   if (away < 1) {
     let c = panel(360, 150, 1200, 680, C.cream, 36) + txt(400, 208, "Your coding agent", 26, C.grey, { a: "start", w: 600 }) + bar(400, 232, 1120, 3, C.line, 1);
-    const kb = pop(u, 1.05, 0.4), L1 = "Set up Cello for this project:", L2 = "github.com/lnmunhoz/cello";
+    const kb = pop(u, 1.24, 0.4), L1 = "Set up Cello for this project:", L2 = "github.com/lnmunhoz/cello";
     if (kb > 0) c += at(1520, 260, kb, panel(-700, 0, 700, 140, C.ink, 30) + txt(-666, 58, typed(L1, u, 1.2, 24), 34, C.white, { a: "start", w: 600 }) + txt(-666, 108, typed(L2, u, 2.55, 22), 34, "#FFB98A", { a: "start", w: 600, mono: false }));
     c += drop(470, 560, 0.15, u, { k: pop(u, 3.9), lx: 0.6, bls: [5.9, 8.0] });
     const kr = pop(u, 4.2, 0.4);
@@ -176,13 +176,14 @@ function s3(u) {
     const bx = 760, by = 170, bw = 1000, bh = 640, cw = 223, cx = (i) => bx + 30 + i * (cw + 16);
     let b = panel(bx, by, bw, bh, C.cream, 34) + txt(bx + 40, by + 64, "Acme Shop", 38, C.ink, { a: "start" }) + G(pop(u, 9.0), pill(bx + 290, by + 30, "new board", C.green, C.white, 22));
     COLS.forEach((n, i) => { b += panel(cx(i), by + 100, cw, bh - 124, C.paper, 18) + txt(cx(i) + 18, by + 142, n, 24, C.ink, { a: "start" }); });
-    [["claude", 220, "ACME-12"], ["codex", 420, "ACME-15"], ["cursor", 620, "ACME-9"]].forEach(([id, y, key], i) => {
+    [["claude", 220, "Wishlist"], ["codex", 420, "Reviews"], ["cursor", 620, "Checkout"]].forEach(([id, y, short], i) => {
       const t0 = 10.85 + i * 0.3, ln = io(prog(u, t0 + 0.3, t0 + 0.8)), [n, fg, eye] = WHO[id];
       const k = pop(u, t0, 0.4);
       if (k > 0) s += at(330, y + 70, k, term(-210, -70, 420, 140, `session · ${n.toLowerCase()}`) + agent({ x: -140, y: 22, s: 0.09, fg: id === "claude" ? C.cream : fg, eye }) + bar(-90, 4, 220, 12, "#3A3A42", 6) + bar(-90, 32, 160, 12, "#3A7D4F", 6));
       b += dash(540, y + 70, bx - 4, y + 70, ln);
       // each session's card shows up on the board once it's connected
-      if (ln >= 1) b += tcard(key, cx(1) + 12, by + 170 + i * 82, u, { sc: 0.473, ring: fg, s: pop(u, t0 + 0.8) });
+      if (ln >= 1) b += at(cx(1) + cw / 2, by + 196 + i * 84, pop(u, t0 + 0.8), `<rect x="${-cw / 2 + 10}" y="-32" width="${cw - 20}" height="64" rx="14" fill="${C.white}" stroke="${fg}" stroke-width="4"/>` +
+        agent({ x: -cw / 2 + 40, y: 0, s: 0.05, fg: id === "claude" ? C.ink : fg, eye }) + txt(-cw / 2 + 64, 9, short, 24, C.ink, { a: "start", w: 600 }));
     });
     s = at(bx + bw / 2, by + bh / 2, kb, `<g transform="translate(${-(bx + bw / 2)} ${-(by + bh / 2)})">${b}</g>`) + s;
   }
@@ -229,7 +230,7 @@ function s3b(u) {
       s += dash(O[0] + (i ? 70 : -70), 300, bx + 250, 470, io(prog(u, 15.35 + i * 0.3, 15.85 + i * 0.3)));
       // the task card flies from the plan to the builder
       const fk = io(prog(u, 15.5 + i * 0.3, 16.25 + i * 0.3));
-      if (fk > 0) s += tcard(key, lerp(1180, bx + 30, fk), lerp(220 + i * 56, 560, fk), u, { sc: lerp(0.3, 0.62, fk) });
+      if (fk > 0) s += tcard(key, lerp(1170, bx + 30, fk), lerp(212 + i * 56, 560, fk), u, { sc: lerp(0.5, 0.62, fk) });
       s += drop(bx + 120, 738, 0.16, u, { k: pop(u, 15.7 + i * 0.3), fg: i ? C.navy : C.ink, bls: [17.2 + i, 21.8 + i], lx: u > 20.3 ? (i ? -0.7 : 0.7) : 0 });
       s += G(pop(u, 16.0 + i * 0.3), label(bx + 128, 788, "builder", i ? C.navy : C.ink, C.white, 22));
       // it writes code
@@ -253,15 +254,15 @@ function s3b(u) {
 
 // a bigger card that shows who has it, whether they're active, and the stage of the work
 function detailCard(x, y, sc, u, { footer = 1, who = 0, live = 0, stage = null, stageK = 1 } = {}) {
-  const w = 460, h = 112 + 74 * footer;
+  const w = 460, h = 124 + 74 * footer;
   let c = `<rect width="${w}" height="${f(h)}" rx="20" fill="${C.white}" stroke="${C.ink}" stroke-width="6"/>` + `<rect x="24" y="26" width="12" height="12" rx="6" fill="${C.orange}"/>` +
-    txt(48, 38, "ACME-12", 20, C.grey, { a: "start", w: 600 }) + txt(24, 84, "Add a wishlist", 32, C.ink, { a: "start", w: 600 });
+    txt(48, 38, "ACME-12", 20, C.grey, { a: "start", w: 600 }) + txt(24, 98, "Add a wishlist", 32, C.ink, { a: "start", w: 600 });
   if (footer > 0.6) {
-    c += G(who, agent({ x: 44, y: 148, s: 0.055 }) + txt(70, 156, "Claude", 24, C.ink, { a: "start", w: 600 }));
-    c += G(live, pulseDot(182, 148, u, C.green, 8) + txt(198, 156, "active now", 22, C.green, { a: "start", w: 600 }));
+    c += G(who, agent({ x: 44, y: 160, s: 0.055 }) + txt(70, 168, "Claude", 24, C.ink, { a: "start", w: 600 }));
+    c += G(live, pulseDot(182, 160, u, C.green, 8) + txt(198, 168, "active now", 22, C.green, { a: "start", w: 600 }));
   }
   // the stage sits top-right, where it has room for "Agent review"
-  if (stage) { const [n, bg] = stage; c += at(w - 22 - pillW(n, 22) / 2, 38, stageK, pill(-pillW(n, 22) / 2, -22, n, bg, C.white, 22)); }
+  if (stage) { const [n, bg] = stage; c += at(w - 20 - pillW(n, 28) / 2, 40, stageK, pill(-pillW(n, 28) / 2, -25, n, bg, C.white, 28)); }
   return `<g transform="translate(${f(x)} ${f(y)}) scale(${f(sc)})">${c}</g>`;
 }
 const STAGE = (u) => (u < 10.55 ? ["Building", C.orange] : u < 11.35 ? ["Agent review", C.navy] : ["Fixing", C.red]);
@@ -323,7 +324,7 @@ function s5(u) {
     let t = term(0, 0, 720, 400, "zsh · acme-shop");
     [["● Building the wishlist…", C.grey], ["? Which layout for the wishlist?", C.white], ["  1) Grid of cards", C.grey], ["  2) Simple list", C.grey]].forEach(([l, col], i) => { if (u > 2.5 + i * 0.15) t += txt(40, 110 + i * 54, l, 26, col, { a: "start", mono: true, w: 500 }); });
     t += txt(40, 340, ">", 26, C.orange, { a: "start", mono: true }) + (Math.floor(u * 2.5) % 2 ? bar(70, 318, 14, 28, C.white, 2) : "");
-    s += G(tk * dim, `<g transform="translate(160 200)">${t}</g>` + drop(520, 760, 0.2, u, { k: pop(u, -0.3), ly: u > 2.4 ? -0.6 : 0, bls: [1.2, 3.0, 4.2] }));
+    s += G(tk * dim, `<g transform="translate(160 200)">${t}</g>`) + G(dim, drop(520, 760, 0.2, u, { k: pop(u, -0.3), ly: u > 2.4 ? -0.6 : 0, bls: [1.2, 3.0, 4.2] }));
     if (u < 2.3) s += bubble(640, 610, "?", pop(u, 0.2) * (1 - prog(u, 2.1, 2.3)), { size: 44 });
     const x1 = prog(u, 3.6, 4.0), x2 = prog(u, 3.85, 4.25);
     if (x1 > 0) s += `<line x1="180" y1="220" x2="${f(lerp(180, 860, x1))}" y2="${f(lerp(220, 580, x1))}" stroke="${C.red}" stroke-width="16" stroke-linecap="round"/>`;
@@ -386,21 +387,22 @@ function s6(u) {
   // "And when the work is done, | the agent can't just move the card to review. (1.48) | It hands you a review packet: (4.11) | what changed, (6.08) how to check it, (7.01) |
   //  and the evidence, (7.96) like a video of the real app. (8.9) | You approve it, (10.85) | or send it back with a note… (11.68) | and the note reaches the agent's session. (13.34)"
   let s = "";
-  const dimB = 1 - 0.75 * prog(u, 4.0, 4.4) + 0.75 * prog(u, 11.1, 11.4), boardOut = 1 - prog(u, 11.75, 12.05);
+  const dimB = 1 - 0.75 * prog(u, 4.0, 4.4) + 0.75 * prog(u, 11.15, 11.55), boardOut = 1 - prog(u, 11.75, 12.05);
   if (boardOut > 0) {
     let b = board() + tcard("ACME-15", ...slot(0, 0)) + tcard("ACME-3", ...slot(3, 0));
     const P = path(u, [[-0.6, ...grab(1, 0, 130, 150)], [1.3, ...grab(1, 0)], [1.5, ...grab(1, 0)], [2.3, ...grab(2, 0, -150, 0)], [2.5, ...grab(2, 0, -150, 0)], [3.1, ...grab(1, 0)], [3.2, ...grab(1, 0)], [3.8, ...grab(1, 0, 130, 150)]]);
     const shake = u > 2.3 && u < 2.7 ? Math.sin(u * 70) * 8 : 0;
-    if (u < 1.5 || (u > 3.1 && u < 11.1)) b += tcard("ACME-12", ...slot(1, 0), u, { mark: "claude", ring: C.ink });
+    // once approved, the packet itself carries the card into Done
+    if (u < 1.5 || (u > 3.1 && u < 11.0)) b += tcard("ACME-12", ...slot(1, 0), u, { mark: "claude", ring: C.ink });
     else if (u <= 3.1) b += carried("ACME-12", P, u, 1.5, 3.1, { mark: "claude", ring: C.ink, shake });
-    else b += tcard("ACME-12", ...slot(3, 1), u, { mark: "claude", done: pop(u, 11.25) });
+    else if (u >= 11.55) b += tcard("ACME-12", ...slot(3, 1), u, { mark: "claude", done: pop(u, 11.6) });
     const lk = pop(u, 2.3) * (1 - prog(u, 3.9, 4.1));
     b += lock(colX(2) + 300, rowY(0) + 50, lk) + G(lk, label(colX(2) + 182, rowY(1) + 100, "needs a review packet", C.red, C.white, 22));
     if (u < 4.0) b += mover(P, "claude", u, [0.6, 3.4]);
     s += G(dimB * boardOut, b);
   }
   // the packet
-  const pin = out(prog(u, 4.1, 4.6)), pgo = io(prog(u, 11.0, 11.4));
+  const pin = out(prog(u, 4.1, 4.6)), pgo = io(prog(u, 11.0, 11.6));
   if (pin > 0 && pgo < 1) {
     let p = panel(0, 0, 1320, 790, C.cream, 34);
     p += txt(50, 64, "REVIEW PACKET", 20, C.grey, { a: "start", w: 700, ls: 2 }) + txt(50, 122, "ACME-12 · Add a wishlist", 44, C.ink, { a: "start" });
@@ -425,11 +427,11 @@ function s6(u) {
     p += `<rect x="790" y="680" width="210" height="70" rx="35" fill="${C.paper}"/>` + txt(895, 725, "Send back", 28, C.ink, { w: 600 });
     p += `<rect x="1020" y="680" width="250" height="70" rx="35" fill="${ok ? C.green : C.ink}"/>` + txt(1145, 725, ok ? "Approved" : "Approve", 28, C.white, { w: 600 });
     // after approving, it shrinks into the Done column
-    const tx = lerp(300, slot(3, 1)[0], pgo), ty = lerp(lerp(1150, 110, pin), rowY(1), pgo), sc = lerp(1, 0.25, pgo);
-    s += G(1 - pgo, p, `translate(${f(tx)} ${f(ty)}) scale(${f(sc)})`);
+    const tx = lerp(lerp(2000, 300, pin), slot(3, 1)[0], pgo), ty = lerp(110, rowY(1), pgo), sc = lerp(1, 0.25, pgo);
+    s += G(1 - pgo * pgo * pgo, p, `translate(${f(tx)} ${f(ty)}) scale(${f(sc)})`);
     const Y = path(u, [[9.9, 1900, 1100], [10.75, 1455, 820], [11.4, 1460, 830]]);
     if (u < 11.4) s += click(1445, 825, u, 10.88) + you(Y.x, Y.y, u > 10.82 && u < 11.0 ? 1 : 0);
-    if (u < 11.0) s += say(u, "Nothing reaches you without proof.", 4.3, 10.8);
+    if (u < 11.0) s += say(u, "Nothing reaches you without proof.", 4.7, 10.8);
   }
   // a second one goes back, with a note
   if (u > 11.6) {

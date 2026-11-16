@@ -1,6 +1,9 @@
 // Shared drawing kit for Cello's motion graphics (the promo, art/promo/v2/make.mjs, and the onboarding
 // video, art/setup-video/v2/make.mjs). Every frame is an SVG string built from these pieces, rendered with resvg.
-// Moved here unchanged from the promo, so the promo renders the same frames when it imports this.
+// Taken from the promo's make.mjs with two changes: card() takes the key, title and tag colour itself
+// (the promo looked them up by number in its CARDS), and pillW() and svg() are new. When the promo switches to this kit
+// it keeps its CARDS list and wraps card(), e.g. card = (id, x, y, o) => kitCard(`CEL-${id}`, ...CARDS[id], x, y, o);
+// with that, its frames come out byte-identical.
 
 export const FPS = 30, W = 1920, H = 1080;
 export const C = { orange: "#FF7A2F", ink: "#141416", cream: "#FBF3E3", paper: "#F3EBDD", navy: "#0F1B3D", teal: "#2BB3A3", white: "#FFFFFF", grey: "#8A8A93", line: "#E7DFD0", red: "#E5484D", green: "#2E9E5B", term: "#1B1B20" };

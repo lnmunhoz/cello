@@ -7,14 +7,15 @@
 # Writes cello-setup-v2.mp4, cello-setup-v2-captions.mp4, cello-setup-v2.srt and cello-setup-v2.timeline.json.
 set -euo pipefail
 cd "$(dirname "$0")"
-bun make.mjs --timeline > cello-setup-v2.timeline.json
+# the timeline and captions go through a temp file, so a failure never leaves the committed copies empty
+bun make.mjs --timeline > cello-setup-v2.timeline.json.tmp && mv cello-setup-v2.timeline.json.tmp cello-setup-v2.timeline.json
 if [ -z "${SKIP_FRAMES:-}" ]; then
   bun make.mjs
   ls frames/*.svg | xargs -P 8 -I{} sh -c 'resvg -w 1920 -h 1080 "$1" "${1%.svg}.png"' _ {}
 fi
 ffmpeg -y -hide_banner -loglevel error -framerate 30 -i frames/%04d.png -c:v libx264 -crf 16 -preset medium -pix_fmt yuv420p frames/picture.mp4
 python3 ../tools/mix.py --picture frames/picture.mp4 --timeline cello-setup-v2.timeline.json --out cello-setup-v2.mp4
-python3 ../tools/captions.py cello-setup-v2.timeline.json > cello-setup-v2.srt
+python3 ../tools/captions.py cello-setup-v2.timeline.json > cello-setup-v2.srt.tmp && mv cello-setup-v2.srt.tmp cello-setup-v2.srt
 # libass lays subtitles out on a 288-line canvas, so FontSize 12 is about 45 px of the 1080; they sit under the bold phrase
 ffmpeg -y -hide_banner -loglevel error -i cello-setup-v2.mp4 \
   -vf "subtitles=cello-setup-v2.srt:force_style='FontName=Avenir Next Demi Bold,FontSize=12,Bold=0,PrimaryColour=&H00FFFFFF,OutlineColour=&H00161414,BorderStyle=1,Outline=1,Shadow=0,Spacing=0.4,MarginV=6'" \
