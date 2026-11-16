@@ -11,8 +11,9 @@ import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
+import * as TestClock from "effect/testing/TestClock"
 import { fileTail } from "./FileTail.ts"
-import { followLog, type Watch } from "./followLog.ts"
+import { FOLLOW_RECHECK, followLog, type Watch } from "./followLog.ts"
 import type { Guarded } from "./transcriptPath.ts"
 
 const line = (value: object) => `${JSON.stringify(value)}\n`
@@ -130,6 +131,39 @@ describe("followLog", () => {
       )
       expect(first._tag === "Some" && first.value).toMatchObject({ _tag: "steps", reset: true, older: true, steps: [{ text: "step 48" }, { text: "step 49" }] })
     }))
+
+  // CEL-126: on macOS under load, fs.watch is armed some time after it returns, and a write made before
+  // then never raises an event. The watcher here drops every change until the test arms it, so the write
+  // lands in that gap on purpose; the coarse re-check on the clock is what brings it in.
+  it.effect("a write the watcher never reports (made before it was armed) still arrives at the next re-check, and quiet re-checks send nothing", () =>
+    Effect.gen(function* () {
+      const file = tempFile()
+      fs.writeFileSync(file, said("m1", "Starting."))
+      const state = { armed: false, fire: () => {} }
+      const watch: Watch = (_file, onChange) => {
+        state.fire = () => void (state.armed && onChange())
+        return () => {}
+      }
+      const updates = yield* Queue.unbounded<LogUpdate>()
+      yield* followLog({ file, check: () => ({ _tag: "ok", file }), reveal: false, watch }).pipe(
+        Stream.runForEach((u) => Queue.offer(updates, u)),
+        Effect.forkScoped,
+      )
+      expect(yield* Queue.take(updates)).toMatchObject({ _tag: "steps", reset: true, steps: [{ text: "Starting." }] })
+
+      // Written after the first read, while the watcher isn't armed yet: its event is lost.
+      fs.appendFileSync(file, said("m2", "Lost in the gap."))
+      state.fire()
+      state.armed = true
+      yield* TestClock.adjust(FOLLOW_RECHECK)
+      expect(yield* Queue.take(updates)).toMatchObject({ _tag: "steps", reset: false, steps: [{ text: "Lost in the gap." }] })
+
+      // Nothing new: a re-check sends nothing, so the next update is the next real step.
+      yield* TestClock.adjust(FOLLOW_RECHECK)
+      fs.appendFileSync(file, said("m3", "Seen by the watcher."))
+      state.fire()
+      expect(yield* Queue.take(updates)).toMatchObject({ _tag: "steps", reset: false, steps: [{ text: "Seen by the watcher." }] })
+    }).pipe(Effect.scoped))
 
   it.effect("the first batch keeps only the newest steps, saying how many it left out", () =>
     Effect.gen(function* () {
