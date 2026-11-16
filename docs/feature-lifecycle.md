@@ -20,7 +20,7 @@ flowchart TD
     C --> BU["⑤ Build<br/>builder agent, own worktree, test first"]
     BU --> RV["⑥ Review<br/>a fresh reviewer agent"]
     RV -->|findings| BU
-    RV -->|clean| M["⑦ Merge and deploy<br/>related tests, push, live server updated"]
+    RV -->|clean| M["⑦ Merge and release<br/>related tests, bun run release: tag, GitHub release, live server updated"]
     M --> P["⑧ Submit<br/>review packet with videos: In Review"]
     P --> L{"⑨ Lucas on the Review page"}
     L -->|Approve| D(["Done"])
@@ -123,13 +123,22 @@ flowchart TD
 - For UI work it also checks the **videos and screenshots** frame by frame: does the evidence, on its own, show the task is done?
 - This is where the expensive mistakes get caught. This week reviews found a settings write that could be cut short, a comment delivered three times, and a restore that failed silently.
 
-## ⑦ Merge and deploy
+## ⑦ Merge and release
 
-The orchestrator merges the branch into main (`cello task stage CEL-n merged`) and checks everything together:
+The orchestrator merges the branch into main (`cello task stage CEL-n merged`) with a `merge: <what> (CEL-n)` subject (that's the task's line in the changelog), then ships it. **Every deploy is a release** (CEL-36):
 
-1. **The checks:** unit and integration tests, typecheck and the CLI-docs check in full, plus only the e2e specs related to the change. The full e2e suite runs only when the change touches what every screen shares (app shell, routing, e2e helpers, test setup, configs, dependencies), before a release, or when Lucas asks (AGENTS.md, "Pick the e2e specs").
-2. **Push** to GitHub.
-3. **Deploy to Lucas's board** when the server or web app changed: back up with `cello backup`, rebuild the `cello` binary, restart the server on 4747 (`cello service restart` once the background service is installed). A database migration runs at that restart, which is why the backup comes first.
+1. **The related e2e specs** only (AGENTS.md, "Pick the e2e specs"). The full Docker run (`bun run test:docker`) only before a minor or major release, when the change touches what every screen shares, or when Lucas asks.
+2. **`bun run release`**, on main in the main checkout. One command, in order:
+   - refuses unless it's on main with a clean tree
+   - runs the typecheck and the unit and integration tests (the CLI-docs check is one of them)
+   - bumps the version (patch; `-- minor` or `-- major` when Lucas says) and writes the CHANGELOG.md section from main's merges and commits since the last tag
+   - commits `chore(release): vX.Y.Z` and tags it
+   - builds the `cello` binary (into `release/stage`, not over the live one) and packages Cello.app, zipped
+   - pushes main and the tag to GitHub
+   - creates the GitHub release with the changelog as notes and both zips attached
+   - **deploys to Lucas's board:** `cello backup`, then the new `cello` goes live, then `cello service restart`. A database migration runs at that restart, which is why the backup comes first.
+
+`bun run release -- --dry-run` previews all of it without changing anything. The steps, the flags, what to do when a step fails and how to roll back: [Releases](releases.md).
 
 ## ⑧ Submit the review packet
 

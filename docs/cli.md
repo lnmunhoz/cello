@@ -1122,7 +1122,7 @@ On macOS, Cello's server can run as a **background service**: a launchd user age
 cello service status               # installed? running? pid, program, data folder, port, version, log
 cello service install              # write ~/Library/LaunchAgents/dev.cello.server.plist and start it
 cello service install --replace    # the same, replacing what's in the way (it says what first)
-cello service restart              # the deploy step: a clean stop, and launchd runs the (rebuilt) binary again
+cello service restart              # a clean stop, and launchd runs the binary again (bun run release does it for Cello)
 cello service uninstall            # stop it and remove the plist; data and log stay
 ```
 
@@ -1147,7 +1147,7 @@ cello service uninstall            # stop it and remove the plist; data and log 
   $ cello service restart
   Restarted the background service: launchd started `/Users/me/cello/apps/cli/dist/cello start` again (pid 51302), and it answers on http://127.0.0.1:4747.
   ```
-- **Deploying with the service installed:** rebuild `cello` (`bun run build` in `apps/cli`), `cello backup` when a migration ships, then `cello service restart`. Without the service, restart `cello start` by hand as before.
+- **Deploying with the service installed:** in the Cello repository, `bun run release` does it (it backs up, puts the new `cello` in place, then restarts the service; see `docs/releases.md` there). By hand: `cello backup`, replace the binary, then `cello service restart`. Without the service, restart `cello start` by hand as before.
 - **The desktop app** joins the service whenever it's installed and never stops it when it quits. Without the service, the app starts its own server, and the first time the human quits it asks once: **Keep Running** (the server restarts on its own and stays up until the Mac restarts; if it doesn't come up, the app says so and stays open), **Stop Server**, or **Install Background Service**. It remembers Keep or Stop (in `server-on-quit.json` in the app's user data folder; deleting it brings the question back). The app menu says which it is: "Server: background service (pid 44568)" when launchd's job is the server it uses, "Server: started by this app (pid …)" or "Server: started outside the app (pid …)".
 - **Agents:** `cello service status` is safe to run any time, to see why Cello isn't answering. `install`, `restart` and `uninstall` change the human's machine: run them only when they ask, or as the orchestrator's deploy step. Tests never run them against the real `~/Library/LaunchAgents` or launchctl: they use a temp HOME and a fake `launchctl` on PATH.
 
@@ -1909,7 +1909,7 @@ cello service status [flags]
 
 ### cello service restart
 
-Restart the background service: launchd sends its server SIGTERM (the clean shutdown; never a kill), starts the program again, and this waits up to 30 s for the new server to answer, then prints its pid. A stopped service is started instead. This is the deploy step once the service is installed: rebuild cello, back up when a migration ships, then restart.
+Restart the background service: launchd sends its server SIGTERM (the clean shutdown; never a kill), starts the program again, and this waits up to 30 s for the new server to answer, then prints its pid. A stopped service is started instead. Cello's own deploys run it from `bun run release` in the Cello repository, after a backup; deploying by hand: cello backup, replace the binary, then restart.
 
 ```
 cello service restart [flags]

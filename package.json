@@ -1,5 +1,6 @@
 {
   "name": "cello",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "workspaces": ["packages/*", "apps/*"],
@@ -13,12 +14,14 @@
     "test:docker:e2e": "bun scripts/test-in-docker.ts e2e",
     "test:docker:desktop": "bun scripts/test-in-docker.ts desktop",
     "typecheck": "tsc -p .",
-    "docs:cli": "bun apps/cli/scripts/docs.ts"
+    "docs:cli": "bun apps/cli/scripts/docs.ts",
+    "release": "bun scripts/release/release.ts"
   },
   "devDependencies": {
     "@effect/vitest": "4.1.4",
     "@playwright/test": "1.65.1",
     "@types/bun": "^1.4.4",
+    "release-it": "21.1.2",
     "typescript": "7.0.2",
     "vitest": "5.1.0"
   }

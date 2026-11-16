@@ -1,0 +1,27 @@
+{
+  "$schema": "https://unpkg.com/release-it@21.1.2/schema/release-it.json",
+  "git": {
+    "requireBranch": "main",
+    "requireCleanWorkingDir": false,
+    "requireUpstream": true,
+    "requireCommits": true,
+    "changelog": "env -u GITHUB_TOKEN bun scripts/release/changelog.ts notes",
+    "commitMessage": "chore(release): v${version}",
+    "tagName": "v${version}",
+    "tagAnnotation": "Cello v${version}",
+    "push": false
+  },
+  "npm": false,
+  "github": {
+    "release": true,
+    "releaseName": "Cello v${version}",
+    "assets": ["release/*.zip"]
+  },
+  "hooks": {
+    "after:bump": "env -u GITHUB_TOKEN bun scripts/release/hooks.ts bump ${version}",
+    "before:github:release": [
+      "env -u GITHUB_TOKEN bun scripts/release/hooks.ts artifacts ${version}",
+      "env -u GITHUB_TOKEN git push --atomic origin refs/heads/main refs/tags/v${version}"
+    ]
+  }
+}
