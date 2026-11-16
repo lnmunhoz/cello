@@ -258,6 +258,21 @@ export const animationsSettled = (page: Page): Promise<void> =>
     ).then(() => undefined))
 
 /**
+ * How many animations the page's own content (the board, the list, the panels: everything in <main>) is
+ * running. The sidebar is left out: its Agents working list shows every active agent in the workspace,
+ * and their marks loop while they work (CEL-69), so on the shared test server another spec's agent can
+ * be working there. An idle page asserts this is 0.
+ */
+export const contentAnimations = (page: Page): Promise<number> =>
+  page.evaluate(
+    () =>
+      document.getAnimations().filter((a) => {
+        const target = a.effect instanceof KeyframeEffect ? a.effect.target : null
+        return target === null || target.closest("main") !== null
+      }).length,
+  )
+
+/**
  * An agent session over RPC, as the CLI calls: its session id and its process's pid (x-cello-pid, so
  * the server can tell whether the process is alive; an exited pid makes a session that ends).
  */
