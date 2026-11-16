@@ -1,11 +1,13 @@
 // `bun run package`: an unsigned Cello.app for Apple silicon in dist/mac-arm64/, with the compiled
 // `cello` binary (and the web app it embeds) at Contents/Resources/cello. Builds the CLI first;
-// `--skip-cli` reuses apps/cli/dist/cello as it is. `--install` also copies the app to /Applications, where
+// `--skip-cli` reuses apps/cli/dist/cello as it is; `--cli <binary>` bundles that binary instead. `--install` also copies the app to /Applications, where
 // Launchpad, Spotlight and Raycast list it (they don't look in dist/), then unregisters the build folders'
 // copies from LaunchServices so cello:// links open /Applications' copy, and warns about a Cello still
 // running an old build (install.ts).
 import * as fs from "node:fs"
+import * as os from "node:os"
 import * as path from "node:path"
+import { bundlingCli } from "../src/install/builderConfig.ts"
 import { INSTALLED_APP } from "../src/install/plan.ts"
 import { desktopDir } from "./electron.ts"
 import { afterInstall } from "./install.ts"
@@ -16,12 +18,24 @@ const run = (cmd: string[], cwd: string, env: Record<string, string> = {}) => {
 }
 
 const cliDir = path.join(desktopDir, "../cli")
-if (!process.argv.includes("--skip-cli")) run([process.execPath, "run", "build"], cliDir)
-if (!fs.existsSync(path.join(cliDir, "dist/cello"))) throw new Error("No apps/cli/dist/cello: run bun run build in apps/cli.")
+// `--cli <binary>` bundles that build (a release's staged one, CEL-36) and builds no CLI.
+const cliFlag = process.argv.indexOf("--cli")
+const cliBinary = cliFlag === -1 ? null : path.resolve(process.argv[cliFlag + 1] ?? "")
+if (cliBinary === null && !process.argv.includes("--skip-cli")) run([process.execPath, "run", "build"], cliDir)
+const bundled = cliBinary ?? path.join(cliDir, "dist/cello")
+if (!fs.existsSync(bundled)) {
+  throw new Error(cliBinary ? `No cello binary at ${cliBinary}.` : "No apps/cli/dist/cello: run bun run build in apps/cli.")
+}
+let builderConfig = "electron-builder.json"
+if (cliBinary) {
+  const config = JSON.parse(fs.readFileSync(path.join(desktopDir, builderConfig), "utf8"))
+  builderConfig = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cello-package-")), "electron-builder.json")
+  fs.writeFileSync(builderConfig, JSON.stringify(bundlingCli(config, cliBinary), null, 2))
+}
 
 run([process.execPath, path.join(desktopDir, "scripts/build.ts")], desktopDir)
 // No signing identity: the app is unsigned (macOS asks to confirm the first launch).
-run([path.join(desktopDir, "node_modules/.bin/electron-builder"), "--mac", "--config", "electron-builder.json"], desktopDir, {
+run([path.join(desktopDir, "node_modules/.bin/electron-builder"), "--mac", "--config", builderConfig], desktopDir, {
   CSC_IDENTITY_AUTO_DISCOVERY: "false",
 })
 

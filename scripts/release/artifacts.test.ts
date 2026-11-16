@@ -3,7 +3,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
-import { artifactNames, artifactSteps, buildArtifacts } from "./artifacts.ts"
+import { artifactNames, artifactSteps, buildArtifacts, STAGED_CLI } from "./artifacts.ts"
 
 const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cello-release-artifacts-")))
 afterAll(() => fs.rmSync(base, { recursive: true, force: true }))
@@ -20,11 +20,11 @@ describe("artifactNames", () => {
 })
 
 describe("artifactSteps", () => {
-  it("on a Mac: builds the CLI, zips it, packages Cello.app from that build and zips it with ditto (as Apple does)", () => {
+  it("on a Mac: builds the CLI into release/stage (never over the live apps/cli/dist/cello), zips it, packages Cello.app with that build and zips it with ditto (as Apple does)", () => {
     expect(artifactSteps(mac).map((s) => [s.cwd.replace(root, "."), s.cmd.join(" ")])).toEqual([
-      ["./apps/cli", "bun run build"],
-      ["./apps/cli/dist", "zip -j /repo/release/cello-v0.3.0-darwin-arm64.zip cello"],
-      ["./apps/desktop", "bun run package --skip-cli"],
+      ["./apps/cli", "bun run build --outfile /repo/release/stage/cello"],
+      ["./release/stage", "zip -j /repo/release/cello-v0.3.0-darwin-arm64.zip cello"],
+      ["./apps/desktop", "bun run package --cli /repo/release/stage/cello"],
       [
         "./apps/desktop/dist/mac-arm64",
         "ditto -c -k --sequesterRsrc --keepParent Cello.app /repo/release/Cello-v0.3.0-mac-arm64.zip",
@@ -64,7 +64,8 @@ describe("buildArtifacts", () => {
       ran.push(cmd[0]!)
       return 0
     })
-    expect(fs.readdirSync(path.join(dir, "release"))).toEqual([])
+    expect(fs.readdirSync(path.join(dir, "release"))).toEqual(["stage"])
+    expect(STAGED_CLI).toBe("release/stage/cello")
     expect(ran).toEqual(["bun", "zip", "bun", "ditto"])
     expect(zips).toEqual([
       path.join(dir, "release/cello-v0.3.0-darwin-arm64.zip"),
@@ -80,9 +81,9 @@ describe("buildArtifacts", () => {
         ran.push(cmd.join(" "))
         return cmd.includes("package") ? 1 : 0
       }),
-    ).toThrow(/Packaging Cello\.app failed \(bun run package --skip-cli exited 1\)\. Fix it, or release without it: bun run release -- --skip-desktop/)
+    ).toThrow(/Packaging Cello\.app failed \(bun run package --cli \S+ exited 1\)\. Fix it, or release without it: bun run release -- --skip-desktop/)
     expect(ran).toHaveLength(3)
 
-    expect(() => buildArtifacts({ ...mac, root: dir }, () => 2)).toThrow(/bun run build exited 2/)
+    expect(() => buildArtifacts({ ...mac, root: dir }, () => 2)).toThrow(/Building the cello binary failed \(bun run build --outfile \S+ exited 2\)/)
   })
 })

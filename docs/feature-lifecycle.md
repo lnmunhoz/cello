@@ -133,10 +133,10 @@ The orchestrator merges the branch into main (`cello task stage CEL-n merged`) w
    - runs the typecheck and the unit and integration tests (the CLI-docs check is one of them)
    - bumps the version (patch; `-- minor` or `-- major` when Lucas says) and writes the CHANGELOG.md section from main's merges and commits since the last tag
    - commits `chore(release): vX.Y.Z` and tags it
-   - builds the `cello` binary and packages Cello.app, zipped
+   - builds the `cello` binary (into `release/stage`, not over the live one) and packages Cello.app, zipped
    - pushes main and the tag to GitHub
    - creates the GitHub release with the changelog as notes and both zips attached
-   - **deploys to Lucas's board:** `cello backup`, then `cello service restart` on the new build. A database migration runs at that restart, which is why the backup comes first.
+   - **deploys to Lucas's board:** `cello backup`, then the new `cello` goes live, then `cello service restart`. A database migration runs at that restart, which is why the backup comes first.
 
 `bun run release -- --dry-run` previews all of it without changing anything. The steps, the flags, what to do when a step fails and how to roll back: [Releases](releases.md).
 

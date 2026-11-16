@@ -5,7 +5,7 @@
     "requireCleanWorkingDir": false,
     "requireUpstream": true,
     "requireCommits": true,
-    "changelog": "bun scripts/release/changelog.ts notes",
+    "changelog": "env -u GITHUB_TOKEN bun scripts/release/changelog.ts notes",
     "commitMessage": "chore(release): v${version}",
     "tagName": "v${version}",
     "tagAnnotation": "Cello v${version}",
@@ -18,10 +18,10 @@
     "assets": ["release/*.zip"]
   },
   "hooks": {
-    "after:bump": "bun scripts/release/hooks.ts bump ${version}",
+    "after:bump": "env -u GITHUB_TOKEN bun scripts/release/hooks.ts bump ${version}",
     "before:github:release": [
-      "bun scripts/release/hooks.ts artifacts ${version}",
-      "git push --atomic origin refs/heads/main refs/tags/v${version}"
+      "env -u GITHUB_TOKEN bun scripts/release/hooks.ts artifacts ${version}",
+      "env -u GITHUB_TOKEN git push --atomic origin refs/heads/main refs/tags/v${version}"
     ]
   }
 }

@@ -1,6 +1,12 @@
-// The release's last step: back up the live board, then restart the background service on the new build.
-import { describe, expect, it } from "vitest"
-import { DEPLOY_STEPS, deploy, liveBinaryProblem } from "./deploy.ts"
+// The release's last step: back up the live board, put the staged build live, restart the background service.
+import * as fs from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
+import { afterAll, describe, expect, it } from "vitest"
+import { deploy, installStaged, liveBinaryProblem } from "./deploy.ts"
+
+const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cello-release-deploy-")))
+afterAll(() => fs.rmSync(base, { recursive: true, force: true }))
 
 describe("liveBinaryProblem", () => {
   const built = "/Users/l/projects/cello/apps/cli/dist/cello"
@@ -17,44 +23,70 @@ describe("liveBinaryProblem", () => {
   })
 })
 
-describe("deploy", () => {
-  const ok = { live: "/b/cello", built: "/b/cello" }
-
-  it("backs up, then restarts the service", () => {
-    const ran: string[] = []
-    deploy(ok, (cmd) => {
-      ran.push(cmd.join(" "))
-      return 0
-    })
-    expect(DEPLOY_STEPS.map((s) => s.join(" "))).toEqual(["cello backup", "cello service restart"])
-    expect(ran).toEqual(["cello backup", "cello service restart"])
+describe("installStaged", () => {
+  it("renames the staged build over the live one in one step, so the live file is never half written", () => {
+    const dir = path.join(base, "install")
+    fs.mkdirSync(path.join(dir, "release/stage"), { recursive: true })
+    fs.mkdirSync(path.join(dir, "apps/cli/dist"), { recursive: true })
+    const staged = path.join(dir, "release/stage/cello")
+    const live = path.join(dir, "apps/cli/dist/cello")
+    fs.writeFileSync(live, "old build")
+    fs.writeFileSync(staged, "new build", { mode: 0o755 })
+    const stagedInode = fs.statSync(staged).ino
+    installStaged(staged, live)
+    expect(fs.readFileSync(live, "utf8")).toBe("new build")
+    expect(fs.statSync(live).mode & 0o111).not.toBe(0)
+    expect(fs.statSync(live).ino).toBe(stagedInode) // the staged file itself, renamed: never rewritten in place
+    expect(fs.existsSync(staged)).toBe(false)
   })
 
-  it("never restarts without a backup", () => {
+  it("refuses when there's no staged build", () => {
+    expect(() => installStaged(path.join(base, "nope/cello"), path.join(base, "live"))).toThrow(
+      /No staged build at .*nope\/cello: the release's build didn't run or was moved/,
+    )
+  })
+})
+
+describe("deploy", () => {
+  const plan = { live: "/b/cello", built: "/b/cello", staged: "/s/cello" }
+  const recorder = (fail: (step: string) => number = () => 0) => {
     const ran: string[] = []
-    expect(() =>
-      deploy(ok, (cmd) => {
+    return {
+      ran,
+      run: (cmd: ReadonlyArray<string>) => {
         ran.push(cmd.join(" "))
-        return 1
-      }),
-    ).toThrow(/cello backup failed \(exit 1\): the live server wasn't restarted/)
-    expect(ran).toEqual(["cello backup"])
+        return fail(cmd.join(" "))
+      },
+      install: (staged: string, live: string) => {
+        ran.push(`install ${staged} -> ${live}`)
+      },
+    }
+  }
+
+  it("backs up with the old cello first, then puts the staged build live, then restarts the service", () => {
+    const r = recorder()
+    deploy(plan, r.run, r.install)
+    expect(r.ran).toEqual(["cello backup", "install /s/cello -> /b/cello", "cello service restart"])
+  })
+
+  it("never puts the build live or restarts without a backup", () => {
+    const r = recorder(() => 1)
+    expect(() => deploy(plan, r.run, r.install)).toThrow(
+      /cello backup failed \(exit 1\): the live cello and server weren't touched\. Deploy again once it works: bun scripts\/release\/deploy\.ts/,
+    )
+    expect(r.ran).toEqual(["cello backup"])
   })
 
   it("says a failed restart leaves the release out and where to look", () => {
-    expect(() => deploy(ok, (cmd) => (cmd.includes("restart") ? 1 : 0))).toThrow(
-      /cello service restart failed \(exit 1\)\. The release is out; the live server isn't on it yet: cello service status says why/,
+    const r = recorder((step) => (step.includes("restart") ? 1 : 0))
+    expect(() => deploy(plan, r.run, r.install)).toThrow(
+      /cello service restart failed \(exit 1\)\. The release is out and its cello is in place; the live server isn't on it yet: cello service status says why/,
     )
   })
 
-  it("runs nothing when the live binary isn't this build", () => {
-    const ran: string[] = []
-    expect(() =>
-      deploy({ live: "/x/cello", built: "/b/cello" }, (cmd) => {
-        ran.push(cmd.join(" "))
-        return 0
-      }),
-    ).toThrow(/isn't this checkout's build/)
-    expect(ran).toEqual([])
+  it("touches nothing when the live binary isn't this build", () => {
+    const r = recorder()
+    expect(() => deploy({ ...plan, live: "/x/cello" }, r.run, r.install)).toThrow(/isn't this checkout's build/)
+    expect(r.ran).toEqual([])
   })
 })

@@ -1,7 +1,9 @@
 // The files a release attaches (CEL-36): the `cello` binary (apps/cli's build) and the unsigned Cello.app
-// (apps/desktop's package script, which bundles that same binary), each zipped into release/. Run by the
-// release after its commit and tag, so the binary embeds the release commit and the new APP_VERSION.
-// Packaging never installs or opens the app.
+// (apps/desktop's package script, bundling that same binary), each zipped into release/. Run by the release
+// after its commit and tag, so the binary embeds the release commit and the new APP_VERSION.
+// The binary is built into release/stage/cello, never over apps/cli/dist/cello: that's the live cello
+// (~/.local/bin/cello and the background service run it), and only the deploy puts the new one there, after
+// its backup (deploy.ts). Packaging never installs or opens the app.
 import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
@@ -18,6 +20,8 @@ export type ArtifactOptions = {
 export type BuildStep = { readonly cwd: string; readonly cmd: ReadonlyArray<string>; readonly kind: "cli" | "app" }
 
 export const RELEASE_DIR = "release"
+/** Where the release's cello waits until the deploy puts it live. */
+export const STAGED_CLI = `${RELEASE_DIR}/stage/cello`
 const SKIP_HINT = "bun run release -- --skip-desktop"
 
 export const artifactNames = (version: string, platform: string, arch: string) => ({
@@ -37,14 +41,15 @@ export const artifactSteps = (options: ArtifactOptions): BuildStep[] => {
   const out = (name: string) => path.join(root, RELEASE_DIR, name)
   const cli = path.join(root, "apps/cli")
   const desktop = path.join(root, "apps/desktop")
+  const staged = path.join(root, STAGED_CLI)
   const steps: BuildStep[] = [
-    { kind: "cli", cwd: cli, cmd: ["bun", "run", "build"] },
-    // Just `cello` at the zip's top, executable (zip keeps the mode); ditto would add a dist/ folder and ._ files.
-    { kind: "cli", cwd: path.join(cli, "dist"), cmd: ["zip", "-j", out(names.cli), "cello"] },
+    { kind: "cli", cwd: cli, cmd: ["bun", "run", "build", "--outfile", staged] },
+    // Just `cello` at the zip's top, executable (zip keeps the mode); ditto would add a folder and ._ files.
+    { kind: "cli", cwd: path.dirname(staged), cmd: ["zip", "-j", out(names.cli), "cello"] },
   ]
   if (options.desktop) {
     steps.push(
-      { kind: "app", cwd: desktop, cmd: ["bun", "run", "package", "--skip-cli"] },
+      { kind: "app", cwd: desktop, cmd: ["bun", "run", "package", "--cli", staged] },
       {
         kind: "app",
         cwd: path.join(desktop, "dist/mac-arm64"),
@@ -65,7 +70,7 @@ export const buildArtifacts = (options: ArtifactOptions, run: Run = inherit): st
   const steps = artifactSteps(options)
   const dir = path.join(options.root, RELEASE_DIR)
   fs.rmSync(dir, { recursive: true, force: true })
-  fs.mkdirSync(dir, { recursive: true })
+  fs.mkdirSync(path.join(options.root, path.dirname(STAGED_CLI)), { recursive: true })
   for (const step of steps) {
     const code = run(step.cmd, step.cwd)
     if (code === 0) continue
