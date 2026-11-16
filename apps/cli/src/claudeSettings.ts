@@ -25,11 +25,14 @@ export const HOOK_TIMEOUT = 10
  * them. The matcher has only letters and `|`, so Claude Code reads it as a list of exact tool names.
  * The subagent hooks (CEL-55) tell the board when a subagent starts and finishes; SubagentStart also
  * hands it the --agent its `cello` commands need, which is Cello-project talk, so it's project-only.
+ * Test runs (CEL-134) follow Bash too: PreToolUse says a test command starts (it does nothing else for
+ * Bash, and asks the server only for a test command), PostToolUseFailure that one failed; project-only.
  */
 export const CELLO_HOOKS = [
   { event: "Stop", matcher: undefined, command: "cello hook claude stop", projectOnly: false },
   { event: "PostToolUse", matcher: "*", command: "cello hook claude post-tool-use", projectOnly: false },
-  { event: "PreToolUse", matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", command: "cello hook claude pre-tool-use", projectOnly: true },
+  { event: "PreToolUse", matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit|Bash", command: "cello hook claude pre-tool-use", projectOnly: true },
+  { event: "PostToolUseFailure", matcher: "Bash", command: "cello hook claude post-tool-use-failure", projectOnly: true },
   { event: "SubagentStart", matcher: undefined, command: "cello hook claude subagent-start", projectOnly: true },
   { event: "SubagentStop", matcher: undefined, command: "cello hook claude subagent-stop", projectOnly: false },
 ] as const

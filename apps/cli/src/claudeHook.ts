@@ -25,12 +25,14 @@
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
+import type { ActivityReport } from "@cello/contract/rpcs"
+import { commandWords, isTestCommand } from "@cello/shared/testRun"
 import { stepLine } from "@cello/shared/toolSummary"
 import { isObject } from "./claudeSettings.ts"
 import { andList } from "./format.ts"
 import { agentVariable, type Env } from "./identity.ts"
 
-export const HOOK_EVENTS = ["stop", "post-tool-use", "pre-tool-use", "subagent-start", "subagent-stop"] as const
+export const HOOK_EVENTS = ["stop", "post-tool-use", "pre-tool-use", "post-tool-use-failure", "subagent-start", "subagent-stop"] as const
 export type HookEvent = (typeof HOOK_EVENTS)[number]
 /** The events that hand comments over (CEL-15). */
 export type DeliveryEvent = "stop" | "post-tool-use"
@@ -259,6 +261,30 @@ export const subagentContext = (agent: HookAgent) => {
 export const hookAction = (input: HookInput, env: Env): "deliver" | "check-in" | "nothing" =>
   hookSession(input, env) === null ? "nothing" : input.inSubagent ? "check-in" : "deliver"
 
+// ── test runs (CEL-134) ─────────────────────────────────────────────────────────────────────────
+// A Bash call that runs a test command (@cello/shared/testRun) marks its agent Running tests: PreToolUse
+// says it starts (PostToolUse would be too late: for a foreground call it fires when the tests are done),
+// PostToolUse or PostToolUseFailure says a foreground run ended, passed or failed. A run started in the
+// background goes on: PostToolUse's background report (startedBackground) says so, and the runner's own
+// reports (`cello test progress`) or a stop end it.
+
+/** The tool-call hooks a test run hears. */
+export type ToolEvent = "pre-tool-use" | "post-tool-use" | "post-tool-use-failure"
+
+/** What a tool-call hook tells the board about a test run, or null: not a Bash test command, or no call id. */
+export const testReport = (input: HookInput, event: ToolEvent): ActivityReport | null => {
+  const command = typeof input.toolInput?.command === "string" ? input.toolInput.command : null
+  if (input.toolName !== "Bash" || input.toolUseId === null || command === null || !isTestCommand(command)) return null
+  if (event === "pre-tool-use") return { kind: "tests-started", toolUseId: input.toolUseId, command, cwd: input.cwd }
+  // Run in the background, the call returned at once: the run goes on (the background report links it).
+  if (event === "post-tool-use" && input.startedBackground !== null) return null
+  return { kind: "tool-finished", toolUseId: input.toolUseId, failed: event === "post-tool-use-failure" }
+}
+
+/** The main conversation's Stop (CEL-134): its turn is over, with the background work still running when Claude Code says. */
+export const turnEndedReport = (input: HookInput): ActivityReport | null =>
+  input.inSubagent ? null : { kind: "turn-ended", ...(input.backgroundTasks === null ? {} : { running: input.backgroundTasks.map((task) => task.id) }) }
+
 // ── the artifact guard (CEL-57) ─────────────────────────────────────────────────────────────────
 // In a Cello project, what an agent shows Lucas goes into Cello as a page, never a claude.ai artifact.
 // `cello install claude` puts a PreToolUse hook on the `Artifact` tool into the project's settings; it
@@ -470,17 +496,13 @@ export const WAIT_NUDGE = (claimed: ReadonlyArray<string>, human: string) =>
 export const WAIT_HINT = (human: string) =>
   `When you end this turn, start \`cello inbox --wait\` in the background first (the Bash tool with run_in_background: true), so ${human}'s next comment wakes you.`
 
-/** Shell words, split at `&&`, `||`, `;` and `|`: enough to read a command line, not a shell. */
-const commandsOf = (line: string): string[][] =>
-  line.split(/&&|\|\||;|\|/).map((part) => part.trim().split(/\s+/).filter((word) => word !== "").map((word) => word.replace(/^["']|["']$/g, "")))
-
 /**
  * Whether one of the session's background shells (Stop's `background_tasks`) runs `cello inbox --wait`:
  * a command whose program is `cello` (after any VAR=value), then `inbox`, with `--wait` among its flags.
  */
 export const waitsInBackground = (input: HookInput): boolean =>
   (input.backgroundCommands ?? []).some((line) =>
-    commandsOf(line).some((words) => {
+    commandWords(line).some((words) => {
       const [program, sub, ...rest] = words.slice(words.findIndex((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)))
       return program !== undefined && path.basename(program) === "cello" && sub === "inbox" && rest.includes("--wait")
     }))

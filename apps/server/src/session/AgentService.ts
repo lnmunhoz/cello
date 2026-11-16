@@ -18,7 +18,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as Commands from "../commands/Commands.ts"
-import { parseBackground, parseWaiting, stopOutcome, stored } from "./activity.ts"
+import { parseBackground, parseTests, parseWaiting, stopOutcome, stored, testsOf, testsTurnEnded } from "./activity.ts"
 import { cleanAgentText, cleanTranscript, CONTROL_CHARACTERS, MAX_AGENT_TEXT, PRESENCE_EVERY_MS, touchAgent } from "./SessionService.ts"
 
 /** What a hook says happened to a subagent of the caller's session. */
@@ -68,6 +68,8 @@ interface AgentRow {
   /** CEL-133; left out by selects that don't need them. */
   background_json?: string | null
   waiting_json?: string | null
+  /** CEL-134; left out by selects that don't need it. */
+  tests_json?: string | null
 }
 
 export const toAgent = (r: AgentRow): SessionAgent => ({
@@ -85,6 +87,7 @@ export const toAgent = (r: AgentRow): SessionAgent => ({
   model: r.model ?? null,
   effort: r.effort ?? null,
   waitingOn: parseWaiting(r.waiting_json),
+  tests: testsOf(r.tests_json),
 })
 
 export class AgentService extends Context.Service<AgentService, {
@@ -92,6 +95,8 @@ export class AgentService extends Context.Service<AgentService, {
   readonly report: (input: AgentReport) => Effect.Effect<SessionAgent | null, never, Caller>
   /** After an agent's request: boards hear it's working, unless they heard within PRESENCE_EVERY_MS. Others: nothing. */
   readonly checkIn: (caller: Caller["Service"]) => Effect.Effect<void>
+  /** Boards hear what the agent is doing now (`agent.seen`), whatever the throttle says: its test run started, moved or ended (CEL-134). */
+  readonly announce: (ref: AgentRef) => Effect.Effect<void>
   /** Agents by session and id; unknown ones are left out. */
   readonly byRefs: (refs: ReadonlyArray<AgentRef>) => Effect.Effect<ReadonlyArray<SessionAgent>>
   /**
@@ -184,13 +189,16 @@ const make = Effect.gen(function* () {
     const transcript = cleanTranscript(input.transcriptPath)
     if (input.state === "stopped") {
       // Claude Code's own helpers (prompt suggestions, /btw) stop without ever starting here: not recorded.
-      const [row] = yield* sql<Pick<AgentRow, "background_json">>`
-        SELECT background_json FROM session_agents WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
+      const [row] = yield* sql<Pick<AgentRow, "background_json" | "tests_json">>`
+        SELECT background_json, tests_json FROM session_agents WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
       if (!row) return null
       // Background work it started is still running (CEL-133): it waits on it, and Claude Code resumes it after.
       const outcome = stopOutcome(parseBackground(row.background_json), input.running)
+      // A test run its turn leaves behind is over, unless it runs on in the background (CEL-134).
+      const run = parseTests(row.tests_json)
+      const tests = run === null ? null : JSON.stringify(testsTurnEnded(run, input.running, now))
       yield* sql`UPDATE session_agents SET ended_at = ${outcome.finished ? now : null}, waiting_json = ${stored(outcome.waitingOn)},
-          background_json = ${stored(outcome.background)}, transcript_path = COALESCE(${transcript}, transcript_path)
+          background_json = ${stored(outcome.background)}, tests_json = ${tests}, transcript_path = COALESCE(${transcript}, transcript_path)
         WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
     } else if (input.state === "started") {
       // SubagentStart: a new agent, or a resumed one (live again).
@@ -230,6 +238,12 @@ const make = Effect.gen(function* () {
     yield* tell(agent, due, now)
   }, Effect.orDie)
 
+  const announce = Effect.fn("AgentService.announce")(function* (ref: AgentRef) {
+    const agent = yield* load(ref)
+    if (agent === null) return
+    yield* tell(agent, yield* workspacesOf(agent), yield* Clock.currentTimeMillis)
+  }, Effect.orDie)
+
   const byRefs = Effect.fn("AgentService.byRefs")(function* (refs: ReadonlyArray<AgentRef>) {
     const found: SessionAgent[] = []
     const seen = new Set<string>()
@@ -259,7 +273,7 @@ const make = Effect.gen(function* () {
     return rows.map(toAgent)
   }, Effect.orDie)
 
-  return AgentService.of({ report, checkIn, byRefs, forBoard, onTask })
+  return AgentService.of({ report, checkIn, announce, byRefs, forBoard, onTask })
 })
 
 /** A launch's description as kept: one line, capped. */

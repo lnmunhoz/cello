@@ -6,6 +6,7 @@ import { stageInfo } from "@cello/contract/stages"
 import { isNeedsInputStatus } from "@cello/shared/ask"
 import { modelName } from "@cello/shared/model"
 import { agoShort, presenceWords } from "@cello/shared/presence"
+import { isRunning } from "@cello/shared/testRun"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { FolderIcon, HourglassIcon } from "lucide-react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
@@ -16,6 +17,7 @@ import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { Author } from "../presence/Author.tsx"
 import { agentsWorkingCount, workingSessions } from "../presence/model.ts"
 import { AgentMarkOf, presenceSubjectOf, StageWord } from "../presence/Presence.tsx"
+import { TestRunFacts, TestRunLine, testRunOf } from "../presence/TestRun.tsx"
 import { useNow } from "../presence/useNow.ts"
 import { QueueRow, type QueueRowState } from "../review/QueueRow.tsx"
 import { useQueue } from "../review/useQueue.ts"
@@ -257,6 +259,7 @@ function Facts({ board, row }: { board: BoardState; row: AgentRow }) {
   const now = useNow()
   const started = row.agent?.startedAt ?? row.session.startedAt
   const folder = row.session.cwd?.split("/").filter(Boolean).at(-1)
+  const run = testRunOf(row.session, row.agent)
   const fact = "grid grid-cols-[96px_1fr] gap-2 text-[13px]"
   return (
     <dl className="flex flex-col gap-1.5" data-agent-facts>
@@ -283,6 +286,12 @@ function Facts({ board, row }: { board: BoardState; row: AgentRow }) {
         <dt className="text-muted">Started</dt>
         <dd className="text-ink">{agoShort(started, now)}</dd>
       </div>
+      {run ? (
+        <div className={fact}>
+          <dt className="text-muted">Tests</dt>
+          <TestRunFacts run={run} />
+        </div>
+      ) : null}
       <div className={fact}>
         <dt className="text-muted">Checked in</dt>
         <dd>
@@ -309,6 +318,10 @@ function Facts({ board, row }: { board: BoardState; row: AgentRow }) {
  * a subagent that ended its turn while its own background work runs, what it waits on (CEL-133).
  */
 function CurrentStep({ row }: { row: AgentRow }) {
+  const now = useNow()
+  // Running tests (CEL-134) says the most: where the run is.
+  const run = row.presence === "ended" ? null : testRunOf(row.session, row.agent)
+  if (run !== null && isRunning(run, now)) return <TestRunLine run={run} />
   const waitingOn = row.presence === "ended" ? null : row.agent?.waitingOn
   if (waitingOn) {
     return (

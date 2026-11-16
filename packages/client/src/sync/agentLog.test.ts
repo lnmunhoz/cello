@@ -1,7 +1,7 @@
 import type { LogStep } from "@cello/contract/agentLog"
 import type { AgentSession, SessionAgent } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { applyLogUpdate, currentStepOf, durationWords, EMPTY_LOG, filterSteps, logKey, parseLogKey, previewOf, unavailableWords } from "./agentLog.ts"
+import { applyLogUpdate, currentStepOf, doingNowOf, durationWords, EMPTY_LOG, filterSteps, logKey, parseLogKey, previewOf, unavailableWords } from "./agentLog.ts"
 
 const message = (id: string, text: string): LogStep => ({ id, kind: "message", at: 1, text })
 const tool = (id: string, status: "running" | "ok" | "error"): LogStep => ({
@@ -116,6 +116,16 @@ describe("currentStepOf", () => {
     expect(currentStepOf({ presence: "active", session, agent: null })).toBe("Agent · cello-builder: PAN-1")
     expect(currentStepOf({ presence: "idle", session, agent })).toBeNull()
     expect(currentStepOf({ presence: "ended", session, agent })).toBeNull()
+  })
+
+  it("doingNowOf: a run that runs says where it is, before the step or what it waits on (CEL-134)", () => {
+    const tests = { label: "web e2e", command: "bun run test:e2e", startedAt: 0, endedAt: null, outcome: null, background: true,
+      progress: { stage: "web-e2e", passed: 6, failed: 1, skipped: 0, total: 13, current: null, failures: [], done: false, outcome: null, folder: null } }
+    const running = { ...agent, tests, waitingOn: ["Bash · bun run test:e2e"] }
+    expect(doingNowOf({ presence: "idle", session, agent: running }, 192_000)).toBe("Running tests: web e2e 7 of 13 · 1 failed · 3m12s")
+    expect(doingNowOf({ presence: "active", session, agent: { ...running, tests: { ...tests, endedAt: 9, outcome: "passed" as const } } }, 192_000))
+      .toBe("Waiting on background work: Bash · bun run test:e2e")
+    expect(doingNowOf({ presence: "active", session, agent }, 0)).toBe("Bash · bun run test")
   })
 
   it("a subagent waiting on its own background work says what it waits on, quiet or not (CEL-133)", () => {

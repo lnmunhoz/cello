@@ -31,6 +31,8 @@ import {
   waitsInBackground,
   subagentContext,
   subagentTranscript,
+  testReport,
+  turnEndedReport,
   transcriptOf,
 } from "./claudeHook.ts"
 
@@ -167,6 +169,37 @@ describe("background work (CEL-133)", () => {
       { id: "bpz2edzeb", type: "monitor", command: null },
     ])
     expect(parseHookInput(JSON.stringify({ session_id: "s", hook_event_name: "SubagentStop" })).backgroundTasks).toBeNull()
+  })
+})
+
+describe("testReport and turnEndedReport (CEL-134): what a hook says about a test run", () => {
+  const call = (event: string, command: unknown, extra: Record<string, unknown> = {}) =>
+    parseHookInput(JSON.stringify({ session_id: "s", cwd: "/repo/wt", hook_event_name: event, agent_id: "a1", tool_name: "Bash", tool_input: { command }, tool_use_id: "toolu_7", ...extra }))
+
+  it("PreToolUse on a Bash test command: a run starts, from the call's folder", () => {
+    expect(testReport(call("PreToolUse", "bun run test:e2e -- e2e/x.spec.ts"), "pre-tool-use")).toEqual({
+      kind: "tests-started", toolUseId: "toolu_7", command: "bun run test:e2e -- e2e/x.spec.ts", cwd: "/repo/wt",
+    })
+  })
+
+  it("its PostToolUse ends a foreground run passed, its PostToolUseFailure failed; in the background, it goes on", () => {
+    expect(testReport(call("PostToolUse", "bun run test"), "post-tool-use")).toEqual({ kind: "tool-finished", toolUseId: "toolu_7", failed: false })
+    expect(testReport(call("PostToolUseFailure", "bun run test"), "post-tool-use-failure")).toEqual({ kind: "tool-finished", toolUseId: "toolu_7", failed: true })
+    expect(testReport(call("PostToolUse", "bun run test:e2e", { tool_response: { backgroundTaskId: "b1" } }), "post-tool-use")).toBeNull()
+  })
+
+  it("nothing for another command, another tool, or a call without its id", () => {
+    expect(testReport(call("PreToolUse", "bun run typecheck"), "pre-tool-use")).toBeNull()
+    expect(testReport(call("PreToolUse", 42), "pre-tool-use")).toBeNull()
+    expect(testReport(call("PreToolUse", "bun run test", { tool_name: "Read" }), "pre-tool-use")).toBeNull()
+    expect(testReport(call("PreToolUse", "bun run test", { tool_use_id: null }), "pre-tool-use")).toBeNull()
+  })
+
+  it("the main conversation's Stop ends its turn, saying what still runs when Claude Code says; a subagent's Stop isn't it", () => {
+    const stop = (extra: Record<string, unknown>) => parseHookInput(JSON.stringify({ session_id: "s", hook_event_name: "Stop", ...extra }))
+    expect(turnEndedReport(stop({ background_tasks: [{ id: "b1", type: "shell", command: "bun run test:e2e" }] }))).toEqual({ kind: "turn-ended", running: ["b1"] })
+    expect(turnEndedReport(stop({}))).toEqual({ kind: "turn-ended" })
+    expect(turnEndedReport(stop({ agent_id: "a1" }))).toBeNull()
   })
 })
 

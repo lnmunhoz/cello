@@ -44,7 +44,8 @@ describe("cello install claude: the plugin", () => {
         hooks: {
           Stop: [{ hooks: [{ type: "command", command: "cello hook claude stop", timeout: 10 }] }],
           PostToolUse: [{ matcher: "*", hooks: [{ type: "command", command: "cello hook claude post-tool-use", timeout: 10 }] }],
-          PreToolUse: [{ matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }],
+          PreToolUse: [{ matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit|Bash", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }],
+          PostToolUseFailure: [{ matcher: "Bash", hooks: [{ type: "command", command: "cello hook claude post-tool-use-failure", timeout: 10 }] }],
           SubagentStart: [{ hooks: [{ type: "command", command: "cello hook claude subagent-start", timeout: 10 }] }],
           SubagentStop: [{ hooks: [{ type: "command", command: "cello hook claude subagent-stop", timeout: 10 }] }],
         },

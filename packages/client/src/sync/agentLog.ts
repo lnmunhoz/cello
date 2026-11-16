@@ -4,6 +4,7 @@
 import type { LogStep, LogUnavailable, LogUpdate } from "@cello/contract/agentLog"
 import type { AgentSession, SessionAgent } from "@cello/contract/entities"
 import type { Presence } from "@cello/shared/presence"
+import { isRunning, testRunWords } from "@cello/shared/testRun"
 
 export interface LogView {
   /** `loading` until the first update; `unavailable` with its reason when there's no log. */
@@ -80,6 +81,19 @@ export const currentStepOf = (row: { readonly presence: Presence; readonly agent
   if (row.presence !== "ended" && row.agent?.waitingOn) return waitingWords(row.agent.waitingOn)
   if (row.presence !== "active") return null
   return (row.agent ? row.agent.currentStep : row.session.currentStep) ?? null
+}
+
+/**
+ * What `cello agents` says the agent is doing now: its test run while it runs ("Running tests: web e2e 7
+ * of 13 · 1 failed · 3m12s", CEL-134), else currentStepOf.
+ */
+export const doingNowOf = (
+  row: { readonly presence: Presence; readonly agent: SessionAgent | null; readonly session: AgentSession },
+  now: number,
+): string | null => {
+  const run = (row.agent ? row.agent.tests : row.session.tests) ?? null
+  if (row.presence !== "ended" && isRunning(run, now)) return `Running tests: ${testRunWords(run!, now)}`
+  return currentStepOf(row)
 }
 
 /** "Waiting on background work: Bash · bun run test:e2e" (CEL-133). */

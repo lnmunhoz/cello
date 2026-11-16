@@ -15,6 +15,7 @@ import { AgentMark, type AgentMood } from "../components/ui/AgentMark.tsx"
 import { LinkButton } from "../components/ui/Button.tsx"
 import { formatDay } from "../lib/format.ts"
 import { drawnMarks } from "./drawnMarks.ts"
+import { testRunOf, TestRunWord } from "./TestRun.tsx"
 import {
   agentMood,
   agentPresenceSubject,
@@ -288,18 +289,23 @@ export function CardWork({ task, board, stage = true }: { task: Task; board: Boa
   const holder = live(board, p.holder)
   const { mark, leaving } = useTaskMark(task, board, holder)
   const shownStage = stage ? p.step : null
+  const run = holderRun(holder)
   if (!holder && !shownStage && !leaving) return null
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-xs" data-card-work>
       {holder ? <HolderWords live={holder} mark={mark} /> : leaving ? mark : null}
-      {shownStage ? (
-        <span className="ml-auto">
-          <StageWord stage={shownStage} />
+      {shownStage || run ? (
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          {shownStage ? <StageWord stage={shownStage} /> : null}
+          <TestRunWord run={run} />
         </span>
       ) : null}
     </span>
   )
 }
+
+/** The test run of whoever is on the task (CEL-134): its subagent's, else its session's. */
+const holderRun = (holder: LiveHolder | null) => (holder ? testRunOf(holder.holder.session, holder.holder.agent) : null)
 
 /** "Lucas created · 8a41c9e2 changed 4m ago", or "commented" when the latest activity is a comment. */
 export function ProvenanceLine({ task, board }: { task: Task; board: BoardState }) {
@@ -375,6 +381,7 @@ export function PanelWork({ task, board }: { task: Task; board: BoardState }) {
           <StageWord stage={p.step} />
         </>
       ) : null}
+      <TestRunWord run={holderRun(holder)} />
     </span>
   )
 }

@@ -365,11 +365,12 @@ describe("cello hook claude", () => {
 })
 
 const HOOK_LINES = [
-  "  Stop           cello hook claude stop",
-  "  PostToolUse    cello hook claude post-tool-use",
-  "  PreToolUse     cello hook claude pre-tool-use",
-  "  SubagentStart  cello hook claude subagent-start",
-  "  SubagentStop   cello hook claude subagent-stop",
+  "  Stop                cello hook claude stop",
+  "  PostToolUse         cello hook claude post-tool-use",
+  "  PreToolUse          cello hook claude pre-tool-use",
+  "  PostToolUseFailure  cello hook claude post-tool-use-failure",
+  "  SubagentStart       cello hook claude subagent-start",
+  "  SubagentStop        cello hook claude subagent-stop",
 ]
 /** --user: every project gets the comment hooks and SubagentStop, not the project-only ones. */
 const USER_HOOK_LINES = [
@@ -417,7 +418,8 @@ describe("cello install claude", () => {
         hooks: {
           Stop: [{ hooks: [{ type: "command", command: "cello hook claude stop", timeout: 10 }] }],
           PostToolUse: [{ matcher: "*", hooks: [{ type: "command", command: "cello hook claude post-tool-use", timeout: 10 }] }],
-          PreToolUse: [{ matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }],
+          PreToolUse: [{ matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit|Bash", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }],
+          PostToolUseFailure: [{ matcher: "Bash", hooks: [{ type: "command", command: "cello hook claude post-tool-use-failure", timeout: 10 }] }],
           SubagentStart: [{ hooks: [{ type: "command", command: "cello hook claude subagent-start", timeout: 10 }] }],
           SubagentStop: [{ hooks: [{ type: "command", command: "cello hook claude subagent-stop", timeout: 10 }] }],
         },

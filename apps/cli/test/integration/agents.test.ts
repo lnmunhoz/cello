@@ -2,6 +2,8 @@
 // CELLO_AGENT say which one is working. A launch names its task; the subagent's tool calls check it in;
 // SubagentStart hands it its CELLO_AGENT; a cello command carrying it is credited to it; SubagentStop
 // ends it. Claims stay on the session.
+import * as fs from "node:fs"
+import * as path from "node:path"
 import { newCommandId } from "@cello/client/client"
 import { startServer, tempDataDir } from "@cello/server/testing/servers"
 import { describe, expect, it } from "@effect/vitest"
@@ -29,6 +31,7 @@ const setup = Effect.gen(function* () {
   yield* x("task", "claim", "CEL-2")
   return {
     human,
+    repo,
     x,
     as: (agent: string) => cello({ port, env: { ...claude, CELLO_AGENT: agent }, cwd: repo }),
     /** The hook as Claude Code runs it: no session in the environment, the JSON on stdin. */
@@ -128,6 +131,58 @@ describe("a subagent that ends its turn with its own background work running", (
       const done = yield* builder
       expect(done.endedAt).not.toBeNull()
       expect(done.waitingOn).toBeNull()
+    }).pipe(Effect.scoped))
+})
+
+// CEL-134: the hooks say when a subagent's Bash call runs tests; the runner's `cello test progress`,
+// which carries only the session, says where the run is.
+describe("a subagent running tests", () => {
+  it.live("a background e2e run: Running tests from PreToolUse, its progress from the runner's file, ended by its last report", () =>
+    Effect.gen(function* () {
+      const { hook, human, x, repo } = yield* setup
+      const as = { session_id: X, agent_id: BUILDER, agent_type: "cello-builder", cwd: repo }
+      const tests = Effect.map(human["snapshot.get"]({}), (s) => s.agents.find((a) => a.agentId === BUILDER)?.tests ?? null)
+      yield* hook("post-tool-use", launch(BUILDER, "cello-builder", "CEL-1 agents on cards", "Build CEL-1"))
+      const call = { ...as, tool_name: "Bash", tool_use_id: "toolu_e2e", tool_input: { command: "bun run test:e2e -- e2e/agents-page.spec.ts", run_in_background: true } }
+      expect(yield* hook("pre-tool-use", { ...call, hook_event_name: "PreToolUse" })).toEqual({ out: "", failure: null })
+      expect(yield* tests).toMatchObject({ label: "web e2e", command: "bun run test:e2e -- e2e/agents-page.spec.ts", endedAt: null, background: false })
+      yield* hook("post-tool-use", { ...call, hook_event_name: "PostToolUse", tool_response: { stdout: "", backgroundTaskId: "blo3xolgq" } })
+      expect(yield* tests).toMatchObject({ endedAt: null, background: true })
+
+      // The runner, in the repo, reports as the session.
+      const file = path.join(repo, "progress.json")
+      const progress = { stage: "web-e2e", passed: 6, failed: 1, skipped: 0, total: 13, current: "e2e/agents-page.spec.ts", failures: ["e2e/agents-page.spec.ts:40 › lists agents"], done: false, outcome: null, folder: null }
+      fs.writeFileSync(file, JSON.stringify(progress))
+      expect(yield* x("test", "progress", "--file", file)).toEqual({ out: "Reported.", failure: null })
+      expect(yield* tests).toMatchObject({ endedAt: null, progress: { passed: 6, failed: 1, total: 13, failures: ["e2e/agents-page.spec.ts:40 › lists agents"] } })
+
+      fs.writeFileSync(file, JSON.stringify({ ...progress, passed: 12, done: true, outcome: "failed", folder: path.join(repo, "test-results/docker/run-1") }))
+      yield* x("test", "progress", "--file", file)
+      expect(yield* tests).toMatchObject({ outcome: "failed", progress: { done: true, folder: path.join(repo, "test-results/docker/run-1") } })
+      expect((yield* tests)?.endedAt).not.toBeNull()
+      // Nothing running now: a report changes nothing, and says so; a broken file is an error.
+      expect((yield* x("test", "progress", "--file", file, "--json")).out).toBe(JSON.stringify({ matched: false }, null, 2))
+      fs.writeFileSync(file, "{")
+      expect((yield* x("test", "progress", "--file", file)).failure).toContain("Can't read the progress in")
+    }).pipe(Effect.scoped))
+
+  it.live("a foreground run ends with its call: PostToolUse passed, PostToolUseFailure failed; other commands start nothing", () =>
+    Effect.gen(function* () {
+      const { hook, human, repo } = yield* setup
+      const as = { session_id: X, agent_id: BUILDER, agent_type: "cello-builder", cwd: repo }
+      const tests = Effect.map(human["snapshot.get"]({}), (s) => s.agents.find((a) => a.agentId === BUILDER)?.tests ?? null)
+      yield* hook("post-tool-use", launch(BUILDER, "cello-builder", "CEL-1 agents on cards", "Build CEL-1"))
+      yield* hook("pre-tool-use", { ...as, hook_event_name: "PreToolUse", tool_name: "Bash", tool_use_id: "t0", tool_input: { command: "bun run typecheck" } })
+      expect(yield* tests).toBeNull()
+
+      const unit = { ...as, tool_name: "Bash", tool_use_id: "t1", tool_input: { command: "bun run test -- apps/server" } }
+      yield* hook("pre-tool-use", { ...unit, hook_event_name: "PreToolUse" })
+      yield* hook("post-tool-use-failure", { ...unit, hook_event_name: "PostToolUseFailure", error: "Exit code 1" })
+      expect(yield* tests).toMatchObject({ label: "unit tests", outcome: "failed" })
+      yield* hook("pre-tool-use", { ...unit, tool_use_id: "t2", hook_event_name: "PreToolUse" })
+      expect(yield* tests).toMatchObject({ endedAt: null, outcome: null })
+      yield* hook("post-tool-use", { ...unit, tool_use_id: "t2", hook_event_name: "PostToolUse", tool_response: { stdout: "ok" } })
+      expect(yield* tests).toMatchObject({ outcome: "passed" })
     }).pipe(Effect.scoped))
 })
 

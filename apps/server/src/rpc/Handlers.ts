@@ -93,6 +93,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "inbox.wait": () => inbox.wait,
     "agent.report": (input) => agents.report(input),
     "activity.report": ({ report }) => activity.report(report),
+    "tests.progress": ({ cwd, progress }) => activity.progress(cwd, progress),
     "agent.log": (input) => agentLogs.log(input),
     "review.submit": (input) => reviews.submit(input),
     "review.approve": (input) => reviews.approve(input),

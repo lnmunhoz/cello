@@ -20,7 +20,7 @@ import { connect } from "../../../server/test/integration/harness.ts"
 import { ASK_USER_DENY_REASON } from "../../src/claudeHook.ts"
 import { cello, gitRepo, hookInProcess, hookProcess, installSetup, TEST_HOME, UNDER_LOAD } from "./cli.ts"
 
-const GUARD = { matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }
+const GUARD = { matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit|Bash", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }
 
 const SILENT = { exitCode: 0, stdout: "", stderr: "" }
 const DENIED = {

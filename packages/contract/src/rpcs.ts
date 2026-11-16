@@ -28,6 +28,7 @@ import {
   Scope,
   SessionAgent,
   SessionRun,
+  TestProgress,
   Snapshot,
   Status,
   Task,
@@ -76,9 +77,17 @@ export type AgentReportState = typeof AgentReportState.Type
  * `background` (CEL-133): a tool call it made started background work, a shell run with run_in_background
  * (`backgroundTaskId` in Bash's response) or a Monitor (`taskId`); `id` is the one Claude Code's
  * `background_tasks` lists while it runs, `label` the call in one line ("Bash · bun run test:e2e").
+ *
+ * Test runs (CEL-134): `tests-started` (PreToolUse: a Bash call is about to run a test command, from
+ * `cwd`), `tool-finished` (PostToolUse or PostToolUseFailure of that call: a foreground run ended, passed
+ * or `failed`), and `turn-ended` (the session's Stop, with the ids of the background work still running,
+ * absent when unknown): a run the turn leaves behind has ended, unless it runs in the background.
  */
 export const ActivityReport = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("background"), id: Schema.String, label: Schema.String, toolUseId: Schema.NullOr(Schema.String) }),
+  Schema.Struct({ kind: Schema.Literal("tests-started"), toolUseId: Schema.String, command: Schema.String, cwd: Schema.NullOr(Schema.String) }),
+  Schema.Struct({ kind: Schema.Literal("tool-finished"), toolUseId: Schema.String, failed: Schema.Boolean }),
+  Schema.Struct({ kind: Schema.Literal("turn-ended"), running: Schema.optionalKey(Schema.Array(Schema.String)) }),
 ])
 export type ActivityReport = typeof ActivityReport.Type
 
@@ -427,6 +436,12 @@ export const CelloRpcs = RpcGroup.make(
   // What a hook saw the caller do (CEL-133): presence bookkeeping like `agent.report`, no commandId. The
   // human, or a session-less call, changes nothing.
   Rpc.make("activity.report", { payload: { report: ActivityReport }, success: Schema.Void }),
+
+  // A test runner's progress (CEL-134), from `cello test progress` in the agent's shell: it carries the
+  // session but not which subagent runs it, so the run is the session's (or one of its subagents') that a
+  // tool call started from the same folder as `cwd` (one inside the other), else its only running one.
+  // `matched` says whether a run took it. The human, or no running run, changes nothing.
+  Rpc.make("tests.progress", { payload: { cwd: Schema.String, progress: TestProgress }, success: Schema.Struct({ matched: Schema.Boolean }) }),
 
   // An agent's live log (CEL-106): the session's own transcript, one of its subagents' (`agentId`), or one
   // of its woken runs' logs (`runId`, CEL-92), as steps, then new steps as they're written, while the

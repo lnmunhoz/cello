@@ -184,11 +184,12 @@ describe("cello init", () => {
           `Created project CEL · cello for ${repo} (tasks CEL-1, CEL-2, …)`,
           url("CEL"),
           `Installed Cello's Claude Code hooks in ${file} (this machine only):`,
-          "  Stop           cello hook claude stop",
-          "  PostToolUse    cello hook claude post-tool-use",
-          "  PreToolUse     cello hook claude pre-tool-use",
-          "  SubagentStart  cello hook claude subagent-start",
-          "  SubagentStop   cello hook claude subagent-stop",
+          "  Stop                cello hook claude stop",
+          "  PostToolUse         cello hook claude post-tool-use",
+          "  PreToolUse          cello hook claude pre-tool-use",
+          "  PostToolUseFailure  cello hook claude post-tool-use-failure",
+          "  SubagentStart       cello hook claude subagent-start",
+          "  SubagentStop        cello hook claude subagent-stop",
           `Enabled Cello's Claude Code plugin in ${file}; its files are in ${folder}.`,
           `Allowed \`cello\` commands in ${file} ("Bash(cello:*)" in permissions.allow), so Claude Code runs them without a permission check: ` +
           "agents reach the board only through `cello`, and a check that fails can't cut them off it.",
@@ -206,7 +207,7 @@ describe("cello init", () => {
       const settings = JSON.parse(fs.readFileSync(file, "utf8"))
       expect(settings.hooks.Stop[0].hooks[0].command).toBe("cello hook claude stop")
       // The artifact guard (CEL-57) and the claim guard (CEL-61) come with it.
-      expect(settings.hooks.PreToolUse).toEqual([{ matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }])
+      expect(settings.hooks.PreToolUse).toEqual([{ matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit|Bash", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }])
       // And the plugin (CEL-64).
       expect(settings.enabledPlugins).toEqual({ "cello@cello": true })
       // And the rule that lets `cello` skip Claude Code's permission check (CEL-90).
