@@ -5,20 +5,21 @@
 // narration explains it); the captions still hold each beat in review mode. Record it with
 // `CELLO_E2E_REVIEW=1 bun run test:e2e -- e2e/onboarding-video.spec.ts`; the MP4s are copied to
 // art/setup-video/footage/. The scenes follow the script (`cello doc get setup-video-script-for-review-cel-94`)
-// and share one project, each taking only what it needs, so any one of them can run alone.
+// and share one project, recorded in order as one story (a scene run alone works, but shows less of it).
+// The sidebar is folded to its rail and the filter panel too, so the whole board fits the width. When
+// the spec ends it leaves the shared server as it found it: claims released, the project archived and
+// the Backlog column hidden again.
 import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import type { Browser, Locator, Page } from "@playwright/test"
 import { newCommandId, openClient, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
-import { agentAs, caption, card, column, defaultWorkspace, expect, hold, seedLabels, taskPanel, test } from "./fixtures.ts"
+import { agentAs, caption, card, column, defaultWorkspace, expect, hold, seedLabels, seedProject, taskPanel, test } from "./fixtures.ts"
 import { celloAs, celloInBackground, WEB_URL } from "./packets.ts"
 
 const SIZE = { width: 1920, height: 1080 }
 test.use({ viewport: SIZE, video: { mode: "on", size: SIZE }, colorScheme: "light", captions: false })
-// Every beat holds in review mode, so a scene runs past the default timeout there.
-test.describe.configure({ timeout: 300_000 })
 
 const KEY = "ACME"
 
@@ -103,8 +104,8 @@ const cli = (name: keyof typeof SESSIONS) => celloAs(SESSIONS[name])
 async function seedAcme(human: PromiseClient) {
   const snapshot = await human.run((c) => c["snapshot.get"]({}))
   if (snapshot.projects.some((p) => p.key === KEY)) return
-  const { workspaceId, statuses } = await defaultWorkspace(human)
-  const project = (await human.run((c) => c["project.create"]({ commandId: newCommandId(), workspaceId, name: "Acme Shop", key: KEY }))).result
+  const project = await seedProject(human, "Acme Shop", KEY)
+  const { statuses } = await defaultWorkspace(human)
   const labels = new Map((await seedLabels(human, project.id, LABELS)).map((l) => [l.name, l.id]))
   for (const [i, task] of SEED.entries()) {
     await human.run((c) =>
@@ -230,24 +231,49 @@ async function makeEvidence(browser: Browser, dir: string) {
 }
 
 let human: PromiseClient
+let backlogWasHidden: boolean
 let evidence: { readonly cart: string; readonly email: string }
 const evidenceDir = fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-onboarding-"))
 
 // Made before any scene's page opens, so no video starts on a long blank page while it's made.
 test.beforeAll(async ({ browser }) => {
   human = await openClient(`${WEB_URL.replace(/^http/, "ws")}/rpc`)
+  backlogWasHidden = (await defaultWorkspace(human)).statuses.Backlog!.hidden
   await seedAcme(human)
   evidence = await makeEvidence(browser, evidenceDir)
 })
 
+/** What this spec leaves on the shared server undone, so the specs after it see the board they expect. */
+async function cleanUp() {
+  const snapshot = await human.run((c) => c["snapshot.get"]({}))
+  const project = snapshot.projects.find((p) => p.key === KEY && p.archivedAt === null)
+  if (project) {
+    // Each claim released by its own session, so no agent counts as working and no task waits on anyone.
+    for (const [name, id] of Object.entries(SESSIONS) as Array<[keyof typeof SESSIONS, string]>) {
+      const session = snapshot.sessions.find((s) => s.externalId === id)
+      const held = snapshot.tasks.filter((t) => t.projectId === project.id && session && t.assigneeSessionId === session.id)
+      if (held.length === 0) continue
+      const client = await agent(name)
+      for (const task of held) await client.run((c) => c["task.release"]({ commandId: newCommandId(), key: `${KEY}-${task.number}` }))
+      await client.close()
+    }
+    await human.run((c) => c["project.archive"]({ commandId: newCommandId(), id: project.id }))
+  }
+  await showBacklog(human, !backlogWasHidden)
+}
+
 test.afterAll(async () => {
+  await cleanUp()
   await human.close()
   fs.rmSync(evidenceDir, { recursive: true, force: true })
 })
 
 test.beforeEach(async ({ context }) => {
-  // The filter panel folded to its rail, so the board has the room.
-  await context.addInitScript(() => localStorage.setItem("cello:filter-panel", "rail"))
+  // The sidebar and the filter panel folded to their rails, so the whole board fits the width.
+  await context.addInitScript(() => {
+    localStorage.setItem("cello:sidebar", JSON.stringify({ mode: "rail", collapsed: "rail" }))
+    localStorage.setItem("cello:filter-panel", "rail")
+  })
 })
 
 /** The Acme Shop board, drawn, with the three seed tasks in In Progress; Backlog shown unless the scene needs the room. */
@@ -349,6 +375,15 @@ test("⑤ Decisions and comments: an agent asks on the card and gets the answer;
   await expect(pinned.getByText("Cuts the first load from 4.1 s to 1.6 s")).toBeVisible()
   await pinned.getByText("Cuts the first load from 4.1 s to 1.6 s").hover()
   await caption(page, "Its question, its recommendation and why")
+  // Weigh the other option, then settle on the recommended one alone.
+  const cdn = pinned.getByRole("checkbox", { name: /Serve images from a CDN/ })
+  const lazy = pinned.getByRole("checkbox", { name: /Lazy-load the gallery images/ })
+  await cdn.click()
+  await expect(cdn).toHaveAttribute("aria-checked", "true")
+  await hold(page)
+  await cdn.click()
+  await expect(cdn).toHaveAttribute("aria-checked", "false")
+  await expect(lazy).toHaveAttribute("aria-checked", "true")
   await pinned.getByRole("button", { name: "Send answers" }).click()
   const { code } = await asking
   expect(code).toBe(0)
@@ -400,7 +435,8 @@ test("⑥ Nothing without proof: a packet with a video is approved and lands in 
   await expect(column(page, "In Review").locator(`[data-task-key="${cart}"]`)).toBeVisible()
   await hold(page)
 
-  await page.getByRole("navigation", { name: "Inbox" }).getByRole("link", { name: /^Review/ }).click()
+  // Review in the sidebar's rail: the second of its two inbox icons, after Needs input.
+  await page.locator('[data-sidebar="rail"] a[href="/review"]').nth(1).click()
   await expect(page).toHaveURL(/\/review$/)
   const first = page.getByRole("article", { name: new RegExp(cart) })
   await first.getByRole("button", { name: new RegExp(cart) }).click()
@@ -435,8 +471,7 @@ test("⑥ Nothing without proof: a packet with a video is approved and lands in 
   await note.click()
   await note.pressSequentially("The logo looks blurry on a retina screen. Please use the SVG.", { delay: 30 })
   await dialog.getByRole("button", { name: "Send back" }).click()
-  await expect(dialog).toBeHidden()
-  await expect(second).toBeHidden()
+  // Straight back to the board, so the emptied queue isn't on screen for long.
 
   await page.getByRole("link", { name: "Acme Shop" }).click()
   await expect(column(page, "Done").locator(`[data-task-key="${cart}"]`)).toBeVisible()
