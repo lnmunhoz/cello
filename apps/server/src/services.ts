@@ -10,6 +10,7 @@ import * as EventLog from "./events/EventLog.ts"
 import * as EventStore from "./events/EventStore.ts"
 import * as InboxService from "./inbox/InboxService.ts"
 import * as LabelService from "./label/LabelService.ts"
+import * as MilestoneService from "./milestone/MilestoneService.ts"
 import * as ProfileService from "./profile/ProfileService.ts"
 import * as ProjectService from "./project/ProjectService.ts"
 import * as RepoPaths from "./project/repoPath.ts"
@@ -28,6 +29,7 @@ const domain = Layer.mergeAll(
   ProjectService.layer,
   StatusService.layer,
   LabelService.layer,
+  MilestoneService.layer,
   TaskService.layer,
   // A comment is activity on its task (TaskService.touchWithin).
   CommentService.layer.pipe(Layer.provide(TaskService.layer)),

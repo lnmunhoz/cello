@@ -17,6 +17,8 @@ import type {
   InboxKind,
   Label,
   LabelGroup,
+  Milestone,
+  MilestoneState,
   Priority,
   Project,
   Reaction,
@@ -176,6 +178,37 @@ export const selectLabels = (sql: Sql, where: Where) =>
       }))),
   )
 
+interface MilestoneRow {
+  id: string
+  project_id: string
+  name: string
+  goal: string
+  target_date: string | null
+  position: string
+  state: MilestoneState
+  closed_at: number | null
+  created_at: number
+  updated_at: number
+}
+
+/** Alias: `m`. In the order the human set (CEL-113). */
+export const selectMilestones = (sql: Sql, where: Where) =>
+  sql<MilestoneRow>`SELECT m.* FROM milestones m WHERE ${where} ORDER BY m.project_id, m.position, m.id`.pipe(
+    Effect.map((rows) =>
+      rows.map((r): Milestone => ({
+        id: r.id,
+        projectId: r.project_id,
+        name: r.name,
+        goal: r.goal,
+        targetDate: r.target_date,
+        position: r.position,
+        state: r.state,
+        closedAt: r.closed_at,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      }))),
+  )
+
 interface TaskRow {
   id: string
   project_id: string
@@ -188,6 +221,7 @@ interface TaskRow {
   position: string
   due_date: string | null
   parent_id: string | null
+  milestone_id: string | null
   assignee_actor_id: string | null
   assignee_session_id: string | null
   last_holder_session_id: string | null
@@ -237,6 +271,7 @@ export const selectTasks = (sql: Sql, where: Where) =>
       dueDate: r.due_date,
       parentId: r.parent_id,
       labelIds: labelIds.get(r.id) ?? [],
+      milestoneId: r.milestone_id,
       assigneeActorId: r.assignee_actor_id,
       assigneeSessionId: r.assignee_session_id,
       lastHolderSessionId: r.last_holder_session_id,

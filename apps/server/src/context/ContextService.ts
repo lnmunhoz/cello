@@ -1,10 +1,11 @@
 // What the CLI prints: who is calling, a project's context, task lists and one task in full. Each
 // method returns everything one command needs, so a CLI command is one RPC call.
-import type { Actor, AgentSession, Project, ProjectRef, Task } from "@cello/contract/entities"
+import type { Actor, AgentSession, Milestone, Project, ProjectRef, Task } from "@cello/contract/entities"
 import { Invalid, NotFound } from "@cello/contract/errors"
 import type { CelloEvent } from "@cello/contract/events"
 import { Caller } from "@cello/contract/rpcs"
-import type { Activity, LabelList, ProjectContext, TaskDetail, TaskList, Whoami } from "@cello/contract/views"
+import type { Activity, LabelList, MilestoneDetail, MilestoneList, MilestoneSummary, ProjectContext, TaskDetail, TaskList, Whoami } from "@cello/contract/views"
+import { milestoneProgress } from "@cello/shared/milestone"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -13,7 +14,7 @@ import * as CommentService from "../comment/CommentService.ts"
 import * as DocumentService from "../document/DocumentService.ts"
 import * as EventStore from "../events/EventStore.ts"
 import * as InboxService from "../inbox/InboxService.ts"
-import { selectActors, selectAsks, selectLabels, selectProjects, selectReviews, selectStatuses, selectTasks } from "../persistence/rows.ts"
+import { selectActors, selectAsks, selectLabels, selectMilestones, selectProjects, selectReviews, selectStatuses, selectTasks } from "../persistence/rows.ts"
 import * as ProfileService from "../profile/ProfileService.ts"
 import * as ProjectService from "../project/ProjectService.ts"
 import { type AgentRef, AgentService } from "../session/AgentService.ts"
@@ -24,6 +25,8 @@ export interface TaskListQuery {
   readonly project: ProjectRef
   readonly status?: string
   readonly label?: string
+  /** A milestone by name, or "none" (CEL-113). */
+  readonly milestone?: string
   readonly mine?: boolean
 }
 
@@ -33,6 +36,10 @@ export class ContextService extends Context.Service<ContextService, {
   readonly taskList: (query: TaskListQuery) => Effect.Effect<TaskList, NotFound | Invalid, Caller>
   readonly taskDetail: (key: string) => Effect.Effect<TaskDetail, NotFound>
   readonly labelList: (ref: ProjectRef) => Effect.Effect<LabelList, NotFound | Invalid>
+  /** The project's milestones in order, closed ones too, each with its progress (CEL-113). */
+  readonly milestoneList: (ref: ProjectRef) => Effect.Effect<MilestoneList, NotFound | Invalid>
+  /** One milestone by name (any case), with its progress and its tasks that aren't archived. */
+  readonly milestoneDetail: (ref: ProjectRef, name: string) => Effect.Effect<MilestoneDetail, NotFound | Invalid>
 }>()("cello/ContextService") {}
 
 /** How many recent events `context` shows. */
@@ -91,10 +98,36 @@ const make = Effect.gen(function* () {
         project,
         statuses: yield* selectStatuses(sql, sql`s.workspace_id = ${project.workspaceId}`),
         labels: yield* selectLabels(sql, sql`l.project_id = ${project.id} AND l.archived_at IS NULL`),
+        milestones: yield* selectMilestones(sql, sql`m.project_id = ${project.id}`),
         actors: yield* selectActors(sql),
         sessions: yield* sessions.byIds([...sessionIds.filter((id): id is string => id !== null), ...named.map((a) => a.sessionId)]),
         agents: named,
       }
+    })
+
+  /** Each milestone with its progress, from the project's tasks (CEL-113). */
+  const summaries = (project: Project, milestones: ReadonlyArray<Milestone>) =>
+    Effect.gen(function* () {
+      if (milestones.length === 0) return []
+      const statuses = yield* selectStatuses(sql, sql`s.workspace_id = ${project.workspaceId}`)
+      const rows = yield* selectTasks(sql, sql`t.project_id = ${project.id} AND t.milestone_id IS NOT NULL`)
+      return milestones.map((milestone): MilestoneSummary => ({
+        milestone,
+        progress: milestoneProgress(rows.filter((t) => t.milestoneId === milestone.id), statuses),
+      }))
+    })
+
+  /** A milestone of the project by name, any case; `none` when allowed. A miss lists the names. */
+  const milestoneNamed = (milestones: ReadonlyArray<Milestone>, name: string, allowNone: boolean) =>
+    Effect.gen(function* () {
+      if (allowNone && sameName(name, "none")) return null
+      const found = milestones.find((m) => sameName(m.name, name))
+      if (found) return found
+      const names = milestones.map((m) => m.name).join(", ")
+      return yield* new Invalid({
+        field: "milestone",
+        reason: `no milestone named "${name}". Milestones: ${names || "none yet"}${allowNone ? " (or none)" : ""}`,
+      })
     })
 
   /** Sessions a set of tasks and events mention: assignees, last holders (CEL-110), creators, last changes and event authors. */
@@ -172,6 +205,7 @@ const make = Effect.gen(function* () {
       lostClaims: yield* withKeys(lost),
       inbox: yield* inbox.unread,
       profile: yield* profiles.get({ key: project.key }),
+      openMilestones: yield* summaries(project, names.milestones.filter((m) => m.state === "open")),
     }
   }, Effect.catchTag("SqlError", Effect.die))
 
@@ -194,13 +228,17 @@ const make = Effect.gen(function* () {
         reason: `no label named "${query.label}". Labels: ${labels.map((l) => l.name).join(", ") || "none yet"}`,
       })
     }
+    const milestone = query.milestone === undefined
+      ? undefined
+      : yield* milestoneNamed(yield* selectMilestones(sql, sql`m.project_id = ${project.id}`), query.milestone, true)
     const open = new Set(statuses.filter((s) => OPEN_CATEGORIES.has(s.category)).map((s) => s.id))
     const order = new Map(statuses.map((s, i) => [s.id, i]))
     const rows = (yield* selectTasks(
       sql,
       query.mine ? sql`t.project_id = ${project.id} AND t.archived_at IS NULL AND ${heldBy(caller)}` : sql`t.project_id = ${project.id} AND t.archived_at IS NULL`,
     )).filter((t) =>
-      (status ? t.statusId === status.id : open.has(t.statusId)) && (label === undefined || t.labelIds.includes(label.id))
+      (status ? t.statusId === status.id : open.has(t.statusId)) && (label === undefined || t.labelIds.includes(label.id)) &&
+      (milestone === undefined || t.milestoneId === (milestone?.id ?? null))
     )
     const sorted = [...rows].sort((a, b) => order.get(a.statusId)! - order.get(b.statusId)! || (a.position < b.position ? -1 : 1))
     return { ...(yield* projectNames(project, sessionIdsOf(sorted), agentRefsOf(sorted.map(lastChange)))), tasks: sorted }
@@ -239,7 +277,28 @@ const make = Effect.gen(function* () {
     return { project, labels: labels.map((label) => ({ label, tasks: byLabel.get(label.id) ?? 0 })) }
   }, Effect.catchTag("SqlError", Effect.die))
 
-  return ContextService.of({ whoami, context, taskList, taskDetail, labelList })
+  const milestoneList = Effect.fn("ContextService.milestoneList")(function* (ref: ProjectRef) {
+    const project = yield* projects.resolve(ref)
+    return { project, milestones: yield* summaries(project, yield* selectMilestones(sql, sql`m.project_id = ${project.id}`)) }
+  }, Effect.catchTag("SqlError", Effect.die))
+
+  const milestoneDetail = Effect.fn("ContextService.milestoneDetail")(function* (ref: ProjectRef, name: string) {
+    const project = yield* projects.resolve(ref)
+    const milestones = yield* selectMilestones(sql, sql`m.project_id = ${project.id}`)
+    const milestone = (yield* milestoneNamed(milestones, name, false))!
+    const statuses = yield* selectStatuses(sql, sql`s.workspace_id = ${project.workspaceId}`)
+    const order = new Map(statuses.map((s, i) => [s.id, i]))
+    const rows = (yield* selectTasks(sql, sql`t.project_id = ${project.id} AND t.milestone_id = ${milestone.id} AND t.archived_at IS NULL`))
+      .sort((a, b) => order.get(a.statusId)! - order.get(b.statusId)! || (a.position < b.position ? -1 : 1))
+    return {
+      ...(yield* projectNames(project, sessionIdsOf(rows), agentRefsOf(rows.map(lastChange)))),
+      milestone,
+      progress: milestoneProgress(rows, statuses),
+      tasks: rows,
+    }
+  }, Effect.catchTag("SqlError", Effect.die))
+
+  return ContextService.of({ whoami, context, taskList, taskDetail, labelList, milestoneList, milestoneDetail })
 })
 
 export const layer = Layer.effect(ContextService, make)

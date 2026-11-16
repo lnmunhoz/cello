@@ -37,6 +37,23 @@ describe("decodeEvent", () => {
     expect(event.task).toMatchObject({ stage: null, updatedByActorId: null, updatedBySessionId: null, commentCount: 0, lastCommentAt: null })
   })
 
+  it("leaves a task stored before milestones (CEL-113) without one, and decodes the milestone events", () => {
+    const task = {
+      id: "t-1", projectId: "p-1", number: 1, key: "CEL-1", title: "Old", description: "", statusId: "s-1", priority: 0,
+      position: "a0", dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null,
+      createdByActorId: "actor-1", createdBySessionId: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null,
+    }
+    const created = decodeEvent({ ...envelope, schemaVersion: 1, type: "task.created", task })
+    expect(created.type === "task.created" && created.task.milestoneId).toBeUndefined()
+    const milestone = { id: "m-1", projectId: "p-1", name: "M3", goal: "", targetDate: "2026-12-01", position: "a0", state: "open", closedAt: null, createdAt: 1, updatedAt: 1 }
+    expect(decodeEvent({ ...envelope, schemaVersion: 1, type: "milestone.created", milestone }).type).toBe("milestone.created")
+    const updated = decodeEvent({ ...envelope, schemaVersion: 1, type: "milestone.updated", id: "m-1", before: { targetDate: null }, after: { targetDate: "2026-12-01" } })
+    expect(updated.type === "milestone.updated" && updated.after).toEqual({ targetDate: "2026-12-01" })
+    const changed = decodeEvent({ ...envelope, schemaVersion: 1, type: "task.milestone_changed", id: "t-1", version: 2, before: null, after: "m-1", fromLabels: ["M3", "M2"] })
+    expect(changed.type === "task.milestone_changed" && changed.fromLabels).toEqual(["M3", "M2"])
+    expect(() => decodeEvent({ ...envelope, schemaVersion: 1, type: "milestone.created", milestone: { ...milestone, state: "done" } })).toThrow()
+  })
+
   it("reads the stage `designing`, stored while it existed (CEL-105), as `planning`, its new name", () => {
     const changed = decodeEvent({ ...envelope, schemaVersion: 1, type: "task.stage_changed", id: "t-1", version: 3, before: "designing", after: "designing" })
     expect(changed.type === "task.stage_changed" && [changed.before, changed.after]).toEqual(["planning", "planning"])

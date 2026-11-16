@@ -13,6 +13,7 @@ import * as DocumentService from "../document/DocumentService.ts"
 import * as EventLog from "../events/EventLog.ts"
 import * as InboxService from "../inbox/InboxService.ts"
 import * as LabelService from "../label/LabelService.ts"
+import * as MilestoneService from "../milestone/MilestoneService.ts"
 import * as ProfileService from "../profile/ProfileService.ts"
 import * as OrchestrateService from "../session/OrchestrateService.ts"
 import * as ProjectService from "../project/ProjectService.ts"
@@ -34,6 +35,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
   const orchestrate = yield* OrchestrateService.OrchestrateService
   const statuses = yield* StatusService.StatusService
   const labels = yield* LabelService.LabelService
+  const milestones = yield* MilestoneService.MilestoneService
   const tasks = yield* TaskService.TaskService
   const comments = yield* CommentService.CommentService
   const context = yield* ContextService.ContextService
@@ -63,10 +65,17 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "label.create": (input) => labels.create(input),
     "label.update": (input) => labels.update(input),
     "label.archive": (input) => labels.archive(input),
+    "milestone.create": (input) => milestones.create(input),
+    "milestone.update": (input) => milestones.update(input),
+    "milestone.close": (input) => milestones.close(input),
+    "milestone.reopen": (input) => milestones.reopen(input),
+    "milestone.list": ({ project }) => context.milestoneList(project),
+    "milestone.get": ({ project, name }) => context.milestoneDetail(project, name),
     "task.create": (input) => tasks.create(input),
     "task.update": (input) => tasks.update(input),
     "task.move": (input) => tasks.move(input),
     "task.setLabels": (input) => tasks.setLabels(input),
+    "task.setMilestone": (input) => tasks.setMilestone(input),
     "task.archive": (input) => tasks.archive(input),
     "task.unarchive": (input) => tasks.unarchive(input),
     "task.history": ({ id }) => tasks.history(id),

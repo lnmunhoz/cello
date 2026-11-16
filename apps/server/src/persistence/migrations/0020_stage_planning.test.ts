@@ -35,7 +35,7 @@ describe("migration 0020_stage_planning", () => {
       expect(after.map((t) => t.stage)).toEqual(["planning", "building", null, "planning", "review"])
       // Nothing else changed: not the other columns, not the other tasks. (0021 adds the last holder, CEL-110: null here.)
       for (const t of after) expect(t.last_holder_session_id).toBeNull()
-      expect(after.map(({ stage, last_holder_session_id, ...rest }) => rest)).toEqual(before.map(({ stage, ...rest }) => rest))
+      expect(after.map(({ stage, last_holder_session_id, milestone_id, ...rest }) => rest)).toEqual(before.map(({ stage, ...rest }) => rest))
 
       // The next start runs the migrations again: nothing changes.
       yield* Migrations.run

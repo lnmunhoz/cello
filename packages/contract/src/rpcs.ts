@@ -19,6 +19,7 @@ import {
   Id,
   Label,
   LabelGroup,
+  Milestone,
   Priority,
   Project,
   ProjectRef,
@@ -50,7 +51,7 @@ import {
 import { CelloEvent } from "./events.ts"
 import { SearchKind, SearchResults } from "./search.ts"
 import { TaskStage } from "./stages.ts"
-import { AskWaited, DocumentList, Inbox, LabelList, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
+import { AskWaited, DocumentList, Inbox, LabelList, MilestoneDetail, MilestoneList, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
 
 /**
  * Who is calling, resolved by the server from per-request RPC headers. `agentId`: the session's subagent
@@ -247,6 +248,38 @@ export const CelloRpcs = RpcGroup.make(
   // tasks keep the link, so their history still names it. Its name stays taken.
   Rpc.make("label.archive", { payload: { commandId, id: Id }, success: write(Label), error: NotFound }),
 
+  // Milestones (CEL-113): one project's goals, in the order the human sets. A name must be free in the
+  // project, in any case; a new one goes last. `before`/`after` are neighbor milestone ids to move it
+  // between. Closing and reopening are the human's only (HumanOnly), like deciding a review.
+  Rpc.make("milestone.create", {
+    payload: {
+      commandId,
+      projectId: Id,
+      name: Schema.String,
+      goal: Schema.optionalKey(Schema.String),
+      targetDate: Schema.optionalKey(Schema.NullOr(DueDate)),
+    },
+    success: write(Milestone),
+    error: Schema.Union([NotFound, Invalid]),
+  }),
+  Rpc.make("milestone.update", {
+    payload: {
+      commandId,
+      id: Id,
+      name: Schema.optionalKey(Schema.String),
+      goal: Schema.optionalKey(Schema.String),
+      targetDate: Schema.optionalKey(Schema.NullOr(DueDate)),
+      ...neighbors,
+    },
+    success: write(Milestone),
+    error: Schema.Union([NotFound, Invalid]),
+  }),
+  Rpc.make("milestone.close", { payload: { commandId, id: Id }, success: write(Milestone), error: Schema.Union([NotFound, HumanOnly]) }),
+  Rpc.make("milestone.reopen", { payload: { commandId, id: Id }, success: write(Milestone), error: Schema.Union([NotFound, HumanOnly]) }),
+  Rpc.make("milestone.list", { payload: { project: ProjectRef }, success: MilestoneList, error: Schema.Union([NotFound, Invalid]) }),
+  // One milestone by name (any case), with its tasks.
+  Rpc.make("milestone.get", { payload: { project: ProjectRef, name: Schema.String }, success: MilestoneDetail, error: Schema.Union([NotFound, Invalid]) }),
+
   Rpc.make("task.create", {
     payload: {
       commandId,
@@ -256,6 +289,8 @@ export const CelloRpcs = RpcGroup.make(
       statusId: Schema.optionalKey(Id),
       priority: Schema.optionalKey(Priority),
       labelIds: Schema.optionalKey(Schema.Array(Id)),
+      /** An open milestone of the same project (CEL-113). */
+      milestoneId: Schema.optionalKey(Schema.NullOr(Id)),
       dueDate: Schema.optionalKey(Schema.NullOr(DueDate)),
       parentId: Schema.optionalKey(Schema.NullOr(Id)),
       ...neighbors,
@@ -290,6 +325,13 @@ export const CelloRpcs = RpcGroup.make(
     success: write(Task),
     error: Schema.Union([NotFound, Invalid]),
   }),
+  // At most one milestone per task (CEL-113); null takes it out. Only an open milestone of the task's
+  // own project; agents may assign too. It doesn't end a claim: it's planning, not taking the work over.
+  Rpc.make("task.setMilestone", {
+    payload: { commandId, id: Id, milestoneId: Schema.NullOr(Id) },
+    success: write(Task),
+    error: Schema.Union([NotFound, Invalid]),
+  }),
   Rpc.make("task.archive", { payload: { commandId, id: Id }, success: write(Task), error: NotFound }),
   Rpc.make("task.unarchive", { payload: { commandId, id: Id }, success: write(Task), error: NotFound }),
   Rpc.make("task.history", { payload: { id: Id }, success: Schema.Array(CelloEvent), error: NotFound }),
@@ -302,6 +344,8 @@ export const CelloRpcs = RpcGroup.make(
       project: ProjectRef,
       status: Schema.optionalKey(Schema.String),
       label: Schema.optionalKey(Schema.String),
+      /** A milestone by name (any case), or "none" for tasks without one (CEL-113). */
+      milestone: Schema.optionalKey(Schema.String),
       mine: Schema.optionalKey(Schema.Boolean),
     },
     success: TaskList,

@@ -1,7 +1,7 @@
 // Read models for the CLI (and later MCP): one RPC returns everything a command prints.
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { Actor, AgentSession, Ask, Comment, DeliveryVia, DocumentSummary, InboxItem, Label, Millis, Project, Review, SessionAgent, Status, Task, TestingProfile } from "./entities.ts"
+import { Actor, AgentSession, Ask, Comment, DeliveryVia, DocumentSummary, InboxItem, Label, Milestone, Millis, Project, Review, SessionAgent, Status, Task, TestingProfile } from "./entities.ts"
 import { CelloEvent } from "./events.ts"
 
 /**
@@ -16,16 +16,37 @@ export const Whoami = Schema.Struct({
 })
 export type Whoami = typeof Whoami.Type
 
-/** A project with the names a command needs to print ids: statuses, labels, actors, sessions and their subagents. */
+/** A project with the names a command needs to print ids: statuses, labels, milestones, actors, sessions and their subagents. */
 const projectFields = {
   project: Project,
   statuses: Schema.Array(Status),
   labels: Schema.Array(Label),
+  /** The project's milestones in order, closed ones too (CEL-113); a server from before them sends none. */
+  milestones: Schema.Array(Milestone).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
   actors: Schema.Array(Actor),
   sessions: Schema.Array(AgentSession),
   /** The subagents the tasks, comments and events name (CEL-55); their sessions are in `sessions`. */
   agents: Schema.Array(SessionAgent),
 }
+
+/**
+ * How far along a milestone is (CEL-113): its tasks that aren't archived, by status category. Canceled
+ * ones are left out of `total`; Backlog ones are in it, and counted apart. See @cello/shared/milestone.
+ */
+export const MilestoneProgress = Schema.Struct({
+  total: Schema.Number,
+  done: Schema.Number,
+  inReview: Schema.Number,
+  inProgress: Schema.Number,
+  todo: Schema.Number,
+  backlog: Schema.Number,
+  canceled: Schema.Number,
+  percent: Schema.Number,
+})
+export type MilestoneProgress = typeof MilestoneProgress.Type
+
+export const MilestoneSummary = Schema.Struct({ milestone: Milestone, progress: MilestoneProgress })
+export type MilestoneSummary = typeof MilestoneSummary.Type
 
 /** An event with the key of the task it's about (null for non-task events). */
 export const Activity = Schema.Struct({ event: CelloEvent, taskKey: Schema.NullOr(Schema.String) })
@@ -51,6 +72,8 @@ export const ProjectContext = Schema.Struct({
    * newer CLI still reads an older server's context.
    */
   profile: Schema.optionalKey(TestingProfile),
+  /** The project's open milestones in order, with their progress (CEL-113): what's current. */
+  openMilestones: Schema.optionalKey(Schema.Array(MilestoneSummary)),
 })
 export type ProjectContext = typeof ProjectContext.Type
 
@@ -122,6 +145,14 @@ export const LabelList = Schema.Struct({
   labels: Schema.Array(Schema.Struct({ label: Label, tasks: Schema.Number })),
 })
 export type LabelList = typeof LabelList.Type
+
+/** A project's milestones in order, closed ones too, each with its progress: `cello milestone list` (CEL-113). */
+export const MilestoneList = Schema.Struct({ project: Project, milestones: Schema.Array(MilestoneSummary) })
+export type MilestoneList = typeof MilestoneList.Type
+
+/** One milestone with its progress and its tasks that aren't archived, in every status: `cello milestone show`. */
+export const MilestoneDetail = Schema.Struct({ ...projectFields, milestone: Milestone, progress: MilestoneProgress, tasks: Schema.Array(Task) })
+export type MilestoneDetail = typeof MilestoneDetail.Type
 
 /** A project's documents, for `cello doc list`. */
 export const DocumentList = Schema.Struct({ project: Project, documents: Schema.Array(DocumentSummary) })

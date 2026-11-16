@@ -51,6 +51,8 @@ export const entityOf = (body: EventBody): { readonly type: string; readonly id:
       return { type, id: body.project.id }
     case "label.created":
       return { type, id: body.label.id }
+    case "milestone.created":
+      return { type, id: body.milestone.id }
     case "task.created":
       return { type, id: body.task.id }
     case "comment.added":

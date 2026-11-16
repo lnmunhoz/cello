@@ -15,6 +15,7 @@ import {
   selectAsks,
   selectDocuments,
   selectLabels,
+  selectMilestones,
   selectProjects,
   selectReviews,
   selectStatuses,
@@ -75,6 +76,8 @@ const make = Effect.gen(function* () {
         statuses: yield* selectStatuses(sql, sql`s.workspace_id = ${workspaceId}`),
         // Labels belong to a project (CEL-80): a workspace's snapshot has every project's, a project's its own.
         labels: yield* selectLabels(sql, sql`l.project_id IN (SELECT p.id FROM projects p WHERE ${projectFilter})`),
+        // Milestones (CEL-113), closed ones too: a task may still be in one.
+        milestones: yield* selectMilestones(sql, sql`m.project_id IN (SELECT p.id FROM projects p WHERE ${projectFilter})`),
         tasks,
         sessions: yield* sessions.byIds([...sessionIds, ...boardAgents.map((a) => a.sessionId)]),
         agents: boardAgents,

@@ -40,6 +40,8 @@ export interface CreateTask extends Neighbors {
   readonly statusId?: string
   readonly priority?: Priority
   readonly labelIds?: ReadonlyArray<string>
+  /** An open milestone of the same project (CEL-113). */
+  readonly milestoneId?: string | null
   readonly dueDate?: string | null
   readonly parentId?: string | null
 }
@@ -67,6 +69,13 @@ export interface SetTaskLabels {
   readonly id: string
   readonly add: ReadonlyArray<string>
   readonly remove: ReadonlyArray<string>
+}
+
+export interface SetTaskMilestone {
+  readonly commandId: string
+  readonly id: string
+  /** null takes it out of its milestone. */
+  readonly milestoneId: string | null
 }
 
 export interface SetStage {
@@ -103,6 +112,11 @@ export class TaskService extends Context.Service<TaskService, {
    */
   readonly move: (input: MoveTask) => Write<NotFound | Invalid | VersionConflict | ReviewRequired | AskRequired>
   readonly setLabels: (input: SetTaskLabels) => Write<NotFound | Invalid>
+  /**
+   * Puts the task in a milestone (CEL-113), at most one, or takes it out (null). Only an open milestone
+   * of the task's own project. Anyone may, and it never ends a claim: it's planning, not taking the work over.
+   */
+  readonly setMilestone: (input: SetTaskMilestone) => Write<NotFound | Invalid>
   readonly archive: (input: ById) => Write<NotFound>
   readonly unarchive: (input: ById) => Write<NotFound>
   readonly history: (id: string) => Effect.Effect<ReadonlyArray<CelloEvent>, NotFound>
@@ -228,6 +242,33 @@ const make = Effect.gen(function* () {
         }),
       ), { discard: true })
 
+  /**
+   * A milestone a task can join (CEL-113): one of the task's own project (another project's is refused,
+   * not just missing), and open: a closed milestone is done, so nothing new goes in it.
+   */
+  const requireMilestone = (projectId: string, milestoneId: string) =>
+    sql<{ project_id: string; name: string; state: string; milestone_key: string; task_key: string }>`
+      SELECT m.project_id, m.name, m.state, mp.key AS milestone_key, tp.key AS task_key
+      FROM milestones m JOIN projects mp ON mp.id = m.project_id JOIN projects tp ON tp.id = ${projectId}
+      WHERE m.id = ${milestoneId}`.pipe(
+      Effect.flatMap(([milestone]): Effect.Effect<void, NotFound | Invalid> => {
+        if (!milestone) return Effect.fail(new NotFound({ entity: "milestone", id: milestoneId }))
+        if (milestone.project_id !== projectId) {
+          return Effect.fail(new Invalid({
+            field: "milestone",
+            reason: `"${milestone.name}" is a milestone of ${milestone.milestone_key}, not ${milestone.task_key}: each project has its own milestones`,
+          }))
+        }
+        if (milestone.state === "closed") {
+          return Effect.fail(new Invalid({
+            field: "milestone",
+            reason: `${milestone.name} is closed: put tasks in an open milestone, or reopen ${milestone.name} first`,
+          }))
+        }
+        return Effect.void
+      }),
+    )
+
   /** A parent must be another task in the same project, and not one of the task's own descendants. */
   const requireParent = (projectId: string, selfId: string | null, parentId: string) =>
     Effect.gen(function* () {
@@ -342,6 +383,8 @@ const make = Effect.gen(function* () {
         yield* requireLabels(input.projectId, labelIds)
         const parentId = input.parentId ?? null
         if (parentId !== null) yield* requireParent(input.projectId, null, parentId)
+        const milestoneId = input.milestoneId ?? null
+        if (milestoneId !== null) yield* requireMilestone(input.projectId, milestoneId)
         const { position } = yield* placed(place(yield* column(input.projectId, statusId), input))
 
         const numbers = yield* sql<{ number: number }>`
@@ -349,10 +392,10 @@ const make = Effect.gen(function* () {
           RETURNING next_task_number - 1 AS number`
         const id = newId(now)
         yield* sql`INSERT INTO tasks (id, project_id, number, title, description, status_id, priority, position, due_date,
-                                      parent_id, created_by_actor_id, created_by_session_id, updated_by_actor_id,
+                                      parent_id, milestone_id, created_by_actor_id, created_by_session_id, updated_by_actor_id,
                                       updated_by_session_id, updated_by_agent_id, version, created_at, updated_at)
           VALUES (${id}, ${input.projectId}, ${numbers[0]!.number}, ${title}, ${input.description ?? ""}, ${statusId},
-                  ${input.priority ?? 0}, ${position}, ${input.dueDate ?? null}, ${parentId}, ${caller.actorId},
+                  ${input.priority ?? 0}, ${position}, ${input.dueDate ?? null}, ${parentId}, ${milestoneId}, ${caller.actorId},
                   ${caller.sessionId}, ${caller.actorId}, ${caller.sessionId}, ${caller.agentId ?? null}, 1, ${now}, ${now})`
         yield* Effect.forEach(labelIds, (labelId) =>
           sql`INSERT INTO task_labels (task_id, label_id, created_at) VALUES (${id}, ${labelId}, ${now})`, { discard: true })
@@ -533,6 +576,22 @@ const make = Effect.gen(function* () {
           { workspaceId, projectId: current.projectId },
         )
         yield* claim.after(current.version + 1)
+        return yield* load(current.id)
+      }))
+  })
+
+  const setMilestone = Effect.fn("TaskService.setMilestone")(function* (input: SetTaskMilestone) {
+    return yield* commands.write({ commandId: input.commandId, rpc: "task.setMilestone" }, (context) =>
+      Effect.gen(function* () {
+        const current = yield* load(input.id)
+        const before = current.milestoneId ?? null
+        if (before === input.milestoneId) return current
+        if (input.milestoneId !== null) yield* requireMilestone(current.projectId, input.milestoneId)
+        yield* bump(current, context, { milestone_id: input.milestoneId })
+        yield* context.emit(
+          { type: "task.milestone_changed", id: current.id, version: current.version + 1, before, after: input.milestoneId },
+          { workspaceId: yield* workspaceOf(current.projectId), projectId: current.projectId },
+        )
         return yield* load(current.id)
       }))
   })
@@ -727,6 +786,7 @@ const make = Effect.gen(function* () {
     move,
     moveWithin,
     setLabels,
+    setMilestone,
     archive: setArchived("task.archive", true),
     unarchive: setArchived("task.unarchive", false),
     history,
