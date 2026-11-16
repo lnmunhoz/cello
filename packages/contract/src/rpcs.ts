@@ -310,8 +310,9 @@ export const CelloRpcs = RpcGroup.make(
     success: write(Task),
     error: Schema.Union([NotFound, Invalid, HumanOnly]),
   }),
+  // The note becomes a comment; `attachmentIds`: screenshots pasted into the Review page's box with it (CEL-73).
   Rpc.make("review.sendBack", {
-    payload: { commandId, key: Schema.String, note: Schema.String },
+    payload: { commandId, key: Schema.String, note: Schema.String, attachmentIds: Schema.optionalKey(Schema.Array(Id)) },
     success: write(Task),
     error: Schema.Union([NotFound, Invalid, HumanOnly]),
   }),
@@ -443,8 +444,17 @@ export const CelloRpcs = RpcGroup.make(
   }),
 
   Rpc.make("comment.list", { payload: { taskId: Id }, success: Schema.Array(Comment), error: NotFound }),
+  // Screenshots in comments (CEL-73): Lucas's are uploaded while he writes (POST /tasks/<id>/uploads)
+  // and sent by id (`attachmentIds`); an agent's are image files on this machine (`files`, absolute
+  // paths), copied into the data folder. The body may be empty when the comment carries a screenshot.
   Rpc.make("comment.add", {
-    payload: { commandId, taskId: Id, body: Schema.String },
+    payload: {
+      commandId,
+      taskId: Id,
+      body: Schema.String,
+      attachmentIds: Schema.optionalKey(Schema.Array(Id)),
+      files: Schema.optionalKey(Schema.Array(EvidenceFile)),
+    },
     success: write(Comment),
     error: Schema.Union([NotFound, Invalid]),
   }),

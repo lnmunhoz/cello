@@ -40,6 +40,11 @@ export interface DecideReview {
   readonly note?: string
 }
 
+export interface SendBack extends DecideReview {
+  readonly note: string
+  readonly attachmentIds?: ReadonlyArray<string> | undefined
+}
+
 /** A stored file to send: an attachment itself, or its video's poster. */
 export interface StoredFile {
   readonly path: string
@@ -52,7 +57,8 @@ type Write<A, E> = Effect.Effect<Commands.Written<A>, E, Caller>
 export class ReviewService extends Context.Service<ReviewService, {
   readonly submit: (input: SubmitReview) => Write<{ readonly review: Review; readonly task: Task }, NotFound | Invalid>
   readonly approve: (input: DecideReview) => Write<Task, NotFound | Invalid | HumanOnly>
-  readonly sendBack: (input: DecideReview & { readonly note: string }) => Write<Task, NotFound | Invalid | HumanOnly>
+  /** `attachmentIds`: screenshots pasted with the note (the Review page's comment box, CEL-73); they go with its comment. */
+  readonly sendBack: (input: SendBack) => Write<Task, NotFound | Invalid | HumanOnly>
   /** Every review of a task, oldest first. */
   readonly list: (taskId: string) => Effect.Effect<ReadonlyArray<Review>, NotFound>
   /** The file behind an attachment (or its poster), for GET /attachments/<id>. Links and deleted files are NotFound. */
@@ -174,7 +180,7 @@ const make = Effect.gen(function* () {
       }))
   })
 
-  const sendBack = Effect.fn("ReviewService.sendBack")(function* (input: DecideReview & { readonly note: string }) {
+  const sendBack = Effect.fn("ReviewService.sendBack")(function* (input: SendBack) {
     const note = yield* requireText("note", input.note)
     return yield* decide({ ...input, note }, "sent_back", (context, task) =>
       Effect.gen(function* () {
@@ -182,7 +188,7 @@ const make = Effect.gen(function* () {
         if (started === null) return yield* new Invalid({ field: "key", reason: "this workspace has no started status" })
         // Sent back to the same agent: its claim stays, and the note waits for it as a comment, in its inbox.
         const moved = yield* tasks.moveWithin(context, { id: task.id, statusId: started.id, keepClaim: true })
-        const comment = yield* comments.addWithin(context, { taskId: task.id, body: note })
+        const comment = yield* comments.addWithin(context, { taskId: task.id, body: note, attachmentIds: input.attachmentIds })
         yield* inbox.deliverWithin(context, comment, "send_back")
         return moved
       }))

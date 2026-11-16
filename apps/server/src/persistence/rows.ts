@@ -260,7 +260,7 @@ interface CommentRow {
   deleted_at: number | null
 }
 
-const toComment = (r: CommentRow): Comment => ({
+const toComment = (r: CommentRow, attachments: ReadonlyArray<Attachment>): Comment => ({
   id: r.id,
   taskId: r.task_id,
   body: r.body,
@@ -270,13 +270,27 @@ const toComment = (r: CommentRow): Comment => ({
   createdAt: r.created_at,
   updatedAt: r.updated_at,
   deletedAt: r.deleted_at,
+  attachments,
 })
 
-/** Alias: `c`. */
+/** The screenshots of these comments that aren't deleted (CEL-73), by comment id, oldest first. */
+const commentAttachments = (sql: Sql, ids: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const byComment = new Map<string, Attachment[]>()
+    if (ids.length === 0) return byComment
+    const files = yield* sql<AttachmentRow & { comment_id: string }>`
+      SELECT * FROM attachments WHERE ${sql.in("comment_id", ids)} AND deleted_at IS NULL ORDER BY created_at, rowid`
+    for (const f of files) byComment.set(f.comment_id, [...(byComment.get(f.comment_id) ?? []), toAttachment(f)])
+    return byComment
+  })
+
+/** Alias: `c`. Each comment comes with its screenshots. */
 export const selectComments = (sql: Sql, where: Where) =>
-  sql<CommentRow>`SELECT c.* FROM comments c WHERE ${where} ORDER BY c.created_at, c.rowid`.pipe(
-    Effect.map((rows) => rows.map(toComment)),
-  )
+  Effect.gen(function* () {
+    const rows = yield* sql<CommentRow>`SELECT c.* FROM comments c WHERE ${where} ORDER BY c.created_at, c.rowid`
+    const files = yield* commentAttachments(sql, rows.map((r) => r.id))
+    return rows.map((r) => toComment(r, files.get(r.id) ?? []))
+  })
 
 type InboxRow = { [K in keyof CommentRow]: CommentRow[K] | null } & {
   item_id: string
@@ -311,6 +325,7 @@ export const selectInboxItems = (sql: Sql, where: Where) =>
       ORDER BY i.created_at, i.rowid`
     const askIds = rows.flatMap((r) => (r.ask_id === null ? [] : [r.ask_id]))
     const asks = askIds.length === 0 ? [] : yield* selectAsks(sql, sql.in("a.id", askIds))
+    const files = yield* commentAttachments(sql, rows.flatMap((r) => (r.id === null ? [] : [r.id])))
     return rows.flatMap((r): InboxItem[] => {
       const common = {
         id: r.item_id,
@@ -326,7 +341,7 @@ export const selectInboxItems = (sql: Sql, where: Where) =>
         if (!ask) return []
         return [r.kind === "answers" ? { ...common, kind: "answers", ask } : { ...common, kind: "withdrawn", ask, status: r.detail ?? "another status" }]
       }
-      return [{ ...common, kind: r.kind, comment: toComment(r as CommentRow) }]
+      return [{ ...common, kind: r.kind, comment: toComment(r as CommentRow, files.get(r.id!) ?? []) }]
     })
   })
 
