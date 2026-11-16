@@ -27,6 +27,7 @@ import { EarlierReviews, PinnedReview } from "../review/TaskReviews.tsx"
 import { AskThread, PinnedAsk } from "../ask/TaskAsks.tsx"
 import { useViewerItem } from "../viewer/store.ts"
 import { PanelWork, ProvenanceRows } from "../presence/Presence.tsx"
+import { WakeRow } from "./WakeRow.tsx"
 import { Comments } from "./Comments.tsx"
 import { COPY_KEY_SHORTCUT, taskForAgent } from "./copy.ts"
 import { History } from "./History.tsx"
@@ -369,6 +370,7 @@ function Properties({ board, project, task }: { board: BoardState; project: Proj
         />
       </dd>
       <ProvenanceRows task={task} board={board} />
+      <WakeRow task={task} board={board} />
     </dl>
   )
 }

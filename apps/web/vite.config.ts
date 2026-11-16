@@ -13,6 +13,8 @@ const proxy = {
   "/attachments": { target: `http://${server}` },
   "/asks": { target: `http://${server}` },
   "^/tasks/[^/]+/uploads": { target: `http://${server}` },
+  // A woken run's log (CEL-92).
+  "^/runs/[^/]+/log": { target: `http://${server}` },
 }
 
 export default defineConfig({

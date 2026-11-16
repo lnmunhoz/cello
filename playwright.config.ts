@@ -41,7 +41,17 @@ export default defineConfig({
     {
       command: "bun src/main.ts",
       cwd: "apps/server",
-      env: { CELLO_PORT: String(SERVER_PORT), CELLO_DATA_DIR: process.env.CELLO_E2E_DATA!, CELLO_WEB_PORT: String(WEB_PORT) },
+      env: {
+        CELLO_PORT: String(SERVER_PORT),
+        CELLO_DATA_DIR: process.env.CELLO_E2E_DATA!,
+        CELLO_WEB_PORT: String(WEB_PORT),
+        // Waking sessions (CEL-92): a stub `claude` (e2e/stub-bin) first on the PATH, Claude Code's folder in
+        // the temp data folder (never ~/.claude), and short waits. Waking stays off unless a test turns it on.
+        PATH: `${path.resolve("e2e/stub-bin")}:${process.env.PATH}`,
+        CLAUDE_CONFIG_DIR: path.join(process.env.CELLO_E2E_DATA!, "claude"),
+        CELLO_WAKE_BATCH_MS: "3000",
+        CELLO_WAKE_QUIET_MS: "0",
+      },
       url: `http://127.0.0.1:${SERVER_PORT}/rpc`,
       ignoreHTTPSErrors: true,
       reuseExistingServer: false,

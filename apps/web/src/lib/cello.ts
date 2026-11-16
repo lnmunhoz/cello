@@ -27,6 +27,7 @@ export const {
   reviewsFamily,
   asksFamily,
   profileFamily,
+  wakeSettingsFamily,
   historyFamily,
   pageFamily,
   documentHistoryFamily,

@@ -1,0 +1,19 @@
+#!/bin/sh
+# A stand-in for Claude Code in the e2e tests (CEL-92): the real `claude` never runs in tests. The e2e
+# server has this folder first on its PATH, so a woken run starts this. It does what a woken session
+# does: takes its inbox with `cello inbox` and answers on the card, as the session it resumes. The test
+# says which task and what answer in $CLAUDE_CONFIG_DIR (key-<session>, answer-<session>); with a
+# hold-<session> file there it then keeps running until it's stopped.
+here=$(cd "$(dirname "$0")" && pwd)
+session=""
+prev=""
+for a in "$@"; do
+  [ "$prev" = "--resume" ] && session="$a"
+  prev="$a"
+done
+export CLAUDE_CODE_SESSION_ID="$session"
+echo '{"type":"system","subtype":"init"}'
+bun "$here/../../apps/cli/src/bin.ts" inbox --new
+bun "$here/../../apps/cli/src/bin.ts" task comment "$(cat "$CLAUDE_CONFIG_DIR/key-$session")" "$(cat "$CLAUDE_CONFIG_DIR/answer-$session")"
+if [ -f "$CLAUDE_CONFIG_DIR/hold-$session" ]; then exec sleep 600; fi
+echo '{"type":"result","subtype":"success","is_error":false}'

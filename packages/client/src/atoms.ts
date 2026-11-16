@@ -1,6 +1,6 @@
 // The thin atom layer over the pure sync and command code: one synced atom fed by `follow`,
 // a list of optimistic patches, the view the screens read, and command atoms for writes.
-import type { Ask, Comment, Document, DocumentVersion, LabelGroup, Priority, Review, Scope, TestingProfile } from "@cello/contract/entities"
+import type { Ask, Comment, Document, DocumentVersion, LabelGroup, Priority, Review, Scope, TestingProfile, WakeSettings } from "@cello/contract/entities"
 import type { AnswerInput } from "@cello/contract/rpcs"
 import type { CelloEvent } from "@cello/contract/events"
 import type { SearchResults } from "@cello/contract/search"
@@ -20,6 +20,7 @@ import { documentBySlug } from "./sync/documents.ts"
 import { projectByKey } from "./sync/selectors.ts"
 import { applyAskEvents } from "./sync/asks.ts"
 import { applyProfileEvents } from "./sync/profile.ts"
+import { applyWakeSettingsEvents } from "./sync/wakeSettings.ts"
 import { applyReviewEvents } from "./sync/reviews.ts"
 import { follow, followsWorkspace, sourceFromClient, type Synced } from "./sync/follow.ts"
 import type { BoardState } from "./sync/applyEvents.ts"
@@ -272,6 +273,23 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
       call: (c, a: { projectKey: string; set: ReadonlyArray<{ field: string; value: string }>; unset?: ReadonlyArray<string> }, commandId) =>
         c["profile.set"]({ commandId, project: { key: a.projectKey }, set: a.set, ...(a.unset ? { unset: a.unset } : {}) }),
     }),
+    // Waking sessions (CEL-92): the project's settings, "Don't wake" on a due wake, and Stop on a woken
+    // run. The card follows when the events arrive.
+    setWakeSettings: command({
+      call: (c, a: { projectKey: string; enabled?: boolean; capPerHour?: number }, commandId) =>
+        c["wake.setSettings"]({
+          commandId,
+          project: { key: a.projectKey },
+          ...(a.enabled === undefined ? {} : { enabled: a.enabled }),
+          ...(a.capPerHour === undefined ? {} : { capPerHour: a.capPerHour }),
+        }),
+    }),
+    cancelWake: command({
+      call: (c, a: { taskId: string }, commandId) => c["session.cancelWake"]({ commandId, ...a }),
+    }),
+    stopRun: command({
+      call: (c, a: { runId: string }, commandId) => c["session.stopRun"]({ commandId, ...a }),
+    }),
     addComment: command({
       call: (c, a: { taskId: string; body: string; attachmentIds?: ReadonlyArray<string> }, commandId) => c["comment.add"]({ commandId, ...a }),
     }),
@@ -345,6 +363,10 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
   const profileFamily = Atom.family((projectKey: string) =>
     followed<TestingProfile>((c) => c["profile.get"]({ project: { key: projectKey } }), applyProfileEvents))
 
+  /** A project's wake settings (CEL-92), by project key, kept current by `wake.settings_changed`. */
+  const wakeSettingsFamily = Atom.family((projectKey: string) =>
+    followed<WakeSettings>((c) => c["wake.settings"]({ project: { key: projectKey } }), applyWakeSettingsEvents))
+
   /**
    * The server's version of one task. It changes only when that task does, and an optimistic edit
    * (which bumps the shown version early) doesn't touch it.
@@ -355,13 +377,22 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
       return AsyncResult.isSuccess(synced) ? synced.value.state.tasks[taskId]?.version : undefined
     }))
 
-  /** A task's history, fetched again whenever the server changes the task or its comments. */
+  /** When the task's latest wake event happened (CEL-92); wakes aren't task changes, so its version stays. */
+  const syncedWakeFamily = Atom.family((taskId: string) =>
+    Atom.make((get) => {
+      const synced = get(syncedAtom)
+      return AsyncResult.isSuccess(synced) ? synced.value.state.wakes[taskId]?.ts : undefined
+    }))
+
+  /** A task's history, fetched again whenever the server changes the task, its comments or its wake. */
   const historyFamily = Atom.family((taskId: string) =>
     runtime.atom((get) => {
       const version = get(syncedVersionFamily(taskId))
+      const wake = get(syncedWakeFamily(taskId))
       get(commentsFamily(taskId))
       return Effect.gen(function* () {
         void version
+        void wake
         const client = yield* CelloClient
         return (yield* client["task.history"]({ id: taskId })) as ReadonlyArray<CelloEvent>
       })
@@ -438,6 +469,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     reviewsFamily,
     asksFamily,
     profileFamily,
+    wakeSettingsFamily,
     historyFamily,
     pageFamily,
     documentHistoryFamily,
