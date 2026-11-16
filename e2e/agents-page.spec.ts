@@ -175,7 +175,8 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   expect(edgeBox!.y).toBeGreaterThanOrEqual(cardBox!.y)
   expect(edgeBox!.y + edgeBox!.height).toBeLessThanOrEqual(cardBox!.y + cardBox!.height)
   expect(Math.abs(edgeBox!.x - cardBox!.x)).toBeLessThan(4)
-  await expect(builderRow.locator("[data-log-placeholder]")).toContainText("Live log")
+  // No hook reported a transcript for it here: the log says so (CEL-106 follows a real one in agent-log.spec.ts).
+  await expect(builderRow.locator("[data-agent-log] [data-log-unavailable]")).toHaveAttribute("data-log-unavailable", "none")
   await shoot(page, "open")
 
   await caption(page, "Click its card: the task opens")

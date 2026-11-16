@@ -4,8 +4,11 @@ import type { Ask, Comment, Document, DocumentVersion, LabelGroup, Priority, Rev
 import type { AnswerInput } from "@cello/contract/rpcs"
 import type { CelloEvent } from "@cello/contract/events"
 import type { SearchResults } from "@cello/contract/search"
+import type { LogUpdate } from "@cello/contract/agentLog"
 import * as Cause from "effect/Cause"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Schedule from "effect/Schedule"
 import * as Exit from "effect/Exit"
 import * as Stream from "effect/Stream"
 import * as Atom from "effect/reactivity/Atom"
@@ -15,6 +18,7 @@ import { CelloClient, newCommandId } from "./client.ts"
 import { describeError } from "./commands/describeError.ts"
 import { begin, confirm, pendingOf, prune, rollback, view, type Patch, type Pending } from "./commands/optimistic.ts"
 import * as patches from "./commands/patches.ts"
+import { applyLogUpdate, EMPTY_LOG, parseLogKey } from "./sync/agentLog.ts"
 import { applyCommentEvents } from "./sync/comments.ts"
 import { documentBySlug } from "./sync/documents.ts"
 import { projectByKey } from "./sync/selectors.ts"
@@ -456,7 +460,32 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
       return yield* (yield* CelloClient)["search.query"]({ query, workspaceId, limit })
     })))
 
+  /**
+   * An agent's live log (CEL-106), by `logKey` (agentLog.ts): the steps so far, kept current while the
+   * screen reads it. A dropped connection opens the stream again, whose first batch replaces the steps.
+   */
+  const agentLogFamily = Atom.family((key: string) =>
+    runtime.atom(() => {
+      const source = parseLogKey(key)
+      const updates: Stream.Stream<LogUpdate, unknown, CelloClient> = Stream.unwrap(
+        Effect.gen(function* () {
+          const client = yield* CelloClient
+          return client["agent.log"]({
+            sessionId: source.sessionId,
+            ...(source.agentId === undefined ? {} : { agentId: source.agentId }),
+            ...(source.runId === undefined ? {} : { runId: source.runId }),
+            ...(source.reveal ? { reveal: true } : {}),
+          }).pipe(Stream.catchTag("NotFound", () => Stream.succeed<LogUpdate>({ _tag: "unavailable", reason: "none" })))
+        }),
+      )
+      return updates.pipe(
+        Stream.retry(Schedule.spaced(Duration.millis(options.retryDelay ?? 1000))),
+        Stream.scan(() => EMPTY_LOG, applyLogUpdate),
+      )
+    }))
+
   return {
+    agentLogFamily,
     workspaceIdAtom,
     syncedAtom,
     currentAtom,
