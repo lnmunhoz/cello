@@ -68,8 +68,9 @@ export function ViewerPanel() {
     // already open beside it). The desktop app's preload sends the same messages: a task key clicked in
     // its native panel, and a `cello://open` link or a ⌘-click to a page on the board (CEL-60).
     const onMessage = (e: MessageEvent) => {
-      // From the frame in the viewer: a click in the side panel, which Back can return from.
-      if (e.source !== window && e.origin === location.origin) markPanelClick()
+      // From the frame in the viewer (not the desktop app's preload): a click in the side panel, which Back can return from.
+      const frames = document.querySelectorAll<HTMLIFrameElement>('[data-side-panel="viewer"] iframe')
+      if (e.source !== null && [...frames].some((frame) => frame.contentWindow === e.source)) markPanelClick()
       const task = openTaskFrom(e, location.origin)
       if (task) return openTaskHere(task)
       const data = e.data as Partial<OpenMessage> | null
