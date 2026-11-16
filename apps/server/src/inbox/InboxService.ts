@@ -18,8 +18,7 @@
 // approval ends the claim too but tells no one: the work is done.
 import type { Ask, ClaimEndCause, Comment, DeliveryVia, InboxItem, Reaction } from "@cello/contract/entities"
 import { Caller } from "@cello/contract/rpcs"
-import type { Inbox } from "@cello/contract/views"
-import * as Clock from "effect/Clock"
+import type { AnswersDelivered, Inbox } from "@cello/contract/views"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -52,6 +51,12 @@ export interface ClaimEnded {
 export interface TakeQuery {
   readonly unreadOnly?: boolean
   readonly via?: DeliveryVia
+}
+
+/** The ask whose answers a wait hands over, and the client's command id (a retry gets the first call's outcome). */
+export interface HandOver {
+  readonly askId: string
+  readonly commandId?: string
 }
 
 export class InboxService extends Context.Service<InboxService, {
@@ -98,10 +103,16 @@ export class InboxService extends Context.Service<InboxService, {
    */
   readonly deliverReactionWithin: (context: Commands.WriteContext, comment: Comment, reaction: Reaction) => Effect.Effect<void, SqlError>
   /**
-   * Runs `wait` (until an ask closes) and hands its answers over: the caller's inbox item for them is
-   * marked read, and while it runs `take` leaves that item alone, so the hook never prints them too.
+   * Runs `wait` (until an ask closes) and hands its answers over: while it runs `take` leaves the
+   * caller's inbox item for them alone, and when it returns it takes the item itself, with the same
+   * single-winner update `take` uses. If someone took it first (a restart emptied the hold and the
+   * hook got there; an earlier wait), `alreadyDelivered` says how and when, so they're printed once.
+   * With a `commandId`, a retry gets what the first call got (CEL-78).
    */
-  readonly handOverAnswers: <A extends { readonly id: string }, E, R>(askId: string, wait: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | Caller>
+  readonly handOverAnswers: <A, E, R>(
+    handOver: HandOver,
+    wait: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<{ readonly result: A; readonly alreadyDelivered: AnswersDelivered | null }, E, R | Caller>
 }>()("cello/InboxService") {}
 
 const make = Effect.gen(function* () {
@@ -177,24 +188,41 @@ const make = Effect.gen(function* () {
 
   // Asks a session is waiting on right now ("<session> <ask>" → how many waits): `take` leaves their
   // items to the wait, so the answers aren't handed over twice (the hook firing between the commit and
-  // the wait's own mark). A wait that ends without marking (interrupted) lets go, and the hook gets them.
+  // the wait's own take). A wait that ends without taking (interrupted) lets go, and the hook gets them.
+  // Only an optimisation: it lives in memory, so a restart empties it, and the database decides who
+  // delivers (the wait's own take below).
   const held = new Map<string, number>()
   const heldBy = (sessionId: string) =>
     [...held.keys()].flatMap((k) => (k.startsWith(`${sessionId} `) ? [k.slice(sessionId.length + 1)] : []))
 
-  const handOverAnswers = <A extends { readonly id: string }, E, R>(askId: string, wait: Effect.Effect<A, E, R>) =>
+  /** Takes the session's item for the ask, or says how and when its answers were taken before. */
+  const takeAnswers = (sessionId: string, handOver: HandOver) =>
+    commands.write(
+      { commandId: handOver.commandId ?? crypto.randomUUID(), rpc: "ask.wait", receipt: handOver.commandId !== undefined },
+      ({ now }) =>
+        Effect.gen(function* () {
+          const taken = yield* sql<{ id: string }>`
+            UPDATE inbox_items SET read_at = ${now}, read_via = 'wait'
+            WHERE ask_id = ${handOver.askId} AND session_id = ${sessionId} AND read_at IS NULL RETURNING id`
+          if (taken.length > 0) return null
+          const [before] = yield* sql<{ read_at: number; read_via: DeliveryVia | null }>`
+            SELECT read_at, read_via FROM inbox_items
+            WHERE ask_id = ${handOver.askId} AND session_id = ${sessionId} AND kind = 'answers' AND read_at IS NOT NULL`
+          return before ? ({ via: before.read_via, at: before.read_at } satisfies AnswersDelivered) : null
+        }),
+    ).pipe(Effect.map((written) => written.result))
+
+  const handOverAnswers = <A, E, R>(handOver: HandOver, wait: Effect.Effect<A, E, R>) =>
     Effect.gen(function* () {
       const caller = yield* Caller
-      if (caller.sessionId === null) return yield* wait
-      const k = `${caller.sessionId} ${askId}`
+      const sessionId = caller.sessionId
+      if (sessionId === null) return { result: yield* wait, alreadyDelivered: null }
+      const k = `${sessionId} ${handOver.askId}`
       return yield* Effect.acquireUseRelease(
         Effect.sync(() => void held.set(k, (held.get(k) ?? 0) + 1)),
         () =>
-          Effect.tap(wait, () =>
-            Effect.gen(function* () {
-              const now = yield* Clock.currentTimeMillis
-              yield* sql`UPDATE inbox_items SET read_at = ${now} WHERE ask_id = ${askId} AND session_id = ${caller.sessionId} AND read_at IS NULL`
-            }).pipe(Effect.orDie)),
+          Effect.flatMap(wait, (result) =>
+            Effect.map(takeAnswers(sessionId, handOver), (alreadyDelivered) => ({ result, alreadyDelivered }))),
         () =>
           Effect.sync(() => {
             const n = (held.get(k) ?? 1) - 1

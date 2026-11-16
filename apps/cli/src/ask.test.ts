@@ -1,7 +1,7 @@
 // `cello task ask` input (a file, or inline flags) and how Lucas's answers read for the agent.
 import type { Ask, Attachment } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { answerLines, answerScreenshots, askResultText, askSpecFromArgs, askSpecFromFile } from "./ask.ts"
+import { alreadyDeliveredText, answerLines, answerScreenshots, askResultText, askSpecFromArgs, askSpecFromFile } from "./ask.ts"
 import { deliveryText } from "./inbox.ts"
 
 const NOW = 1_800_000_000_000
@@ -182,6 +182,14 @@ describe("Lucas's answers, as the agent reads them", () => {
     expect(text).toContain("CEL-43 is back in progress: carry on with these answers.")
     expect(askResultText({ ...ask, state: "withdrawn", answers: null, withdrawnAt: NOW - 60_000 }, "CEL-43", "Lucas", new Map(), NOW))
       .toBe("CEL-43's questions \"Search layout\" were withdrawn 1m ago; there are no answers.")
+  })
+
+  it("a wait whose answers already reached the session (the hook took them during a restart) says so in one line, and how to see them again", () => {
+    expect(alreadyDeliveredText(ask, "CEL-43", { via: "hook", at: NOW - 3 * 60_000 }, NOW))
+      .toBe("The answers to \"Search layout\" on CEL-43 already reached this session (through the hook, 3m ago). `cello task answers CEL-43` shows them again.")
+    expect(alreadyDeliveredText(ask, "CEL-43", { via: "inbox", at: NOW }, NOW)).toContain("(through `cello inbox`, just now)")
+    expect(alreadyDeliveredText(ask, "CEL-43", { via: "wait", at: NOW }, NOW)).toContain("(through an earlier wait, just now)")
+    expect(alreadyDeliveredText(ask, "CEL-43", { via: null, at: NOW - 2 * 3_600_000 }, NOW)).toContain("already reached this session (2h ago).")
   })
 
   it("the hook delivers answers with the same lines, and says the task is back in progress", () => {

@@ -3,7 +3,8 @@
 // every deploy restarts the server under them. Instead of failing, they reconnect: a call that finds
 // the server down pauses (a quarter second, doubling, at most 5 seconds) and tries again, and only once
 // the server has been away for the whole grace (2 minutes) do they give up. The calls they make are safe
-// to repeat: they take or hand over nothing until they return.
+// to repeat: they take or hand over nothing until they return, and `ask.wait` sends the same command id
+// on every try, so a reply lost to the restart is handed back on the next (CEL-78).
 import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"

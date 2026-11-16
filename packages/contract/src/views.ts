@@ -1,7 +1,7 @@
 // Read models for the CLI (and later MCP): one RPC returns everything a command prints.
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { Actor, AgentSession, Ask, Comment, DocumentSummary, InboxItem, Label, Project, Review, SessionAgent, Status, Task, TestingProfile } from "./entities.ts"
+import { Actor, AgentSession, Ask, Comment, DeliveryVia, DocumentSummary, InboxItem, Label, Millis, Project, Review, SessionAgent, Status, Task, TestingProfile } from "./entities.ts"
 import { CelloEvent } from "./events.ts"
 
 /**
@@ -72,6 +72,28 @@ export const Inbox = Schema.Struct({
   human: Schema.optionalKey(Schema.String),
 })
 export type Inbox = typeof Inbox.Type
+
+/** When and how an ask's answers reached the calling session before a wait could hand them over (CEL-78). */
+export const AnswersDelivered = Schema.Struct({
+  /** Its hook, `cello inbox`, or another wait; null for answers taken before Cello kept track of how. */
+  via: Schema.NullOr(DeliveryVia),
+  at: Millis,
+})
+export type AnswersDelivered = typeof AnswersDelivered.Type
+
+/**
+ * What `ask.wait` returns: the task's latest ask, closed, and `alreadyDelivered` when its answers reached
+ * the calling session before (its hook or `cello inbox` took them while the wait was reconnecting, or an
+ * earlier wait handed them over), so the CLI doesn't print them a second time. Null when this wait
+ * handed them over, for the human, for a session they weren't sent to, and for an ask that wasn't
+ * answered. The ask's own fields stay at the top, and the field is optional, so a CLI and a server of
+ * different versions still read each other: read it as `alreadyDelivered ?? null`.
+ */
+export const AskWaited = Schema.Struct({
+  ...Ask.fields,
+  alreadyDelivered: Schema.optionalKey(Schema.NullOr(AnswersDelivered)),
+})
+export type AskWaited = typeof AskWaited.Type
 
 export const TaskList = Schema.Struct({ ...projectFields, tasks: Schema.Array(Task) })
 export type TaskList = typeof TaskList.Type
