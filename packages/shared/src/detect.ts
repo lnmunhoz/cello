@@ -3,9 +3,11 @@
 // evidence a review packet needs. Plain code over file names and contents, no AI; reading the repo and
 // checking the machine (ffmpeg, Docker, Playwright's browsers) happens in the CLI, which passes the
 // facts in. The result is a first draft of the project's testing profile, not the truth: agents and
-// Lucas correct it later.
+// Lucas correct it later. A value it can't settle from the files (a variable with no default, a run that
+// goes through a wrapper) is left out rather than written wrong (CEL-96).
 
 export interface PackageJson {
+  readonly name?: string
   readonly scripts?: Readonly<Record<string, string>>
   readonly dependencies?: Readonly<Record<string, string>>
   readonly devDependencies?: Readonly<Record<string, string>>
@@ -51,6 +53,11 @@ export interface Detection {
   readonly tools: { readonly unit: string | null; readonly e2e: ReadonlyArray<string> }
   /** Testing-profile values found, by field name. */
   readonly fields: Readonly<Record<string, string>>
+  /**
+   * Fields detection found a hint for but couldn't settle (a baseURL naming a variable with no default), with
+   * why: left out of `fields`, never written half-resolved (CEL-96).
+   */
+  readonly unresolved: ReadonlyArray<{ readonly field: string; readonly why: string }>
   readonly readiness: ReadonlyArray<ReadinessLine>
 }
 
@@ -121,28 +128,152 @@ const unitRunnerName = (command: string, deps: ReadonlySet<string>): string | nu
   return deps.has("vitest") ? "Vitest" : deps.has("jest") ? "Jest" : null
 }
 
-/** The port a dev script names (`--port 5199`, `-p 3000`), else the config's, else the framework's default. */
-const portOf = (script: string, facts: RepoFacts, stack: ReadonlyArray<string>): string | null => {
-  const flag = /(?:--port[= ]|-p )(\d{2,5})/.exec(script)
-  if (flag) return flag[1]!
-  const config = Object.entries(facts.texts).find(([p]) => basename(p).startsWith("vite.config."))
-  const fromConfig = config && /\bport:\s*(\d{2,5})/.exec(config[1])
-  if (fromConfig) return fromConfig[1]!
-  if (stack.includes("web (Next)")) return "3000"
-  if (stack.includes("web (Vite)")) return "5173"
-  if (stack.some((s) => s.startsWith("mobile"))) return "8081"
+// ── values in config files ──
+
+/** The expression after `key:` in a config's text, up to the comma, closing bracket or line end that ends it. */
+const exprAfter = (text: string, key: string): string | null => {
+  const found = new RegExp(`\\b${key}\\s*:\\s*`).exec(text)
+  if (!found) return null
+  const start = found.index + found[0].length
+  let depth = 0
+  let quote: string | null = null
+  let i = start
+  for (; i < text.length; i++) {
+    const c = text[i]!
+    if (quote) {
+      if (c === "\\") i++
+      else if (c === quote) quote = null
+    } else if (c === "\"" || c === "'" || c === "`") quote = c
+    else if ("([{".includes(c)) depth++
+    else if (")]}".includes(c)) {
+      if (depth === 0) break
+      depth--
+    } else if ((c === "," || c === "\n") && depth === 0) break
+  }
+  return text.slice(start, i).trim() || null
+}
+
+/** `expr` split at its top-level `??` and `||`, outside quotes and brackets. */
+const alternatives = (expr: string): string[] => {
+  const parts: string[] = []
+  let depth = 0
+  let quote: string | null = null
+  let from = 0
+  for (let i = 0; i < expr.length; i++) {
+    const c = expr[i]!
+    if (quote) {
+      if (c === "\\") i++
+      else if (c === quote) quote = null
+    } else if (c === "\"" || c === "'" || c === "`") quote = c
+    else if ("([{".includes(c)) depth++
+    else if (")]}".includes(c)) depth--
+    else if (depth === 0 && (expr.startsWith("??", i) || expr.startsWith("||", i))) {
+      parts.push(expr.slice(from, i))
+      from = i + 2
+      i++
+    }
+  }
+  return [...parts, expr.slice(from)].map((part) => part.trim())
+}
+
+const ENV_READ = /^process\.env(?:\.\w+|\[["']\w+["']\])$/
+
+/**
+ * What a config expression comes to when nothing is set in the environment, when the file alone says so:
+ * a string or number literal; `process.env.X ?? <default>` (or `||`), its default; Number(…), String(…) or
+ * parseInt(…) around one; a const in the file that holds one; a template literal whose every `${…}` resolves.
+ * Anything else, `process.env.X` with no default included, is null: detection never writes a value with a
+ * variable left in it (CEL-96). `miss.variable` records whether a variable with no default was why.
+ */
+const evaluate = (expr: string, text: string, miss: { variable: boolean } = { variable: false }, depth = 0): string | null => {
+  const e = expr.trim()
+  if (depth > 5 || e === "") return null
+  const call = /^(?:Number|String|parseInt|parseFloat)\(([\s\S]*?)(?:,\s*\d+)?\)$/.exec(e)
+  if (call) return evaluate(call[1]!, text, miss, depth + 1)
+  const options = alternatives(e)
+  const set = options.find((option) => !ENV_READ.test(option))
+  if (set === undefined) {
+    miss.variable = true
+    return null
+  }
+  if (options.length > 1) return evaluate(set, text, miss, depth + 1)
+  if (/^\([\s\S]*\)$/.test(e)) return evaluate(e.slice(1, -1), text, miss, depth + 1)
+  const quoted = /^(["'])((?:(?!\1)[^\\]|\\.)*)\1$/.exec(e)
+  if (quoted) return quoted[2]!
+  if (/^\d+(?:\.\d+)?$/.test(e)) return e
+  const template = /^`([^`]*)`$/.exec(e)
+  if (template) {
+    let open = false
+    const value = template[1]!.replace(/\$\{([^}]*)\}/g, (_, inner: string) => {
+      const resolved = evaluate(inner, text, miss, depth + 1)
+      if (resolved === null) open = true
+      return resolved ?? ""
+    })
+    return open ? null : value
+  }
+  if (/^[A-Za-z_$][\w$]*$/.test(e)) {
+    const defined = new RegExp(`\\b(?:const|let|var)\\s+${e.replace(/\$/g, "\\$")}\\s*=\\s*([^\\n;]+)`).exec(text)
+    // A comment after the value goes; "//" inside a quoted URL stays.
+    return defined ? evaluate(defined[1]!.replace(/\s+\/\/[^"'`]*$/, ""), text, miss, depth + 1) : null
+  }
   return null
+}
+
+/** An expression as markdown code: a template literal already is (`http://localhost:${PORT}`). */
+const code = (expr: string) => (expr.startsWith("`") ? expr : `\`${expr}\``)
+
+/** Why `what` (`baseURL in playwright.config.ts`), whose expression is `expr`, has no value detection can write. */
+const unsettled = (what: string, expr: string, text: string) => {
+  const miss = { variable: false }
+  evaluate(expr, text, miss)
+  return `${what} is ${code(expr)}${miss.variable ? ", which names a variable with no default there" : "; couldn't work out its value from the file"}`
+}
+
+/**
+ * The app's port: the one a dev script names (`--port 5199`, `-p 3000`), else vite.config's, else the
+ * framework's default. A port behind a variable with no default is why it can't tell.
+ */
+const portOf = (script: string, facts: RepoFacts, stack: ReadonlyArray<string>): { port: string } | { why: string } | null => {
+  const flag = /(?:--port[= ]|-p )(\d{2,5}\b|\$\{?\w+\}?)/.exec(script)
+  if (flag) return /^\d+$/.test(flag[1]!) ? { port: flag[1]! } : { why: `the dev script passes \`${flag[0]}\`, which names a variable` }
+  const config = Object.entries(facts.texts).find(([p]) => basename(p).startsWith("vite.config."))
+  const expr = config && exprAfter(config[1], "port")
+  if (config && expr) {
+    const port = evaluate(expr, config[1])
+    return port !== null && /^\d{2,5}$/.test(port) ? { port } : { why: unsettled(`the port in ${config[0]}`, expr, config[1]) }
+  }
+  if (stack.includes("web (Next)")) return { port: "3000" }
+  if (stack.includes("web (Vite)")) return { port: "5173" }
+  if (stack.some((s) => s.startsWith("mobile"))) return { port: "8081" }
+  return null
+}
+
+/** How an e2e surface runs: the command to type, and the script it runs in the end (null when it isn't a script). */
+interface Run {
+  readonly command: string
+  readonly body: string | null
 }
 
 interface E2E {
   readonly tool: string
   readonly surface: string
-  readonly run: string
+  readonly run: Run
   readonly videos: string | null
   readonly screenshots: string | null
   /** Why videos aren't ready yet, beyond the machine. */
   readonly videoProblem: string | null
+  /** Why screenshots aren't ready yet, beyond the machine. */
+  readonly shotsProblem: string | null
 }
+
+/** Script names that usually run a package's e2e tests. */
+const E2E_SCRIPTS = ["test:e2e", "e2e", "test:e2e:local", "playwright"]
+const TESTISH = /e2e|playwright|docker|test/i
+const SURFACE_WORDS: Record<string, RegExp> = { web: /\bweb\b/i, desktop: /\b(desktop|electron)\b/i }
+
+const dirOf = (file: string) => (file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : "")
+const under = (dir: string, folder: string) => (dir && !folder.startsWith("/") ? `${dir}/${folder.replace(/^\.\//, "")}` : folder.replace(/^\.\//, ""))
+const unique = <A>(items: ReadonlyArray<A>) => [...new Set(items)]
 
 export const detectRepo = (facts: RepoFacts, machine: MachineFacts): Detection => {
   const root = facts.packages.find((p) => p.path === "package.json")?.json ?? {}
@@ -204,76 +335,159 @@ export const detectRepo = (facts: RepoFacts, machine: MachineFacts): Detection =
   else if (python && /mypy/.test(text("pyproject.toml"))) fields["typecheck"] = `${python.prefix}mypy .`
 
   // ── e2e ──
-  const e2e: E2E[] = []
-  const scriptRunning = (pattern: RegExp, names: ReadonlyArray<string>) => {
-    const named = firstScript(scripts, names)
-    const name = named ?? Object.keys(scripts).find((n) => pattern.test(scripts[n]!))
-    return js && name ? js.script(name) : null
+  // The repo's JS runner; npm when there's no package.json, for the `npx playwright test` fallback.
+  const runner = js ?? { name: "npm", ...JS_RUNNERS.npm! }
+  const packageAt = (dir: string) => facts.packages.find((p) => p.path === (dir ? `${dir}/package.json` : "package.json"))
+  /** A script's command, following a script that only calls another one (`bun run e2e:ci`). */
+  const scriptBody = (own: Readonly<Record<string, string>>, name: string, depth = 0): string => {
+    const next = /^(?:bun|npm|pnpm|yarn)(?:\s+run)?\s+([\w:.-]+)$/.exec(own[name]!.trim())?.[1]
+    return next && next !== name && own[next] !== undefined && depth < 3 ? scriptBody(own, next, depth + 1) : own[name]!
   }
-  const playwrightConfig = Object.entries(facts.texts).find(([p]) => basename(p).startsWith("playwright.config."))
-  if (deps.has("@playwright/test") || deps.has("playwright") || playwrightConfig) {
-    const config = playwrightConfig?.[1] ?? ""
-    const out = /\boutputDir:\s*["'`]([^"'`]+)["'`]/.exec(config)?.[1] ?? "test-results"
-    const video = /\bvideo:[^,}\n]*["'](on|retain-on-failure|on-first-retry)["']/.test(config)
-    e2e.push({
-      tool: "Playwright",
-      surface: stack.some((s) => s.startsWith("web")) || !deps.has("electron") ? "web" : "desktop",
-      run: scriptRunning(/playwright test/, ["test:e2e", "e2e", "test:e2e:local", "playwright"]) ?? (js ?? JS_RUNNERS.npm!).exec("playwright test"),
-      videos: out,
-      screenshots: out,
-      videoProblem: video ? null : `turn videos on in ${playwrightConfig ? basename(playwrightConfig[0]) : "playwright.config.ts"} (use: { video: "on" })`,
-    })
+  /** A script of the package in `dir` ("" for the root), run from the root. */
+  const script = (name: string, dir = ""): Run => {
+    const own = packageAt(dir)?.json.scripts ?? {}
+    return { command: `${dir ? `cd ${dir} && ` : ""}${runner.script(name)}`, body: scriptBody(own, name) }
+  }
+  const scriptRunning = (pattern: RegExp, names: ReadonlyArray<string>): Run | null => {
+    const name = firstScript(scripts, names) ?? Object.keys(scripts).find((n) => pattern.test(scripts[n]!))
+    return js && name ? script(name) : null
+  }
+  /**
+   * One entry. A run that goes through Docker or a wrapper script (anything but the tool itself) leaves its
+   * videos and screenshots where the wrapper puts them, not in the tool's folder, so those stay unset and the
+   * report says to set them (CEL-96).
+   */
+  const entry = (tool: string, direct: RegExp, found: Omit<E2E, "tool" | "shotsProblem"> & { readonly shotsProblem?: string | null }): E2E => {
+    const body = found.run.body
+    const wrapped = body !== null && (/docker/i.test(body) || !direct.test(body))
+    if (!wrapped) return { tool, shotsProblem: null, ...found }
+    const through = `the run goes through \`${body}\`, not straight to ${tool}`
+    return {
+      ...found,
+      tool,
+      videos: null,
+      screenshots: null,
+      videoProblem: `set e2e.${found.surface}.videos to the folder its finished videos land in: ${through}`,
+      shotsProblem: `set e2e.${found.surface}.screenshots to the folder its screenshots land in: ${through}`,
+    }
+  }
+  const e2e: E2E[] = []
+  // One entry per Playwright config (the root's and each workspace package's), each with its surface.
+  const playwrightConfigs = Object.entries(facts.texts).filter(([p]) => basename(p).startsWith("playwright.config."))
+  if (deps.has("@playwright/test") || deps.has("playwright") || playwrightConfigs.length > 0) {
+    const configs: ReadonlyArray<readonly [string, string]> = playwrightConfigs.length > 0 ? playwrightConfigs : [["playwright.config.ts", ""]]
+    /** What names a workspace package's config in a script: its folder (and so its path) and its package name. */
+    const idsOf = (file: string) => {
+      const dir = dirOf(file)
+      return dir ? [dir, ...(packageAt(dir)?.json.name ? [packageAt(dir)!.json.name!] : [])] : []
+    }
+    for (const [file, config] of configs) {
+      const dir = dirOf(file)
+      const own = packageAt(dir)?.json
+      const ids = idsOf(file)
+      const others = configs.flatMap(([f]) => (f === file ? [] : idsOf(f)))
+      const rootScript = (test: (name: string, body: string) => boolean) => Object.keys(scripts).find((n) => test(n, scripts[n]!))
+      // Desktop: a config using _electron; a workspace package depending on Electron; for the root's config, a
+      // root script running Playwright named for the desktop. Not the root's own dependencies: a monorepo often
+      // has electron-builder (and Electron) at the root whatever its root config tests.
+      const electronPackage = dir !== "" && (own?.dependencies?.["electron"] !== undefined || own?.devDependencies?.["electron"] !== undefined)
+      const desktopScript = dir === "" && rootScript((n, b) => SURFACE_WORDS.desktop!.test(n) && /playwright test/.test(b) && !others.some((id) => b.includes(id))) !== undefined
+      const surface = /\b_electron\b/.test(config) || electronPackage || desktopScript ? "desktop" : "web"
+      // The run, first found wins: a root script naming this package's folder or name; a root test script
+      // naming the surface (test:docker:desktop); for the root's config, the usual e2e script names, then a
+      // script running `playwright test` that names no other config; for a package's, its own e2e script, run
+      // from its folder; else Playwright on this config.
+      const ownScripts = own?.scripts ?? {}
+      const fromRoot = !js ? undefined
+        : (ids.length > 0 ? rootScript((n, b) => ids.some((id) => b.includes(id)) && (TESTISH.test(n) || /playwright/.test(b))) : undefined)
+          ?? rootScript((n) => SURFACE_WORDS[surface]!.test(n) && TESTISH.test(n))
+          ?? (dir ? undefined : firstScript(scripts, E2E_SCRIPTS) ?? rootScript((_, b) => /playwright test/.test(b) && !others.some((id) => b.includes(id))))
+      const fromPackage = js && dir ? firstScript(ownScripts, E2E_SCRIPTS) ?? Object.keys(ownScripts).find((n) => /playwright test/.test(ownScripts[n]!)) : undefined
+      const run: Run = fromRoot ? script(fromRoot)
+        : fromPackage ? script(fromPackage, dir)
+        : { command: runner.exec(dir ? `playwright test -c ${file}` : "playwright test"), body: null }
+      const outExpr = exprAfter(config, "outputDir")
+      const out = outExpr === null ? "test-results" : evaluate(outExpr, config)
+      const name = playwrightConfigs.length > 0 ? file : "playwright.config.ts"
+      const video = /\bvideo:[^,}\n]*["'](on|retain-on-failure|on-first-retry)["']/.test(config)
+      const folder = out === null ? null : under(dir, out)
+      e2e.push(entry("Playwright", /\bplaywright\s+test\b/, surface === "desktop"
+        ? {
+          // Electron records where the tests launch it (_electron.launch({ recordVideo })), not where the config says.
+          surface, run, videos: null, screenshots: null,
+          videoProblem: "set e2e.desktop.videos to the folder the Electron tests record into (`_electron.launch({ recordVideo: { dir } })`); Playwright's config doesn't say",
+          shotsProblem: "set e2e.desktop.screenshots to the folder the Electron tests save screenshots in",
+        }
+        : {
+          surface, run, videos: folder, screenshots: folder,
+          videoProblem: out === null
+            ? `set e2e.web.videos: ${unsettled(`outputDir in ${name}`, outExpr!, config)}`
+            : video ? null : `turn videos on in ${name} (use: { video: "on" })`,
+          shotsProblem: out === null ? `set e2e.web.screenshots: ${unsettled(`outputDir in ${name}`, outExpr!, config)}` : null,
+        }))
+    }
   }
   if (deps.has("cypress")) {
     const config = Object.entries(facts.texts).find(([p]) => basename(p).startsWith("cypress.config."))?.[1] ?? ""
-    e2e.push({
-      tool: "Cypress",
+    e2e.push(entry("Cypress", /\bcypress\s+run\b/, {
       surface: "web",
-      run: scriptRunning(/cypress run/, ["test:e2e", "e2e", "cypress:run"]) ?? (js ?? JS_RUNNERS.npm!).exec("cypress run"),
+      run: scriptRunning(/cypress run/, ["test:e2e", "e2e", "cypress:run"]) ?? { command: runner.exec("cypress run"), body: null },
       videos: "cypress/videos",
       screenshots: "cypress/screenshots",
       videoProblem: /\bvideo:\s*true/.test(config) ? null : "turn videos on in cypress.config (video: true)",
-    })
+    }))
   }
   if (has(facts, ".maestro")) {
-    e2e.push({ tool: "Maestro", surface: "mobile", run: "maestro test .maestro", videos: null, screenshots: null, videoProblem: "record flows with `maestro record`" })
+    e2e.push(entry("Maestro", /maestro/, {
+      surface: "mobile",
+      run: { command: "maestro test .maestro", body: null },
+      videos: null,
+      screenshots: null,
+      videoProblem: "record flows with `maestro record`",
+    }))
   }
   if (deps.has("detox")) {
-    e2e.push({
-      tool: "Detox",
+    e2e.push(entry("Detox", /\bdetox\s+test\b/, {
       surface: "mobile",
-      run: scriptRunning(/detox test/, ["test:e2e", "e2e"]) ?? (js ?? JS_RUNNERS.npm!).exec("detox test"),
+      run: scriptRunning(/detox test/, ["test:e2e", "e2e"]) ?? { command: runner.exec("detox test"), body: null },
       videos: "artifacts",
       screenshots: "artifacts",
       videoProblem: "run with --record-videos all",
-    })
+    }))
   }
-  const surfaces = new Set<string>()
-  for (const entry of e2e) {
-    if (surfaces.has(entry.surface)) continue
-    surfaces.add(entry.surface)
-    fields[`e2e.${entry.surface}.run`] = entry.run
-    if (entry.videos) fields[`e2e.${entry.surface}.videos`] = entry.videos
-    if (entry.screenshots) fields[`e2e.${entry.surface}.screenshots`] = entry.screenshots
+  // The first entry for each surface.
+  const kept = e2e.filter((item, i) => e2e.findIndex((other) => other.surface === item.surface) === i)
+  for (const item of kept) {
+    fields[`e2e.${item.surface}.run`] = item.run.command
+    if (item.videos) fields[`e2e.${item.surface}.videos`] = item.videos
+    if (item.screenshots) fields[`e2e.${item.surface}.screenshots`] = item.screenshots
   }
-  if (ui && e2e.length > 0) {
-    const runs = e2e.map((entry) => entry.run.replace(/^(bun run|npm run|pnpm|yarn) /, "")).map((s) => scripts[s] ?? s)
-    fields["ui.runsIn"] = runs.some((r) => /docker/i.test(r)) ? "docker" : "local"
-  }
+  if (ui && kept.length > 0) fields["ui.runsIn"] = kept.some((item) => /docker/i.test(item.run.body ?? item.run.command)) ? "docker" : "local"
 
   // ── the app ──
+  const unresolved: Array<{ field: string; why: string }> = []
   const startScript = firstScript(scripts, ["dev", "start"])
   if (js && startScript) fields["app.start"] = manager === "npm" && startScript === "start" ? "npm start" : js.script(startScript)
-  const baseUrl = playwrightConfig && /\bbaseURL:\s*["'`](https?:\/\/[^"'`]+)["'`]/.exec(playwrightConfig[1])?.[1]
+  const withBase = playwrightConfigs.map(([file, config]) => ({ file, config, expr: exprAfter(config, "baseURL") })).find((c) => c.expr !== null)
+  const baseUrl = withBase ? evaluate(withBase.expr!, withBase.config) : null
   const port = startScript ? portOf(scripts[startScript]!, facts, stack) : null
-  if (baseUrl) fields["app.url"] = baseUrl
-  else if (port) fields["app.url"] = `http://localhost:${port}`
+  if (baseUrl !== null && /^https?:\/\//.test(baseUrl)) fields["app.url"] = baseUrl
+  else if (port && "port" in port) fields["app.url"] = `http://localhost:${port.port}`
+  else if (withBase) unresolved.push({ field: "app.url", why: unsettled(`baseURL in ${withBase.file}`, withBase.expr!, withBase.config) })
+  else if (port) unresolved.push({ field: "app.url", why: port.why })
 
   if (ui) fields["evidence.ui"] = UI_EVIDENCE
   if (stack.length > 0) fields["evidence.cli"] = CLI_EVIDENCE
 
+  // Last guard: a value with a variable still in it can't be opened or run as written, so it isn't written (CEL-96).
+  for (const [field, value] of Object.entries(fields)) {
+    if (!/\$\{|process\.env\b/.test(value)) continue
+    delete fields[field]
+    unresolved.push({ field, why: `the value found, \`${value}\`, names a variable` })
+  }
+
   // ── readiness ──
-  const playwright = e2e.some((entry) => entry.tool === "Playwright")
+  const playwright = e2e.some((item) => item.tool === "Playwright")
   const readiness: ReadinessLine[] = []
   const add = (kind: EvidenceKind, state: Readiness, note: string, suggestion: string | null) => readiness.push({ kind, state, note, suggestion })
   const knownNoUi = stack.length > 0 && !ui
@@ -297,18 +511,24 @@ export const detectRepo = (facts: RepoFacts, machine: MachineFacts): Detection =
       : `Set up Playwright (\`npm init playwright@latest\`) with use: { video: "on" }, so builders can record the flow headless.`)
     add("screenshots", "missing", "no browser automation found", "Playwright (or Cypress) takes screenshots of each step; set it up with the e2e tool.")
   } else {
-    const first = e2e[0]!
+    const first = kept[0]!
     const problems = [
-      ...(first.videoProblem ? [first.videoProblem] : []),
+      ...kept.flatMap((item) => (item.videoProblem ? [item.videoProblem] : [])),
       ...(playwright && !machine.playwrightBrowsers ? ["download a browser with `npx playwright install chromium`"] : []),
       ...(!machine.ffmpeg ? ["install ffmpeg to turn the videos into MP4"] : []),
       ...(fields["ui.runsIn"] === "docker" && !machine.docker ? ["install or start Docker: the e2e runs in it"] : []),
     ]
-    add("e2e video", problems.length ? "partial" : "ready", `${e2e.map((entry) => entry.tool).join(", ")}: ${first.run}`,
+    const runs = kept.length > 1 ? kept.map((item) => `${item.run.command} (${item.surface})`).join(", ") : first.run.command
+    add("e2e video", problems.length ? "partial" : "ready", `${unique(e2e.map((item) => item.tool)).join(", ")}: ${runs}`,
       problems.length ? `${problems.join("; ")}.` : null)
-    const shotsProblem = playwright && !machine.playwrightBrowsers
-    add("screenshots", shotsProblem ? "partial" : "ready", first.screenshots ? `saved in ${first.screenshots}` : `${first.tool} can take them`,
-      shotsProblem ? "Download a browser with `npx playwright install chromium`." : null)
+    const shotsProblems = [
+      ...kept.flatMap((item) => (item.shotsProblem ? [item.shotsProblem] : [])),
+      ...(playwright && !machine.playwrightBrowsers ? ["download a browser with `npx playwright install chromium`"] : []),
+    ]
+    const saved = unique(kept.flatMap((item) => (item.screenshots ? [item.screenshots] : [])))
+    const shots = shotsProblems.join("; ")
+    add("screenshots", shots ? "partial" : "ready", saved.length ? `saved in ${saved.join(", ")}` : `${first.tool} can take them`,
+      shots ? `${shots[0]!.toUpperCase()}${shots.slice(1)}.` : null)
   }
 
   const anything = unitCommand ?? fields["app.start"] ?? fields["typecheck"]
@@ -318,8 +538,9 @@ export const detectRepo = (facts: RepoFacts, machine: MachineFacts): Detection =
   return {
     stack,
     packageManager: js?.name ?? python?.name ?? (go ? "go" : rust ? "cargo" : null),
-    tools: { unit: unitRunner, e2e: e2e.map((entry) => entry.tool) },
+    tools: { unit: unitRunner, e2e: unique(e2e.map((item) => item.tool)) },
     fields,
+    unresolved,
     readiness,
   }
 }

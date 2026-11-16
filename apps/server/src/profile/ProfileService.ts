@@ -6,8 +6,11 @@
 // Who may overwrite what:
 // - the human overwrites anything
 // - an agent overwrites detected and agent fields, never the human's (ProfileFieldLocked: ask him)
-// - detection (`detected: true`) writes only fields that are unset or were detected before, keeps the
-//   rest, and never unsets; finding the same value again changes nothing (setting it by hand confirms it)
+// - detection (`detected: true`) is a whole detection: it writes only fields that are unset or were
+//   detected before and keeps the rest; finding the same value again changes nothing (setting it by hand
+//   confirms it). It takes no `unset`, but clears the fields still marked detected that it doesn't name:
+//   no longer found, or no longer trusted, like CEL-89's half-resolved URLs (CEL-96). A detection that
+//   found nothing at all clears nothing
 import type { ProfileField, ProfileSource, ProjectRef, TestingProfile } from "@cello/contract/entities"
 import { Invalid, NotFound, ProfileFieldLocked } from "@cello/contract/errors"
 import type { Caller, ProfileWrite } from "@cello/contract/rpcs"
@@ -71,7 +74,7 @@ const make = Effect.gen(function* () {
 
   const set = Effect.fn("ProfileService.set")(function* (input: SetProfile) {
     const unset = [...new Set(input.unset ?? [])]
-    if (input.detected && unset.length > 0) return yield* new Invalid({ field: "unset", reason: "detected values only fill fields; they never unset one" })
+    if (input.detected && unset.length > 0) return yield* new Invalid({ field: "unset", reason: "a detection names the fields it found; the detected ones it leaves out are cleared, so it takes no unset" })
     const wanted = new Map<string, string | null>()
     for (const { field, value } of input.set) {
       const problem = profileFieldProblem(field)
@@ -95,6 +98,17 @@ const make = Effect.gen(function* () {
         const written: string[] = []
         const confirmed: string[] = []
         const kept: string[] = []
+        const cleared: string[] = []
+        // A detection that found nothing at all is a checkout with nothing to read (a branch without the
+        // project's files, a sparse or fresh checkout), not a repo that dropped everything: it clears nothing.
+        if (source === "detected" && wanted.size > 0) {
+          for (const before of current.values()) {
+            if (before.source !== "detected" || wanted.has(before.field)) continue
+            yield* sql`DELETE FROM profile_fields WHERE project_id = ${project.id} AND field = ${before.field}`
+            changes.push({ field: before.field, before, after: null })
+            cleared.push(before.field)
+          }
+        }
         for (const [field, value] of wanted) {
           const before = current.get(field) ?? null
           if (before === null && value === null) continue
@@ -130,7 +144,7 @@ const make = Effect.gen(function* () {
           yield* emit({ type: "profile.changed", project: project.id, changes }, { workspaceId: project.workspaceId, projectId: project.id })
         }
         const ordered = (fields: string[]) => fields.sort(compareFields)
-        return { profile: { projectId: project.id, fields: yield* fieldsOf(project.id) }, written: ordered(written), confirmed: ordered(confirmed), kept: ordered(kept) }
+        return { profile: { projectId: project.id, fields: yield* fieldsOf(project.id) }, written: ordered(written), confirmed: ordered(confirmed), kept: ordered(kept), cleared: ordered(cleared) }
       }))
   })
 
