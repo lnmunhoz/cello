@@ -3,6 +3,12 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.3.1](https://github.com/lnmunhoz/cello/compare/v0.3.0...v0.3.1) (2026-11-16)
+
+### Fixes
+
+- **release:** the version bump also writes the Claude Code plugin's version and regenerates its embedded copy (CEL-36) ([5223b50](https://github.com/lnmunhoz/cello/commit/5223b50119cf1a469474a0987881b00dd1a0345a))
+
 ## 0.3.0 (2026-11-16)
 
 First tagged release: everything on main since the first commit (2026-11-14). Earlier builds called themselves 0.1.0 or 0.2.0 and weren't tagged.
