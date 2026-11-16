@@ -258,9 +258,9 @@ describe("CommentService screenshots", () => {
       const [review] = yield* reviews.list(task.id)
       expect(review).toMatchObject({ decision: "approved", decisionNote: null })
       expect((yield* tasks.byKey(task.key)).statusId).toBe(status["Done"]!.id)
-      // The agent that held the task hears it, like any comment.
+      // The agent that held the task hears it, like any comment, then that the approval ended its claim (CEL-46).
       const { items } = yield* agent((yield* InboxService.InboxService).take({ unreadOnly: true }))
-      expect(items.map((i) => i.kind === "comment" && i.comment.id)).toEqual([posted!.id])
+      expect(items.map((i) => (i.kind === "comment" ? i.comment.id : i.kind))).toEqual([posted!.id, "claim_ended"])
       // A bad screenshot refuses the whole approval.
       const { result: other } = yield* tasks.create({ commandId: cmd(), projectId: task.projectId, title: "Other", statusId: status["Todo"]!.id })
       yield* agent(tasks.claim({ commandId: cmd(), key: other.key }))

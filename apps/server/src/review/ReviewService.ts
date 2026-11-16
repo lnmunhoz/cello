@@ -189,7 +189,7 @@ const make = Effect.gen(function* () {
         if (shots.length > 0) {
           yield* comments.addWithin(context, { taskId: task.id, body: input.note ?? "", attachmentIds: shots }, "comment")
         }
-        return yield* tasks.moveWithin(context, { id: task.id, statusId: done.id })
+        return yield* tasks.moveWithin(context, { id: task.id, statusId: done.id, cause: "approved" })
       }))
   })
 

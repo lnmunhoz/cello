@@ -9,6 +9,7 @@ import type {
   AskState,
   Attachment,
   AttachmentKind,
+  ClaimEndCause,
   Comment,
   DocumentKind,
   DocumentSummary,
@@ -360,6 +361,8 @@ type InboxRow = { [K in keyof CommentRow]: CommentRow[K] | null } & {
   item_task_id: string
   ask_id: string | null
   detail: string | null
+  /** What Lucas did, on a `claim_ended` item (CEL-46). */
+  cause: ClaimEndCause | null
   item_created_at: number
   read_at: number | null
   task_number: number
@@ -370,12 +373,13 @@ type InboxRow = { [K in keyof CommentRow]: CommentRow[K] | null } & {
 
 /**
  * Aliases: `i` (inbox_items), `c` (its comment, when it holds one), `t` (the task). Oldest first;
- * deleted comments are left out. An answers or withdrawn item comes with its ask; its author is the human.
+ * deleted comments are left out. An answers or withdrawn item comes with its ask; its author is the human,
+ * as is a claim_ended item's (CEL-46), which holds only what he did and where the card went.
  */
 export const selectInboxItems = (sql: Sql, where: Where) =>
   Effect.gen(function* () {
     const rows = yield* sql<InboxRow>`
-      SELECT c.*, i.id AS item_id, i.kind, i.task_id AS item_task_id, i.ask_id, i.detail, i.created_at AS item_created_at, i.read_at,
+      SELECT c.*, i.id AS item_id, i.kind, i.task_id AS item_task_id, i.ask_id, i.detail, i.cause, i.created_at AS item_created_at, i.read_at,
              t.number AS task_number, t.title AS task_title, p.key AS project_key,
              COALESCE(a.name, (SELECT name FROM actors WHERE kind = 'human' ORDER BY created_at LIMIT 1)) AS author
       FROM inbox_items i
@@ -402,6 +406,9 @@ export const selectInboxItems = (sql: Sql, where: Where) =>
         const ask = asks.find((k) => k.id === r.ask_id)
         if (!ask) return []
         return [r.kind === "answers" ? { ...common, kind: "answers", ask } : { ...common, kind: "withdrawn", ask, status: r.detail ?? "another status" }]
+      }
+      if (r.kind === "claim_ended") {
+        return r.cause === null ? [] : [{ ...common, kind: "claim_ended", cause: r.cause, status: r.detail ?? "another status" }]
       }
       const comment = comments.find((c) => c.id === r.id)
       if (!comment) return []

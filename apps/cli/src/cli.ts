@@ -364,13 +364,18 @@ const context = Command.make("context", { project, json }, (input) =>
     if (ctx.inbox.length) {
       const sentBack = ctx.inbox.find((i) => i.kind === "send_back")
       const answered = ctx.inbox.find((i) => i.kind === "answers")
+      const ended = ctx.inbox.find((i) => i.kind === "claim_ended")
+      const onlyComments = ctx.inbox.every((i) => i.kind === "comment" || i.kind === "send_back")
+      // An ended claim is nothing to answer.
+      const toAnswer = ctx.inbox.find((i) => i.kind !== "claim_ended")
       lines.push(
         "",
-        `${answered || ctx.inbox.some((i) => i.kind === "reaction") ? "New for you" : "New comments for you"} (${ctx.inbox.length})`,
+        `${onlyComments ? "New comments for you" : "New for you"} (${ctx.inbox.length})`,
         ...indent(inboxEntries(ctx.inbox, now, undefined, yield* saveScreenshots(inboxScreenshots(ctx.inbox)))),
-        `  Answer on the card: \`cello task comment ${ctx.inbox[0]!.taskKey} "…"\`. They stay new until the hook or \`cello inbox\` hands them over.`,
+        `  ${toAnswer ? `Answer on the card: \`cello task comment ${toAnswer.taskKey} "…"\`. ` : ""}They stay new until the hook or \`cello inbox\` hands them over.`,
         ...(sentBack ? [`  Sent back: fix it, then hand it in again with \`cello task submit ${sentBack.taskKey}\`.`] : []),
         ...(answered ? [`  Answered: ${answered.taskKey} is back in progress; carry on with the answers.`] : []),
+        ...(ended ? [`  Claim ended: stop working on ${ended.taskKey}; see where it stands with \`cello task get ${ended.taskKey}\`.`] : []),
       )
     }
     lines.push(
@@ -1624,7 +1629,7 @@ const inbox = Command.make("inbox", {
     if (taken.earlier.length) lines.push("", "Earlier", ...indent(inboxEntries(taken.earlier, now, undefined, files)))
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
-    "Show the comments Lucas left on tasks this session claimed (Send back notes and answers to your asks too) and mark them read; each one arrives once. " +
+    "Show the comments Lucas left on tasks this session claimed (Send back notes, answers to your asks, and word that a change of his ended your claim too) and mark them read; each one arrives once. " +
       "Use it when `cello context` lists new ones, or to reread what he said. With `cello install claude` they arrive by themselves while you work; " +
       "`--wait` in the background wakes you with them when you've ended your turn. " +
       "Not from a subagent: it shares its parent's session and would take the parent's comments.",

@@ -396,13 +396,14 @@ const allRows = Effect.gen(function* () {
 
 /**
  * The rows without what later migrations add, for the tests of the migrations before them: 0014's
- * `inbox_items.read_via` (CEL-76) and 0016's `profile_fields` table (CEL-89, empty after migrating).
+ * `inbox_items.read_via` (CEL-76), 0016's `profile_fields` table (CEL-89, empty after migrating) and
+ * 0017's `inbox_items.cause` (CEL-46, null on every row it finds).
  */
 const withoutLaterAdditions = (rows: Record<string, unknown>): Record<string, unknown> => {
   const { profile_fields: _profiles, ...rest } = rows
   return {
     ...rest,
-    inbox_items: ((rows["inbox_items"] ?? []) as ReadonlyArray<Record<string, unknown>>).map(({ read_via: _via, ...row }) => row),
+    inbox_items: ((rows["inbox_items"] ?? []) as ReadonlyArray<Record<string, unknown>>).map(({ read_via: _via, cause: _cause, ...row }) => row),
   }
 }
 
