@@ -68,7 +68,7 @@ const task = createRoute({
   },
 })
 
-// The Agents page (CEL-65), a design prototype: `?agents=a|b|c` picks the layout, `?open=` the open row.
+// The Agents page (CEL-65): `?open=session:…` or `?open=agent:…/…`, the open row, so a reload or a link keeps it.
 const agents = createRoute({ getParentRoute: () => root, path: "/agents", component: AgentsPage, validateSearch: parseAgentsSearch })
 
 const routeTree = root.addChildren([home, settings, builds, review, agents, project.addChildren([projectIndex, overview, issues, docs, page, activity, task])])

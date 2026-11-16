@@ -1,26 +1,20 @@
-// The Agents page's rules (CEL-65, phase 1 design prototype), kept pure: which layout the prototype
-// shows (`?agents=a|b|c`, a temporary switch while Lucas picks one), which row is open (`?open=`), and
-// the agents working, as rows (each session, then its subagents) and in groups (waiting on Lucas,
-// working, quiet). The agents themselves come from ../presence/model.ts (workingSessions).
+// The Agents page's rules (CEL-65), kept pure: which row is open (`?open=`, so a reload or a link keeps
+// it), and the agents working, as rows (each session, then its subagents) in groups (waiting on Lucas,
+// working, quiet). The agents themselves come from ../presence/model.ts (workingSessions), the model
+// the sidebar's Agents working reads too.
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
+import { isNeedsInputStatus } from "@cello/shared/ask"
 import type { Presence } from "@cello/shared/presence"
 import type { Who, Working, WorkingMark } from "../presence/model.ts"
 
-/** The prototype's layouts: A review-style rows, B grouped by session, C a grid of cards. */
-export type AgentsLayout = "a" | "b" | "c"
-
 export interface AgentsSearch {
-  readonly agents?: AgentsLayout
   /** The open row's id (`session:<id>`, `agent:<session>/<agent>`); none: every row is collapsed. */
   readonly open?: string
 }
 
-const LAYOUTS: ReadonlyArray<string> = ["a", "b", "c"]
-
 export const parseAgentsSearch = (search: Record<string, unknown>): AgentsSearch => {
-  const agents = typeof search["agents"] === "string" && LAYOUTS.includes(search["agents"]) ? (search["agents"] as AgentsLayout) : undefined
-  const open = typeof search["open"] === "string" && /^(session|agent):/.test(search["open"]) ? search["open"] : undefined
-  return { ...(agents ? { agents } : {}), ...(open ? { open } : {}) }
+  const open = search["open"]
+  return typeof open === "string" && /^(session|agent):./.test(open) ? { open } : {}
 }
 
 /** One agent on the page: a session, or a subagent under one. */
@@ -105,3 +99,19 @@ export const groupOf = (row: AgentRow): AgentGroupId => (row.mark.mood === "wait
 /** The rows in their groups, waiting on Lucas first (like the Review page's Needs your input), empty groups left out. */
 export const agentGroups = (rows: ReadonlyArray<AgentRow>): AgentGroup[] =>
   GROUPS.map((g) => ({ ...g, rows: rows.filter((r) => groupOf(r) === g.id) })).filter((g) => g.rows.length > 0)
+
+/** The rows' ids in the order the page shows them: what ↑ ↓ and j k walk. */
+export const rowKeysOf = (groups: ReadonlyArray<AgentGroup>): string[] => groups.flatMap((g) => g.rows.map((r) => r.id))
+
+/**
+ * The task an agent waits on Lucas about: the first it's on that's in Needs input (an orchestrator's
+ * may not be its first task). What its Answer on Review link opens, and its row's state shows.
+ */
+export const waitingTaskOf = (
+  row: AgentRow,
+  statuses: Readonly<Record<string, { readonly name: string; readonly category: string }>>,
+): Task | undefined =>
+  row.tasks.find((t) => {
+    const status = statuses[t.statusId]
+    return status !== undefined && isNeedsInputStatus(status)
+  })

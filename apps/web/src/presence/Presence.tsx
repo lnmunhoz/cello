@@ -9,7 +9,6 @@ import { agoShort, type Presence, presenceOf, presenceWords, type SessionLike } 
 import { BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, type LucideIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
 import { type ReactNode, useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { agentsPrototype } from "../agents/prototype.ts"
 import { AgentMark, type AgentMood } from "../components/ui/AgentMark.tsx"
 import { formatDay } from "../lib/format.ts"
 import { drawnMarks } from "./drawnMarks.ts"
@@ -493,37 +492,18 @@ export function AgentsWorking({ board, workspaceId, className }: { board: BoardS
   const { sessions, count, now } = useAgentsWorking(board, workspaceId)
   const listed = sessions.filter((s) => s.presence !== "ended")
   const lead = listed.find((s) => s.presence === "active")
-  const prototype = agentsPrototype()
-  const header = (
-    <>
-      <span className="flex size-3.5 items-center justify-center">
-        {lead ? <PresenceDot of={lead.session} color={sessionColor(lead.session)} size={7} /> : <i className="size-1.5 rounded-full bg-line-strong" />}
-      </span>
-      Agents working
-      <span className="ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-hover px-1.5 text-[11px] font-semibold tabular-nums text-ink">
-        {count}
-      </span>
-    </>
-  )
   return (
     <>
-      {/* The Agents page prototype (CEL-65): a link to it, on a device that opened it with ?agents=. */}
-      {prototype ? (
-        <Link
-          to="/agents"
-          search={{ agents: prototype }}
-          activeOptions={{ includeSearch: false }}
-          className={`${className} outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-selected`}
-          data-agents-working={count}
-          title={workingTitle(sessions, now)}
-        >
-          {header}
-        </Link>
-      ) : (
-        <p className={className} data-agents-working={count} title={workingTitle(sessions, now)}>
-          {header}
-        </p>
-      )}
+      {/* Opens the Agents page (CEL-65), marked as the current page while it's open, like Review. */}
+      <Link to="/agents" activeOptions={{ includeSearch: false }} className={className} data-agents-working={count} title={workingTitle(sessions, now)}>
+        <span className="flex size-3.5 items-center justify-center">
+          {lead ? <PresenceDot of={lead.session} color={sessionColor(lead.session)} size={7} /> : <i className="size-1.5 rounded-full bg-line-strong" />}
+        </span>
+        Agents working
+        <span className="ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-hover px-1.5 text-[11px] font-semibold tabular-nums text-ink">
+          {count}
+        </span>
+      </Link>
       {listed.length > 0 ? (
         <ul aria-label="Agents working" className="flex flex-col" data-agents-list>
           {listed.flatMap((s) => [
@@ -557,11 +537,17 @@ export function AgentsWorking({ board, workspaceId, className }: { board: BoardS
   )
 }
 
-/** On the sidebar's rail: a bot with the count of agents working. */
+/** On the sidebar's rail: a bot with the count of agents working, opening the Agents page (CEL-65). */
 export function AgentsWorkingRail({ board, workspaceId, className }: { board: BoardState; workspaceId: string; className: string }) {
   const { sessions, count, now } = useAgentsWorking(board, workspaceId)
   return (
-    <span className={className} data-agents-working={count} title={`Agents working: ${count}\n${workingTitle(sessions, now)}`}>
+    <Link
+      to="/agents"
+      activeOptions={{ includeSearch: false }}
+      className={className}
+      data-agents-working={count}
+      title={`Agents working: ${count}\n${workingTitle(sessions, now)}`}
+    >
       <BotIcon aria-hidden className="size-4" />
       <span className="sr-only">Agents working: {count}</span>
       {count > 0 ? (
@@ -569,6 +555,6 @@ export function AgentsWorkingRail({ board, workspaceId, className }: { board: Bo
           {count}
         </span>
       ) : null}
-    </span>
+    </Link>
   )
 }

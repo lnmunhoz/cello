@@ -2,6 +2,7 @@
 // cards show, in the same mood, next to the presence words. Rendered to markup: no DOM in unit tests.
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Status, Task } from "@cello/contract/entities"
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterContextProvider } from "@tanstack/react-router"
 import { createElement, Fragment } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
@@ -49,8 +50,23 @@ const markIn = (html: string, attr: string) => {
   return html.slice(at).match(/<span[^>]*class="agent-mark"[^>]*>/)?.[0]
 }
 
+/** Rendered inside a router (the sidebar's links need one), at `url`. */
+const routed = (node: ReturnType<typeof createElement>, url = "/") => {
+  const root = createRootRoute()
+  const router = createRouter({
+    routeTree: root.addChildren(["/agents", "/review"].map((path) => createRoute({ getParentRoute: () => root, path }))),
+    history: createMemoryHistory({ initialEntries: [url] }),
+  })
+  return renderToStaticMarkup(createElement(RouterContextProvider, { router, children: node }))
+}
+
 describe("Agents working: each entry shows the agent mark in its card's mood (CEL-55)", () => {
-  const html = renderToStaticMarkup(createElement(AgentsWorking, { board, workspaceId: "w1", className: "" }))
+  const html = routed(createElement(AgentsWorking, { board, workspaceId: "w1", className: "" }))
+
+  it("its heading is a link to the Agents page, with the count (CEL-65)", () => {
+    const link = html.match(/<a [^>]*data-agents-working="2"[^>]*>/)?.[0]
+    expect(link).toContain('href="/agents"')
+  })
 
   it("the subagent building its task: working, in its colour, with its presence words", () => {
     const mark = markIn(html, `data-working-agent="${builder.agentId}"`)

@@ -1,7 +1,7 @@
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import type { Working, WorkingAgent } from "../presence/model.ts"
-import { agentGroups, agentRows, directTasks, parseAgentsSearch } from "./layout.ts"
+import { agentGroups, agentRows, directTasks, parseAgentsSearch, rowKeysOf, waitingTaskOf } from "./layout.ts"
 
 const now = Date.UTC(2026, 10, 16, 12)
 
@@ -33,10 +33,11 @@ const working = (s: AgentSession, extra: Partial<Working> = {}): Working => ({
 })
 
 describe("parseAgentsSearch", () => {
-  it("reads the prototype's layout and the open row, and drops anything else", () => {
-    expect(parseAgentsSearch({ agents: "b", open: "agent:s1/a1" })).toEqual({ agents: "b", open: "agent:s1/a1" })
-    expect(parseAgentsSearch({ agents: "z", open: 4 })).toEqual({})
-    expect(parseAgentsSearch({})).toEqual({})
+  it("reads the open row, and drops anything else", () => {
+    expect(parseAgentsSearch({ open: "agent:s1/a1" })).toEqual({ open: "agent:s1/a1" })
+    expect(parseAgentsSearch({ open: "session:s1", agents: "b" })).toEqual({ open: "session:s1" })
+    expect(parseAgentsSearch({ open: "CEL-4" })).toEqual({})
+    expect(parseAgentsSearch({ open: 4 })).toEqual({})
   })
 })
 
@@ -70,6 +71,20 @@ describe("directTasks", () => {
   })
 })
 
+describe("waitingTaskOf", () => {
+  it("the task it's waiting on Lucas about, wherever it is among the ones it holds; none when it isn't waiting", () => {
+    const a = session("2fd0505c")
+    const [t1, t2] = [task("t1", "CEL-1"), { ...task("t2", "CEL-2"), statusId: "needs" }]
+    const statuses = {
+      prog: { name: "In Progress", category: "started" },
+      needs: { name: "Needs input", category: "waiting" },
+    }
+    const [row] = agentRows([working(a, { tasks: [t1, t2], mark: { mood: "waiting", statusId: "needs" } })])
+    expect(waitingTaskOf(row!, statuses)?.key).toBe("CEL-2")
+    expect(waitingTaskOf({ ...row!, tasks: [t1] }, statuses)).toBeUndefined()
+  })
+})
+
 describe("agentGroups", () => {
   it("puts agents waiting on Lucas first, then the ones working, then the quiet ones", () => {
     const a = session("aaaa0000")
@@ -85,6 +100,13 @@ describe("agentGroups", () => {
       ["working", ["session:aaaa0000", "agent:aaaa0000/a1"]],
       ["quiet", ["session:cccc0000"]],
     ])
+  })
+
+  it("the keys walk the rows in the order the groups show them", () => {
+    const a = session("aaaa0000")
+    const b = session("bbbb0000")
+    const rows = agentRows([working(a, { agents: [sub(a, "a1", null)] }), working(b, { mark: { mood: "waiting", statusId: "needs" } })])
+    expect(rowKeysOf(agentGroups(rows))).toEqual(["session:bbbb0000", "session:aaaa0000", "agent:aaaa0000/a1"])
   })
 
   it("leaves out empty groups", () => {

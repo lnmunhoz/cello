@@ -1,14 +1,16 @@
-// CEL-65 phase 1, design scope: the Agents page's three prototype layouts (`/agents?agents=a|b|c`),
-// with real agents seeded through the real `cello` CLI and its Claude Code hooks: an orchestrator
-// session holding two tasks, its cello-builder and cello-code-reviewer subagents (launched and checked
-// in by the hooks), a session waiting on Lucas in Needs input (`cello task ask`), and a quiet one. Stills
-// in light and dark go to e2e/videos/ (cel-65-*.png) for the scope. Agent cursors are off.
+// CEL-65 phase 1: the sidebar's "Agents working" opens the Agents page, laid out like Review. Agents are
+// real, seeded through the real `cello` CLI and its Claude Code hooks: an orchestrator session holding
+// two tasks with its cello-builder and cello-code-reviewer subagents (launched and checked in by the
+// hooks), a session waiting on Lucas in Needs input (`cello task ask`), and a quiet one. The page groups
+// them (Waiting on you, Working, Quiet), puts subagents under their session, opens one row at a time to
+// show its card, links a waiting agent to answering on Review, works from the keyboard, and follows the
+// agents live. Stills in light and dark go to e2e/videos/ (cel-65-*.png). Agent cursors are off.
 import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import type { Locator, Page } from "@playwright/test"
-import { animationsSettled, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, test } from "./fixtures.ts"
+import { animationsSettled, caption, captionWithUrl, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, test } from "./fixtures.ts"
 import { SHOTS } from "./packets.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
@@ -19,21 +21,19 @@ const ASKER = "8a41c9e2-5b1d-4c7e-9a0f-3e2b1c4d5e6f"
 const QUIET = "5c07e1aa-77b2-4f3c-8d21-0a9b8c7d6e5f"
 const BUILDER = "a13bfb89c0de1234f"
 const REVIEWER = "b77d0e11aa22bb33c"
+const VISUAL = "c4e2f9a0bb11cc22d"
 
-// Each session works from a folder named like the repo it's in, as Claude Code's sessions do.
+// Each session works from a folder named like its repo, as Claude Code's sessions do.
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "cel65-"))
-const folder = (name: string) => {
-  const dir = path.join(work, name)
-  fs.mkdirSync(dir, { recursive: true })
-  return dir
-}
+const cwd = path.join(work, "cello")
+fs.mkdirSync(cwd, { recursive: true })
 
 /**
  * The real `cello` CLI from source against the e2e server, as Claude Code session `session` (the
  * Playwright worker's pid stands in for Claude Code's, so the session stays alive), with `agent` as
  * CELLO_AGENT and `stdin` piped in (a hook's JSON).
  */
-const cli = (session: string | null, cwd: string, options: { agent?: string; stdin?: string } = {}) => (...args: string[]) => {
+const cli = (session: string | null, options: { agent?: string; stdin?: string } = {}) => (...args: string[]) => {
   const result = spawnSync("bun", [path.join(root, "apps/cli/src/bin.ts"), ...args], {
     cwd,
     encoding: "utf8",
@@ -52,121 +52,230 @@ const cli = (session: string | null, cwd: string, options: { agent?: string; std
 }
 
 /** A Claude Code hook firing: `cello hook claude <event>` with the hook's JSON on stdin, as Claude Code runs it. */
-const hook = (event: string, input: Record<string, unknown>) => cli(null, String(input.cwd), { stdin: JSON.stringify(input) })("hook", "claude", event)
+const hook = (event: string, input: Record<string, unknown>) => cli(null, { stdin: JSON.stringify({ cwd, ...input }) })("hook", "claude", event)
 
+/** The orchestrator launches a subagent with the Agent tool: SubagentStart, the launch (naming its task), its first tool call. */
+const launch = (id: string, type: string, description: string) => {
+  hook("subagent-start", { session_id: ORCHESTRATOR, agent_id: id, agent_type: type, hook_event_name: "SubagentStart" })
+  hook("post-tool-use", {
+    session_id: ORCHESTRATOR, hook_event_name: "PostToolUse", tool_name: "Agent",
+    tool_input: { subagent_type: type, description, prompt: `${description}. Read AGENTS.md first.` },
+    tool_response: { agentId: id, status: "async_launched" },
+  })
+  hook("post-tool-use", { session_id: ORCHESTRATOR, agent_id: id, agent_type: type, hook_event_name: "PostToolUse", tool_name: "Read", tool_input: {} })
+}
+
+const askFile = (title: string, prompt: string) => {
+  const file = path.join(work, `${title.replace(/\W+/g, "-")}.yaml`)
+  fs.writeFileSync(file, [
+    `title: ${title}`,
+    "questions:",
+    `  - prompt: ${prompt}`,
+    "    options:",
+    "      - label: The first",
+    "        recommended: true",
+    "        because: It's simpler",
+    "      - label: The second",
+  ].join("\n"))
+  return file
+}
+
+/** Stills in both themes, without the video's caption and with the pointer in a corner. */
 async function shoot(page: Page, name: string, target: Page | Locator = page) {
+  await page.mouse.move(1430, 890)
+  const caption = (shown: boolean) =>
+    page.evaluate((shown) => document.getElementById("e2e-caption")?.style.setProperty("visibility", shown ? "" : "hidden"), shown)
+  await caption(false)
   for (const theme of ["light", "dark"] as const) {
     await page.evaluate((dark) => document.documentElement.classList.toggle("dark", dark), theme === "dark")
     await animationsSettled(page)
     await target.screenshot({ path: path.join(SHOTS, `cel-65-${name}-${theme}.png`) })
   }
   await page.evaluate(() => document.documentElement.classList.remove("dark"))
+  await caption(true)
 }
+
+/** The board's id of the session Claude Code knows as `external`. */
+const sessionId = async (cello: Parameters<typeof defaultWorkspace>[0], external: string) =>
+  (await cello.run((c) => c["snapshot.get"]({}))).sessions.find((s) => s.externalId === external)!.id
+
+const group = (page: Page, id: "waiting" | "working" | "quiet") => page.locator(`section[data-agents-group="${id}"]`)
+const rowsIn = (page: Page, id: "waiting" | "working" | "quiet") => group(page, id).locator("[data-agent-row]")
 
 test.beforeEach(async ({ context }) => {
   await context.addInitScript(() => {
     if (localStorage.getItem("cello:agent-cursors") === null) localStorage.setItem("cello:agent-cursors", "off")
-    // The prototype switch: this device has opened the Agents page, so the sidebar links to it.
-    if (localStorage.getItem("cello:agents-page") === null) localStorage.setItem("cello:agents-page", "a")
   })
 })
 
-test("CEL-65 scope: the Agents page in three layouts, with an orchestrator, its builder and reviewer, an agent waiting on Lucas and a quiet one", async ({ page, cello }) => {
-  test.setTimeout(180_000)
-  const project = await seedProject(cello, "Cello", "CEL")
+test("CEL-65: Agents working opens the Agents page: agents in groups, subagents under their session, a row opens its card, the keys, Answer on Review, and it follows the agents live", async ({ page, cello }) => {
+  test.setTimeout(240_000)
+  const project = await seedProject(cello, "Cello", "CLO")
   const { statuses } = await defaultWorkspace(cello)
   const [ui, agents, comments] = await seedLabels(cello, [
     { name: "ui", color: "#5e6ad2" },
     { name: "agents", color: "#10b981" },
     { name: "comments", color: "#f59e0b" },
   ])
-  const tasks = [
+  for (const t of [
     { title: "Agents working: a page of every working agent", priority: 2, labels: [ui!.id, agents!.id] },
     { title: "Images in comments: paste and drop screenshots", priority: 3, labels: [comments!.id] },
     { title: "Reactions on comments", priority: 0, labels: [comments!.id, ui!.id] },
     { title: "Comment receipts: who has read a comment", priority: 4, labels: [comments!.id] },
-  ] as const
-  for (const t of tasks) {
+  ] as const) {
     await cello.run((c) =>
       c["task.create"]({ commandId: newCommandId(), projectId: project.id, title: t.title, priority: t.priority, labelIds: [...t.labels], statusId: statuses.Todo!.id })
     )
   }
 
-  // The quiet one goes first: it claims CEL-4 and builds, then goes quiet (the clock moves past it below).
-  const quiet = cli(QUIET, folder("cello"))
-  quiet("task", "claim", "CEL-4")
-  quiet("task", "stage", "CEL-4", "building")
+  // The quiet one first: it claims CLO-4 and builds, then goes quiet (the page's clock moves past it below).
+  cli(QUIET)("task", "claim", "CLO-4")
+  cli(QUIET)("task", "stage", "CLO-4", "building")
   const quietLast = Date.now()
 
-  // The orchestrator claims two tasks and launches a builder and a reviewer through the Agent tool:
-  // SubagentStart, then PostToolUse on Agent (the launch's description names the task).
-  const cwd = folder("cello")
+  // The orchestrator claims CLO-1 and CLO-2 and launches a builder and a reviewer; they set their stages.
   const firstActive = Date.now()
-  const orchestrator = cli(ORCHESTRATOR, cwd)
-  orchestrator("task", "claim", "CEL-1")
-  orchestrator("task", "claim", "CEL-2")
-  for (const [id, type, description] of [
-    [BUILDER, "cello-builder", "CEL-1 build the Agents page, phase 1"],
-    [REVIEWER, "cello-code-reviewer", "CEL-2 review the images-in-comments branch"],
-  ] as const) {
-    hook("subagent-start", { session_id: ORCHESTRATOR, cwd, agent_id: id, agent_type: type, hook_event_name: "SubagentStart" })
-    hook("post-tool-use", {
-      session_id: ORCHESTRATOR, cwd, hook_event_name: "PostToolUse", tool_name: "Agent",
-      tool_input: { subagent_type: type, description, prompt: `${description}. Read AGENTS.md first.` },
-      tool_response: { agentId: id, status: "async_launched" },
-    })
-    // Its first tool call checks it in under the session.
-    hook("post-tool-use", { session_id: ORCHESTRATOR, cwd, agent_id: id, agent_type: type, hook_event_name: "PostToolUse", tool_name: "Read", tool_input: {} })
-  }
-  cli(ORCHESTRATOR, cwd, { agent: `cello-builder/${BUILDER}` })("task", "stage", "CEL-1", "building")
-  cli(ORCHESTRATOR, cwd, { agent: `cello-code-reviewer/${REVIEWER}` })("task", "stage", "CEL-2", "review")
+  cli(ORCHESTRATOR)("task", "claim", "CLO-1")
+  cli(ORCHESTRATOR)("task", "claim", "CLO-2")
+  launch(BUILDER, "cello-builder", "CLO-1 build the Agents page, phase 1")
+  launch(REVIEWER, "cello-code-reviewer", "CLO-2 review the images-in-comments branch")
+  cli(ORCHESTRATOR, { agent: `cello-builder/${BUILDER}` })("task", "stage", "CLO-1", "building")
+  cli(ORCHESTRATOR, { agent: `cello-code-reviewer/${REVIEWER}` })("task", "stage", "CLO-2", "review")
 
-  // Another session claims CEL-3 and asks Lucas which emoji set: Needs input.
-  const askerCwd = folder("cello")
-  const asker = cli(ASKER, askerCwd)
-  asker("task", "claim", "CEL-3")
-  const askFile = path.join(askerCwd, "ask.yaml")
-  fs.writeFileSync(askFile, [
-    "title: Which reactions",
-    "questions:",
-    "  - prompt: Which emoji set?",
-    "    options:",
-    "      - label: Six fixed",
-    "        recommended: true",
-    "        because: Fast to pick, and enough for a one-person board",
-    "      - label: Any emoji",
-  ].join("\n"))
-  asker("task", "ask", "CEL-3", "--file", askFile)
+  // Another session claims CLO-3 and asks Lucas: Needs input.
+  cli(ASKER)("task", "claim", "CLO-3")
+  cli(ASKER)("task", "ask", "CLO-3", "--file", askFile("Which reactions", "Which emoji set?"))
 
-  // Move the page's clock past the quiet session's last check-in (5 min makes a session quiet), but
-  // not past the others': it's quiet, they're active now.
+  // The page's clock goes past the quiet session's last check-in (5 min makes one quiet) but not past
+  // the others': it's quiet, they're active.
   await page.clock.setFixedTime(quietLast + 5 * 60_000 + Math.max(1, (firstActive - quietLast) / 2))
+  const [orchestrator, asker, quiet] = [await sessionId(cello, ORCHESTRATOR), await sessionId(cello, ASKER), await sessionId(cello, QUIET)]
+  const builderRow = page.locator(`[data-agent-row="agent:${orchestrator}/${BUILDER}"]`)
+  const reviewerRow = page.locator(`[data-agent-row="agent:${orchestrator}/${REVIEWER}"]`)
+  const orchestratorRow = page.locator(`[data-agent-row="session:${orchestrator}"]`)
+  const askerRow = page.locator(`[data-agent-row="session:${asker}"]`)
 
-  for (const layout of ["a", "b", "c"] as const) {
-    await page.goto(`/agents?agents=${layout}`)
-    const pageRoot = page.locator(`[data-agents-layout="${layout}"]`)
-    await expect(pageRoot).toBeVisible()
-    await expect(pageRoot.locator(`[data-agent-row="agent:${await sessionId(cello, ORCHESTRATOR)}/${BUILDER}"]`)).toBeVisible()
-    await expect(page.locator(`[data-agent-row="session:${await sessionId(cello, QUIET)}"]`)).toContainText("seen 5m ago")
-    await shoot(page, `${layout}-page`)
-    if (layout !== "c") {
-      // Open the builder's row: its card and facts, and where its live log will go.
-      const builderRow = pageRoot.locator(`[data-agent-row="agent:${await sessionId(cello, ORCHESTRATOR)}/${BUILDER}"]`)
-      await builderRow.getByRole("button").first().click()
-      await expect(builderRow.locator("[data-log-placeholder]")).toBeVisible()
-      await page.mouse.move(1400, 880)
-      await shoot(page, `${layout}-open`)
-    }
+  await page.goto("/CLO/issues")
+  const sidebarLink = page.locator('aside[data-sidebar="expanded"] a[data-agents-working]')
+  await caption(page, "Agents working in the sidebar is a link now: click it")
+  await expect(sidebarLink).toHaveAttribute("data-agents-working", "4")
+  await sidebarLink.click()
+  await expect(page).toHaveURL(/\/agents$/)
+  await expect(sidebarLink).toHaveAttribute("data-status", "active")
+
+  await caption(page, "The Agents page: waiting on you first, then working, then quiet")
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Agents working 4")
+  await expect(rowsIn(page, "waiting")).toHaveCount(1)
+  await expect(askerRow).toHaveAttribute("data-agent-group", "waiting")
+  await expect(askerRow.locator("[data-agent-task-state]")).toHaveText("Needs input")
+  await expect(rowsIn(page, "working")).toHaveCount(3)
+  await expect(page.locator(`[data-agent-row="session:${quiet}"]`)).toHaveAttribute("data-agent-group", "quiet")
+  await expect(page.locator(`[data-agent-row="session:${quiet}"] [data-agent-presence]`)).toHaveText("seen 5m ago")
+
+  await caption(page, "The orchestrator, its two subagents under it, each on its task with its stage")
+  await expect(orchestratorRow).toContainText("2fd0505c")
+  await expect(orchestratorRow).toContainText("orchestrator · 2 subagents")
+  await expect(orchestratorRow).toContainText("holds CLO-1, CLO-2")
+  // Under it, in order, indented.
+  const working = await rowsIn(page, "working").evaluateAll((rows) => rows.map((r) => r.getAttribute("data-agent-row")))
+  expect(working[0]).toBe(`session:${orchestrator}`)
+  expect(working.slice(1).sort()).toEqual([`agent:${orchestrator}/${BUILDER}`, `agent:${orchestrator}/${REVIEWER}`].sort())
+  await expect(builderRow.locator("xpath=..")).toHaveClass(/pl-6/)
+  await expect(builderRow).toContainText("cello-builder · a13bfb89")
+  await expect(builderRow).toContainText("under 2fd0505c")
+  await expect(builderRow).toContainText("on CLO-1 Agents working: a page of every working agent")
+  await expect(builderRow.locator("[data-agent-task-state]")).toHaveText("Building")
+  await expect(reviewerRow.locator("[data-agent-task-state]")).toHaveText("Agent review")
+  await expect(builderRow.locator(".agent-mark")).toHaveAttribute("data-agent-mood", "working")
+  await expect(askerRow.locator(".agent-mark")).toHaveAttribute("data-agent-mood", "waiting")
+  await shoot(page, "page")
+  await shoot(page, "sidebar", page.locator('aside[data-sidebar="expanded"] nav[aria-label="Inbox"]'))
+
+  await captionWithUrl(page, "Open the builder: what it was asked, its card (no repeat of its name), and where its live log goes")
+  await builderRow.getByRole("button").first().click()
+  await expect(page).toHaveURL((url) => url.searchParams.get("open") === `agent:${orchestrator}/${BUILDER}`)
+  await expect(builderRow.locator("[data-agent-facts]")).toContainText("Asked toCLO-1 build the Agents page, phase 1")
+  await expect(builderRow.locator("[data-agent-facts]")).toContainText("SessionClaude Code session 2fd0505c")
+  const builderCard = builderRow.locator('[data-agents-card="CLO-1"]')
+  await expect(builderCard).toContainText("Agents working: a page of every working agent")
+  await expect(builderCard.locator("[data-card-work]")).toBeHidden()
+  await expect(builderRow.locator("[data-log-placeholder]")).toContainText("Live log")
+  await shoot(page, "open")
+
+  await caption(page, "Click its card: the task opens")
+  await builderCard.click()
+  await expect(page).toHaveURL(/\/CLO\/1/)
+  await page.goBack()
+  await expect(builderRow.locator("[data-agent-facts]")).toBeVisible()
+
+  await caption(page, "The keys: Esc closes, ↓ and j move between rows, Enter opens")
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.keyboard.press("Escape")
+  await expect(page.locator("[data-agent-facts]")).toHaveCount(0)
+  await page.keyboard.press("j")
+  await expect(askerRow.getByRole("button").first()).toBeFocused()
+  await page.keyboard.press("ArrowDown")
+  await expect(orchestratorRow.getByRole("button").first()).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(orchestratorRow.locator("[data-agent-facts]")).toBeVisible()
+  await expect(orchestratorRow.locator('[data-agents-card="CLO-1"]')).toBeVisible()
+  await expect(orchestratorRow.locator('[data-agents-card="CLO-2"]')).toBeVisible()
+  await page.keyboard.press("k")
+  await expect(askerRow.getByRole("button").first()).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(orchestratorRow.locator("[data-agent-facts]")).toHaveCount(0)
+
+  await caption(page, "The agent waiting on you: Answer on Review opens its question there")
+  const waiting = askerRow.locator("[data-agent-waiting]")
+  await expect(waiting).toContainText("Waiting for your answer on CLO-3.")
+  await shoot(page, "waiting")
+  await waiting.getByRole("link", { name: "Answer on Review" }).click()
+  await expect(page).toHaveURL(/\/review\?open=CLO-3/)
+  await expect(page.locator('[data-review-task="CLO-3"]')).toHaveAttribute("data-open", "")
+  await page.goBack()
+  await expect(page).toHaveURL(/\/agents/)
+
+  await caption(page, "Live: the orchestrator launches a visual reviewer on CLO-1, and its row appears under it")
+  await page.keyboard.press("Escape")
+  launch(VISUAL, "cello-visual-reviewer", "CLO-1 check the Agents page screenshots")
+  const visualRow = page.locator(`[data-agent-row="agent:${orchestrator}/${VISUAL}"]`)
+  await expect(visualRow).toHaveAttribute("data-agent-group", "working")
+  await expect(visualRow).toContainText("cello-visual-reviewer · c4e2f9a0")
+  await expect(orchestratorRow).toContainText("orchestrator · 3 subagents")
+
+  await caption(page, "The code reviewer finishes (SubagentStop): its row leaves")
+  hook("subagent-stop", { session_id: ORCHESTRATOR, agent_id: REVIEWER, agent_type: "cello-code-reviewer", hook_event_name: "SubagentStop" })
+  await expect(reviewerRow).toHaveCount(0)
+
+  await caption(page, "The orchestrator asks you about CLO-2: it moves up to Waiting on you, its builders keep working")
+  cli(ORCHESTRATOR)("task", "ask", "CLO-2", "--file", askFile("Which drop zone", "Where can screenshots be dropped?"))
+  await expect(orchestratorRow).toHaveAttribute("data-agent-group", "waiting")
+  await expect(rowsIn(page, "waiting")).toHaveCount(2)
+  await expect(builderRow).toHaveAttribute("data-agent-group", "working")
+  await expect(builderRow.locator("xpath=..")).not.toHaveClass(/pl-6/)
+  await expect(builderRow).toContainText("under 2fd0505c")
+  // It waits on CLO-2, not its first task: that's what its row says and its link opens.
+  await expect(orchestratorRow.locator("[data-agent-task-state]")).toHaveText("Needs input")
+  await orchestratorRow.getByRole("button").first().click()
+  await expect(orchestratorRow.locator("[data-agent-waiting]")).toContainText("Waiting for your answer on CLO-2.")
+  await expect(orchestratorRow.getByRole("link", { name: "Answer on Review" })).toHaveAttribute("href", "/review?open=CLO-2")
+  await shoot(page, "live")
+
+  cli(ORCHESTRATOR)("task", "ask", "CLO-2", "--withdraw")
+  cli(ASKER)("task", "ask", "CLO-3", "--withdraw")
+  for (const [id, type] of [[BUILDER, "cello-builder"], [VISUAL, "cello-visual-reviewer"]] as const) {
+    hook("subagent-stop", { session_id: ORCHESTRATOR, agent_id: id, agent_type: type, hook_event_name: "SubagentStop" })
   }
-
-  // The sidebar's Agents working, a link now, highlighted on its page.
-  const sidebar = page.locator('aside[data-sidebar="expanded"] nav[aria-label="Inbox"]')
-  await expect(sidebar.locator("a[data-agents-working]")).toHaveAttribute("data-status", "active")
-  await shoot(page, "sidebar", sidebar)
+  for (const [session, key] of [[ORCHESTRATOR, "CLO-1"], [ORCHESTRATOR, "CLO-2"], [ASKER, "CLO-3"], [QUIET, "CLO-4"]] as const) cli(session)("task", "release", key)
 })
 
-/** The board's id of the session Claude Code knows as `external`. */
-async function sessionId(cello: Parameters<typeof defaultWorkspace>[0], external: string) {
-  const snapshot = await cello.run((c) => c["snapshot.get"]({}))
-  return snapshot.sessions.find((s) => s.externalId === external)!.id
-}
+test("CEL-65: on the rail, the bot opens the Agents page too", async ({ page }) => {
+  await page.goto("/")
+  await page.getByRole("button", { name: "Collapse sidebar" }).click()
+  const rail = page.locator('aside[data-sidebar="rail"] a[data-agents-working]')
+  await caption(page, "The rail's bot opens the Agents page, and is marked while it's open")
+  await rail.click()
+  await expect(page).toHaveURL(/\/agents$/)
+  await expect(rail).toHaveAttribute("data-status", "active")
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Agents working")
+})
