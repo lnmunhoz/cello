@@ -14,9 +14,9 @@ describe("stageLanes", () => {
     ])
   })
 
-  it("Designing comes first, before Building (CEL-105)", () => {
-    const tasks = [card("a", "a0", "building"), card("b", "a1", "designing")]
-    expect(stageLanes(tasks).map((l) => l.stage?.id ?? null)).toEqual(["designing", "building"])
+  it("Planning comes first, before Building (CEL-105)", () => {
+    const tasks = [card("a", "a0", "building"), card("b", "a1", "planning")]
+    expect(stageLanes(tasks).map((l) => l.stage?.id ?? null)).toEqual(["planning", "building"])
   })
 
   it("a Working lane sits after the stages and before the tasks with no stage (CEL-105)", () => {
@@ -38,7 +38,7 @@ describe("stageLanes", () => {
 
 describe("laneOf: which lane a task of In Progress goes in (CEL-105)", () => {
   it("its stage, whatever its agent is doing", () => {
-    expect(laneOf({ stage: "designing" }, true)).toBe("designing")
+    expect(laneOf({ stage: "planning" }, true)).toBe("planning")
     expect(laneOf({ stage: "review" }, false)).toBe("review")
   })
 
@@ -53,7 +53,7 @@ describe("laneOf: which lane a task of In Progress goes in (CEL-105)", () => {
 
 describe("inLaneOrder: a column's tasks lane by lane, for the board and the list alike (CEL-105)", () => {
   it("orders by each task's lane, keeping the order inside a lane, and hands back the tasks themselves", () => {
-    const tasks = [card("a", "a0", null), card("b", "a1", "building"), card("c", "a2", null), card("d", "a3", "designing")]
+    const tasks = [card("a", "a0", null), card("b", "a1", "building"), card("c", "a2", null), card("d", "a3", "planning")]
     const active = new Set(["c"])
     const ordered = inLaneOrder(tasks, (t) => laneOf(t, active.has(t.id)))
     expect(ordered.map((t) => t.id)).toEqual(["d", "b", "c", "a"])

@@ -37,6 +37,18 @@ describe("decodeEvent", () => {
     expect(event.task).toMatchObject({ stage: null, updatedByActorId: null, updatedBySessionId: null, commentCount: 0, lastCommentAt: null })
   })
 
+  it("reads the stage `designing`, stored while it existed (CEL-105), as `planning`, its new name", () => {
+    const changed = decodeEvent({ ...envelope, schemaVersion: 1, type: "task.stage_changed", id: "t-1", version: 3, before: "designing", after: "designing" })
+    expect(changed.type === "task.stage_changed" && [changed.before, changed.after]).toEqual(["planning", "planning"])
+    const task = {
+      id: "t-1", projectId: "p-1", number: 1, key: "CEL-1", title: "Old", description: "", statusId: "s-1", priority: 0,
+      position: "a0", dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null,
+      createdByActorId: "actor-1", createdBySessionId: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, stage: "designing",
+    }
+    const claimed = decodeEvent({ ...envelope, schemaVersion: 1, type: "task.claimed", id: "t-1", version: 2, task })
+    expect(claimed.type === "task.claimed" && claimed.task.stage).toBe("planning")
+  })
+
   it("comment edits and deletes name their task; ones stored before they did still decode", () => {
     const edited = decodeEvent({ ...envelope, schemaVersion: 1, type: "comment.edited", id: "c-1", taskId: "t-1", before: { body: "a" }, after: { body: "b" } })
     expect(edited.type === "comment.edited" && edited.taskId).toBe("t-1")

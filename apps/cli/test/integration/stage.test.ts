@@ -57,10 +57,10 @@ describe("cello task stage", () => {
       yield* agent("task", "claim", "CEL-1")
 
       expect((yield* agent("task", "stage", "CEL-1")).failure).toBe(
-        "Name a stage: designing, building, review, fixing or merged (e.g. `cello task stage CEL-1 review`), or --clear to remove it.",
+        "Name a stage: planning, building, review, fixing or merged (e.g. `cello task stage CEL-1 review`), or --clear to remove it.",
       )
       expect((yield* agent("task", "stage", "CEL-1", "deploying")).failure).toBe(
-        "No stage \"deploying\". Use designing, building, review, fixing or merged.",
+        "No stage \"deploying\". Use planning, building, review, fixing or merged.",
       )
       expect((yield* agent("task", "stage", "CEL-1", "review", "--clear")).failure).toBe(
         "Pass a stage or --clear, not both.",
