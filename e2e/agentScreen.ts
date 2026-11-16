@@ -6,14 +6,16 @@ import type { Page } from "@playwright/test"
 /**
  * The agent's terminal, drawn at the bottom left so the video shows its side next to the board: appends
  * a command and what it printed. `hover` then points at it; `empty` stands for an output of nothing.
+ * `narrow` keeps it to the sidebar and the margin beside a centred column (Settings), so it doesn't
+ * cover what the step shows.
  */
 export const showTerminal = async (
   page: Page,
   command: string,
   output: string,
-  { hover = false, empty = "" }: { readonly hover?: boolean; readonly empty?: string } = {},
+  { hover = false, empty = "", narrow = false }: { readonly hover?: boolean; readonly empty?: string; readonly narrow?: boolean } = {},
 ) => {
-  await page.evaluate(([cmd, out, none]) => {
+  await page.evaluate(([cmd, out, none, slim]) => {
     let el = document.getElementById("e2e-terminal")
     if (!el) {
       el = document.createElement("pre")
@@ -26,9 +28,10 @@ export const showTerminal = async (
       })
       document.body.append(el)
     }
+    Object.assign(el.style, slim ? { left: "12px", width: "480px" } : { left: "24px", width: "760px" })
     el.textContent = `${el.textContent ? `${el.textContent}\n\n` : ""}agent session $ ${cmd}\n${out || none}`
     el.scrollTop = el.scrollHeight
-  }, [command, output, empty] as const)
+  }, [command, output, empty, narrow] as const)
   if (hover) await page.getByLabel("Agent terminal").hover()
 }
 

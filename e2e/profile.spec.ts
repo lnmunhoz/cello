@@ -74,7 +74,7 @@ test("CEL-89: the testing profile in Settings shows where each field came from; 
 
   await caption(page, "The dev server moved to 5199: the agent fixes app.url from its session, and the row follows live")
   const fixed = agent("profile", "set", "app.url", "http://localhost:5199", "--project", key)
-  await showTerminal(page, `cello profile set app.url http://localhost:5199 --project ${key}`, fixed)
+  await showTerminal(page, `cello profile set app.url http://localhost:5199 --project ${key}`, fixed, { narrow: true })
   await expect(row(page, "app.url").getByRole("textbox")).toHaveValue("http://localhost:5199")
   await expect(row(page, "app.url")).toContainText("Agent")
 
@@ -90,7 +90,7 @@ test("CEL-89: the testing profile in Settings shows where each field came from; 
   const refused = celloRun(SESSION)("profile", "set", "unit", "npm test", "--project", key)
   expect(refused.status).not.toBe(0)
   expect(refused.stderr).toContain("set unit himself (`bun run test:unit`), so an agent can't change it")
-  await showTerminal(page, `cello profile set unit "npm test" --project ${key}`, refused.stderr)
+  await showTerminal(page, `cello profile set unit "npm test" --project ${key}`, refused.stderr, { narrow: true })
   await expect(row(page, "unit").getByRole("textbox")).toHaveValue("bun run test:unit")
 
   await caption(page, "He adds a desktop e2e surface and fills in how to run it", { beforeShowing: () => hideTerminal(page) })
@@ -109,7 +109,7 @@ test("CEL-89: the testing profile in Settings shows where each field came from; 
   await expect(row(page, "install")).toContainText("Detected")
 
   await caption(page, "The agent's `cello profile` shows the same, with who set each field")
-  await showTerminal(page, `cello profile --project ${key}`, agent("profile", "--project", key))
+  await showTerminal(page, `cello profile --project ${key}`, agent("profile", "--project", key), { narrow: true })
 
   await agentClient.close()
   await screenshots(browser, key)
