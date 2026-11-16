@@ -46,6 +46,7 @@ import * as Predicate from "effect/Predicate"
 import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
+import * as GlobalFlag from "effect/cli/GlobalFlag"
 import { addAgentsSection, agentsFile, type AgentsResult } from "./agentsMd.ts"
 import { roundLabel } from "@cello/client/sync/asks"
 import { answerLines, askResultText, askSpecFromArgs, askSpecFromFile, roundsText } from "./ask.ts"
@@ -74,6 +75,7 @@ import {
 } from "./claudeHook.ts"
 import { CLAUDE_PLUGIN_FILES, pluginFolder, writePluginFolder } from "./claudePlugin.ts"
 import {
+  CELLO_PERMISSION,
   celloHooksFor,
   ensureGitIgnored,
   formatSettings,
@@ -90,7 +92,7 @@ import { editFields, priorityOf } from "./edit.ts"
 import { evidenceFromArgs } from "./evidence.ts"
 import { agentName, ago, andList, columns, localTime, plural, sessionName } from "./format.ts"
 import { GUIDE } from "./guide.ts"
-import { type Env, IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
+import { type Env, IDENTITY_VARIABLES, identityHeaders, parseAgent } from "./identity.ts"
 import { askScreenshots, commentScreenshots, commentStart, commentText, deliveryText, inboxEntries, inboxScreenshots, type ScreenshotFile } from "./inbox.ts"
 import {
   acquireWaiter,
@@ -122,6 +124,33 @@ const versionText = (build: CliEnv["Service"]["build"]) => build ? `${VERSION} (
 /** The raw arguments, for flags whose order matters (`submit`'s --caption after an --attach). */
 class CliArgs extends Context.Service<CliArgs, ReadonlyArray<string>>()("cello/CliArgs") {}
 
+/**
+ * `cello --agent <type>/<id> …` (CEL-90): which subagent of the session is calling, as CELLO_AGENT says
+ * (CEL-55). A flag so a subagent's command still starts with `cello`: Claude Code's allow rule
+ * Bash(cello:*) doesn't match a command with `CELLO_AGENT=…` in front. Given both, the flag wins.
+ */
+const AgentFlag = GlobalFlag.Setting("agent")({
+  flag: Flag.String("agent").pipe(
+    Flag.optional,
+    Flag.withDescription(
+      "Which subagent of this session is calling, as <type>/<id> (cello-builder/a13bfb89) or just the id: the name the SubagentStart hook " +
+        "gives a subagent. Does what CELLO_AGENT does, and wins over it; a flag keeps the command starting with `cello`, which Claude Code's " +
+        "allow rule Bash(cello:*) needs.",
+    ),
+  ),
+})
+
+/** The environment this command calls as: CliEnv's, with --agent as CELLO_AGENT when it's given. */
+const callerEnv = Effect.gen(function* () {
+  const { env } = yield* CliEnv
+  const agent = yield* AgentFlag
+  if (Option.isNone(agent)) return env
+  if (parseAgent(agent.value) === null) {
+    return yield* new CliFailure({ message: "--agent needs the name SubagentStart gave you, as <type>/<id> (cello-builder/a13bfb89) or just the id." })
+  }
+  return { ...env, CELLO_AGENT: agent.value.trim() }
+})
+
 // ── running a call ──────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -137,8 +166,9 @@ const withClient = <A, E, B = never>(
     const { env, cwd, now } = yield* CliEnv
     const port = portOf(env)
     const socket = BunSocket.layerWebSocket(`ws://127.0.0.1:${port}/rpc`)
+    const headers = options.headers ?? identityHeaders(yield* callerEnv, cwd)
     return yield* Effect.flatMap(Effect.service(CelloClient), use).pipe(
-      Effect.provide(makeClientLayer(socket, options.headers ?? identityHeaders(env, cwd))),
+      Effect.provide(makeClientLayer(socket, headers)),
       Effect.catch((error): Effect.Effect<A | B, unknown, CliEnv> =>
         options.whenDown !== undefined && Predicate.isTagged(error, "RpcClientError") ? options.whenDown : Effect.fail(error)),
       Effect.mapError((error) => error instanceof CliFailure ? error : new CliFailure({ message: explain(error, { port, now: now() }) })),
@@ -289,7 +319,8 @@ const key = Argument.String("key").pipe(Argument.withDescription("A task key, e.
 
 const whoami = Command.make("whoami", { project }, (input) =>
   Effect.gen(function* () {
-    const { env, cwd, build } = yield* CliEnv
+    const { cwd, build } = yield* CliEnv
+    const env = yield* callerEnv
     const repoRoot = repoRootFor(cwd)
     const ref: ProjectRef = Option.isSome(input.project) ? { key: input.project.value } : repoRoot ? { repoPath: repoRoot } : {}
     const server = yield* withClient((client) =>
@@ -1679,7 +1710,7 @@ const guardToolUse = Effect.gen(function* () {
 
 /**
  * SubagentStart and SubagentStop (CEL-55): a subagent of the session started (or was resumed) or
- * finished. Start first prints the context that tells it its CELLO_AGENT (no server needed), then
+ * finished. Start first prints the context that tells it its --agent (no server needed), then
  * both tell the board, as the session.
  */
 const subagentHook = (state: "started" | "stopped") =>
@@ -1731,7 +1762,7 @@ const hookClaude = Command.make("claude", {
       "edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a " +
       "minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; " +
       "post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start " +
-      "prints context telling the new subagent to put CELLO_AGENT=<type>/<id> before its cello commands, and subagent-stop marks it finished. " +
+      "prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished. " +
       "Always exits 0.",
   ))
 
@@ -1808,9 +1839,10 @@ const installHooks = (scope: keyof typeof SCOPES) =>
     // Both settings files are read and checked before anything is written: with --shared, a refusal on
     // this machine's file must not leave the committed one enabling cello@cello.
     const mainPlan = yield* planSettings(file, (settings) =>
-      installCello(settings, { hooks: wanted, plugin: { folder, declare: scope !== "shared", enable: true } }))
+      installCello(settings, { hooks: wanted, plugin: { folder, declare: scope !== "shared", enable: true }, permission: true }))
     const localPlan = scope === "shared"
-      ? yield* planSettings(paths.local, (settings) => installCello(settings, { hooks: [], plugin: { folder, declare: true, enable: false } }))
+      ? yield* planSettings(paths.local, (settings) =>
+        installCello(settings, { hooks: [], plugin: { folder, declare: true, enable: false }, permission: false }))
       : null
     // Then the plugin's files, so the settings never point at a folder that isn't there; then the
     // marketplace before the file that enables it.
@@ -1820,7 +1852,7 @@ const installHooks = (scope: keyof typeof SCOPES) =>
     })
     const local = localPlan === null ? null : yield* writeSettings(localPlan)
     const main = yield* writeSettings(mainPlan)
-    const { hooks: hooksChanged, plugin: enabled, off } = main.merged
+    const { hooks: hooksChanged, plugin: enabled, permission: allowed, off } = main.merged
     const pluginChanged = !off && (enabled || files.changed || (local?.merged.changed ?? false))
     const ignored = (scope === "local" || local !== null) && projectRoot !== null
       ? ensureGitIgnored(projectRoot, ".claude/settings.local.json", gitEnv(env))
@@ -1837,6 +1869,10 @@ const installHooks = (scope: keyof typeof SCOPES) =>
         : pluginChanged
         ? `Updated Cello's Claude Code plugin in ${folder}; it's already enabled in ${file}.`
         : `Cello's Claude Code plugin is already enabled in ${file}, and its files in ${folder} are current.`,
+      allowed
+        ? `Allowed \`cello\` commands in ${file} ("${CELLO_PERMISSION}" in permissions.allow), so Claude Code runs them without a permission check: ` +
+          "agents reach the board only through `cello`, and a check that fails can't cut them off it."
+        : `\`cello\` commands are already allowed in ${file}.`,
       ...(local?.merged.changed
         ? [
           `Its marketplace is a folder on this machine, so it's declared in ${paths.local}, which isn't committed: ` +
@@ -1860,7 +1896,7 @@ const installHooks = (scope: keyof typeof SCOPES) =>
         ]
         : []),
       ...(pluginChanged ? [PLUGIN_GIVES] : []),
-      ...(hooksChanged || pluginChanged ? ["New Claude Code sessions pick them up."] : []),
+      ...(hooksChanged || pluginChanged || allowed ? ["New Claude Code sessions pick them up."] : []),
     ]
     if (hooksChanged && Bun.which("cello", { PATH: env.PATH ?? "" }) === null) {
       lines.push(
@@ -1897,7 +1933,8 @@ const installClaude = Command.make("claude", {
       "(PreToolUse on Artifact, Edit, Write and NotebookEdit; not with --user), all running `cello hook claude`. Installs Cello's " +
       "Claude Code plugin too (/cello:orchestrate, /cello:work, the cello skill, and builder and reviewer agents): writes its files to " +
       "$XDG_DATA_HOME/cello/claude-plugin (default ~/.local/share/cello/claude-plugin), rewritten on every run so a new Cello " +
-      "updates it, and enables it. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, " +
+      `updates it, and enables it. Adds ${CELLO_PERMISSION} to permissions.allow, so \`cello\` commands run without Claude Code's ` +
+      "permission check and a check that fails can't cut agents off the board. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, " +
       "the main checkout's), merged with what's already there; running it again changes nothing. The old file is kept as .bak.",
   ))
 
@@ -1909,22 +1946,27 @@ const uninstallClaude = Command.make("claude", {}, () =>
     const lines: string[] = []
     const folder = pluginFolder(env)
     let plugin = false
+    let permission = false
     for (const file of files) {
       const { merged } = yield* updateSettings(file, (settings) => uninstallCello(settings, folder))
       if (!merged.changed) continue
       plugin ||= merged.plugin
-      lines.push(`Removed Cello's Claude Code ${merged.hooks && merged.plugin ? "hooks and plugin" : merged.hooks ? "hooks" : "plugin"} from ${file}.`)
+      permission ||= merged.permission
+      const removed = [...(merged.hooks ? ["hooks"] : []), ...(merged.plugin ? ["plugin"] : []), ...(merged.permission ? [`${CELLO_PERMISSION} rule`] : [])]
+      lines.push(`Removed Cello's Claude Code ${andList(removed)} from ${file}.`)
     }
+    // Cello can't tell its rule from the same text added by hand (as Lucas did before CEL-90).
+    if (permission) lines.push(`If you added the ${CELLO_PERMISSION} rule yourself, put it back.`)
     // Other projects' settings may still enable the plugin from this folder, so it stays.
     if (plugin && folder !== null && fs.existsSync(folder)) {
       lines.push(`The plugin's files stay in ${folder}, for other projects that still enable it; delete that folder when none do.`)
     }
     if (lines.length) return yield* print(lines.join("\n"))
-    yield* print(`No Cello hooks or plugin in ${files.slice(0, -1).join(", ")}${files.length > 1 ? " or " : ""}${files.at(-1)}.`)
+    yield* print(`No Cello hooks, plugin or ${CELLO_PERMISSION} rule in ${files.slice(0, -1).join(", ")}${files.length > 1 ? " or " : ""}${files.at(-1)}.`)
   })).pipe(Command.withDescription(
-    "Take Cello's hooks and plugin out of Claude Code's settings: this project's .claude/settings.local.json and .claude/settings.json, " +
-      "and ~/.claude/settings.json. Every other hook, plugin and setting stays as it was. The plugin's files stay in their folder, " +
-      "since other projects may still enable it.",
+    `Take Cello's hooks, plugin and ${CELLO_PERMISSION} rule out of Claude Code's settings: this project's .claude/settings.local.json and ` +
+      ".claude/settings.json, and ~/.claude/settings.json. Every other hook, plugin, permission rule and setting stays as it was. " +
+      "The plugin's files stay in their folder, since other projects may still enable it.",
   ))
 
 // ── setting up a repo (CEL-41) ──────────────────────────────────────────────────────────────────
@@ -1978,7 +2020,9 @@ const init = Command.make("init", {
   workspace: Flag.String("workspace").pipe(Flag.optional, Flag.withDescription("The workspace to put it in, by name. Default: the first one.")),
   hooks: Flag.Boolean("hooks").pipe(
     Flag.withDefault(false),
-    Flag.withDescription("Also install the Claude Code hooks and plugin for this machine, as `cello install claude` does."),
+    Flag.withDescription(
+      `Also install the Claude Code hooks and plugin for this machine, and allow \`cello\` commands (${CELLO_PERMISSION}), as \`cello install claude\` does.`,
+    ),
   ),
   agentsMd: Flag.Boolean("agents-md").pipe(
     Flag.withDefault(false),
@@ -2118,6 +2162,7 @@ const startCommand = Command.make("start", {}, () => start).pipe(
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
   Command.withSubcommands([context, init, task, label, waitCommand, inbox, doc, openCommand, searchCommand, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand, buildsCommand]),
+  Command.withGlobalFlags([AgentFlag]),
 )
 
 /**

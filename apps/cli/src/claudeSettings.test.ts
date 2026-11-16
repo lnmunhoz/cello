@@ -8,14 +8,17 @@ import * as path from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   addCelloHooks,
+  addCelloPermission,
   addCelloPlugin,
   CELLO_HOOKS,
+  CELLO_PERMISSION,
   celloHooksFor,
   detectFormat,
   formatSettings,
   installCello,
   readSettingsFile,
   removeCelloHooks,
+  removeCelloPermission,
   removeCelloPlugin,
   uninstallCello,
   settingsPaths,
@@ -219,7 +222,7 @@ describe("addCelloPlugin (CEL-64)", () => {
   it("leaves a plugin someone turned off (false) off, and says so", () => {
     const off = { extraKnownMarketplaces: marketplace, enabledPlugins: { "cello@cello": false } }
     expect(addCelloPlugin(off, both)).toEqual({ changed: false, off: true, settings: off })
-    expect(installCello(off, { hooks: [], plugin: both })).toMatchObject({ changed: false, plugin: false, off: true })
+    expect(installCello(off, { hooks: [], plugin: both, permission: false })).toMatchObject({ changed: false, plugin: false, off: true })
   })
 
   it("refuses a marketplace called cello that isn't exactly Cello's folder, even when it only enables (the committed file of --shared)", () => {
@@ -263,26 +266,125 @@ describe("removeCelloPlugin", () => {
   it("install, then uninstall, gives back the same bytes", () => {
     const raw = `${JSON.stringify({ $schema: "s", enabledPlugins: { "a@b": true }, model: "opus" }, null, 4)}\n`
     const format = detectFormat(raw)
-    const installed = formatSettings(installCello(JSON.parse(raw), { hooks: CELLO_HOOKS, plugin: both }).settings, format)
-    expect(Object.keys(JSON.parse(installed))).toEqual(["$schema", "enabledPlugins", "model", "hooks", "extraKnownMarketplaces"])
+    const installed = formatSettings(installCello(JSON.parse(raw), { hooks: CELLO_HOOKS, plugin: both, permission: true }).settings, format)
+    expect(Object.keys(JSON.parse(installed))).toEqual(["$schema", "enabledPlugins", "model", "hooks", "extraKnownMarketplaces", "permissions"])
     expect(formatSettings(uninstallCello(JSON.parse(installed), folder).settings, format)).toBe(raw)
+  })
+})
+
+describe("addCelloPermission (CEL-90)", () => {
+  it("allows cello commands: Bash(cello:*) in permissions.allow, so Claude Code's permission check never stands between an agent and the board", () => {
+    expect(CELLO_PERMISSION).toBe("Bash(cello:*)")
+    expect(addCelloPermission({})).toEqual({ changed: true, settings: { permissions: { allow: ["Bash(cello:*)"] } } })
+  })
+
+  it("adds it after the user's own rules, keeping deny, ask, the other permission keys and every other setting where they are", () => {
+    const mine = {
+      model: "opus",
+      permissions: { defaultMode: "auto", allow: ["Bash(git status)", "Read"], deny: ["Bash(rm:*)"], ask: ["Bash(git push:*)"] },
+      hooks: {},
+    }
+    const { settings, changed } = addCelloPermission(mine)
+    expect(changed).toBe(true)
+    expect(settings).toEqual({
+      model: "opus",
+      permissions: { defaultMode: "auto", allow: ["Bash(git status)", "Read", "Bash(cello:*)"], deny: ["Bash(rm:*)"], ask: ["Bash(git push:*)"] },
+      hooks: {},
+    })
+    expect(Object.keys(settings)).toEqual(["model", "permissions", "hooks"])
+    expect(Object.keys(settings.permissions as object)).toEqual(["defaultMode", "allow", "deny", "ask"])
+    // The input isn't changed in place.
+    expect(mine.permissions.allow).toEqual(["Bash(git status)", "Read"])
+  })
+
+  it("adds an allow list to permissions that have none, after the keys already there", () => {
+    expect(addCelloPermission({ permissions: { deny: ["WebFetch"] } }).settings).toEqual({ permissions: { deny: ["WebFetch"], allow: ["Bash(cello:*)"] } })
+  })
+
+  it("is idempotent, and counts the same rule written the newer way (Bash(cello *)) as already there", () => {
+    const once = addCelloPermission({}).settings
+    expect(addCelloPermission(once)).toEqual({ changed: false, settings: once })
+    const spaced = { permissions: { allow: ["Bash(cello *)"] } }
+    expect(addCelloPermission(spaced)).toEqual({ changed: false, settings: spaced })
+  })
+
+  it("refuses permissions it can't merge into, instead of overwriting them", () => {
+    expect(() => addCelloPermission([])).toThrow("isn't a JSON object")
+    expect(() => addCelloPermission({ permissions: ["Bash(cello:*)"] })).toThrow("\"permissions\" isn't an object")
+    expect(() => addCelloPermission({ permissions: { allow: "Bash(cello:*)" } })).toThrow("\"permissions.allow\" isn't a list")
+  })
+})
+
+describe("removeCelloPermission", () => {
+  it("takes out only Bash(cello:*); every other rule and permission key stays", () => {
+    const installed = { permissions: { allow: ["Read", "Bash(cello:*)", "Bash(git status)"], deny: ["Bash(cello restore:*)"] } }
+    expect(removeCelloPermission(installed)).toEqual({
+      changed: true,
+      settings: { permissions: { allow: ["Read", "Bash(git status)"], deny: ["Bash(cello restore:*)"] } },
+    })
+  })
+
+  it("leaves no empty allow list or permissions object behind, and does nothing when it isn't there", () => {
+    expect(removeCelloPermission(addCelloPermission({ model: "opus" }).settings)).toEqual({ changed: true, settings: { model: "opus" } })
+    expect(removeCelloPermission({ permissions: { allow: ["Bash(cello:*)"], deny: ["WebFetch"] } }))
+      .toEqual({ changed: true, settings: { permissions: { deny: ["WebFetch"] } } })
+    expect(removeCelloPermission({ model: "opus" })).toEqual({ changed: false, settings: { model: "opus" } })
+  })
+
+  it("leaves a rule the user wrote the newer way (Bash(cello *)) alone: install didn't add it", () => {
+    const spaced = { permissions: { allow: ["Bash(cello *)"] } }
+    expect(removeCelloPermission(spaced)).toEqual({ changed: false, settings: spaced })
+  })
+
+  it("finds nothing to remove in a permissions shape Cello never wrote, instead of refusing (install still refuses it)", () => {
+    for (const odd of [{ permissions: null }, { permissions: "ask" }, { permissions: ["Bash(cello:*)"] }, { permissions: { allow: "Bash(cello:*)" } }]) {
+      expect(removeCelloPermission(odd)).toEqual({ changed: false, settings: odd })
+      expect(() => addCelloPermission(odd)).toThrow("isn't")
+    }
   })
 })
 
 describe("installCello / uninstallCello", () => {
   const folder = "/home/me/.local/share/cello/claude-plugin"
   const both = { folder, declare: true, enable: true }
+  const everything = { hooks: CELLO_HOOKS, plugin: both, permission: true }
 
-  it("merges the hooks and the plugin in one go and says which of them changed", () => {
-    const installed = installCello({}, { hooks: CELLO_HOOKS, plugin: both })
-    expect(installed).toMatchObject({ changed: true, hooks: true, plugin: true, off: false })
-    // A file with the hooks from before the plugin existed: only the plugin is new.
+  it("merges the hooks, the plugin and the permission in one go and says which of them changed", () => {
+    const installed = installCello({}, everything)
+    expect(installed).toMatchObject({ changed: true, hooks: true, plugin: true, permission: true, off: false })
+    expect(installed.settings).toMatchObject({ permissions: { allow: ["Bash(cello:*)"] } })
+    // A file with the hooks from before the plugin existed: only the plugin and the permission are new.
     const hooksOnly = addCelloHooks({}).settings
-    expect(installCello(hooksOnly, { hooks: CELLO_HOOKS, plugin: both })).toMatchObject({ changed: true, hooks: false, plugin: true })
-    expect(installCello(installed.settings, { hooks: CELLO_HOOKS, plugin: both }))
-      .toEqual({ changed: false, hooks: false, plugin: false, off: false, settings: installed.settings })
-    expect(uninstallCello(installed.settings, folder)).toEqual({ changed: true, hooks: true, plugin: true, off: false, settings: {} })
-    expect(uninstallCello(hooksOnly, folder)).toMatchObject({ changed: true, hooks: true, plugin: false })
+    expect(installCello(hooksOnly, everything)).toMatchObject({ changed: true, hooks: false, plugin: true, permission: true })
+    // A file installed before the permission existed (CEL-90): only the permission is new.
+    const beforePermission = installCello({}, { ...everything, permission: false }).settings
+    expect(beforePermission).not.toHaveProperty("permissions")
+    expect(installCello(beforePermission, everything)).toMatchObject({ changed: true, hooks: false, plugin: false, permission: true })
+    expect(installCello(installed.settings, everything))
+      .toEqual({ changed: false, hooks: false, plugin: false, permission: false, off: false, settings: installed.settings })
+    expect(uninstallCello(installed.settings, folder)).toEqual({ changed: true, hooks: true, plugin: true, permission: true, off: false, settings: {} })
+    expect(uninstallCello(hooksOnly, folder)).toMatchObject({ changed: true, hooks: true, plugin: false, permission: false })
+  })
+
+  it("an unmergeable permissions block doesn't stop uninstall taking out the hooks and the plugin", () => {
+    const installed = installCello({}, { ...everything, permission: false }).settings
+    const odd = { ...installed, permissions: { allow: "Bash(cello:*)" } }
+    expect(uninstallCello(odd, folder)).toEqual({
+      changed: true,
+      hooks: true,
+      plugin: true,
+      permission: false,
+      off: false,
+      settings: { permissions: { allow: "Bash(cello:*)" } },
+    })
+  })
+
+  it("install, then uninstall, gives back the same bytes, with the user's own rules", () => {
+    const raw = `${JSON.stringify({ permissions: { allow: ["Read"], deny: [] }, model: "opus" }, null, "\t")}\n`
+    const format = detectFormat(raw)
+    const installed = formatSettings(installCello(JSON.parse(raw), everything).settings, format)
+    expect(JSON.parse(installed).permissions).toEqual({ allow: ["Read", "Bash(cello:*)"], deny: [] })
+    expect(formatSettings(uninstallCello(JSON.parse(installed), folder).settings, format)).toBe(raw)
   })
 })
 
@@ -315,6 +417,14 @@ describe("formatting", () => {
     expect(Object.keys(JSON.parse(installed))).toEqual(["model", "env", "hooks"])
     // No newline at the end before, none after.
     expect(uninstalled).toBe(raw)
+  })
+
+  it("a hand-formatted file comes back reformatted (one item per line), with nothing lost", () => {
+    const raw = "{\n  \"permissions\": { \"allow\": [\"Read\", \"Bash(git status)\"] },\n  \"model\": \"opus\"\n}\n"
+    const { uninstalled } = roundTrip(raw)
+    expect(uninstalled).not.toBe(raw)
+    expect(uninstalled).toBe(`${JSON.stringify(JSON.parse(raw), null, 2)}\n`)
+    expect(JSON.parse(uninstalled)).toEqual(JSON.parse(raw))
   })
 
   it("new files get two spaces and a final newline", () => {
