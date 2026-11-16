@@ -53,8 +53,7 @@ test-results/docker/latest/
   - a caption box at the bottom; tests call `caption(page, "Open it")` before each step. It stays through a reload.
   - `captionWithUrl(page, "Reload: the panel stays open")` adds the page's URL under the caption, kept up to date as the app navigates
   - footage that gets a narration instead (the onboarding video, `e2e/onboarding-video.spec.ts`) turns the caption box off with `test.use({ captions: false })`; the cursor and ripples stay, and `caption()` and `hold()` still hold each beat in review mode
-- **Size:** a spec can record at another size, as the onboarding footage does at 1920×1080 (`test.use({ viewport, video: { mode: "on", size } })`); the teardown crop compares against that size, not the default 1440×900.
-- **Size:** a test that shrinks the viewport (a phone width, a short window) gets its MP4 cropped to the page in teardown, so there's no grey padding around it. A test that changes size midway keeps the largest size it used.
+- **Size:** a test that shrinks the viewport (a phone width, a short window) gets its MP4 cropped to the page in teardown, so there's no grey padding around it. A test that changes size midway keeps the largest size it used. A spec can also record at another size, as the onboarding footage does at 1920×1080 (`test.use({ viewport, video: { mode: "on", size } })`); the crop then compares against that size, not the default 1440×900.
 - **After the run:** `e2e/teardown.ts` converts each WebM to MP4 with ffmpeg (`-c:v libx264 -pix_fmt yuv420p -movflags +faststart -an`) into `e2e/videos/`, and deletes the temporary data folder.
 
 ### Review videos: `CELLO_E2E_REVIEW=1`
