@@ -35,9 +35,13 @@ if (process.argv.includes("--install")) {
   const installed = INSTALLED_APP
   // A Cello started before this moment runs the build being replaced.
   const installedAt = new Date()
-  // Quit Cello first if it runs from /Applications: the copy replaces the bundle.
+  // Copied beside it first, and swapped in only once the copy succeeded: a failed ditto leaves the old
+  // app in place, never no app. Quit Cello first if it runs from /Applications: the swap replaces it.
+  const staged = path.join(path.dirname(installed), ".Cello.app.new")
+  run(["rm", "-rf", staged], desktopDir)
+  run(["ditto", app, staged], desktopDir)
   run(["rm", "-rf", installed], desktopDir)
-  run(["ditto", app, installed], desktopDir)
+  run(["mv", staged, installed], desktopDir)
   run(["touch", installed], desktopDir)
   console.log(`Installed ${installed}`)
   afterInstall(installed, installedAt)

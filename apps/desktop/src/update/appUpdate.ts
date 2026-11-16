@@ -68,6 +68,15 @@ export const boardNotice = (notice: AppNotice): BoardNotice =>
   notice.kind === "updated" ? { kind: notice.kind, key: notice.key } : { kind: notice.kind, key: notice.key, running: notice.running }
 
 /**
+ * The executable Restart starts: the notice's (checked again just before), or the running one; null when
+ * it isn't on disk (an install halfway through replacing it), so the app doesn't quit into nothing.
+ */
+export const restartTarget = (notice: AppNotice | null, execPath: string, exists: (file: string) => boolean): string | null => {
+  const target = notice?.restartInto ?? execPath
+  return exists(target) ? target : null
+}
+
+/**
  * `app.relaunch`'s options: the same executable keeps its launch arguments (dev's app folder, the
  * test's switches) but not a `cello://` link it was opened with; another copy starts bare.
  */

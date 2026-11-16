@@ -128,7 +128,8 @@ worktree. A copy started before a fix was merged keeps running the old code even
 replaced (CEL-75: a Cello started from `dist/` at 17:54 kept sending Cello pages to the browser panel
 after CEL-60 fixed that at 23:01).
 
-So `bun run package -- --install`, after copying the app to /Applications:
+So `bun run package -- --install` copies the app to `/Applications/.Cello.app.new` first and swaps it in
+only once that copy succeeded (a failed copy leaves the old app in place), then:
 
 1. **unregisters the build folders' copies** from LaunchServices (`lsregister -u`): every `Cello.app`
    under `apps/desktop/dist*/` in the repo, its git worktrees and any folder in `.claude/worktrees/`,
@@ -167,8 +168,9 @@ started with. So the app checks its own build too, each time its window takes fo
   from a copy other than `/Applications/Cello.app` while that one exists.
 
 **Restart** quits the app (stopping a server it started, as on any quit) and starts it again: the same
-executable with its launch arguments, or `/Applications/Cello.app` when it ran from another copy. **×**
-hides the notice until the next build. Dev (`bun run dev`) gets the "updated" notice after a rebuild,
+executable with its launch arguments, or `/Applications/Cello.app` when it ran from another copy. It
+checks again first, and while that executable isn't on disk (an install halfway through) it does
+nothing and the notice stays. **×** hides the notice until the next build, or until the board reloads. Dev (`bun run dev`) gets the "updated" notice after a rebuild,
 never the build-folder one. The rules are `src/update/appUpdate.ts`; the notice is
 `apps/web/src/app/AppRestartBar.tsx`, through `window.celloDesktop.onAppNotice` and `restartApp`
 (missing in older app builds, where the web app shows nothing).

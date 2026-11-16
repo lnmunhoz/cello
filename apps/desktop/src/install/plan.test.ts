@@ -46,6 +46,10 @@ describe("parseWorktreeList", () => {
     const porcelain = `worktree ${repo}\nHEAD 1f66\nbranch refs/heads/main\n\nworktree ${worktree}\nHEAD 2809\nbranch refs/heads/x\n`
     expect(parseWorktreeList(porcelain)).toEqual([repo, worktree])
   })
+
+  it("drops an empty entry", () => {
+    expect(parseWorktreeList(`worktree \nworktree ${repo}\n`)).toEqual([repo])
+  })
 })
 
 describe("checkoutRoots", () => {
@@ -119,6 +123,17 @@ describe("strayCopies", () => {
         "/Users/me/projects/cello-fork/apps/desktop/dist/mac-arm64/Cello.app",
         `${repo}/apps/desktop/dist/mac-arm64/Other.app`,
       ],
+      onDisk: [],
+      installed: INSTALLED_APP,
+    })
+    expect(strays).toEqual([])
+  })
+
+  it("never takes a path that climbs out with `..`, even when it matches the pattern", () => {
+    const strays = strayCopies({
+      mainRoot: repo,
+      roots,
+      registered: [`${repo}/apps/desktop/dist/../../../../Downloads/Cello.app`, `${repo}/.claude/worktrees/../apps/desktop/dist/mac/Cello.app`],
       onDisk: [],
       installed: INSTALLED_APP,
     })

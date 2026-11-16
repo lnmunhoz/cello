@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { INSTALLED_APP } from "../install/plan.ts"
-import { appNotice, boardNotice, bundleOf, relaunchOptions, stampFile, type UpdateFacts } from "./appUpdate.ts"
+import { appNotice, boardNotice, bundleOf, relaunchOptions, restartTarget, stampFile, type UpdateFacts } from "./appUpdate.ts"
 
 const INSTALLED_EXEC = "/Applications/Cello.app/Contents/MacOS/Cello"
 const DIST = "/Users/me/projects/cello/apps/desktop/dist/mac-arm64/Cello.app"
@@ -82,6 +82,20 @@ describe("boardNotice", () => {
       key: `elsewhere:${DIST}`,
       running: DIST,
     })
+  })
+})
+
+describe("restartTarget", () => {
+  const exists = (present: readonly string[]) => (file: string) => present.includes(file)
+
+  it("is the notice's executable, or the running one without a notice", () => {
+    const notice = appNotice(facts({ execPath: `${DIST}/Contents/MacOS/Cello`, bundle: DIST }))
+    expect(restartTarget(notice, `${DIST}/Contents/MacOS/Cello`, exists([INSTALLED_EXEC]))).toBe(INSTALLED_EXEC)
+    expect(restartTarget(null, INSTALLED_EXEC, exists([INSTALLED_EXEC]))).toBe(INSTALLED_EXEC)
+  })
+
+  it("is null while that executable is missing (an install halfway through replacing it): don't quit into nothing", () => {
+    expect(restartTarget(null, INSTALLED_EXEC, exists([]))).toBeNull()
   })
 })
 

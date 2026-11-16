@@ -7,7 +7,7 @@ import * as net from "node:net"
 import { createRequire } from "node:module"
 import * as os from "node:os"
 import * as path from "node:path"
-import { _electron, type ElectronApplication, type Page } from "@playwright/test"
+import { _electron, chromium, type ElectronApplication, type Page } from "@playwright/test"
 import { assertDesktopE2eAllowed, IN_CONTAINER } from "../../../scripts/docker/guard.ts"
 import { isAlive } from "../../server/src/process/isAlive.ts"
 import { LOCK_FILE, parseBanner, parseLock, type LockInfo } from "../src/server/plan.ts"
@@ -254,6 +254,51 @@ export const secondLaunch = (env: AppEnv, args: ReadonlyArray<string>) =>
     const child = spawn(ELECTRON, [...ELECTRON_FLAGS, DESKTOP_DIR, ...args], { env: appEnv(env), stdio: "ignore" })
     child.once("exit", (code) => resolve(code))
   })
+
+const DEVTOOLS_PORT_FILE = "DevToolsActivePort"
+
+/**
+ * Waits for the app a Restart starts (CEL-75), which Playwright didn't launch: it keeps Playwright's
+ * `--remote-debugging-port=0`, so Chromium writes its DevTools port into the user data folder. Call it
+ * before the Restart; resolves with that port once the new app has written it (an fs.watch event).
+ */
+export const watchForRelaunch = (userData: string): Promise<number> => {
+  const file = path.join(userData, DEVTOOLS_PORT_FILE)
+  // The running app wrote one at its own start.
+  fs.rmSync(file, { force: true })
+  return new Promise((resolve) => {
+    const check = () => {
+      const [port, endpoint] = (fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "").split("\n")
+      if (!port || !endpoint) return
+      watcher.close()
+      resolve(Number(port))
+    }
+    const watcher = fs.watch(userData, check)
+  })
+}
+
+/**
+ * The relaunched app's board, over the DevTools port `watchForRelaunch` found, and its pid. After the
+ * test it's stopped by that pid, and the test waits for its DevTools connection to close.
+ */
+export const relaunchedApp = async (port: number, boardUrl: string): Promise<{ pid: number; board: Page }> => {
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`)
+  // Chromium names its own processes; the browser process is the app's main process.
+  const cdp = await browser.newBrowserCDPSession()
+  const { processInfo } = (await cdp.send("SystemInfo.getProcessInfo")) as { processInfo: Array<{ type: string; id: number }> }
+  const pid = processInfo.find((info) => info.type === "browser")?.id
+  if (!pid) throw new Error(`No browser process in ${JSON.stringify(processInfo)}`)
+  onCleanup(async () => {
+    const gone = new Promise((resolve) => browser.once("disconnected", resolve))
+    process.kill(pid, "SIGTERM")
+    await gone
+  })
+  const context = browser.contexts()[0]!
+  // The board, the panel's toolbar and the panel's page, as in appPages.
+  while (context.pages().length < 3) await context.waitForEvent("page")
+  const board = await Promise.any(context.pages().map((page) => page.waitForURL((url) => url.href.startsWith(boardUrl), { waitUntil: "commit" }).then(() => page)))
+  return { pid, board }
+}
 
 /** "Joins a running server: the board loads" → "joins-a-running-server-the-board-loads" */
 export const slug = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80).replace(/-$/, "")

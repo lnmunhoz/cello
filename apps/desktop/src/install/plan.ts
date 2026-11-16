@@ -39,7 +39,8 @@ export const parseWorktreeList = (porcelain: string): string[] =>
   porcelain
     .split("\n")
     .filter((line) => line.startsWith("worktree "))
-    .map((line) => line.slice("worktree ".length))
+    .map((line) => line.slice("worktree ".length).trim())
+    .filter((checkout) => checkout !== "")
 
 const worktreesDir = (mainRoot: string) => path.join(mainRoot, ".claude/worktrees")
 
@@ -97,7 +98,9 @@ export const strayCopies = (options: {
   readonly installed: string
 }): string[] => {
   const pattern = buildCopyPattern(options.mainRoot, options.roots)
-  const strays = [...options.registered, ...options.onDisk].filter((app) => app !== options.installed && pattern.test(app))
+  // `[^/]+` in the pattern would also take `..`, which could point anywhere.
+  const climbs = (app: string) => app.split("/").includes("..")
+  const strays = [...options.registered, ...options.onDisk].filter((app) => app !== options.installed && !climbs(app) && pattern.test(app))
   return [...new Set(strays)].sort()
 }
 

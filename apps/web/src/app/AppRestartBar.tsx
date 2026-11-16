@@ -12,6 +12,7 @@ import type { DesktopAppNotice } from "../lib/desktop.ts"
  */
 export function AppRestartBar() {
   const [notice, setNotice] = useState<DesktopAppNotice | null>(null)
+  // Kept only in this component's state: reloading the board brings a dismissed notice back.
   const [dismissed, setDismissed] = useState<string | null>(null)
   useEffect(() => window.celloDesktop?.onAppNotice?.(setNotice), [])
 

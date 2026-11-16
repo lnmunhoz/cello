@@ -10,7 +10,7 @@ import { buildMenu } from "./menu.ts"
 import { PANEL_PARTITION } from "./panel/Panel.ts"
 import { celloCommand, serverConfig } from "./server/plan.ts"
 import { connectServer, type Server } from "./server/sidecar.ts"
-import { appNotice, boardNotice, bundleOf, relaunchOptions, stampFile, type AppNotice } from "./update/appUpdate.ts"
+import { appNotice, boardNotice, bundleOf, relaunchOptions, restartTarget, stampFile, type AppNotice } from "./update/appUpdate.ts"
 import { MainWindow } from "./window/MainWindow.ts"
 
 // A closed stdout (the app started from a pipe that went away) must not crash the app.
@@ -87,9 +87,19 @@ function run() {
     live()?.showAppNotice(notice && boardNotice(notice))
   }
 
-  /** The notice's Restart: quits (stopping a server the app started) and starts the new build. */
+  /**
+   * The notice's Restart: quits (stopping a server the app started) and starts the new build. The notice
+   * is checked again first, and nothing happens while the executable to start isn't on disk (an install
+   * halfway through), so the board keeps showing it.
+   */
   const restart = () => {
-    app.relaunch(relaunchOptions(notice?.restartInto ?? process.execPath, process))
+    checkForUpdate()
+    const target = restartTarget(notice, process.execPath, fs.existsSync)
+    if (!target) return
+    // The new instance starts once this one exits; without the lock released it could find it still
+    // held, hand its arguments to this exiting instance and quit.
+    app.releaseSingleInstanceLock()
+    app.relaunch(relaunchOptions(target, process))
     app.quit()
   }
 
