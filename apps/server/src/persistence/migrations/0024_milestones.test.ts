@@ -1,4 +1,4 @@
-// Migration 0023_milestones (CEL-113) on a board shaped like the live one: CEL's Milestone labels M2
+// Migration 0024_milestones (CEL-113) on a board shaped like the live one: CEL's Milestone labels M2
 // (8 tasks: 6 Done, 1 Todo, 1 Backlog, one of the Done ones archived) and M3 (3 tasks) become milestones
 // of the same names, in order, with their tasks; then the labels are gone. Edge cases: a task carrying
 // both M2 and M3 (it gets M3, and its history notes M2), a Milestone label on no task (an empty
@@ -14,7 +14,7 @@ import * as Migrations from "../Migrations.ts"
 import * as Sqlite from "../Sqlite.ts"
 
 const beforeMilestones = SqliteMigrator.run({
-  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0023_milestones"))),
+  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0024_milestones"))),
   table: "migrations",
 }).pipe(Effect.orDie)
 
@@ -85,7 +85,7 @@ interface MilestoneRow {
   updated_at: number
 }
 
-describe("migration 0023_milestones", () => {
+describe("migration 0024_milestones", () => {
   it.effect("turns each Milestone label into a milestone with its tasks, notes a second label in history, and removes the labels", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient

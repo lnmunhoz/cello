@@ -13,7 +13,7 @@ describe("EventStore.recent", () => {
   it.effect("leaves out the events a migration wrote (CEL-113), so they don't fill Recent activity right after a deploy", () =>
     Effect.gen(function* () {
       const store = yield* EventStore.EventStore
-      yield* store.append({ type: "task.milestone_changed", id: "t1", version: 2, before: null, after: "m3", fromLabels: ["M3"] }, context(`${EventStore.MIGRATION_COMMAND_PREFIX}0023_milestones`, 1))
+      yield* store.append({ type: "task.milestone_changed", id: "t1", version: 2, before: null, after: "m3", fromLabels: ["M3"] }, context(`${EventStore.MIGRATION_COMMAND_PREFIX}0024_milestones`, 1))
       yield* store.append({ type: "task.milestone_changed", id: "t2", version: 2, before: null, after: "m3" }, context("cmd-1", 2))
       yield* store.append({ type: "task.archived", id: "t3", version: 2 }, context("cmd-2", 3))
       const recent = yield* store.recent("p", 10)

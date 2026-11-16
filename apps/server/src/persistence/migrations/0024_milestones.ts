@@ -35,7 +35,7 @@ interface LabelRow {
 }
 
 /** Marks its events as a migration's, so Recent activity leaves them out (EventStore.recent). */
-const COMMAND_ID = `${MIGRATION_COMMAND_PREFIX}0023_milestones`
+const COMMAND_ID = `${MIGRATION_COMMAND_PREFIX}0024_milestones`
 
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
