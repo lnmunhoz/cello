@@ -5,11 +5,13 @@ import { CheckIcon, Maximize2Icon, SendIcon } from "lucide-react"
 import { useRef, useState, type KeyboardEvent } from "react"
 import { Button } from "../components/ui/Button.tsx"
 import { Markdown } from "../components/ui/Markdown.tsx"
-import { toast } from "../components/ui/Toast.tsx"
 import { commands } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
 import { readStored, writeStored } from "../lib/storage.ts"
 import { Evidence, openEvidence } from "../review/Evidence.tsx"
+import { ScreenshotBox, ScreenshotThumbs } from "../screenshots/Screenshots.tsx"
+import { uploadUrl } from "../screenshots/screenshots.ts"
+import { useScreenshotUpload } from "../screenshots/useScreenshotUpload.ts"
 import { openImageModal } from "../viewer/imageModal.ts"
 import { CompareQuestion } from "./Compare.tsx"
 import {
@@ -22,21 +24,12 @@ import {
   pickNone,
   readDraft,
   removeScreenshot,
-  screenshotsFrom,
   setComment,
   startDraft,
   type Target,
   toAnswers,
 } from "./draft.ts"
-import { choicesOf, CommentBox, KIND_HINTS, NONE, NoneChoice, OptionText, PickMark } from "./parts.tsx"
-
-/** Uploads a pasted or dropped screenshot to the ask's drafts; the server answers with its attachment. */
-const upload = async (askId: string, file: Blob, name: string): Promise<Attachment> => {
-  const response = await fetch(`/asks/${encodeURIComponent(askId)}/uploads?name=${encodeURIComponent(name)}`, { method: "POST", body: file })
-  const body = (await response.json().catch(() => ({}))) as Attachment & { reason?: string }
-  if (!response.ok) throw new Error(body.reason ? `${body.reason.charAt(0).toUpperCase()}${body.reason.slice(1)}.` : "The screenshot didn't upload.")
-  return body
-}
+import { choicesOf, KIND_HINTS, NONE, NoneChoice, OptionText, PickMark } from "./parts.tsx"
 
 /** The draft for an ask, kept in this device's storage on every change. */
 const useDraft = (ask: Ask) => {
@@ -64,7 +57,7 @@ export function AskForm({ task, ask, onAnswered }: { task: Task; ask: Ask; onAns
   const answer = useAtomSet(commands.answerAsk, { mode: "promiseExit" })
   const [draft, update] = useDraft(ask)
   const [busy, setBusy] = useState(false)
-  const [uploading, setUploading] = useState(0)
+  const { uploading, attach: upload } = useScreenshotUpload(uploadUrl({ askId: ask.id }))
   const left = missing(ask.questions, draft)
   const ready = left.length === 0 && uploading === 0 && !busy
 
@@ -79,21 +72,7 @@ export function AskForm({ task, ask, onAnswered }: { task: Task; ask: Ask; onAns
     }
   }
 
-  const attach = async (target: Target, files: ReadonlyArray<File>) => {
-    const { accepted, refused } = screenshotsFrom(files)
-    for (const reason of refused) toast.error(`${reason}.`)
-    setUploading((n) => n + accepted.length)
-    await Promise.all(accepted.map(async ({ index, name }) => {
-      try {
-        const attachment = await upload(ask.id, files[index]!, name)
-        update((d) => addScreenshot(d, target, attachment))
-      } catch (error) {
-        toast.error((error as Error).message)
-      } finally {
-        setUploading((n) => n - 1)
-      }
-    }))
-  }
+  const attach = (target: Target, files: ReadonlyArray<File>) => upload(files, (attachment) => update((d) => addScreenshot(d, target, attachment)))
 
   return (
     <div
@@ -128,7 +107,7 @@ export function AskForm({ task, ask, onAnswered }: { task: Task; ask: Ask; onAns
         </ol>
         <section aria-label="Note" className="flex flex-col gap-1.5">
           <h5 className="text-xs font-medium text-muted">Anything else? <span className="font-normal text-faint">(optional)</span></h5>
-          <CommentBox
+          <ScreenshotBox
             label="Note"
             placeholder="A note for the agent. Paste or drop screenshots to show what you mean."
             value={draft.note}
@@ -193,7 +172,7 @@ function QuestionCard({ number, question, ask, draft, unanswered, onPick, onNone
   // The comment box, inline and in the compare view: one draft, typed in either.
   const comment = (
     <>
-      <CommentBox
+      <ScreenshotBox
         label={`Comment on question ${number}`}
         placeholder={
           question.options.length === 0
@@ -343,23 +322,7 @@ const CLOSED = {
  * faded), his comments and screenshots, the note; or, withdrawn or replaced, just the questions.
  */
 export function AskRecord({ ask }: { ask: Ask }) {
-  const shots = (list: ReadonlyArray<Attachment>) =>
-    list.length === 0 ? null : (
-      <ul className="flex flex-wrap gap-2">
-        {list.map((shot, i) => (
-          <li key={shot.id}>
-            <button
-              type="button"
-              aria-label={`Open ${shot.name}`}
-              onClick={(e) => openImageModal(list.map((s) => ({ url: attachmentUrl(s), title: s.name })), i, e.currentTarget)}
-              className="block h-14 w-20 cursor-zoom-in overflow-hidden rounded border border-line bg-sunken outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <img src={attachmentUrl(shot)} alt="" loading="lazy" className="size-full object-cover object-top" />
-            </button>
-          </li>
-        ))}
-      </ul>
-    )
+  const shots = (list: ReadonlyArray<Attachment>) => <ScreenshotThumbs shots={list} size="sm" label="Screenshots" />
   return (
     <div data-ask-record={ask.id} className="flex flex-col gap-3">
       {ask.intro ? <Markdown source={ask.intro} gallery={false} /> : null}

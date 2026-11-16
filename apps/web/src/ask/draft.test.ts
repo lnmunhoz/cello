@@ -8,7 +8,6 @@ import {
   pickNone,
   readDraft,
   removeScreenshot,
-  screenshotsFrom,
   setComment,
   startDraft,
   toAnswers,
@@ -74,18 +73,6 @@ describe("a draft of Lucas's answers", () => {
       answers: { q1: { optionIds: ["q1o1"], none: false, comment: "", attachments: [] } },
       note: "",
       noteAttachments: [],
-    })
-  })
-
-  it("takes pasted images only, up to 20 MB, and names a nameless one", () => {
-    expect(screenshotsFrom([
-      { name: "image.png", type: "image/png", size: 10 },
-      { name: "", type: "image/jpeg", size: 10 },
-      { name: "notes.pdf", type: "application/pdf", size: 10 },
-      { name: "huge.webp", type: "image/webp", size: 21 * 1024 * 1024 },
-    ])).toEqual({
-      accepted: [{ index: 0, name: "image.png" }, { index: 1, name: "screenshot.jpg" }],
-      refused: ["notes.pdf isn't a PNG, JPEG, GIF or WebP image", "huge.webp is over 20 MB"],
     })
   })
 })

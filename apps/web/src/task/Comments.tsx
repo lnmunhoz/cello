@@ -12,34 +12,41 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.
 import { commands, commentsFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
 import { type Who, whoOf } from "../presence/model.ts"
+import { ScreenshotBox, ScreenshotThumbs } from "../screenshots/Screenshots.tsx"
+import { uploadUrl } from "../screenshots/screenshots.ts"
+import { useScreenshotUpload } from "../screenshots/useScreenshotUpload.ts"
+import { addScreenshot, removeScreenshot, toComment, useCommentDraft } from "./commentDraft.ts"
 import type { TaskSearch } from "./view.ts"
 
 interface CommentsProps {
   readonly board: BoardState
   readonly task: Task
-  /** The box's text, when the parent shares it: the Review page sends it as Send back's note (CEL-70). */
-  readonly draft?: { readonly value: string; readonly onChange: (body: string) => void } | undefined
   readonly placeholder?: string | undefined
   /** More buttons after Comment, in its row (the Review page's Send back and Approve); the row's buttons are then full size. */
   readonly actions?: ReactNode
 }
 
-/** A task's comments, oldest first, and a box to add one (⌘Enter or Comment): in the task panel, and under an open packet on the Review page. */
-export function Comments({ board, task, draft, placeholder = "Leave a comment…", actions }: CommentsProps) {
+/**
+ * A task's comments, oldest first, and a box to add one (⌘Enter or Comment): in the task panel, and under
+ * an open packet on the Review page. The box takes pasted and dropped screenshots (CEL-73); its words and
+ * screenshots are the task's comment draft, kept on this device until sent (the Review page's Send back
+ * and Approve read it too).
+ */
+export function Comments({ board, task, placeholder = "Leave a comment…", actions }: CommentsProps) {
   const result = useAtomValue(commentsFamily(task.id))
   const add = useAtomSet(commands.addComment, { mode: "promiseExit" })
-  const [own, setOwn] = useState("")
-  const body = draft?.value ?? own
-  const setBody = draft?.onChange ?? setOwn
+  const { draft, update, clear } = useCommentDraft(task.id)
+  const { uploading, attach } = useScreenshotUpload(uploadUrl({ taskId: task.id }))
+  const toSend = uploading > 0 ? null : toComment(draft)
   const headingId = useId()
   const comments = AsyncResult.isSuccess(result) ? result.value.filter((c) => c.deletedAt === null) : []
   // Opened at a comment from ⌘K (`?comment=<id>`, CEL-43): it scrolls into view and flashes once.
   const target = (useSearch({ strict: false }) as TaskSearch).comment
 
   const submit = async () => {
-    if (body.trim() === "") return
-    const exit = await add({ taskId: task.id, body: body.trim() })
-    if (exit._tag === "Success") setBody("")
+    if (toSend === null) return
+    const exit = await add({ taskId: task.id, ...toSend })
+    if (exit._tag === "Success") clear()
   }
 
   return (
@@ -54,12 +61,14 @@ export function Comments({ board, task, draft, placeholder = "Leave a comment…
         ))}
       </ul>
       <div className="flex flex-col gap-2">
-        <Textarea
-          variant="comment"
-          aria-label="New comment"
+        <ScreenshotBox
+          label="New comment"
           placeholder={placeholder}
-          value={body}
-          onChange={(e) => setBody(e.currentTarget.value)}
+          value={draft.body}
+          screenshots={draft.attachments}
+          onChange={(body) => update((d) => ({ ...d, body }))}
+          onAttach={(files) => void attach(files, (attachment) => update((d) => addScreenshot(d, attachment)))}
+          onRemove={(id) => update((d) => removeScreenshot(d, id))}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault()
@@ -68,7 +77,8 @@ export function Comments({ board, task, draft, placeholder = "Leave a comment…
           }}
         />
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button variant="secondary" size={actions ? "md" : "sm"} onClick={submit} disabled={body.trim() === ""}>
+          {uploading > 0 ? <span className="text-xs text-muted">Uploading…</span> : null}
+          <Button variant="secondary" size={actions ? "md" : "sm"} onClick={submit} disabled={toSend === null}>
             Comment
           </Button>
           {actions}
@@ -127,7 +137,7 @@ function CommentItem({ comment, author, target }: { comment: Comment; author: Wh
         </span>
       </div>
       {draft === null ? (
-        <Markdown source={comment.body} />
+        comment.body === "" ? null : <Markdown source={comment.body} />
       ) : (
         <div className="flex flex-col gap-2">
           <Textarea
@@ -151,6 +161,7 @@ function CommentItem({ comment, author, target }: { comment: Comment; author: Wh
           </div>
         </div>
       )}
+      <ScreenshotThumbs shots={comment.attachments ?? []} size="sm" label="Screenshots" />
     </li>
   )
 }
