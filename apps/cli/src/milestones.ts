@@ -48,9 +48,8 @@ const when = (m: Milestone, now: number) => (m.state === "closed" ? `closed ${ag
 export const milestoneListText = (list: MilestoneList, now: number): string => {
   if (list.milestones.length === 0) return `No milestones yet in ${list.project.key}. Make one with \`cello milestone create <name> --goal "…"\`.`
   return columns(list.milestones.map(({ milestone: m, progress }) => {
-    const row = [m.name, m.state, progressText(progress), when(m, now), m.goal]
-    while (row.length > 3 && row.at(-1) === "") row.pop()
-    return row
+    const rest = [when(m, now), m.goal].filter((part) => part !== "").join(" · ")
+    return [m.name, m.state, progressText(progress), ...(rest ? [rest] : [])]
   })).join("\n")
 }
 

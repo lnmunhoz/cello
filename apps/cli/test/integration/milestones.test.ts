@@ -54,7 +54,7 @@ describe("cello milestone", () => {
       expect(yield* agent("milestone", "list")).toEqual({
         out: [
           "M2  open  0 of 0 done",
-          "M3  open  1 of 3 done · 33%  due 2026-12-01  Watching agents",
+          "M3  open  1 of 3 done · 33%  due 2026-12-01 · Watching agents",
         ].join("\n"),
         failure: null,
       })

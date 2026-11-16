@@ -62,7 +62,7 @@ describe("the text", () => {
       ],
     }, NOW)).toBe([
       "M2   closed  7 of 7 done · 100%  closed 2d ago",
-      "M3   open    6 of 11 done · 55%  due 2026-12-01  Watching agents",
+      "M3   open    6 of 11 done · 55%  due 2026-12-01 · Watching agents",
       "M10  open    0 of 0 done",
     ].join("\n"))
     expect(milestoneListText({ project: { key: "CEL" } as never, milestones: [] }, NOW)).toBe(

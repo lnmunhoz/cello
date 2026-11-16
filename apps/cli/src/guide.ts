@@ -531,8 +531,8 @@ cello task list --milestone M4                                    # its open tas
 \`\`\`
 $ cello milestone list
 M2  closed  7 of 7 done · 100%  closed 2d ago
-M3  open    6 of 11 done · 55%  due 2026-12-01  Watching agents
-M4  open    0 of 2 done         due 2026-12-15  Releases
+M3  open    6 of 11 done · 55%  due 2026-12-01 · Watching agents
+M4  open    0 of 2 done         due 2026-12-15 · Releases
 
 $ cello milestone show M3
 M3 · open · due 2026-12-01
