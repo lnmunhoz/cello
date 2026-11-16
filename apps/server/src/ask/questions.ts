@@ -61,7 +61,7 @@ export const checkQuestions = (inputs: ReadonlyArray<AskQuestionInput>): Effect.
         })
       }
       if (kind === "one" && options.filter((o) => o.recommended).length > 1) {
-        return yield* fail(`question ${n} lets Lucas pick one, so recommend one option at most`)
+        return yield* fail(`question ${n} asks for one pick, so recommend one option at most`)
       }
       questions.push({ id: `q${n}`, prompt, kind, options })
     }

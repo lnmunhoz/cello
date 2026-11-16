@@ -89,7 +89,7 @@ describe("deliveryText", () => {
       "  Lucas reacted 👍 to your comment, 1m ago",
       "    \"Built the picker and the chips. Shall I merge it now, or wait for the CEL-73 att…\"",
       "",
-      "A reaction is Lucas's quick answer to your comment: take it as his reply; there's no need to answer it on the card.",
+      "A reaction is Lucas's quick answer to your comment: take it as their reply; there's no need to answer it on the card.",
     ].join("\n"))
 
     const mixed = deliveryText([item(), reaction, { ...reaction, id: "item-10", emoji: "🎉" }], NOW)

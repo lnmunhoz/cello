@@ -45,7 +45,7 @@ describe("cello task react", () => {
           "  Lucas reacted 👍 to your comment, just now",
           "    \"Built the picker. Shall I merge it?\"",
           "",
-          "A reaction is Lucas's quick answer to your comment: take it as his reply; there's no need to answer it on the card.",
+          "A reaction is Lucas's quick answer to your comment: take it as their reply; there's no need to answer it on the card.",
         ].join("\n"),
         failure: null,
       })

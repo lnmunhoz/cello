@@ -147,7 +147,7 @@ describe("AskService.create", () => {
         reason: "say why you recommend \"A\" (because)",
       })
       expect(yield* fail([{ prompt: "Which?", options: [{ label: "A", recommended: true, because: "x" }, { label: "B", recommended: true, because: "y" }] }]))
-        .toMatchObject({ reason: "question 1 lets Lucas pick one, so recommend one option at most" })
+        .toMatchObject({ reason: "question 1 asks for one pick, so recommend one option at most" })
       expect(yield* fail([{ prompt: "Why?", kind: "text", options: [{ label: "A" }] }])).toMatchObject({ reason: "question 1 is text only, so it can't have options" })
       expect(yield* fail([{ prompt: "Which?", kind: "any" }])).toMatchObject({ reason: "question 1 needs options to choose from (or kind \"text\")" })
       expect(yield* fail([{ prompt: "Which?", options: [{ label: "A", image: writeText(files, "a.txt", "no") }] }])).toMatchObject({

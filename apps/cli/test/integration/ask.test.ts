@@ -221,7 +221,7 @@ describe("cello task ask", () => {
     Effect.gen(function* () {
       const { x, human, repo, statusId, hook } = yield* setup
       expect((yield* x("task", "move", "CEL-1", "Needs input")).failure).toBe(
-        "CEL-1 goes to Needs input only with questions for Lucas. Ask them instead: " +
+        "CEL-1 goes to Needs input only with questions for the human. Ask them instead: " +
           "`cello task ask CEL-1 --title \"what to decide\" --question \"…\" --option \"A\" --option \"B\"` (or --file ask.json). See `cello guide`.",
       )
       fs.writeFileSync(path.join(repo, "ask.json"), JSON.stringify(ASK_FILE))
