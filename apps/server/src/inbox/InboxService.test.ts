@@ -6,6 +6,7 @@ import type { InboxItem } from "@cello/contract/entities"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import * as TestClock from "effect/testing/TestClock"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as CommentService from "../comment/CommentService.ts"
 import { ContextService } from "../context/ContextService.ts"
@@ -293,6 +294,53 @@ describe("InboxService.wait: the session counts as waiting (CEL-76)", () => {
       expect((yield* sessions.byIds([id]))[0]!.waiting).toBe(false)
     })))
 
+  // CEL-76 follow-up: the session wakes the moment its wait hands a comment over, and starts on it. Until
+  // its next check-in the board would still see it waiting, last seen when the wait opened (often long
+  // ago), and say it got the comment but hasn't answered.
+  it.effect("a wait that hands an item over is a sign of life: seen at that moment and not waiting, in the delivery's own change", () =>
+    run(Effect.gen(function* () {
+      const { inbox, one, comment } = yield* setup
+      const sessions = yield* SessionService
+      const store = yield* EventStore.EventStore
+      const sql = yield* SqlClient.SqlClient
+      const id = (yield* agent(inbox.take({ unreadOnly: true }))).session!.id
+      const waiting = yield* Effect.forkChild(agent(inbox.wait))
+      yield* Effect.yieldNow
+      const opened = (yield* sessions.byIds([id]))[0]!.lastSeenAt
+      // Lucas writes twenty minutes later: well past the board's idle threshold.
+      yield* TestClock.adjust("20 minutes")
+      const seq = yield* store.latestSeq
+      yield* comment(one.id, "Wake up")
+      yield* Fiber.join(waiting)
+
+      const rows = yield* sql<{ type: string; ts: number; command_id: string; payload: string }>`
+        SELECT type, ts, command_id, payload FROM events WHERE seq > ${seq} AND type IN ('comment.delivered', 'session.seen') ORDER BY seq`
+        .pipe(Effect.orDie)
+      expect(rows.map((r) => r.type)).toEqual(["comment.delivered", "session.seen"])
+      const [delivered, seen] = rows
+      // One change: a board never sees the comment taken by a session still waiting, or last seen long ago.
+      expect(seen!.command_id).toBe(delivered!.command_id)
+      const told = (JSON.parse(seen!.payload) as { session: { id: string; lastSeenAt: number; waiting?: boolean } }).session
+      expect(told).toMatchObject({ id, lastSeenAt: delivered!.ts, waiting: false })
+      expect(told.lastSeenAt).toBeGreaterThan(opened)
+      expect((yield* sessions.byIds([id]))[0]).toMatchObject({ lastSeenAt: delivered!.ts, waiting: false })
+    })))
+
+  it.effect("a wait that takes nothing (interrupted) and a plain take say nothing about being seen", () =>
+    run(Effect.gen(function* () {
+      const { inbox, one, comment } = yield* setup
+      const store = yield* EventStore.EventStore
+      yield* agent(inbox.take({ unreadOnly: true }))
+      // The plain take's own call checked in already: its check-in is the middleware's, not take's.
+      const seq = yield* store.latestSeq
+      const waiting = yield* Effect.forkChild(agent(inbox.wait))
+      yield* Effect.yieldNow
+      yield* Fiber.interrupt(waiting)
+      yield* comment(one.id, "Read it with the hook")
+      yield* agent(inbox.take({ unreadOnly: true, via: "hook" }))
+      expect((yield* eventsAfter(seq)).filter((e) => e.type === "session.seen")).toEqual([])
+    })))
+
   it.effect("a session holding no claim waits quietly: no board hears it", () =>
     run(Effect.gen(function* () {
       const { inbox, tasks, one } = yield* setup
@@ -509,7 +557,7 @@ describe("InboxService: reactions", () => {
       expect(yield* other(inbox.unread)).toEqual([])
     })))
 
-  it.effect("wakes a waiting session; delivering writes no event beyond the reaction's own (and the waiter stopping)", () =>
+  it.effect("wakes a waiting session; delivering writes no event beyond the reaction's own (and the session waking, and its waiter stopping)", () =>
     run(Effect.gen(function* () {
       const { inbox, react } = yield* agentComment
       const store = yield* EventStore.EventStore
@@ -518,7 +566,7 @@ describe("InboxService: reactions", () => {
       const before = yield* store.latestSeq
       yield* react("👍")
       expect(said((yield* Fiber.join(waiting)).items)).toEqual(["👍 on Built it; shall I merge?"])
-      expect((yield* eventsAfter(before)).map((e) => e.type)).toEqual(["reaction.added", "session.waiting"])
+      expect((yield* eventsAfter(before)).map((e) => e.type)).toEqual(["reaction.added", "session.seen", "session.waiting"])
     })))
 
   it.effect("cello context shows it without marking it read", () =>

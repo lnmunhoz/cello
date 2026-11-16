@@ -8,7 +8,9 @@
 // back note) also writes `comment.delivered`, in the same transaction, so Lucas sees its receipt
 // (CEL-76); other items' read marks stay the session's own. `wait` (CEL-74) blocks until there is
 // something to take, so an idle agent session (`cello inbox --wait` running in its background) wakes
-// when Lucas writes; while it's open the session counts as waiting (SessionService.waitingWhile). Lucas's emoji reaction to an agent's comment (CEL-77) reaches
+// when Lucas writes; while it's open the session counts as waiting (SessionService.waitingWhile).
+// Once it hands something over the session counts as woken and working on it, seen at that moment, in
+// the same change (SessionService.wokeWithin). Lucas's emoji reaction to an agent's comment (CEL-77) reaches
 // the session that wrote it, else the claim holder; the reaction row itself is the item
 // (`comment_reactions.notify_session_id`, `read_at`), so the inbox reads both tables.
 import type { Ask, Comment, DeliveryVia, InboxItem, Reaction } from "@cello/contract/entities"
@@ -185,7 +187,8 @@ const make = Effect.gen(function* () {
     const via = query.via ?? "inbox"
     // A command with no receipt (nobody retries a take), so each comment handed over writes its
     // `comment.delivered` in the same transaction as its read mark.
-    const written = yield* commands.write({ commandId: crypto.randomUUID(), rpc: "inbox.take", receipt: false }, ({ now, emit }) => Effect.gen(function* () {
+    const written = yield* commands.write({ commandId: crypto.randomUUID(), rpc: "inbox.take", receipt: false }, (context) => Effect.gen(function* () {
+      const { now, emit } = context
       const earlier = query.unreadOnly ? [] : inOrder([
         ...yield* selectInboxItems(
           sql,
@@ -218,6 +221,8 @@ const make = Effect.gen(function* () {
       }
       const reacted = yield* sql<{ id: string }>`
         UPDATE comment_reactions SET read_at = ${now} WHERE notify_session_id = ${sessionId} AND read_at IS NULL RETURNING id`
+      // A wait handing something over wakes the session: it's working on it from now (CEL-76).
+      if (via === "wait" && (taken.length > 0 || reacted.length > 0)) yield* sessions.wokeWithin(context, sessionId)
       const items = inOrder([
         ...taken.length === 0 ? [] : yield* selectInboxItems(sql, sql.in("i.id", taken.map((r) => r.id))),
         ...reacted.length === 0 ? [] : yield* selectReactionItems(sql, sql.in("r.id", reacted.map((r) => r.id))),

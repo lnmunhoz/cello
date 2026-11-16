@@ -442,10 +442,10 @@ Under his latest comment, until you answer it, a status row in the thread (with 
 - a `cello inbox --wait` of yours is running: "2fd0505c is waiting for you: it gets this in about a second"
 - you're idle with no waiter: "2fd0505c is idle: it gets this when it next works"
 - your session has ended: "2fd0505c ended: it gets this if the session is resumed"
-- you took it and are working: "2fd0505c got your comment and is working on it…"
+- you took it and are working: "2fd0505c got your comment and is working on it…", with your mark thinking (it sways). Taking it through `cello inbox --wait` counts as waking up: the row says this from that moment, not from your next check-in
 - nobody holds the claim: "No agent holds this task: nobody will get this"
 
-The row goes away once you answer (a comment or a reaction after taking it), so a comment you took and then left unanswered keeps saying "got your comment but hasn't answered yet".
+The row goes away once you answer (a comment or a reaction after taking it), so a comment you took and then left unanswered keeps saying "got your comment but hasn't answered yet" once you go idle or start waiting again.
 
 That's another reason to keep `cello inbox --wait` running when you end a turn holding a claim. What arrives looks like this:
 
