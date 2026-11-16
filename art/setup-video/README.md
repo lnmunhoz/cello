@@ -11,3 +11,11 @@ A 2:33 onboarding video: what Cello is, setting it up by pointing an agent at it
   - `banner`, `architecture`, `loop`: the README's animated SVGs, `bun tools/record-svg.mjs`.
 - **Cut:** `python3 tools/cut.py --out review/cello-setup.mp4` (each scene's picture fitted to its narration, the music ducked under the voice), then `python3 tools/captions.py review/cello-setup.timeline.json > review/cello-setup.srt` and the ffmpeg `subtitles` burn in the CEL-94 packet.
 - `tools/agent-session/record.sh` is a hand-driven variant (a person types to Claude Code in the container); it wasn't used.
+
+## v2: motion graphics (in progress)
+
+The real-footage cut above was too flat to explain Cello, so v2 draws the picture instead, in the promo's style: the same narration and music, with simple drawn screens, the agent drops, and one bold phrase per beat, each thing appearing on the word that names it.
+
+- **Frames:** `v2/make.mjs`, every frame an SVG from code, drawn with the kit shared with the promo (`art/motion-kit.mjs`). `bun art/setup-video/v2/make.mjs 12.5,40` writes stills, `--timeline` prints each scene's start and voice time.
+- **Storyboard:** `v2/storyboard.sh` renders the review stills into `v2/storyboard/<seconds>.webp`.
+- **Word timing:** each scene's comment lists the narration with the second each phrase starts, measured from take A (pauses with ffmpeg `silencedetect`, words inside a phrase split by their share of its characters).
