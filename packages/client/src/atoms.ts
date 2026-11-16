@@ -1,6 +1,6 @@
 // The thin atom layer over the pure sync and command code: one synced atom fed by `follow`,
 // a list of optimistic patches, the view the screens read, and command atoms for writes.
-import type { Ask, Comment, Document, DocumentVersion, LabelGroup, Priority, Review, Scope } from "@cello/contract/entities"
+import type { Ask, Comment, Document, DocumentVersion, LabelGroup, Priority, Review, Scope, TestingProfile } from "@cello/contract/entities"
 import type { AnswerInput } from "@cello/contract/rpcs"
 import type { CelloEvent } from "@cello/contract/events"
 import type { SearchResults } from "@cello/contract/search"
@@ -19,6 +19,7 @@ import { applyCommentEvents } from "./sync/comments.ts"
 import { documentBySlug } from "./sync/documents.ts"
 import { projectByKey } from "./sync/selectors.ts"
 import { applyAskEvents } from "./sync/asks.ts"
+import { applyProfileEvents } from "./sync/profile.ts"
 import { applyReviewEvents } from "./sync/reviews.ts"
 import { follow, followsWorkspace, sourceFromClient, type Synced } from "./sync/follow.ts"
 import type { BoardState } from "./sync/applyEvents.ts"
@@ -266,6 +267,11 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
       patch: (a: { id: string }) => patches.archiveLabel(a.id),
       call: (c, a, commandId) => c["label.archive"]({ commandId, ...a }),
     }),
+    // Testing profile fields (CEL-89): set or unset by the human; the row follows when the event arrives.
+    setProfile: command({
+      call: (c, a: { projectKey: string; set: ReadonlyArray<{ field: string; value: string }>; unset?: ReadonlyArray<string> }, commandId) =>
+        c["profile.set"]({ commandId, project: { key: a.projectKey }, set: a.set, ...(a.unset ? { unset: a.unset } : {}) }),
+    }),
     addComment: command({
       call: (c, a: { taskId: string; body: string; attachmentIds?: ReadonlyArray<string> }, commandId) => c["comment.add"]({ commandId, ...a }),
     }),
@@ -299,10 +305,10 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     }),
   }
 
-  /** A list loaded once with `load`, then kept current by `apply` over each batch of events. */
-  const followedList = <T>(
-    load: (client: Client) => Effect.Effect<ReadonlyArray<T>, unknown>,
-    apply: (list: ReadonlyArray<T>, events: ReadonlyArray<CelloEvent>) => ReadonlyArray<T>,
+  /** A value loaded once with `load`, then kept current by `apply` over each batch of events (the same value: no change). */
+  const followed = <V>(
+    load: (client: Client) => Effect.Effect<V, unknown>,
+    apply: (value: V, events: ReadonlyArray<CelloEvent>) => V,
   ) =>
     runtime.atom((get) =>
       Stream.unwrap(
@@ -313,9 +319,9 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
             get.streamResult(syncedAtom, { withoutInitialValue: true }).pipe(
               Stream.mapAccum(
                 () => first,
-                (list: ReadonlyArray<T>, synced: Synced) => {
-                  const next = apply(list, synced.batch)
-                  return [next, next === list ? [] : [next]] as const
+                (value: V, synced: Synced) => {
+                  const next = apply(value, synced.batch)
+                  return [next, next === value ? [] : [next]] as const
                 },
               ),
             ),
@@ -325,15 +331,19 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
 
   /** A task's comments. */
   const commentsFamily = Atom.family((taskId: string) =>
-    followedList<Comment>((c) => c["comment.list"]({ taskId }), (list, events) => applyCommentEvents(list, taskId, events)))
+    followed<ReadonlyArray<Comment>>((c) => c["comment.list"]({ taskId }), (list, events) => applyCommentEvents(list, taskId, events)))
 
   /** A task's reviews, open and decided, oldest first. */
   const reviewsFamily = Atom.family((taskId: string) =>
-    followedList<Review>((c) => c["review.list"]({ taskId }), (list, events) => applyReviewEvents(list, taskId, events)))
+    followed<ReadonlyArray<Review>>((c) => c["review.list"]({ taskId }), (list, events) => applyReviewEvents(list, taskId, events)))
 
   /** A task's asks (questions for Lucas, CEL-47), open and closed, oldest first. */
   const asksFamily = Atom.family((taskId: string) =>
-    followedList<Ask>((c) => c["ask.list"]({ taskId }), (list, events) => applyAskEvents(list, taskId, events)))
+    followed<ReadonlyArray<Ask>>((c) => c["ask.list"]({ taskId }), (list, events) => applyAskEvents(list, taskId, events)))
+
+  /** A project's testing profile (CEL-89), by project key, kept current by `profile.changed`. */
+  const profileFamily = Atom.family((projectKey: string) =>
+    followed<TestingProfile>((c) => c["profile.get"]({ project: { key: projectKey } }), applyProfileEvents))
 
   /**
    * The server's version of one task. It changes only when that task does, and an optimistic edit
@@ -427,6 +437,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     commentsFamily,
     reviewsFamily,
     asksFamily,
+    profileFamily,
     historyFamily,
     pageFamily,
     documentHistoryFamily,

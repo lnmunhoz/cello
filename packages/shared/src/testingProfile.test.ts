@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { checkProfileValue, e2eSurfaces, fieldLabel, missingFields, PROFILE_FIELDS, profileFieldProblem } from "./testingProfile.ts"
+import { checkProfileValue, compareFields, e2eSurfaces, fieldLabel, missingFields, PROFILE_FIELDS, profileFieldProblem } from "./testingProfile.ts"
 
 describe("profile field names (CEL-89)", () => {
   it("accepts the fixed fields and e2e.<surface>.<part>, nothing else", () => {
@@ -26,6 +26,14 @@ describe("profile field names (CEL-89)", () => {
     expect(fieldLabel("app.start")).toBe("Start the app")
     expect(fieldLabel("e2e.desktop.videos")).toBe("desktop e2e: videos folder")
     expect(e2eSurfaces(["unit", "e2e.web.run", "e2e.desktop.run", "e2e.web.videos"])).toEqual(["web", "desktop"])
+    expect(["e2e.web.videos", "never.touch", "e2e.desktop.run", "e2e.web.run", "unit", "install"].sort(compareFields)).toEqual([
+      "install",
+      "unit",
+      "never.touch",
+      "e2e.desktop.run",
+      "e2e.web.run",
+      "e2e.web.videos",
+    ])
   })
 })
 

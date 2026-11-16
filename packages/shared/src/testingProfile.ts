@@ -88,12 +88,16 @@ export const e2eSurfaces = (fields: ReadonlyArray<string>): string[] => [
   })),
 ]
 
-/** Fields in the order screens list them: the fixed ones, then each surface's e2e fields. */
-export const fieldOrder = (field: string): number => {
-  const fixed = (PROFILE_FIELDS as ReadonlyArray<string>).indexOf(field)
-  if (fixed !== -1) return fixed
-  const e2e = e2eField(field)
-  return e2e ? 100 + E2E_PARTS.indexOf(e2e.part) : 1000
+/** For sorting fields the way screens list them: the fixed ones in order, then each surface's e2e fields (run, videos, screenshots), surfaces by name. */
+export const compareFields = (a: string, b: string): number => {
+  const rank = (field: string) => {
+    const fixed = (PROFILE_FIELDS as ReadonlyArray<string>).indexOf(field)
+    const e2e = e2eField(field)
+    return fixed !== -1 ? { group: fixed, surface: "", part: 0 } : { group: 100, surface: e2e?.surface ?? field, part: e2e ? E2E_PARTS.indexOf(e2e.part) : 0 }
+  }
+  const x = rank(a)
+  const y = rank(b)
+  return x.group - y.group || x.surface.localeCompare(y.surface) || x.part - y.part
 }
 
 /** Fields a builder needs that nobody has set yet. ui.runsIn defaults to local; review.env and never.touch are optional. */
