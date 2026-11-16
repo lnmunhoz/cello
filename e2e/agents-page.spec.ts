@@ -178,6 +178,8 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   await expect(orchestratorRow).toContainText("2fd0505c")
   await expect(orchestratorRow).toContainText("orchestrator · 2 subagents")
   await expect(orchestratorRow).toContainText("holds CLO-1, CLO-2")
+  // CEL-104: the orchestrator shows its task's state on the right, like any session, not a blank.
+  await expect(orchestratorRow.locator("[data-agent-task-state]").first()).toHaveText("Building")
   // Under it, in order, indented.
   const working = await rowsIn(page, "working").evaluateAll((rows) => rows.map((r) => r.getAttribute("data-agent-row")))
   expect(working[0]).toBe(`session:${orchestrator}`)
@@ -254,12 +256,15 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   hook("subagent-stop", { session_id: ORCHESTRATOR, agent_id: REVIEWER, agent_type: "cello-code-reviewer", hook_event_name: "SubagentStop" })
   await expect(reviewerRow).toHaveCount(0)
 
-  await caption(page, "The orchestrator asks you about CLO-2: it moves up to Waiting on you, its builders keep working")
+  await caption(page, "The orchestrator asks you about CLO-2: it moves up to Waiting on you, its working subagents still under it")
   cli(ORCHESTRATOR)("task", "ask", "CLO-2", "--file", askFile("Which drop zone", "Where can screenshots be dropped?"))
   await expect(orchestratorRow).toHaveAttribute("data-agent-group", "waiting")
-  await expect(rowsIn(page, "waiting")).toHaveCount(2)
+  // CEL-104: subagents stay under their session, so the builder and the visual reviewer move up with it,
+  // each still saying it's working (its own group), not waiting.
+  await expect(rowsIn(page, "waiting")).toHaveCount(4)
+  await expect(group(page, "waiting").locator(`[data-agent-row="agent:${orchestrator}/${BUILDER}"]`)).toHaveCount(1)
   await expect(builderRow).toHaveAttribute("data-agent-group", "working")
-  await expect(builderRow.locator("xpath=..")).not.toHaveClass(/pl-6/)
+  await expect(builderRow.locator("xpath=..")).toHaveClass(/pl-6/)
   await expect(builderRow).toContainText("under 2fd0505c")
   // It waits on CLO-2, not its first task: that's what its row says and its link opens.
   await expect(orchestratorRow.locator("[data-agent-task-state]")).toHaveText("Needs input")
