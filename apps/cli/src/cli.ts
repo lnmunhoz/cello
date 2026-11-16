@@ -101,7 +101,7 @@ import { CliEnv, dataDirOf, portOf } from "./env.ts"
 import { CliFailure, explain } from "./errors.ts"
 import { editFields, priorityOf } from "./edit.ts"
 import { evidenceFromArgs } from "./evidence.ts"
-import { agentName, ago, andList, columns, localTime, plural, sessionName } from "./format.ts"
+import { agentName, ago, andList, columns, localTime, plural, sessionName, type WrittenWith } from "./format.ts"
 import { GUIDE } from "./guide.ts"
 import { type Env, IDENTITY_VARIABLES, identityHeaders, parseAgent } from "./identity.ts"
 import { askScreenshots, commentScreenshots, commentStart, commentText, deliveryText, inboxEntries, inboxScreenshots, type ScreenshotFile } from "./inbox.ts"
@@ -287,19 +287,22 @@ const taskLine = (names: Names, task: Task) => `${task.key}  ${statusWithStage(n
 
 /**
  * Who did something: "Claude Code session 2fd0505c", a subagent under it ("cello-builder · a13bfb89
- * (under Claude Code session 2fd0505c)", CEL-55), or the actor's name.
+ * (under Claude Code session 2fd0505c)", CEL-55), or the actor's name. `written`: the model and effort a
+ * comment or an event was written with, named when known ("Claude Code session 2fd0505c (Opus 5.5, high)",
+ * CEL-119); never the agent's current model, which may have changed since.
  */
 const author = (
   names: Names & { readonly actors: ReadonlyArray<{ readonly id: string; readonly name: string }> },
   actorId: string,
   sessionId: string | null,
   agentId?: string | null,
+  written?: WrittenWith,
 ) => {
   const session = names.sessions.find((s) => s.id === sessionId)
   if (sessionId !== null && agentId) {
-    return agentName(names.agents?.find((a) => a.sessionId === sessionId && a.agentId === agentId) ?? { agentId, agentType: null }, session)
+    return agentName(names.agents?.find((a) => a.sessionId === sessionId && a.agentId === agentId) ?? { agentId, agentType: null }, session, written)
   }
-  return session ? sessionName(session) : names.actors.find((a) => a.id === actorId)?.name ?? "Someone"
+  return session ? sessionName(session, written) : names.actors.find((a) => a.id === actorId)?.name ?? "Someone"
 }
 
 
@@ -425,7 +428,7 @@ const context = Command.make("context", { project, json }, (input) =>
     if (ctx.lostClaims.length) {
       lines.push("", "Claims you lost")
       for (const { event, taskKey } of ctx.lostClaims) {
-        const who = author(ctx, event.actorId, event.sessionId, event.agentId)
+        const who = author(ctx, event.actorId, event.sessionId, event.agentId, event)
         const how = event.type === "task.claim_ended" ? `ended when ${who} changed it` : `taken over by ${who}`
         lines.push(`  ${taskKey ?? "?"}  ${how}, ${ago(event.ts, now)}`)
       }
@@ -434,7 +437,7 @@ const context = Command.make("context", { project, json }, (input) =>
     lines.push(...columns(ctx.recent.map(({ event, taskKey }) => [
       ago(event.ts, now),
       taskKey ?? "",
-      describeEvent(event, { ...byIds(ctx), actors: {} }, author(ctx, event.actorId, event.sessionId, event.agentId)),
+      describeEvent(event, { ...byIds(ctx), actors: {} }, author(ctx, event.actorId, event.sessionId, event.agentId, event)),
     ])).map((l) => `  ${l}`))
     if (ctx.recent.length === 0) lines.push("  none yet")
     yield* print(lines.join("\n"))
@@ -467,7 +470,7 @@ const agentLines = (detail: TaskDetail, now: number) =>
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
     .map((a) => {
       const state = a.endedAt === null ? `working, seen ${ago(a.lastSeenAt, now)}` : `finished ${ago(a.endedAt, now)}`
-      return `  ${agentName(a, detail.sessions.find((s) => s.id === a.sessionId))}: ${state}`
+      return `  ${agentName(a, detail.sessions.find((s) => s.id === a.sessionId), a)}: ${state}`
     })
 
 const list = Command.make("list", {
@@ -543,7 +546,7 @@ const get = Command.make("get", { key, json }, (input) =>
       const files = yield* saveScreenshots(detail.comments.flatMap(commentScreenshots))
       for (const c of detail.comments) {
         // The id is what `cello task react` takes (CEL-77).
-        lines.push(`  ${author(detail, c.actorId, c.sessionId, c.agentId)} · ${ago(c.createdAt, now)} · id ${c.id}`)
+        lines.push(`  ${author(detail, c.actorId, c.sessionId, c.agentId, c)} · ${ago(c.createdAt, now)} · id ${c.id}`)
         lines.push(...commentText(c, files).split("\n").map((l) => `    ${l}`))
         const chips = groupReactions(c.reactions ?? [], () => false)
         if (chips.length) {
@@ -552,7 +555,7 @@ const get = Command.make("get", { key, json }, (input) =>
       }
     }
     lines.push("", "History")
-    lines.push(...columns(detail.history.map((e) => [ago(e.ts, now), describeEvent(e, { ...byIds(detail), actors: {} }, author(detail, e.actorId, e.sessionId, e.agentId))]))
+    lines.push(...columns(detail.history.map((e) => [ago(e.ts, now), describeEvent(e, { ...byIds(detail), actors: {} }, author(detail, e.actorId, e.sessionId, e.agentId, e))]))
       .map((l) => `  ${l}`))
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription("One task in full: description, labels, claim, pages, review packets with the human's notes, comments, history."))
