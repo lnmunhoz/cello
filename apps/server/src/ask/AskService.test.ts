@@ -501,10 +501,10 @@ describe("AskService.wait", () => {
       yield* Effect.yieldNow
       yield* asks.answer(answers(ask.id))
       const answered = yield* Fiber.join(waiting)
-      expect(answered).toMatchObject({ id: ask.id, state: "answered" })
+      expect(answered).toMatchObject({ id: ask.id, state: "answered", alreadyDelivered: null })
       expect(yield* agent(inbox.unread)).toEqual([])
-      // Already answered: at once.
-      expect((yield* agent(asks.wait(task.key))).state).toBe("answered")
+      // Already answered: at once, saying this session already has them (through that wait).
+      expect(yield* agent(asks.wait(task.key))).toMatchObject({ state: "answered", alreadyDelivered: { via: "wait", at: expect.any(Number) } })
     })))
 
   it.effect("while a wait is on, the hook's take leaves the answers to it: they're handed over once", () =>
@@ -514,12 +514,57 @@ describe("AskService.wait", () => {
       const { ask } = (yield* agent(asks.create(question(files)))).result
       // Answered first, so the item is there the moment the wait starts: only the hold keeps take off it.
       yield* asks.answer(answers(ask.id))
-      const held = yield* inbox.handOverAnswers(ask.id, agent(inbox.take({ unreadOnly: true })).pipe(Effect.map((taken) => ({ id: ask.id, taken }))))
-        .pipe(agent)
-      expect(held.taken.items).toEqual([])
+      const held = yield* inbox.handOverAnswers({ askId: ask.id }, agent(inbox.take({ unreadOnly: true }))).pipe(agent)
+      expect(held.result.items).toEqual([])
+      expect(held.alreadyDelivered).toBeNull()
       // The wait marked it read on its way out: nothing left for the hook either.
       expect((yield* agent(inbox.take({ unreadOnly: true }))).items).toEqual([])
-      expect((yield* agent(asks.wait(task.key))).state).toBe("answered")
+      expect(yield* agent(asks.wait(task.key))).toMatchObject({ state: "answered", alreadyDelivered: { via: "wait" } })
+    })))
+
+  it.effect("answers the hook took before any wait held them (a restart emptied the hold): the wait says how and when instead", () =>
+    run(Effect.gen(function* () {
+      const { asks, task, files } = yield* setup
+      const inbox = yield* InboxService.InboxService
+      const { ask } = (yield* agent(asks.create(question(files)))).result
+      yield* asks.answer(answers(ask.id))
+      const hook = yield* agent(inbox.take({ unreadOnly: true, via: "hook" }))
+      expect(hook.items).toMatchObject([{ kind: "answers", ask: { id: ask.id } }])
+      const at = hook.items[0]!.readAt
+      expect(yield* agent(asks.wait(task.key))).toMatchObject({ id: ask.id, state: "answered", alreadyDelivered: { via: "hook", at } })
+      // `cello inbox` taking them reads the same way.
+      const second = (yield* agent(asks.create(question(files)))).result.ask
+      yield* asks.answer(answers(second.id))
+      yield* agent(inbox.take({ unreadOnly: true }))
+      expect(yield* agent(asks.wait(task.key))).toMatchObject({ id: second.id, alreadyDelivered: { via: "inbox" } })
+    })))
+
+  it.effect("a retry with the same command id gets what the first wait got: a lost reply never loses the answers", () =>
+    run(Effect.gen(function* () {
+      const { asks, task, files } = yield* setup
+      const { ask } = (yield* agent(asks.create(question(files)))).result
+      yield* asks.answer(answers(ask.id))
+      const commandId = cmd()
+      expect(yield* agent(asks.wait(task.key, commandId))).toMatchObject({ id: ask.id, alreadyDelivered: null })
+      expect(yield* agent(asks.wait(task.key, commandId))).toMatchObject({ id: ask.id, alreadyDelivered: null })
+      expect(yield* agent(asks.wait(task.key, cmd()))).toMatchObject({ id: ask.id, alreadyDelivered: { via: "wait" } })
+    })))
+
+  it.effect("nothing is already delivered for the human (no inbox), another session, or a withdrawn ask", () =>
+    run(Effect.gen(function* () {
+      const { asks, tasks, status, task, files } = yield* setup
+      const inbox = yield* InboxService.InboxService
+      const { ask } = (yield* agent(asks.create(question(files)))).result
+      yield* asks.answer(answers(ask.id))
+      yield* agent(inbox.take({ unreadOnly: true, via: "hook" }))
+      expect(yield* asks.wait(task.key)).toMatchObject({ id: ask.id, alreadyDelivered: null })
+      expect(yield* other(asks.wait(task.key))).toMatchObject({ id: ask.id, alreadyDelivered: null })
+      // Lucas moves the card out of Needs input: the withdrawal reaches the session, and the hook takes it.
+      const second = (yield* agent(asks.create(question(files)))).result.ask
+      yield* tasks.move({ commandId: cmd(), id: task.id, statusId: status["Todo"]!.id })
+      const taken = (yield* agent(inbox.take({ unreadOnly: true, via: "hook" }))).items
+      expect(taken.filter((i) => i.kind === "withdrawn")).toMatchObject([{ ask: { id: second.id } }])
+      expect(yield* agent(asks.wait(task.key))).toMatchObject({ id: second.id, state: "withdrawn", alreadyDelivered: null })
     })))
 
   it.effect("returns the withdrawn ask when it's withdrawn; NotFound when the task has never asked", () =>

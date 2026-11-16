@@ -5,6 +5,7 @@
 import * as path from "node:path"
 import type { Ask, AskQuestion, Attachment } from "@cello/contract/entities"
 import type { AskQuestionInput, EvidenceFile, EvidenceLink } from "@cello/contract/rpcs"
+import type { AnswersDelivered } from "@cello/contract/views"
 import { roundLabel } from "@cello/client/sync/asks"
 import { ago } from "./format.ts"
 
@@ -223,6 +224,17 @@ export const askResultText = (ask: Ask, taskKey: string, human: string, files: R
   ].join("\n")
 }
 
+
+const THROUGH = { hook: "the hook", inbox: "`cello inbox`", wait: "an earlier wait" } as const
+
+/**
+ * What `--wait` and `cello wait` print instead of the answers when they already reached this session
+ * (CEL-78): the hook or `cello inbox` took them while the wait was reconnecting, or an earlier wait did.
+ */
+export const alreadyDeliveredText = (ask: Ask, taskKey: string, delivered: AnswersDelivered, now: number): string =>
+  `The answers to "${ask.title}" on ${taskKey} already reached this session ` +
+  `(${delivered.via ? `through ${THROUGH[delivered.via]}, ` : ""}${ago(delivered.at, now)}). ` +
+  `\`cello task answers ${taskKey}\` shows them again.`
 
 /**
  * `cello task answers`: the latest answered round (and the round still open after it, if any);
