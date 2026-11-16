@@ -86,6 +86,16 @@ test("CEL-119: each comment, history line and Agents row says main session or su
   await card(page, task).click()
   const panel = taskPanel(page, task)
   await expect(panel).toBeVisible()
+  // The header and Working on it put the model and effort on a muted line under the name: nothing is cut off.
+  for (const where of ["[data-panel-work]", "[data-working-on-it]"]) {
+    await expect(panel.locator(`${where} [data-holder-model]`)).toHaveText("· Sonnet 5.5 · medium")
+    await expect(panel.locator(where)).toContainText("cello-builder · b1d3e5f7")
+    await expect(panel.locator(where)).toContainText("active now · Sonnet 5.5 · medium")
+    for (const line of ["[data-holder-name]", "[data-holder-model]"]) {
+      const cut = await panel.locator(`${where} ${line}`).evaluate((el) => el.scrollWidth > el.clientWidth)
+      expect(cut, `${where} ${line}`).toBe(false)
+    }
+  }
   const authors = panel.locator("[data-comment-author]")
   await expect(authors).toHaveCount(2)
   await expect(authors.nth(0)).toHaveText("Claude Code · Main session · Opus 5.5 · high · d0d47d35")
@@ -95,7 +105,7 @@ test("CEL-119: each comment, history line and Agents row says main session or su
 
   await caption(page, "The history says it too: who, as what, on which model")
   const history = panel.locator('section[aria-labelledby="history-heading"]')
-  await expect(history).toContainText("cello-builder (Sonnet 5.5), subagent of d0d47d35 set the stage to Agent review")
+  await expect(history).toContainText("cello-builder (Sonnet 5.5), subagent of d0d47d35, set the stage to Agent review")
   await panel.locator('section[aria-labelledby="history-heading"]').scrollIntoViewIfNeeded()
   await shoot(page, "panel", panel)
 

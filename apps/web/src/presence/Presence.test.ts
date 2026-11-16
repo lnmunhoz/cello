@@ -110,6 +110,23 @@ describe("the task panel shows the card's mark (CEL-55)", () => {
     }
   })
 
+  it("Working on it and the top bar give a known model a muted second line, with the presence words, so neither is cut off (CEL-119)", () => {
+    const onModel = { ...board, agents: { [`s1/${builder.agentId}`]: { ...builder, model: "claude-sonnet-5-5", effort: "medium" } } }
+    const panel = routed(createElement("dl", null, createElement(ProvenanceRows, { task: tasks[0]!, board: onModel })))
+    const bar = renderToStaticMarkup(createElement(Fragment, null, createElement(PanelWork, { task: tasks[0]!, board: onModel })))
+    for (const [where, part] of [["data-working-on-it", panel], ["data-panel-work", bar]] as const) {
+      const inside = part.slice(part.indexOf(where))
+      // The name line, then "active now · Sonnet 5.5 · medium": never "(Sonnet 5.5" after the name.
+      const text = (html: string) => html.replace(/<[^>]+>/g, "")
+      const nameLine = text(inside.slice(inside.indexOf("data-holder-name"), inside.indexOf("text-[11px]")))
+      const secondLine = text(inside.slice(inside.indexOf("text-[11px]"), inside.indexOf("</span></span></span>", inside.indexOf("data-holder-model"))))
+      expect(nameLine, where).toContain("cello-builder · a13bfb89")
+      expect(nameLine, where).not.toContain("active now")
+      expect(secondLine, where).toContain("active now · Sonnet 5.5 · medium")
+      expect(inside, where).not.toContain("(Sonnet 5.5)")
+    }
+  })
+
   it("a task waiting in Needs input: the session's mark waits", () => {
     expect(markIn(render(tasks[1]!), "data-working-on-it")).toContain('data-agent-mood="waiting"')
   })
