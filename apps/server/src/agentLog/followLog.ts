@@ -24,7 +24,7 @@ import type { Guarded } from "./transcriptPath.ts"
  * `fs.watch` returns, and a write in that gap raises no event (a probe at load ~160 missed 41 of 100
  * writes made right after the watch started, 3 of 100 made 50 ms after). There's no signal for "armed",
  * so reading once after setting it up can't close the gap. Without this, the last step stayed unshown
- * until the agent wrote again. A quiet re-check is one guard check and one stat, and sends nothing; it
+ * until the agent wrote again; with it, a write the watcher misses shows up within about a second. A quiet re-check is one guard check and one stat, and sends nothing; it
  * runs only while someone has the log open.
  */
 export const FOLLOW_RECHECK = Duration.seconds(1)

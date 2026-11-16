@@ -8,11 +8,17 @@ import * as path from "node:path"
 import type { LogUpdate } from "@cello/contract/agentLog"
 import { MAX_FIRST_STEPS } from "@cello/contract/agentLog"
 import { describe, expect, it } from "@effect/vitest"
+import * as Cause from "effect/Cause"
+import * as Clock from "effect/Clock"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
+import * as Fiber from "effect/Fiber"
 import * as Queue from "effect/Queue"
+import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as TestClock from "effect/testing/TestClock"
-import { fileTail } from "./FileTail.ts"
+import { type FileTail, fileTail } from "./FileTail.ts"
 import { FOLLOW_RECHECK, followLog, type Watch } from "./followLog.ts"
 import type { Guarded } from "./transcriptPath.ts"
 
@@ -44,6 +50,41 @@ const follow = (file: string, options: { readonly check?: () => Guarded; readonl
       Effect.forkScoped,
     )
     return { next: Queue.take(updates), state }
+  })
+
+/**
+ * Follows `file` with seams for the re-check (CEL-126): a watcher that drops every change until the test
+ * arms it, the number of lines each read returned, and how many sleeps the follow has started.
+ */
+const seamed = (file: string) =>
+  Effect.gen(function* () {
+    const state = { armed: false, fire: () => {}, closed: false, sleeps: 0 }
+    const watch: Watch = (_file, onChange) => {
+      state.fire = () => void (state.armed && onChange())
+      return () => void (state.closed = true)
+    }
+    const reads = yield* Queue.unbounded<number>()
+    const open = (f: string): FileTail => {
+      const tail = fileTail(f)
+      return {
+        read: () => {
+          const read = tail.read()
+          Queue.offerUnsafe(reads, read._tag === "lines" ? read.lines.length : -1)
+          return read
+        },
+      }
+    }
+    const clock = yield* Clock.Clock
+    const counting = new Proxy(clock, {
+      get: (target, key) => key === "sleep" ? (d: Duration.Duration) => (state.sleeps++, target.sleep(d)) : Reflect.get(target, key),
+    })
+    const updates = yield* Queue.unbounded<LogUpdate>()
+    const fiber = yield* followLog({ file, check: () => ({ _tag: "ok", file }), reveal: false, watch, open }).pipe(
+      Stream.runForEach((u) => Queue.offer(updates, u)),
+      Effect.provideService(Clock.Clock, counting),
+      Effect.forkScoped,
+    )
+    return { updates, reads, state, fiber }
   })
 
 const tempFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cel106-follow-")), "t.jsonl")
@@ -139,17 +180,9 @@ describe("followLog", () => {
     Effect.gen(function* () {
       const file = tempFile()
       fs.writeFileSync(file, said("m1", "Starting."))
-      const state = { armed: false, fire: () => {} }
-      const watch: Watch = (_file, onChange) => {
-        state.fire = () => void (state.armed && onChange())
-        return () => {}
-      }
-      const updates = yield* Queue.unbounded<LogUpdate>()
-      yield* followLog({ file, check: () => ({ _tag: "ok", file }), reveal: false, watch }).pipe(
-        Stream.runForEach((u) => Queue.offer(updates, u)),
-        Effect.forkScoped,
-      )
+      const { updates, reads, state } = yield* seamed(file)
       expect(yield* Queue.take(updates)).toMatchObject({ _tag: "steps", reset: true, steps: [{ text: "Starting." }] })
+      expect(yield* Queue.take(reads)).toBe(1)
 
       // Written after the first read, while the watcher isn't armed yet: its event is lost.
       fs.appendFileSync(file, said("m2", "Lost in the gap."))
@@ -157,13 +190,46 @@ describe("followLog", () => {
       state.armed = true
       yield* TestClock.adjust(FOLLOW_RECHECK)
       expect(yield* Queue.take(updates)).toMatchObject({ _tag: "steps", reset: false, steps: [{ text: "Lost in the gap." }] })
+      expect(yield* Queue.take(reads)).toBe(1)
 
-      // Nothing new: a re-check sends nothing, so the next update is the next real step.
+      // Nothing new: the re-check reads nothing and sends nothing.
       yield* TestClock.adjust(FOLLOW_RECHECK)
+      expect(yield* Queue.take(reads)).toBe(0)
+      yield* Effect.yieldNow
+      expect(yield* Queue.size(updates)).toBe(0)
+
+      // The next step arrives once: the one after it is the next update, not a second copy.
       fs.appendFileSync(file, said("m3", "Seen by the watcher."))
       state.fire()
       expect(yield* Queue.take(updates)).toMatchObject({ _tag: "steps", reset: false, steps: [{ text: "Seen by the watcher." }] })
+      fs.appendFileSync(file, said("m4", "And the next one."))
+      state.fire()
+      const next = yield* Queue.take(updates)
+      expect(next._tag === "steps" && next.steps.map((step) => step.text)).toEqual(["And the next one."])
     }).pipe(Effect.scoped))
+
+  it.effect("the re-check stops when the log is closed: no read, no update, no timer left behind", () =>
+    Effect.gen(function* () {
+      const file = tempFile()
+      fs.writeFileSync(file, said("m1", "Starting."))
+      const scope = yield* Scope.make()
+      const { updates, reads, state, fiber } = yield* seamed(file).pipe(Scope.provide(scope))
+      expect(yield* Queue.take(updates)).toMatchObject({ _tag: "steps", reset: true })
+      expect(yield* Queue.take(reads)).toBe(1)
+
+      yield* Scope.close(scope, Exit.void)
+      const exit = yield* Fiber.await(fiber)
+      expect(Exit.isSuccess(exit) || Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+      expect(state.closed).toBe(true)
+      const sleeps = state.sleeps
+      yield* TestClock.adjust(Duration.times(FOLLOW_RECHECK, 3))
+      fs.appendFileSync(file, said("m2", "Nobody is looking."))
+      yield* Effect.yieldNow
+      expect(yield* Queue.size(reads)).toBe(0)
+      expect(yield* Queue.size(updates)).toBe(0)
+      // A re-check fiber left running would have started another sleep.
+      expect(state.sleeps).toBe(sleeps)
+    }))
 
   it.effect("the first batch keeps only the newest steps, saying how many it left out", () =>
     Effect.gen(function* () {
