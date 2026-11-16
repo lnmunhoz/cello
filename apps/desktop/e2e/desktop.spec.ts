@@ -388,7 +388,9 @@ test("CEL-12, CEL-44, CEL-60: a screenshot clicked on the board opens in the ima
   await expect(modal).toHaveCount(0)
   await expect(webViewer.locator("img[data-viewer-image]")).toBeVisible()
   expect((await views(app)).page.visible).toBe(false)
-  expect(board.url()).toBe(`${server.url}/DSK/issues`)
+  // The board stays where it was; the side panel's item is in its address (CEL-117).
+  expect(new URL(board.url()).pathname).toBe("/DSK/issues")
+  expect(new URL(board.url()).searchParams.get("viewer")).toMatch(/^\/attachments\//)
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "viewer-evidence-badge.png"))
   await board.keyboard.press("Escape")
   await expect(webViewer).toHaveCount(0)
@@ -445,7 +447,8 @@ test("CEL-60, CEL-20: cello://open with a Cello page opens it in the board's own
   await expect(sidePanel.getByRole("heading", { level: 2, name: "Desktop progress" })).toBeVisible()
   await expect(sidePanel.getByRole("button", { name: "Expand to full page" })).toBeVisible()
   expect((await views(app)).page.visible).toBe(false)
-  expect(board.url()).toBe(`${server.url}/DSK/issues`)
+  expect(new URL(board.url()).pathname).toBe("/DSK/issues")
+  expect(new URL(board.url()).searchParams.get("viewer")).toBe("/DSK/pages/desktop-progress")
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "side-panel-page.png"))
 
   await video.caption("Its link to the test log: the log shows in the side panel as text, not in the native browser")

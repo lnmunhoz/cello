@@ -17,7 +17,7 @@ import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { readStored, writeStored } from "../lib/storage.ts"
 import { useOrdering } from "../issues/useOrdering.ts"
 import { type Filtered, useFiltered } from "../issues/useFilter.ts"
-import { useTaskView } from "../task/TaskPanel.tsx"
+import { useTaskPlacement } from "../task/TaskPanel.tsx"
 import { behindTask } from "../task/view.ts"
 import { CardBody } from "./Card.tsx"
 import { animator, useCursorVisual } from "./cursors/animator.ts"
@@ -93,7 +93,7 @@ function Board({
   const [composing, setComposing] = useState<string | null>(null)
   const move = useAtomSet(commands.moveTask)
   const navigate = useNavigate()
-  const view = useTaskView()
+  const placement = useTaskPlacement(openNumber !== undefined)
   const visual = useCursorVisual()
   useAgentCursors(project.id)
   // Display → "Group In Progress by stage": that one column shows a lane per stage (CEL-35).
@@ -147,7 +147,7 @@ function Board({
     <MotionConfig reducedMotion="user">
       <LayoutGroup>
         {/* Its sideways scroll stays inside (no back swipe from its edge). In a narrow window an open task takes its place. */}
-        <div data-agent-board className={`flex min-w-0 flex-1 gap-3 overflow-x-auto overscroll-x-contain px-3 pb-3 ${behindTask(openNumber !== undefined, view)}`}>
+        <div data-agent-board className={`flex min-w-0 flex-1 gap-3 overflow-x-auto overscroll-x-contain px-3 pb-3 ${behindTask(placement)}`}>
           <Kanban
             lists={lists}
             onListsChange={onListsChange}

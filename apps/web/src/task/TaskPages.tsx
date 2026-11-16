@@ -24,7 +24,7 @@ export function TaskPages({ board, task }: { board: BoardState; task: Task }) {
               <a
                 href={pagePath(project.key, d.slug)}
                 onClick={(e) => {
-                  // In the side panel beside the board, in the task panel's place (CEL-60); ⌘-click still opens a tab.
+                  // In the side panel, the task moving to the main area beside it (CEL-60, CEL-117); ⌘-click still opens a tab.
                   if (isPlainClick(e) && openInPanel({ url: pagePath(project.key, d.slug), title: d.title })) e.preventDefault()
                 }}
                 className="flex items-center gap-2.5 rounded-lg border border-line bg-raised px-3 py-2 shadow-card outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring"

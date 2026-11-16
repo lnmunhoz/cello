@@ -21,6 +21,7 @@ import { documentHistoryFamily, pageFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
 import { useBoard } from "../lib/hooks.ts"
 import { TaskLink } from "../task/TaskKey.tsx"
+import { useRestoredSideScroll } from "../viewer/panelBack.ts"
 import { isPlainClick } from "../viewer/viewer.ts"
 import { KIND_LABELS } from "./kinds.tsx"
 import { type Flash, PageBody } from "./PageBody.tsx"
@@ -92,6 +93,8 @@ function Reader({ board, project, document, pinned, place }: { board: BoardState
   const content = readerContent(document.body, document.title)
   const sections = sectionsOf(content)
   const { current, choose } = useCurrentSection(scroller, sections)
+  // In the side panel, Back returns to where it was read (CEL-117).
+  useRestoredSideScroll(scroller)
 
   const [seen, setSeen] = useState<Seen>({ version: document.version, content })
   const [flash, setFlash] = useState<Flash | null>(null)
@@ -131,7 +134,7 @@ function Reader({ board, project, document, pinned, place }: { board: BoardState
   const archived = (latest ?? document).archivedAt !== null
 
   return (
-    <div ref={scroller} data-page-reader="" className="@container min-h-0 flex-1 overflow-y-auto bg-surface">
+    <div ref={scroller} data-page-reader="" data-side-scroll="" className="@container min-h-0 flex-1 overflow-y-auto bg-surface">
       <div
         className={`mx-auto px-8 pt-10 pb-24 @max-[900px]:px-4 @max-[900px]:pt-6 ${sections.length > 0 ? "grid max-w-[1120px] grid-cols-[210px_minmax(0,1fr)] gap-14 @max-[900px]:block" : "max-w-[820px]"}`}
       >
