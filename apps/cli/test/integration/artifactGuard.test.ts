@@ -82,7 +82,7 @@ describe("cello install claude: the artifact guard", () => {
       expect((yield* run(repo)("install", "claude")).out.split("\n")[0]).toBe(`Cello's Claude Code hooks are already in ${file}.`)
       expect(fs.readFileSync(file, "utf8")).toBe(installed)
 
-      expect((yield* run(repo)("uninstall", "claude")).out.split("\n")[0]).toBe(`Removed Cello's Claude Code hooks and plugin from ${file}.`)
+      expect((yield* run(repo)("uninstall", "claude")).out.split("\n")[0]).toBe(`Removed Cello's Claude Code hooks, plugin and Bash(cello:*) rule from ${file}.`)
       expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({})
     }).pipe(Effect.scoped))
 

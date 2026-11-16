@@ -5,7 +5,7 @@
 //
 // Cello adds its own matcher group per event and recognises its handlers by their command
 // (`cello hook claude …`), so installing twice changes nothing and uninstalling takes out only Cello's.
-// The same goes for its Claude Code plugin's two entries (CEL-64, below).
+// The same goes for its Claude Code plugin's two entries (CEL-64) and its `Bash(cello:*)` rule (CEL-90), below.
 // The file keeps its key order and indentation, and is replaced atomically: a temp file in the same
 // folder, fsynced, then renamed over it, with the old bytes kept in `<file>.bak`. A settings file that
 // is a symlink (dotfiles, chezmoi) stays one; the file it points at is the one replaced.
@@ -58,7 +58,7 @@ const hooksOf = (settings: unknown): Json => {
 const groupHandlers = (group: unknown): ReadonlyArray<unknown> => (isObject(group) && Array.isArray(group.hooks) ? group.hooks : [])
 
 /** `settings` with `key` replaced where it is (or added at the end), or removed with `undefined`; other keys keep their order. */
-const withKey = (settings: Json, key: string, value: Json | undefined): Json => {
+const withKey = (settings: Json, key: string, value: unknown): Json => {
   if (!(key in settings)) return value === undefined ? settings : { ...settings, [key]: value }
   return Object.fromEntries(
     Object.entries(settings).flatMap(([k, v]) => (k !== key ? [[k, v]] : value === undefined ? [] : [[k, value]])),
@@ -203,28 +203,86 @@ export const removeCelloPlugin = (settings: unknown, folder: string | null): Mer
   return { settings: next, changed: next !== settings }
 }
 
-/** A settings change that says what it changed: Cello's hooks, its plugin, or both; `off` as in PluginMerged. */
+// ── allowing `cello` commands (CEL-90) ──────────────────────────────────────────────────────────
+//
+// Agents reach the board only through `cello`, so a Claude Code permission check that fails (auto
+// mode's classifier erroring for minutes, Nov 16) cut them off it. A rule in `permissions.allow`
+// (https://code.claude.com/docs/en/permissions) lets `cello …` commands run without that check:
+//
+//   { "permissions": { "allow": [ "Bash(cello:*)" ] } }
+//
+// Cello adds its rule after the user's own and recognises it by its exact text, so uninstalling takes
+// out only that entry; `deny` and `ask` are never touched (a deny rule still wins over it).
+
+/** The rule Cello adds to `permissions.allow`: every Bash command that starts with `cello`. */
+export const CELLO_PERMISSION = "Bash(cello:*)"
+
+/** The same rule in Claude Code's newer spelling; when it's there, Cello's would add nothing. */
+const SAME_RULES: ReadonlyArray<string> = [CELLO_PERMISSION, "Bash(cello *)"]
+
+/** `permissions` and its `allow` list, checked: anything Cello can't merge into is an error (a sentence), never overwritten. */
+const allowOf = (settings: unknown): { readonly permissions: Json; readonly allow: ReadonlyArray<unknown> } => {
+  const permissions = objectAt(settings, "permissions")
+  if (permissions.allow === undefined) return { permissions, allow: [] }
+  if (!Array.isArray(permissions.allow)) throw new Error("\"permissions.allow\" isn't a list")
+  return { permissions, allow: permissions.allow }
+}
+
+/** Settings with Bash(cello:*) at the end of `permissions.allow`, unless that rule is already allowed. Doesn't change its input. */
+export const addCelloPermission = (settings: unknown): Merged => {
+  const { permissions, allow } = allowOf(settings)
+  if (allow.some((rule) => typeof rule === "string" && SAME_RULES.includes(rule))) return { settings: settings as Json, changed: false }
+  return { settings: withKey(settings as Json, "permissions", withKey(permissions, "allow", [...allow, CELLO_PERMISSION])), changed: true }
+}
+
+/** Settings without Bash(cello:*), and without the `allow` list and `permissions` object that leaves empty. */
+export const removeCelloPermission = (settings: unknown): Merged => {
+  const { permissions, allow } = allowOf(settings)
+  const kept = allow.filter((rule) => rule !== CELLO_PERMISSION)
+  if (kept.length === allow.length) return { settings: settings as Json, changed: false }
+  const next = withKey(permissions, "allow", kept.length === 0 ? undefined : kept)
+  return { settings: withKey(settings as Json, "permissions", Object.keys(next).length === 0 ? undefined : next), changed: true }
+}
+
+/** A settings change that says what it changed: Cello's hooks, its plugin, its permission; `off` as in PluginMerged. */
 export interface CelloMerged extends Merged {
   readonly hooks: boolean
   readonly plugin: boolean
+  readonly permission: boolean
   readonly off: boolean
 }
 
-/** What `cello install claude` puts in one settings file: the hooks it wants and the plugin entries. */
+/** What `cello install claude` puts in one settings file: the hooks it wants, the plugin entries and (`permission`) Bash(cello:*). */
 export const installCello = (
   settings: unknown,
-  wanted: { readonly hooks: ReadonlyArray<CelloHook>; readonly plugin: PluginWanted },
+  wanted: { readonly hooks: ReadonlyArray<CelloHook>; readonly plugin: PluginWanted; readonly permission: boolean },
 ): CelloMerged => {
   const hooks = wanted.hooks.length === 0 ? { settings: settings as Json, changed: false } : addCelloHooks(settings, wanted.hooks)
   const plugin = addCelloPlugin(hooks.settings, wanted.plugin)
-  return { settings: plugin.settings, changed: hooks.changed || plugin.changed, hooks: hooks.changed, plugin: plugin.changed, off: plugin.off }
+  const permission = wanted.permission ? addCelloPermission(plugin.settings) : { settings: plugin.settings, changed: false }
+  return {
+    settings: permission.settings,
+    changed: hooks.changed || plugin.changed || permission.changed,
+    hooks: hooks.changed,
+    plugin: plugin.changed,
+    permission: permission.changed,
+    off: plugin.off,
+  }
 }
 
-/** What `cello uninstall claude` takes out of one settings file: Cello's hooks and its plugin entries (`folder`: pluginFolder). */
+/** What `cello uninstall claude` takes out of one settings file: Cello's hooks, its plugin entries (`folder`: pluginFolder) and its permission. */
 export const uninstallCello = (settings: unknown, folder: string | null): CelloMerged => {
   const hooks = removeCelloHooks(settings)
   const plugin = removeCelloPlugin(hooks.settings, folder)
-  return { settings: plugin.settings, changed: hooks.changed || plugin.changed, hooks: hooks.changed, plugin: plugin.changed, off: false }
+  const permission = removeCelloPermission(plugin.settings)
+  return {
+    settings: permission.settings,
+    changed: hooks.changed || plugin.changed || permission.changed,
+    hooks: hooks.changed,
+    plugin: plugin.changed,
+    permission: permission.changed,
+    off: false,
+  }
 }
 
 /** How a settings file is laid out, so writing it back changes as little as possible. */

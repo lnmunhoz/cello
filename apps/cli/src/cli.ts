@@ -74,6 +74,7 @@ import {
 } from "./claudeHook.ts"
 import { CLAUDE_PLUGIN_FILES, pluginFolder, writePluginFolder } from "./claudePlugin.ts"
 import {
+  CELLO_PERMISSION,
   celloHooksFor,
   ensureGitIgnored,
   formatSettings,
@@ -1808,9 +1809,10 @@ const installHooks = (scope: keyof typeof SCOPES) =>
     // Both settings files are read and checked before anything is written: with --shared, a refusal on
     // this machine's file must not leave the committed one enabling cello@cello.
     const mainPlan = yield* planSettings(file, (settings) =>
-      installCello(settings, { hooks: wanted, plugin: { folder, declare: scope !== "shared", enable: true } }))
+      installCello(settings, { hooks: wanted, plugin: { folder, declare: scope !== "shared", enable: true }, permission: true }))
     const localPlan = scope === "shared"
-      ? yield* planSettings(paths.local, (settings) => installCello(settings, { hooks: [], plugin: { folder, declare: true, enable: false } }))
+      ? yield* planSettings(paths.local, (settings) =>
+        installCello(settings, { hooks: [], plugin: { folder, declare: true, enable: false }, permission: false }))
       : null
     // Then the plugin's files, so the settings never point at a folder that isn't there; then the
     // marketplace before the file that enables it.
@@ -1820,7 +1822,7 @@ const installHooks = (scope: keyof typeof SCOPES) =>
     })
     const local = localPlan === null ? null : yield* writeSettings(localPlan)
     const main = yield* writeSettings(mainPlan)
-    const { hooks: hooksChanged, plugin: enabled, off } = main.merged
+    const { hooks: hooksChanged, plugin: enabled, permission: allowed, off } = main.merged
     const pluginChanged = !off && (enabled || files.changed || (local?.merged.changed ?? false))
     const ignored = (scope === "local" || local !== null) && projectRoot !== null
       ? ensureGitIgnored(projectRoot, ".claude/settings.local.json", gitEnv(env))
@@ -1837,6 +1839,10 @@ const installHooks = (scope: keyof typeof SCOPES) =>
         : pluginChanged
         ? `Updated Cello's Claude Code plugin in ${folder}; it's already enabled in ${file}.`
         : `Cello's Claude Code plugin is already enabled in ${file}, and its files in ${folder} are current.`,
+      allowed
+        ? `Allowed \`cello\` commands in ${file} ("${CELLO_PERMISSION}" in permissions.allow), so Claude Code runs them without a permission check: ` +
+          "agents reach the board only through `cello`, and a check that fails can't cut them off it."
+        : `\`cello\` commands are already allowed in ${file}.`,
       ...(local?.merged.changed
         ? [
           `Its marketplace is a folder on this machine, so it's declared in ${paths.local}, which isn't committed: ` +
@@ -1860,7 +1866,7 @@ const installHooks = (scope: keyof typeof SCOPES) =>
         ]
         : []),
       ...(pluginChanged ? [PLUGIN_GIVES] : []),
-      ...(hooksChanged || pluginChanged ? ["New Claude Code sessions pick them up."] : []),
+      ...(hooksChanged || pluginChanged || allowed ? ["New Claude Code sessions pick them up."] : []),
     ]
     if (hooksChanged && Bun.which("cello", { PATH: env.PATH ?? "" }) === null) {
       lines.push(
@@ -1897,7 +1903,8 @@ const installClaude = Command.make("claude", {
       "(PreToolUse on Artifact, Edit, Write and NotebookEdit; not with --user), all running `cello hook claude`. Installs Cello's " +
       "Claude Code plugin too (/cello:orchestrate, /cello:work, the cello skill, and builder and reviewer agents): writes its files to " +
       "$XDG_DATA_HOME/cello/claude-plugin (default ~/.local/share/cello/claude-plugin), rewritten on every run so a new Cello " +
-      "updates it, and enables it. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, " +
+      `updates it, and enables it. Adds ${CELLO_PERMISSION} to permissions.allow, so \`cello\` commands run without Claude Code's ` +
+      "permission check and a check that fails can't cut agents off the board. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, " +
       "the main checkout's), merged with what's already there; running it again changes nothing. The old file is kept as .bak.",
   ))
 
@@ -1913,18 +1920,19 @@ const uninstallClaude = Command.make("claude", {}, () =>
       const { merged } = yield* updateSettings(file, (settings) => uninstallCello(settings, folder))
       if (!merged.changed) continue
       plugin ||= merged.plugin
-      lines.push(`Removed Cello's Claude Code ${merged.hooks && merged.plugin ? "hooks and plugin" : merged.hooks ? "hooks" : "plugin"} from ${file}.`)
+      const removed = [...(merged.hooks ? ["hooks"] : []), ...(merged.plugin ? ["plugin"] : []), ...(merged.permission ? [`${CELLO_PERMISSION} rule`] : [])]
+      lines.push(`Removed Cello's Claude Code ${andList(removed)} from ${file}.`)
     }
     // Other projects' settings may still enable the plugin from this folder, so it stays.
     if (plugin && folder !== null && fs.existsSync(folder)) {
       lines.push(`The plugin's files stay in ${folder}, for other projects that still enable it; delete that folder when none do.`)
     }
     if (lines.length) return yield* print(lines.join("\n"))
-    yield* print(`No Cello hooks or plugin in ${files.slice(0, -1).join(", ")}${files.length > 1 ? " or " : ""}${files.at(-1)}.`)
+    yield* print(`No Cello hooks, plugin or ${CELLO_PERMISSION} rule in ${files.slice(0, -1).join(", ")}${files.length > 1 ? " or " : ""}${files.at(-1)}.`)
   })).pipe(Command.withDescription(
-    "Take Cello's hooks and plugin out of Claude Code's settings: this project's .claude/settings.local.json and .claude/settings.json, " +
-      "and ~/.claude/settings.json. Every other hook, plugin and setting stays as it was. The plugin's files stay in their folder, " +
-      "since other projects may still enable it.",
+    `Take Cello's hooks, plugin and ${CELLO_PERMISSION} rule out of Claude Code's settings: this project's .claude/settings.local.json and ` +
+      ".claude/settings.json, and ~/.claude/settings.json. Every other hook, plugin, permission rule and setting stays as it was. " +
+      "The plugin's files stay in their folder, since other projects may still enable it.",
   ))
 
 // ── setting up a repo (CEL-41) ──────────────────────────────────────────────────────────────────
@@ -1978,7 +1986,9 @@ const init = Command.make("init", {
   workspace: Flag.String("workspace").pipe(Flag.optional, Flag.withDescription("The workspace to put it in, by name. Default: the first one.")),
   hooks: Flag.Boolean("hooks").pipe(
     Flag.withDefault(false),
-    Flag.withDescription("Also install the Claude Code hooks and plugin for this machine, as `cello install claude` does."),
+    Flag.withDescription(
+      `Also install the Claude Code hooks and plugin for this machine, and allow \`cello\` commands (${CELLO_PERMISSION}), as \`cello install claude\` does.`,
+    ),
   ),
   agentsMd: Flag.Boolean("agents-md").pipe(
     Flag.withDefault(false),

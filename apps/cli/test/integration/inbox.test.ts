@@ -319,6 +319,11 @@ const AFTER = [
 /** Where install writes the plugin for a HOME without XDG_DATA_HOME (CEL-64). */
 const pluginAt = (home: string) => path.join(home, ".local", "share", "cello", "claude-plugin")
 const enabledIn = (file: string, home: string) => `Enabled Cello's Claude Code plugin in ${file}; its files are in ${pluginAt(home)}.`
+/** The Bash(cello:*) rule (CEL-90): a failing permission check mustn't cut agents off the board. */
+const allowedIn = (file: string) =>
+  `Allowed \`cello\` commands in ${file} ("Bash(cello:*)" in permissions.allow), so Claude Code runs them without a permission check: ` +
+  "agents reach the board only through `cello`, and a check that fails can't cut them off it."
+const alreadyAllowedIn = (file: string) => `\`cello\` commands are already allowed in ${file}.`
 
 describe("cello install claude", () => {
   it.live("writes the project's .claude/settings.local.json by default, git-ignores it, and does nothing the second time", () =>
@@ -330,6 +335,7 @@ describe("cello install claude", () => {
           `Installed Cello's Claude Code hooks in ${file} (this machine only):`,
           ...HOOK_LINES,
           enabledIn(file, home),
+          allowedIn(file),
           `Added .claude/settings.local.json to ${path.join(repo, ".gitignore")}, so it stays on this machine.`,
           ...AFTER,
         ].join("\n"),
@@ -345,6 +351,7 @@ describe("cello install claude", () => {
         },
         enabledPlugins: { "cello@cello": true },
         extraKnownMarketplaces: { cello: { source: { source: "directory", path: pluginAt(home) } } },
+        permissions: { allow: ["Bash(cello:*)"] },
       })
       expect(fs.readFileSync(path.join(repo, ".gitignore"), "utf8")).toBe(".claude/settings.local.json\n")
       expect(Bun.spawnSync(["git", "status", "--porcelain", "--untracked-files=all"], { cwd: repo }).stdout.toString()).toBe("?? .gitignore\n")
@@ -354,11 +361,52 @@ describe("cello install claude", () => {
         out: [
           `Cello's Claude Code hooks are already in ${file}.`,
           `Cello's Claude Code plugin is already enabled in ${file}, and its files in ${pluginAt(home)} are current.`,
+          alreadyAllowedIn(file),
         ].join("\n"),
         failure: null,
       })
       expect(fs.readFileSync(file, "utf8")).toBe(before)
       expect(fs.readFileSync(path.join(repo, ".gitignore"), "utf8")).toBe(".claude/settings.local.json\n")
+    }).pipe(Effect.scoped))
+
+  it.live("a project installed before the Bash(cello:*) rule existed gets it on the next install, and nothing else changes (CEL-90)", () =>
+    Effect.gen(function* () {
+      const { repo, home, run } = yield* installSetup
+      const file = path.join(repo, ".claude", "settings.local.json")
+      yield* run(repo)("install", "claude")
+      const { permissions: _, ...older } = JSON.parse(fs.readFileSync(file, "utf8"))
+      const before = `${JSON.stringify(older, null, 2)}\n`
+      fs.writeFileSync(file, before)
+      expect(yield* run(repo)("install", "claude")).toEqual({
+        out: [
+          `Cello's Claude Code hooks are already in ${file}.`,
+          `Cello's Claude Code plugin is already enabled in ${file}, and its files in ${pluginAt(home)} are current.`,
+          allowedIn(file),
+          `Kept the old file as ${file}.bak.`,
+          "New Claude Code sessions pick them up.",
+        ].join("\n"),
+        failure: null,
+      })
+      expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ ...older, permissions: { allow: ["Bash(cello:*)"] } })
+      expect(fs.readFileSync(`${file}.bak`, "utf8")).toBe(before)
+      // Uninstall then takes out only the rule's entry, with the empty permissions it leaves.
+      expect((yield* run(repo)("uninstall", "claude")).out.split("\n")[0])
+        .toBe(`Removed Cello's Claude Code hooks, plugin and Bash(cello:*) rule from ${file}.`)
+      expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({})
+    }).pipe(Effect.scoped))
+
+  it.live("refuses a permissions block it can't merge into, and changes nothing", () =>
+    Effect.gen(function* () {
+      const { repo, run } = yield* installSetup
+      const file = path.join(repo, ".claude", "settings.local.json")
+      fs.mkdirSync(path.dirname(file))
+      const broken = `${JSON.stringify({ permissions: { allow: "Bash(cello:*)" } }, null, 2)}\n`
+      fs.writeFileSync(file, broken)
+      expect(yield* run(repo)("install", "claude")).toEqual({
+        out: "",
+        failure: `Can't update ${file}: "permissions.allow" isn't a list. Fix it first; Cello won't overwrite it.`,
+      })
+      expect(fs.readFileSync(file, "utf8")).toBe(broken)
     }).pipe(Effect.scoped))
 
   it.live("leaves a .gitignore that already covers the file alone", () =>
@@ -376,7 +424,8 @@ describe("cello install claude", () => {
       const file = path.join(repo, ".claude", "settings.json")
       const local = path.join(repo, ".claude", "settings.local.json")
       fs.mkdirSync(path.dirname(file))
-      const original = `${JSON.stringify({ permissions: { allow: ["Bash(cello *)"] }, hooks: { Stop: [{ hooks: [{ type: "command", command: "say done" }] }] }, model: "opus" }, null, 4)}\n`
+      const permissions = { allow: ["Bash(git status)"], deny: ["Bash(rm:*)"] }
+      const original = `${JSON.stringify({ permissions, hooks: { Stop: [{ hooks: [{ type: "command", command: "say done" }] }] }, model: "opus" }, null, 4)}\n`
       fs.writeFileSync(file, original)
 
       expect(yield* run(repo)("install", "claude", "--shared")).toEqual({
@@ -384,6 +433,7 @@ describe("cello install claude", () => {
           `Installed Cello's Claude Code hooks in ${file} (shared: committed with the repo):`,
           ...HOOK_LINES,
           enabledIn(file, home),
+          allowedIn(file),
           `Its marketplace is a folder on this machine, so it's declared in ${local}, which isn't committed: ` +
           "others who clone the repo get the plugin once they run `cello install claude` themselves.",
           `Added .claude/settings.local.json to ${path.join(repo, ".gitignore")}, so it stays on this machine.`,
@@ -395,6 +445,8 @@ describe("cello install claude", () => {
       const text = fs.readFileSync(file, "utf8")
       expect(Object.keys(JSON.parse(text))).toEqual(["permissions", "hooks", "model", "enabledPlugins"])
       expect(text.split("\n")[1]).toBe("    \"permissions\": {")
+      // Cello's rule goes after the repo's own; deny stays as it was.
+      expect(JSON.parse(text).permissions).toEqual({ allow: ["Bash(git status)", "Bash(cello:*)"], deny: ["Bash(rm:*)"] })
       expect(JSON.parse(text).hooks.Stop).toEqual([
         { hooks: [{ type: "command", command: "say done" }] },
         { hooks: [{ type: "command", command: "cello hook claude stop", timeout: 10 }] },
@@ -410,7 +462,7 @@ describe("cello install claude", () => {
       expect(yield* run(repo)("uninstall", "claude")).toEqual({
         out: [
           `Removed Cello's Claude Code plugin from ${local}.`,
-          `Removed Cello's Claude Code hooks and plugin from ${file}.`,
+          `Removed Cello's Claude Code hooks, plugin and Bash(cello:*) rule from ${file}.`,
           `The plugin's files stay in ${pluginAt(home)}, for other projects that still enable it; delete that folder when none do.`,
         ].join("\n"),
         failure: null,
@@ -442,6 +494,9 @@ describe("cello install claude", () => {
       expect(installed.out).toContain("`cello` isn't on your PATH, so Claude Code can't run the hooks. Put the cello binary on the PATH Claude Code starts with (e.g. ~/.local/bin).")
       // The guard is for Cello projects; every project on the machine isn't one.
       expect(Object.keys(JSON.parse(fs.readFileSync(file, "utf8")).hooks)).toEqual(["Stop", "PostToolUse", "SubagentStop"])
+      // `cello` runs without a permission check in every project too: that's where agents reach the board from.
+      expect(installed.out).toContain(allowedIn(file))
+      expect(JSON.parse(fs.readFileSync(file, "utf8")).permissions).toEqual({ allow: ["Bash(cello:*)"] })
 
       fs.writeFileSync(file, "{ broken")
       expect(yield* run(dir)("install", "claude", "--user")).toEqual({
@@ -466,15 +521,18 @@ describe("cello install claude", () => {
       const user = path.join(home, ".claude", "settings.json")
       expect(yield* run(repo)("uninstall", "claude")).toEqual({
         out: [
-          `Removed Cello's Claude Code hooks and plugin from ${local}.`,
-          `Removed Cello's Claude Code hooks and plugin from ${shared}.`,
-          `Removed Cello's Claude Code hooks and plugin from ${user}.`,
+          `Removed Cello's Claude Code hooks, plugin and Bash(cello:*) rule from ${local}.`,
+          `Removed Cello's Claude Code hooks, plugin and Bash(cello:*) rule from ${shared}.`,
+          `Removed Cello's Claude Code hooks, plugin and Bash(cello:*) rule from ${user}.`,
           `The plugin's files stay in ${pluginAt(home)}, for other projects that still enable it; delete that folder when none do.`,
         ].join("\n"),
         failure: null,
       })
       for (const file of [local, shared, user]) expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({})
       expect(fs.existsSync(path.join(pluginAt(home), "cello", "commands", "orchestrate.md"))).toBe(true)
-      expect(yield* run(repo)("uninstall", "claude")).toEqual({ out: `No Cello hooks or plugin in ${local}, ${shared} or ${user}.`, failure: null })
+      expect(yield* run(repo)("uninstall", "claude")).toEqual({
+        out: `No Cello hooks, plugin or Bash(cello:*) rule in ${local}, ${shared} or ${user}.`,
+        failure: null,
+      })
     }).pipe(Effect.scoped))
 })

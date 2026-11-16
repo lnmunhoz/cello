@@ -33,7 +33,7 @@ Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
    - The defaults are fine unless Lucas named the project or its key: then pass `--name "Thai Lookup"` and `--key THAI`.
    - If the key is taken, it says which project has it: pick another, or leave `--key` out and Cello picks a free one (CEL, then CELL, CELLO, CEL2…).
    - `--workspace Work` puts it in another workspace, by name; the default is the first one.
-4. **Hooks, so Lucas's comments reach your session.** Run `cello install claude` (or `cello init --hooks`, which does the same). It writes this machine's `.claude/settings.local.json` and makes sure git ignores it. It keeps a `.bak` of the old file; ignore that too if the repo's `.gitignore` doesn't cover it. Run it again any time; it changes nothing the second time. The same command adds two guards: in this project, Claude artifact publishes are turned away with a pointer to `cello doc publish` (see "Showing things to Lucas"), and an agent's edits in the repo are turned away until its session has claimed a task (see "Edits need a claimed task"). It also installs Cello's Claude Code plugin, which gives new sessions `/cello:orchestrate`, `/cello:work` and the `cello` skill (see "The Claude Code plugin").
+4. **Hooks, so Lucas's comments reach your session.** Run `cello install claude` (or `cello init --hooks`, which does the same). It writes this machine's `.claude/settings.local.json` and makes sure git ignores it. It keeps a `.bak` of the old file; ignore that too if the repo's `.gitignore` doesn't cover it. Run it again any time; it changes nothing the second time. The same command adds two guards: in this project, Claude artifact publishes are turned away with a pointer to `cello doc publish` (see "Showing things to Lucas"), and an agent's edits in the repo are turned away until its session has claimed a task (see "Edits need a claimed task"). It also installs Cello's Claude Code plugin, which gives new sessions `/cello:orchestrate`, `/cello:work` and the `cello` skill (see "The Claude Code plugin"), and allows `cello` commands in Claude Code, so a permission check that fails can't cut agents off the board (see "`cello` commands skip Claude Code's permission check" below).
 5. **Tell the repo's agents.** `cello init --agents-md` adds this section, with the project's key in place of `KEY`, to the end of the AGENTS.md in the checkout you're in, or to CLAUDE.md if there's no AGENTS.md (creating it), between two markers: `<!-- cello:agents-md:start sha256:… -->` (a fingerprint of the text it wrote) and `<!-- cello:agents-md:end -->`. Run it again whenever Cello's text changes: it puts the current text between the markers and prints the lines that changed, or says it's already current. It changes nothing else in the file.
    - **Everything between the markers is Cello's and gets rewritten.** Put the repo's own notes outside them (above the start marker or below the end one). If the text between them isn't exactly what Cello wrote (someone added a note, or it names another project's key), the command still rewrites it, but keeps the old file as `AGENTS.md.bak` first and says so.
    - **A section from before the markers** (a "Tracking work in Cello" heading that mentions `cello guide` or `cello context`) runs up to the next heading of any level, a setext heading or a `---` rule, so what follows it is never touched. What happens to it depends on whether anyone changed it:
@@ -64,6 +64,33 @@ Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
 
    `cello init --agents-md` copies this block, so changing it here changes what the command writes.
 6. **Check.** `cello context` shows the project, its statuses and labels. Tell Lucas the repo is set up: the project key, that the hooks and the plugin are installed (new sessions get `/cello:orchestrate`), and that the AGENTS.md section was added or brought up to date (uncommitted, unless he asks you to commit it).
+
+### `cello` commands skip Claude Code's permission check
+
+Agents reach the board only through `cello`. Before Claude Code runs a shell command it checks whether it's allowed, and in auto mode that check is a call to a server. On Nov 16 that server returned errors for several minutes: no `cello` command could run, so agents couldn't read, comment on or submit any task. Commands on Claude Code's allow list skip the check, so `cello install claude` (and `cello init --hooks`) puts `cello` on it, in the same settings file as the hooks:
+
+```json
+{
+  "permissions": {
+    "allow": ["Bash(cello:*)"]
+  }
+}
+```
+
+`Bash(cello:*)` means "any shell command that starts with `cello`". Install says what it did:
+
+```
+$ cello install claude
+…
+Allowed `cello` commands in /Users/lnmunhoz/projects/app/.claude/settings.local.json ("Bash(cello:*)" in permissions.allow), so Claude Code runs them without a permission check: agents reach the board only through `cello`, and a check that fails can't cut them off it.
+```
+
+- **It merges.** The rule goes after the rules already in `permissions.allow`; `deny`, `ask` and every other permission setting stay as they are. A `deny` rule still wins: `"deny": ["Bash(cello restore:*)"]` keeps blocking that one command.
+- **Once.** Running install again changes nothing (it says `` `cello` commands are already allowed in … ``). If the file already allows `Bash(cello *)` (the same rule in Claude Code's newer spelling), install leaves it and adds nothing.
+- **Where:** this project's `.claude/settings.local.json` by default, `~/.claude/settings.json` with `--user` (every project, which is where Lucas's own fix went), the committed `.claude/settings.json` with `--shared` (everyone who clones the repo gets it, along with the hooks).
+- **A project set up before this** gets the rule the next time you run `cello install claude` there; nothing else in the file changes.
+- **Uninstalling:** `cello uninstall claude` takes out exactly the `Bash(cello:*)` entry, and the empty `allow` list and `permissions` object it leaves, if any. Cello can't tell that entry from one you added by hand with the same text, so uninstall takes out a hand-added `Bash(cello:*)` too; your `Bash(cello *)` stays.
+- **A `permissions` block Cello can't merge into** (`permissions` isn't an object, or `allow` isn't a list) is never overwritten: install and uninstall refuse with a sentence and change nothing.
 
 ## Concepts
 
@@ -411,7 +438,7 @@ cello uninstall claude          # takes them out of all three
 
 - **Once per project** (or once with `--user`). From inside a worktree it writes the main checkout's settings.
 - **It merges** with the hooks already there, and running it again changes nothing. The old file is kept as `<file>.bak`.
-- **The same command installs the Claude Code plugin** in the same settings file (see "The Claude Code plugin" below), and `cello uninstall claude` takes it out with the hooks.
+- **The same command installs the Claude Code plugin** in the same settings file (see "The Claude Code plugin" below), and allows `cello` commands there (`Bash(cello:*)`, see "`cello` commands skip Claude Code's permission check"); `cello uninstall claude` takes both out with the hooks.
 - **What runs:** Claude Code runs `cello hook claude stop` when you finish a turn, and `cello hook claude post-tool-use` after each tool call. New comments come in as context. If you were about to stop, they keep you going: the transcript shows them as "Stop hook feedback". With nothing new, a stop while you hold a claim and nothing waits for you asks you once to start `cello inbox --wait` (below).
 - **A third hook, the guards:** `cello hook claude pre-tool-use` runs before each call to Claude Code's `Artifact`, `Edit`, `Write` and `NotebookEdit` tools. It turns artifact publishes away (see "Showing things to Lucas") and edits in the repo from a session that hasn't claimed a task (see "Edits need a claimed task"). It goes into the project's settings (`.claude/settings.local.json`, or `.claude/settings.json` with `--shared`), never into `~/.claude/settings.json` with `--user`, since not every project is a Cello project. Running `cello install claude` again in a project set up before the claim guard existed adds it.
 - **Two more, for subagents:** `cello hook claude subagent-start` and `cello hook claude subagent-stop` run when a subagent starts and finishes (see Subagents). The start hook only goes into the project's settings, like the guards; the stop hook goes everywhere. Running `cello install claude` again in a project set up before them adds them.
@@ -572,6 +599,7 @@ $ cello install claude
 Installed Cello's Claude Code hooks in /Users/lnmunhoz/projects/app/.claude/settings.local.json (this machine only):
   …
 Enabled Cello's Claude Code plugin in /Users/lnmunhoz/projects/app/.claude/settings.local.json; its files are in /Users/lnmunhoz/.local/share/cello/claude-plugin.
+Allowed `cello` commands in /Users/lnmunhoz/projects/app/.claude/settings.local.json ("Bash(cello:*)" in permissions.allow), so …
 …
 The plugin gives new sessions /cello:orchestrate (run tasks through builder and reviewer agents), /cello:work (do one task in this thread) and the cello skill.
 New Claude Code sessions pick them up.
@@ -943,7 +971,7 @@ cello init [flags]
 | `--name string` | The project's name. Default: the repository's folder name. |
 | `--key string` | Its task key: 2 to 10 letters or digits, starting with a letter (THAI gives THAI-1, THAI-2…). Default: one made from the name that no project has. |
 | `--workspace string` | The workspace to put it in, by name. Default: the first one. |
-| `--hooks` | Also install the Claude Code hooks and plugin for this machine, as `cello install claude` does. |
+| `--hooks` | Also install the Claude Code hooks and plugin for this machine, and allow `cello` commands (Bash(cello:*)), as `cello install claude` does. |
 | `--agents-md` | Also add the "Tracking work in Cello" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), or bring the one there up to date. |
 | `--replace` | With --agents-md: swap an old "Tracking work in Cello" section that has lines Cello didn't write for Cello's current one (the old file is kept as .bak). Without it, such a section is left as it is. |
 | `--json` | Print JSON: created, project, url, hooks ({ file, changed, pluginFolder }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged, customised or foreign, backup, diff }), each null when not asked for or not reached, and error when --hooks or --agents-md failed. |
@@ -1377,7 +1405,7 @@ cello guide [flags]
 
 ### cello install claude
 
-Connect Claude Code to Cello. Adds hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), and one that turns Claude artifact publishes away in favour of Cello pages and edits away until the session has claimed a task (PreToolUse on Artifact, Edit, Write and NotebookEdit; not with --user), all running `cello hook claude`. Installs Cello's Claude Code plugin too (/cello:orchestrate, /cello:work, the cello skill, and builder and reviewer agents): writes its files to $XDG_DATA_HOME/cello/claude-plugin (default ~/.local/share/cello/claude-plugin), rewritten on every run so a new Cello updates it, and enables it. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main checkout's), merged with what's already there; running it again changes nothing. The old file is kept as .bak.
+Connect Claude Code to Cello. Adds hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), and one that turns Claude artifact publishes away in favour of Cello pages and edits away until the session has claimed a task (PreToolUse on Artifact, Edit, Write and NotebookEdit; not with --user), all running `cello hook claude`. Installs Cello's Claude Code plugin too (/cello:orchestrate, /cello:work, the cello skill, and builder and reviewer agents): writes its files to $XDG_DATA_HOME/cello/claude-plugin (default ~/.local/share/cello/claude-plugin), rewritten on every run so a new Cello updates it, and enables it. Adds Bash(cello:*) to permissions.allow, so `cello` commands run without Claude Code's permission check and a check that fails can't cut agents off the board. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main checkout's), merged with what's already there; running it again changes nothing. The old file is kept as .bak.
 
 ```
 cello install claude [flags]
@@ -1390,7 +1418,7 @@ cello install claude [flags]
 
 ### cello uninstall claude
 
-Take Cello's hooks and plugin out of Claude Code's settings: this project's .claude/settings.local.json and .claude/settings.json, and ~/.claude/settings.json. Every other hook, plugin and setting stays as it was. The plugin's files stay in their folder, since other projects may still enable it.
+Take Cello's hooks, plugin and Bash(cello:*) rule out of Claude Code's settings: this project's .claude/settings.local.json and .claude/settings.json, and ~/.claude/settings.json. Every other hook, plugin, permission rule and setting stays as it was. The plugin's files stay in their folder, since other projects may still enable it.
 
 ```
 cello uninstall claude [flags]
