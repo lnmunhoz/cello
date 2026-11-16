@@ -514,7 +514,7 @@ Cello: you hold a claim on CEL-22, and nothing is waiting for Lucas's comments, 
 
 ## Subagents
 
-When you run builders and reviewers with Claude Code's Agent tool, they all carry your \`CLAUDE_CODE_SESSION_ID\`. Cello still tells them apart: each is a **subagent** of your session, named by its type and the first 8 characters of its id ("cello-builder · a13bfb89", "general-purpose · add98dec"). The card it works on says "cello-builder · a13bfb89 active now", with your session in the hover and in the task panel; its comments and changes name it; and "Agents working" in the sidebar counts each working subagent and lists them under your session, each with its task.
+When you run builders and reviewers with Claude Code's Agent tool, they all carry your \`CLAUDE_CODE_SESSION_ID\`. Cello still tells them apart: each is a **subagent** of your session, named by its type and the first 8 characters of its id ("cello-builder · a13bfb89", "general-purpose · add98dec"). The card it works on says "cello-builder · a13bfb89 active now", with your session in the hover and in the task panel; its comments and changes name it; and "Agents working" in the sidebar counts each working subagent and opens the Agents page, which lists them under your session, each with its task.
 
 **How Cello learns about them (with the hooks installed):**
 

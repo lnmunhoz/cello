@@ -159,6 +159,8 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   const sidebarLink = page.locator('aside[data-sidebar="expanded"] a[data-agents-working]')
   await caption(page, "Agents working in the sidebar is a link now: click it")
   await expect(sidebarLink).toHaveAttribute("data-agents-working", "4")
+  // Just the link and its count: the agents are listed on the Agents page, not under it (Lucas, Nov 16).
+  await expect(page.locator('aside[data-sidebar="expanded"] [data-agents-list]')).toHaveCount(0)
   await sidebarLink.click()
   await expect(page).toHaveURL(/\/agents$/)
   await expect(sidebarLink).toHaveAttribute("data-status", "active")

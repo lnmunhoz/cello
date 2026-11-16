@@ -1,8 +1,8 @@
 // CEL-55: subagents work under their orchestrator's session (Claude Code gives them its session id).
 // The orchestrator claims two tasks and launches a builder and a reviewer, one per task; each card names
-// the subagent working on it, the sidebar counts and lists both under the session, comments and history
-// name the agent, and a stopped subagent leaves the card to its session. Each sidebar entry and the task
-// panel show the card's agent mark (CEL-69) in the same mood: thinking, working, waiting. Agents act through RPC with the
+// the subagent working on it, the sidebar counts both with the session (the Agents page lists them, CEL-65),
+// comments and history name the agent, and a stopped subagent leaves the card to its session. The task
+// panel shows the card's agent mark (CEL-69) in the same mood: thinking, working, waiting. Agents act through RPC with the
 // CLI's identity headers, as the hooks and CELLO_AGENT do. Agent cursors are off, so cards change in place.
 import * as path from "node:path"
 import type { Page } from "@playwright/test"
@@ -23,7 +23,7 @@ const as = (baseURL: string, agent?: { id: string; type: string }) =>
     ...(agent ? { "x-cello-agent": agent.id, "x-cello-agent-type": agent.type } : {}),
   })
 
-/** "Agents working" in the sidebar: its count is in `data-agents-working`, its list under it. */
+/** "Agents working" in the sidebar: its count is in `data-agents-working`; no list under it (CEL-65). */
 const agentsWorking = (page: Page) => page.locator('aside[data-sidebar="expanded"] a[data-agents-working]')
 const agentsList = (page: Page) => page.locator('aside[data-sidebar="expanded"] [data-agents-list]')
 
@@ -41,7 +41,7 @@ test.beforeEach(async ({ context }) => {
   })
 })
 
-test("CEL-55: two subagents of one session on two cards: each card names its agent, the sidebar lists both under the session", async ({ page, cello, baseURL }) => {
+test("CEL-55: two subagents of one session on two cards: each card names its agent, the sidebar counts both with the session", async ({ page, cello, baseURL }) => {
   const key = uniqueKey("SUB")
   const project = await seedProject(cello, "Subagents", key)
   const { statuses } = await defaultWorkspace(cello)
@@ -77,23 +77,12 @@ test("CEL-55: two subagents of one session on two cards: each card names its age
   // The session is the parent, in the hover.
   await expect(firstCard.locator("[data-card-work] [data-agent]")).toHaveAttribute("title", "cello-builder · a13bfb89, under Claude Code session 7d3a9e51")
 
-  await caption(page, "Agents working counts the session and both subagents, and lists them under it, each with its task")
+  await caption(page, "Agents working counts the session and both subagents; the Agents page lists them, not the sidebar")
   await expect(agentsWorking(page)).toHaveAttribute("data-agents-working", String(before + 3))
-  const session = agentsList(page).locator(`[data-working-session]`).filter({ hasText: "7d3a9e51" })
-  await expect(session).toContainText("7d3a9e51 · orchestrator")
-  const builderLine = agentsList(page).locator(`[data-working-agent="${BUILDER}"]`)
-  await expect(builderLine.locator("[data-working-who]")).toHaveText("cello-builder · a13bfb89")
-  await expect(builderLine.locator("[data-working-on]")).toHaveText(`on ${first}`)
-  const reviewerLine = agentsList(page).locator(`[data-working-agent="${REVIEWER}"]`)
-  await expect(reviewerLine.locator("[data-working-who]")).toHaveText("cello-code-reviewer · b77d0e11")
-  await expect(reviewerLine.locator("[data-working-on]")).toHaveText(`on ${second}`)
-  // Each entry shows the agent mark its card shows (CEL-69), in the same mood: no stage yet, so both
-  // subagents think, and so does the session, whose cards both name a subagent (it orchestrates).
+  await expect(agentsList(page)).toHaveCount(0)
+  // Each card shows its agent's mark (CEL-69): no stage yet, so the builder thinks.
   await expect(firstCard.locator(".agent-mark")).toHaveAttribute("data-agent-mood", "thinking")
-  await expect(builderLine.locator(".agent-mark")).toHaveAttribute("data-agent-mood", "thinking")
-  await expect(reviewerLine.locator(".agent-mark")).toHaveAttribute("data-agent-mood", "thinking")
-  await expect(session.locator(".agent-mark")).toHaveAttribute("data-agent-mood", "thinking")
-  await expect(builderLine.locator(".agent-mark")).toHaveAttribute("data-presence", "active")
+  await expect(firstCard.locator(".agent-mark")).toHaveAttribute("data-presence", "active")
   await shoot(page, "board")
   await shoot(page, "sidebar", page.locator('aside[data-sidebar="expanded"] nav[aria-label="Inbox"]'))
 
@@ -102,9 +91,8 @@ test("CEL-55: two subagents of one session on two cards: each card names its age
   await builder.run((c) => c["comment.add"]({ commandId: newCommandId(), taskId: firstTask.id, body: "Built; the tests pass." }))
   await builder.run((c) => c["task.stage"]({ commandId: newCommandId(), key: first, stage: "building" }))
   await expect(firstCard.locator("[data-provenance]")).toContainText("cello-builder · a13bfb89 changed just now")
-  await caption(page, "Building: the builder's card and its sidebar entry show the same working mark")
+  await caption(page, "Building: the builder's card shows the working mark")
   await expect(firstCard.locator(".agent-mark")).toHaveAttribute("data-agent-mood", "working")
-  await expect(builderLine.locator(".agent-mark")).toHaveAttribute("data-agent-mood", "working")
 
   await firstCard.click()
   const panel = taskPanel(page, first)
@@ -124,23 +112,20 @@ test("CEL-55: two subagents of one session on two cards: each card names its age
   await caption(page, "Back to the board")
   await panel.getByRole("button", { name: "Close task" }).click()
 
-  await caption(page, "The reviewer finishes (SubagentStop): its card goes back to the session, and it leaves the list")
+  await caption(page, "The reviewer finishes (SubagentStop): its card goes back to the session, and the count drops")
   await orchestrator.run((c) => c["agent.report"]({ agentId: REVIEWER, agentType: "cello-code-reviewer", state: "stopped" }))
   await expect(secondCard.locator("[data-card-work]")).toContainText("7d3a9e51 active now")
-  await expect(agentsList(page).locator(`[data-working-agent="${REVIEWER}"]`)).toHaveCount(0)
   await expect(agentsWorking(page)).toHaveAttribute("data-agents-working", String(before + 2))
   // Claims stayed with the session all along.
   expect((await cello.run((c) => c["task.get"]({ key: second }))).task.assigneeSessionId).toBe(
     (await orchestrator.run((c) => c["whoami"]({ project: {} }))).session!.id,
   )
 
-  await caption(page, `The session asks Lucas about ${second}: Needs input. Its card and its sidebar entry look up with big eyes, the builder's still working`)
+  await caption(page, `The session asks Lucas about ${second}: Needs input. Its card looks up with big eyes, the builder's still working`)
   await orchestrator.run((c) =>
     c["ask.create"]({ commandId: newCommandId(), key: second, title: "Which wording?", questions: [{ prompt: "Agent or subagent?" }], files: [], links: [] }))
   await expect(card(page, second).locator(".agent-mark")).toHaveAttribute("data-agent-mood", "waiting")
-  await expect(session.locator(".agent-mark")).toHaveAttribute("data-agent-mood", "waiting")
-  await expect(builderLine.locator(".agent-mark")).toHaveAttribute("data-agent-mood", "working")
-  await shoot(page, "sidebar-marks", page.locator('aside[data-sidebar="expanded"] nav[aria-label="Inbox"]'))
+  await expect(card(page, first).locator(".agent-mark")).toHaveAttribute("data-agent-mood", "working")
   await orchestrator.run((c) => c["ask.withdraw"]({ commandId: newCommandId(), key: second }))
 
   await orchestrator.run((c) => c["agent.report"]({ agentId: BUILDER, agentType: "cello-builder", state: "stopped" }))
