@@ -1,7 +1,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { agentMood, agentsWorkingCount, authorParts, holderActive, markEntry, stepOf, type MarkSeen, provenanceLine, provenanceOf, whoOf, whoText, workingSessions } from "./model.ts"
+import { agentMood, agentsWorkingCount, authorParts, holderActive, markEntry, stepOf, type MarkSeen, provenanceLine, provenanceOf, whoOf, whoSubject, whoText, workingSessions } from "./model.ts"
 
 const MIN = 60_000
 const now = Date.UTC(2026, 10, 15, 12)
@@ -374,6 +374,7 @@ describe("an author's role and model", () => {
       { kind: "session", text: "2fd0505c", title: "Claude Code session 2fd0505c" },
     ])
     expect(whoText(who)).toBe("Claude Code (Opus 5.5), main session 2fd0505c")
+    expect(whoSubject(who)).toEqual({ subject: "Claude Code (Opus 5.5), main session 2fd0505c,", plain: "Claude Code session 2fd0505c" })
   })
 
   it("a comment from a subagent: its type, Subagent of its session, its own model and effort", () => {
@@ -386,6 +387,8 @@ describe("an author's role and model", () => {
       { kind: "effort", text: "medium" },
     ])
     expect(whoText(who)).toBe("cello-builder (Sonnet 5.5), subagent of 2fd0505c")
+    // As the subject of a history line, the aside closes with a comma; its plain name is for possessives.
+    expect(whoSubject(who)).toEqual({ subject: "cello-builder (Sonnet 5.5), subagent of 2fd0505c,", plain: "cello-builder · a13bfb89" })
   })
 
   it("keeps the model it was written with: never the session's current one, and none when it wasn't known", () => {
@@ -407,6 +410,7 @@ describe("an author's role and model", () => {
     const human = whoOf(state, "lucas", null, null, { model: null, effort: null })
     expect(authorParts(human)).toEqual([{ kind: "name", text: "Lucas N. Munhoz" }])
     expect(whoText(human)).toBe("Lucas N. Munhoz")
+    expect(whoSubject(human)).toEqual({ subject: "Lucas N. Munhoz", plain: "Lucas N. Munhoz" })
     expect(whoText(whoOf(state, "claude", "gone", null, { model: "claude-opus-5-5" }))).toBe("Claude Code")
   })
 

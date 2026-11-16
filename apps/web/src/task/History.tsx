@@ -6,7 +6,7 @@ import { historyFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
 import { describeEvent } from "@cello/client/history"
 import type { CelloEvent } from "@cello/contract/events"
-import { sessionWho, whoOf, whoText } from "../presence/model.ts"
+import { sessionWho, whoOf, whoSubject } from "../presence/model.ts"
 
 /** "cello-builder · a13bfb89, under Claude Code session 2fd0505c": for the hover. */
 const named = (board: BoardState, e: CelloEvent) => {
@@ -15,11 +15,12 @@ const named = (board: BoardState, e: CelloEvent) => {
 }
 
 /**
- * Who did it, in the line (CEL-119): "cello-builder (Sonnet 5.5), subagent of 2fd0505c", "Claude Code
- * (Opus 5.5), main session 2fd0505c", with the model the change was made with; the human by the actor's name.
+ * Who did it, in the line (CEL-119): "cello-builder (Sonnet 5.5), subagent of 2fd0505c, set the stage…",
+ * with the model the change was made with, and by its plain name in a possessive or a wake ("Claude Code
+ * session 2fd0505c's comment…"); the human by the actor's name.
  */
 const doer = (board: BoardState, e: CelloEvent) =>
-  e.sessionId === null ? undefined : whoText(whoOf(board, e.actorId, e.sessionId, e.agentId, e))
+  e.sessionId === null ? undefined : whoSubject(whoOf(board, e.actorId, e.sessionId, e.agentId, e))
 
 /** A plain list of what happened to the task, from task.history. */
 export function History({ board, task }: { board: BoardState; task: Task }) {

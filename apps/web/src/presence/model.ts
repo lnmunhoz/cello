@@ -172,6 +172,16 @@ export const whoText = (who: Who): string => {
   return who.name
 }
 
+/**
+ * An author as a history line names it (CEL-119): `subject` leads the line, its aside closed with a comma
+ * ("cello-builder (Sonnet 5.5), subagent of 2fd0505c," set the stage…); `plain` is the full name for a
+ * possessive or a wake ("Claude Code session 2fd0505c's comment…", "Cello woke Claude Code session 2fd0505c").
+ */
+export const whoSubject = (who: Who): { readonly subject: string; readonly plain: string } => ({
+  subject: who.role ? `${whoText(who)},` : whoText(who),
+  plain: who.name,
+})
+
 /** The subagent working on a task right now: the freshest active one on it, of any session. */
 export const agentOn = (board: BoardState, task: Task, now: number): SessionAgent | null => {
   let best: SessionAgent | null = null
