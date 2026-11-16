@@ -96,7 +96,7 @@ export const reachWords = (reach: Reach, now: number): { readonly tone: ReachTon
   if (reach.presence === "active" || reach.worker) {
     return reach.worker
       ? { tone: "ok", text: `${reach.worker.short} is working on it now. ${name} gets your comment at its next step.` }
-      : { tone: "ok", text: `${name} is working on it now and gets your comment at its next step.` }
+      : { tone: "ok", text: `${name} is active now and gets your comment at its next step.` }
   }
   return { tone: "idle", text: `${name} is idle (seen ${agoShort(reach.lastSeenAt, now)}) and isn't waiting: it gets this when it next works.` }
 }

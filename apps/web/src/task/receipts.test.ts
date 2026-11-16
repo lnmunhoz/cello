@@ -113,7 +113,7 @@ describe("reachOf, reachWords and pendingWords: who gets the next comment", () =
 
   it("active: the session gets it at its next step; with a subagent on it, the subagent is named too (CEL-55)", () => {
     const alone = reachOf(board([task()], [session("s1")]), task(), now)
-    expect(reachWords(alone, now)).toEqual({ tone: "ok", text: "s1 is working on it now and gets your comment at its next step." })
+    expect(reachWords(alone, now)).toEqual({ tone: "ok", text: "s1 is active now and gets your comment at its next step." })
     expect(pendingWords(alone)).toBe("s1 gets it at its next step")
     const withBuilder = reachOf(board([task()], [session("s1")], [builder()]), task(), now)
     expect(reachWords(withBuilder, now).text).toBe("cello-builder · a13bfb89 is working on it now. s1 gets your comment at its next step.")

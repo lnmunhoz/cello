@@ -1,8 +1,8 @@
 // A card while an agent works on its task right now (CEL-76): a thin edge in the agent's colour down the
-// card's left side, static, for as long as the agent is at work (active, and working or thinking); and per
-// check-in, on the same trigger as the agent mark's burst (CEL-69: it starts working or thinking, or checks
-// in while at it), the edge flashes once and the In Progress icon's half fill turns once. A page load
-// plays nothing, nothing loops, and reduced motion keeps only the edge (index.css).
+// card's left side, static, for as long as the agent is at work (active, and working or thinking); and each
+// time it checks in or starts working or thinking while the card is on screen, the edge flashes once and
+// the In Progress icon's half fill turns once. A page load plays neither, neither loops (the agent mark's
+// own working loop is CEL-69's), and reduced motion keeps only the edge (index.css).
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Task } from "@cello/contract/entities"
 import { presenceOf } from "@cello/shared/presence"

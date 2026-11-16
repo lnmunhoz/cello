@@ -27,14 +27,14 @@ Decisions from CEL-76 (Nov 16), so Lucas can see whether a comment reached the a
 ## Check-ins every minute instead of every 2
 
 - **The change:** `PRESENCE_EVERY_MS` goes from 2 minutes to 60 seconds. It covers `session.seen`, and `agent.seen` for subagents.
-- **Why:** each check-in plays the card's burst and turns the status icon's half fill once. At 2 minutes a busy card sat still about 97% of the time, which is why CEL-55 looked idle while it was being worked on.
+- **Why:** each check-in flashes the card's edge and turns its status icon's half fill once, and "active now" follows the agent more closely. At 2 minutes those came too rarely to read as "it's working". (CEL-69 has since made the agent mark loop while its agent is active, which answers CEL-55 looking idle on its own; the edge and the turn add a calm signal that doesn't depend on watching the mark.)
 - **The cost:** one row per working session (and per working subagent) per workspace per minute, instead of every 2. Three sessions working for 8 hours write about 1,440 rows a day instead of 720. That's small next to the rest of the log, and "active now" (5 minutes) is unaffected.
 
 ## The card while an agent works
 
 - **The static edge:** a thin edge in the agent's colour shows while the task's agent is at work, meaning active and working or thinking. It doesn't show when the agent is quiet, has ended, or is waiting on Lucas (Needs input, In Review).
-- **Per check-in or mood change seen on screen** (the same trigger as CEL-69's burst):
+- **Per check-in, or when the agent starts working or thinking, seen on screen:**
   - the edge flashes softly once
   - the status icon's half fill turns once (`StatusIcon`'s `turn`)
-- A page load plays nothing. Both motions end where they started with no fill, so an idle board runs nothing.
+- A page load plays nothing. Both motions end where they started with no fill, so the edge adds nothing running to a board (the mark's working loop is CEL-69's).
 - With reduced motion, only the edge is left.
