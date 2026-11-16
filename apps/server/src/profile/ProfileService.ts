@@ -7,7 +7,7 @@
 // - the human overwrites anything
 // - an agent overwrites detected and agent fields, never the human's (ProfileFieldLocked: ask him)
 // - detection (`detected: true`) writes only fields that are unset or were detected before, keeps the
-//   rest, and never unsets
+//   rest, and never unsets; finding the same value again changes nothing (setting it by hand confirms it)
 import type { ProfileField, ProfileSource, ProjectRef, TestingProfile } from "@cello/contract/entities"
 import { Invalid, NotFound, ProfileFieldLocked } from "@cello/contract/errors"
 import type { Caller, ProfileWrite } from "@cello/contract/rpcs"
@@ -97,6 +97,8 @@ const make = Effect.gen(function* () {
         for (const [field, value] of wanted) {
           const before = current.get(field) ?? null
           if (before === null && value === null) continue
+          // Detection finding what it found before is no news: no write, no event.
+          if (source === "detected" && before?.source === "detected" && before.value === value) continue
           if (before !== null && before.source !== "detected" && source === "detected") {
             kept.push(field)
             continue

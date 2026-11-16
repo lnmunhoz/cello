@@ -72,7 +72,7 @@ describe("ProfileService", () => {
       expect(yield* values).toEqual({ unit: "bun run test (human)", install: "bun install (human)" })
     })))
 
-  it.effect("detected values fill empty and detected fields only; agent and human fields are kept; setting the same value confirms it", () =>
+  it.effect("detected values fill empty and detected fields only; agent and human fields are kept; an unchanged detection is no change, while the same value set by hand confirms it", () =>
     run(Effect.gen(function* () {
       const { set, values, profiles, ref } = yield* setup
       yield* agent(set({ install: "bun i" }))
@@ -81,9 +81,14 @@ describe("ProfileService", () => {
       expect(detected.result).toMatchObject({ written: ["typecheck"], kept: ["install", "unit"] })
       expect(yield* values).toEqual({ install: "bun i (agent)", unit: "bun run test (human)", typecheck: "tsc (detected)" })
       yield* TestClock.adjust(60_000)
+      // `cello init` again, finding the same: nothing written, no event, the time stays.
       const again = yield* set({ typecheck: "tsc" }, { detected: true })
-      expect(again.result.written).toEqual(["typecheck"])
-      expect((yield* profiles.get(ref)).fields.find((f) => f.field === "typecheck")).toMatchObject({ source: "detected", updatedAt: 60_000 })
+      expect(again).toMatchObject({ seq: null, result: { written: [], kept: [] } })
+      expect((yield* profiles.get(ref)).fields.find((f) => f.field === "typecheck")).toMatchObject({ source: "detected", updatedAt: 0 })
+      // An agent setting the same value by hand confirms it: its source and time change.
+      const confirmed = yield* agent(set({ typecheck: "tsc" }))
+      expect(confirmed.result.written).toEqual(["typecheck"])
+      expect((yield* profiles.get(ref)).fields.find((f) => f.field === "typecheck")).toMatchObject({ source: "agent", updatedAt: 60_000 })
       // Detection never unsets.
       expect(yield* Effect.flip(set({}, { unset: ["typecheck"], detected: true }))).toMatchObject({ _tag: "Invalid", field: "unset" })
     })))

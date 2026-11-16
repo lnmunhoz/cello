@@ -2098,7 +2098,7 @@ const init = Command.make("init", {
         )
         done.testing = { detection, written: result.written, kept: result.kept }
         done.profile = result.profile
-        if (!input.json) yield* print([...readinessLines(detection), ...wroteLines(result)].join("\n"))
+        if (!input.json) yield* print([...readinessLines(detection), ...wroteLines({ ...result, found: Object.keys(detection.fields).length })].join("\n"))
       }
       if (input.hooks) done.hooks = yield* installHooks("local")
       if (input.agentsMd) {

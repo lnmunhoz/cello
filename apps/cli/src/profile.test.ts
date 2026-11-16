@@ -43,11 +43,12 @@ describe("the testing profile in the CLI (CEL-89)", () => {
   })
 
   it("says what init wrote into the profile and what it kept", () => {
-    expect(wroteLines({ written: ["install", "unit"], kept: ["typecheck"] })).toEqual([
+    expect(wroteLines({ written: ["install", "unit"], kept: ["typecheck"], found: 3 })).toEqual([
       "Wrote install, unit to the testing profile; kept typecheck, which an agent or the human set. See `cello profile`.",
     ])
-    expect(wroteLines({ written: [], kept: [] })).toEqual([
+    expect(wroteLines({ written: [], kept: [], found: 0 })).toEqual([
       "Nothing to write to the testing profile yet. Set fields as the repo gets them: `cello profile set <field> \"<value>\"`.",
     ])
+    expect(wroteLines({ written: [], kept: [], found: 4 })).toEqual(["The testing profile already has everything found. See `cello profile`."])
   })
 })

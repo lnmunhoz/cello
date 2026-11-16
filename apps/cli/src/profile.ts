@@ -3,7 +3,7 @@
 import type { ProfileField, TestingProfile } from "@cello/contract/entities"
 import type { Detection } from "@cello/shared/detect"
 import { missingFields } from "@cello/shared/testingProfile"
-import { ago, andList, columns } from "./format.ts"
+import { ago, andList } from "./format.ts"
 
 /** "install          bun install  (detected, 2m ago)"; the time only when `now` is given. */
 export const profileLines = (fields: ReadonlyArray<Pick<ProfileField, "field" | "value" | "source" | "updatedAt">>, now?: number): string[] => {
@@ -30,15 +30,17 @@ export const readinessLines = (found: Detection): string[] => {
   return [
     tools.length ? `Testing: detected ${tools.join(" · ")}` : "Testing: nothing detected (no test runner, e2e tool or app found)",
     ...found.readiness.flatMap((r) => {
-      const [line] = columns([[r.state.padEnd(11), r.kind.padEnd(19), r.note]])
-      return [`  ${line}`, ...(r.suggestion ? [`               → ${r.suggestion}`] : [])]
+      return [`  ${r.state.padEnd(11)}  ${r.kind.padEnd(19)}  ${r.note}`, ...(r.suggestion ? [`               → ${r.suggestion}`] : [])]
     }),
   ]
 }
 
-/** What `cello init` wrote into the profile from detection, and what it left. */
-export const wroteLines = (done: { readonly written: ReadonlyArray<string>; readonly kept: ReadonlyArray<string> }): string[] => {
+/** What `cello init` wrote into the profile from detection (`found`: how many fields it detected), and what it left. */
+export const wroteLines = (
+  done: { readonly written: ReadonlyArray<string>; readonly kept: ReadonlyArray<string>; readonly found: number },
+): string[] => {
   if (done.written.length === 0 && done.kept.length === 0) {
+    if (done.found > 0) return ["The testing profile already has everything found. See `cello profile`."]
     return [`Nothing to write to the testing profile yet. Set fields as the repo gets them: ${SET_HINT}.`]
   }
   const wrote = done.written.length ? `Wrote ${done.written.join(", ")} to the testing profile` : "Wrote nothing new to the testing profile"

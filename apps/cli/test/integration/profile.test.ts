@@ -117,7 +117,11 @@ describe("cello init's testing report (CEL-89)", () => {
       expect((yield* me(repo)("profile", "set", "unit", "bun run test:unit")).out).toBe("Set unit to `bun run test:unit`.")
       const again = JSON.parse((yield* agent(repo)("init", "--json")).out)
       expect(again).toMatchObject({ created: false, testing: { kept: ["unit", "app.url"], detection: { stack: ["web (Vite)"] } } })
-      expect(again.testing.written).toContain("install")
+      // Nothing new was found, so nothing was written.
+      expect(again.testing.written).toEqual([])
+      expect((yield* agent(repo)("init")).out.split("\n").at(-1)).toBe(
+        "Wrote nothing new to the testing profile; kept unit and app.url, which an agent or the human set. See `cello profile`.",
+      )
       const fields = Object.fromEntries((again.profile.fields as Array<{ field: string; value: string; source: string }>).map((f) => [f.field, `${f.value} (${f.source})`]))
       expect(fields).toMatchObject({ "unit": "bun run test:unit (human)", "app.url": "http://127.0.0.1:5199 (agent)", "install": "bun install (detected)" })
     }).pipe(Effect.scoped))
