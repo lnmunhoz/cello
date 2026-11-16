@@ -7,6 +7,7 @@ import type { Caller } from "@cello/contract/rpcs"
 import { isNeedsInputStatus } from "@cello/shared/ask"
 import { claimKeepsStatus } from "@cello/shared/claim"
 import { holdsPacket, isReviewStatus } from "@cello/shared/review"
+import { isClosedCategory } from "@cello/shared/status"
 import { parseTaskKey } from "@cello/shared/taskKey"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -153,9 +154,6 @@ export class TaskService extends Context.Service<TaskService, {
 export interface Reopened extends InboxService.Reopened {
   readonly sessionId: string
 }
-
-/** Statuses whose tasks are finished: a claim on them no longer holds. */
-const FINISHED = new Set(["completed", "canceled"])
 
 /** Fields `task.update` can change, and their columns. */
 const EDITABLE = {
@@ -575,7 +573,8 @@ const make = Effect.gen(function* () {
       if (holder === null) return null
       if (holder.actorId === caller.actorId && holder.sessionId === caller.sessionId) return null
       if (caller.sessionId === null) return { holder, reason: "human" as const }
-      if (FINISHED.has(yield* categoryOf(task.statusId))) return null
+      // A claim on a finished task (Done, Canceled) no longer holds.
+      if (isClosedCategory(yield* categoryOf(task.statusId))) return null
       if (holder.sessionId === null) {
         return yield* new TaskClaimed({ key: task.key, holder: human.name, sessionId: null, lastSeenAt: null })
       }

@@ -1,6 +1,6 @@
-import { Outlet, useSearch } from "@tanstack/react-router"
+import { Outlet, useRouter, useSearch } from "@tanstack/react-router"
 import { useShortcut } from "@ui-sdk/react/shortcuts"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { NoticeStack } from "../components/ui/NoticeBar.tsx"
 import { useStoredWidth } from "../components/ui/ResizeHandle.tsx"
 import { Toaster } from "../components/ui/Toast.tsx"
@@ -11,7 +11,8 @@ import { NewProjectDialog } from "../project/NewProjectDialog.tsx"
 import { CommandBar } from "../search/CommandBar.tsx"
 import { COMMAND_BAR_SHORTCUT } from "../search/layout.ts"
 import { ImageModal } from "../viewer/ImageModal.tsx"
-import { ViewerPanel } from "../viewer/ViewerPanel.tsx"
+import { installPanelHistory } from "../viewer/panelBack.ts"
+import { usePanelBackShortcut, ViewerPanel } from "../viewer/ViewerPanel.tsx"
 import { ConnectionStatus } from "./ConnectionStatus.tsx"
 import { AppRestartBar } from "./AppRestartBar.tsx"
 import { ReloadBar } from "./ReloadBar.tsx"
@@ -50,6 +51,10 @@ export function AppShell() {
   // The ⌘K bar (CEL-43), from any page, even while typing in a field (a ⌘ shortcut always runs there).
   const [searching, setSearching] = useState(false)
   useShortcut(embed ? null : COMMAND_BAR_SHORTCUT, () => setSearching(true), { description: "Search Cello" })
+  // The side panel's Back (CEL-117): which history entries were reached from it, and ⌘[.
+  const router = useRouter()
+  useEffect(() => installPanelHistory(router), [router])
+  usePanelBackShortcut(!embed)
 
   // In a panel (`?embed=1`): just the page, no sidebar.
   if (embed) {

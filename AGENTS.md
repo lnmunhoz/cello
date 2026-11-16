@@ -40,6 +40,7 @@ Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port
   - act on them, then answer on the card with `cello task comment CEL-n "…"` (`--body-file -` for markdown); a sent-back task goes back to Lucas with `cello task submit`
   - `docs/cli.md`, "Comments from the human reach your session", has the details
 - **Decisions that are Lucas's are asked on the card, never in the terminal** (CEL-47): which design option, which stages, what wording, anything a task or scope leaves to him.
+  - never Claude's `AskUserQuestion` (the hook denies it; CEL-124): its dialog blocks the session while the card says idle. If no open task of yours fits (yours was approved, or it's a new decision), create one (`cello task create "<the decision>" --status Todo`), claim it and ask there
   - `cello task ask CEL-n --file ask.yaml --wait` (run it in the background): questions with options, a recommended option always with its reason (`because`), and the evidence to decide from
   - scopes always attach their screenshots and link the scope page
   - one ask per task at a time; asking again replaces the open one, `--withdraw` takes it back
@@ -107,6 +108,7 @@ Why: Anthropic's own results put Sonnet 5.5 level with or above Opus 5.5 on term
   - integration tests in `<package>/test/integration/`, real pieces together in one process
   - end-to-end tests in `e2e/`, the built app in a real browser, with videos
 - **No sleeps, timeouts, retries or polling in tests.** Await the event, drain the worker, or advance the test clock.
+  - **One exception (Lucas, Nov 17, CEL-121):** a test whose point is launching a real OS process (the CLI as Claude Code runs it, a real `cello start`) may take `UNDER_LOAD` (a 30 s limit, in `apps/cli/test/integration/cli.ts`), with a comment giving its measured time idle and under load. Anything else that's slow under load gets less work instead: a shared server or repo per file, smaller tests, calls in process.
 - **Pick the e2e specs; don't run the full e2e suite every time** (Lucas, Nov 16: the full run adds up as the project grows). Unit, integration and typecheck are fast and always run in full. For e2e, builders, reviewers and the orchestrator at merge run only the specs that cover what changed:
   - name them: `bun run test:e2e -- e2e/taskpanel.spec.ts e2e/pagepanel.spec.ts` (web), `bun run test:docker:desktop -- <spec>` (desktop, only when the desktop app changed)
   - pick them by what the change touches: the spec for the screen or flow you changed, plus specs for screens that share the component (`grep -l` the component, route or test id in `e2e/`)

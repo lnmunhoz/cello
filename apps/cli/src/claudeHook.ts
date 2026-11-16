@@ -19,7 +19,7 @@
 // guidance, not an error; `decision: "block"` with a `reason` would keep the session going the same way
 // but show as a hook error (checked 2026-11-16).
 // On PreToolUse, a deny "blocks the tool call, and shows Claude the reason" (CEL-57: the artifact
-// guard; CEL-61: the claim guard).
+// guard; CEL-61: the claim guard; CEL-124: the AskUserQuestion guard).
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
@@ -243,6 +243,36 @@ export const artifactGuard = (input: HookInput, env: Env) => {
   if (env[ALLOW_ARTIFACTS_VARIABLE] === "1") return null
   if (input.toolName !== "Artifact" || input.toolInput === null || !publishes(input.toolInput)) return null
   return preToolDeny(ARTIFACT_DENY_REASON)
+}
+
+// ── the AskUserQuestion guard (CEL-124) ─────────────────────────────────────────────────────────
+// In a Cello project, a question for the human goes on the card (`cello task ask`), where the task
+// moves to Needs input and the answer wakes the session. Claude's own AskUserQuestion dialog blocks the
+// session until it's answered, with the card saying only "idle" and the human's comments queued behind
+// it (Nov 16: 40 minutes, after a refused ask on a Done task). The same PreToolUse hook denies every
+// call to it, with the way to ask on the card instead.
+
+/** The env var that lets AskUserQuestion through, for when the human asks for questions in the terminal. */
+export const ALLOW_ASK_USER_VARIABLE = "CELLO_ALLOW_ASK_USER"
+
+/** What the agent reads when its question is turned away: where to ask instead. */
+export const ASK_USER_DENY_REASON =
+  "This project uses Cello: questions for the human go on the card, never in Claude's own window, which blocks this session until it's answered. " +
+  "Ask with `cello task ask KEY-n --file ask.yaml --wait`, run in the background (the Bash tool with run_in_background: true): " +
+  "the task moves to Needs input and the answers come back to you. " +
+  "If no open task you hold fits the question (yours was approved, or it's a new decision), create one: " +
+  "`cello task create \"<the decision>\" --status Todo`, claim it with `cello task claim KEY-n`, and ask there. " +
+  "Terminal questions are only for when the human asks for them; if they did, tell them this project's Cello hook stopped it " +
+  `(they can allow them by starting Claude Code with ${ALLOW_ASK_USER_VARIABLE}=1).`
+
+/**
+ * The PreToolUse hook's answer for AskUserQuestion: always a deny, whatever it asks. Never fails
+ * closed: input it can't read, another tool, or the opt-out all mean null.
+ */
+export const askUserGuard = (input: HookInput, env: Env) => {
+  if (env[ALLOW_ASK_USER_VARIABLE] === "1") return null
+  if (input.toolName !== "AskUserQuestion") return null
+  return preToolDeny(ASK_USER_DENY_REASON)
 }
 
 /** A PreToolUse answer that blocks the call and shows Claude `reason`. */

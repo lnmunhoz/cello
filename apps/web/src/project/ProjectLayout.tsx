@@ -11,9 +11,8 @@ import { DisplayOptions } from "../issues/DisplayOptions.tsx"
 import { isEmbed } from "../lib/embed.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { widthTrack } from "../lib/resize.ts"
-import { TaskPanel, useTaskView } from "../task/TaskPanel.tsx"
-import { TASK_PANEL_WIDTH, TASK_PANEL_WIDTH_KEY, taskPlacement } from "../task/view.ts"
-import { useViewerItem } from "../viewer/store.ts"
+import { TaskPanel, useTaskPlacement } from "../task/TaskPanel.tsx"
+import { TASK_PANEL_WIDTH, TASK_PANEL_WIDTH_KEY } from "../task/view.ts"
 
 /**
  * A project's pages under its breadcrumb and tabs. An open task docks on the right at full height, from
@@ -31,7 +30,7 @@ export function ProjectLayout() {
   const workspaceId = useWorkspaceId()
   const embed = isEmbed(useSearch({ strict: false }))
   const onIssues = useMatch({ from: "/$projectKey/issues", shouldThrow: false }) !== undefined || number !== undefined
-  const placement = taskPlacement(number !== undefined, useTaskView(), useViewerItem() !== null)
+  const placement = useTaskPlacement(number !== undefined)
   const [width, resize] = useStoredWidth(TASK_PANEL_WIDTH_KEY, TASK_PANEL_WIDTH)
   if (!board) return <Centered>Loading…</Centered>
   const project = projectByKey(board, projectKey)

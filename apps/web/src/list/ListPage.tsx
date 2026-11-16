@@ -18,7 +18,7 @@ import { useOrdering } from "../issues/useOrdering.ts"
 import { type Filtered, useFiltered } from "../issues/useFilter.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { useNow } from "../presence/useNow.ts"
-import { useTaskView } from "../task/TaskPanel.tsx"
+import { useTaskPlacement } from "../task/TaskPanel.tsx"
 import { behindTask } from "../task/view.ts"
 import { ListRow } from "./ListRow.tsx"
 import { isCollapsed, keyChars, nextRow, rowOrder } from "./rows.ts"
@@ -78,7 +78,7 @@ function TaskList({
   const [focused, setFocused] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
-  const view = useTaskView()
+  const placement = useTaskPlacement(openNumber !== undefined)
 
   const collapsed = (group: ListGroup) => isCollapsed(group, chosen, open?.id ?? null)
   const rows = rowOrder(groups, collapsed)
@@ -99,7 +99,7 @@ function TaskList({
   }
 
   return (
-    <div ref={listRef} data-layout="list" aria-label={`${project.name} list`} role="region" className={`min-w-0 flex-1 overflow-y-auto px-3 pb-3 ${behindTask(openNumber !== undefined, view)}`}>
+    <div ref={listRef} data-layout="list" aria-label={`${project.name} list`} role="region" className={`min-w-0 flex-1 overflow-y-auto px-3 pb-3 ${behindTask(placement)}`}>
       {groups.map((group) => {
         const { status, tasks } = group
         const folded = collapsed(group)

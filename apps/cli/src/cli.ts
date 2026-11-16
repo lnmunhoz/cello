@@ -61,8 +61,10 @@ import { alreadyDeliveredText, answerLines, askResultText, askSpecFromArgs, askS
 import { buildsText } from "./builds.ts"
 import {
   ALLOW_ARTIFACTS_VARIABLE,
+  ALLOW_ASK_USER_VARIABLE,
   ALLOW_UNTRACKED_VARIABLE,
   artifactGuard,
+  askUserGuard,
   claimAnswer,
   claimCache,
   claimCacheDir,
@@ -1751,12 +1753,13 @@ const guardClaims = (hook: HookInput) =>
 
 /**
  * The PreToolUse hook: an Artifact call goes to the artifact guard (CEL-57: denies a publish, pointing
- * to `cello doc publish`; no server needed), an edit to the claim guard (CEL-61).
+ * to `cello doc publish`; no server needed), AskUserQuestion to its guard (CEL-124: always denied,
+ * pointing to `cello task ask`; no server needed), an edit to the claim guard (CEL-61).
  */
 const guardToolUse = Effect.gen(function* () {
   const { env, readStdin } = yield* CliEnv
   const input = parseHookInput(yield* Effect.promise(readStdin))
-  const answer = artifactGuard(input, env)
+  const answer = artifactGuard(input, env) ?? askUserGuard(input, env)
   if (answer) return yield* print(JSON.stringify(answer))
   yield* guardClaims(input)
 })
@@ -1793,7 +1796,7 @@ const HOOK_WORK = {
 const hookClaude = Command.make("claude", {
   event: Argument.Literals("event", HOOK_EVENTS).pipe(
     Argument.withDescription(
-      "The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse), pre-tool-use (PreToolUse: the artifact and claim guards), " +
+      "The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse), pre-tool-use (PreToolUse: the artifact, AskUserQuestion and claim guards), " +
         "subagent-start (SubagentStart) or subagent-stop (SubagentStop).",
     ),
   ),
@@ -1814,7 +1817,10 @@ const hookClaude = Command.make("claude", {
       "permission_mode on to the server, so a run Cello wakes uses the same mode, and its Claude Code transcript_path (inside a subagent, the subagent's own " +
       "file) with, after a tool call, that call in one line (\"Bash · bun run test\"), so the Agents page shows its live log and current step. pre-tool-use turns a Claude artifact publish " +
       "away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); " +
-      "this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and " +
+      "this artifact guard needs no server. It denies every AskUserQuestion (Claude's own question dialog, which blocks the session) " +
+      "with a pointer to `cello task ask`, and to `cello task create` when no open task the session holds fits the question " +
+      `(all of them through with ${ALLOW_ASK_USER_VARIABLE}=1); this guard needs no server either. ` +
+      "For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and " +
       "denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the " +
       "edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a " +
       "minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; " +
@@ -1946,6 +1952,8 @@ const installHooks = (scope: keyof typeof SCOPES) =>
             ? [
               "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. " +
               `Start Claude Code with ${ALLOW_ARTIFACTS_VARIABLE}=1 when you want one.`,
+              "Agents here can't ask you questions in Claude's own window: they're told to ask on the card, where the task waits in Needs input. " +
+              `Start Claude Code with ${ALLOW_ASK_USER_VARIABLE}=1 when you want questions in the terminal.`,
               "Agents here can't edit files in the repo until their session has claimed a Cello task: they're told to create or claim one first. " +
               `Start Claude Code with ${ALLOW_UNTRACKED_VARIABLE}=1 to turn that off.`,
             ]
@@ -1986,8 +1994,9 @@ const installClaude = Command.make("claude", {
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
     "Connect Claude Code to Cello. Adds hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), " +
-      "and one that turns Claude artifact publishes away in favour of Cello pages and edits away until the session has claimed a task " +
-      "(PreToolUse on Artifact, Edit, Write and NotebookEdit; not with --user), all running `cello hook claude`. Installs Cello's " +
+      "and one that turns Claude artifact publishes away in favour of Cello pages, AskUserQuestion away in favour of `cello task ask` on the card, " +
+      "and edits away until the session has claimed a task " +
+      "(PreToolUse on Artifact, AskUserQuestion, Edit, Write and NotebookEdit; not with --user), all running `cello hook claude`. Installs Cello's " +
       "Claude Code plugin too (/cello:orchestrate, /cello:work, the cello skill, and builder and reviewer agents): writes its files to " +
       "$XDG_DATA_HOME/cello/claude-plugin (default ~/.local/share/cello/claude-plugin), rewritten on every run so a new Cello " +
       `updates it, and enables it. Adds ${CELLO_PERMISSION} to permissions.allow, so \`cello\` commands run without Claude Code's ` +

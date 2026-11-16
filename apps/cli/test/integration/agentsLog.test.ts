@@ -8,7 +8,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import { newCommandId } from "@cello/client/client"
 import { startServer, tempDataDir } from "@cello/server/testing/servers"
-import { describe, expect, it } from "@effect/vitest"
+import { beforeAll, describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
@@ -52,9 +52,10 @@ const listener = () => {
  * Project CEL; session X claimed CEL-1 and launched a builder on it, the hooks reporting both
  * transcripts, which Claude Code has written. The server can be stopped and started again.
  */
-const setup = Effect.gen(function* () {
+const seed = Effect.gen(function* () {
   const dataDir = yield* tempDataDir
   const running = yield* Scope.make()
+  yield* Effect.addFinalizer(() => Scope.close(running, Exit.void))
   const { port } = yield* startServer(dataDir).pipe(Scope.provide(running))
   const repo = gitRepo(dataDir, "cello")
   const human = yield* connect(port).pipe(Scope.provide(running))
@@ -108,6 +109,15 @@ const setup = Effect.gen(function* () {
     restart: startServer(dataDir, { port }),
   }
 })
+
+/**
+ * One seeded server for the whole file: a server and its seed per test outlasted Vitest's 5 s on a
+ * loaded machine (CEL-121). The tests use it in order: the first finishes the builder, the --follow
+ * tests append to its transcript, and the last one restarts the server, so it stays last.
+ */
+let world: Effect.Success<typeof seed>
+beforeAll(() => Effect.map(seed, (seeded) => void (world = seeded)))
+const setup = Effect.sync(() => world)
 
 describe("cello agents (CEL-107)", () => {
   it.live("lists the session working and the builder under it, with their tasks and what each is doing; --all adds the ones that finished today", () =>
