@@ -1,7 +1,9 @@
 // An agent's live log on the client (CEL-106): the steps `agent.log` has sent so far, kept in order, a
-// step sent again (a tool call whose result arrived) replacing the one with its id; and which of them a
-// filter shows.
+// step sent again (a tool call whose result arrived) replacing the one with its id; which of them a
+// filter shows; and the words both the Agents page and `cello agents log` (CEL-107) use.
 import type { LogStep, LogUnavailable, LogUpdate } from "@cello/contract/agentLog"
+import type { AgentSession, SessionAgent } from "@cello/contract/entities"
+import type { Presence } from "@cello/shared/presence"
 
 export interface LogView {
   /** `loading` until the first update; `unavailable` with its reason when there's no log. */
@@ -60,4 +62,38 @@ export const logKey = (source: LogSourceKey): string =>
 export const parseLogKey = (key: string): { sessionId: string; agentId: string | undefined; runId: string | undefined; reveal: boolean } => {
   const [sessionId, agentId, runId, reveal] = JSON.parse(key) as [string, string | null, string | null, boolean]
   return { sessionId, agentId: agentId ?? undefined, runId: runId ?? undefined, reveal }
+}
+
+/**
+ * What the row says the agent is doing right now: its last tool call, only while it's working. Once it
+ * goes quiet or finishes, the last step it reported is no longer "now".
+ */
+export const currentStepOf = (row: { readonly presence: Presence; readonly agent: SessionAgent | null; readonly session: AgentSession }): string | null => {
+  if (row.presence !== "active") return null
+  return (row.agent ? row.agent.currentStep : row.session.currentStep) ?? null
+}
+
+/** How long a tool call took: "40 ms", "2.5 s", "1 min 35 s"; empty when unknown. */
+export const durationWords = (ms: number | null): string => {
+  if (ms === null) return ""
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)} s`
+  if (ms < 60_000) return `${Math.round(ms / 1000)} s`
+  const minutes = Math.floor(ms / 60_000)
+  const seconds = Math.round((ms % 60_000) / 1000)
+  return seconds === 0 || minutes >= 60 ? `${minutes} min` : `${minutes} min ${seconds} s`
+}
+
+/** A result's first `lines` lines, and how many lines come after them. */
+export const previewOf = (output: string, lines: number): { readonly text: string; readonly more: number } => {
+  const all = output.split("\n")
+  return { text: all.slice(0, lines).join("\n"), more: Math.max(0, all.length - lines) }
+}
+
+/** Why there's no log, for an agent that's still working (`live`) or not. */
+export const unavailableWords = (reason: LogUnavailable, live: boolean): string => {
+  if (reason === "missing") return live ? "This log isn't on disk yet. It shows up here as soon as Claude Code writes it." : "This log is no longer on disk."
+  if (reason === "unreadable") return "Cello couldn't read this log file."
+  if (reason === "refused") return "Cello won't read this log: its transcript is outside Claude Code's projects folder."
+  return "No log yet. It shows up once this agent's Claude Code hooks say where its transcript is (`cello install claude` adds them)."
 }

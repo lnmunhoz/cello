@@ -12,7 +12,7 @@ import * as SnapshotService from "../snapshot/SnapshotService.ts"
 import * as TaskService from "../task/TaskService.ts"
 import { cmd, setupProject } from "../testing/fixtures.ts"
 import { asAgent, asHuman, services } from "../testing/TestLayers.ts"
-import { AgentService } from "./AgentService.ts"
+import { AgentService, FINISHED_AGENT_MS } from "./AgentService.ts"
 import { SessionService } from "./SessionService.ts"
 
 const run = <A, E>(effect: Effect.Effect<A, E, any>) => effect.pipe(Effect.provide(services())) as Effect.Effect<A, E>
@@ -232,18 +232,23 @@ describe("AgentService.report and checkIn: the hooks", () => {
       expect((yield* agentRows).map((a) => [a.agent_id, a.task_id])).toEqual([[builder.agent, first.id], [reviewer.agent, other.id]])
     })))
 
-  it.effect("the snapshot leaves out agents that finished, except the one that last changed a task", () =>
+  it.effect("the snapshot keeps agents that finished within FINISHED_AGENT_MS (the Agents page's Finished today, CEL-107); older ones only when they last changed a task", () =>
     run(Effect.gen(function* () {
       const { first } = yield* board
       const agents = yield* AgentService
+      const snapshot = Effect.map((yield* SnapshotService.SnapshotService).get(), (s) => s.agents.map((a) => a.agentId))
       yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "launched", description: first.key }))
       yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "launched", description: first.key }))
+      // A finished helper with no task, of the orchestrator: it comes along through its session.
+      yield* asAgent(orchestrator)(agents.report({ agentId: "c0ffee00", agentType: "Explore", state: "started" }))
       yield* asAgent(reviewer)((yield* TaskService.TaskService).setStage({ commandId: cmd(), key: first.key, stage: "review" }))
-      for (const agentId of [builder.agent, reviewer.agent]) {
+      for (const agentId of [builder.agent, reviewer.agent, "c0ffee00"]) {
         yield* asAgent(orchestrator)(agents.report({ agentId, agentType: null, state: "stopped" }))
       }
-      const snapshot = yield* (yield* SnapshotService.SnapshotService).get()
-      expect(snapshot.agents.map((a) => a.agentId)).toEqual([reviewer.agent])
+      expect(yield* snapshot).toEqual([builder.agent, reviewer.agent, "c0ffee00"])
+
+      yield* TestClock.adjust(FINISHED_AGENT_MS + 1)
+      expect(yield* snapshot).toEqual([reviewer.agent])
     })))
 
   it.effect("an agent id or type with control characters is stored without them", () =>

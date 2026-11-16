@@ -1,4 +1,4 @@
-import { filterSteps, type LogFilter, logKey } from "@cello/client/sync/agentLog"
+import { durationWords, filterSteps, type LogFilter, logKey, previewOf, unavailableWords } from "@cello/client/sync/agentLog"
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { type LogStep, LOG_DEFAULTS } from "@cello/contract/agentLog"
 import { useAtomValue } from "@effect/atom-react"
@@ -12,7 +12,7 @@ import { Select } from "../components/ui/Select.tsx"
 import { Switch } from "../components/ui/Switch.tsx"
 import { agentLogFamily } from "../lib/cello.ts"
 import type { AgentRow } from "./layout.ts"
-import { atBottom, durationWords, previewOf, runLabel, runsOf, unavailableWords } from "./log.ts"
+import { atBottom, runLabel, runsOf } from "./log.ts"
 
 const FILTERS: ReadonlyArray<{ readonly value: LogFilter; readonly label: string }> = [
   { value: "all", label: "All" },

@@ -1,3 +1,4 @@
+import { currentStepOf } from "@cello/client/sync/agentLog"
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Task } from "@cello/contract/entities"
 import { stageInfo } from "@cello/contract/stages"
@@ -16,7 +17,6 @@ import { useNow } from "../presence/useNow.ts"
 import { QueueRow, type QueueRowState } from "../review/QueueRow.tsx"
 import { useQueue } from "../review/useQueue.ts"
 import { AgentLog } from "./AgentLog.tsx"
-import { currentStepOf } from "./log.ts"
 import { type AgentRow, agentGroups, agentRows, directTasks, groupOf, rowKeysOf, stateTaskOf, subagentsLabel, waitingTaskOf } from "./layout.ts"
 
 /**

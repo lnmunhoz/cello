@@ -1,6 +1,7 @@
 import type { LogStep } from "@cello/contract/agentLog"
+import type { AgentSession, SessionAgent } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { applyLogUpdate, EMPTY_LOG, filterSteps, logKey, parseLogKey } from "./agentLog.ts"
+import { applyLogUpdate, currentStepOf, durationWords, EMPTY_LOG, filterSteps, logKey, parseLogKey, previewOf, unavailableWords } from "./agentLog.ts"
 
 const message = (id: string, text: string): LogStep => ({ id, kind: "message", at: 1, text })
 const tool = (id: string, status: "running" | "ok" | "error"): LogStep => ({
@@ -60,5 +61,45 @@ describe("logKey", () => {
     for (const source of [{ sessionId: "s1" }, { sessionId: "s1", agentId: "a1" }, { sessionId: "s1", runId: "r1", reveal: true }]) {
       expect(parseLogKey(logKey(source))).toEqual({ agentId: undefined, runId: undefined, reveal: false, ...source })
     }
+  })
+})
+
+describe("durationWords", () => {
+  it.each([
+    [null, ""],
+    [40, "40 ms"],
+    [2500, "2.5 s"],
+    [12_400, "12 s"],
+    [95_000, "1 min 35 s"],
+    [3_600_000, "60 min"],
+  ])("%j → %j", (ms, words) => expect(durationWords(ms)).toBe(words))
+})
+
+describe("previewOf", () => {
+  it("the first lines of a result, and how many more there are", () => {
+    const output = Array.from({ length: 250 }, (_, i) => `l${i}`).join("\n")
+    expect(previewOf(output, 200)).toEqual({ text: output.split("\n").slice(0, 200).join("\n"), more: 50 })
+    expect(previewOf("a\nb", 200)).toEqual({ text: "a\nb", more: 0 })
+  })
+})
+
+describe("unavailableWords", () => {
+  it("says why there's no log, in the agent's situation, never naming anyone", () => {
+    expect(unavailableWords("missing", true)).toBe("This log isn't on disk yet. It shows up here as soon as Claude Code writes it.")
+    expect(unavailableWords("missing", false)).toBe("This log is no longer on disk.")
+    expect(unavailableWords("none", true)).toContain("cello install claude")
+    expect(unavailableWords("refused", false)).toContain("outside Claude Code's projects folder")
+    expect(unavailableWords("unreadable", true)).toBe("Cello couldn't read this log file.")
+  })
+})
+
+describe("currentStepOf", () => {
+  const session = { currentStep: "Agent · cello-builder: PAN-1" } as AgentSession
+  const agent = { currentStep: "Bash · bun run test" } as SessionAgent
+  it("the agent's or the session's last step, only while it's working", () => {
+    expect(currentStepOf({ presence: "active", session, agent })).toBe("Bash · bun run test")
+    expect(currentStepOf({ presence: "active", session, agent: null })).toBe("Agent · cello-builder: PAN-1")
+    expect(currentStepOf({ presence: "idle", session, agent })).toBeNull()
+    expect(currentStepOf({ presence: "ended", session, agent })).toBeNull()
   })
 })
