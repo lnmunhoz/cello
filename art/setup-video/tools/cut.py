@@ -2,7 +2,9 @@
 """Cuts the CEL-94 onboarding video: picture per scene fitted to its narration, voice on top, the baroque track ducked under it.
 Usage: python3 tools/cut.py [--footage DIR] [--out review/rough-cut.mp4]
 A scene whose footage isn't recorded yet gets a labelled placeholder slate."""
-import argparse, json, os, subprocess, tempfile
+import argparse, json, os, subprocess, sys, tempfile
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from mix import mix  # the voice-over and ducked music, shared with v2/render.sh
 ap = argparse.ArgumentParser()
 ap.add_argument("--footage", default="footage")
 ap.add_argument("--out", default="review/rough-cut.mp4")
@@ -56,17 +58,6 @@ for i, (scene, pieces, *extra) in enumerate(SCENES):
     t += D
 open(f"{W}/list.txt", "w").write("".join(f"file '{p}'\n" for p in parts))
 run("-f", "concat", "-safe", "0", "-i", f"{W}/list.txt", "-c", "copy", f"{W}/picture.mp4")
-inputs, fc, mix = [], "", ""
-for n, (vo, at) in enumerate(voice, start=1):
-    inputs += ["-i", vo]; ms = int(at * 1000)
-    fc += f"[{n}]adelay={ms}|{ms}[v{n}];"; mix += f"[v{n}]"
-m = len(voice) + 1
-fc += f"{mix}amix=inputs={len(voice)}:normalize=0,apad=whole_dur={t:.2f}[vo];"
-fc += f"[{m}]volume=0.22,apad=whole_dur={t:.2f},afade=t=in:d=1,afade=t=out:st={t-2.5:.2f}:d=2.5[mu];"
-fc += "[vo]asplit[vo1][vo2];[mu][vo1]sidechaincompress=threshold=0.05:ratio=4:attack=20:release=400[duck];"
-fc += "[duck][vo2]amix=inputs=2:normalize=0,alimiter=limit=0.95[a]"
-run("-i", f"{W}/picture.mp4", *inputs, "-i", "music/baroque-long.mp3", "-filter_complex", fc,
-    "-map", "0:v", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-preset", "medium", "-pix_fmt", "yuv420p",
-    "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-t", f"{t:.2f}", args.out)
+mix(f"{W}/picture.mp4", voice, args.out, t)
 json.dump(timeline, open(os.path.splitext(args.out)[0] + ".timeline.json", "w"), indent=1)
 print(f"{args.out}: {t:.1f}s")
