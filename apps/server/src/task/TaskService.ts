@@ -5,6 +5,7 @@ import { AskRequired, Invalid, NotFound, ReviewRequired, TaskClaimed, VersionCon
 import type { TaskStage } from "@cello/contract/stages"
 import type { Caller } from "@cello/contract/rpcs"
 import { isNeedsInputStatus } from "@cello/shared/ask"
+import { claimKeepsStatus } from "@cello/shared/claim"
 import { holdsPacket, isReviewStatus } from "@cello/shared/review"
 import { parseTaskKey } from "@cello/shared/taskKey"
 import * as Context from "effect/Context"
@@ -136,12 +137,25 @@ export class TaskService extends Context.Service<TaskService, {
    * never ends a claim: Lucas commenting on an agent's task isn't him taking it over. Returns the task as it is now.
    */
   readonly touchWithin: (context: Commands.WriteContext, taskId: string) => Effect.Effect<Task, NotFound | SqlError>
+  /**
+   * For the command that adds the human's comment (CEL-110): when nobody holds the task, it goes back to
+   * the agent session that last held its claim, inside that command's transaction. The task moves to the
+   * top of the first started status (In Progress), as `moveWithin` does, unless work on it is still going
+   * on or waiting on the human there (a started status such as In Review, or Needs input); that session
+   * holds the claim again, and `task.reopened` says so. Returns who got it and the statuses before and
+   * after, for the comment's inbox item. Null, changing nothing, for an agent's comment, a task someone
+   * holds (an agent or the human), an archived one, or one no agent ever held.
+   */
+  readonly reopenWithin: (context: Commands.WriteContext, taskId: string) => Effect.Effect<Reopened | null, NotFound | Invalid | SqlError>
 }>()("cello/TaskService") {}
+
+/** A task a comment gave back to its last agent session (CEL-110), and the statuses it went from and to. */
+export interface Reopened extends InboxService.Reopened {
+  readonly sessionId: string
+}
 
 /** Statuses whose tasks are finished: a claim on them no longer holds. */
 const FINISHED = new Set(["completed", "canceled"])
-/** Statuses a claim leaves the task in: work going on, or waiting on Lucas's answers. */
-const WORKING = new Set(["started", "waiting"])
 
 /** Fields `task.update` can change, and their columns. */
 const EDITABLE = {
@@ -586,7 +600,7 @@ const make = Effect.gen(function* () {
         const workspaceId = yield* workspaceOf(current.projectId)
         const taken = yield* checkClaim(current, caller, now)
         // Needs input counts as started: a claim (a resumed session, a takeover) leaves the ask waiting.
-        const started = WORKING.has(yield* categoryOf(current.statusId))
+        const started = claimKeepsStatus(yield* categoryOf(current.statusId))
         const statusId = started ? current.statusId : (yield* firstStarted(workspaceId))
         const holder = holderOf(current)
         const mine = holder !== null && holder.actorId === caller.actorId && holder.sessionId === caller.sessionId
@@ -597,6 +611,8 @@ const make = Effect.gen(function* () {
         yield* bump(current, context, {
           assignee_actor_id: caller.actorId,
           assignee_session_id: caller.sessionId,
+          // The agent that last held it, for a comment after its claim ends (CEL-110); the human's claim leaves it.
+          ...(caller.sessionId === null ? {} : { last_holder_session_id: caller.sessionId }),
           status_id: statusId,
           position,
         })
@@ -679,8 +695,30 @@ const make = Effect.gen(function* () {
   const touchWithin = (context: Commands.WriteContext, taskId: string) =>
     Effect.flatMap(load(taskId), (current) => Effect.andThen(bump(current, context, {}), load(taskId)))
 
+  const reopenWithin = (context: Commands.WriteContext, taskId: string) =>
+    Effect.gen(function* () {
+      if (context.caller.sessionId !== null) return null
+      const current = yield* load(taskId)
+      const sessionId = current.lastHolderSessionId ?? null
+      if (sessionId === null || current.assigneeActorId !== null || current.archivedAt !== null) return null
+      const [session] = yield* sql<{ actor_id: string }>`SELECT actor_id FROM agent_sessions WHERE id = ${sessionId}`
+      if (!session) return null
+      const workspaceId = yield* workspaceOf(current.projectId)
+      const from = yield* statusOf(current.statusId)
+      // Where a claim leaves a task: a finished or not-started one goes back to In Progress.
+      const placed = claimKeepsStatus(from.category) ? current : yield* moveWithin(context, { id: current.id, statusId: yield* firstStarted(workspaceId) })
+      yield* bump(placed, context, { assignee_actor_id: session.actor_id, assignee_session_id: sessionId })
+      const task = yield* load(current.id)
+      yield* context.emit(
+        { type: "task.reopened", id: task.id, version: task.version, task, from: current.statusId, session: sessionId },
+        { workspaceId, projectId: task.projectId },
+      )
+      return { sessionId, from: from.name, to: (yield* statusOf(task.statusId)).name } satisfies Reopened
+    })
+
   return TaskService.of({
     touchWithin,
+    reopenWithin,
     setStage,
     byKey,
     claim,

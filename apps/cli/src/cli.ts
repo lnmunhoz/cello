@@ -402,6 +402,7 @@ const context = Command.make("context", { project, json }, (input) =>
       const sentBack = ctx.inbox.find((i) => i.kind === "send_back")
       const answered = ctx.inbox.find((i) => i.kind === "answers")
       const ended = ctx.inbox.find((i) => i.kind === "claim_ended")
+      const reopened = ctx.inbox.find((i) => i.kind === "comment" && i.reopened)
       const onlyComments = ctx.inbox.every((i) => i.kind === "comment" || i.kind === "send_back")
       // An ended claim is nothing to answer.
       const toAnswer = ctx.inbox.find((i) => i.kind !== "claim_ended")
@@ -413,6 +414,7 @@ const context = Command.make("context", { project, json }, (input) =>
         ...(sentBack ? [`  Sent back: fix it, then hand it in again with \`cello task submit ${sentBack.taskKey}\`.`] : []),
         ...(answered ? [`  Answered: ${answered.taskKey} is back in progress; carry on with the answers.`] : []),
         ...(ended ? [`  Claim ended: stop working on ${ended.taskKey}; see where it stands with \`cello task get ${ended.taskKey}\`.`] : []),
+        ...(reopened ? [`  Reopened: the comment gave ${reopened.taskKey} back to you; it's claimed by you again.`] : []),
       )
     }
     lines.push(
@@ -441,10 +443,18 @@ const context = Command.make("context", { project, json }, (input) =>
 /** Lines indented by two spaces; blank lines stay blank. */
 const indent = (lines: ReadonlyArray<string>) => lines.map((l) => (l === "" ? l : `  ${l}`))
 
-/** Lookup tables for describeEvent. */
-const byIds = (names: { readonly statuses: ReadonlyArray<Status>; readonly labels: ReadonlyArray<{ id: string; name: string }> }) => ({
+/** Lookup tables for describeEvent, and the sessions it may name (who a comment reopened a task for, CEL-110). */
+const byIds = (names: {
+  readonly statuses: ReadonlyArray<Status>
+  readonly labels: ReadonlyArray<{ id: string; name: string }>
+  readonly sessions: ReadonlyArray<AgentSession>
+}) => ({
   statuses: Object.fromEntries(names.statuses.map((s) => [s.id, s])),
   labels: Object.fromEntries(names.labels.map((l) => [l.id, l])) as never,
+  sessionName: (id: string) => {
+    const session = names.sessions.find((s) => s.id === id)
+    return session ? sessionName(session) : undefined
+  },
 })
 
 /**

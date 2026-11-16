@@ -104,6 +104,11 @@ export const CelloEvent = Schema.Union([
     reason: Schema.Literals(["holder_exited", "holder_idle", "human"]),
   }),
   event("task.released", { id: Id, version: Schema.Number, task: Task }),
+  // The human commented on a task nobody held, so it went back to the agent session that last held its
+  // claim (CEL-110): `session` holds the claim again. `from` is the status it was in before the
+  // comment's command; when that moved it (Done to In Progress), its own `task.moved` comes first.
+  // Written as the human, in the comment's command.
+  event("task.reopened", { id: Id, version: Schema.Number, task: Task, from: Id, session: Id }),
   // A human change ends an agent's claim; it shares the version of the change that ended it.
   event("task.claim_ended", { id: Id, version: Schema.Number, from: ClaimHolder, reason: Schema.Literals(["human_change"]) }),
   // `cello task stage` (CEL-35). A status change clears the stage inside its own `task.moved`.

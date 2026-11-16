@@ -83,7 +83,7 @@ describe("migration 0017_inbox_claim_ended", () => {
 
       // The next start runs the migrations again: nothing changes.
       const migrated = yield* sql`SELECT * FROM inbox_items ORDER BY rowid`
-      yield* Migrations.run
+      yield* throughClaimEnded
       expect(yield* sql`SELECT * FROM inbox_items ORDER BY rowid`).toEqual(migrated)
       expect(yield* sql`PRAGMA foreign_key_check`).toEqual([])
       expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])

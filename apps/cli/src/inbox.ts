@@ -1,6 +1,7 @@
 // How an agent session reads what reached it (CEL-15): Lucas's comments, Send back notes, his
 // answers to the questions it asked on a card and word that he withdrew one by moving the card (CEL-47),
-// his reactions (CEL-77), and word that a change of his ended its claim (CEL-46).
+// his reactions (CEL-77), and word that a change of his ended its claim (CEL-46). A comment on a task
+// nobody held says it reopened the task for the session, which holds it again (CEL-110).
 // `cello inbox`, `cello context` and the Claude Code hook print items the same way, so the agent sees one
 // format wherever they arrive. Screenshots in Lucas's answers and comments (CEL-73) are saved to temp
 // files first, and the text names the files.
@@ -44,6 +45,18 @@ export const inboxScreenshots = (items: ReadonlyArray<InboxItem>): ScreenshotFil
 /** A comment or a Send back note: the items to answer on the card. */
 const isComment = (item: InboxItem): item is InboxComment => item.kind === "comment" || item.kind === "send_back"
 
+/** Whether a comment's reopen moved the task (Done to In Progress), or only gave the claim back (CEL-110). */
+const isMove = (reopened: NonNullable<InboxComment["reopened"]>) => reopened.from !== reopened.to
+
+/** What a comment's reopen did to its task and what's next, for the delivery's last lines (CEL-110). */
+const reopenLine = (item: InboxComment & { readonly reopened: NonNullable<InboxComment["reopened"]> }) => {
+  const { taskKey: key, author: human, reopened } = item
+  const submit = `when the work is done, hand it in with \`cello task submit ${key}\``
+  return isMove(reopened)
+    ? `${key} was ${reopened.from}: ${human}'s comment reopened it and gave it back to you. It's in ${reopened.to} and claimed by this session again; ${submit}.`
+    : `Nobody held ${key}: ${human}'s comment gave it back to you, and it's claimed by this session again (${reopened.to}); ${submit}.`
+}
+
 /** What Lucas did that ended the claim (CEL-46), as a sentence about `task`. */
 const claimEnd = (item: InboxClaimEnded): string => {
   const task = item.taskKey
@@ -76,7 +89,8 @@ const who = (item: InboxItem) => {
     case "send_back":
       return `${item.author} sent it back`
     case "comment":
-      return `${item.author} commented`
+      if (!item.reopened) return `${item.author} commented`
+      return isMove(item.reopened) ? `${item.author} commented while it was ${item.reopened.from}, reopening it` : `${item.author} commented while nobody held it`
     case "reaction":
       return `${item.author} reacted ${item.emoji} to your comment`
     case "claim_ended":
@@ -148,7 +162,13 @@ const headOf = (items: ReadonlyArray<InboxItem>) => {
     ...(ended ? [ended === 1 ? "an ended claim" : `${ended} ended claims`] : []),
   ]
   const human = items[0]?.author ?? "the human"
-  if (comments === items.length) return comments === 1 ? "New Cello comment on a task you claimed:" : `${comments} new Cello comments on tasks you claimed:`
+  if (comments === items.length) {
+    // A comment that reopened its task came while the session no longer held it (CEL-110).
+    if (items.some((i) => isComment(i) && i.reopened)) {
+      return comments === 1 ? "New Cello comment on a task you worked on before, now yours again:" : `${comments} new Cello comments on tasks you claimed or worked on before:`
+    }
+    return comments === 1 ? "New Cello comment on a task you claimed:" : `${comments} new Cello comments on tasks you claimed:`
+  }
   if (reactions === items.length) {
     return reactions === 1 ? `${human} reacted to your comment in Cello:` : `${human} reacted to your comments in Cello (${reactions}):`
   }
@@ -175,11 +195,15 @@ export const deliveryText = (items: ReadonlyArray<InboxItem>, now: number, files
   const sentBack = unique(items.filter((i) => i.kind === "send_back").map((i) => i.taskKey))
   const ended = unique(items.filter((i) => i.kind === "claim_ended").map((i) => i.taskKey))
   const reacted = items.some((i) => i.kind === "reaction")
+  // One line per task a comment reopened for the session (CEL-110), the first comment that did.
+  const reopenedTasks = comments.flatMap((i) => (i.reopened ? [{ ...i, reopened: i.reopened }] : []))
+    .filter((i, n, all) => all.findIndex((j) => j.taskKey === i.taskKey) === n)
   const human = items[0]?.author ?? "the human"
   const tail = [
     ...(comments.length
       ? [`Act on ${comments.length === 1 ? "it" : "them"} now${withShots ? ` (${comments.length === 1 ? "its" : "their"} screenshots are files you can open)` : ""}, then answer on the card: ${answerHint(comments.map((i) => i.taskKey))}, so ${human} sees your reply there.`]
       : []),
+    ...reopenedTasks.map(reopenLine),
     ...(sentBack.length
       ? [`For a task ${human} sent back, fix what the note asks, then hand it in again with \`cello task submit ${sentBack[0]}\`${sentBack.length > 1 ? ` (${sentBack.slice(1).join(", ")} the same way)` : ""}.`]
       : []),

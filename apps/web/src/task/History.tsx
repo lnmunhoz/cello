@@ -6,7 +6,7 @@ import { historyFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
 import { describeEvent } from "@cello/client/history"
 import type { CelloEvent } from "@cello/contract/events"
-import { whoOf } from "../presence/model.ts"
+import { sessionWho, whoOf } from "../presence/model.ts"
 
 /** "cello-builder · a13bfb89, under Claude Code session 2fd0505c". */
 const named = (board: BoardState, e: CelloEvent) => {
@@ -18,6 +18,8 @@ const named = (board: BoardState, e: CelloEvent) => {
 export function History({ board, task }: { board: BoardState; task: Task }) {
   const result = useAtomValue(historyFamily(task.id))
   const events = AsyncResult.isSuccess(result) ? [...result.value].reverse() : []
+  // Who a comment reopened the task for (CEL-110), by its session's name.
+  const names = { ...board, sessionName: (id: string) => (board.sessions[id] ? sessionWho(board.sessions[id]).name : undefined) }
   return (
     <section aria-labelledby="history-heading" className="flex flex-col gap-2">
       <h3 id="history-heading" className="text-[13px] font-semibold">
@@ -29,7 +31,7 @@ export function History({ board, task }: { board: BoardState; task: Task }) {
             <i aria-hidden className="size-1.5 shrink-0 translate-y-[-1px] rounded-full bg-line-strong" />
             {/* A subagent's change names it (CEL-55); its session is in the hover. A wake names the session (CEL-92). */}
             <span title={e.agentId ? named(board, e) : undefined}>
-              {describeEvent(e, board, e.agentId || e.type.startsWith("session.") ? whoOf(board, e.actorId, e.sessionId, e.agentId).name : undefined)}
+              {describeEvent(e, names, e.agentId || e.type.startsWith("session.") ? whoOf(board, e.actorId, e.sessionId, e.agentId).name : undefined)}
             </span>
             <span className="text-faint">· {relativeTime(e.ts)}</span>
           </li>

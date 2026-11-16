@@ -2,10 +2,12 @@
 // (`delivery`: the session holding the claim when he wrote it) and when that session took it
 // (`comment.delivered`); it's answered once that session, or a subagent of it, comments after it or
 // reacts to it (CEL-77). Who gets the next one comes from the claim, the holder's presence (CEL-35) and
-// whether a `cello inbox --wait` of it is open (`waiting`). Under Lucas's latest comment, until it's
-// answered, a status row says where it stands, like a chat's typing indicator (commentStatus).
+// whether a `cello inbox --wait` of it is open (`waiting`); on a task nobody holds, from the session that
+// last held it, which the comment reopens the task for (reopenOf, CEL-110). Under Lucas's latest comment,
+// until it's answered, a status row says where it stands, like a chat's typing indicator (commentStatus).
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Comment, DeliveryVia, Task } from "@cello/contract/entities"
+import { claimKeepsStatus } from "@cello/shared/claim"
 import { type Presence, presenceOf } from "@cello/shared/presence"
 import { agentOn, agentPresence, agentWho, sessionWho, type Who, whoOf } from "../presence/model.ts"
 
@@ -89,6 +91,27 @@ export const reachOf = (board: BoardState, task: Task, now: number): Reach => {
     worker,
   }
 }
+
+/**
+ * What a comment on a task nobody holds will do (CEL-110): it goes to the agent session that last held
+ * the claim (`who`), which holds it again, and `reopens` the task (back to In Progress) unless it's where
+ * a claim leaves it (released while In Progress). Null for a task someone holds, an archived one, or one
+ * no agent ever held: the comment then reaches the holder, or nobody, as before.
+ */
+export interface Reopen {
+  readonly who: Who
+  readonly reopens: boolean
+}
+
+export const reopenOf = (board: BoardState, task: Task): Reopen | null => {
+  const id = task.lastHolderSessionId ?? null
+  if (id === null || task.assigneeActorId !== null || task.archivedAt !== null) return null
+  return { who: sessionName(board, id), reopens: !claimKeepsStatus(board.statuses[task.statusId]?.category) }
+}
+
+/** The line above the comment box that says it beforehand. */
+export const reopenWords = (task: Task, r: Reopen): string =>
+  r.reopens ? `Commenting reopens ${task.key} and sends it to ${r.who.name}` : `Commenting gives ${task.key} back to ${r.who.name} and sends it your comment`
 
 /** ok: it arrives soon, or is being worked on. idle: it waits until the agent works again. warn: nobody will get it. */
 export type ReachTone = "ok" | "idle" | "warn"

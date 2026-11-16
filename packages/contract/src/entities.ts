@@ -263,6 +263,12 @@ export const Task = Schema.Struct({
   labelIds: Schema.Array(Id),
   assigneeActorId: Schema.NullOr(Id),
   assigneeSessionId: Schema.NullOr(Id),
+  /**
+   * The agent session that last held its claim (CEL-110), kept after the claim ends (approved, released,
+   * ended by a change of the human's). A comment of the human's while nobody holds the task reopens it
+   * for that session. Absent in tasks stored inside events before it existed; null when no agent ever held it.
+   */
+  lastHolderSessionId: Schema.optionalKey(Schema.NullOr(Id)),
   createdByActorId: Id,
   createdBySessionId: Schema.NullOr(Id),
   /**
@@ -537,12 +543,21 @@ const inboxFields = {
   readAt: Schema.NullOr(Millis),
 }
 
-/** A human comment, or a Send back note, delivered to the agent session holding the task's claim (CEL-15). */
+/**
+ * A human comment, or a Send back note, delivered to the agent session holding the task's claim (CEL-15),
+ * or, for a comment on a task nobody held, to the session that last held it, which holds it again (CEL-110).
+ */
 export const InboxComment = Schema.Struct({
   ...inboxFields,
   kind: Schema.Literals(["comment", "send_back"]),
   /** As it is now: edits show; deleted comments drop out of the inbox. */
   comment: Comment,
+  /**
+   * The comment came while nobody held the task, so it reopened the task for this session (CEL-110):
+   * the status it was in (`from`, e.g. Done) and the one it's in now (`to`), and the session holds the
+   * claim again. Absent for a comment on a task the session held.
+   */
+  reopened: Schema.optionalKey(Schema.Struct({ from: Schema.String, to: Schema.String })),
 })
 export type InboxComment = typeof InboxComment.Type
 

@@ -6,7 +6,8 @@
 // works on the Review page too. And a card an agent works on shows a thin edge in its colour, with one
 // flash and one turn of the status icon per check-in. Agents are real sessions over RPC, the waiter a real
 // `cello inbox --wait` from the CLI. While the agent works on the comment it took, the row's mark thinks
-// (CEL-69's loop); otherwise it keeps still. Stills go to e2e/videos/cel-76-*.
+// (CEL-69's loop); otherwise it keeps still. (A comment on a task nobody holds reopens it for the agent
+// that last held it, CEL-110, so "nobody gets it" is shown on a task Lucas holds himself.) Stills go to e2e/videos/cel-76-*.
 import { spawn } from "node:child_process"
 import * as path from "node:path"
 import type { Locator, Page } from "@playwright/test"
@@ -172,10 +173,12 @@ test("CEL-76: Lucas's comments show Sent, Delivered and Answered live, and a sta
   await expect(statusMark(thread)).toHaveAttribute("data-agent-mood", "thinking")
   await shoot(page, "woken", thread)
 
-  await caption(page, "The agent lets the task go: a comment goes nowhere, and the row under it warns")
+  await caption(page, "The agent lets the task go and Lucas takes it himself: a comment goes to no agent, and the row under it warns")
   await agent.run((c) => c["task.release"]({ commandId: newCommandId(), key: task }))
   await expect(statusAfter(thread, 5)).toHaveText("c76e2e01 got your comment but hasn't answered yet")
   await expect(statusMark(thread)).toHaveAttribute("data-agent-mood", "still")
+  // Nobody holding it, a comment would give it back to c76e2e01 (CEL-110): with Lucas holding it, it goes to no agent.
+  await cello.run((c) => c["task.claim"]({ commandId: newCommandId(), key: task }))
   await say(thread, "Can someone pick this up?")
   await expect(receipt(thread, 6)).toHaveText("Not delivered: no agent held this task")
   // Agents worked on this task, so a comment nobody got is a warning, in red.

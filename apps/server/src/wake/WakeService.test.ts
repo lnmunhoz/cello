@@ -16,11 +16,14 @@ import * as EventLog from "../events/EventLog.ts"
 import * as EventStore from "../events/EventStore.ts"
 import * as InboxService from "../inbox/InboxService.ts"
 import * as Seed from "../persistence/Seed.ts"
+import * as ReviewService from "../review/ReviewService.ts"
 import * as SnapshotService from "../snapshot/SnapshotService.ts"
 import { SessionService } from "../session/SessionService.ts"
 import * as TaskService from "../task/TaskService.ts"
 import { type FakeAgent, makeFakeAgent } from "../testing/fakeAgent.ts"
 import { cmd, setupProject } from "../testing/fixtures.ts"
+import { writePng } from "../testing/media.ts"
+import { tempDataDir } from "../testing/tempDir.ts"
 import { asAgent, asHuman } from "../testing/TestLayers.ts"
 import { type WakeWorld, wakeServices, wakeWorld } from "../testing/wakeLayers.ts"
 import { actionOf, wakePrompt, WakeService } from "./WakeService.ts"
@@ -222,6 +225,25 @@ describe("WakeService: a comment wakes the session", () => {
         expect((yield* wake.stopRun({ commandId: cmd(), runId })).result).toBe(true)
         expect((yield* wakeEvents(task.id)).at(-1)).toEqual(["session.run_ended", "stopped"])
         expect((yield* wake.stopRun({ commandId: cmd(), runId })).result).toBe(false)
+      })))
+
+  it.effect("a comment on its Done task reopens the task for it, then wakes it the same way (CEL-110)", () =>
+    run((fake) =>
+      Effect.gen(function* () {
+        const { tasks, task, comment, sessionId, identity } = yield* setup()
+        const reviews = yield* ReviewService.ReviewService
+        const png = writePng(yield* tempDataDir, "board.png")
+        yield* asAgent(identity)(reviews.submit({ commandId: cmd(), key: task.key, summary: "Done", steps: ["Look"], files: [{ path: png }], links: [] }))
+        yield* reviews.approve({ commandId: cmd(), key: task.key })
+        expect((yield* tasks.byKey(task.key)).assigneeSessionId).toBeNull()
+        yield* TestClock.adjust("5 minutes")
+
+        yield* comment("Let's add the instructional video to the readme")
+        expect((yield* tasks.byKey(task.key)).assigneeSessionId).toBe(sessionId)
+        expect((yield* wakeEvents(task.id)).map(([type]) => type)).toEqual(["session.wake_scheduled"])
+        yield* TestClock.adjust("30 seconds")
+        const turn = yield* Queue.take(fake.turns)
+        expect(turn.prompt).toBe(wakePrompt({ human: "Lucas", keys: ["CEL-1"], manual: false }))
       })))
 })
 

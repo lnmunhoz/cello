@@ -3,7 +3,7 @@ import type { Comment, Task } from "@cello/contract/entities"
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { useSearch } from "@tanstack/react-router"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
-import { MoreHorizontalIcon } from "lucide-react"
+import { MoreHorizontalIcon, RotateCcwIcon } from "lucide-react"
 import { Fragment, type ReactNode, useId, useState } from "react"
 import { Button } from "../components/ui/Button.tsx"
 import { Textarea } from "../components/ui/Input.tsx"
@@ -18,7 +18,7 @@ import { useScreenshotUpload } from "../screenshots/useScreenshotUpload.ts"
 import { addScreenshot, removeScreenshot, toComment, useCommentDraft } from "./commentDraft.ts"
 import { Reactions } from "./Reactions.tsx"
 import { CommentStatusRow, ReceiptTicks } from "./Receipt.tsx"
-import { statusCommentId } from "./receipts.ts"
+import { reopenOf, reopenWords, statusCommentId } from "./receipts.ts"
 import type { TaskSearch } from "./view.ts"
 
 interface CommentsProps {
@@ -34,7 +34,8 @@ interface CommentsProps {
  * an open packet on the Review page. The box takes pasted and dropped screenshots (CEL-73); its words and
  * screenshots are the task's comment draft, kept on this device until sent (the Review page's Send back
  * and Approve read it too). Lucas's comments carry their receipts, and his latest, until it's answered,
- * a status row in the thread saying where it stands (CEL-76).
+ * a status row in the thread saying where it stands (CEL-76). On a task nobody holds that an agent worked
+ * on, a line by the Comment button says the comment reopens it and goes to that agent (CEL-110).
  */
 export function Comments({ board, task, placeholder = "Leave a comment…", actions }: CommentsProps) {
   const result = useAtomValue(commentsFamily(task.id))
@@ -47,6 +48,8 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
   // Opened at a comment from ⌘K (`?comment=<id>`, CEL-43): it scrolls into view and flashes once.
   const target = (useSearch({ strict: false }) as TaskSearch).comment
   const statusAfter = statusCommentId(comments)
+  // On a task nobody holds, a comment goes to the agent that last worked on it and reopens it (CEL-110).
+  const reopen = reopenOf(board, task)
 
   const submit = async () => {
     if (toSend === null) return
@@ -92,6 +95,12 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
           }}
         />
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {reopen ? (
+            <p className="mr-auto flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted" data-reopen-hint={reopen.reopens ? "reopens" : "gives-back"}>
+              <RotateCcwIcon aria-hidden className="size-3 shrink-0" />
+              <span className="min-w-0">{reopenWords(task, reopen)}</span>
+            </p>
+          ) : null}
           {uploading > 0 ? <span className="text-xs text-muted">Uploading…</span> : null}
           <Button variant="secondary" size={actions ? "md" : "sm"} onClick={submit} disabled={toSend === null}>
             Comment

@@ -398,14 +398,20 @@ const allRows = Effect.gen(function* () {
  * The rows without what later migrations add, for the tests of the migrations before them: 0014's
  * `inbox_items.read_via` (CEL-76), 0016's `profile_fields` table (CEL-89, empty after migrating),
  * 0017's `inbox_items.cause` (CEL-46, null on every row it finds), 0018's session columns and its
- * `session_runs` and `wake_settings` tables (CEL-92, empty after migrating), and 0019's transcript and
- * current step columns on sessions and subagents (CEL-106, null on every row it finds).
+ * `session_runs` and `wake_settings` tables (CEL-92, empty after migrating), 0019's transcript and
+ * current step columns on sessions and subagents (CEL-106, null on every row it finds), and 0021's
+ * `tasks.last_holder_session_id` and `inbox_items.reopened_from` (CEL-110, null on rows no claim event names).
  */
 const withoutLaterAdditions = (rows: Record<string, unknown>): Record<string, unknown> => {
   const { profile_fields: _profiles, session_runs: _runs, wake_settings: _wake, ...rest } = rows
   return {
     ...rest,
-    inbox_items: ((rows["inbox_items"] ?? []) as ReadonlyArray<Record<string, unknown>>).map(({ read_via: _via, cause: _cause, ...row }) => row),
+    inbox_items: ((rows["inbox_items"] ?? []) as ReadonlyArray<Record<string, unknown>>).map(
+      ({ read_via: _via, cause: _cause, reopened_from: _from, ...row }) => row,
+    ),
+    ...("tasks" in rows
+      ? { tasks: (rows["tasks"] as ReadonlyArray<Record<string, unknown>>).map(({ last_holder_session_id: _holder, ...row }) => row) }
+      : {}),
     agent_sessions: ((rows["agent_sessions"] ?? []) as ReadonlyArray<Record<string, unknown>>).map(
       ({ permission_mode: _mode, agent_kind: _kind, transcript_path: _path, current_step: _step, current_step_at: _at, ...row }) => row,
     ),
@@ -491,7 +497,8 @@ describe("migration 0011_agents", () => {
       const after = yield* everything
       expect({
         ...after,
-        tasks: strip(after.tasks, "updated_by_agent_id"),
+        // 0021's last holder (CEL-110): the board's claims were never events, so null too.
+        tasks: strip(strip(after.tasks, "updated_by_agent_id"), "last_holder_session_id"),
         comments: strip(after.comments, "agent_id"),
         events: strip(after.events, "agent_id"),
       }).toEqual(before)

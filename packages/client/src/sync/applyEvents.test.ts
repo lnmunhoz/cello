@@ -156,6 +156,13 @@ describe("applyEvents: claims", () => {
     ]).tasks["t1"]!
     expect(ended).toMatchObject({ assigneeActorId: null, assigneeSessionId: null, version: 4 })
   })
+
+  it("a comment reopening a task (CEL-110) replaces it: claimed by its last session again", () => {
+    const done = task("t1", { statusId: "done", lastHolderSessionId: "s1", version: 5 })
+    const reopened = task("t1", { assigneeActorId: "a1", assigneeSessionId: "s1", lastHolderSessionId: "s1", statusId: "doing", version: 7 })
+    const next = applyEvents(fromSnapshot(snapshot([done])), [ev(11, { type: "task.reopened", id: "t1", version: 7, task: reopened, from: "done", session: "s1" })])
+    expect(next.tasks["t1"]).toEqual(reopened)
+  })
 })
 
 describe("applyEvents: documents", () => {

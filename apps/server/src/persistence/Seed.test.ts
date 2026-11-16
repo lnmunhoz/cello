@@ -79,6 +79,7 @@ describe("Migrations", () => {
         { migration_id: 18, name: "session_wake" },
         { migration_id: 19, name: "agent_logs" },
         { migration_id: 20, name: "stage_planning" },
+        { migration_id: 21, name: "task_last_holder" },
       ])
     }).pipe(Effect.provide(db)))
 })
