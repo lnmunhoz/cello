@@ -1,10 +1,12 @@
 // The steps release-it runs as hooks (.release-it.json), each a call into the tested modules beside this:
 //
-//   bun scripts/release/hooks.ts bump <version>        after:bump: the version everywhere, and CHANGELOG.md
+//   bun scripts/release/hooks.ts bump <version>        after:bump: the version everywhere (then the plugin's
+//                                                      embedded copy regenerated), and CHANGELOG.md
 //   bun scripts/release/hooks.ts artifacts <version>   before:github:release (after the commit and tag):
 //                                                      the cello binary and Cello.app, zipped into release/
 //
 // CELLO_RELEASE_SKIP_DESKTOP=1 (bun run release -- --skip-desktop) leaves Cello.app out.
+import { spawnSync } from "node:child_process"
 import * as path from "node:path"
 import { buildArtifacts } from "./artifacts.ts"
 import { writeChangelog } from "./changelog.ts"
@@ -18,6 +20,10 @@ try {
   if (command === "bump") {
     const files = syncVersion(root, version)
     console.log(`Version ${version} written to ${files.join(", ")}`)
+    // The plugin's plugin.json changed, so the copy the cello binary embeds (apps/cli/src/claudePluginFiles.ts)
+    // must be regenerated, or the release commit fails apps/cli/src/claudePlugin.test.ts.
+    const docs = spawnSync("bun", ["apps/cli/scripts/docs.ts"], { cwd: root, stdio: "inherit" })
+    if (docs.status !== 0) throw new Error(`bun run docs:cli failed (exit ${docs.status}): the embedded plugin is stale.`)
     writeChangelog(root, version)
     console.log(`CHANGELOG.md: added the ${version} section`)
   } else if (command === "artifacts") {

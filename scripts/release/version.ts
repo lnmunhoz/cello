@@ -1,8 +1,9 @@
 // Cello's one version (CEL-36). The root package.json is the source of truth; a release writes the new
 // version to every other place it lives: APP_VERSION in packages/shared/src/version.ts (what `cello
 // --version`, the server's build and backup manifests report) and each workspace package.json that carries
-// a "version" (apps/desktop's, which electron-builder stamps into Cello.app), and bun.lock's record of those
-// workspace versions. version.test.ts checks they agree.
+// a "version" (apps/desktop's, which electron-builder stamps into Cello.app), the Claude Code plugin's
+// plugin.json (the plugin the cello binary carries; the bump hook then regenerates its embedded copy with
+// `bun run docs:cli`), and bun.lock's record of those workspace versions. version.test.ts checks they agree.
 import * as fs from "node:fs"
 import * as path from "node:path"
 
@@ -51,8 +52,13 @@ const workspacePackages = (root: string): string[] => {
   })
 }
 
-const versionedPackages = (root: string) =>
-  workspacePackages(root).filter((file) => typeof readJson(path.join(root, file)).version === "string")
+// The Claude Code plugin's manifest: its version must be Cello's (apps/cli/src/claudePlugin.test.ts).
+export const PLUGIN_MANIFEST = "apps/cli/claude-plugin/cello/.claude-plugin/plugin.json"
+
+const versionedPackages = (root: string) => [
+  ...workspacePackages(root).filter((file) => typeof readJson(path.join(root, file)).version === "string"),
+  ...(fs.existsSync(path.join(root, PLUGIN_MANIFEST)) ? [PLUGIN_MANIFEST] : []),
+]
 
 const sharedVersion = (root: string): string => {
   const match = APP_VERSION.exec(fs.readFileSync(path.join(root, SHARED_VERSION), "utf8"))
@@ -66,7 +72,9 @@ const LOCK = "bun.lock"
 const escapeRegExp = (text: string) => text.replace(/[.*+?^$()|[\]{}\\]/g, "\\$&")
 const lockEntry = (dir: string) =>
   new RegExp(`(\n    "${escapeRegExp(dir)}": \\{\n\\s*"name": "[^"]*",\n\\s*"version": ")([^"]*)(")`)
-const lockDirs = (root: string) => versionedPackages(root).map((file) => path.dirname(file))
+// Only workspaces are in bun.lock; the plugin manifest isn't one.
+const lockDirs = (root: string) =>
+  versionedPackages(root).filter((file) => file !== PLUGIN_MANIFEST).map((file) => path.dirname(file))
 const lockVersion = (lock: string, dir: string): string => {
   const match = lockEntry(dir).exec(lock)
   if (!match) throw new Error(`bun.lock has no version for ${dir}: run bun install, then release again.`)

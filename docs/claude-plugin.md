@@ -28,7 +28,7 @@ flowchart TD
     C --> D["③ Review<br/>stage: review<br/>a fresh reviewer: the diff and the task text, nothing else"]
     D -->|findings| E["④ Fix<br/>stage: fixing<br/>back to the same builder, so it keeps its context"]
     E --> D
-    D -->|clean| F["⑤ Merge<br/>stage: merged<br/>the whole test suite, deploy if the project does"]
+    D -->|clean| F["⑤ Merge<br/>stage: merged<br/>tests, release and deploy<br/>as the project's AGENTS.md says"]
     F --> G(["⑥ Submit right away<br/>cello task submit: In Review"])
     D -.->|"a question only you can answer"| Q["cello task ask<br/>the card waits in Needs input"]
     Q -.-> E

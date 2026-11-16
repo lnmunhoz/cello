@@ -23,6 +23,8 @@ const fixture = (name: string, version = "0.2.0") => {
   write(root, "apps/desktop/package.json", json({ name: "@cello/desktop", private: true, version: "0.1.0", main: "x.cjs" }))
   write(root, "apps/cli/package.json", json({ name: "@cello/cli", private: true }))
   write(root, "packages/shared/package.json", json({ name: "@cello/shared", private: true }))
+  // The Claude Code plugin the cello binary carries says which Cello it came with.
+  write(root, "apps/cli/claude-plugin/cello/.claude-plugin/plugin.json", json({ name: "cello", displayName: "Cello", version, description: "x" }))
   // bun.lock records each workspace's version: a release that left it stale would dirty the tree at the
   // next bun install.
   write(
@@ -88,6 +90,7 @@ describe("readVersions", () => {
       { file: "package.json", version: "0.2.0" },
       { file: "packages/shared/src/version.ts", version: "0.2.0" },
       { file: "apps/desktop/package.json", version: "0.1.0" },
+      { file: "apps/cli/claude-plugin/cello/.claude-plugin/plugin.json", version: "0.2.0" },
       { file: "bun.lock (apps/desktop)", version: "0.1.0" },
     ])
   })
@@ -97,8 +100,8 @@ describe("syncVersion", () => {
   it("writes the new version everywhere it lives and leaves the rest of each file alone", () => {
     const root = fixture("sync")
     const written = syncVersion(root, "0.3.0")
-    expect(written).toEqual(["package.json", "packages/shared/src/version.ts", "apps/desktop/package.json", "bun.lock"])
-    expect(readVersions(root).map((v) => v.version)).toEqual(["0.3.0", "0.3.0", "0.3.0", "0.3.0"])
+    expect(written).toEqual(["package.json", "packages/shared/src/version.ts", "apps/desktop/package.json", "apps/cli/claude-plugin/cello/.claude-plugin/plugin.json", "bun.lock"])
+    expect(readVersions(root).map((v) => v.version)).toEqual(["0.3.0", "0.3.0", "0.3.0", "0.3.0", "0.3.0"])
     const lock = fs.readFileSync(path.join(root, "bun.lock"), "utf8")
     expect(lock).toContain('"@cello/desktop",\n      "version": "0.3.0",')
     expect(lock).toContain('{ "version": "9.9.9" }')
@@ -121,9 +124,10 @@ describe("syncVersion", () => {
       "package.json",
       "packages/shared/src/version.ts",
       "apps/desktop/package.json",
+      "apps/cli/claude-plugin/cello/.claude-plugin/plugin.json",
       "bun.lock",
     ])
-    expect(readVersions(root).map((v) => v.version)).toEqual(["0.2.0", "0.2.0", "0.1.0", "0.1.0"])
+    expect(readVersions(root).map((v) => v.version)).toEqual(["0.2.0", "0.2.0", "0.1.0", "0.2.0", "0.1.0"])
   })
 
   it("refuses a bun.lock without the versioned workspace's entry, before writing anything", () => {

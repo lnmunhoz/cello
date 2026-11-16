@@ -11,7 +11,7 @@ Do this task yourself, in this thread: $ARGUMENTS
    - **It needs a decision before code** (a spec, a scope with options for the person, a question only they can answer): `cello task stage <KEY> planning`, and it stays there until that's settled.
    - **It's clear** (you know what to build): straight to `cello task stage <KEY> building`.
    - Building runs into a design question the task doesn't answer? Back to `planning` while you ask, then `building` again.
-   - If you merge it yourself, `cello task stage <KEY> merged` before you hand it in.
+   - If you merge it yourself, `cello task stage <KEY> merged`, then release and deploy the way the project's AGENTS.md or CLAUDE.md says (in Cello's own repo: `bun run release`), before you hand it in.
 4. **Test first.** Each behaviour starts as a failing test, then the code that passes it. Put the key in every commit message.
 5. **Comment progress** and decisions on the card with `cello task comment`.
 6. **Hand it in** with `cello task submit <KEY>`: a summary, how to check it, and evidence (videos and screenshots for UI; a terminal transcript or test output for CLI and server work; a small ```mermaid flowchart TD when it's a flow).
