@@ -39,12 +39,8 @@ export const artifactSteps = (options: ArtifactOptions): BuildStep[] => {
   const desktop = path.join(root, "apps/desktop")
   const steps: BuildStep[] = [
     { kind: "cli", cwd: cli, cmd: ["bun", "run", "build"] },
-    {
-      kind: "cli",
-      cwd: path.join(cli, "dist"),
-      // ditto keeps the binary's mode and extended attributes; zip is the fallback off macOS.
-      cmd: isMac ? ["ditto", "-c", "-k", "--keepParent", "cello", out(names.cli)] : ["zip", "-j", out(names.cli), "cello"],
-    },
+    // Just `cello` at the zip's top, executable (zip keeps the mode); ditto would add a dist/ folder and ._ files.
+    { kind: "cli", cwd: path.join(cli, "dist"), cmd: ["zip", "-j", out(names.cli), "cello"] },
   ]
   if (options.desktop) {
     steps.push(

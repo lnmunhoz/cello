@@ -20,10 +20,10 @@ describe("artifactNames", () => {
 })
 
 describe("artifactSteps", () => {
-  it("on a Mac: builds the CLI, zips it, packages Cello.app from that build and zips it with ditto", () => {
+  it("on a Mac: builds the CLI, zips it, packages Cello.app from that build and zips it with ditto (as Apple does)", () => {
     expect(artifactSteps(mac).map((s) => [s.cwd.replace(root, "."), s.cmd.join(" ")])).toEqual([
       ["./apps/cli", "bun run build"],
-      ["./apps/cli/dist", "ditto -c -k --keepParent cello /repo/release/cello-v0.3.0-darwin-arm64.zip"],
+      ["./apps/cli/dist", "zip -j /repo/release/cello-v0.3.0-darwin-arm64.zip cello"],
       ["./apps/desktop", "bun run package --skip-cli"],
       [
         "./apps/desktop/dist/mac-arm64",
@@ -33,10 +33,10 @@ describe("artifactSteps", () => {
   })
 
   it("--skip-desktop leaves Cello.app out", () => {
-    expect(artifactSteps({ ...mac, desktop: false }).map((s) => s.cmd[0])).toEqual(["bun", "ditto"])
+    expect(artifactSteps({ ...mac, desktop: false }).map((s) => s.cmd[0])).toEqual(["bun", "zip"])
   })
 
-  it("elsewhere: refuses to package Cello.app with a way out, and zips the CLI with zip when skipped", () => {
+  it("elsewhere: refuses to package Cello.app with a way out, and still zips the CLI when it's skipped", () => {
     expect(() => artifactSteps({ ...mac, platform: "linux", arch: "x64" })).toThrow(
       /Packaging Cello\.app needs macOS on Apple silicon \(this is linux-x64\)\. Release without it: bun run release -- --skip-desktop/,
     )
@@ -65,7 +65,7 @@ describe("buildArtifacts", () => {
       return 0
     })
     expect(fs.readdirSync(path.join(dir, "release"))).toEqual([])
-    expect(ran).toEqual(["bun", "ditto", "bun", "ditto"])
+    expect(ran).toEqual(["bun", "zip", "bun", "ditto"])
     expect(zips).toEqual([
       path.join(dir, "release/cello-v0.3.0-darwin-arm64.zip"),
       path.join(dir, "release/Cello-v0.3.0-mac-arm64.zip"),
