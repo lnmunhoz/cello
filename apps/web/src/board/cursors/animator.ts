@@ -631,7 +631,8 @@ export class Animator implements Player<CursorStep> {
         case "glide": {
           const aim = (): { x: number; y: number } | null => {
             if (step.kind === "create") {
-              const plus = plusOf(this.last?.state.tasks[step.card]?.statusId)
+              const made = this.last?.state.tasks[step.card]
+              const plus = plusOf(made?.statusId, made?.milestoneId ?? null)
               if (plus) return grab(plus.getBoundingClientRect())
             }
             const held = this.held.get(step)
@@ -874,8 +875,15 @@ const esc = cssString
 const cardEl = (card: string) => document.querySelector<HTMLElement>(`[data-card-id="${esc(card)}"]`)
 const holeEl = (id: number) => document.querySelector<HTMLElement>(`[data-agent-hole="${id}"]`)
 const holeOfCard = (card: string) => document.querySelector<HTMLElement>(`[data-agent-hole-card="${esc(card)}"]`)
-const plusOf = (statusId: string | undefined) =>
-  statusId ? document.querySelector<HTMLElement>(`[data-status-id="${esc(statusId)}"] [data-column-plus]`) : null
+/**
+ * A column's `+`. With the board in milestone swimlanes (CEL-132) every lane has the column, so it's the
+ * one in the task's milestone's lane (No milestone's for none, or for a milestone without a lane).
+ */
+const plusOf = (statusId: string | undefined, milestoneId: string | null) => {
+  if (!statusId) return null
+  const lane = document.querySelector<HTMLElement>(`[data-lane-key="${esc(milestoneId ?? "none")}"]`) ?? document.querySelector<HTMLElement>(`[data-lane-key="none"]`)
+  return (lane ?? document).querySelector<HTMLElement>(`[data-status-id="${esc(statusId)}"] [data-column-plus]`)
+}
 const keyOf = (el: HTMLElement): string | null => el.dataset?.cardId ?? el.dataset?.agentHoleCard ?? null
 const boardRect = () => document.querySelector<HTMLElement>("[data-agent-board]")?.getBoundingClientRect() ?? null
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))

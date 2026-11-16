@@ -175,7 +175,8 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     }),
     createTask: command({
       patch: (
-        a: { projectId: string; title: string; statusId: string; position: string; before: string | null; after: string | null },
+        // `milestoneId` (CEL-132): made already in that open milestone (a milestone's Add a task, a swimlane's +).
+        a: { projectId: string; title: string; statusId: string; position: string; before: string | null; after: string | null; milestoneId?: string | null },
         { state, commandId },
       ) => {
         const project = state.projects[a.projectId]
@@ -194,6 +195,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
           dueDate: null,
           parentId: null,
           labelIds: [],
+          milestoneId: a.milestoneId ?? null,
           assigneeActorId: null,
           assigneeSessionId: null,
           createdByActorId: "",
@@ -210,7 +212,15 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
         })
       },
       call: (c, a, commandId) =>
-        c["task.create"]({ commandId, projectId: a.projectId, title: a.title, statusId: a.statusId, before: a.before, after: a.after }),
+        c["task.create"]({
+          commandId,
+          projectId: a.projectId,
+          title: a.title,
+          statusId: a.statusId,
+          before: a.before,
+          after: a.after,
+          ...(a.milestoneId ? { milestoneId: a.milestoneId } : {}),
+        }),
     }),
     moveTask: command({
       patch: (a: { id: string; expectedVersion?: number; statusId: string; position: string; before: string | null; after: string | null }) =>
@@ -283,6 +293,30 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
           const assigned = yield* c["task.setMilestone"]({ commandId: `${commandId}:assign`, id: taskId, milestoneId: created.result.id })
           return { result: created.result, seq: assigned.seq ?? created.seq }
         }),
+    }),
+    // A milestone's name, goal or date, or a move in the order between two neighbors (CEL-132): `position`
+    // is shown meanwhile, `before`/`after` are what the server places it by.
+    updateMilestone: command({
+      patch: (a: { id: string; name?: string; goal?: string; targetDate?: string | null; position?: string; before?: string | null; after?: string | null }) =>
+        patches.updateMilestone(a.id, {
+          ...(a.name === undefined ? {} : { name: a.name.trim() }),
+          ...(a.goal === undefined ? {} : { goal: a.goal.trim() }),
+          ...(a.targetDate === undefined ? {} : { targetDate: a.targetDate }),
+          ...(a.position === undefined ? {} : { position: a.position }),
+        }),
+      call: (c, a, commandId) => {
+        const { position: _, ...rest } = a
+        return c["milestone.update"]({ commandId, ...rest })
+      },
+    }),
+    // Closing and reopening are the human's (CEL-132); the server refuses an agent.
+    closeMilestone: command({
+      patch: (a: { id: string }) => patches.setMilestoneState(a.id, "closed"),
+      call: (c, a, commandId) => c["milestone.close"]({ commandId, id: a.id }),
+    }),
+    reopenMilestone: command({
+      patch: (a: { id: string }) => patches.setMilestoneState(a.id, "open"),
+      call: (c, a, commandId) => c["milestone.reopen"]({ commandId, id: a.id }),
     }),
     archiveTask: command({
       patch: (a: { id: string }) => patches.archiveTask(a.id),

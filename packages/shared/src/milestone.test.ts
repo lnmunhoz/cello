@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest"
-import { byPosition, compareMilestoneNames, findMilestone, milestoneProgress, progressText } from "./milestone.ts"
+import {
+  byPosition,
+  closeSuggested,
+  compareMilestoneNames,
+  dueText,
+  findMilestone,
+  localDay,
+  milestoneLanes,
+  mightHaveReopened,
+  milestoneProgress,
+  openWithoutMilestone,
+  progressText,
+  reopenedAfterClose,
+} from "./milestone.ts"
 
 const statuses = [
   { id: "backlog", name: "Backlog", category: "backlog" },
@@ -73,5 +86,104 @@ describe("findMilestone", () => {
     expect(findMilestone([], "M3", { projectKey: "CEL", allowNone: true })).toEqual({
       problem: `No milestone named "M3" in CEL. Milestones: none yet. Nothing was changed; \`cello milestone create M3\` makes it`,
     })
+  })
+})
+
+describe("dueText", () => {
+  it("counts whole calendar days to the target date: days left, due today, days late", () => {
+    expect(dueText("2026-11-20", "2026-11-17")).toEqual({ text: "3 days left", late: false })
+    expect(dueText("2026-11-18", "2026-11-17")).toEqual({ text: "1 day left", late: false })
+    expect(dueText("2026-11-17", "2026-11-17")).toEqual({ text: "due today", late: false })
+    expect(dueText("2026-11-16", "2026-11-17")).toEqual({ text: "1 day late", late: true })
+    expect(dueText("2026-11-13", "2026-11-17")).toEqual({ text: "4 days late", late: true })
+  })
+
+  it("counts across a month, a year and a daylight-saving change by the calendar, not by hours", () => {
+    expect(dueText("2026-12-01", "2026-11-30")).toEqual({ text: "1 day left", late: false })
+    expect(dueText("2027-01-02", "2026-12-31")).toEqual({ text: "2 days left", late: false })
+    expect(dueText("2026-03-30", "2026-03-28")).toEqual({ text: "2 days left", late: false })
+  })
+
+  it("localDay is the local calendar day of a moment", () => {
+    expect(localDay(new Date(2026, 10, 7, 23, 59).getTime())).toBe("2026-11-07")
+    expect(localDay(new Date(2026, 0, 1, 0, 0).getTime())).toBe("2026-01-01")
+  })
+})
+
+describe("closeSuggested", () => {
+  const open = { state: "open" as const }
+  it("asks to close an open milestone once every task that counts is done", () => {
+    expect(closeSuggested(open, milestoneProgress([task("done"), task("done"), task("canceled")], statuses))).toBe(true)
+  })
+
+  it("not while a task is left (Backlog counts), not for an empty one, never for a closed one", () => {
+    expect(closeSuggested(open, milestoneProgress([task("done"), task("backlog")], statuses))).toBe(false)
+    expect(closeSuggested(open, milestoneProgress([task("done"), task("review")], statuses))).toBe(false)
+    expect(closeSuggested(open, milestoneProgress([], statuses))).toBe(false)
+    expect(closeSuggested({ state: "closed" }, milestoneProgress([task("done")], statuses))).toBe(false)
+  })
+})
+
+describe("reopenedAfterClose", () => {
+  const closed = { state: "closed" as const, closedAt: 100 }
+  const categoryOf = (id: string) => statuses.find((s) => s.id === id)?.category
+  const moved = (ts: number, from: string, to: string) => ({ type: "task.moved", ts, from: { statusId: from }, to: { statusId: to } })
+  const edited = (ts: number) => ({ type: "task.updated", ts })
+
+  it("mightHaveReopened: only a task of a closed milestone, not Done or Canceled now, changed after the close, is worth reading the history of", () => {
+    expect(mightHaveReopened({ updatedAt: 150 }, closed, "started")).toBe(true)
+    expect(mightHaveReopened({ updatedAt: 150 }, closed, "completed")).toBe(false)
+    expect(mightHaveReopened({ updatedAt: 150 }, closed, "canceled")).toBe(false)
+    expect(mightHaveReopened({ updatedAt: 90 }, closed, "started")).toBe(false)
+    expect(mightHaveReopened({ updatedAt: 150 }, { state: "open", closedAt: null }, "started")).toBe(false)
+  })
+
+  it("a task that moved out of Done after the close, and isn't back in Done", () => {
+    expect(reopenedAfterClose(closed, "started", [moved(50, "doing", "done"), moved(150, "done", "doing")], categoryOf)).toBe(true)
+  })
+
+  it("not a task that was never Done and was only edited (or moved between open statuses) after the close", () => {
+    expect(reopenedAfterClose(closed, "backlog", [edited(150)], categoryOf)).toBe(false)
+    expect(reopenedAfterClose(closed, "doing", [moved(150, "todo", "doing")], categoryOf)).toBe(false)
+  })
+
+  it("not one that left Done before the close, one Done again, or one in an open milestone", () => {
+    expect(reopenedAfterClose(closed, "doing", [moved(80, "done", "doing")], categoryOf)).toBe(false)
+    expect(reopenedAfterClose(closed, "completed", [moved(150, "done", "doing"), moved(160, "doing", "done")], categoryOf)).toBe(false)
+    expect(reopenedAfterClose({ state: "open", closedAt: null }, "started", [moved(150, "done", "doing")], categoryOf)).toBe(false)
+  })
+})
+
+describe("openWithoutMilestone", () => {
+  it("counts the tasks without a milestone that are still open: not Done, Canceled or archived", () => {
+    const tasks = [
+      { statusId: "todo", archivedAt: null, milestoneId: null },
+      { statusId: "doing", archivedAt: null },
+      { statusId: "backlog", archivedAt: null, milestoneId: null },
+      { statusId: "done", archivedAt: null, milestoneId: null },
+      { statusId: "canceled", archivedAt: null, milestoneId: null },
+      { statusId: "todo", archivedAt: 5, milestoneId: null },
+      { statusId: "todo", archivedAt: null, milestoneId: "m3" },
+    ]
+    expect(openWithoutMilestone(tasks, statuses).length).toBe(3)
+  })
+})
+
+describe("milestoneLanes", () => {
+  const m = (id: string, position: string, state: "open" | "closed" = "open") => ({ id, name: id.toUpperCase(), position, state })
+  const milestones = [m("m3", "a2"), m("m2", "a1"), m("m1", "a0", "closed"), m("m0", "Z", "closed")]
+
+  it("the open milestones in order, then closed ones that still show a task, then No milestone last", () => {
+    const lanes = milestoneLanes(milestones, [{ milestoneId: "m1" }, { milestoneId: null }])
+    expect(lanes.map((l) => l.key)).toEqual(["m2", "m3", "m1", "none"])
+    expect(lanes.at(-1)!.milestone).toBeNull()
+  })
+
+  it("No milestone stays, empty, so a card can be dragged out; a task in a milestone it doesn't know is in No milestone", () => {
+    expect(milestoneLanes(milestones, []).map((l) => l.key)).toEqual(["m2", "m3", "none"])
+    const lanes = milestoneLanes(milestones, [{ milestoneId: "elsewhere" }])
+    expect(lanes.find((l) => l.key === "none")!.has({ milestoneId: "elsewhere" })).toBe(true)
+    expect(lanes.find((l) => l.key === "m2")!.has({ milestoneId: "m2" })).toBe(true)
+    expect(lanes.find((l) => l.key === "m2")!.has({})).toBe(false)
   })
 })

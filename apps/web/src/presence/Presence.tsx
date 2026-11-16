@@ -145,7 +145,7 @@ const withModel = (who: Who) => (who.model ? `${who.name} (${modelName(who.model
 const liveId = (h: LiveHolder | null) => (h === null ? null : h.holder.agent ? `agent:${h.holder.agent.agentId}` : `session:${h.holder.session?.id}`)
 
 /** The mark's size on cards, list rows and in the task panel: about a line of their 12 px text. */
-const MARK_SIZE = 15
+export const MARK_SIZE = 15
 
 /** The mark's size in the sidebar's Agents working list (CEL-55). */
 const SIDEBAR_MARK_SIZE = 14

@@ -1,7 +1,7 @@
 import type { Label, Status, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import type { BoardState } from "../sync/applyEvents.ts"
-import { addLabel, addMilestone, addTask, archiveLabel, archiveTask, moveTask, setTaskLabels, setTaskMilestone, updateLabel, updateStatus, updateTask } from "./patches.ts"
+import { addLabel, addMilestone, addTask, archiveLabel, archiveTask, moveTask, setMilestoneState, setTaskLabels, setTaskMilestone, updateLabel, updateMilestone, updateStatus, updateTask } from "./patches.ts"
 
 const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   id,
@@ -68,6 +68,22 @@ describe("milestone patches (CEL-113)", () => {
     const m3 = { id: "m3", projectId: "p1", name: "M3", goal: "", targetDate: null, position: "a0", state: "open" as const, closedAt: null, createdAt: 1, updatedAt: 1 }
     expect(addMilestone(m3)(state).milestones["m3"]).toEqual(m3)
     expect(addMilestone({ ...m3, projectId: "elsewhere" })(state)).toBe(state)
+  })
+
+  it("edits and moves a milestone (CEL-132), closes and reopens it; one it doesn't have is left alone", () => {
+    const m3 = { id: "m3", projectId: "p1", name: "M3", goal: "", targetDate: null, position: "a0", state: "open" as const, closedAt: null, createdAt: 1, updatedAt: 1 }
+    const withM3 = addMilestone(m3)(state)
+    expect(updateMilestone("m3", { name: "M3b", goal: "Agents", targetDate: "2026-12-01", position: "a5" })(withM3).milestones["m3"]).toMatchObject({
+      name: "M3b",
+      goal: "Agents",
+      targetDate: "2026-12-01",
+      position: "a5",
+    })
+    const closed = setMilestoneState("m3", "closed")(withM3).milestones["m3"]!
+    expect(closed.state).toBe("closed")
+    expect(closed.closedAt).toBeGreaterThan(0)
+    expect(setMilestoneState("m3", "open")(setMilestoneState("m3", "closed")(withM3)).milestones["m3"]).toMatchObject({ state: "open", closedAt: null })
+    expect(updateMilestone("gone", { name: "X" })(withM3)).toBe(withM3)
   })
 })
 

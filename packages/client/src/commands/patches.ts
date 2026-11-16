@@ -51,6 +51,21 @@ export const setTaskMilestone = (id: string, milestoneId: string | null): Patch 
 export const addMilestone = (milestone: Milestone): Patch => (state) =>
   state.projects[milestone.projectId] === undefined ? state : put(state, "milestones", milestone)
 
+export interface MilestoneFields {
+  readonly name?: string
+  readonly goal?: string
+  readonly targetDate?: string | null
+  readonly position?: string
+}
+
+/** A milestone's name, goal or date, or its place in the order (CEL-132). */
+export const updateMilestone = (id: string, fields: MilestoneFields): Patch =>
+  change("milestones", id, (m: Milestone) => ({ ...m, ...fields, updatedAt: now() }))
+
+/** Closed by the human, or reopened (CEL-132). */
+export const setMilestoneState = (id: string, state: Milestone["state"]): Patch =>
+  change("milestones", id, (m: Milestone) => ({ ...m, state, closedAt: state === "closed" ? now() : null, updatedAt: now() }))
+
 export const archiveTask = (id: string): Patch => changeTask(id, (t) => ({ ...t, archivedAt: now() }))
 
 export const addTask = (task: Task): Patch => (state) => put(state, "tasks", task)

@@ -4,7 +4,7 @@ import type { Priority, Project, Task } from "@cello/contract/entities"
 import { useAtomSet } from "@effect/atom-react"
 import { openAskOf } from "@cello/client/sync/asks"
 import { openReviewOf } from "@cello/client/sync/reviews"
-import { Link, useNavigate, useSearch } from "@tanstack/react-router"
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useShortcut, useShortcutHint } from "@ui-sdk/react/shortcuts"
 import { ChevronRightIcon, Maximize2Icon, Minimize2Icon, MoreHorizontalIcon, XIcon } from "lucide-react"
 import { useRef, useState } from "react"
@@ -79,15 +79,17 @@ export function TaskPanel({
   const full = placement === "page"
   // Below 768 px the panel takes the board's place, so there's no edge to drag.
   const narrow = useMediaQuery(`(max-width: ${NARROW_WIDTH - 1}px)`)
-  const close = () => void navigate({ to: "/$projectKey/issues", params: { projectKey: project.key } })
-  // Expand from the panel; collapse from the main area, closing the viewer beside it.
+  // Opened from a milestone's page (CEL-132), closing goes back to it; otherwise to the Issues tab.
+  const { milestoneId } = useParams({ strict: false }) as { milestoneId?: string }
+  const close = () => {
+    if (milestoneId === undefined) void navigate({ to: "/$projectKey/issues", params: { projectKey: project.key } })
+    else void navigate({ to: "/$projectKey/milestones/$milestoneId", params: { projectKey: project.key, milestoneId } })
+  }
+  // Expand from the panel; collapse from the main area, closing the viewer beside it. It stays on the
+  // page it was opened from (the Issues tab, a milestone's page).
   const toggle = () => {
     const next = viewToggle(full ? "page" : "side")
-    void navigate({
-      to: "/$projectKey/$number",
-      params: { projectKey: project.key, number: String(number) },
-      search: (prev) => ({ ...(next.closeViewer ? withoutViewer(prev) : prev), ...searchForView(next.view) }),
-    })
+    void navigate({ to: ".", search: (prev) => ({ ...(next.closeViewer ? withoutViewer(prev) : prev), ...searchForView(next.view) }) })
   }
   const toggleHint = useShortcutHint(TASK_VIEW_SHORTCUT)
   useShortcut(task ? TASK_VIEW_SHORTCUT : null, toggle, { description: "Expand the task to a full page, or back to the panel" })

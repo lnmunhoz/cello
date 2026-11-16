@@ -7,17 +7,32 @@ import { parseOrdering, type Ordering } from "@cello/client/sync/ordering"
 
 export type Layout = "board" | "list"
 
-/** The layout, the ordering, and the filter (CEL-52, `?label=bug&who=agent`; see ./useFilter.ts). */
+/** What the board groups cards by: columns by status (the default), or swimlanes by milestone too (CEL-132). */
+export type Grouping = "status" | "milestone"
+
+/** The layout, the ordering, the grouping and the filter (CEL-52, `?label=bug&who=agent`; see ./useFilter.ts). */
 export interface IssuesSearch extends FilterSearch {
   readonly layout?: "list"
   readonly order?: Ordering
+  readonly group?: "milestone"
 }
 
 /** The project route's `validateSearch`: keeps `layout=list`, a known `order` and the filter's params, and drops anything it doesn't know. */
 export const parseIssuesSearch = (search: Record<string, unknown>): IssuesSearch => {
   const order = parseOrdering(search["order"])
-  return { ...(search["layout"] === "list" ? { layout: "list" as const } : {}), ...(order ? { order } : {}), ...parseFilterSearch(search) }
+  return {
+    ...(search["layout"] === "list" ? { layout: "list" as const } : {}),
+    ...(order ? { order } : {}),
+    ...(search["group"] === "milestone" ? { group: "milestone" as const } : {}),
+    ...parseFilterSearch(search),
+  }
 }
+
+/** The grouping shown: milestone swimlanes are the board's only, so the list keeps its status groups. */
+export const groupingOf = (search: IssuesSearch): Grouping => (search.group === "milestone" && layoutOf(search) === "board" ? "milestone" : "status")
+
+/** The search to navigate with after picking a grouping. Status removes the param. */
+export const groupSearch = (grouping: Grouping): IssuesSearch => ({ group: grouping === "milestone" ? "milestone" : undefined })
 
 export const layoutOf = (search: IssuesSearch): Layout => search.layout ?? "board"
 

@@ -7,6 +7,8 @@ import { parseDocsSearch, parsePageSearch } from "../docs/search.ts"
 import { IssuesPage } from "../issues/IssuesPage.tsx"
 import { parseIssuesSearch, type IssuesSearch } from "../issues/layout.ts"
 import { embedSearch } from "../lib/embed.ts"
+import { MilestonePage } from "../milestones/MilestonePage.tsx"
+import { MilestonesPage } from "../milestones/MilestonesPage.tsx"
 import { ComingSoon } from "../project/ComingSoon.tsx"
 import { Overview } from "../project/Overview.tsx"
 import { ProjectLayout } from "../project/ProjectLayout.tsx"
@@ -39,13 +41,13 @@ const builds = createRoute({ getParentRoute: () => root, path: "/builds", compon
 // `?open=CEL-12`: the packet open on the Review page, so a reload or a link keeps it.
 const review = createRoute({ getParentRoute: () => root, path: "/review", component: ReviewPage, validateSearch: parseReviewSearch })
 
-// `?layout=list` picks the Issues layout and `?order=newest` its ordering; every link inside the project keeps them, so opening and closing tasks stays as it was.
+// `?layout=list` picks the Issues layout, `?order=newest` its ordering and `?group=milestone` the board's swimlanes (CEL-132); every link inside the project keeps them, so opening and closing tasks stays as it was.
 const project = createRoute({
   getParentRoute: () => root,
   path: "$projectKey",
   component: ProjectLayout,
   validateSearch: parseIssuesSearch,
-  search: { middlewares: [retainSearchParams<IssuesSearch>(["layout", "order"])] },
+  search: { middlewares: [retainSearchParams<IssuesSearch>(["layout", "order", "group"])] },
 })
 
 const projectIndex = createRoute({
@@ -74,10 +76,24 @@ const task = createRoute({
   },
 })
 
+// The Milestones page (CEL-132), one milestone's page (`none`: the open tasks without one), and that page
+// with a task open beside it: one component for both, so opening a task keeps the page as it was.
+const milestones = createRoute({ getParentRoute: () => project, path: "milestones", component: MilestonesPage })
+const milestone = createRoute({ getParentRoute: () => project, path: "milestones/$milestoneId", component: MilestonePage })
+const milestoneTask = createRoute({
+  getParentRoute: () => project,
+  path: "milestones/$milestoneId/$number",
+  component: MilestonePage,
+  validateSearch: parseTaskSearch,
+  beforeLoad: ({ params }) => {
+    if (!/^\d+$/.test(params.number)) throw notFound()
+  },
+})
+
 // The Agents page (CEL-65): `?open=session:…` or `?open=agent:…/…`, the open row, so a reload or a link keeps it.
 const agents = createRoute({ getParentRoute: () => root, path: "/agents", component: AgentsPage, validateSearch: parseAgentsSearch })
 
-const routeTree = root.addChildren([home, settings, builds, review, agents, project.addChildren([projectIndex, overview, issues, docs, page, activity, task])])
+const routeTree = root.addChildren([home, settings, builds, review, agents, project.addChildren([projectIndex, overview, issues, milestones, milestone, milestoneTask, docs, page, activity, task])])
 
 // An address no route matches shows a Not found screen with a way back, in the layout around it.
 export const router = createRouter({ routeTree, defaultPreload: false, defaultNotFoundComponent: RouteNotFound })
