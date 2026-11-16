@@ -42,6 +42,8 @@ export function AgentLog({ board, row }: { readonly board: BoardState; readonly 
   const [runId, setRunId] = useState<string | null>(null)
   const runs = row.kind === "session" ? runsOf(board.wakes, row.session.id) : []
   const scroller = useRef<HTMLDivElement>(null)
+  // Every step this log has put on screen (CEL-107): a step shown again after a filter or the Thinking switch never fades in twice.
+  const [shown] = useState(() => new Set<string>())
   const key = logKey({ sessionId: row.session.id, agentId: row.agent?.agentId, runId: runId ?? undefined, reveal })
   const result = useAtomValue(agentLogFamily(key))
   const log = AsyncResult.isSuccess(result) ? result.value : null
@@ -133,7 +135,7 @@ export function AgentLog({ board, row }: { readonly board: BoardState; readonly 
               ) : null}
               {/* A running call pulses only while the agent is working right now; a step that just arrived fades in (CEL-107). */}
               {steps.map((step) => (
-                <Step key={step.id} step={step} row={row} working={row.presence === "active"} arrived={log.arrived.includes(step.id)} />
+                <Step key={step.id} step={step} row={row} working={row.presence === "active"} arrived={log.arrived.includes(step.id)} shown={shown} />
               ))}
             </ol>
           )}
@@ -166,17 +168,34 @@ const KIND_LABEL = { user: "Prompt", message: "Said", thinking: "Thinking", syst
 /**
  * One step: a prompt or message as markdown (CEL-107: rendered like a comment, from the already masked
  * text), a tool call or thinking folded to one line, a note in grey. `arrived`: it came in live just
- * now, so it fades in once (`log-arrive`, index.css); a step updated in place, or shown on opening the
- * log, doesn't.
+ * now, so it fades in once (`log-arrive`, index.css), decided when the row first mounts: a step updated
+ * in place, shown on opening the log, or shown again after a filter or the Thinking switch (`shown`
+ * remembers every step this log has put on screen) doesn't.
  */
-function Step({ step, row, working, arrived }: { readonly step: LogStep; readonly row: AgentRow; readonly working: boolean; readonly arrived: boolean }) {
+function Step({
+  step,
+  row,
+  working,
+  arrived,
+  shown,
+}: {
+  readonly step: LogStep
+  readonly row: AgentRow
+  readonly working: boolean
+  readonly arrived: boolean
+  readonly shown: Set<string>
+}) {
+  const [fades] = useState(() => arrived && !shown.has(step.id))
+  useEffect(() => {
+    shown.add(step.id)
+  }, [shown, step.id])
   const data = {
     "data-log-step": step.id,
     "data-log-kind": step.kind,
     "data-log-status": step.tool?.status ?? "",
-    ...(arrived ? { "data-log-arrived": "" } : {}),
+    ...(fades ? { "data-log-arrived": "" } : {}),
   }
-  const fade = arrived ? "log-arrive" : ""
+  const fade = fades ? "log-arrive" : ""
   const time = step.at === null ? undefined : new Date(step.at).toLocaleTimeString()
   if (step.kind === "tool" || step.kind === "agent" || step.kind === "thinking") {
     return (
@@ -196,7 +215,7 @@ function Step({ step, row, working, arrived }: { readonly step: LogStep; readonl
     <li {...data} title={time} className={`grid grid-cols-[64px_1fr] gap-2 px-3 py-1.5 ${fade}`}>
       <span className="pt-0.5 text-xs font-medium text-muted">{KIND_LABEL[step.kind]}</span>
       <div className="min-w-0 break-words" data-log-text>
-        <Markdown source={step.text} />
+        <Markdown source={step.text} images="text" />
       </div>
     </li>
   )

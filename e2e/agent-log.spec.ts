@@ -171,10 +171,11 @@ test("CEL-106: open an agent on the Agents page and follow its live log: steps, 
   await expect(step("toolu_test2")).toHaveAttribute("data-log-status", "running")
   // It arrived live: it fades in (CEL-107).
   await expect(step("toolu_test2")).toHaveAttribute("data-log-arrived", "")
+  await step("toolu_test2").evaluate((el) => el.setAttribute("data-e2e-mounted", ""))
   fs.appendFileSync(builderFile, result("toolu_test2", "1 passed", 1.2))
   await expect(step("toolu_test2")).toHaveAttribute("data-log-status", "ok")
-  // Its result only updates it in place: no second fade.
-  await expect(step("toolu_test2")).not.toHaveAttribute("data-log-arrived")
+  // Its result only updates it in place: the same row, so its fade doesn't play again.
+  await expect(step("toolu_test2")).toHaveAttribute("data-e2e-mounted", "")
   await expect(step("toolu_test2")).toContainText("1.2 s")
   await expect(step("toolu_test2")).toBeInViewport()
 
@@ -187,6 +188,7 @@ test("CEL-106: open an agent on the Agents page and follow its live log: steps, 
   fs.appendFileSync(builderFile, said("Both tests pass. Committing."))
   const newest = log.locator('[data-log-kind="message"]').last()
   await expect(newest).toHaveText(/Both tests pass/)
+  await expect(newest).toHaveAttribute("data-log-arrived", "")
   // It kept its place: the new step is below, not scrolled to.
   await expect(newest).not.toBeInViewport()
   await expect(log).toHaveAttribute("data-log-follow", "off")
@@ -207,6 +209,12 @@ test("CEL-106: open an agent on the Agents page and follow its live log: steps, 
   await log.locator('[data-log-filter="errors"]').click()
   await expect(steps).toHaveCount(1)
   await expect(step("toolu_test")).toBeVisible()
+  // Back to messages: the newest message is put on screen again, and doesn't fade in a second time.
+  await log.locator('[data-log-filter="messages"]').click()
+  await expect(newest).toHaveText(/Both tests pass/)
+  await expect(log.locator("[data-log-arrived]")).toHaveCount(0)
+  await log.locator('[data-log-filter="errors"]').click()
+  await expect(steps).toHaveCount(1)
 
   await caption(page, "Open the failed run: its output, the key in it masked")
   await step("toolu_test").locator("[data-log-toggle]").click()
@@ -234,4 +242,12 @@ test("CEL-106: open an agent on the Agents page and follow its live log: steps, 
   await thinking.locator("[data-log-toggle]").click()
   await expect(thinking.locator("[data-log-output]")).toContainText("The timer needs a failing test before any code.")
   await shoot(page, "thinking")
+
+  await caption(page, "With reduced motion on, a new step appears without the fade")
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  fs.appendFileSync(builderFile, said("Committed."))
+  const committed = log.locator('[data-log-kind="message"]').filter({ hasText: "Committed." })
+  await expect(committed).toHaveAttribute("data-log-arrived", "")
+  expect(await committed.evaluate((el) => getComputedStyle(el).animationName)).toBe("none")
+  await page.emulateMedia({ reducedMotion: "no-preference" })
 })
