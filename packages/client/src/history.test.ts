@@ -35,6 +35,12 @@ describe("describeEvent", () => {
     expect(describeEvent(ev({ type: "comment.added", comment: {} as never }, "ghost"), state)).toBe("Someone commented")
   })
 
+  it("says which emoji a reaction was (CEL-77)", () => {
+    const reaction = { id: "x", commentId: "c", taskId: "t", emoji: "👍", actorId: "me", sessionId: null, createdAt: 1 }
+    expect(describeEvent(ev({ type: "reaction.added", reaction }), state)).toBe("Lucas reacted 👍 to a comment")
+    expect(describeEvent(ev({ type: "reaction.removed", reaction }), state)).toBe("Lucas took back their 👍")
+  })
+
   it("names the stage by its label, and says when it was cleared", () => {
     expect(describeEvent(ev({ type: "task.stage_changed", id: "t", version: 2, before: null, after: "review" }), state)).toBe(
       "Lucas set the stage to Agent review",

@@ -106,6 +106,7 @@ Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
   - a **spec** plans work before it starts
 
   Publishing again updates a document in place, and its old versions are kept.
+- **Reaction:** an emoji on a comment (👍 ✅ 👀 ❤️ 🎉 …), Lucas's quick answer that needs no words. His reactions to your comments reach your session like his comments; `cello task react` adds yours. See Reactions.
 - **History:** every change is recorded with who made it. `cello task get` shows a task's history; `cello context` shows recent activity.
 
 ## Start of every session
@@ -371,9 +372,26 @@ Comments are markdown, rendered on the card, and links in them can be clicked. T
 
 A comment counts as activity on its task: adding, editing or deleting one moves the task's last change (`updatedAt`, "Last changed by" in `cello task get`) to you, and the card says "2fd0505c commented just now". It's not a status change, so it never ends anyone's claim. `cello task get CEL-12 --json` has them as `.task.commentCount` and `.task.lastCommentAt`.
 
+## Reactions
+
+A reaction is an emoji on a comment: a quick answer that needs no words. Lucas clicks 👍 under your "Shall I merge it?" instead of typing "yes". You can react too:
+
+```bash
+cello task react CEL-12 last 👍              # on Lucas's newest comment on CEL-12
+cello task react CEL-12 01JD2X7Q8M4K5N6P7R8S9T0V1W ✅   # on one comment, by its id
+cello task react CEL-12 last 👍 --remove     # take it back
+```
+
+- **Which comment:** `last` is Lucas's newest comment on the task. For any other comment, pass its id: `cello task get CEL-12` prints it after each comment's author (`Lucas · 5m ago · id 01JD2X…`), and `--json` has it as `.comments[].id`.
+- **One emoji per reaction**, any emoji (skin tones and flags count as one). The board offers 👍 ✅ 👀 ❤️ 🎉 and a short picker.
+- **Once per emoji:** reacting with the same emoji again changes nothing ("You had already reacted 👍 …"), and `--remove` takes yours back. Each party reacts on its own: Lucas's 👍 and your 👍 are two.
+- **Not activity on the task:** a reaction doesn't move the task's last change, doesn't show in its history, and never ends a claim.
+- **`cello task get` shows them** under each comment: `Reactions: 👍 Lucas · ✅ Claude Code session 2fd0505c`. In `--json` they're `.comments[].reactions`.
+- **Lucas's reactions to your comments reach your session**, like his comments do (next section). Your reactions reach no one: they show on the board, that's all.
+
 ## Comments from Lucas reach your session
 
-Lucas's comments on a task you've claimed, his Send back notes and his answers to your asks (see Questions for Lucas) are addressed to your session: the one holding the claim. Your own comments and other agents' never come back to you, and nothing does once your claim has ended. One exception: a Send back note still reaches the session that handed in the packet.
+Lucas's comments on a task you've claimed, his Send back notes, his answers to your asks (see Questions for Lucas) and his reactions to your comments are addressed to your session: the one holding the claim (for a reaction, the one that wrote the comment). Your own comments and other agents' never come back to you, and nothing does once your claim has ended. One exception: a Send back note still reaches the session that handed in the packet.
 
 **With the hooks (the usual way),** they arrive by themselves:
 
@@ -415,6 +433,18 @@ Act on it now, then answer on the card: `cello task comment CEL-22 "…"` (or `-
 For a task Lucas N. Munhoz sent back, fix what the note asks, then hand it in again with `cello task submit CEL-22`.
 ```
 
+**Lucas's reactions come the same way.** When he reacts to a comment your session wrote (a 👍 under "Shall I merge it?"), it reaches your session once, through the hooks, `cello inbox` or `cello inbox --wait`, even if you no longer hold the task's claim. Once your session has ended it goes to whoever holds the claim instead, and to no one when nobody does. If he takes the reaction back before it reaches you, it never arrives. It quotes the start of your comment:
+
+```
+Lucas reacted to your comment in Cello:
+
+CEL-22  Review page: collapsed rows, one packet open at a time
+  Lucas reacted 👍 to your comment, 1m ago
+    "Built the collapsed rows. Shall I merge it now, or wait for the Review page tests?"
+
+A reaction is Lucas's quick answer to your comment: take it as his reply; there's no need to answer it on the card.
+```
+
 **When you end a turn while holding a claimed task, start `cello inbox --wait` in the background so Lucas's comments wake you.** The hooks only fire while you work: after a tool call, or when you stop. Once your turn has ended and the session sits waiting for its human, nothing fires, and a comment Lucas leaves then stays unread until someone types to you. `cello inbox --wait` closes that gap:
 
 ```bash
@@ -422,7 +452,7 @@ cello inbox --wait          # in Claude Code: the Bash tool with run_in_backgrou
 cello inbox --wait --json   # the same as JSON: items, claimed
 ```
 
-- **It blocks until something new arrives for your session** (a comment, a Send back note, answers to your ask, an ask withdrawn), then takes it the way `cello inbox --new` does (marked read, each item once) and prints it. Run in the background, its end wakes you with the text, as if the hook had delivered it. It returns at once when something is already waiting.
+- **It blocks until something new arrives for your session** (a comment, a Send back note, answers to your ask, an ask withdrawn, a reaction), then takes it the way `cello inbox --new` does (marked read, each item once) and prints it. Run in the background, its end wakes you with the text, as if the hook had delivered it. It returns at once when something is already waiting.
 - **It doesn't poll the board:** it listens on the server's event stream. When the server restarts, it reconnects and carries on; if the server stays away for 2 minutes, it exits 1 with "The Cello server on port 4747 went away and didn't come back within 2 minutes, so this stopped waiting." Start it (`cello start`) and run `--wait` again.
 - **One per session.** While it waits it holds a lock file (`$TMPDIR/cello-inbox-wait/<hash of port and session>`, holding its pid and when it started) and says so on stderr: `Waiting for new comments, Send back notes and answers for this session (pid 4242)…`. A second `cello inbox --wait` for the same session leaves at once, saying on stderr ``Already waiting: a `cello inbox --wait` (pid 4242) is running for this session, and it wakes you when something new arrives.`` (with `--json`: `{"waiting": true, "pid": 4242}`). The lock goes when it ends, however it ends.
 - **It never outlives your session.** It stops, taking nothing, once the Claude Code that started it is gone (it checks `CLAUDE_PID` every second), and after a day with nothing new it stops and says so: "Nothing new for this session in 24 hours, so `cello inbox --wait` stopped. If you still hold a claim, start it again in the background." A lock whose pid is dead, or that's older than a day (its pid may belong to another process by then), is ignored.
@@ -795,6 +825,8 @@ Every error is one sentence that says what to do next. The usual ones:
 | CEL-12 is claimed by another session: only the session holding the claim sets its stage | Someone else holds it. | Leave its stage alone. |
 | CEL-12 is in Todo; a stage is only for tasks in In Progress | Stages live inside In Progress. | Claim it (which moves it to In Progress), or leave it. |
 | No stage "deploying" | Not one of the stages. | Use building, review, fixing or merged. |
+| A reaction must be one emoji, like 👍 | `cello task react` got text, or several emoji. | Pass one emoji. |
+| No comment 01JD… on CEL-12 · Lucas hasn't commented on CEL-12 yet | The comment id isn't on that task, or `last` found no comment from Lucas. | `cello task get CEL-12` shows each comment with its id. |
 | CEL-12 needs a review packet before it goes to In Review | You used `move` to hand work over. | Use `cello task submit`. |
 | Only Lucas can approve a review | Approving and sending back are his. | Leave the task in In Review. |
 | CEL-12 goes to Needs input only with questions for Lucas | You used `move` to wait on him. | Ask with `cello task ask` (see Questions for Lucas). |
@@ -997,6 +1029,22 @@ cello task comment [flags] <key> [<text>]
 | `key string` | A task key, e.g. CEL-3. |
 | `text string` | The comment, in quotes; markdown renders on the card. (optional) |
 | `--body-file string` | Read the comment from a file; - is stdin. |
+| `--json` | Print JSON for scripts. |
+
+### cello task react
+
+React to a comment with an emoji: a quick answer that needs no words (👍 to Lucas's "go ahead"). Once per emoji; --remove takes it back. Lucas's reactions to your comments reach your session like his comments do.
+
+```
+cello task react [flags] <key> <comment> <emoji>
+```
+
+| | |
+| --- | --- |
+| `key string` | A task key, e.g. CEL-3. |
+| `comment string` | The comment's id (`cello task get` shows it after each comment's author), or `last` for Lucas's newest comment on the task. |
+| `emoji string` | One emoji, e.g. 👍 ✅ 👀 ❤️ 🎉. |
+| `--remove` | Take your reaction with that emoji back instead. |
 | `--json` | Print JSON for scripts. |
 
 ### cello task submit

@@ -35,6 +35,7 @@ import { ACCEPTED } from "@cello/shared/attachment"
 import { pagePath } from "@cello/shared/document"
 import { formatBytes } from "@cello/shared/bytes"
 import { colorFromSeed } from "@cello/shared/color"
+import { groupReactions } from "@cello/shared/reaction"
 import { shortCommit } from "@cello/shared/build"
 import { APP_VERSION } from "@cello/shared/version"
 import * as Console from "effect/Console"
@@ -90,7 +91,7 @@ import { evidenceFromArgs } from "./evidence.ts"
 import { agentName, ago, andList, columns, localTime, plural, sessionName } from "./format.ts"
 import { GUIDE } from "./guide.ts"
 import { type Env, IDENTITY_VARIABLES, identityHeaders } from "./identity.ts"
-import { deliveryText, inboxEntries } from "./inbox.ts"
+import { commentStart, deliveryText, inboxEntries } from "./inbox.ts"
 import {
   acquireWaiter,
   afterDown,
@@ -328,7 +329,7 @@ const context = Command.make("context", { project, json }, (input) =>
       const answered = ctx.inbox.find((i) => i.kind === "answers")
       lines.push(
         "",
-        `${answered ? "New for you" : "New comments for you"} (${ctx.inbox.length})`,
+        `${answered || ctx.inbox.some((i) => i.kind === "reaction") ? "New for you" : "New comments for you"} (${ctx.inbox.length})`,
         ...indent(inboxEntries(ctx.inbox, now, undefined, yield* saveScreenshots(answeredAsks(ctx.inbox)))),
         `  Answer on the card: \`cello task comment ${ctx.inbox[0]!.taskKey} "…"\`. They stay new until the hook or \`cello inbox\` hands them over.`,
         ...(sentBack ? [`  Sent back: fix it, then hand it in again with \`cello task submit ${sentBack.taskKey}\`.`] : []),
@@ -450,8 +451,13 @@ const get = Command.make("get", { key, json }, (input) =>
     if (detail.comments.length) {
       lines.push("", `Comments (${detail.comments.length})`)
       for (const c of detail.comments) {
-        lines.push(`  ${author(detail, c.actorId, c.sessionId, c.agentId)} · ${ago(c.createdAt, now)}`)
+        // The id is what `cello task react` takes (CEL-77).
+        lines.push(`  ${author(detail, c.actorId, c.sessionId, c.agentId)} · ${ago(c.createdAt, now)} · id ${c.id}`)
         lines.push(...c.body.split("\n").map((l) => `    ${l}`))
+        const chips = groupReactions(c.reactions ?? [], () => false)
+        if (chips.length) {
+          lines.push(`    Reactions: ${chips.map((chip) => `${chip.emoji} ${chip.reactions.map((r) => author(detail, r.actorId, r.sessionId, r.agentId)).join(", ")}`).join(" · ")}`)
+        }
       }
     }
     lines.push("", "History")
@@ -608,6 +614,54 @@ const comment = Command.make("comment", {
     if (input.json) return yield* printJson(response)
     yield* print(`Commented on ${input.key.toUpperCase()}`)
   })).pipe(Command.withDescription("Add a markdown comment to a task: progress, a question, an answer to Lucas."))
+
+const react = Command.make("react", {
+  key,
+  comment: Argument.String("comment").pipe(
+    Argument.withDescription("The comment's id (`cello task get` shows it after each comment's author), or `last` for Lucas's newest comment on the task."),
+  ),
+  emoji: Argument.String("emoji").pipe(Argument.withDescription("One emoji, e.g. 👍 ✅ 👀 ❤️ 🎉.")),
+  remove: Flag.Boolean("remove").pipe(Flag.withDefault(false), Flag.withDescription("Take your reaction with that emoji back instead.")),
+  json,
+}, (input) =>
+  Effect.gen(function* () {
+    const written = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const detail = yield* client["task.get"]({ key: input.key })
+        const { key: taskKey } = detail.task
+        const target = input.comment.toLowerCase() === "last"
+          ? detail.comments.filter((c) => c.sessionId === null).at(-1)
+          : detail.comments.find((c) => c.id === input.comment)
+        if (target === undefined) {
+          const ids = `\`cello task get ${taskKey}\` shows each comment with its id.`
+          return yield* new CliFailure({
+            message: input.comment.toLowerCase() === "last"
+              ? `${humanName(detail.actors)} hasn't commented on ${taskKey} yet. Pass a comment id instead; ${ids}`
+              : `No comment ${input.comment} on ${taskKey}. ${ids}`,
+          })
+        }
+        const response = yield* client["comment.react"]({ commandId: newCommandId(), commentId: target.id, emoji: input.emoji, on: !input.remove })
+        return { response, detail, target }
+      })
+    )
+    if (input.json) return yield* printJson(written.response)
+    const { response, detail, target } = written
+    const emoji = input.emoji.trim()
+    const whose = `${author(detail, target.actorId, target.sessionId, target.agentId)}'s comment on ${detail.task.key}`
+    const changed = response.seq !== null
+    yield* print(
+      input.remove
+        ? changed ? `Took back your ${emoji} on ${whose}` : `No ${emoji} of yours on ${whose}`
+        : changed ? `Reacted ${emoji} to ${whose}: "${commentStart(target.body)}"` : `You had already reacted ${emoji} to ${whose}`,
+    )
+  })).pipe(Command.withDescription(
+    "React to a comment with an emoji: a quick answer that needs no words (👍 to Lucas's \"go ahead\"). Once per emoji; --remove takes it back. " +
+      "Lucas's reactions to your comments reach your session like his comments do.",
+  ), Command.withExamples([
+    { command: "cello task react CEL-3 last 👍", description: "Thumbs up on Lucas's newest comment" },
+    { command: "cello task react CEL-3 01JD2X7Q8M4K5N6P7R8S9T0V1W ✅", description: "A check on one comment, by its id" },
+    { command: "cello task react CEL-3 last 👍 --remove", description: "Take the thumbs up back" },
+  ]))
 
 const edit = Command.make("edit", {
   key,
@@ -1986,8 +2040,8 @@ const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(
 )
 
 const task = Command.make("task").pipe(
-  Command.withDescription("Tasks: list, get, create, claim, release, stage, move, label, comment, submit, ask, answers."),
-  Command.withSubcommands([list, get, create, edit, claim, release, stage, move, taskLabel, comment, submit, ask, answers]),
+  Command.withDescription("Tasks: list, get, create, claim, release, stage, move, label, comment, react, submit, ask, answers."),
+  Command.withSubcommands([list, get, create, edit, claim, release, stage, move, taskLabel, comment, react, submit, ask, answers]),
 )
 
 const startCommand = Command.make("start", {}, () => start).pipe(

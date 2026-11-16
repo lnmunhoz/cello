@@ -107,7 +107,7 @@ describe("a cello command carrying CELLO_AGENT", () => {
       expect(shown).toContain("Claimed by: Claude Code session 2fd0505c")
       expect(shown).toContain(`Last changed by ${by}`)
       expect(shown).toContain(`Subagents on it (1)\n  ${by}: working`)
-      expect(shown).toContain(`Comments (1)\n  ${by} · just now\n    Built; tests pass`)
+      expect(shown).toMatch(new RegExp(`Comments \\(1\\)\\n  ${by.replace(/[()]/g, "\\$&")} · just now · id \\w+\\n    Built; tests pass`))
       expect(shown).toContain(`${by} set the stage to Agent review`)
 
       // The session still holds it: the orchestrator's own call (no CELLO_AGENT) sees it as its claim.

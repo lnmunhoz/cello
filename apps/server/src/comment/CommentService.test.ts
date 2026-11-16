@@ -123,3 +123,80 @@ describe("CommentService", () => {
       })))
   })
 })
+
+// CEL-77: emoji reactions. One per reacting party (the human, or an agent session) and emoji; `on: false`
+// removes it. Every change is an event; a reaction is no activity on the task and never ends a claim.
+describe("CommentService.react", () => {
+  const builder = { session: "session-builder", client: "Claude Code", pid: process.pid }
+  const reactions = (c: { readonly reactions?: ReadonlyArray<{ emoji: string; sessionId: string | null }> | undefined }) =>
+    (c.reactions ?? []).map((r) => `${r.emoji} ${r.sessionId === null ? "human" : "agent"}`)
+
+  /** A task the builder session claimed, with a comment from it. */
+  const commented = Effect.gen(function* () {
+    const tasks = yield* TaskService.TaskService
+    const comments = yield* CommentService.CommentService
+    const { project, status } = yield* setupProject
+    const { result: created } = yield* tasks.create({ commandId: cmd(), projectId: project.id, title: "T", statusId: status["Todo"]!.id })
+    yield* asAgent(builder)(tasks.claim({ commandId: cmd(), key: created.key }))
+    const { result: comment } = yield* asAgent(builder)(comments.add({ commandId: cmd(), taskId: created.id, body: "Built it; shall I merge?" }))
+    yield* TestClock.adjust("1 minute")
+    return { tasks, comments, comment, task: yield* tasks.byKey(created.key) }
+  })
+
+  it.effect("toggles on and off; adding it again keeps one; each party and emoji is its own; the list carries them", () =>
+    run(Effect.gen(function* () {
+      const { comments, comment, task } = yield* commented
+      const react = (emoji: string, on = true) => comments.react({ commandId: cmd(), commentId: comment.id, emoji, on })
+
+      const first = yield* react("👍")
+      expect(first.seq).not.toBeNull()
+      expect(reactions(first.result)).toEqual(["👍 human"])
+      expect(first.result.reactions![0]).toMatchObject({ commentId: comment.id, taskId: task.id, emoji: "👍", sessionId: null })
+
+      // Again: still one, and no event.
+      const again = yield* react("👍")
+      expect(again.seq).toBeNull()
+      expect(reactions(again.result)).toEqual(["👍 human"])
+
+      yield* asAgent(builder)(react("👍"))
+      yield* react(" 🎉 ")
+      expect(reactions((yield* comments.list(task.id))[0]!)).toEqual(["👍 human", "👍 agent", "🎉 human"])
+
+      const off = yield* react("👍", false)
+      expect(off.seq).not.toBeNull()
+      expect(reactions(off.result)).toEqual(["👍 agent", "🎉 human"])
+      // Removing one that isn't there: nothing happens.
+      expect((yield* react("👀", false)).seq).toBeNull()
+
+      const store = yield* EventStore.EventStore
+      const events = (yield* store.readAfter({ workspaceId: "", projectId: task.projectId }, 0)).filter((e) => e.type.startsWith("reaction."))
+      expect(events.map((e) => [e.type, e.type === "reaction.added" || e.type === "reaction.removed" ? e.reaction.emoji : "", e.sessionId === null]))
+        .toEqual([
+          ["reaction.added", "👍", true],
+          ["reaction.added", "👍", false],
+          ["reaction.added", "🎉", true],
+          ["reaction.removed", "👍", true],
+        ])
+    })))
+
+  it.effect("is no activity on the task: its version, last change and claim stay", () =>
+    run(Effect.gen(function* () {
+      const { tasks, comments, comment, task } = yield* commented
+      yield* comments.react({ commandId: cmd(), commentId: comment.id, emoji: "👍", on: true })
+      yield* comments.react({ commandId: cmd(), commentId: comment.id, emoji: "👍", on: false })
+      expect(yield* tasks.byKey(task.key)).toEqual(task)
+      const history = yield* (yield* EventStore.EventStore).history(task.id)
+      expect(history.map((e) => e.type)).toEqual(["task.created", "task.claimed"])
+    })))
+
+  it.effect("something that isn't one emoji is Invalid; an unknown or deleted comment is NotFound", () =>
+    run(Effect.gen(function* () {
+      const { comments, comment } = yield* commented
+      const react = (commentId: string, emoji: string) => Effect.flip(comments.react({ commandId: cmd(), commentId, emoji, on: true }))
+      expect(yield* react(comment.id, "ok")).toMatchObject({ _tag: "Invalid", field: "emoji", reason: "a reaction must be one emoji, like 👍" })
+      expect(yield* react(comment.id, "")).toMatchObject({ _tag: "Invalid", field: "emoji" })
+      expect(yield* react("nope", "👍")).toMatchObject({ _tag: "NotFound", entity: "comment" })
+      yield* comments.remove({ commandId: cmd(), id: comment.id })
+      expect(yield* react(comment.id, "👍")).toMatchObject({ _tag: "NotFound", entity: "comment" })
+    })))
+})

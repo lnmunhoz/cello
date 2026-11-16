@@ -205,13 +205,15 @@ const make = Effect.gen(function* () {
     const list = yield* comments.list(task.id)
     const reviews = yield* selectReviews(sql, sql`r.task_id = ${task.id}`)
     const asks = yield* selectAsks(sql, sql`a.task_id = ${task.id}`)
+    const reactions = list.flatMap((c) => c.reactions ?? [])
     const names = yield* projectNames(project!, [
       ...sessionIdsOf([task], history),
       ...list.map((c) => c.sessionId),
+      ...reactions.map((r) => r.sessionId),
       ...reviews.map((r) => r.sessionId),
       ...asks.map((a) => a.sessionId),
     ], [
-      ...agentRefsOf([lastChange(task), ...history, ...list]),
+      ...agentRefsOf([lastChange(task), ...history, ...list, ...reactions]),
       // The agents on it (CEL-55), working or done: the panel and `cello task get` name them.
       ...(yield* agents.onTask(task.id)),
     ])

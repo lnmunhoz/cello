@@ -486,3 +486,46 @@ describe("migration 0011_agents", () => {
       expect(yield* sql`PRAGMA foreign_key_check`).toEqual([])
     }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
 })
+
+/** Every migration before 0013 (CEL-77): whatever lands before it at merge (CEL-73's 0012) runs too. */
+const beforeReactions = SqliteMigrator.run({
+  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0013"))),
+  table: "migrations",
+}).pipe(Effect.orDie)
+
+// CEL-77: emoji reactions on comments. Additive: one new table, nothing rebuilt, every row as it was.
+describe("migration 0013_reactions", () => {
+  it.effect("adds the reactions table, changes nothing else, and keeps one reaction per party and emoji", () =>
+    Effect.gen(function* () {
+      yield* beforeReactions
+      yield* realisticBoard
+      const sql = yield* SqlClient.SqlClient
+      yield* sql`UPDATE comments SET actor_id = 'claude', session_id = 'sess' WHERE id = 'c2'`
+      const before = yield* allRows
+
+      yield* Migrations.run
+      const { comment_reactions: added, ...after } = yield* allRows
+      expect(added).toEqual([])
+      expect(after).toEqual(before)
+
+      const react = (id: string, emoji: string, actor: string, session: string | null) =>
+        Effect.exit(sql`INSERT INTO comment_reactions (id, comment_id, task_id, emoji, actor_id, session_id, created_at)
+          VALUES (${id}, 'c2', 't7', ${emoji}, ${actor}, ${session}, 10)`)
+      expect((yield* react("x1", "👍", "human", null))._tag).toBe("Success")
+      expect((yield* react("x2", "👍", "claude", "sess"))._tag).toBe("Success")
+      expect((yield* react("x3", "🎉", "human", null))._tag).toBe("Success")
+      // The same party and emoji twice is refused, the human (no session) included.
+      expect((yield* react("x4", "👍", "human", null))._tag).toBe("Failure")
+      expect((yield* react("x5", "👍", "claude", "sess"))._tag).toBe("Failure")
+      // A reaction on a comment that doesn't exist.
+      expect((yield* Effect.exit(sql`INSERT INTO comment_reactions (id, comment_id, task_id, emoji, actor_id, created_at)
+        VALUES ('x6', 'nope', 't7', '👍', 'human', 10)`))._tag).toBe("Failure")
+
+      // The next start runs the migrations again: nothing changes.
+      const migrated = yield* allRows
+      yield* Migrations.run
+      expect(yield* allRows).toEqual(migrated)
+      expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
+      expect(yield* sql`PRAGMA foreign_key_check`).toEqual([])
+    }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
+})

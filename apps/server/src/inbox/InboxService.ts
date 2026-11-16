@@ -7,8 +7,10 @@
 // reaches the session once, even when several hooks ask at the same time. Read marks belong to the
 // session, not the board, so they write no events (like a session's `last_seen_at`). `wait` (CEL-74)
 // blocks until there is something to take, so an idle agent session (`cello inbox --wait` running in
-// its background) wakes when Lucas writes.
-import type { Ask, Comment, InboxItem } from "@cello/contract/entities"
+// its background) wakes when Lucas writes. Lucas's emoji reaction to an agent's comment (CEL-77) reaches
+// the session that wrote it, else the claim holder; the reaction row itself is the item
+// (`comment_reactions.notify_session_id`, `read_at`), so the inbox reads both tables.
+import type { Ask, Comment, InboxItem, Reaction } from "@cello/contract/entities"
 import { Caller } from "@cello/contract/rpcs"
 import type { Inbox } from "@cello/contract/views"
 import * as Clock from "effect/Clock"
@@ -23,7 +25,7 @@ import { formatTaskKey } from "@cello/shared/taskKey"
 import type * as Commands from "../commands/Commands.ts"
 import * as EventLog from "../events/EventLog.ts"
 import { newId } from "../persistence/ids.ts"
-import { selectInboxItems } from "../persistence/rows.ts"
+import { selectInboxItems, selectReactionItems } from "../persistence/rows.ts"
 import * as Seed from "../persistence/Seed.ts"
 import { SessionService } from "../session/SessionService.ts"
 
@@ -59,6 +61,12 @@ export class InboxService extends Context.Service<InboxService, {
    * that asked that its ask was withdrawn, and where the card went (`status`). Agents' moves tell no one.
    */
   readonly deliverWithdrawalWithin: (context: Commands.WriteContext, ask: Ask, status: string) => Effect.Effect<void, SqlError>
+  /**
+   * For the command in which the human reacted to a comment (CEL-77): when an agent session wrote it,
+   * the reaction becomes that session's inbox item, or the claim holder's once that session ended.
+   * Agents' reactions tell no one. Removing the reaction (its row) before it's read takes the item back.
+   */
+  readonly deliverReactionWithin: (context: Commands.WriteContext, comment: Comment, reaction: Reaction) => Effect.Effect<void, SqlError>
   /**
    * Runs `wait` (until an ask closes) and hands its answers over: the caller's inbox item for them is
    * marked read, and while it runs `take` leaves that item alone, so the hook never prints them too.
@@ -113,6 +121,20 @@ const make = Effect.gen(function* () {
         ON CONFLICT (session_id, ask_id) DO NOTHING`
     }).pipe(Effect.withSpan("InboxService.deliverWithdrawalWithin"))
 
+  const deliverReactionWithin = (context: Commands.WriteContext, comment: Comment, reaction: Reaction) =>
+    Effect.gen(function* () {
+      if (context.caller.sessionId !== null || comment.sessionId === null) return
+      const [author] = yield* sql<{ ended_at: number | null }>`SELECT ended_at FROM agent_sessions WHERE id = ${comment.sessionId}`
+      const [task] = yield* sql<{ assignee_session_id: string | null }>`SELECT assignee_session_id FROM tasks WHERE id = ${comment.taskId}`
+      const sessionId = author && author.ended_at === null ? comment.sessionId : task?.assignee_session_id ?? null
+      if (sessionId === null) return
+      yield* sql`UPDATE comment_reactions SET notify_session_id = ${sessionId} WHERE id = ${reaction.id}`
+    }).pipe(Effect.withSpan("InboxService.deliverReactionWithin"))
+
+  /** Items from both tables, oldest first; ids are time-ordered, so they break ties. */
+  const inOrder = (items: ReadonlyArray<InboxItem>) =>
+    [...items].sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+
   // Asks a session is waiting on right now ("<session> <ask>" → how many waits): `take` leaves their
   // items to the wait, so the answers aren't handed over twice (the hook firing between the commit and
   // the wait's own mark). A wait that ends without marking (interrupted) lets go, and the hook gets them.
@@ -149,11 +171,18 @@ const make = Effect.gen(function* () {
     const [session] = yield* sessions.byIds([sessionId])
     const now = yield* Clock.currentTimeMillis
     return yield* sql.withTransaction(Effect.gen(function* () {
-      const earlier = query.unreadOnly ? [] : yield* selectInboxItems(
-        sql,
-        sql`i.id IN (SELECT id FROM inbox_items WHERE session_id = ${sessionId} AND read_at IS NOT NULL
-                     ORDER BY created_at DESC, rowid DESC LIMIT ${EARLIER})`,
-      )
+      const earlier = query.unreadOnly ? [] : inOrder([
+        ...yield* selectInboxItems(
+          sql,
+          sql`i.id IN (SELECT id FROM inbox_items WHERE session_id = ${sessionId} AND read_at IS NOT NULL
+                       ORDER BY created_at DESC, rowid DESC LIMIT ${EARLIER})`,
+        ),
+        ...yield* selectReactionItems(
+          sql,
+          sql`r.id IN (SELECT id FROM comment_reactions WHERE notify_session_id = ${sessionId} AND read_at IS NOT NULL
+                       ORDER BY created_at DESC, rowid DESC LIMIT ${EARLIER})`,
+        ),
+      ]).slice(-EARLIER)
       // One statement marks and claims them: whoever runs it first gets them, nobody else does. Answers a
       // live `cello wait` is about to hand over are left to it.
       const waitedOn = heldBy(sessionId)
@@ -161,7 +190,12 @@ const make = Effect.gen(function* () {
         UPDATE inbox_items SET read_at = ${now} WHERE session_id = ${sessionId} AND read_at IS NULL
           AND ${waitedOn.length === 0 ? sql`1 = 1` : sql`(ask_id IS NULL OR ask_id NOT IN ${sql.in(waitedOn)})`}
         RETURNING id`
-      const items = taken.length === 0 ? [] : yield* selectInboxItems(sql, sql.in("i.id", taken.map((r) => r.id)))
+      const reacted = yield* sql<{ id: string }>`
+        UPDATE comment_reactions SET read_at = ${now} WHERE notify_session_id = ${sessionId} AND read_at IS NULL RETURNING id`
+      const items = inOrder([
+        ...taken.length === 0 ? [] : yield* selectInboxItems(sql, sql.in("i.id", taken.map((r) => r.id))),
+        ...reacted.length === 0 ? [] : yield* selectReactionItems(sql, sql.in("r.id", reacted.map((r) => r.id))),
+      ])
       const held = yield* sql<{ project_key: string; number: number }>`
         SELECT p.key AS project_key, t.number FROM tasks t JOIN projects p ON p.id = t.project_id
         WHERE t.assignee_session_id = ${sessionId} AND t.archived_at IS NULL ORDER BY p.key, t.number`
@@ -186,10 +220,22 @@ const make = Effect.gen(function* () {
   const unread = Effect.gen(function* () {
     const caller = yield* Caller
     if (caller.sessionId === null) return []
-    return yield* selectInboxItems(sql, sql`i.session_id = ${caller.sessionId} AND i.read_at IS NULL`)
+    return inOrder([
+      ...yield* selectInboxItems(sql, sql`i.session_id = ${caller.sessionId} AND i.read_at IS NULL`),
+      ...yield* selectReactionItems(sql, sql`r.notify_session_id = ${caller.sessionId} AND r.read_at IS NULL`),
+    ])
   }).pipe(Effect.orDie, Effect.withSpan("InboxService.unread"))
 
-  return InboxService.of({ take, wait, unread, deliverWithin, deliverAnswersWithin, deliverWithdrawalWithin, handOverAnswers })
+  return InboxService.of({
+    take,
+    wait,
+    unread,
+    deliverWithin,
+    deliverAnswersWithin,
+    deliverWithdrawalWithin,
+    deliverReactionWithin,
+    handOverAnswers,
+  })
 })
 
 export const layer = Layer.effect(InboxService, make)

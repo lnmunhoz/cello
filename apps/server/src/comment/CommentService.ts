@@ -1,8 +1,11 @@
 // Comments on a task. Deleting sets `deleted_at`; nothing is hard-deleted. Adding, editing or deleting
 // one is activity on its task: the task's last change becomes the commenter's, in the same transaction.
+// Emoji reactions on a comment (CEL-77) are not: they leave the task alone, and removing one deletes its
+// row (its events keep the history).
 import type { Comment } from "@cello/contract/entities"
 import { Invalid, NotFound } from "@cello/contract/errors"
 import type { Caller } from "@cello/contract/rpcs"
+import { cleanReaction, reactionProblem } from "@cello/shared/reaction"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -11,7 +14,7 @@ import type { SqlError } from "effect/sql/SqlError"
 import * as Commands from "../commands/Commands.ts"
 import * as InboxService from "../inbox/InboxService.ts"
 import { newId } from "../persistence/ids.ts"
-import { selectComments } from "../persistence/rows.ts"
+import { selectComments, selectReactions } from "../persistence/rows.ts"
 import { TaskService } from "../task/TaskService.ts"
 import { requireText } from "../validation.ts"
 
@@ -31,6 +34,16 @@ export class CommentService extends Context.Service<CommentService, {
   readonly remove: (input: { readonly commandId: string; readonly id: string }) => Effect.Effect<
     Commands.Written<Comment>,
     NotFound,
+    Caller
+  >
+  /**
+   * The caller's emoji reaction on a comment (CEL-77): `on` adds it, false removes it; a no-op (no
+   * event) when it's already so. One per caller (the human, or an agent session) and emoji. Not activity
+   * on the task. The human's reaction to an agent's comment reaches that agent (`deliverReactionWithin`).
+   */
+  readonly react: (input: { readonly commandId: string; readonly commentId: string; readonly emoji: string; readonly on: boolean }) => Effect.Effect<
+    Commands.Written<Comment>,
+    NotFound | Invalid,
     Caller
   >
   /**
@@ -137,7 +150,37 @@ const make = Effect.gen(function* () {
       }))
   })
 
-  return CommentService.of({ list, add, edit, remove, addWithin })
+  const react = Effect.fn("CommentService.react")(function* (
+    input: { readonly commandId: string; readonly commentId: string; readonly emoji: string; readonly on: boolean },
+  ) {
+    const problem = reactionProblem(input.emoji)
+    if (problem !== null) return yield* new Invalid({ field: "emoji", reason: `a reaction ${problem}` })
+    const emoji = cleanReaction(input.emoji)
+    return yield* commands.write({ commandId: input.commandId, rpc: "comment.react" }, (context) =>
+      Effect.gen(function* () {
+        const { now, caller, emit } = context
+        const comment = yield* load(input.commentId)
+        const mine = (comment.reactions ?? []).find((r) =>
+          r.emoji === emoji && r.actorId === caller.actorId && r.sessionId === caller.sessionId
+        )
+        if (input.on === (mine !== undefined)) return comment
+        const where = yield* placeOfTask(comment.taskId)
+        if (mine) {
+          yield* sql`DELETE FROM comment_reactions WHERE id = ${mine.id}`
+          yield* emit({ type: "reaction.removed", reaction: mine }, where)
+        } else {
+          const id = newId(now)
+          yield* sql`INSERT INTO comment_reactions (id, comment_id, task_id, emoji, actor_id, session_id, agent_id, created_at)
+            VALUES (${id}, ${comment.id}, ${comment.taskId}, ${emoji}, ${caller.actorId}, ${caller.sessionId}, ${caller.agentId ?? null}, ${now})`
+          const [reaction] = yield* selectReactions(sql, sql`r.id = ${id}`)
+          yield* inbox.deliverReactionWithin(context, comment, reaction!)
+          yield* emit({ type: "reaction.added", reaction: reaction! }, where)
+        }
+        return yield* load(comment.id)
+      }))
+  })
+
+  return CommentService.of({ list, add, edit, remove, react, addWithin })
 })
 
 export const layer = Layer.effect(CommentService, make)

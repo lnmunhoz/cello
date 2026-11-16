@@ -61,6 +61,10 @@ export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | 
       return `${who} edited a comment`
     case "comment.deleted":
       return `${who} deleted a comment`
+    case "reaction.added":
+      return `${who} reacted ${e.reaction.emoji} to a comment`
+    case "reaction.removed":
+      return `${who} took back their ${e.reaction.emoji}`
     case "review.submitted":
       return `${who} submitted a review`
     case "review.decided":

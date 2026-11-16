@@ -275,6 +275,10 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     deleteComment: command({
       call: (c, a: { id: string }, commandId) => c["comment.delete"]({ commandId, ...a }),
     }),
+    // An emoji reaction on a comment (CEL-77); the chip follows when the event arrives.
+    reactToComment: command({
+      call: (c, a: { commentId: string; emoji: string; on: boolean }, commandId) => c["comment.react"]({ commandId, ...a }),
+    }),
     // No optimistic patch: the review closes and the task moves in one batch of events, a moment later.
     approveReview: command({
       call: (c, a: { key: string; note?: string }, commandId) => c["review.approve"]({ commandId, ...a }),
