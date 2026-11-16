@@ -6,6 +6,7 @@ import type { TaskStage } from "@cello/contract/stages"
 import type { Caller } from "@cello/contract/rpcs"
 import { isNeedsInputStatus } from "@cello/shared/ask"
 import { holdsPacket, isReviewStatus } from "@cello/shared/review"
+import { isClosedCategory } from "@cello/shared/status"
 import { parseTaskKey } from "@cello/shared/taskKey"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -138,8 +139,6 @@ export class TaskService extends Context.Service<TaskService, {
   readonly touchWithin: (context: Commands.WriteContext, taskId: string) => Effect.Effect<Task, NotFound | SqlError>
 }>()("cello/TaskService") {}
 
-/** Statuses whose tasks are finished: a claim on them no longer holds. */
-const FINISHED = new Set(["completed", "canceled"])
 /** Statuses a claim leaves the task in: work going on, or waiting on Lucas's answers. */
 const WORKING = new Set(["started", "waiting"])
 
@@ -561,7 +560,8 @@ const make = Effect.gen(function* () {
       if (holder === null) return null
       if (holder.actorId === caller.actorId && holder.sessionId === caller.sessionId) return null
       if (caller.sessionId === null) return { holder, reason: "human" as const }
-      if (FINISHED.has(yield* categoryOf(task.statusId))) return null
+      // A claim on a finished task (Done, Canceled) no longer holds.
+      if (isClosedCategory(yield* categoryOf(task.statusId))) return null
       if (holder.sessionId === null) {
         return yield* new TaskClaimed({ key: task.key, holder: human.name, sessionId: null, lastSeenAt: null })
       }

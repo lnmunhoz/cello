@@ -34,14 +34,14 @@ const subagentStop = { type: "command", command: "cello hook claude subagent-sto
 const subagents = { SubagentStart: [{ hooks: [subagentStart] }], SubagentStop: [{ hooks: [subagentStop] }] }
 
 describe("addCelloHooks", () => {
-  it("adds a Stop hook, a PostToolUse hook for every tool and a PreToolUse hook for Artifact and the edit tools to empty settings", () => {
+  it("adds a Stop hook, a PostToolUse hook for every tool and a PreToolUse hook for Artifact, AskUserQuestion and the edit tools to empty settings", () => {
     expect(addCelloHooks({})).toEqual({
       changed: true,
       settings: {
         hooks: {
           Stop: [{ hooks: [stop] }],
           PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
-          PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+          PreToolUse: [{ matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
           ...subagents,
         },
       },
@@ -60,7 +60,7 @@ describe("addCelloHooks", () => {
     const before = { hooks: { Stop: [{ hooks: [stop] }], PostToolUse: [{ matcher: "*", hooks: [postToolUse] }] } }
     expect(addCelloHooks(before)).toEqual({
       changed: true,
-      settings: { hooks: { ...before.hooks, PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }], ...subagents } },
+      settings: { hooks: { ...before.hooks, PreToolUse: [{ matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", hooks: [preToolUse] }], ...subagents } },
     })
   })
 
@@ -79,7 +79,7 @@ describe("addCelloHooks", () => {
       settings: {
         hooks: {
           ...before.hooks,
-          PreToolUse: [mine, { matcher: "Artifact", hooks: [{ type: "command", command: "log.sh" }] }, { matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+          PreToolUse: [mine, { matcher: "Artifact", hooks: [{ type: "command", command: "log.sh" }] }, { matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
           ...subagents,
         },
       },
@@ -87,10 +87,28 @@ describe("addCelloHooks", () => {
     expect(addCelloHooks(after.settings)).toEqual({ changed: false, settings: after.settings })
   })
 
+  it("widens the guard of an install from before CEL-124 (Artifact and the edit tools) to AskUserQuestion, in place of the old group", () => {
+    const mine = { matcher: "Bash", hooks: [{ type: "command", command: "guard.sh" }] }
+    const before = {
+      hooks: {
+        Stop: [{ hooks: [stop] }],
+        PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
+        PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }, mine],
+        ...subagents,
+      },
+    }
+    const after = addCelloHooks(before)
+    expect(after).toEqual({
+      changed: true,
+      settings: { hooks: { ...before.hooks, PreToolUse: [mine, { matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", hooks: [preToolUse] }] } },
+    })
+    expect(addCelloHooks(after.settings)).toEqual({ changed: false, settings: after.settings })
+  })
+
   it("keeps the user's own PreToolUse hooks, adding its group after them", () => {
     const mine = { hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "guard.sh" }] }] } }
     expect(addCelloHooks(mine).settings.hooks).toMatchObject({
-      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "guard.sh" }] }, { matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "guard.sh" }] }, { matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
     })
     expect(removeCelloHooks(addCelloHooks(mine).settings)).toEqual({ changed: true, settings: mine })
   })
@@ -114,7 +132,7 @@ describe("addCelloHooks", () => {
         Stop: [{ hooks: [{ type: "command", command: "say done" }] }, { hooks: [stop] }],
         PostToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "prettier --write" }] }, { matcher: "*", hooks: [postToolUse] }],
         SessionStart: [{ hooks: [{ type: "command", command: "echo hi" }] }],
-        PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+        PreToolUse: [{ matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
         ...subagents,
       },
     })
@@ -129,7 +147,7 @@ describe("addCelloHooks", () => {
       hooks: {
         Stop: [{ hooks: [{ ...stop, timeout: 30 }] }],
         PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
-        PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ ...preToolUse, timeout: 5 }] }],
+        PreToolUse: [{ matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", hooks: [{ ...preToolUse, timeout: 5 }] }],
         ...subagents,
       },
     }
@@ -142,7 +160,7 @@ describe("addCelloHooks", () => {
       hooks: {
         Stop: [{ hooks: [stop] }],
         PostToolUse: [{ matcher: "*", hooks: [postToolUse] }],
-        PreToolUse: [{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
+        PreToolUse: [{ matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", hooks: [preToolUse] }],
         ...subagents,
       },
     })

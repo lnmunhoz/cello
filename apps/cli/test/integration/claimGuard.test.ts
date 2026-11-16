@@ -170,7 +170,7 @@ describe("cello hook claude pre-tool-use: the claim guard", () => {
 })
 
 describe("cello install claude: the claim guard", () => {
-  const GUARD = { matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }
+  const GUARD = { matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }
 
   it.live("widens an older install's artifact guard to the edit tools; again changes nothing; uninstall takes it out", () =>
     Effect.gen(function* () {

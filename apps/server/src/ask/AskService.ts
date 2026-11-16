@@ -12,6 +12,7 @@ import { Caller, type AnswerInput, type AskQuestionInput, type EvidenceFile, typ
 import type { AskWaited } from "@cello/contract/views"
 import { answerProblem, isNeedsInputStatus, needsInputTarget } from "@cello/shared/ask"
 import { sendBackTarget } from "@cello/shared/review"
+import { isClosedCategory } from "@cello/shared/status"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -114,7 +115,9 @@ const make = Effect.gen(function* () {
   /**
    * Only the session working on a task (its claim holder) asks on it or withdraws: anyone else would
    * replace the holder's questions, and the answers would reach a session that never asked. Lucas
-   * answers, and withdraws an ask by moving the card.
+   * answers, and withdraws an ask by moving the card. A closed task (Done, Canceled) takes no asks at
+   * all (CEL-124): its claim no longer holds and can't be taken again, so a decision left after it goes
+   * on a follow-up task, never in the agent's own window.
    */
   const requireHolder = (context: Commands.WriteContext, task: Task) =>
     Effect.gen(function* () {
@@ -123,6 +126,13 @@ const make = Effect.gen(function* () {
         return yield* new Invalid({
           field: "key",
           reason: `questions come from the agent working on ${task.key}; ${human.name} answers them, and withdraws one by moving the card`,
+        })
+      }
+      const status = (yield* statusesOf((yield* placeOf(task)).workspaceId)).find((s) => s.id === task.statusId)
+      if (status !== undefined && isClosedCategory(status.category)) {
+        return yield* new Invalid({
+          field: "key",
+          reason: `${task.key} is ${status.name}: create a follow-up task for this decision (cello task create "<the decision>" --status Todo), claim it, and ask there`,
         })
       }
       if (task.assigneeActorId === caller.actorId && task.assigneeSessionId === caller.sessionId) return

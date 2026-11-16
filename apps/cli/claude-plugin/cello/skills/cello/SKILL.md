@@ -13,7 +13,7 @@ Cello is a task board shared by a person and their coding agents. Agents use it 
 - `cello task claim <KEY>` before you work on it. Put the key in every commit message.
 - **Mark your step** with `cello task stage <KEY>`, whoever you are: on your own, `designing` while you plan or write a spec, `building` once you write code, `merged` once it's merged; an orchestrator, `building`, `review`, `fixing`, `merged`. A task with no stage shows only as Working while you're active, which can't say which step.
 - Test first. Comment progress and decisions with `cello task comment`.
-- **Decisions that are the person's** (a design option, a scope, wording) are asked on the card with `cello task ask`, never in the terminal.
+- **Decisions that are the person's** (a design option, a scope, wording) are asked on the card with `cello task ask`, never in the terminal and never with Claude's `AskUserQuestion` (the hook denies it). If no open task of yours fits (yours was approved, or it's a new decision), create one, claim it and ask there.
 - Their comments reach your session by themselves with the hooks (else `cello inbox`). Answer on the card.
 - When you end a turn while holding a claimed task, start `cello inbox --wait` in the background, so their comments wake you while you're idle.
 - In Progress means someone is on it now. Pausing: put the state on the card, move it back to Todo, `cello task release`.

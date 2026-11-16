@@ -547,7 +547,7 @@ cello uninstall claude          # takes them out of all three
 - **It merges** with the hooks already there, and running it again changes nothing. The old file is kept as `<file>.bak`.
 - **The same command installs the Claude Code plugin** in the same settings file (see "The Claude Code plugin" below), and allows `cello` commands there (`Bash(cello:*)`, see "`cello` commands skip Claude Code's permission check"); `cello uninstall claude` takes both out with the hooks.
 - **What runs:** Claude Code runs `cello hook claude stop` when you finish a turn, and `cello hook claude post-tool-use` after each tool call. New comments come in as context. If you were about to stop, they keep you going: the transcript shows them as "Stop hook feedback". With nothing new, a stop while you hold a claim and nothing waits for you asks you once to start `cello inbox --wait` (below).
-- **A third hook, the guards:** `cello hook claude pre-tool-use` runs before each call to Claude Code's `Artifact`, `Edit`, `Write` and `NotebookEdit` tools. It turns artifact publishes away (see "Showing things to the human") and edits in the repo from a session that hasn't claimed a task (see "Edits need a claimed task"). It goes into the project's settings (`.claude/settings.local.json`, or `.claude/settings.json` with `--shared`), never into `~/.claude/settings.json` with `--user`, since not every project is a Cello project. Running `cello install claude` again in a project set up before the claim guard existed adds it.
+- **A third hook, the guards:** `cello hook claude pre-tool-use` runs before each call to Claude Code's `Artifact`, `AskUserQuestion`, `Edit`, `Write` and `NotebookEdit` tools. It turns artifact publishes away (see "Showing things to the human"), every `AskUserQuestion` (see "Never in Claude's own question window" under Questions for the human), and edits in the repo from a session that hasn't claimed a task (see "Edits need a claimed task"). It goes into the project's settings (`.claude/settings.local.json`, or `.claude/settings.json` with `--shared`), never into `~/.claude/settings.json` with `--user`, since not every project is a Cello project. Running `cello install claude` again in a project set up before a guard existed adds it (it replaces the older install's matcher).
 - **Two more, for subagents:** `cello hook claude subagent-start` and `cello hook claude subagent-stop` run when a subagent starts and finishes (see Subagents). The start hook only goes into the project's settings, like the guards; the stop hook goes everywhere. Running `cello install claude` again in a project set up before them adds them.
 - **`cello` must be on the PATH** Claude Code starts with (`~/.local/bin`). When the server is down, the hook stays silent and your session carries on.
 
@@ -817,7 +817,7 @@ What to bring, by kind of work (the project's testing profile says how to make i
 
 ## Questions for the human (Needs input)
 
-When you need the human to decide something (which design option, which stages, what wording), ask **on the card**, never in the terminal. They see your questions next to the evidence, pick options, write what they like and don't, and can paste screenshots to show what they mean. Their answers come back to your session.
+When you need the human to decide something (which design option, which stages, what wording), ask **on the card**, never in the terminal, and never with Claude Code's `AskUserQuestion` (see "Never in Claude's own question window" below; with no open task of yours to ask on, create one). They see your questions next to the evidence, pick options, write what they like and don't, and can paste screenshots to show what they mean. Their answers come back to your session.
 
 ```bash
 # Anything real: a file with the questions and the evidence, waiting for the answers
@@ -882,6 +882,7 @@ links:
 - **Recommend at most one option** of a pick-one question, and always say why (`because`). Recommended options come **picked** for the human; they can change them, pick several on any question, or pick **None of these** and say what instead.
 - **Up to 20 questions, 9 options each** (they pick with the 1-9 keys).
 - **Only the session holding the claim asks or withdraws.** Claim the task first; another session's ask on it is refused, naming the holder, so the answers never reach a session that didn't ask.
+- **A closed task (Done or Canceled) takes no asks.** When the human approves your task, your claim ends, and a Done task can't be claimed back. A decision left after that (whether to merge, what to do next) goes on a follow-up task: `cello task create "<the decision>" --status Todo`, claim it, and ask there. Asking on the closed task is refused with that pointer ("CEL-43 is Done: create a follow-up task for this decision …").
 - **One ask per task at a time.** Asking again while one is open replaces it (the old one is kept, marked replaced).
 - **Withdraw** an ask you no longer need: `cello task ask CEL-43 --withdraw`. The task goes back to In Progress.
 - **If the human moves the card themselves** out of Needs input, the ask is withdrawn and your claim ends, as with any move they make. You hear it once, like a comment: "Ana Souza moved CEL-43 to Todo; your ask 'Search layout' was withdrawn." That one notice covers the ended claim too (no second "your claim ended"). `--wait` then says it was withdrawn.
@@ -910,6 +911,31 @@ CEL-43 is back in progress: carry on with these answers. Reply on the card with 
 ```
 
 A question can come back as "Picked: None of these": no option fitted, and their comment says what they want instead. They may also pick several options on any question, even one you asked as `kind: one`.
+
+### Never in Claude's own question window
+
+**In a Cello project, never ask with Claude Code's `AskUserQuestion` tool.** Its dialog blocks your session until the human answers it: the card only says "idle", and their comments queue up behind it. (Nov 16: a session asked in its window after an ask on a Done task was refused, and sat blocked for 40 minutes.) Every question goes on a card with `cello task ask`:
+
+- **You hold an open task the question belongs to:** ask on it.
+- **No open task of yours fits** (yours was approved and is Done, or it's a new decision): create one, claim it, and ask there.
+
+```bash
+cello task create "Merge CEL-43's branch now, or wait for CEL-44?" --status Todo
+# Created CEL-45  Todo  Merge CEL-43's branch now, or wait for CEL-44?
+cello task claim CEL-45
+cello task ask CEL-45 --file ask.yaml --wait     # in the background (Claude Code: run_in_background)
+```
+
+**A hook enforces it.** `cello install claude` puts `AskUserQuestion` in the project's PreToolUse hook. Every call to it is blocked, whatever it asks, and you see this reason:
+
+```
+This project uses Cello: questions for the human go on the card, never in Claude's own window, which blocks this session until it's answered. Ask with `cello task ask KEY-n --file ask.yaml --wait`, run in the background (the Bash tool with run_in_background: true): the task moves to Needs input and the answers come back to you. If no open task you hold fits the question (yours was approved, or it's a new decision), create one: `cello task create "<the decision>" --status Todo`, claim it with `cello task claim KEY-n`, and ask there. Terminal questions are only for when the human asks for them; if they did, tell them this project's Cello hook stopped it (they can allow them by starting Claude Code with CELLO_ALLOW_ASK_USER=1).
+```
+
+- Do what it says. Don't retry the tool, and don't put the question in your reply text instead: a question in the reply waits just as invisibly.
+- The hook needs no server, and anything it can't read (broken input, another tool) goes through.
+- **`CELLO_ALLOW_ASK_USER=1`** in Claude Code's environment lets `AskUserQuestion` through. It's the human's switch, for when they want questions in the terminal (`CELLO_ALLOW_ASK_USER=1 claude`). Agents never set it on their own, nor work around the hook any other way.
+- `cello uninstall claude` takes it out with the other hooks.
 
 ## Pages, docs and specs
 
@@ -1135,7 +1161,8 @@ Every error is one sentence that says what to do next. The usual ones:
 | CEL-12 goes to Needs input only with questions for the human | You used `move` to wait on them. | Ask with `cello task ask` (see Questions for the human). |
 | Say why you recommend "…" (because) · question 2 needs options… | The ask's questions can't be answered well as written. | Fix what it says; nothing was asked. |
 | CEL-12 has no open ask to withdraw | It was answered, withdrawn or replaced already. | `cello task answers CEL-12` shows what happened. |
-| claim CEL-12 first (cello task claim CEL-12): only the session working on a task asks on it | You asked on a task nobody holds. | Claim it, then ask. Asking on a task another session holds is refused like a claim (it names the holder). |
+| claim CEL-12 first (cello task claim CEL-12): only the session working on a task asks on it | You asked on an open task nobody holds. | Claim it, then ask. Asking on a task another session holds is refused like a claim (it names the holder). |
+| CEL-12 is Done: create a follow-up task for this decision (`cello task create "<the decision>" --status Todo`), claim it, and ask there | You asked on a closed task (Done or Canceled). Its claim ended, and it can't be claimed back. | Create a follow-up task with the decision as its title, claim it, and ask there (see "Never in Claude's own question window"). Never fall back to `AskUserQuestion`. |
 | Cello didn't wake session c14ca1fa: waking is off for this project | `cello sessions wake` found a reason not to wake it (its process is still open, the cap, waking off…). The card says the same. | Nothing to do from your side; the comment waits in the session's inbox. Waking is the human's setting. |
 | This folder isn't in a git repository | The CLI can't work out the project. | Pass `--project KEY`. |
 | No project is linked to /path | This repository isn't a Cello project yet. | Set it up: `cello init` (see Set up a repo for Cello), or pass `--project KEY`. |
@@ -1685,7 +1712,7 @@ cello guide [flags]
 
 ### cello install claude
 
-Connect Claude Code to Cello. Adds hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), and one that turns Claude artifact publishes away in favour of Cello pages and edits away until the session has claimed a task (PreToolUse on Artifact, Edit, Write and NotebookEdit; not with --user), all running `cello hook claude`. Installs Cello's Claude Code plugin too (/cello:orchestrate, /cello:work, the cello skill, and builder and reviewer agents): writes its files to $XDG_DATA_HOME/cello/claude-plugin (default ~/.local/share/cello/claude-plugin), rewritten on every run so a new Cello updates it, and enables it. Adds Bash(cello:*) to permissions.allow, so `cello` commands run without Claude Code's permission check and a check that fails can't cut agents off the board. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main checkout's), merged with what's already there; running it again changes nothing. The old file is kept as .bak.
+Connect Claude Code to Cello. Adds hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), and one that turns Claude artifact publishes away in favour of Cello pages, AskUserQuestion away in favour of `cello task ask` on the card, and edits away until the session has claimed a task (PreToolUse on Artifact, AskUserQuestion, Edit, Write and NotebookEdit; not with --user), all running `cello hook claude`. Installs Cello's Claude Code plugin too (/cello:orchestrate, /cello:work, the cello skill, and builder and reviewer agents): writes its files to $XDG_DATA_HOME/cello/claude-plugin (default ~/.local/share/cello/claude-plugin), rewritten on every run so a new Cello updates it, and enables it. Adds Bash(cello:*) to permissions.allow, so `cello` commands run without Claude Code's permission check and a check that fails can't cut agents off the board. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main checkout's), merged with what's already there; running it again changes nothing. The old file is kept as .bak.
 
 ```
 cello install claude [flags]
@@ -1706,7 +1733,7 @@ cello uninstall claude [flags]
 
 ### cello hook claude
 
-Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that holds a claim going once to start `cello inbox --wait` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) or Claude is already continuing because of a Stop hook (stop_hook_active), and never in a run Cello woke (CELLO_WOKEN=1). Every run passes the session's permission_mode on to the server, so a run Cello wakes uses the same mode. pre-tool-use turns a Claude artifact publish away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished. Always exits 0.
+Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that holds a claim going once to start `cello inbox --wait` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) or Claude is already continuing because of a Stop hook (stop_hook_active), and never in a run Cello woke (CELLO_WOKEN=1). Every run passes the session's permission_mode on to the server, so a run Cello wakes uses the same mode. pre-tool-use turns a Claude artifact publish away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); this artifact guard needs no server. It denies every AskUserQuestion (Claude's own question dialog, which blocks the session) with a pointer to `cello task ask`, and to `cello task create` when no open task the session holds fits the question (all of them through with CELLO_ALLOW_ASK_USER=1); this guard needs no server either. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished. Always exits 0.
 
 ```
 cello hook claude [flags] <event>
@@ -1714,7 +1741,7 @@ cello hook claude [flags] <event>
 
 | | |
 | --- | --- |
-| `event choice` | The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse), pre-tool-use (PreToolUse: the artifact and claim guards), subagent-start (SubagentStart) or subagent-stop (SubagentStop). |
+| `event choice` | The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse), pre-tool-use (PreToolUse: the artifact, AskUserQuestion and claim guards), subagent-start (SubagentStart) or subagent-stop (SubagentStop). |
 
 ### cello start
 

@@ -19,7 +19,8 @@ export const HOOK_TIMEOUT = 10
 
 /**
  * Cello's hooks: the comment hooks (CEL-15) and the PreToolUse guards, one command that routes by tool:
- * the artifact guard (CEL-57) and the claim guard on the edit tools (CEL-61). The guards are
+ * the artifact guard (CEL-57), the AskUserQuestion guard (CEL-124) and the claim guard on the edit
+ * tools (CEL-61). The guards are
  * `projectOnly`: they're for Cello projects, so user settings (every project, Cello or not) don't get
  * them. The matcher has only letters and `|`, so Claude Code reads it as a list of exact tool names.
  * The subagent hooks (CEL-55) tell the board when a subagent starts and finishes; SubagentStart also
@@ -28,7 +29,7 @@ export const HOOK_TIMEOUT = 10
 export const CELLO_HOOKS = [
   { event: "Stop", matcher: undefined, command: "cello hook claude stop", projectOnly: false },
   { event: "PostToolUse", matcher: "*", command: "cello hook claude post-tool-use", projectOnly: false },
-  { event: "PreToolUse", matcher: "Artifact|Edit|Write|NotebookEdit", command: "cello hook claude pre-tool-use", projectOnly: true },
+  { event: "PreToolUse", matcher: "Artifact|AskUserQuestion|Edit|Write|NotebookEdit", command: "cello hook claude pre-tool-use", projectOnly: true },
   { event: "SubagentStart", matcher: undefined, command: "cello hook claude subagent-start", projectOnly: true },
   { event: "SubagentStop", matcher: undefined, command: "cello hook claude subagent-stop", projectOnly: false },
 ] as const
@@ -79,7 +80,8 @@ const isHandlerFor = (command: string) => (handler: unknown) => isCelloHandler(h
 /**
  * Settings with Cello's hooks (`wanted`, all of them by default) added where they're missing. A Cello
  * handler under another matcher (an older install's, like the artifact guard's "Artifact" before the
- * claim guard widened it) is taken out and the hook added again with today's. Doesn't change its input.
+ * claim guard widened it, or "Artifact|Edit|Write|NotebookEdit" before AskUserQuestion joined it) is
+ * taken out and the hook added again with today's. Doesn't change its input.
  */
 export const addCelloHooks = (settings: unknown, wanted: ReadonlyArray<CelloHook> = CELLO_HOOKS): Merged => {
   const hooks = { ...hooksOf(settings) }
