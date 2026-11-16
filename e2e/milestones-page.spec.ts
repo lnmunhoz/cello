@@ -273,7 +273,8 @@ test("CEL-132: the board grouped by milestone: a swimlane each, No milestone las
 
   const moving = s.tasks["Agents page"]!
   await caption(page, `Scroll down to M4's lane, then drag ${moving} from M3's Todo into M4's: it goes in M4, and both bars follow`)
-  await lane(page, "M4").scrollIntoViewIfNeeded()
+  // M4's lane mid-screen, not at the bottom edge, where a slow drag would scroll the board under the pointer.
+  await lane(page, "M4").evaluate((el) => el.scrollIntoView({ block: "center" }))
   await dragTo(page, card(page, moving), laneColumn(page, "M4", "Todo").locator('[role="list"]'), "below")
   await expect(laneColumn(page, "M4", "Todo").locator(`[data-task-key="${moving}"]`)).toBeVisible()
   await expect(card(page, moving).locator("[data-card-milestone]")).toHaveText("M4")
