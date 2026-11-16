@@ -5,7 +5,7 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import type { Browser, Page } from "@playwright/test"
-import { showTerminal } from "./agentScreen.ts"
+import { hideTerminal, showTerminal } from "./agentScreen.ts"
 import { agentAs, caption, expect, newCommandId, seedProject, test, uniqueKey } from "./fixtures.ts"
 import { celloAs, celloRun, SHOTS, WEB_URL } from "./packets.ts"
 import { isReview } from "./recording.ts"
@@ -78,7 +78,7 @@ test("CEL-89: the testing profile in Settings shows where each field came from; 
   await expect(row(page, "app.url").getByRole("textbox")).toHaveValue("http://localhost:5199")
   await expect(row(page, "app.url")).toContainText("Agent")
 
-  await caption(page, "Lucas sets the unit command himself: the field becomes his")
+  await caption(page, "Lucas sets the unit command himself: the field becomes his", { beforeShowing: () => hideTerminal(page) })
   await edit(page, "Unit tests", "bun run test:unit")
   await expect(row(page, "unit")).toContainText("You")
 
@@ -93,7 +93,7 @@ test("CEL-89: the testing profile in Settings shows where each field came from; 
   await showTerminal(page, `cello profile set unit "npm test" --project ${key}`, refused.stderr)
   await expect(row(page, "unit").getByRole("textbox")).toHaveValue("bun run test:unit")
 
-  await caption(page, "He adds a desktop e2e surface and fills in how to run it")
+  await caption(page, "He adds a desktop e2e surface and fills in how to run it", { beforeShowing: () => hideTerminal(page) })
   await section(page).getByRole("textbox", { name: "New e2e surface" }).fill("desktop")
   await section(page).getByRole("button", { name: "Add surface" }).click()
   await edit(page, "desktop e2e: run", "bun run test:docker:desktop")
