@@ -99,6 +99,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    - Put the task key in commit messages (\`fix(api): rate limit (KEY-12)\`).
    - In Progress means someone is on it right now. When you wait on the human's decision, ask on the card with \`cello task ask\` (the task waits in Needs input). When you stop, put the state on the card and move it back to Todo.
    - Hand finished work to the human only with \`cello task submit\`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
+   - This project has a testing profile: how to install, test, start the app and record evidence here. Read it in \`cello context\` and use its commands for your tests and evidence. When a field is wrong, fix it with \`cello profile set\` and say so in your packet; a field the human set is theirs, so ask on the card with \`cello task ask\`.
    - Answer the human on the card with \`cello task comment\`. Their comments come to your session by themselves.
    - When you end a turn while holding a claimed task, start \`cello inbox --wait\` in the background so the human's comments wake you.
    - When a decision is the human's (a design option, a scope, wording), ask on the card with \`cello task ask\` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. Their answers come back to your session.
