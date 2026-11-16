@@ -297,7 +297,7 @@ export function CardWork({ task, board, stage = true }: { task: Task; board: Boa
       {shownStage || run ? (
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {shownStage ? <StageWord stage={shownStage} /> : null}
-          <TestRunWord run={run} />
+          <TestRunWord run={run} compact />
         </span>
       ) : null}
     </span>

@@ -52,16 +52,21 @@ export function TestRunLine({ run }: { run: TestRun }) {
   )
 }
 
-/** The card's and task panel's stage line while the run runs: "· e2e 7/13", its failures in red. */
-export function TestRunWord({ run }: { run: TestRun | null }) {
+/**
+ * The task panel's stage line while the run runs: "· running web e2e 7/13 · 1 failed", its failures in red.
+ * `compact`, for a card's narrow stage line: the flask and "7/13 · 1 failed"; the hover has the rest.
+ */
+export function TestRunWord({ run, compact = false }: { run: TestRun | null; compact?: boolean }) {
   const now = useNow()
   if (run === null || !isRunning(run, now)) return null
   const failed = run.progress?.failed ?? 0
+  const p = run.progress
+  const where = compact ? (p === null ? "tests" : p.total === null ? `${p.passed + p.failed} done` : `${p.passed + p.failed}/${p.total}`) : `running ${testRunShort(run)}`
   return (
     <span className="flex shrink-0 items-center gap-1 text-muted tabular-nums" data-tests-word title={runTitle(run, now)}>
       <span className="text-faint">·</span>
       <FlaskConicalIcon aria-hidden className="size-3 text-accent" />
-      running {testRunShort(run)}
+      {where}
       {failed > 0 ? <span className="font-medium text-danger">· {failed} failed</span> : null}
     </span>
   )
@@ -86,7 +91,7 @@ export function TestRunFacts({ run }: { run: TestRun }) {
         </ul>
       ) : null}
       {folder && run.endedAt !== null ? (
-        <span className="truncate font-mono text-[12px] text-muted" title={`${folder}/summary.txt`} data-tests-folder>
+        <span className="font-mono text-[12px] break-all text-muted" title={`${folder}/summary.txt`} data-tests-folder>
           {folder.split("/").slice(-3).join("/")}/summary.txt
         </span>
       ) : null}
