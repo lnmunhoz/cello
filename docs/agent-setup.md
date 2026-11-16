@@ -81,7 +81,7 @@ nohup cello start >> "${XDG_STATE_HOME:-$HOME/.local/state}/cello/server.log" 2>
 Then check that it answers (give it a few seconds the first time): `cello whoami` prints JSON with a `server` entry. If it doesn't, read the log and tell the person what it says.
 
 - The board is at `http://127.0.0.1:4747` (or the port in `CELLO_PORT`). Data lives in `~/.cello`, with automatic daily backups.
-- The server stops when the machine restarts. To start it again later: the same `nohup cello start …` line, or `cello start` in a terminal. (Running it as a background service is on the roadmap.)
+- The server stops when the machine restarts. On macOS, `cello service install` runs it as a background service instead: from every login, restarted when it stops, logging to `~/.cello/logs/server.log`. Offer it to the person; install it only with their OK, after stopping the `nohup` server above (or use `cello service install --replace`, which stops it). Elsewhere, start it again with the same `nohup cello start …` line.
 
 ## ⑤ Connect their project
 

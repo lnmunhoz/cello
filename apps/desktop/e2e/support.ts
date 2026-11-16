@@ -9,6 +9,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { _electron, chromium, type ElectronApplication, type Page } from "@playwright/test"
 import { assertDesktopE2eAllowed, IN_CONTAINER } from "../../../scripts/docker/guard.ts"
+import { plistPath, renderPlist, serviceLogPath } from "@cello/shared/launchAgent"
 import { isAlive } from "../../server/src/process/isAlive.ts"
 import { LOCK_FILE, parseBanner, parseLock, type LockInfo } from "../src/server/plan.ts"
 
@@ -184,6 +185,156 @@ export interface AppEnv {
   readonly CELLO_DATA_DIR: string
   readonly CELLO_DESKTOP_USER_DATA: string
   readonly CELLO_BIN?: string
+  /** A temp HOME, for a test about ~/Library/LaunchAgents (CEL-81); the test's own HOME otherwise. */
+  readonly HOME?: string
+  /** A PATH with a fake `launchctl` first (CEL-81). */
+  readonly PATH?: string
+}
+
+/** A background service's plist in `home`, as `cello service install` writes it (CEL-81). */
+export const writeServicePlist = (home: string, dataDir: string, port: number, program: string) => {
+  const plist = plistPath(home)
+  fs.mkdirSync(path.dirname(plist), { recursive: true })
+  fs.writeFileSync(plist, renderPlist({ program: [program, "start"], home, path: "/usr/bin:/bin", dataDir, port, logPath: serviceLogPath(dataDir) }))
+  return plist
+}
+
+/** Kills `pid` (a server the app left running, say) by that pid when the test ends. */
+export const killOnCleanup = (pid: number) =>
+  onCleanup(() => {
+    if (isAlive(pid)) process.kill(pid, "SIGKILL")
+  })
+
+/**
+ * Quits the app and waits for its process to exit. `app.close()` also waits for the app's output pipes
+ * to close, and a server the app left running (Keep Running, CEL-81) inherits them on Linux, where
+ * libuv forks without closing inherited descriptors; they close when the test kills that server.
+ */
+export const quitApp = async (app: ElectronApplication) => {
+  const proc = app.process()
+  if (proc.exitCode !== null || proc.signalCode !== null) return
+  const exited = new Promise<void>((resolve) => proc.once("exit", () => resolve()))
+  await app.evaluate(({ app: electronApp }) => {
+    setImmediate(() => electronApp.quit())
+  })
+  await exited
+}
+
+/** The app menu's server status line (CEL-81). */
+export const serverStatus = (app: ElectronApplication) =>
+  app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("server-status")?.label ?? null)
+
+/**
+ * Answers the quit question (CEL-81) with button `response` (0 Keep Running, 1 Stop Server, 2 Install
+ * Background Service, 3 Cancel) instead of showing it, and appends each question asked to `record`
+ * (one JSON line), which outlives the app.
+ */
+export const answerQuitQuestion = (app: ElectronApplication, response: number, record: string) =>
+  app.evaluate(({ dialog }, { response, record }) => {
+    const fs = process.getBuiltinModule("node:fs")
+    dialog.showMessageBox = (async (...args: unknown[]) => {
+      fs.appendFileSync(record, `${JSON.stringify(args.at(-1))}\n`)
+      return { response, checkboxChecked: false }
+    }) as typeof dialog.showMessageBox
+  }, { response, record })
+
+/**
+ * Answers the quit question with `response`, then lets the next dialog (an error box) show for real,
+ * for a screenshot; both are recorded to `record`. Await `nextDialogShown`, then `closeNextDialog`.
+ */
+export const answerQuitThenShowNext = (app: ElectronApplication, response: number, record: string) =>
+  app.evaluate(({ dialog }, { response, record }) => {
+    const fs = process.getBuiltinModule("node:fs")
+    const original = dialog.showMessageBox.bind(dialog) as (...args: unknown[]) => Promise<Electron.MessageBoxReturnValue>
+    const controller = new AbortController()
+    let shown: () => void = () => {}
+    const scope = globalThis as { nextDialogShown?: Promise<void>; closeNextDialog?: () => void }
+    scope.nextDialogShown = new Promise<void>((resolve) => (shown = resolve))
+    scope.closeNextDialog = () => controller.abort()
+    let calls = 0
+    dialog.showMessageBox = (async (...args: unknown[]) => {
+      const options = args.at(-1) as Electron.MessageBoxOptions
+      fs.appendFileSync(record, `${JSON.stringify(options)}\n`)
+      if (calls++ === 0) return { response, checkboxChecked: false }
+      dialog.showMessageBox = original as typeof dialog.showMessageBox
+      const result = original(...args.slice(0, -1), { ...options, signal: controller.signal })
+      shown()
+      return result
+    }) as typeof dialog.showMessageBox
+  }, { response, record })
+
+export const nextDialogShown = (app: ElectronApplication) =>
+  app.evaluate(() => (globalThis as { nextDialogShown?: Promise<void> }).nextDialogShown)
+
+export const closeNextDialog = (app: ElectronApplication) =>
+  app.evaluate(() => (globalThis as { closeNextDialog?: () => void }).closeNextDialog?.())
+
+/** Starts quitting the app without waiting for it (a quit that may not happen). */
+export const startQuit = (app: ElectronApplication) =>
+  app.evaluate(({ app: electronApp }) => {
+    setImmediate(() => electronApp.quit())
+  })
+
+/** The app menu's line saying why the background service didn't start; null when there's none. */
+export const serviceProblem = (app: ElectronApplication) =>
+  app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("service-problem")?.label ?? null)
+
+/** The questions `answerQuitQuestion` recorded. */
+export const quitQuestions = (record: string): Array<{ message: string; buttons: string[] }> =>
+  fs.existsSync(record) ? fs.readFileSync(record, "utf8").trim().split("\n").map((line) => JSON.parse(line)) : []
+
+/**
+ * Starts quitting and lets the real quit question show (for a screenshot of it); resolves once the app
+ * has called for it. `closeQuitQuestion` dismisses it as Cancel, so the app stays open.
+ */
+export const showQuitQuestion = (app: ElectronApplication) =>
+  app.evaluate(({ app: electronApp, dialog }) =>
+    new Promise<void>((resolve) => {
+      const original = dialog.showMessageBox.bind(dialog) as (...args: unknown[]) => Promise<Electron.MessageBoxReturnValue>
+      const controller = new AbortController()
+      ;(globalThis as { closeQuitQuestion?: () => void }).closeQuitQuestion = () => controller.abort()
+      dialog.showMessageBox = ((...args: unknown[]) => {
+        dialog.showMessageBox = original as typeof dialog.showMessageBox
+        const options = args.at(-1) as Electron.MessageBoxOptions
+        const shown = original(...args.slice(0, -1), { ...options, signal: controller.signal })
+        resolve()
+        return shown
+      }) as typeof dialog.showMessageBox
+      electronApp.quit()
+    }))
+
+export const closeQuitQuestion = (app: ElectronApplication) =>
+  app.evaluate(() => (globalThis as { closeQuitQuestion?: () => void }).closeQuitQuestion?.())
+
+/** Opens the app menu (Cello ▸) as a popup over the window, for a screenshot of its server status line. */
+export const openAppMenu = (app: ElectronApplication) =>
+  app.evaluate(({ BaseWindow, Menu }) => {
+    const window = BaseWindow.getAllWindows()[0]!
+    Menu.getApplicationMenu()!.items[0]!.submenu!.popup({ window, x: 24, y: 8 })
+  })
+
+export const closeAppMenu = (app: ElectronApplication) =>
+  app.evaluate(({ BaseWindow, Menu }) => Menu.getApplicationMenu()!.items[0]!.submenu!.closePopup(BaseWindow.getAllWindows()[0]))
+
+/**
+ * A PNG of the whole X screen (Docker only: Xvfb's display), for what the window recorder can't see:
+ * native dialogs and menus. Captures for `seconds` and keeps the last frame, so a window that is still
+ * being mapped is in it; cropped to the screen's top-left corner through the main window (Xvfb has no
+ * window manager, so a menu or dialog may sit anywhere from the corner to the window).
+ */
+export const screenshotScreen = async (app: ElectronApplication, file: string, seconds = 1.5) => {
+  const display = process.env.DISPLAY
+  if (!display) return
+  const bounds = await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]?.getBounds() ?? null)
+  const scale = inContainer ? 2 : 1
+  const crop = bounds
+    ? ["-vf", `crop=${(Math.max(bounds.x, 0) + bounds.width) * scale}:${(Math.max(bounds.y, 0) + bounds.height) * scale}:0:0`]
+    : []
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const result = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "x11grab", "-framerate", "4", "-t", String(seconds), "-i", display, ...crop, "-update", "1", file], {
+    encoding: "utf8",
+  })
+  if (result.status !== 0) throw new Error(`ffmpeg x11grab failed: ${result.stderr}`)
 }
 
 /** The environment a launch gets: only what the test sets, plus PATH and HOME. */

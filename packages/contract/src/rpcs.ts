@@ -48,7 +48,7 @@ import {
 import { CelloEvent } from "./events.ts"
 import { SearchKind, SearchResults } from "./search.ts"
 import { TaskStage } from "./stages.ts"
-import { DocumentList, Inbox, LabelList, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
+import { AskWaited, DocumentList, Inbox, LabelList, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
 
 /**
  * Who is calling, resolved by the server from per-request RPC headers. `agentId`: the session's subagent
@@ -415,9 +415,16 @@ export const CelloRpcs = RpcGroup.make(
   // Every ask of a task, oldest first.
   Rpc.make("ask.list", { payload: { taskId: Id }, success: Schema.Array(Ask), error: NotFound }),
   // Waits until the task's latest ask is answered or withdrawn, then returns it (at once when it
-  // already is). Hands the answers over: the caller's inbox item for them is marked read, so the hook
-  // doesn't deliver them a second time.
-  Rpc.make("ask.wait", { payload: { key: Schema.String }, success: Ask, error: NotFound }),
+  // already is). Hands the answers over: the caller's inbox item for them is taken (marked read) by
+  // this wait, so the hook doesn't deliver them a second time; when the hook or `cello inbox` took them
+  // first (a restart dropped the wait for a moment), `alreadyDelivered` says how and when (CEL-78). A
+  // retry with the same `commandId` (a reconnecting CLI) gets what the first call got, so a reply lost
+  // to a restart never loses the answers.
+  Rpc.make("ask.wait", {
+    payload: { key: Schema.String, commandId: Schema.optionalKey(commandId) },
+    success: AskWaited,
+    error: NotFound,
+  }),
 
   // Documents (docs, specs, pages). `document.publish` creates a page or saves a new version of one:
   // the same slug, else the same source file, updates it. `files` are absolute paths on this machine

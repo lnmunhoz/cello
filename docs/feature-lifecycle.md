@@ -129,7 +129,7 @@ The orchestrator merges the branch into main (`cello task stage CEL-n merged`) a
 
 1. **The whole suite:** unit and integration tests, typecheck, the CLI-docs check, and the full Docker run (browser and desktop end-to-end).
 2. **Push** to GitHub.
-3. **Deploy to Lucas's board** when the server or web app changed: back up with `cello backup`, rebuild the `cello` binary, restart the server on 4747. A database migration runs at that restart, which is why the backup comes first.
+3. **Deploy to Lucas's board** when the server or web app changed: back up with `cello backup`, rebuild the `cello` binary, restart the server on 4747 (`cello service restart` once the background service is installed). A database migration runs at that restart, which is why the backup comes first.
 
 ## ⑧ Submit the review packet
 

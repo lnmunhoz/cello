@@ -1,7 +1,7 @@
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import type { Working, WorkingAgent } from "../presence/model.ts"
-import { agentGroups, agentRows, directTasks, parseAgentsSearch, rowKeysOf, waitingTaskOf } from "./layout.ts"
+import { agentGroups, agentRows, directTasks, parseAgentsSearch, rowKeysOf, stateTaskOf, subagentsLabel, waitingTaskOf } from "./layout.ts"
 
 const now = Date.UTC(2026, 10, 16, 12)
 
@@ -109,7 +109,52 @@ describe("agentGroups", () => {
     expect(rowKeysOf(agentGroups(rows))).toEqual(["session:bbbb0000", "session:aaaa0000", "agent:aaaa0000/a1"])
   })
 
+  it("CEL-104: a session's quiet subagents stay under it, in its group, instead of moving to Quiet on their own", () => {
+    const a = session("2fd0505c")
+    const t = task("t1", "CEL-74")
+    const quietSub = { ...sub(a, "a1", t), presence: "idle" as const, mark: { mood: "still" as const, statusId: "prog" } }
+    const rows = agentRows([working(a, { tasks: [t], agents: [quietSub, { ...quietSub, agent: { ...quietSub.agent, agentId: "a2" } }] })])
+    expect(agentGroups(rows).map((g) => [g.id, g.rows.map((r) => r.id)])).toEqual([
+      ["working", ["session:2fd0505c", "agent:2fd0505c/a1", "agent:2fd0505c/a2"]],
+    ])
+  })
+
+  it("CEL-104: a family goes where its most pressing member is: a subagent waiting on Lucas brings its session to Waiting", () => {
+    const a = session("aaaa0000")
+    const waitingSub = sub(a, "a1", null, "waiting")
+    const rows = agentRows([working(a, { presence: "idle", mark: { mood: "still", statusId: "prog" }, agents: [waitingSub] })])
+    expect(agentGroups(rows).map((g) => [g.id, g.rows.map((r) => r.id)])).toEqual([["waiting", ["session:aaaa0000", "agent:aaaa0000/a1"]]])
+  })
+
   it("leaves out empty groups", () => {
     expect(agentGroups(agentRows([working(session("aaaa0000"))])).map((g) => g.id)).toEqual(["working"])
+  })
+})
+
+describe("stateTaskOf (CEL-104)", () => {
+  const statuses = { prog: { name: "In Progress", category: "started" }, needs: { name: "Needs input", category: "waiting" } }
+
+  it("an orchestrator shows the state of the task it holds, like any session, even when its subagents are quiet or gone", () => {
+    const a = session("64a2ac46")
+    const t = task("t1", "FE-70")
+    const [orchestrator] = agentRows([working(a, { tasks: [t], agents: [sub(a, "a1", t)] })])
+    expect(stateTaskOf(orchestrator!, statuses)?.key).toBe("FE-70")
+    // Its subagents gone: still its task's state.
+    expect(stateTaskOf({ ...orchestrator!, subagents: 0 }, statuses)?.key).toBe("FE-70")
+  })
+
+  it("the task waiting on Lucas wins over the first one; no task, none", () => {
+    const a = session("aaaa0000")
+    const [t1, t2] = [task("t1", "CEL-1"), { ...task("t2", "CEL-2"), statusId: "needs" }]
+    const [row] = agentRows([working(a, { tasks: [t1, t2], mark: { mood: "waiting", statusId: "needs" } })])
+    expect(stateTaskOf(row!, statuses)?.key).toBe("CEL-2")
+    expect(stateTaskOf({ ...row!, tasks: [] }, statuses)).toBeUndefined()
+  })
+})
+
+describe("subagentsLabel (CEL-104)", () => {
+  it("counts its subagents in singular or plural", () => {
+    expect(subagentsLabel(1)).toBe("1 subagent")
+    expect(subagentsLabel(3)).toBe("3 subagents")
   })
 })

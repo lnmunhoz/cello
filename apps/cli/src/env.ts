@@ -28,6 +28,11 @@ export class CliEnv extends Context.Service<CliEnv, {
    * for the binary (open.ts), a fake in tests, so a test never opens anything.
    */
   readonly open: (link: string) => Promise<void>
+  /**
+   * The command that runs this `cello` (service.ts's selfCommand): the compiled binary, or bun and
+   * bin.ts. `cello service install` puts it in the plist; tests that install pass a stand-in.
+   */
+  readonly self?: ReadonlyArray<string>
   /** This binary's build; tests may leave it out (no commit then). */
   readonly build?: CliBuild
   /**

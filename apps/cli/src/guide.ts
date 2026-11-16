@@ -26,7 +26,7 @@ flowchart TD
 Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
 
 1. **The CLI.** \`cello --version\` prints a version. If the command isn't found, stop and tell the human: \`cello\` is installed from their Cello checkout (\`apps/cli\`, linked at \`~/.local/bin/cello\`). Never install it yourself, unless you were asked to set Cello up from scratch on a machine that doesn't have it: then follow [docs/agent-setup.md](agent-setup.md), the first-time install.
-2. **The server.** \`cello whoami\` prints JSON with a \`server\` entry. If it says Cello isn't running, ask the human to open the Cello desktop app or run \`cello start\`. Don't start it yourself, since it serves their real data (the first-time install in docs/agent-setup.md is the one exception).
+2. **The server.** \`cello whoami\` prints JSON with a \`server\` entry. If it says Cello isn't running, \`cello service status\` says whether the background service is installed and shows its log; tell the human what it says, and ask them to open the Cello desktop app or run \`cello start\`. Don't start it yourself, since it serves their real data (the first-time install in docs/agent-setup.md is the one exception).
 3. **The project.** Run \`cello init\` inside this repo. It creates the project with this repo's path (the main checkout's when you're in a worktree), named after the repo's folder, with a key made from the name that no other project has, and prints the key and the board's URL. If the repo is already a project, it says which one and leaves the project as it is, however its path was typed in New project (\`~/…\`, a trailing \`/\`, a symlinked folder, a subfolder of the repo). It refuses a repo an archived project holds, naming it: ask the human then.
 
    Then it inspects the repo, because the human relies on visual evidence and every packet needs some: it looks for a unit test runner, a typecheck, an e2e tool and its output folders, how to start the app and on which port, and checks this machine for ffmpeg, Docker and Playwright's browsers. It prints a readiness report, one line per kind of evidence (unit tests, e2e video, screenshots, terminal transcript): **ready**, **partial**, **missing**, or **not needed** (no UI found), each one that isn't ready with what to do. What it found goes into the project's testing profile (see The testing profile):
@@ -123,7 +123,7 @@ Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.loca
 
 ## Concepts
 
-**Cello** is the task board the human shares with their coding agents. Its server runs on their Mac (\`cello start\`, http://127.0.0.1:4747, data in \`~/.cello\`). The board in the browser, the desktop app and the CLI all talk to that server, and every change shows up live everywhere.
+**Cello** is the task board the human shares with their coding agents. Its server runs on their Mac (\`cello start\`, http://127.0.0.1:4747, data in \`~/.cello\`), as a background service from login once \`cello service install\` set it up (see The background service). The board in the browser, the desktop app and the CLI all talk to that server, and every change shows up live everywhere.
 
 - **Workspace:** a group of projects that share statuses and views.
 - **Label:** a name and a colour on a task. Each project has its own labels: CEL's \`bug\` and THAI's \`bug\` are two labels. A task can carry several of its project's labels. \`cello label list\` shows them; see Labels.
@@ -623,7 +623,7 @@ cello inbox --wait --json   # the same as JSON: items, claimed
 - **It doesn't poll the board:** it listens on the server's event stream. When the server restarts (every deploy does), it says so on stderr, "The Cello server on port 4747 went away; reconnecting for up to 2 minutes…", reconnects and carries on; nothing is taken twice. If the server stays away for 2 minutes, it exits 1 with "The Cello server on port 4747 went away and didn't come back within 2 minutes, so this stopped waiting." Start it (\`cello start\`) and run \`--wait\` again. \`cello wait\` and \`cello task ask --wait\` ride out a restart the same way (Questions for the human).
 - **One per session.** While it waits it holds a lock file (\`$TMPDIR/cello-inbox-wait/<hash of port and session>\`, holding its pid and when it started) and says so on stderr: \`Waiting for new comments, Send back notes, answers and ended claims for this session (pid 4242)…\`. A second \`cello inbox --wait\` for the same session leaves at once, saying on stderr \`\`Already waiting: a \`cello inbox --wait\` (pid 4242) is running for this session, and it wakes you when something new arrives.\`\` (with \`--json\`: \`{"waiting": true, "pid": 4242}\`). The lock goes when it ends, however it ends.
 - **It never outlives your session.** It stops, taking nothing, once the Claude Code that started it is gone (it checks \`CLAUDE_PID\` every second), and after a day with nothing new it stops and says so: "Nothing new for this session in 24 hours, so \`cello inbox --wait\` stopped. If you still hold a claim, start it again in the background." A lock whose pid is dead, or that's older than a day (its pid may belong to another process by then), is ignored.
-- **It shares nicely:** the hooks and \`cello inbox\` take from the same inbox, so whichever gets an item first hands it over and the others never see it. Answers a \`cello task ask --wait\` (or \`cello wait\`) is waiting for stay with that command.
+- **It shares nicely:** the hooks and \`cello inbox\` take from the same inbox, so whichever gets an item first hands it over and the others never see it. Answers a \`cello task ask --wait\` (or \`cello wait\`) is waiting for stay with that command; if a server restart lets the hook take them first, that command says they already arrived instead of printing them again.
 - **Start it again after it wakes you,** when you end that turn too: it hands over one batch and exits.
 
 **The Stop hook asks for it.** When you stop with nothing new, while you hold a claimed task and no waiter is running for your session, the Stop hook keeps you going once with:
@@ -834,6 +834,13 @@ What happens:
    - **with \`--wait\`:** the command blocks until they send, then prints the answers and exits. Run it in the background (Claude Code: \`run_in_background\`), so your session wakes when they arrive.
    - **without it:** the hook delivers them like a comment (see Comments from the human reach your session), or \`cello wait CEL-43\` waits for them later (after a restart, say).
    - **a server restart doesn't stop the wait.** Every deploy restarts the server; \`--wait\` and \`cello wait\` say so on stderr ("The Cello server on port 4747 went away; reconnecting for up to 2 minutes…"), reconnect, and keep waiting on the same ask: nothing is asked again, and the answers are still printed once (or that the ask was withdrawn, if it was meanwhile). If the server stays away for 2 minutes they exit 1 with "…didn't come back within 2 minutes, so this stopped waiting. Start it (\`cello start\`), then run \`cello wait CEL-43\` again."; the ask is still open, so \`cello wait CEL-43\` picks it up once the server is back.
+   - **answers that already reached you aren't printed again.** If the hook or \`cello inbox\` took them first (the human answered while the wait was reconnecting), or an earlier \`cello wait\` printed them, the wait prints one line instead and exits 0:
+
+     \`\`\`
+     The answers to "Search layout" on CEL-43 already reached this session (through the hook, 2m ago). \`cello task answers CEL-43\` shows them again.
+     \`\`\`
+
+     With \`--json\` it prints the ask as usual, plus \`alreadyDelivered: { via, at }\` (\`via\` is \`hook\`, \`inbox\` or \`wait\`; null when the wait handed them over itself). A withdrawn ask is reported as withdrawn either way.
    - \`cello task answers CEL-43\` prints the latest answers again any time (\`--all\`: every round); \`--json\` for scripts.
 
 **The file** (JSON or YAML; paths are relative to it):
@@ -975,6 +982,43 @@ This project uses Cello. Show it as a Cello page: \`cello doc publish page.md --
 - **\`CELLO_ALLOW_ARTIFACTS=1\`** in Claude Code's environment lets every artifact call through. It's for when the human explicitly asks for a claude.ai artifact; they set it by starting Claude Code with it (\`CELLO_ALLOW_ARTIFACTS=1 claude\`). Agents never set it on their own, nor work around the hook any other way.
 - \`cello uninstall claude\` takes it out with the other hooks.
 
+## The background service
+
+On macOS, Cello's server can run as a **background service**: a launchd user agent, \`dev.cello.server\`, that starts \`cello start\` when the human logs in and starts it again within 5 seconds whenever it stops. Then the server doesn't depend on the desktop app or a terminal: the human can quit the app and agents' \`cello\` commands keep working.
+
+\`\`\`bash
+cello service status               # installed? running? pid, program, data folder, port, version, log
+cello service install              # write ~/Library/LaunchAgents/dev.cello.server.plist and start it
+cello service install --replace    # the same, replacing what's in the way (it says what first)
+cello service restart              # the deploy step: a clean stop, and launchd runs the (rebuilt) binary again
+cello service uninstall            # stop it and remove the plist; data and log stay
+\`\`\`
+
+- **What it runs:** the \`cello\` binary that ran \`install\`, by its absolute path with symlinks resolved. Installed from a Cello checkout, that's its build, \`apps/cli/dist/cello\` (what \`~/.local/bin/cello\` links to), so rebuilding updates what the service runs on its next restart. It gets \`CELLO_DATA_DIR\` and \`CELLO_PORT\` as they were at install (default \`~/.cello\` and 4747), plus PATH and HOME, since launchd doesn't read a shell profile.
+- **Not from a worktree or a temp folder:** \`install\` refuses a \`cello\` in a git worktree (\`.claude/worktrees/\`) or a temp folder, since it can disappear and leave the service with nothing to run. Install with the one you keep (\`~/.local/bin/cello\`). \`--temporary\` installs it anyway, for trying a build.
+- **Its log:** \`<data folder>/logs/server.log\`, with the one before it as \`server.log.1\` once it passes 5 MB (checked at each install and restart). \`cello service status\` prints its last 10 lines, which is where to look when the service keeps stopping.
+- **One server per data folder** still holds. \`install\` refuses while a server started another way (a terminal's \`cello start\`, the desktop app) holds the data folder, and names it:
+
+  \`\`\`
+  Cello is already running for /Users/me/.cello (pid 51234, http://127.0.0.1:4747), outside the service. Stop it first
+  (Ctrl-C in its terminal, or quit the desktop app and pick Stop), or run \`cello service install --replace\` to stop pid
+  51234 and install the service in its place.
+  \`\`\`
+
+  \`--replace\` stops that pid, and only that one, and only after checking it's a Cello server: its command is a \`cello … start\` and the lock's port answers as Cello. A lock whose pid runs something else (a server that died, its pid since reused) is reported and never touched, and so is one naming pid 0, 1 or a negative pid: delete \`server.lock\` if no Cello server runs for that folder.
+- **One service per user.** Installing again with the same binary, data folder and port is fine: it unloads the running one first. Installing one that runs another binary, data folder or port refuses and names both; \`--replace\` replaces it.
+- **If launchd won't load it,** install puts the old plist back (kept as \`dev.cello.server.plist.bak\` meanwhile) and loads it again, or removes the new one when there was none. It says whether a server was stopped on the way, and that \`cello start\` runs Cello meanwhile.
+- **A plist pointing at a binary that's gone** (the repo moved, the build was deleted): \`status\` says so, and \`restart\` refuses. Build it again, or run \`install\` again with the cello you want it to run. The desktop app then starts its own server and says in its menu why the service didn't start.
+- **Restart is a clean stop:** launchd sends the server SIGTERM (\`launchctl kill SIGTERM\`; never \`kickstart -k\`, which can kill it mid-write), KeepAlive starts the program again, and \`restart\` waits up to 30 s for the new server to answer and prints its pid. A service that isn't running is started instead.
+
+  \`\`\`
+  $ cello service restart
+  Restarted the background service: launchd started \`/Users/me/cello/apps/cli/dist/cello start\` again (pid 51302), and it answers on http://127.0.0.1:4747.
+  \`\`\`
+- **Deploying with the service installed:** rebuild \`cello\` (\`bun run build\` in \`apps/cli\`), \`cello backup\` when a migration ships, then \`cello service restart\`. Without the service, restart \`cello start\` by hand as before.
+- **The desktop app** joins the service whenever it's installed and never stops it when it quits. Without the service, the app starts its own server, and the first time the human quits it asks once: **Keep Running** (the server restarts on its own and stays up until the Mac restarts; if it doesn't come up, the app says so and stays open), **Stop Server**, or **Install Background Service**. It remembers Keep or Stop (in \`server-on-quit.json\` in the app's user data folder; deleting it brings the question back). The app menu says which it is: "Server: background service (pid 44568)" when launchd's job is the server it uses, "Server: started by this app (pid …)" or "Server: started outside the app (pid …)".
+- **Agents:** \`cello service status\` is safe to run any time, to see why Cello isn't answering. \`install\`, \`restart\` and \`uninstall\` change the human's machine: run them only when they ask, or as the orchestrator's deploy step. Tests never run them against the real \`~/Library/LaunchAgents\` or launchctl: they use a temp HOME and a fake \`launchctl\` on PATH.
+
 ## Backups
 
 The server backs up its data folder every day: the database and every evidence file (videos, screenshots, page images), into \`~/.cello/backups/<YYYYMMDD-HHMMSS>/\`.
@@ -1056,7 +1100,16 @@ Every error is one sentence that says what to do next. The usual ones:
 
 | The message says | What it means | What to do |
 | --- | --- | --- |
-| Cello isn't running on 127.0.0.1:4747 | The human's server is down. | Tell them. Don't start one against \`~/.cello\` yourself unless they ask. |
+| Cello isn't running on 127.0.0.1:4747 | The human's server is down. | Run \`cello service status\`: it says whether the background service is installed and shows its log's last lines. Tell the human what it says. Don't start one against \`~/.cello\` yourself unless they ask. |
+| Cello is already running for … (pid …), outside the service | \`cello service install\` found a server started another way holding the data folder. | Stop that server first, or \`cello service install --replace\` to stop that pid and install. Only when the human asked for the install. |
+| The background service isn't installed | \`cello service restart\` with no service set up. | \`cello service install\` sets it up (when the human asks); without it, restart \`cello start\` by hand. |
+| The service's program … doesn't exist any more | The plist points at a \`cello\` binary that was moved or deleted. | Build it again (\`bun run build\` in \`apps/cli\`), or run \`cello service install\` with the cello it should run. |
+| \`cello service\` runs Cello as a macOS launchd service, and launchctl isn't on the PATH | Not macOS (or a PATH without \`/bin\`). | Run \`cello start\` yourself instead. |
+| …/server.lock names pid …, which is running but isn't a Cello server | \`cello service install\` found a lock whose process isn't a Cello server (a server died and its pid was reused). Nothing was stopped. | If no Cello server runs for that folder, delete the \`server.lock\` it names, then install again. |
+| The background service already runs … Installing would replace it with … | An installed service runs another binary, data folder or port. | Only when the human wants it replaced: \`cello service install --replace\`. |
+| … is in a temp folder or a git worktree | \`cello service install\` from a worktree's or a temp folder's build. | Install with \`~/.local/bin/cello\`; \`--temporary\` only to try a build. |
+| launchctl couldn't load the service: … | launchd refused the plist. The old one is back in place if there was one. | Do what it says: \`cello start\` runs Cello meanwhile; \`cello service status\` and the log say why. |
+| The service's server was stopped, but no new one answered on … | \`cello service restart\` stopped the server and none came back within 30 s. | \`cello service status\` and the log say why; \`cello start\` runs Cello meanwhile. Tell the human. |
 | The Cello server on port 4747 went away and didn't come back within 2 minutes, so this stopped waiting | A command waiting on the human (\`cello inbox --wait\`, \`cello wait\`, \`cello task ask --wait\`) lost the server, kept reconnecting for 2 minutes, and gave up. A plain restart doesn't cause this: they ride those out. | Tell the human the server is down if it still is; once it's back, run the command the message names again. Nothing was taken or asked twice. |
 | Cello on 127.0.0.1:4747 closed the connection before answering | The server stopped or restarted (a deploy) while your command ran. A change it had started still went through. | Look before you redo it: \`cello task get CEL-12\` shows whether the claim, move, comment or submit landed. A rerun is a new command, so running it blindly can do it twice. |
 | CEL-12 is claimed by Claude Code session 1a2b3c4d (active now) | Another live session is working on it. | Pick another task. |
@@ -1458,7 +1511,7 @@ cello label archive [flags] <name>
 
 ### cello wait
 
-Wait for the human to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered. Rides out a server restart; exits 1 if the server stays away for 2 minutes.
+Wait for the human to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered. When the answers already reached this session (the hook, \`cello inbox\` or an earlier wait took them), it says so in one line instead. Rides out a server restart; exits 1 if the server stays away for 2 minutes.
 
 \`\`\`
 cello wait [flags] <key>
@@ -1662,6 +1715,47 @@ Run the Cello server on 127.0.0.1:4747 with data in ~/.cello (CELLO_PORT, CELLO_
 
 \`\`\`
 cello start [flags]
+\`\`\`
+
+### cello service install
+
+Run Cello's server as a macOS background service: writes the launchd user agent dev.cello.server to ~/Library/LaunchAgents/dev.cello.server.plist and loads it, so \`cello start\` runs now, at every login, and again within 5 seconds whenever it stops. It runs this cello binary (the absolute path, symlinks resolved), with CELLO_DATA_DIR (default ~/.cello) and CELLO_PORT (default 4747) as they are now, and logs to <data folder>/logs/server.log. Installing again replaces it (after a rebuild that moved, or to change the port). Refuses while another server holds the data folder.
+
+\`\`\`
+cello service install [flags]
+\`\`\`
+
+| | |
+| --- | --- |
+| \`--replace\` | Replace what's in the way, after naming it: a Cello server started another way (\`cello start\` in a terminal, the desktop app) that holds the data folder, which it stops by the pid in its lock, and only after checking that pid is a Cello server answering on the lock's port; and an installed service that runs another binary, data folder or port. Without it, install refuses and says what's there. |
+| \`--temporary\` | Install even though this cello is in a temp folder or a git worktree (.claude/worktrees/), which can disappear and leave the service with nothing to run. For trying a build; tests use it. |
+
+### cello service status
+
+Show the background service: whether it's installed and running, its pid, the program and data folder it runs with, whether its server answers and which build it is, the plist and log paths, and the log's last 10 lines. Flags a plist whose program no longer exists (the repo moved or the build was deleted). Without the service, says whether a server runs anyway.
+
+\`\`\`
+cello service status [flags]
+\`\`\`
+
+| | |
+| --- | --- |
+| \`--json\` | Print JSON: installed, plist, program, programExists, dataDir, port, logPath, loaded, running, pid, lastExit, server ({ version, commit } or null), logTail and holder ({ pid, port } of the server holding the data folder, or null). |
+
+### cello service restart
+
+Restart the background service: launchd sends its server SIGTERM (the clean shutdown; never a kill), starts the program again, and this waits up to 30 s for the new server to answer, then prints its pid. A stopped service is started instead. This is the deploy step once the service is installed: rebuild cello, back up when a migration ships, then restart.
+
+\`\`\`
+cello service restart [flags]
+\`\`\`
+
+### cello service uninstall
+
+Remove the background service: unloads it from launchd (stopping its server) and deletes its plist. The data folder and the log are left as they are.
+
+\`\`\`
+cello service uninstall [flags]
 \`\`\`
 
 ### cello backup

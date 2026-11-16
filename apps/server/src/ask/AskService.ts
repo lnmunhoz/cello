@@ -9,6 +9,7 @@ import * as path from "node:path"
 import type { Ask, Attachment, Task } from "@cello/contract/entities"
 import { HumanOnly, Invalid, NotFound, TaskClaimed } from "@cello/contract/errors"
 import { Caller, type AnswerInput, type AskQuestionInput, type EvidenceFile, type EvidenceLink } from "@cello/contract/rpcs"
+import type { AskWaited } from "@cello/contract/views"
 import { answerProblem, isNeedsInputStatus, needsInputTarget } from "@cello/shared/ask"
 import { sendBackTarget } from "@cello/shared/review"
 import * as Context from "effect/Context"
@@ -69,9 +70,10 @@ export class AskService extends Context.Service<AskService, {
   readonly list: (taskId: string) => Effect.Effect<ReadonlyArray<Ask>, NotFound>
   /**
    * Waits until the task's latest ask is no longer open, then returns it (at once when it isn't) and
-   * marks the caller's inbox item for its answers read.
+   * takes the caller's inbox item for its answers; `alreadyDelivered` when someone took it first
+   * (InboxService.handOverAnswers). A retry with the same `commandId` gets the first call's result.
    */
-  readonly wait: (key: string) => Effect.Effect<Ask, NotFound, Caller>
+  readonly wait: (key: string, commandId?: string) => Effect.Effect<AskWaited, NotFound, Caller>
   /** Stores a screenshot Lucas pasted into a draft of his answers (human only, open asks only). */
   readonly upload: (input: Upload) => Effect.Effect<Attachment, NotFound | Invalid | HumanOnly, Caller>
   /** Removes draft screenshots never sent, a day after their ask closed. Returns how many went. */
@@ -281,14 +283,14 @@ const make = Effect.gen(function* () {
     return yield* selectAsks(sql, sql`a.task_id = ${taskId}`)
   }, Effect.catchTag("SqlError", Effect.die))
 
-  const wait = Effect.fn("AskService.wait")(function* (key: string) {
+  const wait = Effect.fn("AskService.wait")(function* (key: string, commandId?: string) {
     // The seq first: an ask closed after it is replayed by the subscription below, so none is missed.
     const seq = yield* store.latestSeq
     const ask = yield* latest(key)
     const projectId = (yield* tasks.byKey(key)).projectId
     // Handed over by this wait alone: the hook leaves the answers to it while it waits.
-    return yield* inbox.handOverAnswers(
-      ask.id,
+    const { result, alreadyDelivered } = yield* inbox.handOverAnswers(
+      commandId === undefined ? { askId: ask.id } : { askId: ask.id, commandId },
       ask.state !== "open"
         ? Effect.succeed(ask)
         : log.subscribe({ projectId }, seq).pipe(
@@ -298,6 +300,7 @@ const make = Effect.gen(function* () {
           Effect.flatMap(() => askById(ask.id)),
         ),
     )
+    return { ...result, alreadyDelivered } satisfies AskWaited
   }, Effect.catchTag("SqlError", Effect.die))
 
   const upload = Effect.fn("AskService.upload")(function* (input: Upload) {

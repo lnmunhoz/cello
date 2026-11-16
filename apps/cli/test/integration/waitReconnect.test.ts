@@ -3,7 +3,9 @@
 // away, reconnect to the new one, and still print Lucas's answers once, or that the ask was withdrawn.
 // When the server stays away they give up, saying what to run again. Nothing here sleeps: each test
 // awaits the waiter's "went away" line (printed once a call found the server gone) before the new server
-// starts, so the reconnect is always exercised.
+// starts, so the reconnect is always exercised. The server's hold on the answers lives in memory, so a
+// restart drops it: when the hook or `cello inbox` takes the answers before the wait is back, the wait
+// says they already arrived instead of printing them a second time (the database decides who delivers).
 import { newCommandId } from "@cello/client/client"
 import type { Ask } from "@cello/contract/entities"
 import { startServer, tempDataDir } from "@cello/server/testing/servers"
@@ -69,8 +71,30 @@ const setup = Effect.gen(function* () {
       yield* startServer(dataDir, { port })
       return yield* connect(port)
     }),
+    /**
+     * Runs `use` against the same data folder served on another port, then stops that server: what
+     * happens while the waiter, which only knows `port`, still finds nobody there. Gets Lucas connected
+     * to it, `cello` as X pointed at it, and X's Stop hook as Claude Code runs it (the session on stdin).
+     */
+    meanwhile: <A, E, R>(use: (aside: Aside) => Effect.Effect<A, E, R>) =>
+      Effect.scoped(Effect.gen(function* () {
+        const aside = yield* startServer(dataDir)
+        const stdin = JSON.stringify({ session_id: X, cwd: repo, hook_event_name: "Stop", stop_hook_active: false })
+        return yield* use({
+          human: yield* connect(aside.port),
+          x: cello({ port: aside.port, env, cwd: repo }),
+          stop: cello({ port: aside.port, cwd: repo, stdin })("hook", "claude", "stop"),
+        })
+      })),
   }
 })
+
+/** The server on another port, while the waiter's port is still dark (see `meanwhile`). */
+interface Aside {
+  readonly human: Effect.Success<ReturnType<typeof connect>>
+  readonly x: ReturnType<typeof cello>
+  readonly stop: Effect.Effect<Output>
+}
 
 /** Lucas picks Peek. */
 const answer = (ask: Ask) => ({ commandId: newCommandId(), askId: ask.id, answers: [{ questionId: "q1", optionIds: ["q1o1"] }] })
@@ -98,6 +122,49 @@ describe("cello wait through a server restart (CEL-78)", () => {
       answeredOnce(yield* Fiber.join(waiter.fiber), port)
       // The wait handed them over: the hook and `cello inbox` have nothing left to deliver.
       expect(yield* x("inbox", "--new")).toEqual({ out: "", failure: null })
+    }).pipe(Effect.scoped))
+
+  it.live("answers `cello inbox` took while it was reconnecting reach the session once: the wait says they already arrived", () =>
+    Effect.gen(function* () {
+      const { port, x, start, stopServer, restart, meanwhile } = yield* setup
+      const { result } = JSON.parse((yield* x("task", "ask", "CEL-1", ...ASK, "--json")).out) as { result: { ask: Ask } }
+      const waiter = yield* start(["wait", "CEL-1"])
+      yield* stopServer
+      yield* waiter.wentAway
+      // The restarted server holds nothing for the wait: Lucas answers, and `cello inbox` (or the hook) takes them first.
+      const taken = yield* meanwhile(({ human, x }) =>
+        Effect.gen(function* () {
+          yield* human["ask.answer"](answer(result.ask))
+          return yield* x("inbox", "--new")
+        })
+      )
+      expect(count(taken.out, "Picked: Peek")).toBe(1)
+      yield* restart
+      const output = yield* Fiber.join(waiter.fiber)
+      expect(output).toEqual({
+        out: expect.stringMatching(
+          /^The answers to "Search layout" on CEL-1 already reached this session \(through `cello inbox`, (just now|\d+m ago)\)\. `cello task answers CEL-1` shows them again\.$/,
+        ),
+        failure: null,
+        err: wentAway(port),
+      })
+      // `cello task answers` still shows them.
+      expect(count((yield* x("task", "answers", "CEL-1")).out, "Picked: Peek")).toBe(1)
+    }).pipe(Effect.scoped))
+
+  it.live("--json says so too: the ask, and how and when its answers already arrived", () =>
+    Effect.gen(function* () {
+      const { x, start, stopServer, restart, meanwhile } = yield* setup
+      const { result } = JSON.parse((yield* x("task", "ask", "CEL-1", ...ASK, "--json")).out) as { result: { ask: Ask } }
+      const waiter = yield* start(["wait", "CEL-1", "--json"])
+      yield* stopServer
+      yield* waiter.wentAway
+      const hook = yield* meanwhile(({ human, stop }) => Effect.andThen(human["ask.answer"](answer(result.ask)), stop))
+      expect(count(hook.out, "Picked: Peek")).toBe(1)
+      yield* restart
+      const json = JSON.parse((yield* Fiber.join(waiter.fiber)).out)
+      expect(json).toMatchObject({ ask: { id: result.ask.id, state: "answered" }, alreadyDelivered: { via: "hook", at: expect.any(Number) } })
+      expect(json.ask).not.toHaveProperty("alreadyDelivered")
     }).pipe(Effect.scoped))
 
   it.live("an ask withdrawn while it was reconnecting is reported as withdrawn", () =>

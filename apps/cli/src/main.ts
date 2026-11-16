@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect"
 import { CliEnv, run } from "./cli.ts"
 import type { CliBuild } from "./env.ts"
 import { systemOpener } from "./open.ts"
+import { selfCommand } from "./service.ts"
 
 export const main = (web: () => WebFiles.WebFiles | undefined, build: CliBuild) =>
   run(process.argv.slice(2)).pipe(
@@ -19,6 +20,7 @@ export const main = (web: () => WebFiles.WebFiles | undefined, build: CliBuild) 
       web,
       open: systemOpener(process.platform),
       build,
+      self: selfCommand({ execPath: process.execPath, main: Bun.main }),
       exit: (code) => process.exit(code),
     }),
     // CliFailure carries the sentence to print; parse errors were already shown with the help text.

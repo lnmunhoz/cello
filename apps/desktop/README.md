@@ -51,11 +51,22 @@ Electron's Node can't run the Bun server, so the app uses the `cello` binary as 
 (`src/server/`):
 
 1. If a live server holds the data folder's `server.lock`, or anything answers on `CELLO_PORT`,
-   the app joins it and leaves it alone on quit.
-2. Otherwise it runs `cello start` (with `CELLO_PORT` and `CELLO_DATA_DIR`), waits for its
+   the app joins it and leaves it alone on quit. That includes the background service
+   (`cello service install`, CEL-81).
+2. If the background service is installed for the data folder but nothing answers, it asks
+   launchd to start it (`launchctl kickstart`) and waits; it never starts a server beside it. If the
+   service doesn't come up (a stale plist), it starts its own server and the app menu says why.
+3. Otherwise it runs `cello start` (with `CELLO_PORT` and `CELLO_DATA_DIR`), waits for its
    "Cello is running at …" line, and loads the board from it.
-3. On quit it closes the window, then stops that server (SIGTERM, SIGKILL after 5 s), but only
-   one it started. It never starts a second server for a data folder a live one holds.
+4. On quit, only for a server it started (`src/server/quit.ts`), the first time it asks: **Keep
+   Running** (it stops its child, whose output is piped to the app, and starts a detached
+   `cello start` logging to `<data folder>/logs/server.log`; if that one doesn't answer, it says so,
+   stays open and starts its own server again), **Stop Server** (SIGTERM, SIGKILL
+   after 5 s), or **Install Background Service** (stops its child, then `cello service install`
+   with the `cello` in `CELLO_BIN`, `~/.local/bin` or the app). Keep and Stop are remembered in
+   `server-on-quit.json` in the app's user data folder; delete it to be asked again.
+5. The app menu's status line says who runs the server: "Server: background service (pid …)",
+   "Server: started by this app (pid …)" or "Server: started outside the app (pid …)".
 
 | Variable | Default | |
 | --- | --- | --- |
@@ -167,7 +178,7 @@ started with. So the app checks its own build too, each time its window takes fo
 - **"Cello is running from a build folder · Restart from Applications"** when the packaged app runs
   from a copy other than `/Applications/Cello.app` while that one exists.
 
-**Restart** quits the app (stopping a server it started, as on any quit) and starts it again: the same
+**Restart** quits the app (stopping a server it started, without the quit question) and starts it again: the same
 executable with its launch arguments, or `/Applications/Cello.app` when it ran from another copy. It
 checks again first, and while that executable isn't on disk (an install halfway through) it does
 nothing and the notice stays. **×** hides the notice until the next build, or until the board reloads. Dev (`bun run dev`) gets the "updated" notice after a rebuild,

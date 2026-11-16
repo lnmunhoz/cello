@@ -96,9 +96,22 @@ const GROUPS: ReadonlyArray<{ id: AgentGroupId; label: string }> = [
 /** Waiting on Lucas when its task is in Needs input, quiet once it has gone quiet, else working. */
 export const groupOf = (row: AgentRow): AgentGroupId => (row.mark.mood === "waiting" ? "waiting" : row.presence === "idle" ? "quiet" : "working")
 
+const RANK: Record<AgentGroupId, number> = { waiting: 0, working: 1, quiet: 2 }
+
+/**
+ * Where a row is placed: with its session, so subagents always sit under it (CEL-104: quiet subagents
+ * used to drop to Quiet on their own, away from the session that counts them). A session and its
+ * subagents go to the most pressing group among them: one waiting on Lucas brings the family to Waiting.
+ */
+const placeOf = (row: AgentRow, rows: ReadonlyArray<AgentRow>): AgentGroupId =>
+  rows
+    .filter((r) => r.session.id === row.session.id)
+    .map(groupOf)
+    .reduce((best, g) => (RANK[g] < RANK[best] ? g : best), groupOf(row))
+
 /** The rows in their groups, waiting on Lucas first (like the Review page's Needs your input), empty groups left out. */
 export const agentGroups = (rows: ReadonlyArray<AgentRow>): AgentGroup[] =>
-  GROUPS.map((g) => ({ ...g, rows: rows.filter((r) => groupOf(r) === g.id) })).filter((g) => g.rows.length > 0)
+  GROUPS.map((g) => ({ ...g, rows: rows.filter((r) => placeOf(r, rows) === g.id) })).filter((g) => g.rows.length > 0)
 
 /** The rows' ids in the order the page shows them: what ↑ ↓ and j k walk. */
 export const rowKeysOf = (groups: ReadonlyArray<AgentGroup>): string[] => groups.flatMap((g) => g.rows.map((r) => r.id))
@@ -115,3 +128,16 @@ export const waitingTaskOf = (
     const status = statuses[t.statusId]
     return status !== undefined && isNeedsInputStatus(status)
   })
+
+/**
+ * The task whose state a row shows on its right: the one waiting on Lucas, else the first it's on.
+ * An orchestrator shows one too, like any session (CEL-104): it used to show none on the grounds that
+ * its subagent rows show theirs, which left it blank once they went quiet or had no row.
+ */
+export const stateTaskOf = (
+  row: AgentRow,
+  statuses: Readonly<Record<string, { readonly name: string; readonly category: string }>>,
+): Task | undefined => waitingTaskOf(row, statuses) ?? row.tasks[0]
+
+/** "1 subagent", "3 subagents". */
+export const subagentsLabel = (n: number): string => `${n} ${n === 1 ? "subagent" : "subagents"}`

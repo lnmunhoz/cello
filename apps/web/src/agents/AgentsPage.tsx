@@ -15,7 +15,7 @@ import { AgentMarkOf, presenceSubjectOf, StageWord } from "../presence/Presence.
 import { useNow } from "../presence/useNow.ts"
 import { QueueRow, type QueueRowState } from "../review/QueueRow.tsx"
 import { useQueue } from "../review/useQueue.ts"
-import { type AgentRow, agentGroups, agentRows, directTasks, groupOf, rowKeysOf, waitingTaskOf } from "./layout.ts"
+import { type AgentRow, agentGroups, agentRows, directTasks, groupOf, rowKeysOf, stateTaskOf, subagentsLabel, waitingTaskOf } from "./layout.ts"
 
 /**
  * The Agents page (CEL-65), opened from the sidebar's "Agents working": every agent session and subagent
@@ -72,8 +72,8 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                   </h2>
                   <ul aria-label={group.label} className="flex flex-col gap-2">
                     {group.rows.map((row) => (
-                      // A subagent sits under its session when they're in the same group.
-                      <li key={row.id} className={row.kind === "agent" && group.rows.some((r) => r.id === `session:${row.session.id}`) ? "pl-6" : undefined}>
+                      // A subagent sits under its session, always in the same group (CEL-104).
+                      <li key={row.id} className={row.kind === "agent" ? "pl-6" : undefined}>
                         <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
                       </li>
                     ))}
@@ -124,7 +124,7 @@ function AgentQueueRow({ board, row, rows, ...state }: QueueRowState & { board: 
         <>
           <span className="truncate font-semibold text-ink">{row.kind === "agent" ? row.who.name : row.who.short}</span>
           {row.kind === "session" ? (
-            <span className="shrink-0 text-muted">{row.role === "orchestrator" ? `orchestrator · ${row.subagents} subagents` : "session"}</span>
+            <span className="shrink-0 text-muted">{row.role === "orchestrator" ? `orchestrator · ${subagentsLabel(row.subagents)}` : "session"}</span>
           ) : row.who.parentShort ? (
             <span className="shrink-0 text-faint">under {row.who.parentShort}</span>
           ) : null}
@@ -146,8 +146,7 @@ function AgentQueueRow({ board, row, rows, ...state }: QueueRowState & { board: 
           ) : null}
         </>
       }
-      // An orchestrator's tasks each have their own row; it shows a state only while it waits on Lucas.
-      badge={waitingOn ? <TaskState board={board} task={waitingOn} /> : row.role === "orchestrator" ? null : <TaskState board={board} task={first} />}
+      badge={<TaskState board={board} task={stateTaskOf(row, board.statuses)} />}
     >
       <div className="grid gap-5 packet-wide:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
         <div className="flex min-w-0 flex-col gap-4">

@@ -40,6 +40,8 @@ export const cello = (options: {
    * anything on the machine it runs on.
    */
   readonly open?: (link: string) => Promise<void>
+  /** The command this `cello` runs as (`cello service install` writes it into the plist). */
+  readonly self?: ReadonlyArray<string>
 }) =>
   (...args: string[]): Effect.Effect<Output> =>
     Effect.gen(function* () {
@@ -61,6 +63,7 @@ export const cello = (options: {
           web: () => undefined,
           open: options.open ?? (() => Promise.reject(new Error("tests don't open links"))),
           ...(options.build ? { build: options.build } : {}),
+          ...(options.self ? { self: options.self } : {}),
         }),
         Effect.provideService(Console.Console, console),
         Effect.provide(BunServices.layer),
@@ -106,3 +109,47 @@ export const installSetup = Effect.gen(function* () {
   const run = (cwd: string, PATH = bin, env: Env = {}) => cello({ port: 1, env: { HOME: home, PATH, ...env }, cwd })
   return { dir, repo, home, run }
 })
+
+// ── `cello start` as its own process ───────────────────────────────────────────────────────────
+
+
+/** Runs `cello start` as its own process; it's killed (by its pid) when the scope closes. */
+export const spawnStart = (env: Record<string, string>) =>
+  Effect.acquireRelease(
+    Effect.sync(() =>
+      Bun.spawn([process.execPath, BIN, "start"], {
+        env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", ...env },
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+    ),
+    (proc) => Effect.promise(async () => {
+      if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL")
+      await proc.exited
+    }),
+  )
+
+/** Reads a stream until `pattern` matches what has arrived so far. */
+export const readUntil = (stream: ReadableStream<Uint8Array>, pattern: RegExp) =>
+  Effect.promise(async () => {
+    const reader = stream.getReader()
+    const decoder = new TextDecoder()
+    let text = ""
+    while (!pattern.test(text)) {
+      const { value, done } = await reader.read()
+      if (done) break
+      text += decoder.decode(value)
+    }
+    reader.releaseLock()
+    return text
+  })
+
+export const RUNNING = /Cello is running at http:\/\/127\.0\.0\.1:(\d+) .*\n/
+
+/** Starts `cello start` (daily backup on, as in production) and waits for its banner. */
+export const startProcess = (dataDir: string, env: Record<string, string> = {}) =>
+  Effect.gen(function* () {
+    const proc = yield* spawnStart({ CELLO_DATA_DIR: dataDir, CELLO_PORT: "0", ...env })
+    const banner = yield* readUntil(proc.stdout, RUNNING)
+    return { proc, port: Number(RUNNING.exec(banner)![1]) }
+  })
