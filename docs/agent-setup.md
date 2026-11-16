@@ -59,11 +59,13 @@ cd "$CELLO_SRC"
 bun install
 bun run --filter @cello/cli build          # builds the web app and the cello binary: apps/cli/dist/cello
 
-mkdir -p "$HOME/.local/bin"
-ln -sf "$CELLO_SRC/apps/cli/dist/cello" "$HOME/.local/bin/cello"
+CELLO_BIN="${CELLO_BIN_DIR:-$HOME/.local/bin}"
+mkdir -p "$CELLO_BIN"
+ln -sf "$CELLO_SRC/apps/cli/dist/cello" "$CELLO_BIN/cello"
 ```
 
-- If `~/.local/bin` isn't on the PATH, use the full path (`~/.local/bin/cello`) for the rest of the setup, and tell the person to add it to their shell profile. Ask before editing their profile yourself.
+- If that folder isn't on the PATH, use the full path (`$CELLO_BIN/cello`) for the rest of the setup, and tell the person to add it to their shell profile. Ask before editing their profile yourself.
+- `CELLO_BIN_DIR`, `XDG_DATA_HOME` and `XDG_STATE_HOME` move where Cello's command, source and log go. Respect them when they're set (a test run sets them to keep a machine's real Cello untouched).
 - `bun install` downloads the desktop app's Electron too, so the first run takes a few minutes. That's normal.
 - Check: `cello --version` prints a version.
 
