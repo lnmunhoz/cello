@@ -179,7 +179,8 @@ export const ALLOW_ARTIFACTS_VARIABLE = "CELLO_ALLOW_ARTIFACTS"
 /** What the agent reads when its publish is turned away: what to do instead. */
 export const ARTIFACT_DENY_REASON =
   "This project uses Cello. Show it as a Cello page: `cello doc publish page.md --task KEY-n` (images inline, videos with --asset), " +
-  "then open it in Cello's panel: open \"cello://open?url=<url-encoded page link>\". " +
+  "then open it in Cello's panel with `cello open <slug>`. " +
+  "In your reply, link the page with the cello:// link those commands print, never its http address: an http link opens Claude's own browser, not Cello. " +
   "Claude artifacts are only for when Lucas asks for one by name; if he did, tell him this project's Cello hook stopped it " +
   `(he can allow them by starting Claude Code with ${ALLOW_ARTIFACTS_VARIABLE}=1).`
 

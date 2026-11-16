@@ -107,9 +107,9 @@ test("CEL-13: an agent publishes a report with an image and a Mermaid diagram th
   const file = path.join(dir, "report.md")
   fs.writeFileSync(file, report("Two invoices were charged twice in April."))
   const published = cello("doc", "publish", file, "--project", key, "--task", `${key}-1`)
-  expect(published).toBe(
-    `Published page "Billing audit" (version 1), linked to ${key}-1, with 1 file\nhttp://127.0.0.1:${SERVER_PORT}/${key}/pages/billing-audit`,
-  )
+  const pageUrl = `http://127.0.0.1:${SERVER_PORT}/${key}/pages/billing-audit`
+  const replyLine = `Link in replies (opens in Cello): cello://open?url=${encodeURIComponent(pageUrl)}`
+  expect(published).toBe(`Published page "Billing audit" (version 1), linked to ${key}-1, with 1 file\n${pageUrl}\n${replyLine}`)
 
   await caption(page, "It shows up in the Docs tab")
   await page.getByRole("link", { name: "Docs", exact: true }).click()
@@ -161,7 +161,7 @@ test("CEL-13: an agent publishes a report with an image and a Mermaid diagram th
   await page.evaluate(() => Object.assign(window, { stillTheSamePage: true }))
   fs.writeFileSync(file, report("Three invoices were charged twice, in April and May.", "\n## Refunds\n\nRefunded both on May 12."))
   expect(cello("doc", "publish", file, "--project", key)).toBe(
-    `Updated page "Billing audit" to version 2, linked to ${key}-1, with 1 file\nhttp://127.0.0.1:${SERVER_PORT}/${key}/pages/billing-audit`,
+    `Updated page "Billing audit" to version 2, linked to ${key}-1, with 1 file\n${pageUrl}\n${replyLine}`,
   )
   await expect(article).toContainText("Three invoices were charged twice")
   await expect(article.getByRole("status")).toContainText("Updated to version 2 by Claude Code")

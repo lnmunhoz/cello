@@ -31,6 +31,7 @@ import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { isAlive } from "@cello/server/process/isAlive"
 import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
 import { ACCEPTED } from "@cello/shared/attachment"
+import { celloOpenLink } from "@cello/shared/celloLink"
 import { pagePath } from "@cello/shared/document"
 import { formatBytes } from "@cello/shared/bytes"
 import { colorFromSeed } from "@cello/shared/color"
@@ -105,6 +106,7 @@ import {
   WAITING,
 } from "./inboxWait.ts"
 import { groupWord, labelArgs, labelListText, labelNames, parseChanges, parseGroup, resolveChanges } from "./labels.ts"
+import { openTarget } from "./open.ts"
 import { pageFiles } from "./pageFiles.ts"
 import { kindsOf, searchText } from "./search.ts"
 import { checkoutRootFor, repoRootFor } from "./repo.ts"
@@ -1102,6 +1104,12 @@ const kindOf = (value: Option.Option<string>) => {
 /** Where the reader shows a document: the web app `cello start` serves on the same port. */
 const pageUrl = (env: Env, projectKey: string, slug: string) => `http://127.0.0.1:${portOf(env)}${pagePath(projectKey, slug)}`
 
+/**
+ * The line that hands an agent the link for its reply (CEL-88): in Claude's app an http link opens
+ * Claude's own browser, a cello:// one opens Cello.
+ */
+const replyLine = (link: string) => `Link in replies (opens in Cello): ${link}`
+
 const readFile = (file: string) =>
   Effect.tryPromise({ try: () => Bun.file(file).text(), catch: () => new CliFailure({ message: `Can't read ${file}.` }) })
 
@@ -1153,17 +1161,21 @@ const docPublish = Command.make("publish", {
     )
     const doc = response.result
     const url = pageUrl(env, found?.key ?? ref.key?.toUpperCase() ?? "", doc.slug)
-    if (input.json) return yield* printJson({ ...response, url })
+    const link = celloOpenLink(url)
+    if (input.json) return yield* printJson({ ...response, url, link })
     const what = `${doc.kind} "${doc.title}"`
-    if (response.seq === null) return yield* print(`No changes: ${what} is still version ${doc.version}\n${url}`)
+    const where = `${url}\n${replyLine(link)}`
+    if (response.seq === null) return yield* print(`No changes: ${what} is still version ${doc.version}\n${where}`)
     const fresh = doc.version === 1 && doc.createdAt === doc.updatedAt
     const details = [
       ...(doc.tasks.length ? [`linked to ${doc.tasks.map((t) => t.key).join(", ")}`] : []),
       ...(files.length ? [`with ${plural(files.length, "file")}`] : []),
     ]
     const head = fresh ? `Published ${what} (version 1)` : `Updated ${what} to version ${doc.version}`
-    yield* print(`${[head, ...details].join(", ")}\n${url}`)
-  })).pipe(Command.withDescription("Publish a markdown report, plan or summary as a page in Cello and print its URL."))
+    yield* print(`${[head, ...details].join(", ")}\n${where}`)
+  })).pipe(Command.withDescription(
+    "Publish a markdown report, plan or summary as a page in Cello and print its URL, and the cello:// link to put in replies.",
+  ))
 
 const docList = Command.make("list", { project, json, kind: kindFlag }, (input) =>
   Effect.gen(function* () {
@@ -1218,6 +1230,59 @@ const doc = Command.make("doc").pipe(
   Command.withDescription("Pages, docs and specs: publish, list, get, archive."),
   Command.withSubcommands([docPublish, docList, docGet, docArchive]),
 )
+
+// ── open (CEL-88) ───────────────────────────────────────────────────────────────────────────────
+
+const openCommand = Command.make("open", {
+  target: Argument.String("target").pipe(
+    Argument.withDescription("A page's slug (billing-audit), its address (http://127.0.0.1:4747/CEL/pages/billing-audit), or a task key (CEL-12)."),
+  ),
+  project,
+  json,
+  print: Flag.Boolean("print").pipe(Flag.withDefault(false), Flag.withDescription("Print the link without opening it.")),
+}, (input) =>
+  Effect.gen(function* () {
+    const { env, open } = yield* CliEnv
+    const target = openTarget(input.target)
+    if (target === null) {
+      return yield* new CliFailure({
+        message: `Can't open "${input.target}": give a page's address, its slug (billing-audit) or a task key (CEL-12).`,
+      })
+    }
+    // A slug is looked up first, so a typo fails here instead of opening a page that isn't there.
+    const { link, name, url } = target.kind === "task"
+      ? { link: target.link, name: target.key, url: null }
+      : target.kind === "page"
+      ? { link: target.link, name: target.url, url: target.url }
+      : yield* Effect.gen(function* () {
+        const ref = yield* projectRef(input.project)
+        const projectKey = yield* withClient((client) =>
+          Effect.gen(function* () {
+            yield* client["document.get"]({ project: ref, slug: target.slug })
+            return (yield* client["whoami"]({ project: ref })).project?.key ?? ref.key?.toUpperCase() ?? ""
+          })
+        )
+        const url = pageUrl(env, projectKey, target.slug)
+        return { link: celloOpenLink(url), name: url, url }
+      })
+    if (!input.print) {
+      yield* Effect.tryPromise({
+        try: () => open(link),
+        catch: (error) => new CliFailure({
+          message: [
+            `Couldn't open it in Cello: ${error instanceof Error ? error.message : String(error)}`,
+            "Is Cello's desktop app installed? The link, for your reply, is still:",
+            link,
+          ].join("\n"),
+        }),
+      })
+    }
+    if (input.json) return yield* printJson({ link, url, opened: !input.print })
+    if (input.print) return yield* print(link)
+    yield* print(`Opened ${name} in Cello.\n${replyLine(link)}`)
+  })).pipe(Command.withDescription(
+    "Open a page or a task in Cello's desktop app, and print its cello:// link: the link to put in replies, never the http one.",
+  ))
 
 // ── search (CEL-11) ─────────────────────────────────────────────────────────────────────────────
 
@@ -2052,7 +2117,7 @@ const startCommand = Command.make("start", {}, () => start).pipe(
 
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, init, task, label, waitCommand, inbox, doc, searchCommand, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand, buildsCommand]),
+  Command.withSubcommands([context, init, task, label, waitCommand, inbox, doc, openCommand, searchCommand, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand, buildsCommand]),
 )
 
 /**

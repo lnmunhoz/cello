@@ -1,26 +1,24 @@
 // `cello://` links: `cello://CEL-3` opens that task on the board, `cello://open?url=<encoded>` opens
 // a page: one on the board in the board's side panel, another site in the browser panel. macOS hands
-// them to `open-url`; a second launch passes them in argv.
-import { parseTaskKey, taskPath } from "@cello/shared/taskKey"
+// them to `open-url`; a second launch passes them in argv. The link format is shared with the CLI,
+// which makes them (@cello/shared/celloLink, CEL-88); this file decides what the app lets them open.
+import { CELLO_SCHEME, parseCelloLink as parseLinkTarget } from "@cello/shared/celloLink"
+import { taskPath } from "@cello/shared/taskKey"
 import { panelUrl } from "../panel/urls.ts"
 
-export const SCHEME = "cello"
+export const SCHEME = CELLO_SCHEME
 
 export type CelloLink =
   | { readonly kind: "task"; readonly path: string }
   | { readonly kind: "panel"; readonly url: string }
 
+/** A link the app follows: a task, or a web page (http or https) for a panel. Anything else is null. */
 export const parseCelloLink = (raw: string): CelloLink | null => {
-  const link = URL.parse(raw.trim())
-  if (!link || link.protocol.toLowerCase() !== `${SCHEME}:`) return null
-  // `cello://CEL-3` has the key as its host; `cello:CEL-3` as its path.
-  const target = (link.host || link.pathname).replace(/^\/+|\/+$/g, "")
-  if (target.toLowerCase() === "open") {
-    const url = panelUrl(link.searchParams.get("url") ?? "")
-    return url ? { kind: "panel", url } : null
-  }
-  const key = parseTaskKey(target)
-  return key ? { kind: "task", path: taskPath(key.projectKey, key.number) } : null
+  const target = parseLinkTarget(raw)
+  if (target === null) return null
+  if (target.kind === "task") return { kind: "task", path: taskPath(target.projectKey, target.number) }
+  const url = panelUrl(target.url)
+  return url ? { kind: "panel", url } : null
 }
 
 /**
