@@ -8,7 +8,7 @@ import type { Browser, Page } from "@playwright/test"
 import { caption, card, expect, newCommandId, seedLabels, seedProject, taskPanel, test, uniqueKey } from "./fixtures.ts"
 import { cello, SHOTS, WEB_URL } from "./packets.ts"
 
-const milestonePicker = (page: Page, key: string) => taskPanel(page, key).getByRole("combobox", { name: "Milestone" })
+const milestonePicker = (page: Page, key: string) => taskPanel(page, key).getByRole("combobox", { name: "Milestone", exact: true })
 const chipOf = (page: Page, key: string) => card(page, key).locator("[data-card-milestone]")
 
 /** The board with the task open and its Milestone picker open, then the card's chip, in light and dark, in unrecorded windows. */

@@ -6,20 +6,20 @@ import { projectByKey, taskByKey } from "@cello/client/sync/selectors"
 import type { Project, Task } from "@cello/contract/entities"
 import { stageStatus } from "@cello/shared/review"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { ChevronRightIcon, EyeOffIcon, PlusIcon } from "lucide-react"
+import { EyeOffIcon, PlusIcon } from "lucide-react"
 import { useRef, useState, type KeyboardEvent } from "react"
 import { Centered } from "../app/Home.tsx"
 import { InlineCreate } from "../board/InlineCreate.tsx"
 import { inLaneOrder, taskLane } from "../board/lanes.ts"
 import { useStageLanes } from "../board/useStageLanes.ts"
 import { Button } from "../components/ui/Button.tsx"
-import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { useOrdering } from "../issues/useOrdering.ts"
 import { type Filtered, useFiltered } from "../issues/useFilter.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { useNow } from "../presence/useNow.ts"
 import { useTaskPlacement } from "../task/TaskPanel.tsx"
 import { behindTask } from "../task/view.ts"
+import { GroupHeading } from "./GroupHeading.tsx"
 import { ListRow } from "./ListRow.tsx"
 import { isCollapsed, keyChars, nextRow, rowOrder } from "./rows.ts"
 
@@ -105,52 +105,32 @@ function TaskList({
         const folded = collapsed(group)
         return (
           <section key={status.id} data-group={status.name} data-ordering={ordering} aria-labelledby={`group-${status.id}`} className="pb-1">
-            <header className="sticky top-0 z-10 bg-surface">
-              {/* A band a step off the page: recessed in light, raised in dark (as in Linear's list). */}
-              <div className="flex h-9 items-center gap-2 rounded-md bg-sunken pr-1 pl-1 dark:bg-raised">
-                <h2 id={`group-${status.id}`} className="flex min-w-0">
-                  <button
-                    type="button"
-                    aria-expanded={!folded}
-                    onClick={() => setChosen({ ...chosen, [status.id]: !folded })}
-                    className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-[13px] font-medium text-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <ChevronRightIcon
-                      aria-hidden
-                      className={`size-3 shrink-0 text-faint transition-transform duration-150 motion-reduce:transition-none ${folded ? "" : "rotate-90"}`}
-                    />
-                    <StatusIcon category={status.category} color={status.color} />
-                    <span className="truncate">{status.name}</span>
-                  </button>
-                </h2>
-                <span
-                  className="text-[13px] tabular-nums text-muted"
-                  aria-label={filtered.active ? `${tasks.length} of ${totals[status.id]?.length ?? 0} tasks` : `${tasks.length} tasks`}
-                  data-group-count
+            <GroupHeading
+              status={status}
+              folded={folded}
+              onToggle={() => setChosen({ ...chosen, [status.id]: !folded })}
+              count={tasks.length}
+              {...(filtered.active ? { total: totals[status.id]?.length ?? 0 } : {})}
+            >
+              {status.hidden ? (
+                <span title="Hidden on the board" className="flex text-faint">
+                  <EyeOffIcon aria-label="Hidden status" className="size-3.5" />
+                </span>
+              ) : null}
+              <span className="ml-auto flex items-center">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`New task in ${status.name}`}
+                  onClick={() => {
+                    setChosen({ ...chosen, [status.id]: false })
+                    setComposing(status.id)
+                  }}
                 >
-                  {tasks.length}
-                  {filtered.active ? <span className="text-faint"> / {totals[status.id]?.length ?? 0}</span> : null}
-                </span>
-                {status.hidden ? (
-                  <span title="Hidden on the board" className="flex text-faint">
-                    <EyeOffIcon aria-label="Hidden status" className="size-3.5" />
-                  </span>
-                ) : null}
-                <span className="ml-auto flex items-center">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`New task in ${status.name}`}
-                    onClick={() => {
-                      setChosen({ ...chosen, [status.id]: false })
-                      setComposing(status.id)
-                    }}
-                  >
-                    <PlusIcon className="size-3.5" />
-                  </Button>
-                </span>
-              </div>
-            </header>
+                  <PlusIcon className="size-3.5" />
+                </Button>
+              </span>
+            </GroupHeading>
             {composing === status.id ? (
               <div className="py-1.5 pr-2 pl-8">
                 <InlineCreate project={project} status={status} tasks={totals[status.id] ?? tasks} onDone={() => setComposing(null)} />

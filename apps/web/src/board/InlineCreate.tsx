@@ -10,7 +10,14 @@ import { commands } from "../lib/cello.ts"
  * tasks keep the order you typed them in (a sorted ordering shows it where it sorts: Newest first at
  * the top). Stays open for the next one; Escape closes.
  */
-export function InlineCreate({ project, status, tasks, onDone }: { project: Project; status: Status; tasks: ReadonlyArray<Task>; onDone: () => void }) {
+export function InlineCreate({ project, status, tasks, milestoneId, onDone }: {
+  project: Project
+  status: Status
+  tasks: ReadonlyArray<Task>
+  /** A milestone swimlane's column (CEL-132): the task is made in that milestone. */
+  milestoneId?: string | null
+  onDone: () => void
+}) {
   const [title, setTitle] = useState("")
   const create = useAtomSet(commands.createTask)
   return (
@@ -30,7 +37,7 @@ export function InlineCreate({ project, status, tasks, onDone }: { project: Proj
           onDone()
         } else if (e.key === "Enter" && title.trim() !== "") {
           e.preventDefault()
-          create({ projectId: project.id, title: title.trim(), statusId: status.id, ...placementAtEnd(tasks) })
+          create({ projectId: project.id, title: title.trim(), statusId: status.id, ...placementAtEnd(tasks), ...(milestoneId ? { milestoneId } : {}) })
           setTitle("")
         }
       }}

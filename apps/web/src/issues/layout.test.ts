@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { layoutOf, orderingKey, orderingOf, orderSearch, parseIssuesSearch, searchFor } from "./layout.ts"
+import { groupingOf, groupSearch, layoutOf, orderingKey, orderingOf, orderSearch, parseIssuesSearch, searchFor } from "./layout.ts"
 
 describe("issues layout in the URL", () => {
   it("reads ?layout=list, and anything else as the board", () => {
@@ -20,6 +20,17 @@ describe("issues layout in the URL", () => {
       who: "agent",
       q: "drag",
     })
+  })
+
+  it("reads ?group=milestone (CEL-132), the board's swimlanes by milestone; status is the default and has no param", () => {
+    expect(parseIssuesSearch({ group: "milestone" })).toEqual({ group: "milestone" })
+    expect(parseIssuesSearch({ group: "status" })).toEqual({})
+    expect(parseIssuesSearch({ group: "label" })).toEqual({})
+    expect(groupingOf({ group: "milestone" })).toBe("milestone")
+    expect(groupingOf({ group: "milestone", layout: "list" })).toBe("status")
+    expect(groupingOf({})).toBe("status")
+    expect(groupSearch("status")).toEqual({ group: undefined })
+    expect(groupSearch("milestone")).toEqual({ group: "milestone" })
   })
 
   it("names the layout a search shows", () => {

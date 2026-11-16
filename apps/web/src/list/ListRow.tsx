@@ -3,7 +3,7 @@ import { labelsOf, parentOf } from "@cello/client/sync/list"
 import type { Project, Task } from "@cello/contract/entities"
 import { Link } from "@tanstack/react-router"
 import { CalendarIcon, ChevronRightIcon } from "lucide-react"
-import type { KeyboardEvent } from "react"
+import type { KeyboardEvent, ReactNode } from "react"
 import { Chip } from "../components/ui/Chip.tsx"
 import { PriorityIcon } from "../components/ui/PriorityIcon.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
@@ -32,6 +32,10 @@ export interface ListRowProps {
   readonly tabbable: boolean
   /** In Progress grouped by stage (CEL-35): a stage column before the title, instead of the word at the right. */
   readonly stageColumn?: boolean
+  /** A milestone's page (CEL-132): the task opens beside that page instead of the Issues tab. `none` is No milestone's. */
+  readonly milestoneId?: string
+  /** Said after the title, such as "reopened after M3 closed" (CEL-132). */
+  readonly note?: ReactNode
   readonly onFocus: () => void
   readonly onKeyDown: (event: KeyboardEvent<HTMLElement>) => void
 }
@@ -40,8 +44,8 @@ export interface ListRowProps {
  * One task in the list, after Linear's: priority, key, status, title › parent, who's on it and its
  * stage, labels, due date, and who created it (the whole provenance on hover).
  */
-export function ListRow({ task, board, project, keyChars, current, tabbable, stageColumn = false, onFocus, onKeyDown }: ListRowProps) {
-  const body = <RowBody task={task} board={board} keyChars={keyChars} stageColumn={stageColumn} />
+export function ListRow({ task, board, project, keyChars, current, tabbable, stageColumn = false, milestoneId, note, onFocus, onKeyDown }: ListRowProps) {
+  const body = <RowBody task={task} board={board} keyChars={keyChars} stageColumn={stageColumn} note={note} />
   // A task still being created has no number to open yet.
   if (task.number === 0) {
     return (
@@ -50,10 +54,12 @@ export function ListRow({ task, board, project, keyChars, current, tabbable, sta
       </div>
     )
   }
+  const link = milestoneId === undefined
+    ? { to: "/$projectKey/$number" as const, params: { projectKey: project.key, number: String(task.number) } }
+    : { to: "/$projectKey/milestones/$milestoneId/$number" as const, params: { projectKey: project.key, milestoneId, number: String(task.number) } }
   return (
     <Link
-      to="/$projectKey/$number"
-      params={{ projectKey: project.key, number: String(task.number) }}
+      {...link}
       data-task-key={task.key}
       data-row-id={task.id}
       tabIndex={tabbable ? 0 : -1}
@@ -67,7 +73,7 @@ export function ListRow({ task, board, project, keyChars, current, tabbable, sta
   )
 }
 
-function RowBody({ task, board, keyChars, stageColumn }: { task: Task; board: BoardState; keyChars: number; stageColumn: boolean }) {
+function RowBody({ task, board, keyChars, stageColumn, note }: { task: Task; board: BoardState; keyChars: number; stageColumn: boolean; note: ReactNode }) {
   const status = board.statuses[task.statusId]
   const parent = parentOf(board, task)
   const labels = labelsOf(board, task)
@@ -94,6 +100,7 @@ function RowBody({ task, board, keyChars, stageColumn }: { task: Task; board: Bo
             </span>
           </>
         ) : null}
+        {note}
       </span>
       <RowWork task={task} board={board} stage={!stageColumn} />
       <span className="flex shrink-0 items-center gap-1.5">

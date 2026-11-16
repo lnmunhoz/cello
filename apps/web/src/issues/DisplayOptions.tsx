@@ -9,18 +9,21 @@ import { showAgentCursors, useAgentCursorsShown } from "../board/cursors/setting
 import { showCardMilestone, useCardMilestone } from "../board/cardMilestone.ts"
 import { showNeedsInputColumn, useNeedsInputColumn } from "../board/needsInputColumn.ts"
 import { showStageLanes, useStageLanes } from "../board/useStageLanes.ts"
-import { layoutOf, searchFor, type Layout } from "./layout.ts"
+import { groupingOf, groupSearch, layoutOf, searchFor, type Layout } from "./layout.ts"
 import { useOrdering } from "./useOrdering.ts"
 
 const orderingOptions = ORDERINGS.map((value) => ({ value, label: ORDERING_LABELS[value] }))
+const groupingOptions = [{ value: "status", label: "Status" }, { value: "milestone", label: "Milestone" }]
 
 /**
  * The Issues tab's Display popover, after Linear's display options: the List / Board switch, then
- * one row per view option: grouping (by status, the only one for now) and the order of cards in
+ * one row per view option: grouping (by status, or on the board by milestone too: CEL-132) and the order of cards in
  * each column or group. The button names the ordering when it isn't the manual drag order.
  */
 export function DisplayOptions() {
-  const layout = layoutOf(useSearch({ from: "/$projectKey" }))
+  const search = useSearch({ from: "/$projectKey" })
+  const layout = layoutOf(search)
+  const grouping = groupingOf(search)
   const navigate = useNavigate()
   const pickLayout = (next: Layout) => void navigate({ to: ".", search: (prev) => ({ ...prev, ...searchFor(next) }) })
   const { ordering, pick } = useOrdering()
@@ -47,7 +50,16 @@ export function DisplayOptions() {
           <dl className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 border-t border-line pt-2 text-[13px]">
             <dt className="text-muted">Grouping</dt>
             <dd>
-              <Select variant="chip" label="Grouping" value="status" options={[{ value: "status", label: "Status" }]} onValueChange={() => {}} />
+              {/* Milestone (CEL-132): swimlanes on the board; the list keeps its status groups. */}
+              <Select
+                variant="chip"
+                label="Grouping"
+                value={grouping}
+                options={layout === "board" ? groupingOptions : groupingOptions.slice(0, 1)}
+                onValueChange={(value) => {
+                  if (value === "status" || value === "milestone") void navigate({ to: ".", search: (prev) => ({ ...prev, ...groupSearch(value) }) })
+                }}
+              />
             </dd>
             <dt className="text-muted">Ordering</dt>
             <dd>

@@ -22,14 +22,16 @@ import { TASK_PANEL_WIDTH, TASK_PANEL_WIDTH_KEY } from "../task/view.ts"
  * one grid either way, so the panel stays mounted (drafts, scroll) when it moves.
  */
 export function ProjectLayout() {
-  const params = useParams({ strict: false }) as { projectKey: string; number?: string; slug?: string }
-  const { projectKey, slug } = params
+  const params = useParams({ strict: false }) as { projectKey: string; number?: string; slug?: string; milestoneId?: string }
+  const { projectKey, slug, milestoneId } = params
   // Only a number is a task; anything else there (`/CEL/demo.mp4`) is the router's Not found.
   const number = params.number !== undefined && /^\d+$/.test(params.number) ? params.number : undefined
   const board = useBoard()
   const workspaceId = useWorkspaceId()
   const embed = isEmbed(useSearch({ strict: false }))
-  const onIssues = useMatch({ from: "/$projectKey/issues", shouldThrow: false }) !== undefined || number !== undefined
+  // A task opened from a milestone's page (CEL-132) opens beside that page, not the Issues tab.
+  const taskOnIssues = number !== undefined && milestoneId === undefined
+  const onIssues = useMatch({ from: "/$projectKey/issues", shouldThrow: false }) !== undefined || taskOnIssues
   const placement = useTaskPlacement(number !== undefined)
   const [width, resize] = useStoredWidth(TASK_PANEL_WIDTH_KEY, TASK_PANEL_WIDTH)
   if (!board) return <Centered>Loading…</Centered>
@@ -57,8 +59,17 @@ export function ProjectLayout() {
   const document = slug ? documentBySlug(board, project.id, slug) : undefined
   const workspace = workspaceId ? board.workspaces[workspaceId] : undefined
 
+  const milestone = milestoneId && milestoneId !== "none" ? board.milestones[milestoneId] : undefined
+  const milestoneCrumbs: Crumb[] = milestoneId
+    ? [
+      { label: "Milestones", link: { to: "/$projectKey/milestones", params: { projectKey: project.key } } },
+      { label: milestoneId === "none" ? "No milestone" : (milestone?.name ?? "Milestone"), link: { to: "/$projectKey/milestones/$milestoneId", params: { projectKey: project.key, milestoneId } } },
+    ]
+    : []
   const last: Crumb[] = task
-    ? [{ label: <span><span className="text-muted">{task.key}</span> {task.title}</span> }]
+    ? [...milestoneCrumbs, { label: <span><span className="text-muted">{task.key}</span> {task.title}</span> }]
+    : milestoneId
+    ? milestoneCrumbs
     : slug
     ? [{ label: "Docs", link: { to: "/$projectKey/docs", params: { projectKey: project.key } } }, { label: document?.title ?? slug }]
     : []
@@ -86,8 +97,11 @@ export function ProjectLayout() {
         <TabLink to="/$projectKey/overview" params={{ projectKey: project.key }}>
           Overview
         </TabLink>
-        <TabLink to="/$projectKey/issues" params={{ projectKey: project.key }} forceActive={number !== undefined}>
+        <TabLink to="/$projectKey/issues" params={{ projectKey: project.key }} forceActive={taskOnIssues}>
           Issues
+        </TabLink>
+        <TabLink to="/$projectKey/milestones" params={{ projectKey: project.key }}>
+          Milestones
         </TabLink>
         <TabLink to="/$projectKey/docs" params={{ projectKey: project.key }} forceActive={slug !== undefined}>
           Docs
