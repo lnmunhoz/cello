@@ -11,7 +11,7 @@
 import type { ProfileField, ProfileSource, ProjectRef, TestingProfile } from "@cello/contract/entities"
 import { Invalid, NotFound, ProfileFieldLocked } from "@cello/contract/errors"
 import type { Caller, ProfileWrite } from "@cello/contract/rpcs"
-import { checkProfileValue, fieldOrder, profileFieldProblem } from "@cello/shared/testingProfile"
+import { checkProfileValue, compareFields, profileFieldProblem } from "@cello/shared/testingProfile"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -51,7 +51,7 @@ const toField = (r: FieldRow): ProfileField => ({
   sessionId: r.session_id,
 })
 
-const byOrder = (a: ProfileField, b: ProfileField) => fieldOrder(a.field) - fieldOrder(b.field) || a.field.localeCompare(b.field)
+const byOrder = (a: ProfileField, b: ProfileField) => compareFields(a.field, b.field)
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
@@ -125,7 +125,7 @@ const make = Effect.gen(function* () {
         if (changes.length > 0) {
           yield* emit({ type: "profile.changed", project: project.id, changes }, { workspaceId: project.workspaceId, projectId: project.id })
         }
-        const ordered = (fields: string[]) => fields.sort((a, b) => fieldOrder(a) - fieldOrder(b) || a.localeCompare(b))
+        const ordered = (fields: string[]) => fields.sort(compareFields)
         return { profile: { projectId: project.id, fields: yield* fieldsOf(project.id) }, written: ordered(written), kept: ordered(kept) }
       }))
   })
