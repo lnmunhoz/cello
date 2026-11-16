@@ -3,7 +3,9 @@
 // only place with the rules: the board's actions, `cello sessions wake` and later the chat all decide here.
 //
 // What wakes: Lucas's comment, his answers to an ask, a Send back, or his reaction, on a task the
-// session holds the claim on. Never a timer, another agent, or a board change.
+// session holds the claim on. A comment on a task nobody holds first gives it back to the session that
+// last held it, in its own command (CEL-110), so it wakes that session the same way. Never a timer,
+// another agent, or a board change.
 //
 // Batching: a wake is due BATCH (30 s) after Lucas's last action on the session's tasks, and each new
 // action restarts the wait, so three quick comments make one wake. A session whose process just went

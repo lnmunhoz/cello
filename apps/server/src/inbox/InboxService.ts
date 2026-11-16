@@ -1,9 +1,11 @@
 // Agent inboxes (CEL-15). A human comment on a task is delivered, inside the comment's command, to the
-// agent session holding the task's claim at that moment. A Send back note goes the same way, and when
+// agent session holding the task's claim at that moment. On a task nobody holds, the same command first
+// gives the task back to the session that last held it (TaskService.reopenWithin, CEL-110), so the
+// comment reaches that session, and its item says the comment reopened the task. A Send back note goes the same way, and when
 // a human change ended the claim during review, to the session that submitted the packet. Lucas's
 // answers to an ask (CEL-47) go to the claim holder too, else to the session that asked. Agents'
-// comments (their own or another session's) are never delivered, and nothing reaches a session after
-// its claim ends. `take` hands the new items over and marks them read in one statement, so each item
+// comments (their own or another session's) are never delivered, and nothing else reaches a session
+// after its claim ends. `take` hands the new items over and marks them read in one statement, so each item
 // reaches the session once, even when several hooks ask at the same time. Taking a comment (or a Send
 // back note) also writes `comment.delivered`, in the same transaction, so Lucas sees its receipt
 // (CEL-76); other items' read marks stay the session's own. `wait` (CEL-74) blocks until there is
@@ -39,6 +41,12 @@ export const EARLIER = 10
 
 /** The comment being added, as `deliverWithin` needs it (before it's read back). */
 export type NewlyAdded = Pick<Comment, "id" | "taskId" | "createdAt">
+
+/** The comment reopened its task for the session (CEL-110): the status names before and after. */
+export interface Reopened {
+  readonly from: string
+  readonly to: string
+}
 
 /** A claim the human just ended: the task, the session that held it, and what he did. */
 export interface ClaimEnded {
@@ -78,8 +86,15 @@ export class InboxService extends Context.Service<InboxService, {
    * For the command that adds a comment: delivers it, in that command's transaction, to whoever should
    * get it (see the top of this file). `send_back` is a review's note, added by the same command. Runs
    * before the command reads the comment back, so `comment.added` carries where it went (CEL-76).
+   * `reopened`: the same command just gave the task back to its last session (TaskService.reopenWithin),
+   * so the item says so (CEL-110).
    */
-  readonly deliverWithin: (context: Commands.WriteContext, comment: NewlyAdded, kind: "comment" | "send_back") => Effect.Effect<void, SqlError>
+  readonly deliverWithin: (
+    context: Commands.WriteContext,
+    comment: NewlyAdded,
+    kind: "comment" | "send_back",
+    reopened?: Reopened | null,
+  ) => Effect.Effect<void, SqlError>
   /**
    * For the command that answers an ask (CEL-47): delivers the answers, in that command's
    * transaction, to the session holding the task's claim, else to the session that asked.
@@ -135,13 +150,14 @@ const make = Effect.gen(function* () {
       return review?.session_id ?? null
     })
 
-  const deliverWithin = (context: Commands.WriteContext, comment: NewlyAdded, kind: "comment" | "send_back") =>
+  const deliverWithin = (context: Commands.WriteContext, comment: NewlyAdded, kind: "comment" | "send_back", reopened: Reopened | null = null) =>
     Effect.gen(function* () {
       if (context.caller.sessionId !== null) return
       const sessionId = yield* recipientOf(context, comment, kind)
       if (sessionId === null) return
-      yield* sql`INSERT INTO inbox_items (id, session_id, comment_id, task_id, kind, created_at)
-        VALUES (${newId(context.now)}, ${sessionId}, ${comment.id}, ${comment.taskId}, ${kind}, ${comment.createdAt})
+      yield* sql`INSERT INTO inbox_items (id, session_id, comment_id, task_id, kind, detail, reopened_from, created_at)
+        VALUES (${newId(context.now)}, ${sessionId}, ${comment.id}, ${comment.taskId}, ${kind}, ${reopened?.to ?? null},
+                ${reopened?.from ?? null}, ${comment.createdAt})
         ON CONFLICT (session_id, comment_id) DO NOTHING`
     }).pipe(Effect.withSpan("InboxService.deliverWithin"))
 

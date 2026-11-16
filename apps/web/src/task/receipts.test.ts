@@ -2,7 +2,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, Comment, Reaction, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { commentStatus, durationShort, reachOf, reachWords, receiptOf, receiptTitle, sentWords, statusCommentId, unsentTone } from "./receipts.ts"
+import { commentStatus, durationShort, reachOf, reachWords, receiptOf, receiptTitle, reopenOf, reopenWords, sentWords, statusCommentId, unsentTone } from "./receipts.ts"
 
 const MIN = 60_000
 const now = Date.UTC(2026, 10, 16, 12)
@@ -279,5 +279,41 @@ describe("commentStatus: what the row under Lucas's latest comment says", () => 
   it("an agent's comment has no row", () => {
     const own = comment("c", now - MIN, { actorId: "claude", sessionId: "s1" })
     expect(status(own, active)).toBeNull()
+  })
+})
+
+// CEL-110: the comment box says beforehand that a comment on a task nobody holds goes to the agent that
+// last worked on it, and reopens the task for it.
+describe("reopenOf and reopenWords: what a comment on a task nobody holds will do", () => {
+  const statuses = {
+    todo: { id: "todo", workspaceId: "w", name: "Todo", category: "unstarted", position: "a0", color: "#999", hidden: false, createdAt: 1, updatedAt: 1 },
+    prog: { id: "prog", workspaceId: "w", name: "In Progress", category: "started", position: "a1", color: "#f2c94c", hidden: false, createdAt: 1, updatedAt: 1 },
+    done: { id: "done", workspaceId: "w", name: "Done", category: "completed", position: "a3", color: "#4cb782", hidden: false, createdAt: 1, updatedAt: 1 },
+  } satisfies BoardState["statuses"]
+  const free = (extra: Partial<Task>) => task({ assigneeActorId: null, assigneeSessionId: null, stage: null, lastHolderSessionId: "7330433e-aaaa", ...extra })
+  const state = (t: Task) => ({ ...board([t], [session("7330433e-aaaa", { endedAt: now - 10 * MIN })]), statuses })
+
+  it("a Done task reopens and goes to the session that last held it, named as everywhere else", () => {
+    const t = free({ key: "CEL-94", statusId: "done" })
+    const r = reopenOf(state(t), t)
+    expect(r).toMatchObject({ reopens: true, who: { name: "Claude Code session 7330433e", short: "7330433e" } })
+    expect(reopenWords(t, r!)).toBe("Commenting reopens CEL-94 and sends it to Claude Code session 7330433e")
+  })
+
+  it("a released task still In Progress isn't reopened: the comment gives it back", () => {
+    const t = free({ key: "CEL-94", statusId: "prog" })
+    const r = reopenOf(state(t), t)!
+    expect(r.reopens).toBe(false)
+    expect(reopenWords(t, r)).toBe("Commenting gives CEL-94 back to Claude Code session 7330433e and sends it your comment")
+  })
+
+  it("nothing to say for a task someone holds, an archived one, or one no agent ever held", () => {
+    for (const t of [
+      free({ statusId: "done", assigneeActorId: "claude", assigneeSessionId: "s1" }),
+      free({ statusId: "done", assigneeActorId: "lucas" }),
+      free({ statusId: "done", archivedAt: now }),
+      free({ statusId: "todo", lastHolderSessionId: null }),
+      task({ assigneeActorId: null, assigneeSessionId: null }),
+    ]) expect(reopenOf(state(t), t)).toBeNull()
   })
 })

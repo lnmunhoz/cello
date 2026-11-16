@@ -14,10 +14,16 @@ const WITHDRAWN = { agent: "withdrew the questions", moved: "moved it out of Nee
 const TAKEN_BECAUSE = { holder_exited: " (its session had exited)", holder_idle: " (its session was quiet for 2 hours)", human: "" }
 
 /**
+ * The names an event's line needs. `sessionName` names an agent session the event is about but didn't
+ * write ("Claude Code session 7330433e": who a comment reopened the task for, CEL-110).
+ */
+export type HistoryNames = Pick<BoardState, "actors" | "statuses" | "labels"> & { readonly sessionName?: (sessionId: string) => string | undefined }
+
+/**
  * `name`: who did it, when the caller knows better than the actor's name ("Claude Code session
  * 2fd0505c", "cello-builder · a13bfb89", CEL-55); else the actor's name.
  */
-export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | "statuses" | "labels">, name?: string): string => {
+export const describeEvent = (e: CelloEvent, state: HistoryNames, name?: string): string => {
   const who = name ?? state.actors[e.actorId]?.name ?? "Someone"
   const status = (id: string) => state.statuses[id]?.name ?? "another status"
   const label = (id: string) => state.labels[id]?.name ?? "a label"
@@ -49,6 +55,10 @@ export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | 
       return `${who} released it`
     case "task.claim_ended":
       return `${who}'s change ended the agent's claim`
+    case "task.reopened": {
+      const session = state.sessionName?.(e.session) ?? "the agent session that last held it"
+      return e.from === e.task.statusId ? `${who}'s comment gave it back to ${session}` : `${who}'s comment reopened it for ${session}`
+    }
     case "task.stage_changed":
       return e.after === null ? `${who} cleared the stage` : `${who} set the stage to ${stageInfo(e.after)?.label ?? e.after}`
     case "session.seen":

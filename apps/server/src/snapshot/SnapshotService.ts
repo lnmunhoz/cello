@@ -59,7 +59,8 @@ const make = Effect.gen(function* () {
         projectFilter = sql`p.id = ${scope.projectId}`
       }
       const tasks = yield* selectTasks(sql, projectFilter)
-      const sessionIds = tasks.flatMap((t) => [t.createdBySessionId, t.assigneeSessionId, t.updatedBySessionId].filter((id) => id !== null))
+      // The last holder (CEL-110) too: the comment box names who a comment on a task nobody holds reopens it for.
+      const sessionIds = tasks.flatMap((t) => [t.createdBySessionId, t.assigneeSessionId, t.lastHolderSessionId ?? null, t.updatedBySessionId].filter((id) => id !== null))
       // Subagents (CEL-55): the ones on these tasks, the ones that changed them last, and the live ones
       // of their sessions; their sessions come along, so a card can name the parent.
       const onBoard = yield* agents.forBoard(tasks.map((t) => t.id), sessionIds)

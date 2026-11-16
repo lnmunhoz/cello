@@ -93,18 +93,20 @@ describe("InboxService: who gets what", () => {
       expect(yield* agent(inbox.unread)).toEqual([])
     })))
 
-  it.effect("nothing reaches a session after its claim ends; what came during the claim stays", () =>
+  it.effect("nothing reaches a session after its claim moved on to someone else; what came during the claim stays", () =>
     run(Effect.gen(function* () {
-      const { inbox, tasks, status, one, two, comment } = yield* setup
+      const { inbox, tasks, one, two, comment } = yield* setup
       yield* comment(one.id, "While you hold it")
       yield* agent(tasks.release({ commandId: cmd(), key: one.key }))
+      // The human holds it now: his comment is for nobody's inbox.
+      yield* tasks.claim({ commandId: cmd(), key: one.key })
       yield* comment(one.id, "After you let it go")
-      // A human change ends Y's claim (Y hears that, CEL-46); the comment after it goes nowhere.
-      yield* tasks.move({ commandId: cmd(), id: two.id, statusId: status["Todo"]!.id })
-      yield* comment(two.id, "After I moved it back")
+      // The human takes Y's over (Y hears that, CEL-46); the comment after it goes nowhere.
+      yield* tasks.claim({ commandId: cmd(), key: two.key })
+      yield* comment(two.id, "After I took it")
 
       expect(bodies(yield* agent(inbox.unread))).toEqual(["While you hold it"])
-      expect(bodies(yield* other(inbox.unread))).toEqual(["claim ended: moved, Todo"])
+      expect(bodies(yield* other(inbox.unread))).toEqual(["claim ended: claimed, In Progress"])
     })))
 
   it.effect("a comment follows the claim when another session takes it over", () =>
@@ -462,12 +464,14 @@ describe("InboxService: Send back", () => {
       yield* tasks.update({ commandId: cmd(), id: one.id, expectedVersion: current.version, title: "Comments reach agents (renamed)" })
       expect((yield* tasks.byKey(one.key)).assigneeSessionId).toBeNull()
       yield* reviews.sendBack({ commandId: cmd(), key: one.key, note: "Still missing the video" })
-      // The rename told X its claim ended (CEL-46), then the note came.
+      // The rename told X its claim ended (CEL-46), then the note came, and the claim stayed ended.
       const told = ["claim ended: edited, In Review", "Still missing the video"]
       expect(bodies(yield* agent(inbox.unread))).toEqual(told)
-      // A plain comment on the unclaimed task doesn't.
+      expect((yield* tasks.byKey(one.key)).assigneeSessionId).toBeNull()
+      // A plain comment on the task nobody holds gives it back to X with the comment (CEL-110).
       yield* (yield* CommentService.CommentService).add({ commandId: cmd(), taskId: one.id, body: "And this?" })
-      expect(bodies(yield* agent(inbox.unread))).toEqual(told)
+      expect(bodies(yield* agent(inbox.unread))).toEqual([...told, "And this?"])
+      expect((yield* tasks.byKey(one.key)).assigneeSessionId).not.toBeNull()
     })))
 })
 

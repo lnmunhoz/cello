@@ -184,3 +184,37 @@ describe("a claim Lucas ended", () => {
     expect(two.split("\n")[0]).toBe("Lucas ended your claims on 2 tasks in Cello:")
   })
 })
+
+// CEL-110: a comment on a task nobody held reopened it for this session, which holds it again.
+describe("a comment that reopened its task", () => {
+  const reopened = (from: string, to: string, overrides: Partial<InboxComment> = {}) =>
+    item({ taskKey: "CEL-94", taskTitle: "The setup video", body: "Let's add the instructional video to the repo readme", reopened: { from, to }, ...overrides })
+
+  it("says the comment reopened the task, that it's this session's again, and how to hand it in when done", () => {
+    expect(deliveryText([reopened("Done", "In Progress")], NOW)).toBe([
+      "New Cello comment on a task you worked on before, now yours again:",
+      "",
+      "CEL-94  The setup video",
+      "  Lucas commented while it was Done, reopening it, 2m ago",
+      "    Let's add the instructional video to the repo readme",
+      "",
+      "Act on it now, then answer on the card: `cello task comment CEL-94 \"…\"` (or `--body-file -` for markdown), so Lucas sees your reply there.",
+      "CEL-94 was Done: Lucas's comment reopened it and gave it back to you. It's in In Progress and claimed by this session again; when the work is done, hand it in with `cello task submit CEL-94`.",
+    ].join("\n"))
+  })
+
+  it("a task that stayed where it was (released, still In Progress) was given back, not reopened", () => {
+    const text = deliveryText([reopened("In Progress", "In Progress")], NOW)
+    expect(text).toContain("  Lucas commented while nobody held it, 2m ago")
+    expect(text).toContain(
+      "Nobody held CEL-94: Lucas's comment gave it back to you, and it's claimed by this session again (In Progress); when the work is done, hand it in with `cello task submit CEL-94`.",
+    )
+  })
+
+  it("with other comments: one first line for all, and a reopen line for each reopened task", () => {
+    const text = deliveryText([item(), reopened("Done", "In Progress"), reopened("Canceled", "In Progress", { id: "item-3", taskKey: "CEL-95" })], NOW)
+    expect(text.split("\n")[0]).toBe("3 new Cello comments on tasks you claimed or worked on before:")
+    expect(text).toContain("CEL-94 was Done: Lucas's comment reopened it")
+    expect(text).toContain("CEL-95 was Canceled: Lucas's comment reopened it")
+  })
+})

@@ -165,6 +165,40 @@ describe("cello inbox", () => {
       expect(yield* x("inbox", "--new")).toEqual({ out: "", failure: null })
     }).pipe(Effect.scoped))
 
+  it.live("Lucas commenting on X's Done task reopens it for X: claimed again, the comment in its inbox saying so, the reopen in the history (CEL-110)", () =>
+    Effect.gen(function* () {
+      const { x, y, me, repo, human } = yield* setup
+      writeText(repo, "vitest.log", "Tests  12 passed (12)")
+      expect((yield* x("task", "submit", "CEL-1", "--summary", "Done", "--step", "Run it", "--attach", "vitest.log")).failure).toBeNull()
+      yield* human["review.approve"]({ commandId: newCommandId(), key: "CEL-1" })
+      expect((yield* me("task", "get", "CEL-1")).out).toContain("Status: Done")
+
+      expect((yield* me("task", "comment", "CEL-1", "Let's add the instructional video to the repo readme")).out).toBe("Commented on CEL-1")
+
+      const task = (yield* me("task", "get", "CEL-1")).out
+      expect(task).toContain("Status: In Progress")
+      expect(task).toContain("Claimed by: Claude Code session 2fd0505c")
+      expect(task).toContain("Lucas moved it from Done to In Progress")
+      expect(task).toContain("Lucas's comment reopened it for Claude Code session 2fd0505c")
+      expect((yield* x("context")).out).toContain("  Reopened: the comment gave CEL-1 back to you; it's claimed by you again.")
+      expect(yield* y("inbox", "--new")).toEqual({ out: "", failure: null })
+      expect(yield* x("inbox", "--new")).toEqual({
+        out: [
+          "New Cello comment on a task you worked on before, now yours again:",
+          "",
+          "CEL-1  Comments reach agents",
+          "  Lucas commented while it was Done, reopening it, just now",
+          "    Let's add the instructional video to the repo readme",
+          "",
+          "Act on it now, then answer on the card: `cello task comment CEL-1 \"…\"` (or `--body-file -` for markdown), so Lucas sees your reply there.",
+          "CEL-1 was Done: Lucas's comment reopened it and gave it back to you. It's in In Progress and claimed by this session again; when the work is done, hand it in with `cello task submit CEL-1`.",
+        ].join("\n"),
+        failure: null,
+      })
+      // X holds it again: its own commands treat it as its task.
+      expect((yield* x("task", "stage", "CEL-1", "building")).failure).toBeNull()
+    }).pipe(Effect.scoped))
+
   it.live("the human has no inbox", () =>
     Effect.gen(function* () {
       const { me } = yield* setup

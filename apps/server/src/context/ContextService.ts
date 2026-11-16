@@ -97,10 +97,10 @@ const make = Effect.gen(function* () {
       }
     })
 
-  /** Sessions a set of tasks and events mention: assignees, creators, last changes and event authors. */
+  /** Sessions a set of tasks and events mention: assignees, last holders (CEL-110), creators, last changes and event authors. */
   const sessionIdsOf = (taskRows: ReadonlyArray<Task>, events: ReadonlyArray<CelloEvent> = []) => [
-    ...taskRows.flatMap((t) => [t.assigneeSessionId, t.createdBySessionId, t.updatedBySessionId]),
-    ...events.map((e) => e.sessionId),
+    ...taskRows.flatMap((t) => [t.assigneeSessionId, t.lastHolderSessionId ?? null, t.createdBySessionId, t.updatedBySessionId]),
+    ...events.flatMap((e) => (e.type === "task.reopened" ? [e.sessionId, e.session] : [e.sessionId])),
   ]
 
   /** Subagents (CEL-55) the rows name: whoever made a change or wrote a comment, under its session. */
