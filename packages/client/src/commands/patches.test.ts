@@ -1,7 +1,7 @@
 import type { Label, Status, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import type { BoardState } from "../sync/applyEvents.ts"
-import { addLabel, addTask, archiveLabel, archiveTask, moveTask, setTaskLabels, updateLabel, updateStatus, updateTask } from "./patches.ts"
+import { addLabel, addMilestone, addTask, archiveLabel, archiveTask, moveTask, setTaskLabels, setTaskMilestone, updateLabel, updateStatus, updateTask } from "./patches.ts"
 
 const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   id,
@@ -51,12 +51,25 @@ const state: BoardState = {
   projects: { p1: { id: "p1", workspaceId: "w1" } as BoardState["projects"][string] },
   statuses: { todo: status },
   labels: { bug: label },
+  milestones: {},
   tasks: { t1: task("t1"), t2: task("t2") },
   sessions: {}, agents: {},
   reviews: {},
   asks: {},
   documents: {}, wakes: {},
 }
+
+describe("milestone patches (CEL-113)", () => {
+  it("puts a task in a milestone with its version bumped, takes it out, and adds a milestone to a loaded project only", () => {
+    const inM3 = setTaskMilestone("t1", "m3")(state)
+    expect(inM3.tasks["t1"]).toMatchObject({ milestoneId: "m3", version: 2 })
+    expect(inM3.tasks["t2"]).toBe(state.tasks["t2"])
+    expect(setTaskMilestone("t1", null)(inM3).tasks["t1"]!.milestoneId).toBeNull()
+    const m3 = { id: "m3", projectId: "p1", name: "M3", goal: "", targetDate: null, position: "a0", state: "open" as const, closedAt: null, createdAt: 1, updatedAt: 1 }
+    expect(addMilestone(m3)(state).milestones["m3"]).toEqual(m3)
+    expect(addMilestone({ ...m3, projectId: "elsewhere" })(state)).toBe(state)
+  })
+})
 
 describe("patches", () => {
   it("move a task and keep other rows as the same objects", () => {

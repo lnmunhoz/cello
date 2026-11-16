@@ -1,6 +1,6 @@
 // Optimistic patches: pure functions from state to state. Untouched rows keep their identity,
 // and a patch whose row is gone leaves the state alone.
-import type { Label, LabelGroup, Priority, Project, Status, Task } from "@cello/contract/entities"
+import type { Label, LabelGroup, Milestone, Priority, Project, Status, Task } from "@cello/contract/entities"
 import type { BoardState } from "../sync/applyEvents.ts"
 import type { Patch } from "./optimistic.ts"
 
@@ -43,6 +43,13 @@ export const setTaskLabels = (id: string, add: ReadonlyArray<string>, remove: Re
     ...t,
     labelIds: [...t.labelIds.filter((l) => !remove.includes(l)), ...add.filter((l) => !t.labelIds.includes(l))],
   }))
+
+/** A task's milestone (CEL-113), at most one; null takes it out. */
+export const setTaskMilestone = (id: string, milestoneId: string | null): Patch => changeTask(id, (t) => ({ ...t, milestoneId }))
+
+/** A new milestone, last in its project's order; nothing when the project isn't loaded. */
+export const addMilestone = (milestone: Milestone): Patch => (state) =>
+  state.projects[milestone.projectId] === undefined ? state : put(state, "milestones", milestone)
 
 export const archiveTask = (id: string): Patch => changeTask(id, (t) => ({ ...t, archivedAt: now() }))
 

@@ -29,7 +29,7 @@ const board: BoardState = {
   sessions: {}, agents: {},
   reviews: {},
   asks: {},
-  documents: {}, wakes: {},
+  documents: {}, wakes: {}, milestones: {},
 }
 
 /** The card's markup. Tests read it as text: there is no DOM in the unit tests. */

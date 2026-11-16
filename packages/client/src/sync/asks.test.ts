@@ -19,7 +19,7 @@ const ask = (id: string, taskId: string, createdAt: number): Ask => ({
 })
 
 const state: BoardState = {
-  seq: 1, actors: {}, workspaces: {}, statuses: {}, labels: {}, sessions: {}, agents: {}, reviews: {}, documents: {}, wakes: {},
+  seq: 1, actors: {}, workspaces: {}, statuses: {}, labels: {}, sessions: {}, agents: {}, reviews: {}, documents: {}, wakes: {}, milestones: {},
   projects: { p1: project("p1"), p2: project("p2", "w2"), p3: project("p3", "w1", 5) },
   tasks: { t1: task("t1"), t2: task("t2"), t3: task("t3", "p2"), t4: task("t4", "p1", 9), t5: task("t5", "p3") },
   asks: { k1: ask("k1", "t1", 30), k2: ask("k2", "t2", 10), k3: ask("k3", "t3", 1), k4: ask("k4", "t4", 1), k5: ask("k5", "t5", 1) },

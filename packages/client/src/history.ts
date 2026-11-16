@@ -7,6 +7,8 @@ import { andList } from "@cello/shared/words"
 
 const FIELD_NAMES: Record<string, string> = { title: "title", description: "description", priority: "priority", dueDate: "due date", parentId: "parent" }
 
+const MILESTONE_FIELDS: Record<string, string> = { name: "name", goal: "goal", targetDate: "target date", position: "place in the order" }
+
 const DECIDED = { approved: "approved the review", sent_back: "sent it back", superseded: "replaced the open review", withdrawn: "withdrew the review" }
 
 const WITHDRAWN = { agent: "withdrew the questions", moved: "moved it out of Needs input, withdrawing the questions", superseded: "replaced the open questions" }
@@ -17,7 +19,11 @@ const TAKEN_BECAUSE = { holder_exited: " (its session had exited)", holder_idle:
  * The names an event's line needs. `sessionName` names an agent session the event is about but didn't
  * write ("Claude Code session 7330433e": who a comment reopened the task for, CEL-110).
  */
-export type HistoryNames = Pick<BoardState, "actors" | "statuses" | "labels"> & { readonly sessionName?: (sessionId: string) => string | undefined }
+export type HistoryNames = Pick<BoardState, "actors" | "statuses" | "labels"> & {
+  readonly sessionName?: (sessionId: string) => string | undefined
+  /** Milestones by id (CEL-113); without them a milestone reads as "a milestone". */
+  readonly milestones?: BoardState["milestones"]
+}
 
 /**
  * Who did it, two ways (CEL-119): `subject` leads a line ("cello-builder (Sonnet 5.5), subagent of
@@ -39,6 +45,7 @@ export const describeEvent = (e: CelloEvent, state: HistoryNames, name?: string 
   const plain = typeof name === "object" ? name.plain : name ?? fallback
   const status = (id: string) => state.statuses[id]?.name ?? "another status"
   const label = (id: string) => state.labels[id]?.name ?? "a label"
+  const milestone = (id: string) => state.milestones?.[id]?.name ?? "a milestone"
   switch (e.type) {
     case "task.created":
       return `${who} created the task`
@@ -55,6 +62,25 @@ export const describeEvent = (e: CelloEvent, state: HistoryNames, name?: string 
       ]
       return `${who} ${parts.join(" and ")}`
     }
+    case "task.milestone_changed": {
+      // The migration that turned Milestone labels into milestones (CEL-113) was Cello's doing.
+      if (e.fromLabels && e.after !== null) {
+        const [kept, ...others] = e.fromLabels
+        const also = others.length ? ` (it also had ${andList(others)}; a task is in one milestone, so the later one)` : ""
+        return `Cello turned its ${kept} label into the milestone ${milestone(e.after)}${also}`
+      }
+      if (e.before === null) return `${who} put it in ${e.after === null ? "no milestone" : milestone(e.after)}`
+      if (e.after === null) return `${who} took it out of ${milestone(e.before)}`
+      return `${who} moved it from ${milestone(e.before)} to ${milestone(e.after)}`
+    }
+    case "milestone.created":
+      return `${who} created the milestone ${e.milestone.name}`
+    case "milestone.updated":
+      return `${who} changed ${milestone(e.id)}'s ${andList(Object.keys(e.after).map((k) => MILESTONE_FIELDS[k] ?? k))}`
+    case "milestone.closed":
+      return `${who} closed ${milestone(e.id)}`
+    case "milestone.reopened":
+      return `${who} reopened ${milestone(e.id)}`
     case "task.archived":
       return `${who} archived it`
     case "task.unarchived":
