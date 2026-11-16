@@ -89,12 +89,12 @@ export const connectServer = async (options: ConnectOptions): Promise<Server> =>
     if (plan.kind === "service") {
       const failed = await options.service!.start().then(
         () => null,
-        (error: Error) => `launchctl couldn't start it (${error.message.split("\n")[0]})`,
+        () => "launchd couldn't start it",
       )
       if (failed === null && (await waitUntilAnswers(plan.url))) return joined(plan.url)
       // A stale plist (its program gone, a job launchd won't run) mustn't lock the app out: say why,
       // and start the app's own server instead.
-      serviceProblem = failed ?? `it didn't answer at ${plan.url}`
+      serviceProblem = failed ?? "it didn't answer"
       options.log?.(`Cello's background service didn't start: ${serviceProblem}. Starting the app's own server.\n`)
       service = false
       continue

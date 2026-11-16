@@ -126,7 +126,7 @@ function run() {
     const pid = lockHolder(config.dataDir)
     const service = !!server && !server.startedByUs && serviceInstalled() && pid !== null && (await serviceJobPid()) === pid
     const status = serverStatusLabel(server && { startedByUs: server.startedByUs, service, pid })
-    const note = server?.serviceProblem ? `Background service didn't start: ${server.serviceProblem}` : null
+    const note = server?.serviceProblem ? `Background service didn't start (${server.serviceProblem}): run cello service status` : null
     const key = `${status}\n${note}`
     if (key === menuKey || !menuActions) return
     menuKey = key

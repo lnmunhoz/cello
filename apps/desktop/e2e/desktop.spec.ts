@@ -720,7 +720,8 @@ test("CEL-81: Keep Running leaves the server up after the app quits, so agents k
   await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
   const started = readLock(dataDir)!
 
-  await video.caption("Quit and pick Keep Running")
+  await video.caption(`Nothing answered on ${port}: the app started its own server (pid ${started.pid})`)
+  await video.caption("Quit and pick Keep Running: a server of its own takes over before the app exits")
   await answerQuitQuestion(app, 0, asked)
   await recording!.stop()
   recording = null
@@ -742,8 +743,9 @@ test("CEL-81: Keep Running leaves the server up after the app quits, so agents k
   const next = record(again, "CEL-81: after Keep Running, the next launch joins the server that kept running")
   const pages = await appPages(again, url)
   await expect(pages.board.getByRole("button", { name: "New project" }).first()).toBeVisible()
-  await next.caption("The next launch joins the server that kept running")
+  await next.caption(`The next launch joins the server that kept running (pid ${kept.pid})`)
   expect(await serverStatus(again)).toBe(`Server: started outside the app (pid ${kept.pid})`)
+  await next.caption("The app menu says: Server: started outside the app. Quitting now leaves it alone")
   await answerQuitQuestion(again, 1, asked)
   await recording!.stop()
   recording = null
@@ -816,7 +818,7 @@ test("CEL-81: a service plist whose program is gone doesn't lock the app out: it
   await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
   const lock = readLock(dataDir)!
   expect(await serverStatus(app)).toBe(`Server: started by this app (pid ${lock.pid})`)
-  expect(await serviceProblem(app)).toMatch(/^Background service didn't start: launchctl couldn't start it/)
+  expect(await serviceProblem(app)).toBe("Background service didn't start (launchd couldn't start it): run cello service status")
   await openAppMenu(app)
   await screenshotScreen(app, path.join(SCREENSHOTS_DIR, "server-status-service-didnt-start.png"))
   await closeAppMenu(app)
@@ -852,6 +854,7 @@ test("CEL-81: when Keep Running's new server doesn't start, the app says so, sta
   const { board } = await appPages(app, url)
   await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
   const first = readLock(dataDir)!
+  await video.caption(`The app started its own server (pid ${first.pid})`)
 
   await video.caption("Quit and pick Keep Running; the server meant to take over won't start")
   await answerQuitThenShowNext(app, 0, asked)
@@ -909,7 +912,8 @@ test("CEL-81: Install Background Service stops the app's server and runs `cello 
   await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
   const started = readLock(dataDir)!
 
-  await video.caption("Quit and pick Install Background Service")
+  await video.caption(`Nothing answered on ${port}: the app started its own server (pid ${started.pid})`)
+  await video.caption("Quit and pick Install Background Service: the app stops its server and runs cello service install")
   await answerQuitQuestion(app, 2, asked)
   await recording!.stop()
   recording = null
