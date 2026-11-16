@@ -143,8 +143,9 @@ export const hookIdentity = (input: HookInput, env: Env): Env => {
 
 /**
  * SubagentStart's answer (CEL-55): context for the new subagent. Its Bash can't see its own agent id,
- * so it's told the CELLO_AGENT to put before its `cello` commands; then the board credits its comments
- * and changes to it, under the session.
+ * so it's told the `--agent` to give its `cello` commands; then the board credits its comments and
+ * changes to it, under the session. A flag rather than a CELLO_AGENT=… prefix (CEL-90): Claude Code's
+ * allow rule Bash(cello:*) only matches commands that start with `cello`.
  */
 export const subagentContext = (agent: HookAgent) => {
   const value = agentVariable(agent)
@@ -152,8 +153,9 @@ export const subagentContext = (agent: HookAgent) => {
     hookSpecificOutput: {
       hookEventName: "SubagentStart" as const,
       additionalContext:
-        `Cello: you are subagent \`${value}\` of this Claude Code session. Put \`CELLO_AGENT=${value}\` before every \`cello\` command you run ` +
-        `(e.g. \`CELLO_AGENT=${value} cello task comment CEL-1 "…"\`), so the board credits your comments and changes to you, not to the main conversation. ` +
+        `Cello: you are subagent \`${value}\` of this Claude Code session. Give every \`cello\` command you run \`--agent ${value}\` ` +
+        `(e.g. \`cello --agent ${value} task comment CEL-1 "…"\`), so the board credits your comments and changes to you, not to the main conversation. ` +
+        "Keep your commands starting with `cello` (no variables in front): that's what lets them skip Claude Code's permission check. " +
         "Claims and comments for the session stay with the main conversation: don't run `cello inbox`.",
     },
   }
@@ -179,7 +181,8 @@ export const ALLOW_ARTIFACTS_VARIABLE = "CELLO_ALLOW_ARTIFACTS"
 /** What the agent reads when its publish is turned away: what to do instead. */
 export const ARTIFACT_DENY_REASON =
   "This project uses Cello. Show it as a Cello page: `cello doc publish page.md --task KEY-n` (images inline, videos with --asset), " +
-  "then open it in Cello's panel: open \"cello://open?url=<url-encoded page link>\". " +
+  "then open it in Cello's panel with `cello open <slug>`. " +
+  "In your reply, link the page with the cello:// link those commands print, never its http address: an http link opens Claude's own browser, not Cello. " +
   "Claude artifacts are only for when Lucas asks for one by name; if he did, tell him this project's Cello hook stopped it " +
   `(he can allow them by starting Claude Code with ${ALLOW_ARTIFACTS_VARIABLE}=1).`
 

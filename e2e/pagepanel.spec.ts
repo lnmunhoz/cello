@@ -78,7 +78,8 @@ test("CEL-60: a Cello page opens in the side panel from the task's Pages list an
   fs.writeFileSync(path.join(dir, "run.log"), TRANSCRIPT)
   const file = path.join(dir, "panel-notes.md")
   fs.writeFileSync(file, notes(key))
-  const pageUrl = cello("doc", "publish", file, "--project", key, "--task", `${key}-1`).split("\n").at(-1)!
+  // The second line is the page's address; the third its cello:// link, for replies (CEL-88).
+  const pageUrl = cello("doc", "publish", file, "--project", key, "--task", `${key}-1`).split("\n")[1]!
   expect(pageUrl).toMatch(new RegExp(`/${key}/pages/panel-notes$`))
 
   await caption(page, "Open the task; its Pages list has the page")

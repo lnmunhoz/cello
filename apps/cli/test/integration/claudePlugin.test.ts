@@ -11,6 +11,7 @@ import { installSetup } from "./cli.ts"
 const pluginAt = (home: string) => path.join(home, ".local", "share", "cello", "claude-plugin")
 const GIVES =
   "The plugin gives new sessions /cello:orchestrate (run tasks through builder and reviewer agents), /cello:work (do one task in this thread) and the cello skill."
+const ALREADY_ALLOWED = (file: string) => `\`cello\` commands are already allowed in ${file}.`
 
 describe("cello install claude: the plugin", () => {
   it.live("writes every file of the plugin to ~/.local/share/cello/claude-plugin, the folder the settings point at", () =>
@@ -48,12 +49,14 @@ describe("cello install claude: the plugin", () => {
           SubagentStop: [{ hooks: [{ type: "command", command: "cello hook claude subagent-stop", timeout: 10 }] }],
         },
       }
-      fs.writeFileSync(file, `${JSON.stringify(hooksOnly, null, 2)}\n`)
+      // With the rule that lets `cello` skip Claude Code's permission check (CEL-90), so only the plugin is new.
+      fs.writeFileSync(file, `${JSON.stringify({ ...hooksOnly, permissions: { allow: ["Bash(cello:*)"] } }, null, 2)}\n`)
       fs.writeFileSync(path.join(repo, ".gitignore"), ".claude/settings.local.json\n")
       expect(yield* run(repo)("install", "claude")).toEqual({
         out: [
           `Cello's Claude Code hooks are already in ${file}.`,
           `Enabled Cello's Claude Code plugin in ${file}; its files are in ${pluginAt(home)}.`,
+          ALREADY_ALLOWED(file),
           `Kept the old file as ${file}.bak.`,
           GIVES,
           "New Claude Code sessions pick them up.",
@@ -76,6 +79,7 @@ describe("cello install claude: the plugin", () => {
         out: [
           `Cello's Claude Code hooks are already in ${file}.`,
           `Updated Cello's Claude Code plugin in ${pluginAt(home)}; it's already enabled in ${file}.`,
+          ALREADY_ALLOWED(file),
           GIVES,
           "New Claude Code sessions pick them up.",
         ].join("\n"),
@@ -146,6 +150,7 @@ describe("cello install claude: the plugin", () => {
           `Cello's Claude Code hooks are already in ${file}.`,
           `Cello's Claude Code plugin is turned off in ${file} ("cello@cello": false), so Cello left it off; its files in ${pluginAt(home)} are current. ` +
           "Set it to true, or delete that line, to turn it on.",
+          ALREADY_ALLOWED(file),
         ].join("\n"),
         failure: null,
       })

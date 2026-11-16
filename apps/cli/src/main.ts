@@ -7,6 +7,7 @@ import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import { CliEnv, run } from "./cli.ts"
 import type { CliBuild } from "./env.ts"
+import { systemOpener } from "./open.ts"
 
 export const main = (web: () => WebFiles.WebFiles | undefined, build: CliBuild) =>
   run(process.argv.slice(2)).pipe(
@@ -16,6 +17,7 @@ export const main = (web: () => WebFiles.WebFiles | undefined, build: CliBuild) 
       now: () => Date.now(),
       readStdin: () => Bun.stdin.text(),
       web,
+      open: systemOpener(process.platform),
       build,
       exit: (code) => process.exit(code),
     }),

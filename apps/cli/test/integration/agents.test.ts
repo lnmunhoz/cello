@@ -71,7 +71,7 @@ describe("subagents through the hooks", () => {
       expect(yield* agents).toEqual([{ id: "c0ffee00", type: "Explore", task: null, ended: false }])
     }).pipe(Effect.scoped))
 
-  it.live("SubagentStart hands the subagent its CELLO_AGENT as context; SubagentStop marks it finished", () =>
+  it.live("SubagentStart hands the subagent its --agent as context; SubagentStop marks it finished", () =>
     Effect.gen(function* () {
       const { hook, agents, x } = yield* setup
       const start = yield* hook("subagent-start", { session_id: X, hook_event_name: "SubagentStart", agent_id: BUILDER, agent_type: "cello-builder" })
@@ -79,7 +79,7 @@ describe("subagents through the hooks", () => {
       expect(start.failure).toBeNull()
       const context = JSON.parse(start.out).hookSpecificOutput
       expect(context.hookEventName).toBe("SubagentStart")
-      expect(context.additionalContext).toContain(`CELLO_AGENT=cello-builder/${BUILDER} cello task comment`)
+      expect(context.additionalContext).toContain(`cello --agent cello-builder/${BUILDER} task comment`)
       expect((yield* agents)[0]).toMatchObject({ id: BUILDER, ended: false })
 
       expect(yield* hook("subagent-stop", { session_id: X, hook_event_name: "SubagentStop", agent_id: BUILDER, agent_type: "cello-builder" })).toEqual({ out: "", failure: null })
@@ -115,5 +115,41 @@ describe("a cello command carrying CELLO_AGENT", () => {
       const who = JSON.parse((yield* builder("whoami")).out)
       expect(who.headers).toMatchObject({ "x-cello-agent": BUILDER, "x-cello-agent-type": "cello-builder" })
       expect(who.server.agent).toMatchObject({ agentId: BUILDER, agentType: "cello-builder" })
+    }).pipe(Effect.scoped))
+})
+
+// CEL-90: Claude Code's allow rule Bash(cello:*) only matches commands that start with `cello`, so a
+// subagent names itself with a flag instead of a CELLO_AGENT=… prefix.
+describe("cello --agent", () => {
+  it.live("does what CELLO_AGENT does: the comment, the stage and whoami are credited to the agent under the session", () =>
+    Effect.gen(function* () {
+      const { hook, x } = yield* setup
+      yield* hook("post-tool-use", launch(BUILDER, "cello-builder", "CEL-1 agents on cards", "Build CEL-1"))
+      const flagged = (...args: string[]) => x("--agent", `cello-builder/${BUILDER}`, ...args)
+      expect((yield* flagged("task", "comment", "CEL-1", "Built; tests pass")).failure).toBeNull()
+      yield* flagged("task", "stage", "CEL-1", "review")
+
+      const shown = (yield* x("task", "get", "CEL-1")).out
+      const by = `cello-builder · ${BUILDER.slice(0, 8)} (under Claude Code session 2fd0505c)`
+      expect(shown).toContain("Claimed by: Claude Code session 2fd0505c")
+      expect(shown).toContain(`Last changed by ${by}`)
+      expect(shown).toMatch(new RegExp(`Comments \\(1\\)\\n  ${by.replace(/[()]/g, "\\$&")} · just now · id \\w+\\n    Built; tests pass`))
+      expect(shown).toContain(`${by} set the stage to Agent review`)
+
+      const who = JSON.parse((yield* flagged("whoami")).out)
+      expect(who.variables).toMatchObject({ CELLO_AGENT: `cello-builder/${BUILDER}` })
+      expect(who.headers).toMatchObject({ "x-cello-agent": BUILDER, "x-cello-agent-type": "cello-builder" })
+      expect(who.server.agent).toMatchObject({ agentId: BUILDER, agentType: "cello-builder" })
+    }).pipe(Effect.scoped))
+
+  it.live("wins over a CELLO_AGENT in the environment, and refuses an empty value", () =>
+    Effect.gen(function* () {
+      const { as, x } = yield* setup
+      const who = JSON.parse((yield* as("stale/x")("--agent", `cello-code-reviewer/${REVIEWER}`, "whoami")).out)
+      expect(who.headers).toMatchObject({ "x-cello-agent": REVIEWER, "x-cello-agent-type": "cello-code-reviewer" })
+      expect(yield* x("--agent", " ", "whoami")).toEqual({
+        out: "",
+        failure: "--agent needs the name SubagentStart gave you, as <type>/<id> (cello-builder/a13bfb89) or just the id.",
+      })
     }).pipe(Effect.scoped))
 })

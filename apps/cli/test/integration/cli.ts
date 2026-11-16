@@ -35,6 +35,11 @@ export const cello = (options: {
   readonly build?: { readonly commit: string | null }
   /** Hears each line the command prints to stderr as it prints it (a waiter saying it's waiting). */
   readonly onErr?: (line: string) => void
+  /**
+   * Stands in for the system's opener (`cello open`). Without it, opening fails: a test never opens
+   * anything on the machine it runs on.
+   */
+  readonly open?: (link: string) => Promise<void>
 }) =>
   (...args: string[]): Effect.Effect<Output> =>
     Effect.gen(function* () {
@@ -54,6 +59,7 @@ export const cello = (options: {
           now: () => Date.now(),
           readStdin: () => Promise.resolve(options.stdin ?? ""),
           web: () => undefined,
+          open: options.open ?? (() => Promise.reject(new Error("tests don't open links"))),
           ...(options.build ? { build: options.build } : {}),
         }),
         Effect.provideService(Console.Console, console),

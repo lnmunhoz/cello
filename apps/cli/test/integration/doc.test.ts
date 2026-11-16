@@ -28,6 +28,9 @@ const setup = Effect.gen(function* () {
   }
 })
 
+/** The line under a page's address in `doc publish`: the link agents put in replies (CEL-88). */
+const replyLine = (url: string) => `Link in replies (opens in Cello): cello://open?url=${encodeURIComponent(url)}`
+
 const fetchBytes = (port: number, pathname: string) =>
   Effect.promise(async () => {
     const response = await fetch(`http://127.0.0.1:${port}${pathname}`)
@@ -62,7 +65,7 @@ describe("cello doc", () => {
       const url = `http://127.0.0.1:${port}/CEL/pages/billing-audit`
       // The image and the CSV the markdown links go up by themselves; --asset naming one of them again changes nothing.
       expect(yield* agent("doc", "publish", "reports/billing.md", "--task", "CEL-1", "--asset", "reports/data.csv")).toEqual({
-        out: `Published page "Billing audit" (version 1), linked to CEL-1, with 2 files\n${url}`,
+        out: `Published page "Billing audit" (version 1), linked to CEL-1, with 2 files\n${url}\n${replyLine(url)}`,
         failure: null,
       })
 
@@ -89,11 +92,11 @@ describe("cello doc", () => {
       // The same file again: same page, same URL, a new version.
       report("Three duplicates.")
       expect(yield* agent("doc", "publish", "reports/billing.md")).toEqual({
-        out: `Updated page "Billing audit" to version 2, linked to CEL-1, with 2 files\n${url}`,
+        out: `Updated page "Billing audit" to version 2, linked to CEL-1, with 2 files\n${url}\n${replyLine(url)}`,
         failure: null,
       })
       expect(yield* agent("doc", "publish", "reports/billing.md")).toEqual({
-        out: `No changes: page "Billing audit" is still version 2\n${url}`,
+        out: `No changes: page "Billing audit" is still version 2\n${url}\n${replyLine(url)}`,
         failure: null,
       })
       expect((yield* agent("doc", "get", "billing-audit")).out).toContain("Three duplicates.")
@@ -105,7 +108,7 @@ describe("cello doc", () => {
       const listed = JSON.parse((yield* agent("doc", "list", "--json")).out)
       expect(listed.documents.map((d: { slug: string; version: number }) => [d.slug, d.version])).toEqual([["billing-audit", 2]])
       const published = JSON.parse((yield* agent("doc", "publish", "reports/billing.md", "--json")).out)
-      expect(published).toMatchObject({ url, seq: null, result: { slug: "billing-audit", version: 2 } })
+      expect(published).toMatchObject({ url, link: `cello://open?url=${encodeURIComponent(url)}`, seq: null, result: { slug: "billing-audit", version: 2 } })
 
       // The task shows its page.
       expect((yield* agent("task", "get", "CEL-1")).out).toContain(`Pages (1)\n  Billing audit (page, version 2)  ${url}`)
@@ -132,7 +135,7 @@ describe("cello doc", () => {
 
       const result = yield* agent("doc", "publish", "reports/scope.md")
       expect(result).toEqual({
-        out: `Published page "Palette scope" (version 1), with 2 files\nhttp://127.0.0.1:${port}/CEL/pages/palette-scope`,
+        out: `Published page "Palette scope" (version 1), with 2 files\nhttp://127.0.0.1:${port}/CEL/pages/palette-scope\n${replyLine(`http://127.0.0.1:${port}/CEL/pages/palette-scope`)}`,
         failure: null,
         err: [
           `Warning: demo.mp4 isn't there (${path.join(reports, "demo.mp4")}), so the page shows that link as a missing file.`,
@@ -155,7 +158,7 @@ describe("cello doc", () => {
     Effect.gen(function* () {
       const { agent, piped, repo, port } = yield* setup
       expect((yield* piped("# Pages plan\n\nSteps.")("doc", "publish", "-", "--kind", "spec", "--slug", "plan")).out).toBe(
-        `Published spec "Pages plan" (version 1)\nhttp://127.0.0.1:${port}/CEL/pages/plan`,
+        `Published spec "Pages plan" (version 1)\nhttp://127.0.0.1:${port}/CEL/pages/plan\n${replyLine(`http://127.0.0.1:${port}/CEL/pages/plan`)}`,
       )
       expect((yield* piped("# Pages plan\n\nMore steps.")("doc", "publish", "-", "--slug", "plan")).out.split("\n")[0]).toBe(
         "Updated spec \"Pages plan\" to version 2",

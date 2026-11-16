@@ -190,6 +190,8 @@ describe("cello init", () => {
           "  SubagentStart  cello hook claude subagent-start",
           "  SubagentStop   cello hook claude subagent-stop",
           `Enabled Cello's Claude Code plugin in ${file}; its files are in ${folder}.`,
+          `Allowed \`cello\` commands in ${file} ("Bash(cello:*)" in permissions.allow), so Claude Code runs them without a permission check: ` +
+          "agents reach the board only through `cello`, and a check that fails can't cut them off it.",
           `Added .claude/settings.local.json to ${path.join(repo, ".gitignore")}, so it stays on this machine.`,
           "Your comments and Send back notes on a task an agent session claimed now reach that session: when it stops, and after each tool call.",
           "The board names each subagent working under a session (a builder, a reviewer) and the task it was launched on: it hears them start, work and finish.",
@@ -206,12 +208,15 @@ describe("cello init", () => {
       expect(settings.hooks.PreToolUse).toEqual([{ matcher: "Artifact|Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "cello hook claude pre-tool-use", timeout: 10 }] }])
       // And the plugin (CEL-64).
       expect(settings.enabledPlugins).toEqual({ "cello@cello": true })
+      // And the rule that lets `cello` skip Claude Code's permission check (CEL-90).
+      expect(settings.permissions).toEqual({ allow: ["Bash(cello:*)"] })
       // Already linked and already installed: both say so.
       expect((yield* agent(repo)("init", "--hooks")).out).toBe([
         `This repo is already project CEL · cello (${repo}); the project itself is unchanged.`,
         url("CEL"),
         `Cello's Claude Code hooks are already in ${file}.`,
         `Cello's Claude Code plugin is already enabled in ${file}, and its files in ${folder} are current.`,
+        `\`cello\` commands are already allowed in ${file}.`,
       ].join("\n"))
       expect(JSON.parse((yield* agent(repo)("init", "--hooks", "--json")).out).hooks).toEqual({ file, changed: false, pluginFolder: folder })
     }).pipe(Effect.scoped))

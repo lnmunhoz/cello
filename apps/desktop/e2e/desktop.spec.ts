@@ -414,11 +414,13 @@ test("CEL-60, CEL-20: cello://open with a Cello page opens it in the board's own
     file,
     ["# Desktop progress", "", "The run is in [the test log](run.log).", "", "| Task | What |", "| --- | --- |", "| DSK-1 | Pages in the side panel |", "| DSK-2 | Live status on pages |", ""].join("\n"),
   )
-  const pageUrl = celloAsAgent(server.port, "doc", "publish", file, "--project", "DSK").split("\n").at(-1)!
+  // The page's address, then the cello:// link agents put in replies (CEL-88), which is what gets opened here.
+  const [, pageUrl, replyLine] = celloAsAgent(server.port, "doc", "publish", file, "--project", "DSK").split("\n")
   expect(pageUrl).toBe(`${server.url}/DSK/pages/desktop-progress`)
+  expect(replyLine).toBe(`Link in replies (opens in Cello): cello://open?url=${encodeURIComponent(pageUrl!)}`)
 
-  await video.caption("open cello://open?url=<the page>: it opens in the board's side panel, rendered by the app; the native browser stays shut")
-  expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(pageUrl)}`])).toBe(0)
+  await video.caption("open the cello:// link doc publish printed: it opens in the board's side panel, rendered by the app; the native browser stays shut")
+  expect(await secondLaunch(env, [replyLine!.slice(replyLine!.indexOf("cello://"))])).toBe(0)
   await expect(sidePanel.getByRole("heading", { level: 1, name: "Desktop progress" })).toBeVisible()
   await expect(sidePanel.locator("iframe")).toHaveCount(0)
   // The header names the document, not its address.
@@ -435,7 +437,7 @@ test("CEL-60, CEL-20: cello://open with a Cello page opens it in the board's own
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "side-panel-text.png"))
 
   await video.caption("Open the page again and click DSK-2 in it: the task opens in the main window, in the panel's place")
-  expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(pageUrl)}`])).toBe(0)
+  expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(pageUrl!)}`])).toBe(0)
   const key = sidePanel.locator('table [data-task-link="DSK-2"]')
   await expect(key.locator("[data-task-status]")).toHaveText("Todo")
   await key.click()
