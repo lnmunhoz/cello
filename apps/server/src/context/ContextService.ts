@@ -5,7 +5,7 @@ import { Invalid, NotFound } from "@cello/contract/errors"
 import type { CelloEvent } from "@cello/contract/events"
 import { Caller } from "@cello/contract/rpcs"
 import type { Activity, LabelList, MilestoneDetail, MilestoneList, MilestoneSummary, ProjectContext, TaskDetail, TaskList, Whoami } from "@cello/contract/views"
-import { milestoneProgress } from "@cello/shared/milestone"
+import { findMilestone, milestoneProgress } from "@cello/shared/milestone"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -117,18 +117,11 @@ const make = Effect.gen(function* () {
       }))
     })
 
-  /** A milestone of the project by name, any case; `none` when allowed. A miss lists the names. */
-  const milestoneNamed = (milestones: ReadonlyArray<Milestone>, name: string, allowNone: boolean) =>
-    Effect.gen(function* () {
-      if (allowNone && sameName(name, "none")) return null
-      const found = milestones.find((m) => sameName(m.name, name))
-      if (found) return found
-      const names = milestones.map((m) => m.name).join(", ")
-      return yield* new Invalid({
-        field: "milestone",
-        reason: `no milestone named "${name}". Milestones: ${names || "none yet"}${allowNone ? " (or none)" : ""}`,
-      })
-    })
+  /** A milestone of the project by name (@cello/shared/milestone's matcher, as the CLI's); a miss is Invalid with its sentence. */
+  const milestoneNamed = (project: Project, milestones: ReadonlyArray<Milestone>, name: string, allowNone: boolean) => {
+    const match = findMilestone(milestones, name, { projectKey: project.key, allowNone })
+    return "found" in match ? Effect.succeed(match.found) : Effect.fail(new Invalid({ field: "milestone", reason: match.problem }))
+  }
 
   /** Sessions a set of tasks and events mention: assignees, last holders (CEL-110), creators, last changes and event authors. */
   const sessionIdsOf = (taskRows: ReadonlyArray<Task>, events: ReadonlyArray<CelloEvent> = []) => [
@@ -230,7 +223,7 @@ const make = Effect.gen(function* () {
     }
     const milestone = query.milestone === undefined
       ? undefined
-      : yield* milestoneNamed(yield* selectMilestones(sql, sql`m.project_id = ${project.id}`), query.milestone, true)
+      : yield* milestoneNamed(project, yield* selectMilestones(sql, sql`m.project_id = ${project.id}`), query.milestone, true)
     const open = new Set(statuses.filter((s) => OPEN_CATEGORIES.has(s.category)).map((s) => s.id))
     const order = new Map(statuses.map((s, i) => [s.id, i]))
     const rows = (yield* selectTasks(
@@ -285,7 +278,7 @@ const make = Effect.gen(function* () {
   const milestoneDetail = Effect.fn("ContextService.milestoneDetail")(function* (ref: ProjectRef, name: string) {
     const project = yield* projects.resolve(ref)
     const milestones = yield* selectMilestones(sql, sql`m.project_id = ${project.id}`)
-    const milestone = (yield* milestoneNamed(milestones, name, false))!
+    const milestone = (yield* milestoneNamed(project, milestones, name, false))!
     const statuses = yield* selectStatuses(sql, sql`s.workspace_id = ${project.workspaceId}`)
     const order = new Map(statuses.map((s, i) => [s.id, i]))
     const rows = (yield* selectTasks(sql, sql`t.project_id = ${project.id} AND t.milestone_id = ${milestone.id} AND t.archived_at IS NULL`))

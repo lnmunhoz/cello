@@ -3,6 +3,7 @@
 // `cello context` and `cello milestone list`; the web app derives the same numbers from the tasks it
 // already has, so a bar moves as cards move (phase 2).
 import { isReviewStatus } from "./review.ts"
+import { closeMatches } from "./words.ts"
 
 interface StatusLike {
   readonly id: string
@@ -89,3 +90,27 @@ export const byPosition = (a: { readonly position: string; readonly name: string
 /** Names in reading order, numbers by value and case ignored: M2 before M10. */
 export const compareMilestoneNames = (a: string, b: string): number =>
   a.localeCompare(b, "en", { numeric: true, sensitivity: "base" })
+
+/**
+ * A project's milestone by name, in any case, spaces trimmed on both sides; `none` means no milestone
+ * where `allowNone`. Anything else is a `problem`: one sentence (no closing period, so a caller can end
+ * it) with close matches, the project's names and how to make it. The server's `task list --milestone`
+ * and `milestone get` and the CLI's `--milestone` all match with this.
+ */
+export const findMilestone = <M extends { readonly name: string }>(
+  milestones: ReadonlyArray<M>,
+  name: string,
+  options: { readonly projectKey: string; readonly allowNone: boolean },
+): { readonly found: M | null } | { readonly problem: string } => {
+  const wanted = name.trim().toLowerCase()
+  if (options.allowNone && wanted === "none") return { found: null }
+  const found = milestones.find((m) => m.name.trim().toLowerCase() === wanted)
+  if (found) return { found }
+  const names = milestones.map((m) => m.name.trim())
+  const close = closeMatches(name.trim(), names)
+  return {
+    problem: `No milestone named "${name.trim()}" in ${options.projectKey}${close.length ? ` (did you mean ${close.length < 2 ? close.join("") : `${close.slice(0, -1).join(", ")} or ${close.at(-1)}`}?)` : ""}. ` +
+      `Milestones: ${names.join(", ") || "none yet"}${options.allowNone && names.length ? " (or none)" : ""}. ` +
+      `Nothing was changed; \`cello milestone create ${name.trim()}\` makes it`,
+  }
+}

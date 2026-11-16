@@ -2,7 +2,7 @@
 import type { Milestone } from "@cello/contract/entities"
 import type { MilestoneProgress } from "@cello/contract/views"
 import { describe, expect, it } from "vitest"
-import { contextMilestones, milestoneHeader, milestoneLine, milestoneListText, milestoneNamed, parseDue, progressDetail } from "./milestones.ts"
+import { contextMilestones, milestoneHeader, milestoneLine, milestoneListText, parseDue, progressDetail } from "./milestones.ts"
 
 const milestone = (name: string, overrides: Partial<Milestone> = {}): Milestone => ({
   id: name.toLowerCase(),
@@ -23,23 +23,6 @@ const progress = (overrides: Partial<MilestoneProgress> = {}): MilestoneProgress
 })
 
 const NOW = 1_800_000_000_000
-
-describe("milestoneNamed", () => {
-  const list = [milestone("M2"), milestone("M3")]
-  it("finds one in any case, takes none when allowed, and refuses anything else with the names and close matches", () => {
-    expect(milestoneNamed(list, " m3 ", "CEL", true)).toBe(list[1])
-    expect(milestoneNamed(list, "None", "CEL", true)).toBeNull()
-    expect(milestoneNamed(list, "none", "CEL", false)).toBe(
-      `No milestone named "none" in CEL. Milestones: M2, M3. Nothing was changed; \`cello milestone create none\` makes it.`,
-    )
-    expect(milestoneNamed(list, "M33", "CEL", true)).toBe(
-      `No milestone named "M33" in CEL (did you mean M3?). Milestones: M2, M3 (or none). Nothing was changed; \`cello milestone create M33\` makes it.`,
-    )
-    expect(milestoneNamed([], "M3", "CEL", false)).toBe(
-      `No milestone named "M3" in CEL. Milestones: none yet. Nothing was changed; \`cello milestone create M3\` makes it.`,
-    )
-  })
-})
 
 describe("parseDue", () => {
   it("takes a date, or none to clear it", () => {

@@ -65,7 +65,7 @@ describe("milestones in the CLI's read models", () => {
       expect(yield* Effect.flip(context.taskList({ project: { key: project.key }, milestone: "M9" }))).toMatchObject({
         _tag: "Invalid",
         field: "milestone",
-        reason: `no milestone named "M9". Milestones: M2, M3, M4 (or none)`,
+        reason: `No milestone named "M9" in CEL (did you mean M2, M3 or M4?). Milestones: M2, M3, M4 (or none). Nothing was changed; \`cello milestone create M9\` makes it`,
       })
     })))
 

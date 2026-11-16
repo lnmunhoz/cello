@@ -1,32 +1,10 @@
 // Milestones in the CLI (CEL-113): `cello milestone list|show|create|edit|close|reopen`, `--milestone` on
 // `task create|edit|list`, and the milestone lines of `cello task get` and `cello context`. The pure parts:
-// matching a name (with close matches for a typo), reading `--due`, and the text.
+// reading `--due`, and the text. Names are matched by @cello/shared/milestone's findMilestone, as on the server.
 import type { Milestone } from "@cello/contract/entities"
 import type { MilestoneList, MilestoneProgress, MilestoneSummary } from "@cello/contract/views"
 import { progressText } from "@cello/shared/milestone"
 import { ago, columns } from "./format.ts"
-import { closeMatches } from "./labels.ts"
-
-/**
- * A project's milestone by name, in any case; `none` means no milestone where `allowNone`. Anything else
- * is refused with the project's names and close matches: a milestone is never created implicitly.
- */
-export const milestoneNamed = (
-  milestones: ReadonlyArray<Milestone>,
-  name: string,
-  projectKey: string,
-  allowNone: boolean,
-): Milestone | null | string => {
-  const wanted = name.trim().toLowerCase()
-  if (allowNone && wanted === "none") return null
-  const found = milestones.find((m) => m.name.toLowerCase() === wanted)
-  if (found) return found
-  const names = milestones.map((m) => m.name)
-  const close = closeMatches(name.trim(), names)
-  return `No milestone named "${name.trim()}" in ${projectKey}${close.length ? ` (did you mean ${close.join(" or ")}?)` : ""}. ` +
-    `Milestones: ${names.join(", ") || "none yet"}${allowNone && names.length ? " (or none)" : ""}. ` +
-    `Nothing was changed; \`cello milestone create ${name.trim()}\` makes it.`
-}
 
 /** `--due 2026-12-01`, or `none` to clear the date. */
 export const parseDue = (value: string): string | null | { readonly invalid: string } => {

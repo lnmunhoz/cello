@@ -42,7 +42,7 @@ import { formatBytes } from "@cello/shared/bytes"
 import { colorFromSeed } from "@cello/shared/color"
 import { cleanReaction, groupReactions } from "@cello/shared/reaction"
 import { type Detection, detectRepo } from "@cello/shared/detect"
-import { progressText } from "@cello/shared/milestone"
+import { findMilestone, progressText } from "@cello/shared/milestone"
 import { missingFields } from "@cello/shared/testingProfile"
 import { shortCommit } from "@cello/shared/build"
 import { APP_VERSION } from "@cello/shared/version"
@@ -122,7 +122,7 @@ import {
   WAITING,
 } from "./inboxWait.ts"
 import { groupWord, labelArgs, labelListText, labelNames, parseChanges, parseGroup, resolveChanges } from "./labels.ts"
-import { contextMilestones, milestoneHeader, milestoneLine, milestoneListText, milestoneNamed, parseDue } from "./milestones.ts"
+import { contextMilestones, milestoneHeader, milestoneLine, milestoneListText, parseDue } from "./milestones.ts"
 import { openTarget } from "./open.ts"
 import { pageFiles } from "./pageFiles.ts"
 import { reconnecting, reconnectGrace } from "./reconnect.ts"
@@ -509,8 +509,10 @@ const list = Command.make("list", {
     if (input.json) return yield* printJson(result)
     if (result.tasks.length === 0) {
       const which = Option.isSome(input.status) ? `${input.status.value} tasks` : "open tasks"
-      const named = Option.isSome(input.milestone) ? milestoneNamed(result.milestones, input.milestone.value, result.project.key, true) : undefined
-      const inMilestone = named === undefined || typeof named === "string" ? "" : named === null ? " without a milestone" : ` in milestone ${named.name}`
+      const named = Option.isSome(input.milestone)
+        ? findMilestone(result.milestones, input.milestone.value, { projectKey: result.project.key, allowNone: true })
+        : undefined
+      const inMilestone = named === undefined || !("found" in named) ? "" : named.found === null ? " without a milestone" : ` in milestone ${named.found.name}`
       return yield* print(`No ${which}${input.mine ? " claimed by you" : ""}${inMilestone} in ${result.project.key}.`)
     }
     yield* print(taskRows(result, result.tasks).join("\n"))
@@ -835,8 +837,8 @@ const edit = Command.make("edit", {
 
 /** A milestone of the project by name (`none`: no milestone, where allowed), or a failure with the names and close matches. */
 const milestoneOrFail = (milestones: ReadonlyArray<Milestone>, name: string, projectKey: string, allowNone: boolean) => {
-  const found = milestoneNamed(milestones, name, projectKey, allowNone)
-  return typeof found === "string" ? Effect.fail(new CliFailure({ message: found })) : Effect.succeed(found)
+  const match = findMilestone(milestones, name, { projectKey, allowNone })
+  return "found" in match ? Effect.succeed(match.found) : Effect.fail(new CliFailure({ message: `${match.problem}.` }))
 }
 
 const submit = Command.make("submit", {

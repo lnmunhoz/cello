@@ -2,6 +2,7 @@
 // reading the changes, matching names (with close matches for a typo), label groups (CEL-52) and the list's text.
 import { type Label, LABEL_GROUP_NAMES, LABEL_GROUPS, type LabelGroup } from "@cello/contract/entities"
 import type { LabelList } from "@cello/contract/views"
+import { closeMatches } from "@cello/shared/words"
 import { andList, columns, plural } from "./format.ts"
 
 const FLAGS = new Set(["--json", "--help", "-h"])
@@ -41,36 +42,6 @@ export const parseChanges = (tokens: ReadonlyArray<string>): Changes | string =>
     if (!list.includes(name)) list.push(name)
   }
   return { add, remove }
-}
-
-/** Edit distance between two strings (insertions, deletions, substitutions). */
-const distance = (a: string, b: string): number => {
-  let previous = Array.from({ length: b.length + 1 }, (_, j) => j)
-  for (let i = 1; i <= a.length; i++) {
-    const current = [i]
-    for (let j = 1; j <= b.length; j++) {
-      current[j] = Math.min(previous[j]! + 1, current[j - 1]! + 1, previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1))
-    }
-    previous = current
-  }
-  return previous[b.length]!
-}
-
-/** Up to three names close to `name`: a typo away (two for names of six letters or more), or containing it (or it them), closest first. */
-export const closeMatches = (name: string, names: ReadonlyArray<string>): ReadonlyArray<string> => {
-  const wanted = name.toLowerCase()
-  const allowed = Math.max(1, Math.floor(wanted.length / 3))
-  return names
-    .map((candidate) => {
-      const lower = candidate.toLowerCase()
-      const contains = Math.min(lower.length, wanted.length) >= 3 && (lower.includes(wanted) || wanted.includes(lower))
-      const score = contains ? Math.abs(lower.length - wanted.length) / 10 : distance(wanted, lower)
-      return { candidate, score, close: contains || distance(wanted, lower) <= allowed }
-    })
-    .filter((m) => m.close)
-    .sort((a, b) => a.score - b.score)
-    .slice(0, 3)
-    .map((m) => m.candidate)
 }
 
 /**

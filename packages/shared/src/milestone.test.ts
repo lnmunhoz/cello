@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { byPosition, compareMilestoneNames, milestoneProgress, progressText } from "./milestone.ts"
+import { byPosition, compareMilestoneNames, findMilestone, milestoneProgress, progressText } from "./milestone.ts"
 
 const statuses = [
   { id: "backlog", name: "Backlog", category: "backlog" },
@@ -52,5 +52,26 @@ describe("milestone order", () => {
 
   it("compares names with numbers in order, ignoring case: M2 before M10", () => {
     expect(["M10", "m3", "M2", "Beta"].sort(compareMilestoneNames)).toEqual(["Beta", "M2", "m3", "M10"])
+  })
+})
+
+describe("findMilestone", () => {
+  const list = [{ name: "M2" }, { name: "M3 " }]
+  it("matches a name in any case with spaces trimmed on both sides; none means no milestone where allowed", () => {
+    expect(findMilestone(list, " m3", { projectKey: "CEL", allowNone: true })).toEqual({ found: list[1] })
+    expect(findMilestone(list, "M2", { projectKey: "CEL", allowNone: false })).toEqual({ found: list[0] })
+    expect(findMilestone(list, "None", { projectKey: "CEL", allowNone: true })).toEqual({ found: null })
+  })
+
+  it("refuses anything else with one sentence: close matches, the names, and how to make it", () => {
+    expect(findMilestone(list, "M33", { projectKey: "CEL", allowNone: true })).toEqual({
+      problem: `No milestone named "M33" in CEL (did you mean M3?). Milestones: M2, M3 (or none). Nothing was changed; \`cello milestone create M33\` makes it`,
+    })
+    expect(findMilestone(list, "none", { projectKey: "CEL", allowNone: false })).toEqual({
+      problem: `No milestone named "none" in CEL. Milestones: M2, M3. Nothing was changed; \`cello milestone create none\` makes it`,
+    })
+    expect(findMilestone([], "M3", { projectKey: "CEL", allowNone: true })).toEqual({
+      problem: `No milestone named "M3" in CEL. Milestones: none yet. Nothing was changed; \`cello milestone create M3\` makes it`,
+    })
   })
 })
