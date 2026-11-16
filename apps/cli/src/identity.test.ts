@@ -1,5 +1,6 @@
 // Test 2 (CLI side) and the headers M2 lists: the environment becomes identity headers.
 import { describe, expect, it } from "vitest"
+import { IDENTITY_HEADERS } from "@cello/contract/rpcs"
 import { identityHeaders } from "./identity.ts"
 
 const claude = {
@@ -9,6 +10,11 @@ const claude = {
 }
 
 describe("identityHeaders", () => {
+  it("the hook's CELLO_PERMISSION_MODE becomes the permission mode header (CEL-92)", () => {
+    expect(identityHeaders({ CLAUDE_CODE_SESSION_ID: "s1", CELLO_PERMISSION_MODE: "auto" }, "/repo")[IDENTITY_HEADERS.permissionMode]).toBe("auto")
+    expect(identityHeaders({ CLAUDE_CODE_SESSION_ID: "s1" }, "/repo")[IDENTITY_HEADERS.permissionMode]).toBeUndefined()
+  })
+
   it("a Claude Code shell sends its session, client, pid, entrypoint and folder", () => {
     expect(identityHeaders(claude, "/Users/lnmunhoz/projects/cello")).toEqual({
       "x-cello-session": "2fd0505c-417a-4167-acfe-2d66080fcae0",

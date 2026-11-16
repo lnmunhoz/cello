@@ -635,6 +635,47 @@ Closing the terminal (or the Claude Code thread) ends the session. Nothing is lo
 3. **Resuming the session** (`claude --resume`, or reopening the thread) hands everything over at its first hook: its first tool call, or its first stop.
 4. **A new session that claims the task instead** doesn't receive what was sent to the old one; it reads it in the task's history (`cello task get CEL-12` shows every comment). New comments from then on go to the new session.
 
+### When your process is gone, Cello can wake you
+
+A session doesn't die with its process: Claude Code keeps the conversation on disk. When the human comments on a task you claimed, answers your ask, sends it back or reacts to your comment, and nothing of your session is running, Cello can continue your conversation itself, headless, in your repo folder. That's a **woken run**. It's off until the human turns it on for the project (Settings → the project → "Wake agent sessions when you comment").
+
+What happens:
+
+1. The human comments on CEL-12, which you claimed. Your `cello inbox --wait` isn't running, your Claude process has exited, and you haven't checked in for 2 minutes.
+2. Cello waits 30 seconds (each new comment restarts the wait, so three quick comments make one wake), then runs, in your repo folder:
+
+   ```bash
+   claude -p --resume <your session id> --permission-mode <your mode> \
+     --output-format stream-json --verbose --max-turns 40 \
+     "Ana Souza acted on CEL-12, which you claimed: run `cello inbox` and act on it, then answer on the card. Cello woke this session because its process had ended."
+   ```
+
+3. You're the same session, with your claim and your memory of the task. Run `cello inbox` as the prompt says, act on what it hands you, and answer on the card with `cello task comment`. Then end your turn: the run exits and the claim stays. The next comment wakes you again.
+
+How a woken run differs from a normal turn:
+
+- **`CELLO_WOKEN=1` is in your environment.** The Stop hook then never asks you to start `cello inbox --wait`: a waiter would keep the run alive for nothing, and Cello wakes you again when the human next acts. Don't start one yourself.
+- **Nobody is watching.** You run in the permission mode your session last had (Cello's hooks record it on every event), never `bypassPermissions`. A tool the mode doesn't allow is refused; say on the card what you couldn't do ("couldn't run `bun install`: not allowed in this mode") so the human can answer or open the chat.
+- **One turn, at most 40 agentic steps.** Do what the comment asks, answer, and stop. Big follow-up work waits for the human.
+- **Your output is logged** to `<data folder>/runs/<session>/<time>.jsonl` (the newest 20 per session; backups leave them out). The card links it, with a Stop button while the run goes.
+
+Cello doesn't wake a session when its `cello inbox --wait` is running (it hears the comment by itself), when its process is still open (two processes on one conversation would corrupt it; the comment arrives with its next hook), when it checked in less than 2 minutes ago, when waking is off for the project, past the cap (3 wakes per task per hour unless the human changes it), when it ran with `bypassPermissions`, or when its conversation isn't on this machine. The card then says why, and the comment waits in the inbox as before.
+
+An orchestrator (or the human) can wake a session now, with the same checks, and list its runs:
+
+```bash
+cello sessions wake CEL-12      # the session holding CEL-12's claim
+cello sessions wake c14ca1fa    # a session, by the start of its id
+# Woke session c14ca1fa (mode auto). It runs `cello inbox`, acts, answers on the card, then exits.
+# Log: /Users/ana/.cello/runs/c14ca1fa-…/2026-11-16T15-58-12-123Z.jsonl
+cello sessions runs c14ca1fa
+# Woken runs of session c14ca1fa, newest first:
+#   2026-11-16 15:58  a comment  auto  completed in 1 min
+#     /Users/ana/.cello/runs/c14ca1fa-…/2026-11-16T15-58-12-123Z.jsonl
+```
+
+Never wake your own session: you're already running.
+
 ## Subagents
 
 When you run builders and reviewers with Claude Code's Agent tool, they all carry your `CLAUDE_CODE_SESSION_ID`. Cello still tells them apart: each is a **subagent** of your session, named by its type and the first 8 characters of its id ("cello-builder · a13bfb89", "general-purpose · add98dec"). The card it works on says "cello-builder · a13bfb89 active now", with your session in the hover and in the task panel; its comments and changes name it; and "Agents working" in the sidebar counts each working subagent and opens the Agents page, which lists them under your session, each with its task.
@@ -979,7 +1020,9 @@ cello builds
 | `CELLO_AGENT` | Which subagent of the session is calling, as `<type>/<id>` (`cello-builder/a13bfb89`) or just the id. The SubagentStart hook tells each subagent its value. Subagents pass it as `cello --agent <value> …` instead, which does the same and wins over the variable, so the command still starts with `cello` (see Subagents). Your changes and comments are then credited to that subagent, under the session; claims stay with the session. See Subagents. |
 | `CLAUDE_PID` | Set by Claude Code. Lets Cello tell whether your session is still alive, so a dead session's claim can be taken over. |
 | `CELLO_SESSION` | Overrides the session. An agent that isn't Claude Code sets a stable id for its conversation here. `CELLO_SESSION=me` acts as Lucas: only when he asks you to. |
-| `CELLO_PORT` | The server's port, 4747 by default. Dev servers and tests use other ports. |
+| `CELLO_PORT` | The server's port, 4747 by default. Dev servers and tests use other ports. A woken run gets the port of the server that woke it. |
+| `CELLO_WOKEN` | Set to `1` by Cello in a run it woke (see "When your process is gone, Cello can wake you"): the Stop hook then never asks for `cello inbox --wait`. |
+| `CELLO_PERMISSION_MODE` | Set by Cello's hooks only: the session's permission mode from Claude Code, sent with the hook's calls so a woken run uses the same one. |
 | `CELLO_DATA_DIR` | `cello start`'s data folder, `~/.cello` by default. |
 | `CELLO_WEB_DIR` | A built web app (`vite build`'s folder) for `cello start` to serve instead of its own. It serves **every file in that folder** to anything that can reach the port, so point it only at a build. Without an `index.html` there, `cello start` says so on stderr and serves its own app. Tests use it to serve two builds. |
 | `CELLO_BUILD_COMMIT` | The commit a build records, when it's made outside a git checkout (Docker): a commit hash (7 to 40 lowercase hex characters); anything else is ignored. `vite build`, `bun run build` and `cello` from source otherwise read the checkout's HEAD. |
@@ -1013,6 +1056,7 @@ Every error is one sentence that says what to do next. The usual ones:
 | Say why you recommend "…" (because) · question 2 needs options… | The ask's questions can't be answered well as written. | Fix what it says; nothing was asked. |
 | CEL-12 has no open ask to withdraw | It was answered, withdrawn or replaced already. | `cello task answers CEL-12` shows what happened. |
 | claim CEL-12 first (cello task claim CEL-12): only the session working on a task asks on it | You asked on a task nobody holds. | Claim it, then ask. Asking on a task another session holds is refused like a claim (it names the holder). |
+| Cello didn't wake session c14ca1fa: waking is off for this project | `cello sessions wake` found a reason not to wake it (its process is still open, the cap, waking off…). The card says the same. | Nothing to do from your side; the comment waits in the session's inbox. Waking is the human's setting. |
 | This folder isn't in a git repository | The CLI can't work out the project. | Pass `--project KEY`. |
 | No project is linked to /path | This repository isn't a Cello project yet. | Set it up: `cello init` (see Set up a repo for Cello), or pass `--project KEY`. |
 | The key THAI is taken by ThaiLookup | `cello init --key` named a key another project has. | Pick another key, or leave `--key` out and Cello picks a free one. |
@@ -1419,6 +1463,32 @@ cello inbox [flags]
 | `--wait` | Block until something new arrives for this session (a comment, a Send back note, answers, a withdrawn ask), then take it and print it, as --new does. Run it in the background when you end a turn holding a claim, so comments wake you. A second one for the same session leaves at once. Rides out a server restart; exits 1 if the server stays away for 2 minutes, or when the Claude Code that started it (CLAUDE_PID) is gone; stops after a day with nothing new. |
 | `--json` | Print JSON: `items` (new, handed over now and marked read), `earlier` (read before; empty with --new and --wait) and `claimed` (the keys of the tasks this session holds). With --wait: `{ waiting, pid }` when another waiter runs, `{ stopped, afterMs }` after a day with nothing new. |
 
+### cello sessions wake
+
+Wake an agent session now: Cello continues its conversation headless in its repo folder (`claude -p --resume`), as it does by itself 30 s after Lucas comments on a task the session claimed and its process is gone. The same checks apply: waking on for the project, under the cap, its process gone, nothing listening; when one fails it says why and exits 1. For the human or an orchestrator, never for yourself.
+
+```
+cello sessions wake [flags] <session-or-key>
+```
+
+| | |
+| --- | --- |
+| `session-or-key string` | The session to wake: a task key (CEL-92) wakes the session holding its claim; otherwise a session id, or its first 8 characters (c14ca1fa). |
+| `--json` | Print JSON for scripts. |
+
+### cello sessions runs
+
+List the times Cello woke a session (newest first): why, the permission mode, how each run ended, and its log file.
+
+```
+cello sessions runs [flags] <session>
+```
+
+| | |
+| --- | --- |
+| `session string` | A session id, or its first 8 characters (c14ca1fa). |
+| `--json` | Print JSON for scripts. |
+
 ### cello doc publish
 
 Publish a markdown report, plan or summary as a page in Cello and print its URL, and the cello:// link to put in replies.
@@ -1556,7 +1626,7 @@ cello uninstall claude [flags]
 
 ### cello hook claude
 
-Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that holds a claim going once to start `cello inbox --wait` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) or Claude is already continuing because of a Stop hook (stop_hook_active). pre-tool-use turns a Claude artifact publish away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished. Always exits 0.
+Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that holds a claim going once to start `cello inbox --wait` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) or Claude is already continuing because of a Stop hook (stop_hook_active), and never in a run Cello woke (CELLO_WOKEN=1). Every run passes the session's permission_mode on to the server, so a run Cello wakes uses the same mode. pre-tool-use turns a Claude artifact publish away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished. Always exits 0.
 
 ```
 cello hook claude [flags] <event>

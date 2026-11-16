@@ -62,14 +62,17 @@ export const NOT_WOKEN_TEXT: Record<NotWokenReason, string> = {
   cancelled: "you said don't wake it",
 }
 
-/** What woke it, after "Cello woke …": "(your comment)". */
+/** What woke it, after "Cello woke …": "(a comment)". */
 export const WAKE_WHY_TEXT: Record<WakeWhy, string> = {
-  comment: "your comment",
-  answers: "your answers",
-  send_back: "your Send back",
-  reaction: "your reaction",
+  comment: "a comment",
+  answers: "answers to its questions",
+  send_back: "a Send back",
+  reaction: "a reaction",
   manual: "cello sessions wake",
 }
+
+/** How a woken run ended, before "in 1 min" / "after 1 min". */
+export const RUN_END_TEXT = { running: "is running", completed: "completed in", failed: "failed after", stopped: "was stopped after" } as const
 
 /** "40 s", "1 min", "12 min", "2 h": how long a run took. */
 export const runLength = (ms: number): string => {

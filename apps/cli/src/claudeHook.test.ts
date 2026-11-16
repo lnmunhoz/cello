@@ -47,7 +47,13 @@ describe("parseHookInput", () => {
       toolName: null,
       toolInput: null,
       backgroundCommands: null,
+      permissionMode: null,
     })
+  })
+
+  it("reads the session's permission mode (CEL-92): a woken run continues in the same one", () => {
+    expect(parseHookInput(JSON.stringify({ session_id: "s", permission_mode: "auto" })).permissionMode).toBe("auto")
+    expect(parseHookInput(JSON.stringify({ session_id: "s", permission_mode: "" })).permissionMode).toBeNull()
   })
 
   it("knows a tool call inside a subagent by its agent_id, and which agent it is (CEL-55)", () => {
@@ -74,7 +80,7 @@ describe("parseHookInput", () => {
   })
 
   it("treats empty or broken input as no information, never as an error", () => {
-    const none = { sessionId: null, cwd: null, stopHookActive: false, inSubagent: false, agent: null, launched: null, toolName: null, toolInput: null, backgroundCommands: null }
+    const none = { sessionId: null, cwd: null, stopHookActive: false, inSubagent: false, agent: null, launched: null, toolName: null, toolInput: null, backgroundCommands: null, permissionMode: null }
     expect(parseHookInput("")).toEqual(none)
     expect(parseHookInput("{not json")).toEqual(none)
     expect(parseHookInput("[1,2]")).toEqual(none)
@@ -140,8 +146,12 @@ describe("stopNudge (CEL-74): an idle session must still hear its human", () => 
   const stop = (extra: Record<string, unknown> = {}) =>
     parseHookInput(JSON.stringify({ session_id: "s", hook_event_name: "Stop", stop_hook_active: false, ...extra }))
   const claimed = ["CEL-74"]
-  const facts = (more: Partial<{ claimed: ReadonlyArray<string>; waiter: "running" | "absent" | "unknown" }> = {}) =>
+  const facts = (more: Partial<{ claimed: ReadonlyArray<string>; waiter: "running" | "absent" | "unknown"; woken: boolean }> = {}) =>
     ({ claimed, waiter: "absent" as const, human: "Lucas", ...more })
+
+  it("a run Cello woke (CELLO_WOKEN=1, CEL-92) is never asked for a waiter: it answers and exits", () => {
+    expect(stopNudge(stop(), facts({ woken: true }))).toBeNull()
+  })
 
   it("holding a claim with no waiter running, the stop is blocked once with what to start, naming the human", () => {
     expect(stopNudge(stop(), facts())).toEqual({
@@ -192,6 +202,7 @@ describe("waitHint (CEL-74): a delivery on Stop also says to start a waiter", ()
     expect(waitHint(stop(), { ...facts, waiter: "running" })).toBeNull()
     expect(waitHint(stop(), { ...facts, waiter: "unknown" })).toBeNull()
     expect(waitHint(stop(), { ...facts, claimed: [] })).toBeNull()
+    expect(waitHint(stop(), { ...facts, woken: true })).toBeNull()
     expect(waitHint(stop({ agent_id: "a1" }), facts)).toBeNull()
   })
 })
@@ -223,6 +234,13 @@ describe("hookIdentity and subagentContext", () => {
     })
     const main = parseHookInput(JSON.stringify({ session_id: "2fd0505c" }))
     expect(hookIdentity(main, { CELLO_AGENT: "stale/x", CLAUDE_PID: "1" })).toEqual({ CLAUDE_PID: "1", CLAUDE_CODE_SESSION_ID: "2fd0505c" })
+  })
+
+  it("passes the session's permission mode on (CEL-92), and never a stale one from the environment", () => {
+    const withMode = parseHookInput(JSON.stringify({ session_id: "2fd0505c", permission_mode: "acceptEdits" }))
+    expect(hookIdentity(withMode, {})).toEqual({ CLAUDE_CODE_SESSION_ID: "2fd0505c", CELLO_PERMISSION_MODE: "acceptEdits" })
+    expect(hookIdentity(parseHookInput(JSON.stringify({ session_id: "2fd0505c" })), { CELLO_PERMISSION_MODE: "auto" }))
+      .toEqual({ CLAUDE_CODE_SESSION_ID: "2fd0505c" })
   })
 
   it("SubagentStart: tells the subagent its --agent, as context, and that claims stay with the main conversation", () => {

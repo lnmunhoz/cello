@@ -1,6 +1,8 @@
 // Every error a command can end with, as one sentence that says what to do next. One table, keyed
 // by error tag; commands fail with CliFailure carrying that sentence.
 import * as Data from "effect/Data"
+import type { NotWokenReason } from "@cello/contract/entities"
+import { NOT_WOKEN_TEXT } from "@cello/contract/wake"
 import { ago, shortSession } from "./format.ts"
 
 /** A command's failure, already explained. `cello` prints the message to stderr and exits 1. */
@@ -58,6 +60,10 @@ export const explain = (error: unknown, where: Where): string => {
       return `${e.human} set ${e.field} himself (\`${e.value}\`), so an agent can't change it. If it's wrong, ask him on the card ` +
         `on your task: \`cello task ask <KEY-n> --title "Change ${e.field} in the testing profile?" --question "…" --option "A" --option "B"\` ` +
         "(or --file ask.json; see `cello guide`, \"Questions for Lucas\"), and say so in your packet."
+    case "SessionNotWoken": {
+      const why = NOT_WOKEN_TEXT[e.reason as NotWokenReason] ?? String(e.reason)
+      return `Cello didn't wake session ${shortSession(String(e.session))}: ${why}. The card says the same.`
+    }
     case "RpcClientError":
       // Connected, then cut off: the server stopped mid-command, and a write it had started still commits.
       if (["SocketCloseError", "SocketReadError", "SocketWriteError"].includes(e.reason?._tag)) {

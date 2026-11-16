@@ -39,6 +39,8 @@ export const identityHeaders = (env: Env, cwd: string): Record<string, string> =
     const agent = parseAgent(env.CELLO_AGENT)
     if (agent) headers[IDENTITY_HEADERS.agent] = agent.id
     if (agent?.type) headers[IDENTITY_HEADERS.agentType] = agent.type
+    // Set by the hooks only (claudeHook.ts hookIdentity): the session's permission mode (CEL-92).
+    if (env.CELLO_PERMISSION_MODE) headers[IDENTITY_HEADERS.permissionMode] = env.CELLO_PERMISSION_MODE
   }
   headers[IDENTITY_HEADERS.cwd] = cwd
   return headers

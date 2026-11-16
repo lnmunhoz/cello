@@ -2,6 +2,7 @@
 import type { BoardState } from "./sync/applyEvents.ts"
 import type { CelloEvent } from "@cello/contract/events"
 import { stageInfo } from "@cello/contract/stages"
+import { NOT_WOKEN_TEXT, RUN_END_TEXT, runLength, WAKE_WHY_TEXT } from "@cello/contract/wake"
 import { andList } from "@cello/shared/words"
 
 const FIELD_NAMES: Record<string, string> = { title: "title", description: "description", priority: "priority", dueDate: "due date", parentId: "parent" }
@@ -96,6 +97,24 @@ export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | 
         return verb(only) === "set" ? `${who} set ${what} to \`${only.after!.value}\`` : `${who} ${verb(only)} ${what}`
       }
       return `${who} changed the testing profile: ${e.changes.map((c) => `${verb(c)} ${c.field}`).join(", ")}`
+    }
+    // Waking sessions (CEL-92): written as the session, about Cello's doing.
+    case "session.wake_scheduled":
+      return `Cello will wake ${who} (${WAKE_WHY_TEXT[e.why]})`
+    case "session.not_woken":
+      return `Cello didn't wake ${who}: ${NOT_WOKEN_TEXT[e.reason]}`
+    case "session.run_started":
+      return `Cello woke ${who} (${WAKE_WHY_TEXT[e.run.why]}, mode ${e.run.mode})`
+    case "session.run_ended": {
+      const length = e.run.endedAt === null ? "" : ` ${runLength(e.run.endedAt - e.run.startedAt)}`
+      return `${who}'s woken run ${RUN_END_TEXT[e.run.outcome]}${length}${e.run.error ? `: ${e.run.error}` : ""}`
+    }
+    case "wake.settings_changed": {
+      const parts = [
+        ...(e.after.enabled === undefined ? [] : [e.after.enabled ? "turned waking agent sessions on" : "turned waking agent sessions off"]),
+        ...(e.after.capPerHour === undefined ? [] : [`set the wake limit to ${e.after.capPerHour} per task per hour`]),
+      ]
+      return `${who} ${parts.join(" and ")}`
     }
     default:
       return `${who} changed it`
