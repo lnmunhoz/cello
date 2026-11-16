@@ -9,6 +9,8 @@ import {
   createProjectHere,
   expect,
   openNewWorkspace,
+  projectLink,
+  projectLinks,
   seedLabels,
   seedProject,
   switchWorkspace,
@@ -18,8 +20,6 @@ import {
 
 const statusRows = (page: Page) => page.getByRole("list", { name: "Statuses" }).locator("[data-status-row]")
 const columnHeadings = (page: Page) => page.locator("section[data-column] h2")
-const projectLinks = (page: Page) => page.getByRole("navigation", { name: "Projects" }).getByRole("link")
-const projectLink = (page: Page, key: string) => projectLinks(page).and(page.locator(`[href="/${key}"]`))
 
 test("settings: rename, reorder and hide a status; the board's columns follow", async ({ page }) => {
   const key = uniqueKey("STAT")

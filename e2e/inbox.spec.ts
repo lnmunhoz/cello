@@ -5,7 +5,7 @@
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { caption, card, column, createProject, expect, taskPanel, test, uniqueKey } from "./fixtures.ts"
+import { caption, card, column, createProject, expect, projectLink, taskPanel, test, uniqueKey } from "./fixtures.ts"
 import { showTerminalAndPoint as showTerminal } from "./agentScreen.ts"
 import { celloAs, SHOTS } from "./packets.ts"
 
@@ -66,7 +66,7 @@ test("CEL-15: a comment typed in the task panel and a Send back on the Review pa
   await expect(item).toBeHidden()
 
   await caption(page, `${task} is back in In Progress`)
-  await page.getByRole("link", { name: "Inbox test" }).click()
+  await projectLink(page, key).click()
   await expect(column(page, "In Progress").locator(`[data-task-key="${task}"]`)).toBeVisible()
 
   await caption(page, "When the agent stops, its Stop hook hands the note back as feedback and keeps it working")

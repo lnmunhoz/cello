@@ -289,6 +289,9 @@ export const contentAnimations = (page: Page): Promise<number> =>
 export const agentAs = (baseURL: string, session: string, pid: number) =>
   openClient(`${baseURL.replace(/^http/, "ws")}/rpc`, { "x-cello-session": session, "x-cello-client": "Claude Code", "x-cello-pid": String(pid) })
 
+/** The sidebar's project links, and one project's link by its key (names repeat across runs and tests; keys don't). */
+export const projectLinks = (page: Page) => page.getByRole("navigation", { name: "Projects" }).getByRole("link")
+export const projectLink = (page: Page, key: string) => projectLinks(page).and(page.locator(`[href="/${key}"]`))
 export const column = (page: Page, name: string) => page.locator(`section[data-column="${name}"]`)
 export const card = (page: Page, key: string) => page.locator(`[data-task-key="${key}"]`)
 

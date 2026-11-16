@@ -7,7 +7,7 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import type { Browser, Page } from "@playwright/test"
-import { caption, captionWithUrl, card, column, createProject, expect, test, uniqueKey } from "./fixtures.ts"
+import { caption, captionWithUrl, card, column, createProject, expect, projectLink, test, uniqueKey } from "./fixtures.ts"
 import {
   cello,
   expectOneColumn,
@@ -120,7 +120,7 @@ test("CEL-10: an agent submits a packet with a real MP4 and screenshot through t
   }
 
   await caption(page, `${key}-1 is in Done`)
-  await page.getByRole("link", { name: "Packets test" }).click()
+  await projectLink(page, key).click()
   await expect(column(page, "Done").locator(`[data-task-key="${key}-1"]`)).toBeVisible()
   await expect(taskCard.locator("[data-evidence-badge]")).toHaveCount(0)
   await caption(page, `Approved: ${key}-1 landed in Done`)
@@ -398,7 +398,7 @@ test("CEL-71: an agent moves its task out of In Review with `cello task move`: t
   await page.screenshot({ path: path.join(SHOTS, "review-withdrawn.png") })
 
   await caption(page, `${key}-1 is in In Progress; its panel lists the packet as withdrawn`)
-  await page.getByRole("link", { name: "Withdrawn packets test" }).click()
+  await projectLink(page, key).click()
   await expect(column(page, "In Progress").locator(`[data-task-key="${key}-1"]`)).toBeVisible()
   await expect(card(page, `${key}-1`).locator("[data-evidence-badge]")).toHaveCount(0)
   await card(page, `${key}-1`).click()
