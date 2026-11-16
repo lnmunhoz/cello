@@ -44,10 +44,10 @@ flowchart TD
 3. **Bumps** the version everywhere it lives (`scripts/release/version.ts`). The root `package.json` is the one source of truth; the release writes the same version to `APP_VERSION` in `packages/shared/src/version.ts` (what `cello --version`, the sidebar footer and backup manifests report) and to every workspace `package.json` that has a `version` (today `apps/desktop`, which electron-builder stamps into Cello.app). A unit test fails if they ever disagree.
 4. **Writes the changelog** section at the top of `CHANGELOG.md` (below).
 5. **Commits** `chore(release): vX.Y.Z` and **tags** `vX.Y.Z` (annotated).
-6. **Builds** `cello` into `release/stage/cello` (`bun run build --outfile …` in `apps/cli`) and **packages** Cello.app with that binary (`bun run package --cli release/stage/cello` in `apps/desktop`, unsigned, Apple silicon), then zips them into `release/` as `cello-vX.Y.Z-darwin-arm64.zip` and `Cello-vX.Y.Z-mac-arm64.zip`. It builds after the tag, so the binary embeds the release commit and the new version. **It never builds over `apps/cli/dist/cello`**: that's the live cello (`~/.local/bin/cello` and the background service run it), and only the deploy replaces it, after its backup. It never installs or opens the app.
+6. **Builds** `cello` into `release/stage/cello` (`bun run build --outfile …` in `apps/cli`) and **packages** Cello.app with that binary (`bun run package --cli release/stage/cello` in `apps/desktop`, unsigned, Apple silicon), then zips them into `release/` as `cello-vX.Y.Z-darwin-arm64.zip` and `Cello-vX.Y.Z-mac-arm64.zip`. It builds after the tag, so the binary embeds the release commit and the new version. If a build step fails, it deletes `release/stage`, so a half-built binary can't be deployed. **It never builds over `apps/cli/dist/cello`**: that's the live cello (`~/.local/bin/cello` and the background service run it), and only the deploy replaces it, after its backup. It never installs or opens the app.
 7. **Pushes** `main` and the tag together (`git push --atomic`), only once the build worked: a failed build leaves the commit and tag local, easy to undo.
 8. **Creates the GitHub release** `Cello vX.Y.Z` on lnmunhoz/cello with the changelog section as its notes and both zips attached. The token comes from `gh auth token` (or `GITHUB_TOKEN`).
-9. **Deploys**, in this order: `cello backup` (the old cello, against the running server), then the staged build goes live with one rename of `release/stage/cello` onto `apps/cli/dist/cello` (same filesystem, so that path holds the old build or the new one, never a half-written file), then `cello service restart`. The service runs the new build, and a migration runs at that restart, after the backup. If the backup fails, nothing goes live and nothing restarts.
+9. **Deploys**, in this order. First it checks, before touching anything, that the staged build is this release's: `release/stage/cello` exists and is executable, its `--version` says package.json's version and HEAD's commit, and `vX.Y.Z` is on origin. A leftover from an undone release, or a build cut short by a full disk, is refused. Then `cello backup` (the old cello, against the running server), then the staged build goes live with one rename of `release/stage/cello` onto `apps/cli/dist/cello` (same filesystem, so that path holds the old build or the new one, never a half-written file), then `cello service restart`. The service runs the new build, and a migration runs at that restart, after the backup. If the backup fails, nothing goes live and nothing restarts.
 
 ## The changelog
 
@@ -65,11 +65,11 @@ Write subjects for the reader of the changelog: the merge subject is the line Lu
 `bun run release -- --dry-run` (add `minor` or `major` to preview those) does everything that doesn't change anything:
 
 - prints the version change and every step, marking the ones it skips
-- fetches origin (only remote-tracking refs change), then says what a real release would refuse (another branch, uncommitted changes, behind origin, a live cello that isn't this checkout's), but carries on so you can see the rest
+- runs `git fetch --tags origin`: the one thing it changes, your remote-tracking refs and any tags origin has, so it can tell whether main is up to date. Then it says what a real release would refuse (another branch, uncommitted changes, behind origin, a live cello that isn't this checkout's), but carries on so you can see the rest
 - **runs** the typecheck and the tests
 - prints the CHANGELOG.md section the release would add, and release-it's own preview: the commands it would run, the GitHub release it would create
 
-It writes, commits, tags, pushes, releases and deploys nothing, and doesn't build: in the main checkout a build replaces the live `cello`.
+Apart from that fetch, it writes, commits, tags, pushes, releases and deploys nothing, and doesn't build.
 
 ## Flags
 
@@ -86,7 +86,7 @@ When release-it fails, `bun run release` looks at how far it got (the release co
 
 - **Refused, or the typecheck or tests failed:** nothing changed. Fix it and run it again.
 - **Stopped after the bump, before the commit:** `git checkout -- <the files it names>` drops the version and changelog edits.
-- **Stopped after the commit and tag, before the push** (the build or Cello.app failed, or the push was rejected): nothing reached GitHub. `git tag -d vX.Y.Z && git reset --hard HEAD~1`, then fix it, or release again with `--skip-desktop`. The next release refuses until this is undone.
+- **Stopped after the commit and tag, before the push** (the build or Cello.app failed, or the push was rejected): nothing reached GitHub. `git tag -d vX.Y.Z && git reset --hard HEAD~1 && rm -rf release`, then fix it and release again (with `--skip-desktop` when packaging Cello.app was what failed; the advice says so then). The next release refuses until this is undone, and the deploy refuses a staged build that isn't a pushed release's.
 - **Stopped after the push** (the GitHub release failed): the tag is on GitHub, so don't undo it. Finish by hand: `gh release create vX.Y.Z release/*.zip --title "Cello vX.Y.Z" --notes "$(bun scripts/release/changelog.ts notes-of X.Y.Z)"`, then `bun scripts/release/deploy.ts`.
 - **The deploy failed:** the release is out. If the backup failed, nothing went live: fix it and run `bun scripts/release/deploy.ts`. If the restart failed, the new cello is in place: `cello service status` says why, then `cello service restart`.
 

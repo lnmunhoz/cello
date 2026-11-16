@@ -162,6 +162,8 @@ export type FailedRelease = {
   readonly headIsRelease: boolean
   /** Tracked files with uncommitted changes; null when git diff failed. */
   readonly changedFiles: ReadonlyArray<string> | null
+  /** Whether packaging Cello.app was the step that failed (artifacts.ts PACKAGING_FAILED). */
+  readonly packagingFailed: boolean
 }
 
 /**
@@ -174,7 +176,12 @@ export const recoveryAdvice = (state: FailedRelease): string[] => {
     `  gh release create ${tag} release/*.zip --title "Cello ${tag}" --notes "$(bun scripts/release/changelog.ts notes-of ${state.version})"`,
     "  bun scripts/release/deploy.ts",
   ]
-  const undo = [...(state.localTag ? [`  git tag -d ${tag}`] : []), ...(state.headIsRelease ? ["  git reset --hard HEAD~1"] : [])]
+  // release/ goes too: its staged build is the undone commit's, and must never be deployed.
+  const undo = [
+    ...(state.localTag ? [`  git tag -d ${tag}`] : []),
+    ...(state.headIsRelease ? ["  git reset --hard HEAD~1"] : []),
+    "  rm -rf release",
+  ]
   const madeSomething = state.localTag || state.headIsRelease
   if (state.remoteTag === true) {
     return [`${tag} is pushed: the release commit and tag are on GitHub, so don't undo them. Finish by hand:`, ...finish]
@@ -188,7 +195,8 @@ export const recoveryAdvice = (state: FailedRelease): string[] => {
     ]
   }
   if (madeSomething) {
-    return ["Nothing was pushed. Undo the release commit and tag, fix the problem above (or add --skip-desktop), and release again:", ...undo]
+    const skip = state.packagingFailed ? " (or add --skip-desktop)" : ""
+    return [`Nothing was pushed. Undo the release commit and tag, fix the problem above${skip}, and release again:`, ...undo]
   }
   if (state.changedFiles === null) return ["Can't tell what changed (git diff failed): check git status before releasing again."]
   if (state.changedFiles.length > 0) {

@@ -150,7 +150,7 @@ describe("releaseItArgs", () => {
 })
 
 describe("recoveryAdvice", () => {
-  const none = { version: "0.3.1", localTag: false, remoteTag: false, headIsRelease: false, changedFiles: [] }
+  const none = { version: "0.3.1", localTag: false, remoteTag: false, headIsRelease: false, changedFiles: [], packagingFailed: false }
 
   it("nothing changed: fix it and release again", () => {
     expect(recoveryAdvice(none)).toEqual(["Nothing was changed. Fix the problem above and release again."])
@@ -163,12 +163,19 @@ describe("recoveryAdvice", () => {
     ])
   })
 
-  it("stopped after the commit and tag, before the push: undo both locally", () => {
+  it("stopped after the commit and tag, before the push: undo both locally, and delete release/ so its build can't be deployed", () => {
     expect(recoveryAdvice({ ...none, localTag: true, headIsRelease: true })).toEqual([
-      "Nothing was pushed. Undo the release commit and tag, fix the problem above (or add --skip-desktop), and release again:",
+      "Nothing was pushed. Undo the release commit and tag, fix the problem above, and release again:",
       "  git tag -d v0.3.1",
       "  git reset --hard HEAD~1",
+      "  rm -rf release",
     ])
+  })
+
+  it("offers --skip-desktop only when packaging Cello.app was what failed", () => {
+    expect(recoveryAdvice({ ...none, localTag: true, headIsRelease: true, packagingFailed: true })[0]).toBe(
+      "Nothing was pushed. Undo the release commit and tag, fix the problem above (or add --skip-desktop), and release again:",
+    )
   })
 
   it("never says nothing was pushed when it can't tell", () => {
@@ -179,6 +186,7 @@ describe("recoveryAdvice", () => {
       "If it doesn't, undo the release here and release again:",
       "  git tag -d v0.3.1",
       "  git reset --hard HEAD~1",
+      "  rm -rf release",
     ])
     expect(recoveryAdvice({ ...none, changedFiles: null })).toEqual([
       "Can't tell what changed (git diff failed): check git status before releasing again.",

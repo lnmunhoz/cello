@@ -3,7 +3,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
-import { artifactNames, artifactSteps, buildArtifacts, STAGED_CLI } from "./artifacts.ts"
+import { artifactNames, artifactSteps, buildArtifacts, PACKAGING_FAILED, STAGED_CLI } from "./artifacts.ts"
 
 const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cello-release-artifacts-")))
 afterAll(() => fs.rmSync(base, { recursive: true, force: true }))
@@ -73,17 +73,39 @@ describe("buildArtifacts", () => {
     ])
   })
 
-  it("stops at the first failing step; a failed Cello.app package names the way out", () => {
-    const dir = repo("fail")
+  // A step that writes the staged binary, as the real build does, then exits with `code` at `failAt`.
+  const building = (dir: string, failAt: string, code: number) => (cmd: ReadonlyArray<string>) => {
+    if (cmd.includes("build")) fs.writeFileSync(path.join(dir, STAGED_CLI), "half a binary")
+    return cmd.join(" ").includes(failAt) ? code : 0
+  }
+
+  it("a failed Cello.app package names the way out, deletes the staged build and marks that packaging failed", () => {
+    const dir = repo("fail-app")
+    expect(() => buildArtifacts({ ...mac, root: dir }, building(dir, "package", 1))).toThrow(
+      /Packaging Cello\.app failed \(bun run package --cli \S+ exited 1\)\. Fix it, or release without it: bun run release -- --skip-desktop/,
+    )
+    expect(fs.existsSync(path.join(dir, "release/stage"))).toBe(false)
+    expect(fs.existsSync(path.join(dir, PACKAGING_FAILED))).toBe(true)
+  })
+
+  it("a failed CLI build (a full disk leaves a truncated outfile) deletes the staged build", () => {
+    const dir = repo("fail-cli")
+    expect(() => buildArtifacts({ ...mac, root: dir }, building(dir, "build", 2))).toThrow(
+      /Building the cello binary failed \(bun run build --outfile \S+ exited 2\)/,
+    )
+    expect(fs.existsSync(path.join(dir, "release/stage"))).toBe(false)
+    expect(fs.existsSync(path.join(dir, PACKAGING_FAILED))).toBe(false)
+  })
+
+  it("stops at the first failing step", () => {
+    const dir = repo("first")
     const ran: string[] = []
     expect(() =>
       buildArtifacts({ ...mac, root: dir }, (cmd) => {
-        ran.push(cmd.join(" "))
-        return cmd.includes("package") ? 1 : 0
+        ran.push(cmd[0]!)
+        return cmd[0] === "zip" ? 9 : 0
       }),
-    ).toThrow(/Packaging Cello\.app failed \(bun run package --cli \S+ exited 1\)\. Fix it, or release without it: bun run release -- --skip-desktop/)
-    expect(ran).toHaveLength(3)
-
-    expect(() => buildArtifacts({ ...mac, root: dir }, () => 2)).toThrow(/Building the cello binary failed \(bun run build --outfile \S+ exited 2\)/)
+    ).toThrow(/zip -j \S+ cello exited 9/)
+    expect(ran).toEqual(["bun", "zip"])
   })
 })

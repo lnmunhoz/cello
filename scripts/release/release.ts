@@ -9,7 +9,9 @@
 // after our hook pushed them. Instead, when release-it fails, this reads how far it got and prints what
 // to undo or finish (recoveryAdvice).
 import { spawnSync } from "node:child_process"
+import * as fs from "node:fs"
 import * as path from "node:path"
+import { PACKAGING_FAILED } from "./artifacts.ts"
 import { latestTag, releaseOf, renderSection } from "./changelog.ts"
 import { deploy, deployPlanOf, liveBinaryProblem } from "./deploy.ts"
 import { parseReleaseArgs, preflightProblems, recoveryAdvice, releaseItArgs, releaseSteps, USAGE } from "./plan.ts"
@@ -61,7 +63,7 @@ const main = () => {
   const current = currentVersion(root)
   const next = nextVersion(current, options.increment)
   console.log(
-    `Cello release: ${current} -> ${next}${options.dryRun ? " (dry run: nothing is written, committed, tagged, pushed, released or deployed)" : ""}`,
+    `Cello release: ${current} -> ${next}${options.dryRun ? " (dry run: it fetches origin; nothing is written, committed, tagged, pushed, released or deployed)" : ""}`,
   )
 
   // Only remote-tracking refs change: what origin/main and the tags are now.
@@ -127,6 +129,7 @@ const main = () => {
       remoteTag: tagOnOrigin(releaseTag),
       headIsRelease: tryGit("log", "-1", "--format=%s") === `chore(release): ${releaseTag}`,
       changedFiles: changedFiles(),
+      packagingFailed: fs.existsSync(path.join(root, PACKAGING_FAILED)),
     })
     throw new Error(
       [`release-it failed (exit ${released}); see its output above. Nothing was deployed: the live cello is untouched.`, ...advice].join("\n"),

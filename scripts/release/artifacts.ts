@@ -22,6 +22,8 @@ export type BuildStep = { readonly cwd: string; readonly cmd: ReadonlyArray<stri
 export const RELEASE_DIR = "release"
 /** Where the release's cello waits until the deploy puts it live. */
 export const STAGED_CLI = `${RELEASE_DIR}/stage/cello`
+/** Left by a failed Cello.app package, so the release's advice can offer --skip-desktop. */
+export const PACKAGING_FAILED = `${RELEASE_DIR}/packaging-failed`
 const SKIP_HINT = "bun run release -- --skip-desktop"
 
 export const artifactNames = (version: string, platform: string, arch: string) => ({
@@ -65,7 +67,10 @@ export type Run = (cmd: ReadonlyArray<string>, cwd: string) => number
 
 const inherit: Run = (cmd, cwd) => spawnSync(cmd[0]!, cmd.slice(1), { cwd, stdio: "inherit" }).status ?? 1
 
-/** Empties release/, runs the steps in order, and returns the zips; throws at the first failing step. */
+/**
+ * Empties release/, runs the steps in order, and returns the zips. At the first failing step it deletes
+ * release/stage (a half-built or unreleased binary must never be deployed) and throws.
+ */
 export const buildArtifacts = (options: ArtifactOptions, run: Run = inherit): string[] => {
   const steps = artifactSteps(options)
   const dir = path.join(options.root, RELEASE_DIR)
@@ -74,8 +79,12 @@ export const buildArtifacts = (options: ArtifactOptions, run: Run = inherit): st
   for (const step of steps) {
     const code = run(step.cmd, step.cwd)
     if (code === 0) continue
+    fs.rmSync(path.join(options.root, path.dirname(STAGED_CLI)), { recursive: true, force: true })
     const what = `${step.cmd.join(" ")} exited ${code}`
-    if (step.kind === "app") throw new Error(`Packaging Cello.app failed (${what}). Fix it, or release without it: ${SKIP_HINT}`)
+    if (step.kind === "app") {
+      fs.writeFileSync(path.join(options.root, PACKAGING_FAILED), `${what}\n`)
+      throw new Error(`Packaging Cello.app failed (${what}). Fix it, or release without it: ${SKIP_HINT}`)
+    }
     throw new Error(`Building the cello binary failed (${what}).`)
   }
   const names = artifactNames(options.version, options.platform, options.arch)
