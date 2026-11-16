@@ -1,6 +1,6 @@
 import type { Snapshot, Status, Task, Workspace } from "@cello/contract/entities"
 import { VersionConflict } from "@cello/contract/errors"
-import type { CelloEvent } from "@cello/contract/events"
+import type { CelloEvent, StreamedEvent } from "@cello/contract/events"
 import { describe, expect, it } from "vitest"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
@@ -240,6 +240,33 @@ describe("command atoms", () => {
     expect(next._tag).toBe("Some")
     expect(asked).toBe(2)
     expect(subscribes).toBe(2)
+  })
+
+  it("ask for the server's build again when the stream carries an event this build can't read (CEL-131)", async () => {
+    const build = (commit: string) => ({ version: "0.2.0", commit, startedAt: 1, web: { version: "0.2.0", commit, builtAt: 1, changes: [] } })
+    const events = Effect.runSync(Queue.unbounded<StreamedEvent>())
+    let asked = 0
+    const fake = {
+      "snapshot.get": () => Effect.succeed(snapshot),
+      "events.subscribe": () => Stream.fromQueue(events),
+      "server.build": () => Effect.sync(() => build(++asked === 1 ? "aaaaaaa" : "bbbbbbb")),
+    } as unknown as CelloClient["Service"]
+    const atoms = makeCelloAtoms(Atom.runtime(Layer.succeed(CelloClient, fake)))
+    const registry = AtomRegistry.make()
+    registry.mount(atoms.boardAtom)
+    registry.mount(atoms.serverBuildAtom)
+    expect((await Effect.runPromise(AtomRegistry.getResult(registry, atoms.serverBuildAtom))).commit).toBe("aaaaaaa")
+
+    // A newer server wrote an event of a type this build doesn't know: the board stays live, and the
+    // tab asks which build the server runs, so the reload bar can offer the new one.
+    Effect.runSync(Queue.offer(events, { type: "unreadable", seq: 6, sentType: "session.orchestrating" }))
+    const next = await Effect.runPromise(
+      AtomRegistry.toStreamResult(registry, atoms.serverBuildAtom).pipe(Stream.filter((b) => b.commit === "bbbbbbb"), Stream.runHead),
+    )
+    expect(next._tag).toBe("Some")
+    expect(asked).toBe(2)
+    const synced = await Effect.runPromise(AtomRegistry.getResult(registry, atoms.currentAtom))
+    expect([synced.state.seq, synced.connection, synced.unreadable]).toEqual([6, "live", 1])
   })
 
   it("ask for the build history once the server's build is known, and again when a new build comes up (CEL-50)", async () => {

@@ -1,5 +1,6 @@
 // Every change is one of these events. `before`/`after` hold only the fields that changed.
 import * as Schema from "effect/Schema"
+import * as SchemaGetter from "effect/SchemaGetter"
 import { BuildRecord } from "./build.ts"
 import {
   AgentSession,
@@ -196,6 +197,31 @@ export const CelloEvent = Schema.Union([
   event("build.recorded", { build: BuildRecord }),
 ])
 export type CelloEvent = typeof CelloEvent.Type
+
+/**
+ * An event this build can't read (CEL-131): a type a newer server added, or a known type in a newer
+ * shape. It keeps only the event's seq and the type the server sent, so a client can skip past it
+ * instead of failing its stream. Only ever decoded: a server sends real events, never this.
+ */
+export const UnreadableEvent = Schema.Struct({ seq: Schema.Number, type: Schema.String }).pipe(
+  Schema.decodeTo(Schema.Struct({ type: Schema.Literal("unreadable"), seq: Schema.Number, sentType: Schema.String }), {
+    decode: SchemaGetter.transform(({ seq, type }) => ({ type: "unreadable" as const, seq, sentType: type })),
+    encode: SchemaGetter.transform(({ seq, sentType }) => ({ seq, type: sentType })),
+  }),
+)
+export type UnreadableEvent = typeof UnreadableEvent.Type
+
+/**
+ * What `events.subscribe` streams: each event as this build reads it, else as unreadable. Members are
+ * tried in order, so a known event is always a `CelloEvent`, and the server sends exactly what it sent
+ * before; an older client (built before this) reads the wire the same way it always did.
+ */
+export const StreamedEvent = Schema.Union([CelloEvent, UnreadableEvent])
+export type StreamedEvent = typeof StreamedEvent.Type
+
+/** Whether this build could read a streamed event. */
+export const isReadable = (event: StreamedEvent): event is CelloEvent => event.type !== "unreadable"
+
 export type CelloEventType = CelloEvent["type"]
 export type EventOf<T extends CelloEventType> = Extract<CelloEvent, { type: T }>
 

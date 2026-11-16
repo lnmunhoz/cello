@@ -53,6 +53,7 @@ const synced = (seq: number, tasks: Task[], extra: Partial<Synced> = {}): Synced
   seen: new Map(),
   connection: "live",
   batch: [],
+  unreadable: 0,
   ...extra,
 })
 

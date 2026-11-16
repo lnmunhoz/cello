@@ -2,7 +2,7 @@
 // workspace hears an agent session check in, sees its stage change, and gets the sessions in the snapshot.
 import { newCommandId } from "@cello/client/client"
 import { applyEvents, fromSnapshot } from "@cello/client/sync/applyEvents"
-import type { CelloEvent } from "@cello/contract/events"
+import { isReadable, type StreamedEvent } from "@cello/contract/events"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -11,7 +11,9 @@ import { connect, startServer, tempDataDir } from "./harness.ts"
 
 const AGENT = { "x-cello-session": "8a41c9e2-presence", "x-cello-client": "Claude Code", "x-cello-pid": String(process.pid) }
 
-const next = (stream: Stream.Stream<CelloEvent, unknown>, n: number) => stream.pipe(Stream.take(n), Stream.runCollect)
+/** The next `n` events. The server runs this build, so it sends none this client can't read. */
+const next = (stream: Stream.Stream<StreamedEvent, unknown>, n: number) =>
+  stream.pipe(Stream.filter(isReadable), Stream.take(n), Stream.runCollect)
 
 describe("presence over a real server", () => {
   it.live("the agent's claim reaches the board with the session checking in; its stage change follows", () =>

@@ -1,7 +1,7 @@
 // Tests 11–13: live sync between clients, reconnecting from a seq, the replay limit, and commits
 // that land while a subscriber is replaying.
 import { newCommandId } from "@cello/client/client"
-import type { CelloEvent } from "@cello/contract/events"
+import { isReadable, type StreamedEvent } from "@cello/contract/events"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -23,8 +23,9 @@ const setup = (client: Effect.Success<ReturnType<typeof connect>>) =>
     return { workspace, project }
   })
 
-const next = (stream: Stream.Stream<CelloEvent, unknown>, n: number) =>
-  stream.pipe(Stream.take(n), Stream.runCollect)
+/** The next `n` events. The server runs this build, so it sends none this client can't read. */
+const next = (stream: Stream.Stream<StreamedEvent, unknown>, n: number) =>
+  stream.pipe(Stream.filter(isReadable), Stream.take(n), Stream.runCollect)
 
 describe("sync", () => {
   it.live("two clients: A creates a task, B receives it; B reconnects from its last seq and gets what it missed", () =>

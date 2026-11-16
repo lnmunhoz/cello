@@ -48,7 +48,7 @@ import {
   TaskClaimed,
   VersionConflict,
 } from "./errors.ts"
-import { CelloEvent } from "./events.ts"
+import { CelloEvent, StreamedEvent } from "./events.ts"
 import { SearchKind, SearchResults } from "./search.ts"
 import { TaskStage } from "./stages.ts"
 import { AskWaited, DocumentList, Inbox, LabelList, MilestoneDetail, MilestoneList, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
@@ -157,9 +157,11 @@ export type ProfileWrite = typeof ProfileWrite.Type
 export const CelloRpcs = RpcGroup.make(
   // No scope: the first non-archived workspace by position. Every snapshot lists all non-archived workspaces.
   Rpc.make("snapshot.get", { payload: { scope: Schema.optionalKey(Scope) }, success: Snapshot, error: NotFound }),
+  // An event this build can't read (a newer server's, CEL-131) arrives as `unreadable` instead of
+  // failing the stream; the server sends exactly the events it always did.
   Rpc.make("events.subscribe", {
     payload: { scope: Scope, afterSeq: Schema.Number },
-    success: CelloEvent,
+    success: StreamedEvent,
     error: SnapshotRequired,
     stream: true,
   }),

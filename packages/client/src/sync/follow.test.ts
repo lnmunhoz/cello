@@ -1,6 +1,6 @@
 import type { Snapshot, Task, Workspace } from "@cello/contract/entities"
 import { SnapshotRequired } from "@cello/contract/errors"
-import type { CelloEvent, EventBody } from "@cello/contract/events"
+import type { CelloEvent, EventBody, StreamedEvent } from "@cello/contract/events"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Queue from "effect/Queue"
@@ -72,9 +72,11 @@ const ev = (seq: number, body: EventBody, commandId = `c${seq}`): CelloEvent =>
   }) as CelloEvent
 
 const created = (seq: number, id: string) => ev(seq, { type: "task.created", task: task(id) })
+/** An event of a type this build doesn't know, as the stream hands it over (CEL-131). */
+const unreadable = (seq: number): StreamedEvent => ({ type: "unreadable", seq, sentType: "session.orchestrating" })
 
 /** A source that plays scripted snapshots and streams, and records how it was called. */
-const scripted = (snapshots: Snapshot[], streams: Array<Stream.Stream<CelloEvent, unknown>>) => {
+const scripted = (snapshots: Snapshot[], streams: Array<Stream.Stream<StreamedEvent, unknown>>) => {
   const calls: Array<{ rpc: "snapshot" | "subscribe"; scope: unknown; afterSeq?: number }> = []
   const source: SyncSource = {
     snapshot: (scope) =>
@@ -149,6 +151,37 @@ describe("follow", () => {
       expect(calls.filter((c) => c.rpc === "subscribe").map((c) => c.afterSeq)).toEqual([10, 6000])
     }))
 
+  it.effect("skips an event this build can't read: applies the next one, moves past it, stays live and counts it (CEL-131)", () =>
+    Effect.gen(function* () {
+      const { source, calls } = scripted([snapshot(10)], [Stream.make(created(11, "t1"), unreadable(12), created(13, "t2"))])
+      const out = yield* collect(source)
+      const seen: Synced[] = [yield* Queue.take(out)]
+      while (seen.at(-1)!.state.seq < 13) seen.push(yield* Queue.take(out))
+      const last = seen.at(-1)!
+      expect(Object.keys(last.state.tasks).sort()).toEqual(["t1", "t2"])
+      expect(last.unreadable).toBe(1)
+      expect(last.batch.map((e) => e.seq)).toEqual([11, 13])
+      expect(seen.map((s) => s.connection)).not.toContain("reconnecting")
+      expect(calls.filter((c) => c.rpc === "subscribe").map((c) => c.afterSeq)).toEqual([10])
+    }))
+
+  it.effect("moves its seq past an unreadable event that ends a batch, so a reconnect resumes after it (CEL-131)", () =>
+    Effect.gen(function* () {
+      const { source, calls } = scripted(
+        [snapshot(10)],
+        [Stream.concat(Stream.make(created(11, "t1"), unreadable(12)), Stream.fail(new Error("socket closed"))), Stream.make(created(13, "t2"))],
+      )
+      const out = yield* collect(source)
+      let s = yield* Queue.take(out)
+      while (s.connection !== "reconnecting") s = yield* Queue.take(out)
+      expect(s.state.seq).toBe(12)
+      expect(s.unreadable).toBe(1)
+      yield* TestClock.adjust("1 second")
+      while (s.state.seq < 13) s = yield* Queue.take(out)
+      expect(calls.filter((c) => c.rpc === "subscribe").map((c) => c.afterSeq)).toEqual([10, 12])
+      expect(s.unreadable).toBe(1)
+    }))
+
   it.effect("keeps a scope it was given", () =>
     Effect.gen(function* () {
       const { source, calls } = scripted([snapshot(3)], [])
@@ -172,6 +205,7 @@ describe("advance", () => {
       seen: new Map(),
       connection: "live",
       batch: [],
+      unreadable: 0,
     }
     const next = advance(start, [created(11, "t1"), ev(10, { type: "task.archived", id: "x", version: 2 }, "old")])
     expect(next.state.seq).toBe(11)
@@ -188,8 +222,27 @@ describe("advance", () => {
       seen: new Map(),
       connection: "live",
       batch: [],
+      unreadable: 0,
     }
     expect(advance(start, [created(9, "t1")])).toBe(start)
+    expect(advance(start, [unreadable(10)])).toBe(start)
+  })
+
+  it("moves past an event it can't read without applying anything, and counts it", () => {
+    const start: Synced = {
+      state: { seq: 10, actors: {}, workspaces: {}, projects: {}, statuses: {}, labels: {}, tasks: {}, sessions: {}, agents: {}, reviews: {}, asks: {}, documents: {}, wakes: {}, milestones: {} },
+      scope: { workspaceId: "w1" },
+      epoch: 1,
+      seen: new Map(),
+      connection: "live",
+      batch: [],
+      unreadable: 0,
+    }
+    const next = advance(start, [unreadable(11)])
+    expect(next.state).toEqual({ ...start.state, seq: 11 })
+    expect(next.unreadable).toBe(1)
+    expect(next.batch).toEqual([])
+    expect(next.seen.size).toBe(0)
   })
 })
 
