@@ -93,6 +93,44 @@ describe("subagents through the hooks", () => {
     }).pipe(Effect.scoped))
 })
 
+// CEL-133: Lucas saw `cello-builder · a825620e` under Finished today while its log said "The review-mode
+// run is still going; I'll wait for the monitor's notice." The hooks, in the order Claude Code fires them.
+describe("a subagent that ends its turn with its own background work running", () => {
+  it.live("waits on it instead of finishing; its next tool call has it working; the stop after its work ended finishes it", () =>
+    Effect.gen(function* () {
+      const { hook, human } = yield* setup
+      const as = { session_id: X, agent_id: BUILDER, agent_type: "cello-builder" }
+      const builder = Effect.map(human["snapshot.get"]({}), (s) => s.agents.find((a) => a.agentId === BUILDER)!)
+      yield* hook("subagent-start", { ...as, hook_event_name: "SubagentStart" })
+      yield* hook("post-tool-use", launch(BUILDER, "cello-builder", "CEL-1 agents on cards", "Build CEL-1"))
+      // It starts the review-mode e2e run in the background, then ends its turn while it runs.
+      yield* hook("post-tool-use", {
+        ...as, hook_event_name: "PostToolUse", tool_name: "Bash", tool_use_id: "toolu_e2e",
+        tool_input: { command: "CELLO_E2E_REVIEW=1 bun run test:docker:e2e -- e2e/agents-page.spec.ts", run_in_background: true },
+        tool_response: { stdout: "", stderr: "", interrupted: false, isImage: false, noOutputExpected: false, backgroundTaskId: "blo3xolgq" },
+      })
+      // background_tasks lists the whole session's work: the parent's waiter is there too.
+      const running = [
+        { id: "blo3xolgq", type: "shell", status: "running", description: "Run related e2e specs in review mode", command: "CELLO_E2E_REVIEW=1 bun run test:docker:e2e" },
+        { id: "bwait0001", type: "shell", status: "running", description: "wait", command: "cello inbox --wait" },
+      ]
+      expect(yield* hook("subagent-stop", { ...as, hook_event_name: "SubagentStop", background_tasks: running })).toEqual({ out: "", failure: null })
+      expect(yield* builder).toMatchObject({
+        endedAt: null,
+        waitingOn: ["Bash · CELLO_E2E_REVIEW=1 bun run test:docker:e2e -- e2e/agents-page.spec.ts"],
+      })
+
+      // The run ends; Claude Code resumes it and it reads the results.
+      yield* hook("post-tool-use", { ...as, hook_event_name: "PostToolUse", tool_name: "Read", tool_input: { file_path: "/repo/summary.txt" }, tool_response: {} })
+      expect(yield* builder).toMatchObject({ endedAt: null, waitingOn: null, currentStep: "Read · summary.txt" })
+
+      yield* hook("subagent-stop", { ...as, hook_event_name: "SubagentStop", background_tasks: [running[1]] })
+      const done = yield* builder
+      expect(done.endedAt).not.toBeNull()
+      expect(done.waitingOn).toBeNull()
+    }).pipe(Effect.scoped))
+})
+
 describe("a cello command carrying CELLO_AGENT", () => {
   it.live("is credited to that agent under the session: its comment, the last change, the history; claims stay on the session", () =>
     Effect.gen(function* () {

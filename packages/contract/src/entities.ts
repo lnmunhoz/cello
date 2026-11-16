@@ -101,6 +101,14 @@ export const SessionAgent = Schema.Struct({
    */
   model: Schema.optionalKey(Schema.NullOr(Schema.String)),
   effort: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /**
+   * What it's waiting on (CEL-133): it ended its turn while background work it started itself (a shell
+   * run with run_in_background, a Monitor) was still running, so Claude Code resumes it when that work
+   * ends. It isn't finished (`endedAt` stays null) until a stop with none of its work left. One line per
+   * piece of work, as its step was ("Bash · bun run test:e2e", "Monitor · e2e run finishing"). Null or
+   * absent: not waiting.
+   */
+  waitingOn: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String))),
 })
 export type SessionAgent = typeof SessionAgent.Type
 

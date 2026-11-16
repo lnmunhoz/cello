@@ -146,6 +146,15 @@ describe("agentGroups", () => {
   it("leaves out empty groups", () => {
     expect(agentGroups(agentRows([working(session("aaaa0000"))])).map((g) => g.id)).toEqual(["working"])
   })
+
+  it("CEL-133: a subagent waiting on its own background work is working, even once it has gone quiet; its quiet session follows it", () => {
+    const a = session("bbbb0000")
+    const quiet = sub(a, "a1", null)
+    const waitingOnTests = { ...quiet, presence: "idle" as const, agent: { ...quiet.agent, waitingOn: ["Bash · bun run test:e2e"] } }
+    const rows = agentRows([working(a, { presence: "idle", agents: [waitingOnTests] })])
+    expect(groupOf(rows[1]!)).toBe("working")
+    expect(agentGroups(rows).map((g) => [g.id, g.rows.map((r) => r.id)])).toEqual([["working", ["session:bbbb0000", "agent:bbbb0000/a1"]]])
+  })
 })
 
 describe("stateTaskOf (CEL-104)", () => {

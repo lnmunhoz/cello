@@ -19,6 +19,7 @@ import * as OrchestrateService from "../session/OrchestrateService.ts"
 import * as ProjectService from "../project/ProjectService.ts"
 import * as ReviewService from "../review/ReviewService.ts"
 import * as SearchService from "../search/SearchService.ts"
+import { ActivityService } from "../session/ActivityService.ts"
 import { AgentService } from "../session/AgentService.ts"
 import * as SnapshotService from "../snapshot/SnapshotService.ts"
 import * as StatusService from "../status/StatusService.ts"
@@ -48,6 +49,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
   const builds = yield* BuildHistory.BuildHistory
   const search = yield* SearchService.SearchService
   const agents = yield* AgentService
+  const activity = yield* ActivityService
   const wake = yield* WakeService
   const agentLogs = yield* AgentLogService
 
@@ -90,6 +92,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "inbox.take": (query) => inbox.take(query),
     "inbox.wait": () => inbox.wait,
     "agent.report": (input) => agents.report(input),
+    "activity.report": ({ report }) => activity.report(report),
     "agent.log": (input) => agentLogs.log(input),
     "review.submit": (input) => reviews.submit(input),
     "review.approve": (input) => reviews.approve(input),

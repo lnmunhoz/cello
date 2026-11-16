@@ -56,6 +56,9 @@ describe("parseHookInput", () => {
       permissionMode: null,
       transcriptPath: "/tmp/t.jsonl",
       agentTranscriptPath: null,
+      toolUseId: null,
+      backgroundTasks: null,
+      startedBackground: null,
     })
   })
 
@@ -91,6 +94,7 @@ describe("parseHookInput", () => {
     const none = {
       sessionId: null, cwd: null, stopHookActive: false, inSubagent: false, agent: null, launched: null, toolName: null, toolInput: null,
       backgroundCommands: null, permissionMode: null, transcriptPath: null, agentTranscriptPath: null,
+      toolUseId: null, backgroundTasks: null, startedBackground: null,
     }
     expect(parseHookInput("")).toEqual(none)
     expect(parseHookInput("{not json")).toEqual(none)
@@ -127,6 +131,42 @@ describe("Stop's background_tasks (CEL-74)", () => {
     expect(waits("tail -f log")).toBe(false)
     expect(waitsInBackground(stop([]))).toBe(false)
     expect(waitsInBackground(stop(undefined))).toBe(false)
+  })
+})
+
+// CEL-133: a subagent that ends its turn with its own background work running isn't finished. Formats
+// as Claude Code sends them (checked 2026-11-17 against a real subagent's transcript and the hooks docs).
+describe("background work (CEL-133)", () => {
+  const post = (tool_name: string, tool_input: unknown, tool_response: unknown) =>
+    parseHookInput(JSON.stringify({ session_id: "s", hook_event_name: "PostToolUse", agent_id: "a1", tool_name, tool_input, tool_response, tool_use_id: "toolu_9" }))
+
+  it("reads the background work a tool call started: Bash's backgroundTaskId, Monitor's taskId, with the call in one line", () => {
+    const bash = post("Bash", { command: "bun run test:e2e -- e2e/agents-page.spec.ts", run_in_background: true }, {
+      stdout: "", stderr: "", interrupted: false, isImage: false, noOutputExpected: false, backgroundTaskId: "blo3xolgq",
+    })
+    expect(bash.startedBackground).toEqual({ id: "blo3xolgq", label: "Bash · bun run test:e2e -- e2e/agents-page.spec.ts" })
+    expect(bash.toolUseId).toBe("toolu_9")
+    const monitor = post("Monitor", { description: "review-mode e2e run finishing", command: "until …" }, { taskId: "bpz2edzeb", timeoutMs: 1800000, persistent: false })
+    expect(monitor.startedBackground).toEqual({ id: "bpz2edzeb", label: "Monitor · review-mode e2e run finishing" })
+    // A foreground call, or a taskId from a tool that isn't Monitor, started nothing.
+    expect(post("Bash", { command: "ls" }, { stdout: "x" }).startedBackground).toBeNull()
+    expect(post("TaskCreate", {}, { taskId: "t1" }).startedBackground).toBeNull()
+  })
+
+  it("reads SubagentStop's background_tasks, which list the whole session's work, as ids and lines", () => {
+    const stop = parseHookInput(JSON.stringify({
+      session_id: "s", hook_event_name: "SubagentStop", agent_id: "a1", agent_type: "cello-builder",
+      background_tasks: [
+        { id: "blo3xolgq", type: "shell", status: "running", description: "Run related e2e specs", command: "bun run test:e2e" },
+        { id: "bpz2edzeb", type: "monitor", status: "running", description: "review-mode e2e run finishing" },
+        { id: 7, type: "shell" },
+      ],
+    }))
+    expect(stop.backgroundTasks).toEqual([
+      { id: "blo3xolgq", type: "shell", command: "bun run test:e2e" },
+      { id: "bpz2edzeb", type: "monitor", command: null },
+    ])
+    expect(parseHookInput(JSON.stringify({ session_id: "s", hook_event_name: "SubagentStop" })).backgroundTasks).toBeNull()
   })
 })
 

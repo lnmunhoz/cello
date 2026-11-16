@@ -12,6 +12,7 @@ import * as SnapshotService from "../snapshot/SnapshotService.ts"
 import * as TaskService from "../task/TaskService.ts"
 import { cmd, setupProject } from "../testing/fixtures.ts"
 import { asAgent, asHuman, services } from "../testing/TestLayers.ts"
+import { ActivityService } from "./ActivityService.ts"
 import { AgentService, FINISHED_AGENT_MS } from "./AgentService.ts"
 import { SessionService } from "./SessionService.ts"
 
@@ -251,11 +252,79 @@ describe("AgentService.report and checkIn: the hooks", () => {
       expect(yield* snapshot).toEqual([reviewer.agent])
     })))
 
+  it.effect("a finished agent that calls again within the minute is working again, and boards hear it at once (CEL-133)", () =>
+    run(Effect.gen(function* () {
+      const { first } = yield* board
+      const agents = yield* AgentService
+      const sessions = yield* SessionService
+      yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "launched", description: first.key }))
+      yield* TestClock.adjust("10 seconds")
+      yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "stopped" }))
+      expect((yield* agentSeen).at(-1)?.agent.endedAt).toBe(10_000)
+
+      // Claude Code resumes it without a SubagentStart: its own next call is the news.
+      yield* TestClock.adjust("5 seconds")
+      yield* agents.checkIn(yield* sessions.resolve(builder))
+      expect((yield* agentSeen).at(-1)?.agent).toMatchObject({ endedAt: null, lastSeenAt: 15_000 })
+    })))
+
   it.effect("an agent id or type with control characters is stored without them", () =>
     run(Effect.gen(function* () {
       yield* board
       const agents = yield* AgentService
       const agent = yield* asAgent(orchestrator)(agents.report({ agentId: "a1\u0000b2", agentType: "cello-\u001b[31mbuilder\n", state: "started" }))
       expect(agent).toMatchObject({ agentId: "a1b2", agentType: "cello-[31mbuilder" })
+    })))
+})
+
+// CEL-133: a subagent ends its turn while its own background work (a Docker e2e run, a Monitor) still
+// runs; Claude Code fires SubagentStop, then resumes it when that work ends.
+describe("a subagent waiting on its own background work", () => {
+  const e2e = { kind: "background" as const, id: "blo3xolgq", label: "Bash · bun run test:e2e -- e2e/agents-page.spec.ts", toolUseId: "toolu_1" }
+  const monitor = { kind: "background" as const, id: "bpz2edzeb", label: "Monitor · review-mode e2e run finishing", toolUseId: "toolu_2" }
+
+  it.effect("isn't finished at a stop while its work runs: it waits on it, by name; its next call has it working; a stop with its work gone finishes it", () =>
+    run(Effect.gen(function* () {
+      const { first } = yield* board
+      const agents = yield* AgentService
+      const activity = yield* ActivityService
+      const sessions = yield* SessionService
+      yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "started" }))
+      yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "launched", description: first.key }))
+      yield* asAgent(builder)(activity.report(e2e))
+      yield* asAgent(builder)(activity.report(monitor))
+
+      // The session also runs the parent's `cello inbox --wait`; the e2e run already ended.
+      yield* TestClock.adjust("10 seconds")
+      const waiting = yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "stopped", running: ["bpz2edzeb", "parents-waiter"] }))
+      expect(waiting).toMatchObject({ endedAt: null, waitingOn: ["Monitor · review-mode e2e run finishing"] })
+      expect((yield* agentSeen).at(-1)?.agent).toMatchObject({ endedAt: null, waitingOn: ["Monitor · review-mode e2e run finishing"] })
+
+      // The monitor's notice resumes it: its first call is news, at once.
+      yield* TestClock.adjust("20 seconds")
+      yield* agents.checkIn(yield* sessions.resolve(builder))
+      expect((yield* agentSeen).at(-1)?.agent).toMatchObject({ endedAt: null, waitingOn: null, lastSeenAt: 30_000 })
+
+      yield* TestClock.adjust("5 seconds")
+      const done = yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "stopped", running: ["parents-waiter"] }))
+      expect(done).toMatchObject({ endedAt: 35_000, waitingOn: null })
+    })))
+
+  it.effect("a stop that doesn't say what runs (an older Claude Code) finishes it, as before; the session's own background work is the session's", () =>
+    run(Effect.gen(function* () {
+      yield* board
+      const agents = yield* AgentService
+      const activity = yield* ActivityService
+      yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "started" }))
+      yield* asAgent(builder)(activity.report(e2e))
+      expect(yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "stopped" }))).toMatchObject({ endedAt: 0, waitingOn: null })
+
+      // The orchestrator's own background run doesn't keep a subagent waiting.
+      yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "started" }))
+      yield* asAgent(orchestrator)(activity.report(monitor))
+      const stopped = yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped", running: ["bpz2edzeb"] }))
+      expect(stopped).toMatchObject({ endedAt: 0, waitingOn: null })
+      // The human reports nothing.
+      yield* asHuman(activity.report(e2e))
     })))
 })

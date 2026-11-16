@@ -16,6 +16,7 @@ describe("toolTarget", () => {
     ["WebFetch", { url: "https://code.claude.com/docs/en/hooks", prompt: "…" }, "code.claude.com"],
     ["WebSearch", { query: "effect stream callback" }, "effect stream callback"],
     ["Skill", { skill: "cello:work" }, "cello:work"],
+    ["Monitor", { description: "review-mode e2e run finishing", command: "until grep -q PASS out.txt; do sleep 5; done" }, "review-mode e2e run finishing"],
     ["TodoWrite", { todos: [] }, ""],
     ["mcp__thing__do", null, ""],
   ])("%s %j → %j", (name, input, target) => {

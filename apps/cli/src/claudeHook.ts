@@ -4,8 +4,10 @@
 //
 //   stdin   { session_id, cwd, hook_event_name, stop_hook_active (Stop), agent_id and agent_type (inside a
 //             subagent, and on SubagentStart/SubagentStop), tool_name, tool_input (PreToolUse, PostToolUse),
-//             tool_response (PostToolUse; on the Agent tool it has the launched subagent's agentId),
-//             background_tasks: [{ id, type: "shell" | …, status, command (shell only) }] (Stop),
+//             tool_response (PostToolUse; on the Agent tool it has the launched subagent's agentId; on Bash
+//             run in the background `backgroundTaskId`, on Monitor `taskId`, checked 2026-11-17), tool_use_id,
+//             background_tasks: [{ id, type: "shell" | "monitor" | …, status, command (shell only) }] (Stop, and
+//             SubagentStop, where it lists the whole session's work, not only the subagent's; checked 2026-11-17),
 //             transcript_path (every event: the main session's transcript, even inside a subagent),
 //             agent_transcript_path (SubagentStop: the subagent's own, in `<session>/subagents/`, checked 2026-11-16), … }
 //   start   { "hookSpecificOutput": { "hookEventName": "SubagentStart", "additionalContext": "…" } }
@@ -66,6 +68,28 @@ export interface HookInput {
   readonly transcriptPath: string | null
   /** `agent_transcript_path` (SubagentStop): the subagent's own transcript (CEL-106). */
   readonly agentTranscriptPath: string | null
+  /** `tool_use_id` (PreToolUse, PostToolUse): which call it is. */
+  readonly toolUseId: string | null
+  /**
+   * Stop and SubagentStop (CEL-133): the session's background work still running (`background_tasks`),
+   * the whole session's, not only the caller's; null when Claude Code didn't send the list.
+   */
+  readonly backgroundTasks: ReadonlyArray<BackgroundTask> | null
+  /** PostToolUse (CEL-133): the background work this call started, when it did. */
+  readonly startedBackground: StartedBackground | null
+}
+
+/** One entry of `background_tasks`: its id, its kind (`shell`, `monitor`, `subagent`, …), and a shell's command. */
+export interface BackgroundTask {
+  readonly id: string
+  readonly type: string | null
+  readonly command: string | null
+}
+
+/** Background work a tool call started: the id `background_tasks` lists it under, and the call in one line. */
+export interface StartedBackground {
+  readonly id: string
+  readonly label: string
 }
 
 export interface HookAgent {
@@ -102,6 +126,26 @@ const launchOf = (toolName: string | null, toolInput: Readonly<Record<string, un
   }
 }
 
+/**
+ * The background work a call started (CEL-133): Bash run with run_in_background answers with a
+ * `backgroundTaskId`, Monitor with a `taskId` (other tools' task ids, like TaskCreate's, aren't background work).
+ */
+const startedBackgroundOf = (toolName: string | null, toolInput: Readonly<Record<string, unknown>> | null, toolResponse: unknown): StartedBackground | null => {
+  if (toolName === null) return null
+  const response = record(toolResponse)
+  const id = text(response?.backgroundTaskId) ?? (toolName === "Monitor" ? text(response?.taskId) : null)
+  return id === null ? null : { id, label: stepLine(toolName, toolInput) }
+}
+
+const backgroundTasksOf = (value: unknown): ReadonlyArray<BackgroundTask> | null =>
+  Array.isArray(value)
+    ? value.flatMap((entry) => {
+      const task = record(entry)
+      const id = text(task?.id)
+      return id === null ? [] : [{ id, type: text(task?.type), command: text(task?.command) }]
+    })
+    : null
+
 /** Reads the hook's stdin. Empty or broken input means no information, never an error. */
 export const parseHookInput = (raw: string): HookInput => {
   let value: unknown = null
@@ -132,6 +176,9 @@ export const parseHookInput = (raw: string): HookInput => {
     permissionMode: text(input.permission_mode),
     transcriptPath: text(input.transcript_path),
     agentTranscriptPath: text(input.agent_transcript_path),
+    toolUseId: text(input.tool_use_id),
+    backgroundTasks: backgroundTasksOf(input.background_tasks),
+    startedBackground: startedBackgroundOf(toolName, toolInput, input.tool_response),
   }
 }
 

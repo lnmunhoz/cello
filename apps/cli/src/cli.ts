@@ -476,14 +476,19 @@ const byIds = (names: {
 
 /**
  * The agents on a task (CEL-55), freshest first: "cello-builder · a13bfb89 (under Claude Code session
- * 2fd0505c): working, seen 1m ago" or "…: finished 2h ago".
+ * 2fd0505c): working, seen 1m ago", "…: waiting on its background work (Bash · bun run test:e2e), seen 4m
+ * ago" (CEL-133) or "…: finished 2h ago".
  */
 const agentLines = (detail: TaskDetail, now: number) =>
   (detail.agents ?? [])
     .filter((a) => a.taskId === detail.task.id)
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
     .map((a) => {
-      const state = a.endedAt === null ? `working, seen ${ago(a.lastSeenAt, now)}` : `finished ${ago(a.endedAt, now)}`
+      const state = a.endedAt !== null
+        ? `finished ${ago(a.endedAt, now)}`
+        : a.waitingOn
+        ? `waiting on its background work (${a.waitingOn.join(", ")}), seen ${ago(a.lastSeenAt, now)}`
+        : `working, seen ${ago(a.lastSeenAt, now)}`
       return `  ${agentName(a, detail.sessions.find((s) => s.id === a.sessionId), a)}: ${state}`
     })
 
@@ -1887,10 +1892,18 @@ const deliverToClaude = (event: DeliveryEvent) =>
         Effect.catch(() => Effect.void),
       )
     }
+    // The call started background work (CEL-133): remembered, so a stop while it runs means waiting, not finished.
+    const started = hook.startedBackground
+    if (started !== null) {
+      yield* withClient((client) =>
+        client["activity.report"]({ report: { kind: "background", id: started.id, label: started.label, toolUseId: hook.toolUseId } }), { headers }).pipe(
+        Effect.catch(() => Effect.void),
+      )
+    }
     // A subagent's tool calls carry its parent's session: check it in (any call does) and leave the
     // comments for the main conversation.
     if (action === "check-in") {
-      if (launched === null) yield* withClient((client) => client["whoami"]({ project: {} }), { headers })
+      if (launched === null && started === null) yield* withClient((client) => client["whoami"]({ project: {} }), { headers })
       return
     }
     // Taken and marked read in one step: a comment is handed over once, even to hooks running at the
@@ -1973,7 +1986,8 @@ const guardToolUse = Effect.gen(function* () {
 /**
  * SubagentStart and SubagentStop (CEL-55): a subagent of the session started (or was resumed) or
  * finished. Start first prints the context that tells it its --agent (no server needed), then
- * both tell the board, as the session.
+ * both tell the board, as the session. A stop also says which background work the session still runs
+ * (CEL-133): a subagent whose own work is among it is waiting on it, not finished.
  */
 const subagentHook = (state: "started" | "stopped") =>
   Effect.gen(function* () {
@@ -1986,7 +2000,15 @@ const subagentHook = (state: "started" | "stopped") =>
     if (!session.CLAUDE_CODE_SESSION_ID) return
     // The subagent's own transcript (CEL-106): its log on the Agents page.
     const transcriptPath = transcriptOf(hook)
-    yield* withClient((client) => client["agent.report"]({ agentId: agent.id, agentType: agent.type, state, ...(transcriptPath ? { transcriptPath } : {}) }), {
+    const running = state === "stopped" && hook.backgroundTasks !== null ? hook.backgroundTasks.map((task) => task.id) : null
+    yield* withClient((client) =>
+      client["agent.report"]({
+        agentId: agent.id,
+        agentType: agent.type,
+        state,
+        ...(transcriptPath ? { transcriptPath } : {}),
+        ...(running ? { running } : {}),
+      }), {
       headers: identityHeaders(session, hook.cwd ?? cwd),
     })
   })
@@ -2033,7 +2055,9 @@ const hookClaude = Command.make("claude", {
       "edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a " +
       "minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; " +
       "post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start " +
-      "prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished. " +
+      "prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished, or " +
+      "waiting on background work while a shell it ran with run_in_background or a Monitor it started is still among Claude Code's " +
+      "background_tasks (post-tool-use remembers the background work each call starts). " +
       "Always exits 0.",
   ))
 

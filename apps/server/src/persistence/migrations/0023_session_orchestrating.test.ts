@@ -26,7 +26,7 @@ describe("migration 0023_session_orchestrating", () => {
       yield* Migrations.run
 
       const after = yield* sql<Record<string, unknown>>`SELECT * FROM agent_sessions ORDER BY rowid`
-      expect(after.map(({ orchestrating, ...rest }) => rest)).toEqual(before)
+      expect(after.map(({ orchestrating, background_json, tests_json, ...rest }) => rest)).toEqual(before)
       expect(after.map((row) => row.orchestrating)).toEqual([0, 0])
       yield* sql`INSERT INTO agent_sessions (id, actor_id, external_id, client_name, identity_json, started_at, last_seen_at, created_at)
         VALUES ('s3', 'a1', 'e1', 'Claude Code', '{}', 6, 6, 6)`

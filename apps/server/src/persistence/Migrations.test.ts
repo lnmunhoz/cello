@@ -403,6 +403,7 @@ const allRows = Effect.gen(function* () {
  * `tasks.last_holder_session_id` and `inbox_items.reopened_from` (CEL-110, null on rows no claim event names),
  * 0022's `model` and `effort` on comments, events, sessions and subagents (CEL-119, null on every row it finds),
  * 0023's `agent_sessions.orchestrating` (CEL-124, 0 on every row it finds),
+ * 0025's activity columns on sessions and subagents (CEL-133, CEL-134, null on every row it finds),
  * and 0024's `milestones` table and `tasks.milestone_id` (CEL-113, empty and null where no Milestone label was).
  */
 const withoutLaterAdditions = (rows: Record<string, unknown>): Record<string, unknown> => {
@@ -416,13 +417,13 @@ const withoutLaterAdditions = (rows: Record<string, unknown>): Record<string, un
       ? { tasks: (rows["tasks"] as ReadonlyArray<Record<string, unknown>>).map(({ last_holder_session_id: _holder, milestone_id: _milestone, ...row }) => row) }
       : {}),
     agent_sessions: ((rows["agent_sessions"] ?? []) as ReadonlyArray<Record<string, unknown>>).map(
-      ({ permission_mode: _mode, agent_kind: _kind, transcript_path: _path, current_step: _step, current_step_at: _at, model: _m, effort: _e, orchestrating: _o, ...row }) =>
+      ({ permission_mode: _mode, agent_kind: _kind, transcript_path: _path, current_step: _step, current_step_at: _at, model: _m, effort: _e, orchestrating: _o, background_json: _bg, tests_json: _t, ...row }) =>
         row,
     ),
     ...("session_agents" in rows
       ? {
         session_agents: (rows["session_agents"] as ReadonlyArray<Record<string, unknown>>).map(
-          ({ transcript_path: _path, current_step: _step, current_step_at: _at, model: _m, effort: _e, orchestrating: _o, ...row }) => row,
+          ({ transcript_path: _path, current_step: _step, current_step_at: _at, model: _m, effort: _e, orchestrating: _o, background_json: _bg, tests_json: _t, waiting_json: _w, ...row }) => row,
         ),
       }
       : {}),

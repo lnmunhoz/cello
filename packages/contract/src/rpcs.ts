@@ -71,6 +71,17 @@ export class Caller extends Context.Service<Caller, {
 export const AgentReportState = Schema.Literals(["started", "launched", "stopped"])
 export type AgentReportState = typeof AgentReportState.Type
 
+/**
+ * What a hook saw the caller (the session, or with `x-cello-agent` its subagent) do, for `activity.report`.
+ * `background` (CEL-133): a tool call it made started background work, a shell run with run_in_background
+ * (`backgroundTaskId` in Bash's response) or a Monitor (`taskId`); `id` is the one Claude Code's
+ * `background_tasks` lists while it runs, `label` the call in one line ("Bash · bun run test:e2e").
+ */
+export const ActivityReport = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("background"), id: Schema.String, label: Schema.String, toolUseId: Schema.NullOr(Schema.String) }),
+])
+export type ActivityReport = typeof ActivityReport.Type
+
 export class CallerMiddleware extends RpcMiddleware.Service<CallerMiddleware, {
   provides: Caller
 }>()("cello/CallerMiddleware", { requiredForClient: true }) {}
@@ -403,9 +414,19 @@ export const CelloRpcs = RpcGroup.make(
       prompt: Schema.optionalKey(Schema.String),
       /** The subagent's own transcript, as the hook knows it (CEL-106): its log is read from there. */
       transcriptPath: Schema.optionalKey(Schema.String),
+      /**
+       * On `stopped` (CEL-133): the ids of the session's background work still running, from SubagentStop's
+       * `background_tasks`. One the agent started itself keeps it waiting instead of finished. Absent (an
+       * older Claude Code) means unknown: the stop finishes it.
+       */
+      running: Schema.optionalKey(Schema.Array(Schema.String)),
     },
     success: Schema.NullOr(SessionAgent),
   }),
+
+  // What a hook saw the caller do (CEL-133): presence bookkeeping like `agent.report`, no commandId. The
+  // human, or a session-less call, changes nothing.
+  Rpc.make("activity.report", { payload: { report: ActivityReport }, success: Schema.Void }),
 
   // An agent's live log (CEL-106): the session's own transcript, one of its subagents' (`agentId`), or one
   // of its woken runs' logs (`runId`, CEL-92), as steps, then new steps as they're written, while the

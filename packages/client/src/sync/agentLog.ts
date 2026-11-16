@@ -73,12 +73,17 @@ export const parseLogKey = (key: string): { sessionId: string; agentId: string |
 
 /**
  * What the row says the agent is doing right now: its last tool call, only while it's working. Once it
- * goes quiet or finishes, the last step it reported is no longer "now".
+ * goes quiet or finishes, the last step it reported is no longer "now". A subagent that ended its turn
+ * while its own background work runs (CEL-133) is waiting on that work, quiet or not.
  */
 export const currentStepOf = (row: { readonly presence: Presence; readonly agent: SessionAgent | null; readonly session: AgentSession }): string | null => {
+  if (row.presence !== "ended" && row.agent?.waitingOn) return waitingWords(row.agent.waitingOn)
   if (row.presence !== "active") return null
   return (row.agent ? row.agent.currentStep : row.session.currentStep) ?? null
 }
+
+/** "Waiting on background work: Bash · bun run test:e2e" (CEL-133). */
+export const waitingWords = (on: ReadonlyArray<string>): string => `Waiting on background work: ${on.join(", ")}`
 
 /** How long a tool call took: "40 ms", "2.5 s", "1 min 35 s"; empty when unknown. */
 export const durationWords = (ms: number | null): string => {

@@ -117,4 +117,11 @@ describe("currentStepOf", () => {
     expect(currentStepOf({ presence: "idle", session, agent })).toBeNull()
     expect(currentStepOf({ presence: "ended", session, agent })).toBeNull()
   })
+
+  it("a subagent waiting on its own background work says what it waits on, quiet or not (CEL-133)", () => {
+    const waiting = { ...agent, waitingOn: ["Bash · bun run test:e2e", "Monitor · e2e finishing"] }
+    expect(currentStepOf({ presence: "idle", session, agent: waiting })).toBe("Waiting on background work: Bash · bun run test:e2e, Monitor · e2e finishing")
+    expect(currentStepOf({ presence: "active", session, agent: waiting })).toBe("Waiting on background work: Bash · bun run test:e2e, Monitor · e2e finishing")
+    expect(currentStepOf({ presence: "ended", session, agent: waiting })).toBeNull()
+  })
 })

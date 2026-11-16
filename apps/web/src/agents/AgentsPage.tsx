@@ -7,7 +7,7 @@ import { isNeedsInputStatus } from "@cello/shared/ask"
 import { modelName } from "@cello/shared/model"
 import { agoShort, presenceWords } from "@cello/shared/presence"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
-import { FolderIcon } from "lucide-react"
+import { FolderIcon, HourglassIcon } from "lucide-react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
 import { Centered } from "../app/Home.tsx"
 import { CardBody } from "../board/Card.tsx"
@@ -304,8 +304,24 @@ function Facts({ board, row }: { board: BoardState; row: AgentRow }) {
   )
 }
 
-/** What it's doing right now, from its last tool call ("Bash · bun run test"), while it's working (CEL-106). */
+/**
+ * What it's doing right now, from its last tool call ("Bash · bun run test"), while it's working (CEL-106);
+ * a subagent that ended its turn while its own background work runs, what it waits on (CEL-133).
+ */
 function CurrentStep({ row }: { row: AgentRow }) {
+  const waitingOn = row.presence === "ended" ? null : row.agent?.waitingOn
+  if (waitingOn) {
+    return (
+      <>
+        <span className="text-faint">·</span>
+        <span className="flex min-w-0 items-center gap-1 text-muted" data-agent-waiting-on title={waitingOn.join("\n")}>
+          <HourglassIcon aria-hidden className="size-3 shrink-0" />
+          <span className="shrink-0">Waiting on background work</span>
+          <span className="min-w-0 truncate font-mono text-[12px]">{waitingOn.join(", ")}</span>
+        </span>
+      </>
+    )
+  }
   const step = currentStepOf(row)
   if (!step) return null
   return (

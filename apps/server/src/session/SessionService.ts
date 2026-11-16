@@ -85,8 +85,8 @@ export const NO_LOG_REPORT: LogReport = { transcript: null, step: null }
 
 /**
  * Records a call from a session's subagent (CEL-55): created on first sight with its type, else seen
- * now, a type learnt late filled in, and an ended (resumed) agent live again; a transcript or current
- * step its hook reported replaces the one kept (CEL-106). AgentService has the rest.
+ * now, a type learnt late filled in, and an ended (resumed) or waiting (CEL-133) agent working again; a
+ * transcript or current step its hook reported replaces the one kept (CEL-106). AgentService has the rest.
  */
 export const touchAgent = (
   sql: SqlClient.SqlClient,
@@ -99,7 +99,7 @@ export const touchAgent = (
   sql`INSERT INTO session_agents (session_id, agent_id, agent_type, started_at, last_seen_at, transcript_path, current_step, current_step_at)
     VALUES (${sessionId}, ${agentId}, ${agentType}, ${now}, ${now}, ${log.transcript}, ${log.step}, ${log.step === null ? null : now})
     ON CONFLICT (session_id, agent_id) DO UPDATE SET
-      last_seen_at = excluded.last_seen_at, ended_at = NULL, agent_type = COALESCE(excluded.agent_type, agent_type),
+      last_seen_at = excluded.last_seen_at, ended_at = NULL, waiting_json = NULL, agent_type = COALESCE(excluded.agent_type, agent_type),
       transcript_path = COALESCE(excluded.transcript_path, transcript_path),
       current_step = COALESCE(excluded.current_step, current_step),
       current_step_at = COALESCE(excluded.current_step_at, current_step_at)`

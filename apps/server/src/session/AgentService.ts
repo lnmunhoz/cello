@@ -18,6 +18,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as Commands from "../commands/Commands.ts"
+import { parseBackground, parseWaiting, stopOutcome, stored } from "./activity.ts"
 import { cleanAgentText, cleanTranscript, CONTROL_CHARACTERS, MAX_AGENT_TEXT, PRESENCE_EVERY_MS, touchAgent } from "./SessionService.ts"
 
 /** What a hook says happened to a subagent of the caller's session. */
@@ -29,6 +30,8 @@ export interface AgentReport {
   readonly prompt?: string | undefined
   /** The subagent's own transcript, as the hook knows it (CEL-106); kept until another is reported. */
   readonly transcriptPath?: string | undefined
+  /** On a stop (CEL-133): the ids of the session's background work still running; absent when unknown. */
+  readonly running?: ReadonlyArray<string> | undefined
 }
 
 /** One agent, by its session and host id. */
@@ -62,6 +65,9 @@ interface AgentRow {
   /** CEL-119; left out by selects that don't need them. */
   model?: string | null
   effort?: string | null
+  /** CEL-133; left out by selects that don't need them. */
+  background_json?: string | null
+  waiting_json?: string | null
 }
 
 export const toAgent = (r: AgentRow): SessionAgent => ({
@@ -78,6 +84,7 @@ export const toAgent = (r: AgentRow): SessionAgent => ({
   currentStepAt: r.current_step_at ?? null,
   model: r.model ?? null,
   effort: r.effort ?? null,
+  waitingOn: parseWaiting(r.waiting_json),
 })
 
 export class AgentService extends Context.Service<AgentService, {
@@ -103,6 +110,14 @@ const make = Effect.gen(function* () {
   const commands = yield* Commands.Commands
   /** When each `<session> <agent> <workspace>` last got an agent.seen. In memory: a restart sends one again. */
   const heard = new Map<string, number>()
+  /**
+   * What boards last heard each `<session> <agent>` doing (CEL-133): working, waiting on its background
+   * work, or finished. A check-in that changes it is news, whatever the throttle says: a finished or
+   * waiting agent that calls again is working again, and its row leaves Finished today at once.
+   */
+  const told = new Map<string, string>()
+  const doing = (agent: SessionAgent) => (agent.endedAt !== null ? "finished" : agent.waitingOn ? "waiting" : "working")
+  const agentKey = (agent: SessionAgent) => `${agent.sessionId} ${agent.agentId}`
 
   const load = (ref: AgentRef) =>
     sql<AgentRow>`SELECT * FROM session_agents WHERE session_id = ${ref.sessionId} AND agent_id = ${ref.agentId}`.pipe(
@@ -151,6 +166,7 @@ const make = Effect.gen(function* () {
       if (workspaceIds.length === 0) return
       // Marked before the write, so parallel calls (the hook on parallel tool calls) send it once.
       for (const w of workspaceIds) heard.set(heardKey(agent, w), now)
+      told.set(agentKey(agent), doing(agent))
       const actor = yield* sql<{ actor_id: string }>`SELECT actor_id FROM agent_sessions WHERE id = ${agent.sessionId}`
       if (!actor[0]) return
       yield* commands.write({ commandId: crypto.randomUUID(), rpc: "agent.seen", receipt: false }, ({ emit }) =>
@@ -168,10 +184,14 @@ const make = Effect.gen(function* () {
     const transcript = cleanTranscript(input.transcriptPath)
     if (input.state === "stopped") {
       // Claude Code's own helpers (prompt suggestions, /btw) stop without ever starting here: not recorded.
-      const updated = yield* sql`UPDATE session_agents SET ended_at = ${now}, transcript_path = COALESCE(${transcript}, transcript_path)
-        WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}
-        RETURNING agent_id`
-      if (updated.length === 0) return null
+      const [row] = yield* sql<Pick<AgentRow, "background_json">>`
+        SELECT background_json FROM session_agents WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
+      if (!row) return null
+      // Background work it started is still running (CEL-133): it waits on it, and Claude Code resumes it after.
+      const outcome = stopOutcome(parseBackground(row.background_json), input.running)
+      yield* sql`UPDATE session_agents SET ended_at = ${outcome.finished ? now : null}, waiting_json = ${stored(outcome.waitingOn)},
+          background_json = ${stored(outcome.background)}, transcript_path = COALESCE(${transcript}, transcript_path)
+        WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
     } else if (input.state === "started") {
       // SubagentStart: a new agent, or a resumed one (live again).
       yield* touchAgent(sql, ref.sessionId, agentId, agentType, now, { transcript, step: null })
@@ -199,7 +219,10 @@ const make = Effect.gen(function* () {
     const agent = yield* load({ sessionId: caller.sessionId, agentId: caller.agentId })
     if (agent === null) return
     const now = yield* Clock.currentTimeMillis
-    const due = (yield* workspacesOf(agent)).filter((w) => {
+    const workspaces = yield* workspacesOf(agent)
+    // Back from finished or waiting (CEL-133): boards hear it at once.
+    const news = told.has(agentKey(agent)) && told.get(agentKey(agent)) !== doing(agent)
+    const due = news ? workspaces : workspaces.filter((w) => {
       const last = heard.get(heardKey(agent, w))
       // A clock set back would otherwise hold every check-in until it caught up.
       return last === undefined || now < last || now - last >= PRESENCE_EVERY_MS
