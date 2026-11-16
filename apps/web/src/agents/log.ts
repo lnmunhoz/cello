@@ -33,6 +33,7 @@ export const previewOf = (output: string, lines: number): { readonly text: strin
 /** Why there's no log, for an agent that's still working (`live`) or not. */
 export const unavailableWords = (reason: LogUnavailable, live: boolean): string => {
   if (reason === "missing") return live ? "This log isn't on disk yet. It shows up here as soon as Claude Code writes it." : "This log is no longer on disk."
+  if (reason === "unreadable") return "Cello couldn't read this log file."
   if (reason === "refused") return "Cello won't read this log: its transcript is outside Claude Code's projects folder."
   return "No log yet. It shows up once this agent's Claude Code hooks say where its transcript is (`cello install claude` adds them)."
 }

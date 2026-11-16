@@ -1,7 +1,9 @@
 // Following one log file as a stream of updates (CEL-106): what's there first, then each batch of new
 // steps as lines are appended, read when the watcher says the file changed (no timers). Before every
 // read the path is checked again, so a transcript swapped for a symlink later is refused then too.
-// Nothing is kept once the stream ends: the parser and tail live only as long as someone has the log open.
+// Reads are bounded (FileTail): a long transcript is read from near its end, a big append in chunks with
+// a yield between them, so one huge file never stalls the server. Nothing is kept once the stream ends:
+// the parser and tail live only as long as someone has the log open.
 import * as fs from "node:fs"
 import * as path from "node:path"
 import type { LogStep, LogUpdate } from "@cello/contract/agentLog"
@@ -18,7 +20,8 @@ export type Watch = (file: string, onChange: () => void) => () => void
 
 /**
  * The real watcher: the file's folder (so a file not written yet, or replaced, is still seen), or while
- * that folder doesn't exist the nearest one above it that does, moving down as folders appear.
+ * that folder doesn't exist the nearest one above it that does, moving down as the folders on the way
+ * appear (other changes in that folder are ignored).
  */
 export const watchFile: Watch = (file, onChange) => {
   let watcher: fs.FSWatcher | null = null
@@ -26,16 +29,16 @@ export const watchFile: Watch = (file, onChange) => {
   const setup = () => {
     watcher?.close()
     watcher = null
-    let dir = path.dirname(file)
+    const target = path.dirname(file)
+    let dir = target
     while (!fs.existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir)
-    const direct = dir === path.dirname(file)
+    // Watching the file's folder: its own name matters; watching one above: the next folder on the way.
+    const wanted = dir === target ? path.basename(file) : path.relative(dir, target).split(path.sep)[0]
     try {
       watcher = fs.watch(dir, (_event, name) => {
-        if (closed) return
-        if (!direct) {
-          setup()
-          onChange()
-        } else if (name == null || String(name) === path.basename(file)) onChange()
+        if (closed || (name != null && String(name) !== wanted)) return
+        if (dir !== target) setup()
+        onChange()
       })
       // A folder removed under it: the next read says missing; nothing to throw.
       watcher.on("error", () => {})
@@ -58,6 +61,8 @@ export interface FollowOptions {
   /** Send keys and tokens as they are: only for the human, who asked to see them. */
   readonly reveal: boolean
   readonly watch: Watch
+  /** How a file is read (tests replace it); FileTail by default. */
+  readonly open?: ((file: string) => FileTail) | undefined
 }
 
 /** The steps in order of first sight, each in its latest version. */
@@ -71,11 +76,18 @@ const latest = (steps: ReadonlyArray<LogStep>): ReadonlyArray<LogStep> => {
 export const followLog = (options: FollowOptions): Stream.Stream<LogUpdate> =>
   Stream.callback<LogUpdate>((queue) =>
     Effect.gen(function* () {
+      const open = options.open ?? fileTail
       let tail: FileTail | null = null
       let tailFile = ""
       let parser = transcriptParser()
       let missingSent = false
       let ended = false
+
+      const end = (reason: "refused" | "unreadable") => {
+        ended = true
+        Queue.offerUnsafe(queue, { _tag: "unavailable", reason })
+        Queue.endUnsafe(queue)
+      }
 
       const missing = () => {
         tail = null
@@ -83,33 +95,61 @@ export const followLog = (options: FollowOptions): Stream.Stream<LogUpdate> =>
         missingSent = true
       }
 
-      const pump = () => {
-        if (ended) return
+      /** One bounded read; whether there's more to read now. */
+      const pumpOnce = (): boolean => {
         const guarded = options.check()
-        if (guarded._tag === "refused") {
-          ended = true
-          Queue.offerUnsafe(queue, { _tag: "unavailable", reason: "refused" })
-          Queue.endUnsafe(queue)
-          return
-        }
-        if (guarded._tag === "missing") return missing()
+        if (guarded._tag === "refused") return (end("refused"), false)
+        if (guarded._tag === "missing") return (missing(), false)
         if (tail === null || tailFile !== guarded.file) {
-          tail = fileTail(guarded.file)
+          tail = open(guarded.file)
           tailFile = guarded.file
         }
         const read = tail.read()
-        if (read._tag === "missing") return missing()
+        if (read._tag === "unreadable") return (end("unreadable"), false)
+        if (read._tag === "missing") return (missing(), false)
         missingSent = false
         if (read.reset) parser = transcriptParser()
-        const steps = latest(read.lines.flatMap((line) => parser.push(line))).map((step) => redactStep(step, options.reveal))
+        const steps = latest(read.lines.flatMap((line) => parser.push(line)))
+        // Only what's sent is masked: the first batch keeps its newest steps first.
         if (read.reset) {
           const skipped = Math.max(0, steps.length - MAX_FIRST_STEPS)
-          Queue.offerUnsafe(queue, { _tag: "steps", steps: steps.slice(skipped), reset: true, skipped })
-        } else if (steps.length > 0) Queue.offerUnsafe(queue, { _tag: "steps", steps, reset: false, skipped: 0 })
+          Queue.offerUnsafe(queue, {
+            _tag: "steps",
+            steps: steps.slice(skipped).map((step) => redactStep(step, options.reveal)),
+            reset: true,
+            skipped,
+            ...(read.older ? { older: true } : {}),
+          })
+        } else if (steps.length > 0) {
+          Queue.offerUnsafe(queue, { _tag: "steps", steps: steps.map((step) => redactStep(step, options.reveal)), reset: false, skipped: 0 })
+        }
+        return read.more
       }
 
+      /** Reads until caught up, a chunk at a time with a yield between, so other work goes on. */
+      const catchUp = Effect.gen(function* () {
+        let more = true
+        while (more && !ended) {
+          try {
+            more = pumpOnce()
+          } catch {
+            end("unreadable")
+          }
+          yield* Effect.yieldNow
+        }
+      })
+
+      // The watcher only marks the file as changed: one read loop runs at a time, and changes during it
+      // fold into one more pass.
+      const changed = yield* Queue.sliding<void>(1)
       // Watching starts before the first read, so nothing written in between is missed.
-      const stop = options.watch(options.file, pump)
+      const stop = options.watch(options.file, () => void Queue.offerUnsafe(changed, undefined))
       yield* Effect.addFinalizer(() => Effect.sync(stop))
-      pump()
+      yield* catchUp
+      yield* Effect.forkScoped(Effect.gen(function* () {
+        while (!ended) {
+          yield* Queue.take(changed)
+          yield* catchUp
+        }
+      }))
     }))

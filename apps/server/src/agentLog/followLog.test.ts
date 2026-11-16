@@ -11,6 +11,7 @@ import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
+import { fileTail } from "./FileTail.ts"
 import { followLog, type Watch } from "./followLog.ts"
 import type { Guarded } from "./transcriptPath.ts"
 
@@ -97,6 +98,37 @@ describe("followLog", () => {
       const all = yield* followLog({ file, check: () => ({ _tag: "refused" }), reveal: false, watch }).pipe(Stream.runCollect)
       expect(all).toEqual([{ _tag: "unavailable", reason: "refused" }])
       expect(state.closed).toBe(true)
+    }))
+
+  it.effect("ends with unreadable when the file can't be read, or a read throws, and closes the watcher", () =>
+    Effect.gen(function* () {
+      const file = tempFile()
+      fs.writeFileSync(file, said("m1", "x"))
+      for (const open of [
+        () => ({ read: () => ({ _tag: "unreadable" as const }) }),
+        () => ({
+          read: () => {
+            throw new Error("EIO")
+          },
+        }),
+      ]) {
+        const { watch, state } = handWatch()
+        const all = yield* followLog({ file, check: () => ({ _tag: "ok", file }), reveal: false, watch, open }).pipe(Stream.runCollect)
+        expect(all).toEqual([{ _tag: "unavailable", reason: "unreadable" }])
+        expect(state.closed).toBe(true)
+      }
+    }))
+
+  it.effect("a long transcript is read from near its end, saying there are older steps", () =>
+    Effect.gen(function* () {
+      const file = tempFile()
+      fs.writeFileSync(file, Array.from({ length: 50 }, (_, i) => said(`m${i}`, `step ${i}`)).join(""))
+      const { watch } = handWatch()
+      const window = said("m48", "step 48").length * 2 + 5
+      const first = yield* followLog({ file, check: () => ({ _tag: "ok", file }), reveal: false, watch, open: (f) => fileTail(f, { window }) }).pipe(
+        Stream.runHead,
+      )
+      expect(first._tag === "Some" && first.value).toMatchObject({ _tag: "steps", reset: true, older: true, steps: [{ text: "step 48" }, { text: "step 49" }] })
     }))
 
   it.effect("the first batch keeps only the newest steps, saying how many it left out", () =>

@@ -125,7 +125,9 @@ export function AgentLog({ board, row }: { readonly board: BoardState; readonly 
             <LogNote>{log.steps.length === 0 ? "Nothing in the log yet." : "No steps match this filter."}</LogNote>
           ) : (
             <ol className="flex flex-col gap-px py-1.5" aria-label="Steps">
-              {log.skipped > 0 ? (
+              {log.older ? (
+                <li className="px-3 py-1 text-xs text-faint">Earlier steps aren't shown: this log is long, so it opens near its end.</li>
+              ) : log.skipped > 0 ? (
                 <li className="px-3 py-1 text-xs text-faint">{log.skipped} earlier steps aren't shown.</li>
               ) : null}
               {steps.map((step) => <Step key={step.id} step={step} row={row} working={live} />)}

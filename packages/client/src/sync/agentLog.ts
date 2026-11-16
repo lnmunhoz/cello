@@ -9,14 +9,16 @@ export interface LogView {
   readonly reason: LogUnavailable | null
   /** How many older steps the first batch left out. */
   readonly skipped: number
+  /** A long transcript was read only from near its end: there are earlier steps it didn't count. */
+  readonly older: boolean
   readonly steps: ReadonlyArray<LogStep>
 }
 
-export const EMPTY_LOG: LogView = { status: "loading", reason: null, skipped: 0, steps: [] }
+export const EMPTY_LOG: LogView = { status: "loading", reason: null, skipped: 0, older: false, steps: [] }
 
 export const applyLogUpdate = (view: LogView, update: LogUpdate): LogView => {
-  if (update._tag === "unavailable") return { status: "unavailable", reason: update.reason, skipped: 0, steps: [] }
-  if (update.reset) return { status: "ready", reason: null, skipped: update.skipped, steps: update.steps }
+  if (update._tag === "unavailable") return { ...EMPTY_LOG, status: "unavailable", reason: update.reason }
+  if (update.reset) return { status: "ready", reason: null, skipped: update.skipped, older: update.older === true, steps: update.steps }
   const index = new Map(view.steps.map((s, i) => [s.id, i]))
   const steps = [...view.steps]
   for (const step of update.steps) {

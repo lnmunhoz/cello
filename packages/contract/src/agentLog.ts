@@ -61,18 +61,25 @@ export type LogStep = typeof LogStep.Type
 /**
  * Why there's no log: no hook has reported a transcript for this agent yet (`none`), the file isn't on
  * disk (`missing`: Claude Code cleaned it up, or it hasn't been written yet), or the path a hook reported
- * is outside Claude Code's `projects/` folder, so Cello won't read it (`refused`).
+ * is outside Claude Code's `projects/` folder, so Cello won't read it (`refused`), or the file is there
+ * but couldn't be read (`unreadable`: its permissions, say); the stream ends after `refused` and `unreadable`.
  */
-export const LogUnavailable = Schema.Literals(["none", "missing", "refused"])
+export const LogUnavailable = Schema.Literals(["none", "missing", "refused", "unreadable"])
 export type LogUnavailable = typeof LogUnavailable.Type
 
 /**
  * What the stream sends. `steps`: new steps, or new versions of steps already sent (a tool call whose
  * result arrived); `reset` means drop what was shown first (the first batch, or a file that was
- * replaced); `skipped` how many older steps the first batch left out. `unavailable`: there's no log now.
+ * replaced); `skipped` how many older steps the first batch left out, and `older` that a long transcript
+ * was read only from near its end, so there are earlier steps it didn't count. `unavailable`: there's no log now.
  */
 export const LogUpdate = Schema.Union([
-  Schema.TaggedStruct("steps", { steps: Schema.Array(LogStep), reset: Schema.Boolean, skipped: Schema.Number }),
+  Schema.TaggedStruct("steps", {
+    steps: Schema.Array(LogStep),
+    reset: Schema.Boolean,
+    skipped: Schema.Number,
+    older: Schema.optionalKey(Schema.Boolean),
+  }),
   Schema.TaggedStruct("unavailable", { reason: LogUnavailable }),
 ])
 export type LogUpdate = typeof LogUpdate.Type

@@ -27,6 +27,7 @@ describe("unavailableWords", () => {
     expect(unavailableWords("missing", false)).toBe("This log is no longer on disk.")
     expect(unavailableWords("none", true)).toContain("cello install claude")
     expect(unavailableWords("refused", false)).toContain("outside Claude Code's projects folder")
+    expect(unavailableWords("unreadable", true)).toBe("Cello couldn't read this log file.")
   })
 })
 
