@@ -6,7 +6,7 @@ import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import type { StageInfo } from "@cello/contract/stages"
 import { agoShort, type Presence, presenceOf, presenceWords, type SessionLike } from "@cello/shared/presence"
-import { BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, type LucideIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
+import { ActivityIcon, BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, type LucideIcon, PencilRulerIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
 import { type ReactNode, useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { AgentMark, type AgentMood } from "../components/ui/AgentMark.tsx"
@@ -31,7 +31,14 @@ import {
 } from "./model.ts"
 import { useNow } from "./useNow.ts"
 
-const STAGE_ICONS: Record<string, LucideIcon> = { hammer: HammerIcon, "scan-eye": ScanEyeIcon, wrench: WrenchIcon, "git-merge": GitMergeIcon }
+const STAGE_ICONS: Record<string, LucideIcon> = {
+  "pencil-ruler": PencilRulerIcon,
+  hammer: HammerIcon,
+  "scan-eye": ScanEyeIcon,
+  wrench: WrenchIcon,
+  "git-merge": GitMergeIcon,
+  activity: ActivityIcon,
+}
 
 const PRESENCE_TEXT: Record<Presence, string> = { active: "text-ink", idle: "text-idle", ended: "text-faint" }
 
@@ -62,7 +69,7 @@ export function StageChip({ stage }: { stage: StageInfo }) {
 }
 
 /**
- * A lane's heading in the In Progress column: the stage, "No stage", or "Needs input" (`waiting`: the
+ * A lane's heading in the In Progress column: the stage, Working (CEL-105), "No stage", or "Needs input" (`waiting`: the
  * folded Needs input cards below the lanes), and how many cards it holds.
  */
 export function LaneHeading({ stage, count, waiting = false }: { stage: StageInfo | null; count: number; waiting?: boolean }) {
@@ -243,14 +250,15 @@ function HolderWords({
 /**
  * The card's work line, while an agent works on the task or it has a stage: who's on it (the subagent
  * working on it, else the agent session holding it) and whether it's working, then the stage at the
- * right. `stage: false` leaves the stage out (its lane says it).
+ * right: the stage, or Working with no stage while its agent is active (CEL-105). `stage: false` leaves
+ * it out (its lane says it).
  */
 export function CardWork({ task, board, stage = true }: { task: Task; board: BoardState; stage?: boolean }) {
   const now = useNow()
   const p = provenanceOf(board, task, now)
   const holder = live(board, p.holder)
   const { mark, leaving } = useTaskMark(task, board, holder)
-  const shownStage = stage ? p.stage : null
+  const shownStage = stage ? p.step : null
   if (!holder && !shownStage && !leaving) return null
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-xs" data-card-work>
@@ -281,20 +289,20 @@ const fullProvenance = (p: Provenance, now: number) =>
   `Created by ${named(p.createdBy)}, ${formatDay(p.createdAt, now)}` +
   (p.changedBy ? ` · last ${p.changeVerb} by ${named(p.changedBy)}, ${agoShort(p.changedAt, now)}` : "")
 
-/** The list row's work: the holder and its presence, and the stage unless the stage column shows it. */
+/** The list row's work: the holder and its presence, and the stage (or Working) unless the stage column shows it. */
 export function RowWork({ task, board, stage = true }: { task: Task; board: BoardState; stage?: boolean }) {
   const now = useNow()
   const p = provenanceOf(board, task, now)
   const holder = live(board, p.holder)
   const { mark, leaving } = useTaskMark(task, board, holder)
-  if (!holder && !(stage && p.stage) && !leaving) return null
+  if (!holder && !(stage && p.step) && !leaving) return null
   return (
     <span className="flex shrink-0 items-center gap-2 text-xs" data-row-work>
       {holder ? <HolderWords live={holder} mark={mark} /> : leaving ? mark : null}
       {/* A fixed slot, so the stages down the list line up. */}
-      {stage && p.stage ? (
+      {stage && p.step ? (
         <span className="flex w-[118px]">
-          <StageWord stage={p.stage} />
+          <StageWord stage={p.step} />
         </span>
       ) : null}
     </span>
@@ -319,22 +327,23 @@ export function RowCreated({ task, board }: { task: Task; board: BoardState }) {
 
 /**
  * In the task panel's top bar, after the key: "· 8a41c9e2 active now · 🔨 Building" after the card's agent
- * mark, in the card's mood (the full name is in Working on it).
+ * mark, in the card's mood (the full name is in Working on it); "· Working" with no stage while its agent
+ * is active (CEL-105).
  */
 export function PanelWork({ task, board }: { task: Task; board: BoardState }) {
   const now = useNow()
   const p = provenanceOf(board, task, now)
   const holder = live(board, p.holder)
   const { mark, leaving } = useTaskMark(task, board, holder, "panel-bar")
-  if (!holder && !p.stage && !leaving) return null
+  if (!holder && !p.step && !leaving) return null
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-xs" data-panel-work>
       {holder || leaving ? <span className="text-faint">·</span> : null}
       {holder ? <HolderWords live={holder} mark={mark} /> : leaving ? mark : null}
-      {p.stage ? (
+      {p.step ? (
         <>
           <span className="text-faint">·</span>
-          <StageWord stage={p.stage} />
+          <StageWord stage={p.step} />
         </>
       ) : null}
     </span>

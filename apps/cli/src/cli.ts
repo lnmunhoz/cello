@@ -641,7 +641,8 @@ const stage = Command.make("stage", {
     const where = `(${statusName(written.names, task.statusId)}  ${task.title})`
     yield* print(next === null ? `Cleared the stage of ${task.key}  ${where}` : `${task.key} is now ${stageInfo(next)!.label}  ${where}`)
   })).pipe(Command.withDescription(
-    "Say where your claimed task is inside In Progress, so the board shows it: building, agent review, fixing findings, merged. " +
+    `Say where your claimed task is inside In Progress, so the board shows it: ${TASK_STAGES.map((s) => s.label.toLowerCase()).join(", ")}. ` +
+      "Every session holding a claim sets it: on your own, designing, then building, then merged; an orchestrator, building, review, fixing, merged. " +
       "Only the session holding the claim (or the human), only in In Progress. Asking the human (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.",
   ))
 

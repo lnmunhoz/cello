@@ -1,7 +1,6 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { labelsOf, parentOf } from "@cello/client/sync/list"
 import type { Project, Task } from "@cello/contract/entities"
-import { stageInfo } from "@cello/contract/stages"
 import { Link } from "@tanstack/react-router"
 import { CalendarIcon, ChevronRightIcon } from "lucide-react"
 import type { KeyboardEvent } from "react"
@@ -10,6 +9,8 @@ import { PriorityIcon } from "../components/ui/PriorityIcon.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { formatDue } from "../lib/format.ts"
 import { RowCreated, RowWork, StageChip } from "../presence/Presence.tsx"
+import { stepOf } from "../presence/model.ts"
+import { useNow } from "../presence/useNow.ts"
 import { QuestionsBadge } from "../ask/QuestionsBadge.tsx"
 import { EvidenceBadge } from "../review/EvidenceBadge.tsx"
 import { CommentCount } from "../task/CommentCount.tsx"
@@ -70,7 +71,8 @@ function RowBody({ task, board, keyChars, stageColumn }: { task: Task; board: Bo
   const status = board.statuses[task.statusId]
   const parent = parentOf(board, task)
   const labels = labelsOf(board, task)
-  const stage = task.stage === null ? undefined : stageInfo(task.stage)
+  // The stage column says what the row's lane is: the stage, or Working (CEL-105).
+  const stage = stepOf(board, task, useNow())
   return (
     <>
       <span className="flex w-3.5 shrink-0 justify-center">{task.priority > 0 ? <PriorityIcon priority={task.priority} /> : null}</span>
