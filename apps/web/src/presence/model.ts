@@ -141,12 +141,19 @@ export const provenanceLine = (p: Provenance, now: number): string => {
   return `${p.createdBy.short} created · ${by}${p.changeVerb} ${agoShort(p.changedAt, now)}`
 }
 
-/** A subagent working under a session, for the sidebar: who, whether it's working, and its task. */
+/** A sidebar entry's agent mark (CEL-55): the mood its card shows, and that task's status ("" with none). */
+export interface WorkingMark {
+  readonly mood: AgentMood
+  readonly statusId: string
+}
+
+/** A subagent working under a session, for the sidebar: who, whether it's working, its task and its mark. */
 export interface WorkingAgent {
   readonly agent: SessionAgent
   readonly who: Who
   readonly presence: Presence
   readonly task: Task | null
+  readonly mark: WorkingMark
 }
 
 export interface Working {
@@ -157,6 +164,8 @@ export interface Working {
   readonly tasks: ReadonlyArray<Task>
   /** Its subagents still working (active or quiet, not stopped), the freshest first (CEL-55). */
   readonly agents: ReadonlyArray<WorkingAgent>
+  /** Its mark: from the tasks whose cards show the session itself, not a subagent of it. */
+  readonly mark: WorkingMark
 }
 
 const ORDER: Record<Presence, number> = { active: 0, idle: 1, ended: 2 }
@@ -181,7 +190,8 @@ export const workingSessions = (board: BoardState, workspaceId: string, now: num
     // An agent on a task elsewhere belongs to that workspace's list; one with no task, to its session's.
     if (agent.taskId !== null && !inWorkspace(task)) continue
     const list = agentsBySession.get(agent.sessionId) ?? []
-    list.push({ agent, who: agentWho(agent, board.sessions[agent.sessionId]), presence, task: task ?? null })
+    const mark = workingMark(board, task ? [task] : [], presence)
+    list.push({ agent, who: agentWho(agent, board.sessions[agent.sessionId]), presence, task: task ?? null, mark })
     agentsBySession.set(agent.sessionId, list)
   }
   const ids = new Set([...bySession.keys(), ...[...agentsBySession.entries()].filter(([, list]) => list.some((a) => a.task)).map(([id]) => id)])
@@ -191,7 +201,11 @@ export const workingSessions = (board: BoardState, workspaceId: string, now: num
       if (!session) return []
       const agents = (agentsBySession.get(id) ?? [])
         .sort((a, b) => ORDER[a.presence] - ORDER[b.presence] || b.agent.lastSeenAt - a.agent.lastSeenAt)
-      return [{ session, who: sessionWho(session), presence: presenceOf(session, now), tasks: bySession.get(id) ?? [], agents }]
+      const tasks = bySession.get(id) ?? []
+      const presence = presenceOf(session, now)
+      // The session's cards: those with no subagent working on them (agentOn names the subagent instead).
+      const mark = workingMark(board, tasks.filter((t) => agentOn(board, t, now) === null), presence)
+      return [{ session, who: sessionWho(session), presence, tasks, agents, mark }]
     })
     .sort((a, b) => ORDER[a.presence] - ORDER[b.presence] || b.session.lastSeenAt - a.session.lastSeenAt)
 }
@@ -218,6 +232,24 @@ export const agentMood = (
   if (stage === "building" || stage === "fixing") return "working"
   if (stage === "merged") return "merged"
   return "thinking"
+}
+
+/** Which of several tasks' moods a sidebar entry shows: what Lucas most needs to see comes first. */
+const MOOD_FIRST: Record<AgentMood, number> = { waiting: 0, working: 1, thinking: 2, merged: 3, done: 4, still: 5 }
+
+/**
+ * A sidebar entry's mark (CEL-55): the mood the card of the task it's on shows (agentMood), with that
+ * task's status. A session on several picks the one Lucas most needs to see: waiting on him, then
+ * working, thinking, merged, done. On none (a lookup, or an orchestrator whose tasks all have a subagent
+ * on them), it thinks while active and keeps still once quiet.
+ */
+export const workingMark = (board: BoardState, tasks: ReadonlyArray<Task>, presence: Presence): WorkingMark => {
+  let best: WorkingMark | null = null
+  for (const task of tasks) {
+    const mood = agentMood(task.stage, board.statuses[task.statusId], presence)
+    if (best === null || MOOD_FIRST[mood] < MOOD_FIRST[best.mood]) best = { mood, statusId: task.statusId }
+  }
+  return best ?? { mood: presence === "active" ? "thinking" : "still", statusId: "" }
 }
 
 /** A card's mark as it was drawn: its mood, the task's status, and its holder's last check-in. */

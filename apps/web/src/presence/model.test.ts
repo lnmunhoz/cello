@@ -251,3 +251,56 @@ describe("subagents", () => {
     expect(agentsWorkingCount(working)).toBe(0)
   })
 })
+
+// CEL-55 + CEL-69: the sidebar's entries show the same mark as the cards, in the same mood.
+describe("Agents working: each entry's mark", () => {
+  const statuses = {
+    prog: { id: "prog", workspaceId: "w1", name: "In Progress", category: "started", position: "a1", color: "#f59e0b", hidden: false, createdAt: 1, updatedAt: 1 },
+    needs: { id: "needs", workspaceId: "w1", name: "Needs input", category: "waiting", position: "a2", color: "#f97316", hidden: false, createdAt: 1, updatedAt: 1 },
+    review: { id: "review", workspaceId: "w1", name: "In Review", category: "started", position: "a3", color: "#8b5cf6", hidden: false, createdAt: 1, updatedAt: 1 },
+  } as const
+  const withStatuses = (state: BoardState): BoardState => ({ ...state, statuses })
+  const orchestrator = session("2fd0505c")
+  const held = (id: string, extra: Partial<Task> = {}) => task(id, { assigneeActorId: "claude", assigneeSessionId: "2fd0505c", ...extra })
+  const marks = (state: BoardState) => {
+    const [w] = workingSessions(withStatuses(state), "w1", now)
+    return { session: w!.mark, agents: Object.fromEntries(w!.agents.map((a) => [a.agent.agentId, a.mark])) }
+  }
+
+  it("a subagent's entry has its task's card mood and status: working while it builds, waiting in Needs input, done in review", () => {
+    const tasks = [held("t1", { stage: "building" }), held("t2", { statusId: "needs" }), held("t3", { statusId: "review" })]
+    const agents = [
+      agent("2fd0505c", "a13bfb89", { taskId: "t1" }),
+      agent("2fd0505c", "b77d0e11", { taskId: "t2", lastSeenAt: now - 2 * MIN }),
+      agent("2fd0505c", "c0ffee00", { taskId: "t3", lastSeenAt: now - 3 * MIN }),
+    ]
+    expect(marks(board(tasks, [orchestrator], agents)).agents).toEqual({
+      a13bfb89: { mood: "working", statusId: "prog" },
+      b77d0e11: { mood: "waiting", statusId: "needs" },
+      c0ffee00: { mood: "done", statusId: "review" },
+    })
+  })
+
+  it("an entry with no task thinks while it's active and keeps still once quiet", () => {
+    const agents = [agent("2fd0505c", "a13bfb89", { taskId: "t1" }), agent("2fd0505c", "c0ffee00", { agentType: "Explore" }), agent("2fd0505c", "deadbeef", { lastSeenAt: now - 20 * MIN })]
+    const { agents: m } = marks(board([held("t1", { stage: "building" })], [orchestrator], agents))
+    expect(m.c0ffee00).toEqual({ mood: "thinking", statusId: "" })
+    expect(m.deadbeef).toEqual({ mood: "still", statusId: "" })
+  })
+
+  it("a session's entry reads the tasks its own cards show, Needs input first; with a subagent on each, it orchestrates (thinking)", () => {
+    const tasks = [held("t1", { stage: "building" }), held("t2", { statusId: "needs" }), held("t3", { stage: "review" })]
+    expect(marks(board(tasks, [orchestrator])).session).toEqual({ mood: "waiting", statusId: "needs" })
+    expect(marks(board([tasks[0]!, tasks[2]!], [orchestrator])).session).toEqual({ mood: "working", statusId: "prog" })
+    // A builder on the building task: the session's card is the one in Agent review.
+    expect(marks(board([tasks[0]!, tasks[2]!], [orchestrator], [agent("2fd0505c", "a13bfb89", { taskId: "t1" })])).session).toEqual({ mood: "thinking", statusId: "prog" })
+    const everyTask = [agent("2fd0505c", "a13bfb89", { taskId: "t1" }), agent("2fd0505c", "b77d0e11", { taskId: "t3" })]
+    expect(marks(board([tasks[0]!, tasks[2]!], [orchestrator], everyTask)).session).toEqual({ mood: "thinking", statusId: "" })
+  })
+
+  it("a quiet session keeps still, unless a task of its waits on Lucas", () => {
+    const quiet = session("2fd0505c", { lastSeenAt: now - 20 * MIN })
+    expect(marks(board([held("t1", { stage: "building" })], [quiet])).session).toEqual({ mood: "still", statusId: "prog" })
+    expect(marks(board([held("t1", { statusId: "needs" })], [quiet])).session).toEqual({ mood: "waiting", statusId: "needs" })
+  })
+})
