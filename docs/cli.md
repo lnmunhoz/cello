@@ -558,12 +558,19 @@ cello task comment CEL-12 --body-file - <<'EOF'
 - Next: open the next row after Approve
 EOF
 
+# A table: shown as one, scrolling sideways inside the comment when it's wide
+cello task comment CEL-12 --body-file - <<'EOF'
+| Run | Time | Tests |
+| --- | ---: | --- |
+| e2e | 4m 12s | 31 passed |
+EOF
+
 # With screenshots: shown under the text as thumbnails that open full size
 cello task comment CEL-12 "The empty state, built" --attach empty-state.png --attach empty-state-dark.png
 # Commented on CEL-12 with 2 images
 ```
 
-Comments are markdown, rendered on the card, and links in them can be clicked. Task keys (e.g. CEL-12) link to the task, with its live status; keys of unknown tasks, and keys in backticks or code blocks, stay plain. Answer the human's comments and Send back notes on the card, so the conversation stays with the task. Their comments come to your session by themselves (next section).
+Comments are GitHub-flavored markdown, rendered on the card: tables, task lists (`- [x] done`), ~~strikethrough~~ and bare addresses work, as they do in task descriptions, review packet summaries, asks' intros and pages. Links in them can be clicked. Task keys (e.g. CEL-12) link to the task, with its live status; keys of unknown tasks, and keys in backticks or code blocks, stay plain. Answer the human's comments and Send back notes on the card, so the conversation stays with the task. Their comments come to your session by themselves (next section).
 
 **Screenshots in comments.** `--attach` takes an image (PNG, JPEG, GIF, WebP or AVIF, up to 50 MB), relative to the folder you run it in; repeat it for more. A comment with screenshots needs no text. Anything else is refused ("notes.txt isn't an image (PNG, JPEG, GIF, WebP or AVIF)"): test output and videos go in a review packet. The human pastes (⌘V) or drops screenshots into the comment box in the task panel and on the Review page; they reach you as files (next section). `cello task get CEL-12` saves every comment's screenshots to temp files and prints their paths under the comment's text (`Screenshot: /var/folders/…/T/cello-comments/<comment id>/1.png`); `--json` has them as each comment's `attachments`.
 

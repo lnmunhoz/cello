@@ -2,7 +2,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import type { Browser } from "@playwright/test"
 import { addTasks, caption, captionWithUrl, card, column, createProject, expect, taskPanel, test, uniqueKey } from "./fixtures.ts"
-import { expectOneColumn, expectTwoColumns, packetDrawn, SHOTS, submitDiagramPacket, WEB_URL } from "./packets.ts"
+import { celloAs, expectOneColumn, expectTwoColumns, packetDrawn, SHOTS, submitDiagramPacket, WEB_URL } from "./packets.ts"
 import { isReview } from "./recording.ts"
 
 /** `key`'s task page as a full page in its own unrecorded window, saved to e2e/videos/task-full-<width>x<height>-<scheme>.png. */
@@ -140,4 +140,78 @@ test("18: create a task with a column's +, edit it in the panel, add a comment, 
   await expect(panel.locator("[data-comment-id]")).toContainText("Let's ship this with the theme tokens.")
   await expect(panel.getByText(/created the task/)).toBeVisible()
   await caption(page, "Everything is still there after the reload")
+})
+
+/** An agent's results comment (CEL-127): a table wider than the panel, a struck-out line and a checklist. */
+const RESULTS_COMMENT = [
+  "Results of the three runs:",
+  "",
+  "| Run | Where | Time | Tests | Videos | Notes |",
+  "| --- | --- | ---: | --- | --- | --- |",
+  "| unit | Mac | 41s | 812 passed | none | all green after the fix to the clock |",
+  "| e2e | Docker | 4m 12s | 31 passed | 31 MP4s | review mode, slow motion on |",
+  "| desktop | Docker + Xvfb | 2m 03s | 9 passed | 9 MP4s | captions burned in |",
+  "",
+  "~~Run the full suite~~ only the related specs.",
+  "",
+  "- [x] tests",
+  "- [ ] evidence",
+].join("\n")
+
+/** `key`'s task panel in its own unrecorded window, scrolled to its comments: saved as e2e/videos/cel-127-table-<scheme>.png. */
+async function stillOfCommentTable(browser: Browser, key: string, colorScheme: "light" | "dark") {
+  const context = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height: 900 }, colorScheme })
+  const page = await context.newPage()
+  const [projectKey, number] = key.split("-") as [string, string]
+  await page.goto(`/${projectKey}/${number}`)
+  const panel = taskPanel(page, key)
+  const table = panel.locator("[data-comment-id] [data-markdown-table]").first()
+  await table.scrollIntoViewIfNeeded()
+  await panel.screenshot({ path: path.join(SHOTS, `cel-127-table-${colorScheme}.png`) })
+  await context.close()
+}
+
+test("CEL-127: a markdown table in a comment shows as a table that scrolls sideways inside the panel, never the page; strikethrough and task lists show too", async ({ page, browser }) => {
+  const key = uniqueKey("TABLE")
+  const task = `${key}-1`
+  const agent = celloAs(`e2e0comment-table-${key}`, { stdin: RESULTS_COMMENT })
+  await createProject(page, "Comment tables", key)
+
+  await caption(page, `An agent creates ${task} and comments its test results as a markdown table`)
+  agent("task", "create", "Speed up the e2e runs", "--project", key)
+  agent("task", "comment", task, "--body-file", "-")
+
+  await caption(page, `Open ${task}: the comment shows a table, not | pipes |`)
+  await card(page, task).click()
+  const panel = taskPanel(page, task)
+  const comment = panel.locator("[data-comment-id]").filter({ hasText: "Results of the three runs" })
+  const table = comment.locator("[data-markdown-table]")
+  await expect(table.locator("th")).toHaveText(["Run", "Where", "Time", "Tests", "Videos", "Notes"])
+  await expect(table.locator("tbody tr")).toHaveCount(3)
+  await expect(comment).not.toContainText("| Run |")
+  await table.scrollIntoViewIfNeeded()
+
+  await caption(page, "It's wider than the panel: it scrolls sideways inside its frame, the panel and the page don't")
+  const overflows = (el: Element) => el.scrollWidth > el.clientWidth
+  expect(await table.evaluate(overflows)).toBe(true)
+  expect(await panel.evaluate(overflows)).toBe(false)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await table.hover()
+  await page.mouse.wheel(600, 0)
+  await expect(table).not.toHaveJSProperty("scrollLeft", 0)
+
+  await caption(page, "Strikethrough and the checklist show as GitHub draws them")
+  await expect(comment.locator("del")).toHaveText("Run the full suite")
+  await expect(comment.locator("input[type=checkbox]")).toHaveCount(2)
+  await expect(comment.locator("input[type=checkbox]").first()).toBeChecked()
+
+  await caption(page, "Lucas answers with a small table of his own from the comment box")
+  await panel.getByLabel("New comment").fill("| Run | OK? |\n| --- | --- |\n| e2e | yes |")
+  await panel.getByRole("button", { name: "Comment", exact: true }).click()
+  const reply = panel.locator("[data-comment-id]").filter({ hasText: "OK?" })
+  await expect(reply.locator("table td")).toHaveText(["e2e", "yes"])
+  expect(await reply.locator("[data-markdown-table]").evaluate(overflows)).toBe(false)
+  await caption(page, "Both comments show their tables")
+
+  for (const scheme of ["light", "dark"] as const) await stillOfCommentTable(browser, task, scheme)
 })

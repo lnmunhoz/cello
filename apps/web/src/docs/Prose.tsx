@@ -4,12 +4,11 @@ import { shortUrl } from "@cello/shared/linkify"
 import { formatTaskKey } from "@cello/shared/taskKey"
 import { Children, isValidElement, type ReactNode } from "react"
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown"
-import remarkGfm from "remark-gfm"
 import { MissingFile } from "../components/ui/MissingFile.tsx"
-import { remarkLinkify } from "../components/ui/remarkLinkify.ts"
+import { remarkPlugins } from "../components/ui/remarkPlugins.ts"
 import { openInPanel } from "../lib/desktop.ts"
 import { Video } from "../review/Video.tsx"
-import { LiveTaskKey, linkifyTasks, markdownTaskKey, TaskLink } from "../task/TaskKey.tsx"
+import { LiveTaskKey, markdownTaskKey, TaskLink } from "../task/TaskKey.tsx"
 import { openGallery, zoomable } from "../viewer/gallery.ts"
 import { isPlainClick, taskOfHref } from "../viewer/viewer.ts"
 import { Mermaid } from "./Mermaid.tsx"
@@ -139,7 +138,7 @@ export function Prose({
     },
   }
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm, [remarkLinkify, linkifyTasks(projectKeys)]]} components={components}>
+    <ReactMarkdown remarkPlugins={remarkPlugins(projectKeys)} components={components}>
       {markdown}
     </ReactMarkdown>
   )
