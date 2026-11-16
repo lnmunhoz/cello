@@ -103,6 +103,11 @@ describe("CallerMiddleware", () => {
     expect(CallerLayer.identityFromHeaders(Headers.fromInput({ [IDENTITY_HEADERS.pid]: "abc" }))).toEqual({})
     // The hooks send the session's permission mode (CEL-92).
     expect(CallerLayer.identityFromHeaders(Headers.fromInput({ [IDENTITY_HEADERS.permissionMode]: "auto" }))).toEqual({ permissionMode: "auto" })
+    // And the transcript and current step (CEL-106).
+    expect(CallerLayer.identityFromHeaders(Headers.fromInput({
+      [IDENTITY_HEADERS.transcript]: "/home/u/.claude/projects/-repo/s.jsonl",
+      [IDENTITY_HEADERS.step]: "Bash · bun run test",
+    }))).toEqual({ transcript: "/home/u/.claude/projects/-repo/s.jsonl", step: "Bash · bun run test" })
   })
 
   it.effect("a subagent's headers (CEL-55) resolve to its session, with the agent named on the caller", () =>

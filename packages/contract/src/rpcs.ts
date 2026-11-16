@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema"
 import * as Rpc from "effect/rpc/Rpc"
 import * as RpcGroup from "effect/rpc/RpcGroup"
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware"
+import { LogUpdate } from "./agentLog.ts"
 import { Backup } from "./backups.ts"
 import { BuildPage, ServerBuild } from "./build.ts"
 import {
@@ -80,6 +81,12 @@ export const IDENTITY_HEADERS = {
   agentType: "x-cello-agent-type",
   /** The session's permission mode as its host reports it (Claude Code's hooks get `permission_mode`, CEL-92). */
   permissionMode: "x-cello-permission-mode",
+  /**
+   * Sent by the hooks only (CEL-106): the caller's Claude Code transcript (the session's, or with
+   * `x-cello-agent` the subagent's), and its last tool call in one line ("Bash · bun run test").
+   */
+  transcript: "x-cello-transcript",
+  step: "x-cello-step",
 } as const
 
 /** The `x-cello-session` value that records the human, whatever agent variables are set. */
@@ -340,8 +347,27 @@ export const CelloRpcs = RpcGroup.make(
       state: AgentReportState,
       description: Schema.optionalKey(Schema.String),
       prompt: Schema.optionalKey(Schema.String),
+      /** The subagent's own transcript, as the hook knows it (CEL-106): its log is read from there. */
+      transcriptPath: Schema.optionalKey(Schema.String),
     },
     success: Schema.NullOr(SessionAgent),
+  }),
+
+  // An agent's live log (CEL-106): the session's own transcript, one of its subagents' (`agentId`), or one
+  // of its woken runs' logs (`runId`, CEL-92), as steps, then new steps as they're written, while the
+  // stream is open. Read only from a path a hook reported (transcripts: inside Claude Code's projects/
+  // folder; runs: inside the runs folder); never stored. Keys and tokens are masked unless the human asks
+  // with `reveal` (an agent's `reveal` is ignored).
+  Rpc.make("agent.log", {
+    payload: {
+      sessionId: Id,
+      agentId: Schema.optionalKey(Schema.String),
+      runId: Schema.optionalKey(Id),
+      reveal: Schema.optionalKey(Schema.Boolean),
+    },
+    success: LogUpdate,
+    error: NotFound,
+    stream: true,
   }),
 
   // Review packets. `review.submit` copies the files (absolute paths on this machine) into the data

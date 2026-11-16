@@ -32,4 +32,5 @@ export const {
   pageFamily,
   documentHistoryFamily,
   searchFamily,
+  agentLogFamily,
 } = cello

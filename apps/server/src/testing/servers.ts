@@ -1,4 +1,5 @@
 // Real servers on ephemeral ports with temp data folders, for integration tests here and in the CLI.
+import * as path from "node:path"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -11,11 +12,19 @@ export const HUMAN = "Lucas"
 
 /**
  * Starts a server on a free port (or `port`, to restart one where its clients expect it), without the
- * daily backup; it stops when the scope closes. Returns its port.
+ * daily backup; it stops when the scope closes. Returns its port. Agents' transcripts are read from
+ * `<dataDir>/claude/projects` unless `claudeProjectsDir` says otherwise, never the real Claude Code folder (CEL-106).
  */
-export const startServer = (dataDir: string, options: Partial<Pick<Server.ServerOptions, "web" | "autoBackup" | "commit" | "checkout" | "port" | "wake">> = {}) =>
+export const startServer = (dataDir: string, options: Partial<Pick<Server.ServerOptions, "web" | "autoBackup" | "commit" | "checkout" | "port" | "wake" | "claudeProjectsDir">> = {}) =>
   Effect.gen(function* () {
-    const context = yield* Layer.build(Server.layer({ dataDir, port: 0, humanName: HUMAN, autoBackup: false, ...options }))
+    const context = yield* Layer.build(Server.layer({
+      dataDir,
+      port: 0,
+      humanName: HUMAN,
+      autoBackup: false,
+      claudeProjectsDir: path.join(dataDir, "claude", "projects"),
+      ...options,
+    }))
     const address = Context.get(context, HttpServer.HttpServer).address
     return { port: "port" in address ? address.port : 0 }
   })

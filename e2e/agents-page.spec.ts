@@ -162,7 +162,7 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   await shoot(page, "page")
   await shoot(page, "sidebar", page.locator('aside[data-sidebar="expanded"] nav[aria-label="Inbox"]'))
 
-  await captionWithUrl(page, "Open the builder: what it was asked, its card (no repeat of its name), and where its live log goes")
+  await captionWithUrl(page, "Open the builder: what it was asked, its card (no repeat of its name), and its live log")
   await builderRow.getByRole("button").first().click()
   await expect(page).toHaveURL((url) => url.searchParams.get("open") === `agent:${orchestrator}/${BUILDER}`)
   await expect(builderRow.locator("[data-agent-facts]")).toContainText("Asked toCLO-1 build the Agents page, phase 1")
@@ -175,7 +175,8 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   expect(edgeBox!.y).toBeGreaterThanOrEqual(cardBox!.y)
   expect(edgeBox!.y + edgeBox!.height).toBeLessThanOrEqual(cardBox!.y + cardBox!.height)
   expect(Math.abs(edgeBox!.x - cardBox!.x)).toBeLessThan(4)
-  await expect(builderRow.locator("[data-log-placeholder]")).toContainText("Live log")
+  // No hook reported a transcript for it here: the log says so (CEL-106 follows a real one in agent-log.spec.ts).
+  await expect(builderRow.locator("[data-agent-log] [data-log-unavailable]")).toHaveAttribute("data-log-unavailable", "none")
   await shoot(page, "open")
 
   await caption(page, "Click its card: the task opens")

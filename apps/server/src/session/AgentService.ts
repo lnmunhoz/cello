@@ -18,7 +18,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as Commands from "../commands/Commands.ts"
-import { cleanAgentText, CONTROL_CHARACTERS, MAX_AGENT_TEXT, PRESENCE_EVERY_MS, touchAgent } from "./SessionService.ts"
+import { cleanAgentText, cleanTranscript, CONTROL_CHARACTERS, MAX_AGENT_TEXT, PRESENCE_EVERY_MS, touchAgent } from "./SessionService.ts"
 
 /** What a hook says happened to a subagent of the caller's session. */
 export interface AgentReport {
@@ -27,6 +27,8 @@ export interface AgentReport {
   readonly state: AgentReportState
   readonly description?: string | undefined
   readonly prompt?: string | undefined
+  /** The subagent's own transcript, as the hook knows it (CEL-106); kept until another is reported. */
+  readonly transcriptPath?: string | undefined
 }
 
 /** One agent, by its session and host id. */
@@ -47,6 +49,10 @@ interface AgentRow {
   started_at: number
   last_seen_at: number
   ended_at: number | null
+  /** CEL-106; left out by selects that don't need them. */
+  transcript_path?: string | null
+  current_step?: string | null
+  current_step_at?: number | null
 }
 
 export const toAgent = (r: AgentRow): SessionAgent => ({
@@ -58,6 +64,9 @@ export const toAgent = (r: AgentRow): SessionAgent => ({
   startedAt: r.started_at,
   lastSeenAt: r.last_seen_at,
   endedAt: r.ended_at,
+  hasLog: r.transcript_path != null,
+  currentStep: r.current_step ?? null,
+  currentStepAt: r.current_step_at ?? null,
 })
 
 export class AgentService extends Context.Service<AgentService, {
@@ -144,25 +153,28 @@ const make = Effect.gen(function* () {
     const agentType = cleanAgentText(input.agentType)
     const now = yield* Clock.currentTimeMillis
     const ref = { sessionId: caller.sessionId, agentId }
+    const transcript = cleanTranscript(input.transcriptPath)
     if (input.state === "stopped") {
       // Claude Code's own helpers (prompt suggestions, /btw) stop without ever starting here: not recorded.
-      const updated = yield* sql`UPDATE session_agents SET ended_at = ${now} WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}
+      const updated = yield* sql`UPDATE session_agents SET ended_at = ${now}, transcript_path = COALESCE(${transcript}, transcript_path)
+        WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}
         RETURNING agent_id`
       if (updated.length === 0) return null
     } else if (input.state === "started") {
       // SubagentStart: a new agent, or a resumed one (live again).
-      yield* touchAgent(sql, ref.sessionId, agentId, agentType, now)
+      yield* touchAgent(sql, ref.sessionId, agentId, agentType, now, { transcript, step: null })
     } else {
       // The Agent tool returned. For a foreground agent that's after it finished, so a launch only links
       // the task and description: it never revives a stopped agent (only a start or the agent's own call does).
       const description = cleanDescription(input.description)
       const taskId = yield* taskNamed(ref.sessionId, [input.description, input.prompt])
-      yield* sql`INSERT INTO session_agents (session_id, agent_id, agent_type, task_id, description, started_at, last_seen_at)
-        VALUES (${ref.sessionId}, ${agentId}, ${agentType}, ${taskId}, ${description}, ${now}, ${now})
+      yield* sql`INSERT INTO session_agents (session_id, agent_id, agent_type, task_id, description, started_at, last_seen_at, transcript_path)
+        VALUES (${ref.sessionId}, ${agentId}, ${agentType}, ${taskId}, ${description}, ${now}, ${now}, ${transcript})
         ON CONFLICT (session_id, agent_id) DO UPDATE SET
           agent_type = COALESCE(excluded.agent_type, agent_type),
           task_id = COALESCE(excluded.task_id, task_id),
-          description = COALESCE(excluded.description, description)`
+          description = COALESCE(excluded.description, description),
+          transcript_path = COALESCE(excluded.transcript_path, transcript_path)`
     }
     const agent = (yield* load(ref))!
     // A start, launch or stop is news: told now, whatever the throttle says.

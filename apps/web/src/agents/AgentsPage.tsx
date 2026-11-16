@@ -4,7 +4,7 @@ import { stageInfo } from "@cello/contract/stages"
 import { isNeedsInputStatus } from "@cello/shared/ask"
 import { agoShort, presenceWords } from "@cello/shared/presence"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
-import { FolderIcon, ScrollTextIcon } from "lucide-react"
+import { FolderIcon } from "lucide-react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
 import { Centered } from "../app/Home.tsx"
 import { CardBody } from "../board/Card.tsx"
@@ -15,14 +15,16 @@ import { AgentMarkOf, presenceSubjectOf, StageWord } from "../presence/Presence.
 import { useNow } from "../presence/useNow.ts"
 import { QueueRow, type QueueRowState } from "../review/QueueRow.tsx"
 import { useQueue } from "../review/useQueue.ts"
+import { AgentLog } from "./AgentLog.tsx"
+import { currentStepOf } from "./log.ts"
 import { type AgentRow, agentGroups, agentRows, directTasks, groupOf, rowKeysOf, stateTaskOf, subagentsLabel, waitingTaskOf } from "./layout.ts"
 
 /**
  * The Agents page (CEL-65), opened from the sidebar's "Agents working": every agent session and subagent
  * working in the workspace, with the card each is on, laid out like the Review page. Agents waiting on
- * Lucas come first, then the ones working, then the quiet ones; subagents sit under their session. One
+ * the human come first, then the ones working, then the quiet ones; subagents sit under their session. One
  * row is open at a time (`?open=`): what the agent was asked and its card on the left, and on the right
- * its live log, which is phase 2. Rows come, move and go live, as agents start, wait, go quiet and finish.
+ * its live log (CEL-106, AgentLog.tsx). Rows come, move and go live, as agents start, wait, go quiet and finish.
  */
 export function AgentsPage() {
   const board = useBoard()
@@ -144,6 +146,7 @@ function AgentQueueRow({ board, row, rows, ...state }: QueueRowState & { board: 
               </span>
             </>
           ) : null}
+          <CurrentStep row={row} />
         </>
       }
       badge={<TaskState board={board} task={stateTaskOf(row, board.statuses)} />}
@@ -170,7 +173,7 @@ function AgentQueueRow({ board, row, rows, ...state }: QueueRowState & { board: 
             </div>
           ) : null}
         </div>
-        <LogPlaceholder />
+        <AgentLog board={board} row={row} />
       </div>
     </QueueRow>
   )
@@ -272,22 +275,16 @@ function Facts({ board, row }: { board: BoardState; row: AgentRow }) {
   )
 }
 
-/** Where the agent's live log goes (phase 2): a quiet placeholder, never made-up steps. */
-function LogPlaceholder() {
+/** What it's doing right now, from its last tool call ("Bash · bun run test"), while it's working (CEL-106). */
+function CurrentStep({ row }: { row: AgentRow }) {
+  const step = currentStepOf(row)
+  if (!step) return null
   return (
-    <section
-      aria-label="Live log, coming in phase 2"
-      data-log-placeholder
-      className="flex min-h-40 flex-col gap-2 rounded-lg border border-dashed border-line px-4 py-3"
-    >
-      <header className="flex items-center gap-2 text-[13px]">
-        <ScrollTextIcon aria-hidden className="size-3.5 text-faint" />
-        <span className="font-medium text-muted">Live log</span>
-        <span className="text-xs text-faint">coming in phase 2</span>
-      </header>
-      <p className="text-xs text-faint">
-        What this agent says and each tool it calls, with the result, newest at the bottom, following new steps as they arrive.
-      </p>
-    </section>
+    <>
+      <span className="text-faint">·</span>
+      <span className="min-w-0 truncate font-mono text-[12px] text-muted" data-agent-step>
+        {step}
+      </span>
+    </>
   )
 }
