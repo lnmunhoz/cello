@@ -2,10 +2,9 @@
 import type { BoardState } from "./sync/applyEvents.ts"
 import type { CelloEvent } from "@cello/contract/events"
 import { stageInfo } from "@cello/contract/stages"
+import { andList } from "@cello/shared/words"
 
 const FIELD_NAMES: Record<string, string> = { title: "title", description: "description", priority: "priority", dueDate: "due date", parentId: "parent" }
-
-const list = (words: string[]) => (words.length <= 1 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`)
 
 const DECIDED = { approved: "approved the review", sent_back: "sent it back", superseded: "replaced the open review", withdrawn: "withdrew the review" }
 
@@ -25,15 +24,15 @@ export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | 
     case "task.created":
       return `${who} created the task`
     case "task.updated":
-      return `${who} changed the ${list(Object.keys(e.after).map((k) => FIELD_NAMES[k] ?? k))}`
+      return `${who} changed the ${andList(Object.keys(e.after).map((k) => FIELD_NAMES[k] ?? k))}`
     case "task.moved":
       return e.from.statusId === e.to.statusId
         ? `${who} reordered it in ${status(e.to.statusId)}`
         : `${who} moved it from ${status(e.from.statusId)} to ${status(e.to.statusId)}`
     case "task.labels_changed": {
       const parts = [
-        ...(e.added.length ? [`added ${list(e.added.map(label))}`] : []),
-        ...(e.removed.length ? [`removed ${list(e.removed.map(label))}`] : []),
+        ...(e.added.length ? [`added ${andList(e.added.map(label))}`] : []),
+        ...(e.removed.length ? [`removed ${andList(e.removed.map(label))}`] : []),
       ]
       return `${who} ${parts.join(" and ")}`
     }
@@ -61,6 +60,10 @@ export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | 
       return `${who} edited a comment`
     case "comment.deleted":
       return `${who} deleted a comment`
+    case "reaction.added":
+      return `${who} reacted ${e.reaction.emoji} to a comment`
+    case "reaction.removed":
+      return `${who} took back their ${e.reaction.emoji}`
     case "review.submitted":
       return `${who} submitted a review`
     case "review.decided":

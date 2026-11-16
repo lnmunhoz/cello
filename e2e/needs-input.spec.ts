@@ -4,29 +4,17 @@
 // browser: picks an option with the keyboard and one with the mouse, writes a comment, pastes a
 // screenshot from the clipboard, and sends with ⌘Enter. The agent's command returns with his answers
 // (the screenshot saved as a file), and the card is back in In Progress. Stills go to e2e/videos/.
-import { spawn } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { animationsSettled, caption, card, column, createProject, dragCard, expect, test, uniqueKey } from "./fixtures.ts"
 import { copyImage, hideTerminal, pngSize, showTerminal } from "./agentScreen.ts"
-import { celloAs, SHOTS } from "./packets.ts"
+import { celloAs, celloInBackground, SHOTS } from "./packets.ts"
 
 const SESSION = "e2e0asks-agent-session"
-const root = path.resolve(import.meta.dirname, "..")
-const SERVER_PORT = Number(process.env.CELLO_E2E_SERVER_PORT ?? 4791)
 
 /** `cello …` in the background, as the agent session: resolves with what it printed once it exits. */
-const inBackground = (...args: string[]) => {
-  const child = spawn("bun", [path.join(root, "apps/cli/src/bin.ts"), ...args], {
-    cwd: root,
-    env: { PATH: process.env.PATH, HOME: process.env.HOME, CELLO_PORT: String(SERVER_PORT), CLAUDE_CODE_SESSION_ID: SESSION, CLAUDE_PID: String(process.pid) },
-  })
-  let out = ""
-  child.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()))
-  child.stderr.on("data", (chunk: Buffer) => (out += chunk.toString()))
-  return new Promise<{ code: number | null; out: string }>((resolve) => child.on("close", (code) => resolve({ code, out: out.trim() })))
-}
+const inBackground = celloInBackground(SESSION)
 
 test("CEL-47: an agent asks with --wait; Lucas answers from the sidebar (several picks, None of these, a pasted screenshot); the agent gets the answers; round 2 follows, and Lucas moving the card withdraws it", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"])

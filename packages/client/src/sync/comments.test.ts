@@ -26,6 +26,21 @@ describe("applyCommentEvents", () => {
     expect(applyCommentEvents(start, "t1", [ev(1, { type: "task.archived", id: "t1", version: 2 })])).toBe(start)
   })
 
+  it("adds and removes reactions on this task's comments (CEL-77), once each", () => {
+    const thumbs = { id: "r1", commentId: "a", taskId: "t1", emoji: "👍", actorId: "me", sessionId: null, createdAt: 5 }
+    const party = { ...thumbs, id: "r2", emoji: "🎉" }
+    const start = [comment("a"), comment("b")]
+    const next = applyCommentEvents(start, "t1", [
+      ev(1, { type: "reaction.added", reaction: thumbs }),
+      ev(2, { type: "reaction.added", reaction: thumbs }),
+      ev(3, { type: "reaction.added", reaction: party }),
+      ev(4, { type: "reaction.added", reaction: { ...thumbs, id: "r9", commentId: "x", taskId: "t2" } }),
+      ev(5, { type: "reaction.removed", reaction: thumbs }),
+    ])
+    expect(next.map((c) => [c.id, (c.reactions ?? []).map((r) => r.id)])).toEqual([["a", ["r2"]], ["b", []]])
+    expect(next[1]).toBe(start[1])
+  })
+
   it("doesn't add a comment twice", () => {
     const start = [comment("a")]
     expect(applyCommentEvents(start, "t1", [ev(1, { type: "comment.added", comment: comment("a") })])).toHaveLength(1)

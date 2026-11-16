@@ -6,7 +6,7 @@
 import * as path from "node:path"
 import type { Ask, Attachment, Comment, InboxItem } from "@cello/contract/entities"
 import { answerLines, answerScreenshots, screenshotLine } from "./ask.ts"
-import { ago } from "./format.ts"
+import { ago, andList } from "./format.ts"
 
 /**
  * The most a delivery may be: Claude Code caps a hook's added context at 10,000 characters
@@ -36,9 +36,9 @@ export const commentScreenshots = (comment: Comment): ScreenshotFile[] =>
     file: path.join("cello-comments", comment.id, `${i + 1}${path.extname(attachment.name).toLowerCase() || ".png"}`),
   }))
 
-/** Every screenshot in what reached the agent: in answers and in comments. */
+/** Every screenshot in what reached the agent: in answers and in comments (a reaction quotes your own comment, so none). */
 export const inboxScreenshots = (items: ReadonlyArray<InboxItem>): ScreenshotFile[] =>
-  items.flatMap((i) => (i.kind === "answers" ? askScreenshots(i.ask) : i.kind === "withdrawn" ? [] : commentScreenshots(i.comment)))
+  items.flatMap((i) => (i.kind === "answers" ? askScreenshots(i.ask) : i.kind === "withdrawn" || i.kind === "reaction" ? [] : commentScreenshots(i.comment)))
 
 /** A comment's words, then a line per screenshot naming the file it was saved to. */
 export const commentText = (comment: Comment, files: SavedFiles): string =>
@@ -54,8 +54,21 @@ const who = (item: InboxItem) => {
       return `${item.author} sent it back`
     case "comment":
       return `${item.author} commented`
+    case "reaction":
+      return `${item.author} reacted ${item.emoji} to your comment`
   }
 }
+
+/** How much of the comment a reaction quotes. */
+export const REACTION_QUOTE = 80
+
+/** The start of a comment on one line: what a reaction was to (here and in `cello task react`). */
+export const commentStart = (body: string) => {
+  const line = body.replace(/\s+/g, " ").trim()
+  return line.length <= REACTION_QUOTE ? line : `${line.slice(0, REACTION_QUOTE).trimEnd()}…`
+}
+
+const quoteOf = (body: string) => `"${commentStart(body)}"`
 
 const textOf = (item: InboxItem, files: SavedFiles) => {
   switch (item.kind) {
@@ -63,6 +76,8 @@ const textOf = (item: InboxItem, files: SavedFiles) => {
       return answerLines(item.ask, files).join("\n")
     case "withdrawn":
       return `${item.author} moved ${item.taskKey} to ${item.status}; your ask "${item.ask.title}" was withdrawn.`
+    case "reaction":
+      return quoteOf(item.comment.body)
     default:
       return commentText(item.comment, files)
   }
@@ -95,14 +110,20 @@ const answerHint = (keys: ReadonlyArray<string>) => {
 const headOf = (items: ReadonlyArray<InboxItem>) => {
   const answers = items.filter((i) => i.kind === "answers").length
   const withdrawn = items.filter((i) => i.kind === "withdrawn").length
-  const comments = items.length - answers - withdrawn
+  const reactions = items.filter((i) => i.kind === "reaction").length
+  const comments = items.length - answers - withdrawn - reactions
   const parts = [
     ...(answers ? [answers === 1 ? "answers to the questions you asked" : `answers to ${answers} asks`] : []),
     ...(withdrawn ? [withdrawn === 1 ? "an ask withdrawn" : `${withdrawn} asks withdrawn`] : []),
     ...(comments ? [comments === 1 ? "a comment" : `${comments} comments`] : []),
+    ...(reactions ? [reactions === 1 ? "a reaction" : `${reactions} reactions`] : []),
   ]
-  if (answers + withdrawn === 0) return comments === 1 ? "New Cello comment on a task you claimed:" : `${comments} new Cello comments on tasks you claimed:`
-  return `New in Cello for you: ${parts.join(" and ")}:`
+  if (answers + withdrawn + reactions === 0) return comments === 1 ? "New Cello comment on a task you claimed:" : `${comments} new Cello comments on tasks you claimed:`
+  if (reactions === items.length) {
+    const human = items[0]!.author
+    return reactions === 1 ? `${human} reacted to your comment in Cello:` : `${human} reacted to your comments in Cello (${reactions}):`
+  }
+  return `New in Cello for you: ${andList(parts)}:`
 }
 
 /**
@@ -117,6 +138,7 @@ export const deliveryText = (items: ReadonlyArray<InboxItem>, now: number, files
   const answered = unique(items.filter((i) => i.kind === "answers").map((i) => i.taskKey))
   const withdrawn = unique(items.filter((i) => i.kind === "withdrawn").map((i) => i.taskKey))
   const sentBack = unique(items.filter((i) => i.kind === "send_back").map((i) => i.taskKey))
+  const reacted = items.some((i) => i.kind === "reaction")
   const human = items[0]?.author ?? "Lucas"
   const tail = [
     ...(comments.length
@@ -131,6 +153,7 @@ export const deliveryText = (items: ReadonlyArray<InboxItem>, now: number, files
     ...(withdrawn.length
       ? [`Your claim on ${withdrawn.join(", ")} ended with the move. Check with \`cello task get ${withdrawn[0]}\`, and ask ${human} on the card before you carry on.`]
       : []),
+    ...(reacted ? [`A reaction is ${human}'s quick answer to your comment: take it as his reply; there's no need to answer it on the card.`] : []),
   ]
   const build = (limit?: number) => [headOf(items), "", ...inboxEntries(items, now, limit, files), "", ...tail].join("\n")
   const full = build()

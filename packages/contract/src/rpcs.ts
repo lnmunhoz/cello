@@ -466,6 +466,13 @@ export const CelloRpcs = RpcGroup.make(
     error: Schema.Union([NotFound, Invalid]),
   }),
   Rpc.make("comment.delete", { payload: { commandId, id: Id }, success: write(Comment), error: NotFound }),
+  // An emoji reaction on a comment (CEL-77): `on` adds the caller's reaction with that emoji, false
+  // removes it; either is a no-op (no event) when it's already so. Returns the comment with its reactions.
+  Rpc.make("comment.react", {
+    payload: { commandId, commentId: Id, emoji: Schema.String, on: Schema.Boolean },
+    success: write(Comment),
+    error: Schema.Union([NotFound, Invalid]),
+  }),
 ).middleware(CallerMiddleware)
 
 export type CelloRpcs = typeof CelloRpcs

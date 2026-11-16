@@ -16,6 +16,7 @@ import { ScreenshotBox, ScreenshotThumbs } from "../screenshots/Screenshots.tsx"
 import { uploadUrl } from "../screenshots/screenshots.ts"
 import { useScreenshotUpload } from "../screenshots/useScreenshotUpload.ts"
 import { addScreenshot, removeScreenshot, toComment, useCommentDraft } from "./commentDraft.ts"
+import { Reactions } from "./Reactions.tsx"
 import type { TaskSearch } from "./view.ts"
 
 interface CommentsProps {
@@ -57,7 +58,7 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
       {AsyncResult.isInitial(result) ? <p className="text-xs text-faint">Loading comments…</p> : null}
       <ul className="flex flex-col gap-2">
         {comments.map((c) => (
-          <CommentItem key={c.id} comment={c} author={whoOf(board, c.actorId, c.sessionId, c.agentId)} target={c.id === target} />
+          <CommentItem key={c.id} board={board} comment={c} author={whoOf(board, c.actorId, c.sessionId, c.agentId)} target={c.id === target} />
         ))}
       </ul>
       <div className="flex flex-col gap-2">
@@ -89,7 +90,7 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
 }
 
 /** `target`: the comment the task was opened at; it's scrolled to on arrival and flashes once. */
-function CommentItem({ comment, author, target }: { comment: Comment; author: Who; target: boolean }) {
+function CommentItem({ board, comment, author, target }: { board: BoardState; comment: Comment; author: Who; target: boolean }) {
   const edit = useAtomSet(commands.editComment, { mode: "promiseExit" })
   const remove = useAtomSet(commands.deleteComment)
   const [draft, setDraft] = useState<string | null>(null)
@@ -162,6 +163,8 @@ function CommentItem({ comment, author, target }: { comment: Comment; author: Wh
         </div>
       )}
       <ScreenshotThumbs shots={comment.attachments ?? []} size="sm" label="Screenshots" />
+      {/* The footer: emoji reactions (CEL-77). */}
+      {draft === null ? <Reactions board={board} comment={comment} /> : null}
     </li>
   )
 }

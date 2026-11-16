@@ -16,6 +16,7 @@ import type {
   LabelGroup,
   Priority,
   Project,
+  Reaction,
   Review,
   ReviewDecision,
   Status,
@@ -273,6 +274,41 @@ const toComment = (r: CommentRow, attachments: ReadonlyArray<Attachment>): Comme
   attachments,
 })
 
+interface ReactionRow {
+  id: string
+  comment_id: string
+  task_id: string
+  emoji: string
+  actor_id: string
+  session_id: string | null
+  agent_id: string | null
+  created_at: number
+}
+
+const toReaction = (r: ReactionRow): Reaction => ({
+  id: r.id,
+  commentId: r.comment_id,
+  taskId: r.task_id,
+  emoji: r.emoji,
+  actorId: r.actor_id,
+  sessionId: r.session_id,
+  agentId: r.agent_id,
+  createdAt: r.created_at,
+})
+
+/** Alias: `r` (comment_reactions). Oldest first. */
+export const selectReactions = (sql: Sql, where: Where) =>
+  sql<ReactionRow>`SELECT r.id, r.comment_id, r.task_id, r.emoji, r.actor_id, r.session_id, r.agent_id, r.created_at
+    FROM comment_reactions r WHERE ${where} ORDER BY r.created_at, r.rowid`.pipe(Effect.map((rows) => rows.map(toReaction)))
+
+/** The comments with their reactions (CEL-77), in one more query. */
+const withReactions = (sql: Sql, comments: ReadonlyArray<Comment>) =>
+  Effect.gen(function* () {
+    if (comments.length === 0) return comments
+    const reactions = yield* selectReactions(sql, sql.in("r.comment_id", [...new Set(comments.map((c) => c.id))]))
+    return comments.map((c): Comment => ({ ...c, reactions: reactions.filter((r) => r.commentId === c.id) }))
+  })
+
 /** The screenshots of these comments that aren't deleted (CEL-73), by comment id, oldest first. */
 const commentAttachments = (sql: Sql, ids: ReadonlyArray<string>) =>
   Effect.gen(function* () {
@@ -284,17 +320,24 @@ const commentAttachments = (sql: Sql, ids: ReadonlyArray<string>) =>
     return byComment
   })
 
-/** Alias: `c`. Each comment comes with its screenshots. */
+/** The comments of these rows, each with its screenshots (CEL-73) and its reactions (CEL-77). */
+const commentsOf = (sql: Sql, rows: ReadonlyArray<CommentRow>) =>
+  Effect.gen(function* () {
+    const files = yield* commentAttachments(sql, rows.map((r) => r.id))
+    return yield* withReactions(sql, rows.map((r) => toComment(r, files.get(r.id) ?? [])))
+  })
+
+/** Alias: `c`. Each comment comes with its screenshots and its reactions. */
 export const selectComments = (sql: Sql, where: Where) =>
   Effect.gen(function* () {
     const rows = yield* sql<CommentRow>`SELECT c.* FROM comments c WHERE ${where} ORDER BY c.created_at, c.rowid`
-    const files = yield* commentAttachments(sql, rows.map((r) => r.id))
-    return rows.map((r) => toComment(r, files.get(r.id) ?? []))
+    return yield* commentsOf(sql, rows)
   })
 
 type InboxRow = { [K in keyof CommentRow]: CommentRow[K] | null } & {
   item_id: string
-  kind: InboxKind
+  /** What `inbox_items.kind` allows: reactions are their own rows (`selectReactionItems`). */
+  kind: Exclude<InboxKind, "reaction">
   item_task_id: string
   ask_id: string | null
   detail: string | null
@@ -325,7 +368,7 @@ export const selectInboxItems = (sql: Sql, where: Where) =>
       ORDER BY i.created_at, i.rowid`
     const askIds = rows.flatMap((r) => (r.ask_id === null ? [] : [r.ask_id]))
     const asks = askIds.length === 0 ? [] : yield* selectAsks(sql, sql.in("a.id", askIds))
-    const files = yield* commentAttachments(sql, rows.flatMap((r) => (r.id === null ? [] : [r.id])))
+    const comments = yield* commentsOf(sql, rows.flatMap((r) => (r.id === null ? [] : [r as CommentRow])))
     return rows.flatMap((r): InboxItem[] => {
       const common = {
         id: r.item_id,
@@ -341,8 +384,53 @@ export const selectInboxItems = (sql: Sql, where: Where) =>
         if (!ask) return []
         return [r.kind === "answers" ? { ...common, kind: "answers", ask } : { ...common, kind: "withdrawn", ask, status: r.detail ?? "another status" }]
       }
-      return [{ ...common, kind: r.kind, comment: toComment(r as CommentRow, files.get(r.id!) ?? []) }]
+      const comment = comments.find((c) => c.id === r.id)
+      if (!comment) return []
+      return [{ ...common, kind: r.kind, comment }]
     })
+  })
+
+interface ReactionItemRow extends CommentRow {
+  reaction_id: string
+  emoji: string
+  reacted_at: number
+  read_at: number | null
+  task_number: number
+  task_title: string
+  project_key: string
+  author: string
+}
+
+/**
+ * Reactions delivered to an agent session (CEL-77) as inbox items: the reaction row is the item.
+ * Aliases: `r` (comment_reactions), `c` (the comment reacted to), `t` (the task). Oldest first; reactions
+ * on deleted comments are left out.
+ */
+export const selectReactionItems = (sql: Sql, where: Where) =>
+  Effect.gen(function* () {
+    const rows = yield* sql<ReactionItemRow>`
+      SELECT c.*, r.id AS reaction_id, r.emoji, r.created_at AS reacted_at, r.read_at,
+             t.number AS task_number, t.title AS task_title, p.key AS project_key, a.name AS author
+      FROM comment_reactions r
+      JOIN comments c ON c.id = r.comment_id
+      JOIN tasks t ON t.id = r.task_id
+      JOIN projects p ON p.id = t.project_id
+      JOIN actors a ON a.id = r.actor_id
+      WHERE r.notify_session_id IS NOT NULL AND c.deleted_at IS NULL AND ${where}
+      ORDER BY r.created_at, r.rowid`
+    const comments = yield* commentsOf(sql, rows)
+    return rows.map((r, i): InboxItem => ({
+      id: r.reaction_id,
+      kind: "reaction",
+      emoji: r.emoji,
+      taskId: r.task_id,
+      taskKey: formatTaskKey(r.project_key, r.task_number),
+      taskTitle: r.task_title,
+      comment: comments[i]!,
+      author: r.author,
+      createdAt: r.reacted_at,
+      readAt: r.read_at,
+    }))
   })
 
 interface AttachmentRow {

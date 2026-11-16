@@ -3,9 +3,17 @@
 import * as fs from "node:fs"
 import type { Page } from "@playwright/test"
 
-/** The agent's terminal, drawn at the bottom left so the video shows its side next to the board. */
-export const showTerminal = async (page: Page, command: string, output: string) => {
-  await page.evaluate(([cmd, out]) => {
+/**
+ * The agent's terminal, drawn at the bottom left so the video shows its side next to the board: appends
+ * a command and what it printed. `hover` then points at it; `empty` stands for an output of nothing.
+ */
+export const showTerminal = async (
+  page: Page,
+  command: string,
+  output: string,
+  { hover = false, empty = "" }: { readonly hover?: boolean; readonly empty?: string } = {},
+) => {
+  await page.evaluate(([cmd, out, none]) => {
     let el = document.getElementById("e2e-terminal")
     if (!el) {
       el = document.createElement("pre")
@@ -18,10 +26,15 @@ export const showTerminal = async (page: Page, command: string, output: string) 
       })
       document.body.append(el)
     }
-    el.textContent = `${el.textContent ? `${el.textContent}\n\n` : ""}agent session $ ${cmd}\n${out}`
+    el.textContent = `${el.textContent ? `${el.textContent}\n\n` : ""}agent session $ ${cmd}\n${out || none}`
     el.scrollTop = el.scrollHeight
-  }, [command, output] as const)
+  }, [command, output, empty] as const)
+  if (hover) await page.getByLabel("Agent terminal").hover()
 }
+
+/** The same, then points at it, and an output of nothing reads "(prints nothing)": for steps about what reached the agent. */
+export const showTerminalAndPoint = (page: Page, command: string, output: string) =>
+  showTerminal(page, command, output, { hover: true, empty: "(prints nothing)" })
 
 export const hideTerminal = (page: Page) => page.evaluate(() => document.getElementById("e2e-terminal")?.remove())
 
