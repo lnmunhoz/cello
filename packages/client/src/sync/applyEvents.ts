@@ -1,6 +1,7 @@
 // Pure reducer from events to client state. Shared by the web app and any other client.
-import { type Actor, type AgentSession, agentKey, type Ask, type DocumentSummary, type Label, type Project, type Review, type SessionAgent, type Snapshot, type Status, type Task, type Workspace } from "@cello/contract/entities"
+import { type Actor, type AgentSession, agentKey, type Ask, type DocumentSummary, type Label, type Project, type Review, type SessionAgent, type Snapshot, type Status, type Task, type TaskWake, type Workspace } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
+import { wakeOf } from "@cello/contract/wake"
 import { colorFromSeed } from "@cello/shared/color"
 
 type ById<T> = Readonly<Record<string, T>>
@@ -23,6 +24,8 @@ export interface BoardState {
   readonly asks: ById<Ask>
   /** Documents without their bodies, archived ones included (the reader loads a body). */
   readonly documents: ById<DocumentSummary>
+  /** Each task's latest wake (CEL-92), by task id, kept current by the `session.*` wake events. */
+  readonly wakes: ById<TaskWake>
 }
 
 const byId = <T extends { id: string }>(rows: ReadonlyArray<T>): ById<T> =>
@@ -41,6 +44,7 @@ export const fromSnapshot = (s: Snapshot): BoardState => ({
   reviews: byId(s.reviews),
   asks: byId(s.asks),
   documents: byId(s.documents),
+  wakes: Object.fromEntries((s.wakes ?? []).map((w) => [w.taskId, w])),
 })
 
 type Collection = Exclude<keyof BoardState, "seq">
@@ -192,6 +196,15 @@ const apply = (d: Draft, e: CelloEvent) => {
     case "reaction.added":
     case "reaction.removed":
       return // reactions load with a task's comments (sync/comments.ts); they're no activity on the task
+    case "session.wake_scheduled":
+    case "session.not_woken":
+    case "session.run_started":
+    case "session.run_ended": {
+      const wake = wakeOf(e)
+      return wake === null ? undefined : d.set("wakes", wake.taskId, wake)
+    }
+    case "wake.settings_changed":
+      return // wake settings load in Settings, not in board state
   }
 }
 

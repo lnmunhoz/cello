@@ -12,6 +12,7 @@ import {
   Label,
   LabelGroup,
   Millis,
+  NotWokenReason,
   Priority,
   ProfileField,
   Project,
@@ -19,8 +20,10 @@ import {
   Review,
   ReviewDecision,
   SessionAgent,
+  SessionRun,
   Status,
   Task,
+  WakeWhy,
   Workspace,
 } from "./entities.ts"
 import { TaskStage } from "./stages.ts"
@@ -60,6 +63,7 @@ export const TaskPatch = patch({
   parentId: Schema.NullOr(Id),
 })
 export const CommentPatch = patch({ body: Schema.String })
+export const WakeSettingsPatch = patch({ enabled: Schema.Boolean, capPerHour: Schema.Number })
 const Place = Schema.Struct({ statusId: Id, position: Schema.String })
 /** Who held a claim: an agent session, or the human (sessionId null). */
 export const ClaimHolder = Schema.Struct({ actorId: Id, sessionId: Schema.NullOr(Id) })
@@ -116,6 +120,16 @@ export const CelloEvent = Schema.Union([
   // and close, so boards can say a comment reaches it at once. Sent when the first opens and the last
   // closes (at most twice a turn). Workspace-level like session.seen: one per workspace it holds claims in.
   event("session.waiting", { session: Id, waiting: Schema.Boolean }),
+  // Waking sessions (CEL-92). Lucas acted on a task the session claimed while nothing of it was
+  // running: a wake is due `at` (30 s after his last action, reset by each new one); or it won't happen
+  // and why; or a woken run started or ended (its row in session_runs is written in the same command).
+  // Written as the session itself, in the task's project; each names the task, so they're its history.
+  event("session.wake_scheduled", { session: Id, taskId: Id, why: WakeWhy, at: Millis }),
+  event("session.not_woken", { session: Id, taskId: Id, why: WakeWhy, reason: NotWokenReason }),
+  event("session.run_started", { run: SessionRun }),
+  event("session.run_ended", { run: SessionRun }),
+  // A project's wake settings changed (CEL-92): `project` is its id, the same as the envelope's projectId.
+  event("wake.settings_changed", { project: Id, before: WakeSettingsPatch, after: WakeSettingsPatch }),
   // A comment is activity on its task: the same command sets the task's last change and version (no
   // task event). Edits and deletes name their task so a board can follow; ones stored before don't. A
   // delete carries the task's new `lastCommentAt` (the latest remaining comment, or null).

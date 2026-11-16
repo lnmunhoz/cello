@@ -19,6 +19,7 @@ import inboxReadVia from "./migrations/0014_inbox_read_via.ts"
 import projectLabels from "./migrations/0015_project_labels.ts"
 import testingProfile from "./migrations/0016_testing_profile.ts"
 import inboxClaimEnded from "./migrations/0017_inbox_claim_ended.ts"
+import sessionWake from "./migrations/0018_session_wake.ts"
 
 /** Every migration by id. Tests of one migration run the ones before it from here. */
 export const records = {
@@ -39,6 +40,7 @@ export const records = {
   "0015_project_labels": projectLabels,
   "0016_testing_profile": testingProfile,
   "0017_inbox_claim_ended": inboxClaimEnded,
+  "0018_session_wake": sessionWake,
 }
 
 export const migrations = SqliteMigrator.fromRecord(records)

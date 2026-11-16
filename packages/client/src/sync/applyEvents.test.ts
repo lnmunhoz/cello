@@ -289,3 +289,23 @@ describe("applyEvents: stage, last change and presence (CEL-5, CEL-35)", () => {
     expect(own.tasks["t1"]).toMatchObject({ updatedBySessionId: "s1", updatedByAgentId: null })
   })
 })
+
+describe("wakes (CEL-92)", () => {
+  const run = { id: "r1", sessionId: "s1", taskId: "t1", why: "comment" as const, agentKind: "claude-code", mode: "auto", celloMode: "auto" as const, pid: 7, startedAt: 1_000, endedAt: null, exitCode: null, outcome: "running" as const, error: null }
+  const at = (seq: number, body: EventBody): CelloEvent =>
+    ({ seq, ts: seq * 1000, commandId: "c", actorId: "a", sessionId: "s1", workspaceId: "w", projectId: "p1", schemaVersion: 1, ...body }) as CelloEvent
+
+  it("keeps each task's latest wake: due, then running, then ended; a snapshot's wakes start it", () => {
+    const state = fromSnapshot({ ...snapshot([task("t1")]), wakes: [] })
+    const due = applyEvents(state, [at(11, { type: "session.wake_scheduled", session: "s1", taskId: "t1", why: "comment", at: 41_000 })])
+    expect(due.wakes["t1"]).toEqual({ taskId: "t1", sessionId: "s1", state: "scheduled", why: "comment", ts: 11_000, at: 41_000, reason: null, run: null })
+    const running = applyEvents(due, [at(12, { type: "session.run_started", run })])
+    expect(running.wakes["t1"]).toMatchObject({ state: "running", run })
+    const ended = applyEvents(running, [at(13, { type: "session.run_ended", run: { ...run, outcome: "completed", endedAt: 13_000 } })])
+    expect(ended.wakes["t1"]).toMatchObject({ state: "ended", run: { outcome: "completed" } })
+    const fresh = fromSnapshot({ ...snapshot([task("t1")]), wakes: [ended.wakes["t1"]!] })
+    expect(fresh.wakes).toEqual(ended.wakes)
+    // A snapshot from before wakes existed has none.
+    expect(fromSnapshot(snapshot([task("t1")])).wakes).toEqual({})
+  })
+})

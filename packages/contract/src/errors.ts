@@ -68,3 +68,13 @@ export class ProfileFieldLocked extends Schema.TaggedError<ProfileFieldLocked>()
   /** The human's name. */
   human: Schema.String,
 }) {}
+
+/**
+ * `cello sessions wake` (CEL-92): Cello didn't wake the session, and `reason` (a NotWokenReason) says
+ * why: waking is off, the cap, its process is still open… The same reason shows on the card.
+ */
+export class SessionNotWoken extends Schema.TaggedError<SessionNotWoken>()("SessionNotWoken", {
+  /** The session's host id (its CLAUDE_CODE_SESSION_ID). */
+  session: Schema.String,
+  reason: Schema.String,
+}) {}

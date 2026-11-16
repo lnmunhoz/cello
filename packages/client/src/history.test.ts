@@ -111,4 +111,22 @@ describe("describeEvent with a name (CEL-55)", () => {
     expect(describeEvent(ev({ type: "agent.seen", agent }), state, "cello-builder · a13bfb89")).toBe("cello-builder · a13bfb89 checked in")
     expect(describeEvent(ev({ type: "agent.seen", agent: { ...agent, endedAt: 3 } }), state, "cello-builder · a13bfb89")).toBe("cello-builder · a13bfb89 finished")
   })
+
+  it("waking sessions (CEL-92): what Cello did with the session, and what Lucas changed in the settings", () => {
+    const run = { id: "r1", sessionId: "s1", taskId: "t1", why: "comment" as const, agentKind: "claude-code", mode: "auto", celloMode: "auto" as const, pid: 7, startedAt: 1_000, endedAt: null, exitCode: null, outcome: "running" as const, error: null }
+    const who = "Claude Code session c14ca1fa"
+    expect(describeEvent(ev({ type: "session.wake_scheduled", session: "s1", taskId: "t1", why: "comment", at: 31_000 }), state, who))
+      .toBe("Cello will wake Claude Code session c14ca1fa (a comment)")
+    expect(describeEvent(ev({ type: "session.not_woken", session: "s1", taskId: "t1", why: "comment", reason: "disabled" }), state, who))
+      .toBe("Cello didn't wake Claude Code session c14ca1fa: waking is off for this project")
+    expect(describeEvent(ev({ type: "session.run_started", run }), state, who)).toBe("Cello woke Claude Code session c14ca1fa (a comment, mode auto)")
+    expect(describeEvent(ev({ type: "session.run_ended", run: { ...run, endedAt: 61_000, outcome: "completed", exitCode: 0 } }), state, who))
+      .toBe("Claude Code session c14ca1fa's woken run completed in 1 min")
+    expect(describeEvent(ev({ type: "session.run_ended", run: { ...run, endedAt: 41_000, outcome: "stopped" } }), state, who))
+      .toBe("Claude Code session c14ca1fa's woken run was stopped after 40 s")
+    expect(describeEvent(ev({ type: "wake.settings_changed", project: "p", before: { enabled: false }, after: { enabled: true } }), state))
+      .toBe("Lucas turned waking agent sessions on")
+    expect(describeEvent(ev({ type: "wake.settings_changed", project: "p", before: { capPerHour: 3 }, after: { capPerHour: 5 } }), state))
+      .toBe("Lucas set the wake limit to 5 per task per hour")
+  })
 })

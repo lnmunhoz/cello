@@ -57,6 +57,8 @@ export interface HookInput {
    * null when Claude Code didn't send the list (an older version, or another event).
    */
   readonly backgroundCommands: ReadonlyArray<string> | null
+  /** The session's permission mode (`permission_mode`, every event): a woken run continues in it (CEL-92). */
+  readonly permissionMode: string | null
 }
 
 export interface HookAgent {
@@ -120,6 +122,7 @@ export const parseHookInput = (raw: string): HookInput => {
         return command === null ? [] : [command]
       })
       : null,
+    permissionMode: text(input.permission_mode),
   }
 }
 
@@ -132,12 +135,14 @@ export const hookSession = (input: HookInput, env: Env): string | null => input.
  * conversation CELLO_AGENT is dropped, whatever the environment had.
  */
 export const hookIdentity = (input: HookInput, env: Env): Env => {
-  const { CELLO_SESSION: _session, CELLO_AGENT: _agent, ...rest } = env
+  const { CELLO_SESSION: _session, CELLO_AGENT: _agent, CELLO_PERMISSION_MODE: _mode, ...rest } = env
   const session = hookSession(input, env)
   return {
     ...rest,
     ...(session ? { CLAUDE_CODE_SESSION_ID: session } : {}),
     ...(input.agent ? { CELLO_AGENT: agentVariable(input.agent) } : {}),
+    // Its permission mode, as the hook was told it (CEL-92): what a woken run of it uses.
+    ...(input.permissionMode ? { CELLO_PERMISSION_MODE: input.permissionMode } : {}),
   }
 }
 
@@ -365,15 +370,23 @@ export const waiterState = (input: HookInput, lock: WaiterLock): WaiterLock => {
   return lock
 }
 
-/** What the Stop hook knows: the tasks the session holds, its lock, and the human's name. */
+/** The variable a run Cello woke (CEL-92) has: it answers and exits, so it never starts a waiter. */
+export const WOKEN_VARIABLE = "CELLO_WOKEN"
+
+/**
+ * What the Stop hook knows: the tasks the session holds, its lock, the human's name, and whether this
+ * is a run Cello woke (CELLO_WOKEN=1, CEL-92), which is never asked for a waiter: it would keep the run
+ * alive for nothing, and Cello wakes it again when Lucas next acts.
+ */
 export interface StopFacts {
   readonly claimed: ReadonlyArray<string>
   readonly waiter: WaiterLock
   readonly human: string
+  readonly woken?: boolean
 }
 
 const needsWaiter = (input: HookInput, facts: StopFacts) =>
-  !input.inSubagent && facts.claimed.length > 0 && waiterState(input, facts.waiter) === "absent"
+  !input.inSubagent && !facts.woken && facts.claimed.length > 0 && waiterState(input, facts.waiter) === "absent"
 
 /**
  * The Stop hook's answer when nothing new arrived: keep the session going once to start a waiter, or

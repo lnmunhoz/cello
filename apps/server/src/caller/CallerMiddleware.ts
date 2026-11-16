@@ -25,6 +25,7 @@ export const identityFromHeaders = (headers: Headers.Headers): Identity => {
     entrypoint: text(IDENTITY_HEADERS.entrypoint),
     agent: text(IDENTITY_HEADERS.agent),
     agentType: text(IDENTITY_HEADERS.agentType),
+    permissionMode: text(IDENTITY_HEADERS.permissionMode),
   }
   return Object.fromEntries(Object.entries(identity).filter(([, v]) => v !== undefined)) as Identity
 }

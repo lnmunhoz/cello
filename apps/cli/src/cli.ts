@@ -74,6 +74,7 @@ import {
   stopNudge,
   subagentContext,
   waitHint,
+  WOKEN_VARIABLE,
 } from "./claudeHook.ts"
 import { CLAUDE_PLUGIN_FILES, pluginFolder, writePluginFolder } from "./claudePlugin.ts"
 import {
@@ -116,6 +117,7 @@ import { kindsOf, searchText } from "./search.ts"
 import { checkoutRootFor, repoRootFor } from "./repo.ts"
 import { installService, restartService, serviceStatus, uninstallService } from "./launchd.ts"
 import { installText, restartedText, statusText } from "./service.ts"
+import { isTaskKey, runsText, wokeText } from "./sessions.ts"
 import { start } from "./start.ts"
 
 export { CliEnv } from "./env.ts"
@@ -1688,7 +1690,7 @@ const deliverToClaude = (event: DeliveryEvent) =>
     // to start `cello inbox --wait` (CEL-74), by a line after what's handed over, or else by a nudge.
     const lock = waiterLockFile(waiterLockDir(env), { port: String(portOf(env)), session: hookSession(hook, env)! })
     const facts = event === "stop"
-      ? { claimed: claimed ?? [], waiter: readWaiter(lock).state, human: human ?? items[0]?.author ?? "the human" }
+      ? { claimed: claimed ?? [], waiter: readWaiter(lock).state, human: human ?? items[0]?.author ?? "the human", woken: env[WOKEN_VARIABLE] === "1" }
       : null
     if (items.length) {
       const delivery = deliveryText(items, now(), yield* saveScreenshots(inboxScreenshots(items)))
@@ -1781,7 +1783,8 @@ const hookClaude = Command.make("claude", {
       "new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing " +
       "when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that " +
       "holds a claim going once to start `cello inbox --wait` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) " +
-      "or Claude is already continuing because of a Stop hook (stop_hook_active). pre-tool-use turns a Claude artifact publish " +
+      "or Claude is already continuing because of a Stop hook (stop_hook_active), and never in a run Cello woke (CELLO_WOKEN=1). Every run passes the session's " +
+      "permission_mode on to the server, so a run Cello wakes uses the same mode. pre-tool-use turns a Claude artifact publish " +
       "away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); " +
       "this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and " +
       "denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the " +
@@ -2275,6 +2278,49 @@ const uninstall = Command.make("uninstall").pipe(
   Command.withSubcommands([uninstallClaude]),
 )
 
+// ── waking sessions (CEL-92) ───────────────────────────────────────────────────────────────────
+
+const sessionsWake = Command.make("wake", {
+  target: Argument.String("session-or-key").pipe(
+    Argument.withDescription(
+      "The session to wake: a task key (CEL-92) wakes the session holding its claim; otherwise a session id, or its first 8 characters (c14ca1fa).",
+    ),
+  ),
+  json,
+}, (input) =>
+  Effect.gen(function* () {
+    const target = input.target.trim()
+    const result = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const written = yield* client["session.wake"]({ commandId: newCommandId(), ...(isTaskKey(target) ? { key: target } : { session: target }) })
+        const listed = yield* client["session.runs"]({ session: written.result.sessionId })
+        return { written, listed }
+      })
+    )
+    if (input.json) return yield* printJson(result.written)
+    const log = result.listed.runs.find((r) => r.run.id === result.written.result.id)?.log ?? null
+    yield* print(wokeText(result.listed.session, result.written.result, log))
+  })).pipe(Command.withDescription(
+    "Wake an agent session now: Cello continues its conversation headless in its repo folder (`claude -p --resume`), as it does by itself " +
+      "30 s after the human comments on a task the session claimed and its process is gone. The same checks apply: waking on for the project, " +
+      "under the cap, its process gone, nothing listening; when one fails it says why and exits 1. For the human or an orchestrator, never for yourself.",
+  ))
+
+const sessionsRuns = Command.make("runs", {
+  session: Argument.String("session").pipe(Argument.withDescription("A session id, or its first 8 characters (c14ca1fa).")),
+  json,
+}, (input) =>
+  Effect.gen(function* () {
+    const listed = yield* withClient((client) => client["session.runs"]({ session: input.session }))
+    if (input.json) return yield* printJson(listed)
+    yield* print(runsText(listed.session, listed.runs))
+  })).pipe(Command.withDescription("List the times Cello woke a session (newest first): why, the permission mode, how each run ended, and its log file."))
+
+const sessions = Command.make("sessions").pipe(
+  Command.withDescription("Agent sessions Cello wakes by itself (CEL-92): wake one now, or list its woken runs and their logs."),
+  Command.withSubcommands([sessionsWake, sessionsRuns]),
+)
+
 const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(
   Command.withDescription("Print the full guide for agents: concepts, workflow, examples, errors and every command (docs/cli.md)."),
 )
@@ -2395,7 +2441,7 @@ const service = Command.make("service").pipe(
 
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, init, profile, task, label, waitCommand, inbox, doc, openCommand, searchCommand, whoami, guide, install, uninstall, hook, startCommand, service, backup, restoreCommand, buildsCommand]),
+  Command.withSubcommands([context, init, profile, task, label, waitCommand, inbox, sessions, doc, openCommand, searchCommand, whoami, guide, install, uninstall, hook, startCommand, service, backup, restoreCommand, buildsCommand]),
   Command.withGlobalFlags([AgentFlag]),
 )
 

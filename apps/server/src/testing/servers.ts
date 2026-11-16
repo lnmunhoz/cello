@@ -13,7 +13,7 @@ export const HUMAN = "Lucas"
  * Starts a server on a free port (or `port`, to restart one where its clients expect it), without the
  * daily backup; it stops when the scope closes. Returns its port.
  */
-export const startServer = (dataDir: string, options: Partial<Pick<Server.ServerOptions, "web" | "autoBackup" | "commit" | "checkout" | "port">> = {}) =>
+export const startServer = (dataDir: string, options: Partial<Pick<Server.ServerOptions, "web" | "autoBackup" | "commit" | "checkout" | "port" | "wake">> = {}) =>
   Effect.gen(function* () {
     const context = yield* Layer.build(Server.layer({ dataDir, port: 0, humanName: HUMAN, autoBackup: false, ...options }))
     const address = Context.get(context, HttpServer.HttpServer).address

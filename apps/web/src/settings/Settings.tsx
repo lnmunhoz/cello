@@ -20,6 +20,7 @@ import { writeStored } from "../lib/storage.ts"
 import { SegmentedControl, SegmentedControlItem } from "../components/ui/SegmentedControl.tsx"
 import { BAR_LAYOUT_KEY, LAYOUT_NAMES, useBarLayout } from "../search/layout.ts"
 import { TestingProfile } from "./TestingProfile.tsx"
+import { WakeSettings } from "./WakeSettings.tsx"
 
 /** `/settings?project=THAI`: whose labels the Labels section shows (CEL-80). */
 export interface SettingsSearch {
@@ -77,6 +78,15 @@ export function Settings() {
             >
               <ProjectPicker label="Testing profile of project" projectId={project.id} projects={projects} />
               <TestingProfile key={project.key} projectKey={project.key} />
+            </Section>
+          ) : null}
+          {project ? (
+            <Section
+              title="Waking agents"
+              description={`Whether Cello starts ${project.name}'s agent sessions by itself when you act on a task they claimed and nothing of them is running.`}
+            >
+              <ProjectPicker label="Waking agents of project" projectId={project.id} projects={projects} />
+              <WakeSettings key={project.key} projectKey={project.key} />
             </Section>
           ) : null}
           <Section title="Workspaces" description="A second workspace adds a switcher at the top of the sidebar.">

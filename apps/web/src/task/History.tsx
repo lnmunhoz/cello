@@ -27,8 +27,10 @@ export function History({ board, task }: { board: BoardState; task: Task }) {
         {events.map((e) => (
           <li key={e.seq} className="flex items-baseline gap-2 text-xs text-muted">
             <i aria-hidden className="size-1.5 shrink-0 translate-y-[-1px] rounded-full bg-line-strong" />
-            {/* A subagent's change names it (CEL-55); its session is in the hover. */}
-            <span title={e.agentId ? named(board, e) : undefined}>{describeEvent(e, board, e.agentId ? whoOf(board, e.actorId, e.sessionId, e.agentId).name : undefined)}</span>
+            {/* A subagent's change names it (CEL-55); its session is in the hover. A wake names the session (CEL-92). */}
+            <span title={e.agentId ? named(board, e) : undefined}>
+              {describeEvent(e, board, e.agentId || e.type.startsWith("session.") ? whoOf(board, e.actorId, e.sessionId, e.agentId).name : undefined)}
+            </span>
             <span className="text-faint">· {relativeTime(e.ts)}</span>
           </li>
         ))}

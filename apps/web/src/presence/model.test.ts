@@ -38,7 +38,7 @@ const board = (tasks: Task[], sessions: AgentSession[], agents: SessionAgent[] =
   agents: Object.fromEntries(agents.map((a) => [`${a.sessionId}/${a.agentId}`, a])),
   reviews: {},
   asks: {},
-  documents: {},
+  documents: {}, wakes: {},
 })
 
 describe("provenanceLine", () => {

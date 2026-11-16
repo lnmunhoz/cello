@@ -8,6 +8,7 @@ import * as SqlClient from "effect/sql/SqlClient"
 import type * as Statement from "effect/sql/Statement"
 import { AgentService } from "../session/AgentService.ts"
 import { SessionService } from "../session/SessionService.ts"
+import { wakeOf } from "@cello/contract/wake"
 import * as EventStore from "../events/EventStore.ts"
 import {
   selectActors,
@@ -78,6 +79,8 @@ const make = Effect.gen(function* () {
         agents: boardAgents,
         reviews: yield* selectReviews(sql, sql`r.decided_at IS NULL AND ${projectFilter}`),
         asks: yield* selectAsks(sql, sql`a.state = 'open' AND ${projectFilter}`),
+        // The latest wake of each task (CEL-92), for its Working on it row.
+        wakes: (yield* store.latestWakes(tasks.map((t) => t.id))).flatMap((e) => wakeOf(e) ?? []),
         documents: yield* selectDocuments(sql, projectFilter),
       } satisfies Snapshot
     }))

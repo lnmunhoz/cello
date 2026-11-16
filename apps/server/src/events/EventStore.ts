@@ -7,6 +7,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import type { SqlError } from "effect/sql/SqlError"
+import { WAKE_EVENTS } from "@cello/contract/wake"
 import type { ResolvedScope } from "./scope.ts"
 
 /** Where an event belongs and who caused it: everything in the envelope except `seq`. */
@@ -71,6 +72,15 @@ export const entityOf = (body: EventBody): { readonly type: string; readonly id:
       return { type, id: body.build.id }
     case "profile.changed":
       return { type, id: body.project }
+    // A wake is part of its task's history (CEL-92).
+    case "session.wake_scheduled":
+    case "session.not_woken":
+      return { type, id: body.taskId }
+    case "session.run_started":
+    case "session.run_ended":
+      return { type, id: body.run.taskId ?? body.run.id }
+    case "wake.settings_changed":
+      return { type, id: body.project }
     default:
       return { type, id: body.id }
   }
@@ -108,6 +118,8 @@ export class EventStore extends Context.Service<EventStore, {
   readonly recent: (projectId: string, limit: number) => Effect.Effect<ReadonlyArray<CelloEvent>>
   /** Claims `sessionId` lost in a project (`task.claim_taken`, `task.claim_ended`), newest first. */
   readonly claimsLostBy: (sessionId: string, projectId: string, limit: number) => Effect.Effect<ReadonlyArray<CelloEvent>>
+  /** The latest wake event (CEL-92) of each of these tasks that has one. */
+  readonly latestWakes: (taskIds: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<CelloEvent>>
 }>()("cello/EventStore") {}
 
 const make = Effect.gen(function* () {
@@ -176,7 +188,16 @@ const make = Effect.gen(function* () {
     return rows.map(decodeRow)
   }, Effect.orDie)
 
-  return EventStore.of({ append, history, resolveScope, readAfter, countAfter, latestSeq, recent, claimsLostBy })
+  const latestWakes = Effect.fn("EventStore.latestWakes")(function* (taskIds: ReadonlyArray<string>) {
+    if (taskIds.length === 0) return []
+    const rows = yield* sql<EventRow>`
+      SELECT * FROM events WHERE seq IN (
+        SELECT MAX(seq) FROM events WHERE type IN ${sql.in([...WAKE_EVENTS])} AND ${sql.in("entity_id", [...taskIds])} GROUP BY entity_id)
+      ORDER BY seq`
+    return rows.map(decodeRow)
+  }, Effect.orDie)
+
+  return EventStore.of({ append, history, resolveScope, readAfter, countAfter, latestSeq, recent, claimsLostBy, latestWakes })
 })
 
 export const layer = Layer.effect(EventStore, make)
