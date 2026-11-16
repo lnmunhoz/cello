@@ -26,7 +26,7 @@ export interface FakeAgent {
   installed: boolean
 }
 
-const MODES: Readonly<Record<string, CelloMode>> = { ask: "ask", edits: "edits", auto: "auto", plan: "plan", bypass: "bypass" }
+const MODES: ReadonlyMap<string, CelloMode> = new Map([["ask", "ask"], ["edits", "edits"], ["auto", "auto"], ["plan", "plan"], ["bypass", "bypass"]])
 
 let nextPid = 70_000
 
@@ -43,11 +43,12 @@ export const makeFakeAgent = (kind = "claude-code") =>
         name: "Fake agent",
         capabilities: { resume: true, streamingInput: false, permissionRequests: false, modes: ["ask", "edits", "auto", "plan"] },
         installed: () => Effect.sync(() => fake.installed),
-        hasConversation: ({ nativeId }) => Effect.sync(() => fake.conversations === null || fake.conversations.has(nativeId)),
-        // The fake's modes are Cello's own words; none recorded asks.
+        conversationFolder: ({ nativeId, cwd }) => Effect.sync(() => (fake.conversations === null || fake.conversations.has(nativeId) ? cwd : null)),
+        // The fake's modes are Cello's own words; none recorded asks, any other word is unknown.
         modeFor: (recorded) => {
-          const cello = recorded === null ? undefined : MODES[recorded]
-          return cello === undefined ? { native: "ask", cello: "ask" } : { native: recorded!, cello }
+          if (recorded === null) return { native: "ask", cello: "ask" }
+          const cello = MODES.get(recorded)
+          return cello === undefined ? null : { native: recorded, cello }
         },
         open: (input) =>
           Effect.gen(function* () {

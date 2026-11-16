@@ -5,8 +5,9 @@
 //   (Claude Code's hooks send `permission_mode`); a woken run uses the same one. Null until a hook says.
 // - `agent_sessions.agent_kind`: which agent CLI the session is (`claude-code`), so Cello knows which
 //   adapter can continue it. Sessions Claude Code made before this (client "Claude Code") are filled in.
-// - `session_runs`: one row per woken run: why, the mode it ran with, its process, how it ended. Its log
-//   is a file under `<dataDir>/runs/<session>/`, which backups leave out.
+// - `session_runs`: one row per woken run: why, the mode it ran with, its process, how it ended. `task_id`
+//   is the task whose action woke it; `task_ids` (a JSON array) every task the run was for, which each
+//   count it toward their cap. Its log is a file under `<dataDir>/runs/<session>/`, which backups leave out.
 // - `wake_settings`: a project's settings. No row means the defaults: off, 3 wakes per task per hour.
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/sql/SqlClient"
@@ -22,6 +23,7 @@ export default Effect.gen(function* () {
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES agent_sessions(id),
     task_id TEXT REFERENCES tasks(id),
+    task_ids TEXT NOT NULL DEFAULT '[]',
     why TEXT NOT NULL CHECK (why IN ('comment', 'answers', 'send_back', 'reaction', 'manual')),
     agent_kind TEXT NOT NULL,
     mode TEXT NOT NULL,

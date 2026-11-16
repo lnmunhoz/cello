@@ -49,4 +49,21 @@ export const make = (options: WakeOptions): WakeConfig["Service"] => ({
   isAlive: options.isAlive ?? isAlive,
 })
 
+/**
+ * Test-only: an e2e server (CELLO_E2E=1) takes shorter waits from CELLO_WAKE_BATCH_MS and
+ * CELLO_WAKE_QUIET_MS. Anywhere else they're ignored, so nothing weakens the 2-minute quiet guard on a
+ * real board.
+ */
+export const testWaitsFromEnv = (env: Readonly<Record<string, string | undefined>>): { batch?: number; quiet?: number } => {
+  if (env.CELLO_E2E !== "1") return {}
+  const millis = (name: string) => {
+    const text = env[name]
+    const value = Number(text)
+    return text !== undefined && text !== "" && Number.isFinite(value) && value >= 0 ? value : undefined
+  }
+  const batch = millis("CELLO_WAKE_BATCH_MS")
+  const quiet = millis("CELLO_WAKE_QUIET_MS")
+  return { ...(batch === undefined ? {} : { batch }), ...(quiet === undefined ? {} : { quiet }) }
+}
+
 export const layer = (options: WakeOptions) => Layer.succeed(WakeConfig, make(options))

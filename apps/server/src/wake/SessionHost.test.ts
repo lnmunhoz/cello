@@ -26,7 +26,7 @@ import { KEEP_LOGS } from "./WakeConfig.ts"
 import * as SessionHost from "./SessionHost.ts"
 import * as WakeConfig from "./WakeConfig.ts"
 
-const agent = { session: "c14ca1fa-6f0e", client: "Claude Code", pid: 4242, cwd: "/repo", permissionMode: "auto" }
+const agent = { session: "c14ca1fa-6f0e", client: "Claude Code", pid: 4242, cwd: "/tmp", permissionMode: "auto" }
 
 /** The host over the fake driver and a temp runs folder, inside an outer layer of services the test keeps. */
 const hostLayer = (fake: FakeAgent, runsDir: string) =>
@@ -68,6 +68,7 @@ describe("SessionHost", () => {
             driver: fake.driver,
             mode: { native: "auto", cello: "auto" },
             taskId: task.id,
+            taskIds: [task.id],
             why: "comment",
             prompt: "Lucas acted on CEL-1",
             place,
@@ -111,6 +112,7 @@ describe("SessionHost", () => {
         driver: fake.driver,
         mode: { native: "auto", cello: "auto" },
         taskId: task.id,
+        taskIds: [task.id],
         why: "comment",
         prompt: "go",
         place,
@@ -126,5 +128,38 @@ describe("SessionHost", () => {
       expect(yield* sql`SELECT outcome, error FROM session_runs WHERE id = 'left'`).toEqual([
         { outcome: "stopped", error: "Cello stopped before the run ended" },
       ])
+    }).pipe(asHuman, Effect.scoped, Effect.provide(services())))
+
+  it.effect("a run whose end can't be recorded still frees its session, and the server still stops", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeAgent()
+      const runsDir = path.join(yield* tempDataDir, "runs")
+      const sql = yield* SqlClient.SqlClient
+      const { task, session, place } = yield* claimed
+      const scope = yield* Scope.make()
+      const context = yield* Layer.buildWithScope(hostLayer(fake, runsDir), scope)
+      const host = Context.get(context, SessionHost.SessionHost)
+      yield* host.start({
+        commandId: cmd(),
+        session,
+        driver: fake.driver,
+        mode: { native: "auto", cello: "auto" },
+        taskId: task.id,
+        taskIds: [task.id],
+        why: "comment",
+        prompt: "go",
+        place,
+      })
+      const turn = yield* Queue.take(fake.turns)
+      // The database refuses the write that records its end.
+      yield* sql`ALTER TABLE session_runs RENAME TO session_runs_away`
+      yield* turn.finish({ outcome: "completed", exitCode: 0, error: null })
+      // Closing waits for every run's end to be dealt with: this would hang if the session stayed taken.
+      yield* Scope.close(scope, Exit.void)
+      expect(yield* host.isRunning(session.id)).toBe(false)
+      yield* sql`ALTER TABLE session_runs_away RENAME TO session_runs`
+      // The next start records it stopped, as it does after a crash.
+      yield* Effect.scoped(Layer.build(hostLayer(fake, runsDir)))
+      expect(yield* sql`SELECT outcome FROM session_runs`).toEqual([{ outcome: "stopped" }])
     }).pipe(asHuman, Effect.scoped, Effect.provide(services())))
 })

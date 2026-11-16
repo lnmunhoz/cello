@@ -654,7 +654,7 @@ Closing the terminal (or the Claude Code thread) ends the session. Nothing is lo
 
 ### When your process is gone, Cello can wake you
 
-A session doesn't die with its process: Claude Code keeps the conversation on disk. When the human comments on a task you claimed, answers your ask, sends it back or reacts to your comment, and nothing of your session is running, Cello can continue your conversation itself, headless, in your repo folder. That's a **woken run**. It's off until the human turns it on for the project (Settings → the project → "Wake agent sessions when you comment").
+A session doesn't die with its process: Claude Code keeps the conversation on disk. When the human comments on a task you claimed, answers your ask, sends it back or reacts to your comment, and nothing of your session is running, Cello can continue your conversation itself, headless, in the folder you started Claude Code in (where it keeps the conversation). That's a **woken run**. It's off until the human turns it on for the project (Settings → the project → "Wake agent sessions when you comment").
 
 What happens:
 
@@ -663,7 +663,7 @@ What happens:
 
    \`\`\`bash
    claude -p --resume <your session id> --permission-mode <your mode> \\
-     --output-format stream-json --verbose --max-turns 40 \\
+     --output-format stream-json --verbose --max-turns 40 -- \\
      "Ana Souza acted on CEL-12, which you claimed: run \`cello inbox\` and act on it, then answer on the card. Cello woke this session because its process had ended."
    \`\`\`
 
@@ -671,12 +671,13 @@ What happens:
 
 How a woken run differs from a normal turn:
 
+- **You run with a clean environment:** Cello leaves out \`CELLO_SESSION\`, \`CELLO_AGENT\` and every other Claude Code session's variables, so your \`cello\` commands are yours.
 - **\`CELLO_WOKEN=1\` is in your environment.** The Stop hook then never asks you to start \`cello inbox --wait\`: a waiter would keep the run alive for nothing, and Cello wakes you again when the human next acts. Don't start one yourself.
 - **Nobody is watching.** You run in the permission mode your session last had (Cello's hooks record it on every event), never \`bypassPermissions\`. A tool the mode doesn't allow is refused; say on the card what you couldn't do ("couldn't run \`bun install\`: not allowed in this mode") so the human can answer or open the chat.
 - **One turn, at most 40 agentic steps.** Do what the comment asks, answer, and stop. Big follow-up work waits for the human.
 - **Your output is logged** to \`<data folder>/runs/<session>/<time>.jsonl\` (the newest 20 per session; backups leave them out). The card links it, with a Stop button while the run goes.
 
-Cello doesn't wake a session when its \`cello inbox --wait\` is running (it hears the comment by itself), when its process is still open (two processes on one conversation would corrupt it; the comment arrives with its next hook), when it checked in less than 2 minutes ago, when waking is off for the project, past the cap (3 wakes per task per hour unless the human changes it), when it ran with \`bypassPermissions\`, or when its conversation isn't on this machine. The card then says why, and the comment waits in the inbox as before.
+Cello doesn't wake a session when its \`cello inbox --wait\` is running (it hears the comment by itself), when its process is still open (two processes on one conversation would corrupt it; the comment arrives with its next hook), when it checked in less than 2 minutes ago, when waking is off for the project, past the cap (3 wakes per task per hour unless the human changes it), when it ran with \`bypassPermissions\` (or a mode Claude Code doesn't have), when its folder isn't a folder on this machine, or when its conversation isn't there. A batched wake for several of your tasks counts toward each one's cap. The card then says why, and the comment waits in the inbox as before.
 
 An orchestrator (or the human) can wake a session now, with the same checks, and list its runs:
 

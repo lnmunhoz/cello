@@ -16,7 +16,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import type { CelloMode, RunOutcome, SessionRun, WakeWhy } from "@cello/contract/entities"
 import { Caller } from "@cello/contract/rpcs"
-import * as Clock from "effect/Clock"
+import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
@@ -44,6 +44,8 @@ export interface StartRun {
   readonly driver: AgentDriver
   readonly mode: AgentMode
   readonly taskId: string | null
+  /** Every task the run is for (a batched wake), `taskId` among them: each counts the run toward its cap. */
+  readonly taskIds: ReadonlyArray<string>
   readonly why: WakeWhy
   readonly prompt: string
   /** Where its events go: the task's workspace and project. */
@@ -134,6 +136,19 @@ const prune = (dir: string) => {
   }
 }
 
+/**
+ * The environment a run gets: the host's, without anything that would make it another session or the
+ * human (CELLO_SESSION, CELLO_AGENT, CELLO_PERMISSION_MODE) or carry another Claude Code session's
+ * identity and tokens (CLAUDE_PID, CLAUDE_CODE_*), then CELLO_WOKEN=1. CLAUDE_CONFIG_DIR stays.
+ */
+export const runEnv = (env: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> => ({
+  ...Object.fromEntries(
+    Object.entries(env).filter(([name]) =>
+      !["CELLO_SESSION", "CELLO_AGENT", "CELLO_PERMISSION_MODE", "CELLO_WOKEN", "CLAUDE_PID"].includes(name) && !name.startsWith("CLAUDE_CODE_")),
+  ),
+  CELLO_WOKEN: "1",
+})
+
 const OUTCOMES: Record<TurnEnded["outcome"], RunOutcome> = { completed: "completed", failed: "failed", interrupted: "stopped" }
 
 /** A run going right now. */
@@ -161,11 +176,24 @@ const make = Effect.gen(function* () {
 
   const rowOf = (id: string) => sql<RunRow>`SELECT * FROM session_runs WHERE id = ${id}`.pipe(Effect.map((rows) => rows[0] ? toRun(rows[0]) : null))
 
-  /** Records how a run ended (row and event, one command) unless that's done; then frees its session. */
-  const finish = (entry: Active, ended: TurnEnded) =>
-    Effect.gen(function* () {
-      if (entry.ending) return yield* Deferred.await(entry.finished)
+  /**
+   * Records how a run ended (row and event, one command) unless that's done, then frees its session
+   * whatever happened: a write that fails is logged, and the next start records the run stopped.
+   */
+  const finish = (entry: Active, ended: TurnEnded): Effect.Effect<void> =>
+    entry.ending ? Deferred.await(entry.finished) : Effect.suspend(() => {
       entry.ending = true
+      return record(entry, ended).pipe(
+        Effect.catchCause((cause) => Effect.logError(`Couldn't record the end of woken run ${entry.run.id}; the next start records it stopped.\n${Cause.pretty(cause)}`)),
+        Effect.ensuring(Effect.suspend(() => {
+          active.delete(entry.run.sessionId)
+          return Deferred.done(entry.finished, Exit.void)
+        })),
+      )
+    })
+
+  const record = (entry: Active, ended: TurnEnded) =>
+    Effect.gen(function* () {
       const [row] = yield* sql<{ log_path: string }>`SELECT log_path FROM session_runs WHERE id = ${entry.run.id}`
       const written = yield* commands.write({ commandId: crypto.randomUUID(), rpc: "session.run_ended", receipt: false }, ({ now, emit }) =>
         Effect.gen(function* () {
@@ -180,14 +208,12 @@ const make = Effect.gen(function* () {
         append(row.log_path, JSON.stringify({ type: "cello.ended", outcome: written.result.outcome, exitCode: ended.exitCode, error: ended.error }))
         prune(path.dirname(row.log_path))
       }
-      active.delete(entry.run.sessionId)
-      yield* Deferred.done(entry.finished, Exit.void)
-    }).pipe(Effect.orDie)
+    })
 
   /** The run itself, in the background: open the session, resume it, wait for the turn, record the end. */
   const runInBackground = (entry: Active, input: StartRun, logPath: string) =>
     Effect.gen(function* () {
-      const env = { ...(yield* config.env), CELLO_WOKEN: "1" }
+      const env = runEnv(yield* config.env)
       const handle = yield* input.driver.open({
         nativeId: input.session.externalId,
         cwd: input.session.cwd,
@@ -224,9 +250,9 @@ const make = Effect.gen(function* () {
         fresh = true
         const id = newId(now)
         const logPath = path.join(dir, logName(now))
-        yield* sql`INSERT INTO session_runs (id, session_id, task_id, why, agent_kind, mode, cello_mode, pid, started_at, outcome, log_path)
-          VALUES (${id}, ${input.session.id}, ${input.taskId}, ${input.why}, ${input.driver.kind}, ${input.mode.native}, ${input.mode.cello},
-                  NULL, ${now}, 'running', ${logPath})`
+        yield* sql`INSERT INTO session_runs (id, session_id, task_id, task_ids, why, agent_kind, mode, cello_mode, pid, started_at, outcome, log_path)
+          VALUES (${id}, ${input.session.id}, ${input.taskId}, ${JSON.stringify(input.taskIds)}, ${input.why}, ${input.driver.kind},
+                  ${input.mode.native}, ${input.mode.cello}, NULL, ${now}, 'running', ${logPath})`
         const run = (yield* rowOf(id))!
         yield* emit({ type: "session.run_started", run }, input.place)
         return run

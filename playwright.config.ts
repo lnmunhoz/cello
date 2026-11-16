@@ -49,6 +49,7 @@ export default defineConfig({
         // the temp data folder (never ~/.claude), and short waits. Waking stays off unless a test turns it on.
         PATH: `${path.resolve("e2e/stub-bin")}:${process.env.PATH}`,
         CLAUDE_CONFIG_DIR: path.join(process.env.CELLO_E2E_DATA!, "claude"),
+        CELLO_E2E: "1",
         CELLO_WAKE_BATCH_MS: "3000",
         CELLO_WAKE_QUIET_MS: "0",
       },

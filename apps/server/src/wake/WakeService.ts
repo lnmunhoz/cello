@@ -13,14 +13,19 @@
 // The checks, in order, when a wake is due (and before announcing one). The first that fails decides:
 //  1. the session is listening (its `cello inbox --wait` is open): it hears the comment by itself
 //  2. it has nothing unread on the task any more: it took the comment itself (silent, unless announced)
-//  3. a woken run of it is going already (one run per session)
+//  3. a woken run of it is going already (one run per session), or one a crashed server left behind
+//     still has a live process
 //  4. Cello knows no process id for it, or 5. that process is still running (two processes on one
 //     conversation would corrupt it), or 6. it checked in within QUIET
-//  7. waking is off for the task's project (the default), or 8. the task reached its cap of wakes this hour
-//  9. its recorded permission mode is bypass (never used for a woken run)
-// 10. no driver can continue it, or its CLI isn't installed; 11. its folder is unknown; 12. its
-//     conversation isn't on this machine
+//  7. waking is off for the task's project (the default), or 8. the task reached its cap of wakes this
+//     hour (a batched run counts for each of its tasks)
+//  9. no driver can continue it, or its CLI isn't installed; 10. its recorded permission mode is one the
+//     CLI doesn't have, or bypass (never used for a woken run)
+// 11. its folder isn't an absolute folder that exists here; 12. its conversation isn't kept for that
+//     folder or one above it (where the run then starts)
 // A wake that doesn't happen is a `session.not_woken` with the reason, on the card and in the history.
+import * as fs from "node:fs"
+import * as path from "node:path"
 import type { NotWokenReason, ProjectRef, SessionRun, WakeSettings, WakeWhy } from "@cello/contract/entities"
 import { HumanOnly, Invalid, NotFound, SessionNotWoken } from "@cello/contract/errors"
 import type { CelloEvent } from "@cello/contract/events"
@@ -42,7 +47,7 @@ import * as EventLog from "../events/EventLog.ts"
 import * as Seed from "../persistence/Seed.ts"
 import * as ProjectService from "../project/ProjectService.ts"
 import { SessionService } from "../session/SessionService.ts"
-import { type AgentDriver, AgentRegistry } from "./agents/AgentDriver.ts"
+import { type AgentDriver, type AgentMode, AgentRegistry } from "./agents/AgentDriver.ts"
 import { type RunSession, SessionHost } from "./SessionHost.ts"
 import { WakeConfig } from "./WakeConfig.ts"
 
@@ -126,6 +131,16 @@ type Verdict = { readonly kind: "wake" } | { readonly kind: "skip" } | { readonl
 
 const not = (reason: NotWokenReason): Verdict => ({ kind: "not", reason })
 
+/** A recorded folder a run may start in: an absolute path to a folder that exists here. */
+const isFolder = (cwd: string | null): cwd is string => {
+  if (cwd === null || !path.isAbsolute(cwd)) return false
+  try {
+    return fs.statSync(cwd).isDirectory()
+  } catch {
+    return false
+  }
+}
+
 /** Lucas's actions that wake, from committed events: the task and why. */
 export const actionOf = (e: CelloEvent, humanId: string): { readonly taskId: string; readonly why: WakeWhy } | null => {
   if (e.sessionId !== null || e.actorId !== humanId) return null
@@ -181,9 +196,12 @@ const make = Effect.gen(function* () {
       return (items?.n ?? 0) + (reactions?.n ?? 0)
     })
 
-  /** Woken runs of the task that started in the last hour. */
+  /** Woken runs for the task (its own, or a batched one it was in) that started in the last hour. */
   const recentRuns = (taskId: string, now: number) =>
-    sql<{ n: number }>`SELECT COUNT(*) AS n FROM session_runs WHERE task_id = ${taskId} AND started_at > ${now - CAP_WINDOW_MS}`.pipe(
+    sql<{ n: number }>`
+      SELECT COUNT(*) AS n FROM session_runs
+      WHERE started_at > ${now - CAP_WINDOW_MS}
+        AND (task_id = ${taskId} OR EXISTS (SELECT 1 FROM json_each(task_ids) WHERE value = ${taskId}))`.pipe(
       Effect.map((rows) => rows[0]?.n ?? 0),
     )
 
@@ -191,7 +209,7 @@ const make = Effect.gen(function* () {
   interface Runnable {
     readonly session: RunSession
     readonly driver: AgentDriver
-    readonly mode: ReturnType<AgentDriver["modeFor"]>
+    readonly mode: AgentMode
   }
 
   /**
@@ -205,6 +223,10 @@ const make = Effect.gen(function* () {
       if (session?.waiting) return no(phase === "manual" ? not("listening") : { kind: "skip" })
       if (phase !== "manual" && (yield* unreadOn(row.id, task.id)) === 0) return no({ kind: "skip" })
       if (yield* host.isRunning(row.id)) return no(not("running"))
+      // A run a crashed server left behind lives on: its row says stopped, its process says otherwise.
+      const [last] = yield* sql<{ pid: number | null }>`
+        SELECT pid FROM session_runs WHERE session_id = ${row.id} AND pid IS NOT NULL ORDER BY started_at DESC, id DESC LIMIT 1`
+      if (last?.pid != null && config.isAlive(last.pid)) return no(not("running"))
       if (row.pid === null) return no(not("no_pid"))
       if (config.isAlive(row.pid)) return no(not("process_alive"))
       if (phase !== "action" && now - row.last_seen_at < Duration.toMillis(config.quiet)) return no(not("recent_check_in"))
@@ -212,15 +234,18 @@ const make = Effect.gen(function* () {
       if (!settings.enabled) return no(not("disabled"))
       if ((yield* recentRuns(task.id, now)) >= settings.capPerHour) return no(not("cap"))
       const driver = registry.get(row.agent_kind)
-      const mode = driver?.modeFor(row.permission_mode)
-      if (mode?.cello === "bypass") return no(not("bypass_mode"))
       const env = yield* config.env
-      if (driver === undefined || mode === undefined || !driver.capabilities.resume || !(yield* driver.installed(env))) return no(not("not_installed"))
-      if (row.cwd === null || row.external_id === null) return no(not("no_folder"))
-      if (!(yield* driver.hasConversation({ nativeId: row.external_id, cwd: row.cwd, env }))) return no(not("no_conversation"))
+      if (driver === undefined || !driver.capabilities.resume || !(yield* driver.installed(env))) return no(not("not_installed"))
+      const mode = driver.modeFor(row.permission_mode)
+      if (mode === null) return no(not("unknown_mode"))
+      if (mode.cello === "bypass") return no(not("bypass_mode"))
+      if (!isFolder(row.cwd) || row.external_id === null) return no(not("no_folder"))
+      // Where the conversation is ties it to the folder: the run starts there.
+      const folder = yield* driver.conversationFolder({ nativeId: row.external_id, cwd: row.cwd, env })
+      if (folder === null) return no(not("no_conversation"))
       return {
         verdict: { kind: "wake" } as Verdict,
-        runnable: { session: { id: row.id, actorId: row.actor_id, externalId: row.external_id, cwd: row.cwd }, driver, mode },
+        runnable: { session: { id: row.id, actorId: row.actor_id, externalId: row.external_id, cwd: folder }, driver, mode },
       }
     })
 
@@ -235,15 +260,16 @@ const make = Effect.gen(function* () {
         Effect.provideService(Caller, { actorId: row.actor_id, sessionId: row.id }),
       )
 
-  const startRun = (commandId: string, runnable: Runnable, task: TaskRow, keys: ReadonlyArray<string>, why: WakeWhy) =>
+  const startRun = (commandId: string, runnable: Runnable, task: TaskRow, all: ReadonlyArray<TaskRow>, why: WakeWhy) =>
     host.start({
       commandId,
       session: runnable.session,
       driver: runnable.driver,
       mode: runnable.mode,
       taskId: task.id,
+      taskIds: all.map((t) => t.id),
       why,
-      prompt: wakePrompt({ human: human.name, keys, manual: why === "manual" }),
+      prompt: wakePrompt({ human: human.name, keys: all.map((t) => formatTaskKey(t.project_key, t.number)), manual: why === "manual" }),
       place: placeOf(task),
     })
 
@@ -268,7 +294,7 @@ const make = Effect.gen(function* () {
       }
       const last = woken.at(-1)
       if (!last) return
-      yield* startRun(crypto.randomUUID(), last.runnable, last.task, woken.map((w) => formatTaskKey(w.task.project_key, w.task.number)), last.why)
+      yield* startRun(crypto.randomUUID(), last.runnable, last.task, woken.map((w) => w.task), last.why)
     })
 
   const noteAction = (taskId: string, why: WakeWhy) =>
@@ -350,7 +376,7 @@ const make = Effect.gen(function* () {
       // Waking now supersedes a wake that was due.
       pending.delete(row.id)
       yield* FiberMap.remove(timers, row.id)
-      return { kind: "woken" as const, written: yield* startRun(input.commandId, runnable!, task, [formatTaskKey(task.project_key, task.number)], "manual") }
+      return { kind: "woken" as const, written: yield* startRun(input.commandId, runnable!, task, [task], "manual") }
     }))
     if (outcome.kind === "not") return yield* new SessionNotWoken({ session: row.external_id ?? row.id, reason: outcome.reason })
     return outcome.written

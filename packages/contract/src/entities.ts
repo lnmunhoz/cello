@@ -88,6 +88,7 @@ export const NotWokenReason = Schema.Literals([
   "disabled",
   "cap",
   "bypass_mode",
+  "unknown_mode",
   "no_conversation",
   "no_folder",
   "not_installed",

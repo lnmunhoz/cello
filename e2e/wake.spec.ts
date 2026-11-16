@@ -32,8 +32,10 @@ const deadPid = () => spawnSync("true").pid
  * (a file in Claude Code's folder), and the stub answers `answer` on the card when woken.
  */
 async function goneSession(baseURL: string, session: string, key: string, answer: string, options: { hold?: boolean } = {}) {
-  fs.mkdirSync(path.join(claudeDir, "projects", "-repo"), { recursive: true })
-  fs.writeFileSync(path.join(claudeDir, "projects", "-repo", `${session}.jsonl`), "{}\n")
+  // Where Claude Code keeps a conversation started in `root`: projects/<root, every other character a dash>.
+  const project = path.join(claudeDir, "projects", root.replace(/[^A-Za-z0-9]/g, "-"))
+  fs.mkdirSync(project, { recursive: true })
+  fs.writeFileSync(path.join(project, `${session}.jsonl`), "{}\n")
   fs.writeFileSync(path.join(claudeDir, `key-${session}`), key)
   fs.writeFileSync(path.join(claudeDir, `answer-${session}`), answer)
   if (options.hold) fs.writeFileSync(path.join(claudeDir, `hold-${session}`), "")

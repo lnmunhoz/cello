@@ -26,18 +26,28 @@ import { type AgentDriver, type AgentEvent, type AgentMode, AgentStartFailed, ty
 /** The most agentic turns a woken run may take: it's unattended, so it stops well before it could wander off. */
 export const MAX_TURNS = 40
 
-/** How long the processes of a run get to exit after SIGTERM before they're killed. */
+/**
+ * How long the processes of a run get to exit after SIGTERM before they're killed, and how long its
+ * output may stay open after the CLI itself exited before the turn ends anyway (a process that left the
+ * group, with setsid, can hold it open forever).
+ */
 export const KILL_GRACE_MS = 5_000
 
-/** Claude Code's permission modes in Cello's words. Anything else (or none recorded) runs as `default`. */
-const MODES: Readonly<Record<string, CelloMode>> = {
-  default: "ask",
-  dontAsk: "ask",
-  acceptEdits: "edits",
-  auto: "auto",
-  plan: "plan",
-  bypassPermissions: "bypass",
-}
+/** Claude Code's permission modes in Cello's words. None recorded runs as `default`; any other is refused. */
+const MODES: ReadonlyMap<string, CelloMode> = new Map([
+  ["default", "ask"],
+  ["dontAsk", "ask"],
+  ["acceptEdits", "edits"],
+  ["auto", "auto"],
+  ["plan", "plan"],
+  ["bypassPermissions", "bypass"],
+])
+
+/** A session id that may reach the command line and a file name: letters, digits, `.`, `_` and `-`, not first. */
+export const isSessionId = (id: string): boolean => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)
+
+/** Claude Code's folder name under `projects/` for a working folder: every character but letters and digits is `-`. */
+export const projectFolderName = (folder: string): string => folder.replace(/[^A-Za-z0-9]/g, "-")
 
 /** The arguments of a woken run, after `claude`. */
 export const claudeArgs = (input: { readonly nativeId: string; readonly mode: string; readonly prompt: string }): string[] => [
@@ -51,14 +61,13 @@ export const claudeArgs = (input: { readonly nativeId: string; readonly mode: st
   "--verbose",
   "--max-turns",
   String(MAX_TURNS),
+  // Nothing after this is a flag, whatever the prompt starts with.
+  "--",
   input.prompt,
 ]
 
 /** Claude Code's folder: CLAUDE_CONFIG_DIR, else ~/.claude. */
 const configDir = (env: Readonly<Record<string, string | undefined>>) => env.CLAUDE_CONFIG_DIR || path.join(env.HOME || os.homedir(), ".claude")
-
-/** A session id is a plain file name; anything with a path in it is never looked up. */
-const plainId = (id: string) => id !== "" && id === path.basename(id) && !id.startsWith(".")
 
 /** SIGTERM or SIGKILL to a whole process group; one that's already gone is fine. */
 const signalGroup = (pid: number, signal: NodeJS.Signals) => {
@@ -66,6 +75,16 @@ const signalGroup = (pid: number, signal: NodeJS.Signals) => {
     process.kill(-pid, signal)
   } catch {
     // Already gone.
+  }
+}
+
+/** Whether any process of the group is left. */
+const groupAlive = (pid: number) => {
+  try {
+    process.kill(-pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM"
   }
 }
 
@@ -86,15 +105,19 @@ const eventsOf = (value: unknown): AgentEvent[] => {
 export interface ClaudeCodeOptions {
   /** The command to run; `claude` on the environment's PATH by default. */
   readonly binary?: string
+  /** KILL_GRACE_MS; tests shorten it. */
+  readonly killGraceMs?: number
 }
 
 export const claudeCode = (options: ClaudeCodeOptions = {}): AgentDriver => {
   const binary = options.binary ?? "claude"
+  const grace = options.killGraceMs ?? KILL_GRACE_MS
   const which = (env: Readonly<Record<string, string | undefined>>) => Bun.which(binary, { PATH: env.PATH ?? "" })
 
-  const modeFor = (recorded: string | null): AgentMode => {
-    const cello = recorded === null ? undefined : MODES[recorded]
-    return cello === undefined ? { native: "default", cello: "ask" } : { native: recorded!, cello }
+  const modeFor = (recorded: string | null): AgentMode | null => {
+    if (recorded === null) return { native: "default", cello: "ask" }
+    const cello = MODES.get(recorded)
+    return cello === undefined ? null : { native: recorded, cello }
   }
 
   return {
@@ -102,17 +125,17 @@ export const claudeCode = (options: ClaudeCodeOptions = {}): AgentDriver => {
     name: "Claude Code",
     capabilities: { resume: true, streamingInput: false, permissionRequests: false, modes: ["ask", "edits", "auto", "plan"] },
     installed: (env) => Effect.sync(() => which(env) !== null),
-    hasConversation: ({ nativeId, env }) =>
+    // `claude --resume` finds a conversation in the folder it was started in: projects/<that folder's
+    // name>/<id>.jsonl. The session's recorded folder may be below it (its last command ran in a
+    // subfolder), so the nearest folder up that holds it is where the run starts.
+    conversationFolder: ({ nativeId, cwd, env }) =>
       Effect.sync(() => {
-        if (!plainId(nativeId)) return false
+        if (!isSessionId(nativeId) || !path.isAbsolute(cwd)) return null
         const projects = path.join(configDir(env), "projects")
-        let folders: string[]
-        try {
-          folders = fs.readdirSync(projects)
-        } catch {
-          return false
+        for (let folder = path.resolve(cwd); ; folder = path.dirname(folder)) {
+          if (fs.existsSync(path.join(projects, projectFolderName(folder), `${nativeId}.jsonl`))) return folder
+          if (folder === path.dirname(folder)) return null
         }
-        return folders.some((folder) => fs.existsSync(path.join(projects, folder, `${nativeId}.jsonl`)))
       }),
     modeFor,
     open: (input) =>
@@ -129,6 +152,7 @@ export const claudeCode = (options: ClaudeCodeOptions = {}): AgentDriver => {
 
         const resume = (prompt: string) =>
           Effect.gen(function* () {
+            if (!isSessionId(input.nativeId)) return yield* new AgentStartFailed({ message: `${JSON.stringify(input.nativeId)} isn't a Claude Code session id` })
             const command = which(input.env)
             if (command === null) return yield* new AgentStartFailed({ message: `\`${binary}\` isn't on the PATH of Cello's server` })
             const ended = yield* Deferred.make<TurnEnded>()
@@ -152,11 +176,19 @@ export const claudeCode = (options: ClaudeCodeOptions = {}): AgentDriver => {
 
             let stopping = false
             let result: string | null = null
-            let killTimer: ReturnType<typeof setTimeout> | null = null
+            let done = false
+            const timers: Array<ReturnType<typeof setTimeout>> = []
+            const later = (ms: number, f: () => void) => {
+              const timer = setTimeout(f, ms)
+              timer.unref?.()
+              timers.push(timer)
+            }
+            /** SIGTERM to the group now, SIGKILL to whatever is left of it after the grace. */
             const terminate = () => {
               signalGroup(pid, "SIGTERM")
-              killTimer ??= setTimeout(() => signalGroup(pid, "SIGKILL"), KILL_GRACE_MS)
-              killTimer.unref?.()
+              later(grace, () => {
+                if (!done && groupAlive(pid)) signalGroup(pid, "SIGKILL")
+              })
             }
             const lines = (stream: "stdout" | "stderr", from: NodeJS.ReadableStream) =>
               readline.createInterface({ input: from, crlfDelay: Infinity }).on("line", (line) => {
@@ -174,11 +206,11 @@ export const claudeCode = (options: ClaudeCodeOptions = {}): AgentDriver => {
               })
             lines("stdout", child.stdout!)
             lines("stderr", child.stderr!)
-            // The leader exited: whatever it left running in its group goes too.
-            child.once("exit", () => terminate())
-            // Every holder of its output closed it: the turn is over.
-            child.once("close", (code, signal) => {
-              if (killTimer !== null) clearTimeout(killTimer)
+            /** The turn is over, once: its output closed, or the grace after the CLI exited ran out. */
+            const finish = (code: number | null, signal: NodeJS.Signals | null) => {
+              if (done) return
+              done = true
+              for (const timer of timers) clearTimeout(timer)
               running = null
               const turn: TurnEnded = stopping
                 ? { outcome: "interrupted", exitCode: code, error: null }
@@ -193,7 +225,19 @@ export const claudeCode = (options: ClaudeCodeOptions = {}): AgentDriver => {
                 }
               input.onEvent({ type: "turn.ended", ...turn })
               Deferred.doneUnsafe(ended, Exit.succeed(turn))
+            }
+            // The leader exited: whatever it left running in its group goes too. A process that left the
+            // group may still hold the output open; after the grace the turn ends without it.
+            child.once("exit", (code, signal) => {
+              terminate()
+              later(grace, () => {
+                child.stdout?.destroy()
+                child.stderr?.destroy()
+                finish(code, signal)
+              })
             })
+            // Every holder of its output closed it: the turn is over.
+            child.once("close", (code, signal) => finish(code, signal))
             running = {
               pid,
               ended,

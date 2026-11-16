@@ -2,10 +2,13 @@
 // 30 s later (each new action restarts the wait), the woken run continues the session in its folder and
 // mode with the prompt, the cap counts runs per task per hour, and every reason not to wake is recorded
 // on the task. No real `claude` and no process: the fake driver and the process check stand in.
+import * as fs from "node:fs"
+import * as os from "node:os"
 import type { CelloEvent } from "@cello/contract/events"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Queue from "effect/Queue"
+import * as SqlClient from "effect/sql/SqlClient"
 import * as Stream from "effect/Stream"
 import * as TestClock from "effect/testing/TestClock"
 import * as CommentService from "../comment/CommentService.ts"
@@ -23,7 +26,9 @@ import { type WakeWorld, wakeServices, wakeWorld } from "../testing/wakeLayers.t
 import { actionOf, wakePrompt, WakeService } from "./WakeService.ts"
 
 const PID = 4242
-const agent = { session: "c14ca1fa-6f0e-4c1b", client: "Claude Code", pid: PID, cwd: "/repo", permissionMode: "auto" }
+/** The session's folder: a real one, since a folder that doesn't exist isn't woken in. */
+const FOLDER = fs.realpathSync(os.tmpdir())
+const agent = { session: "c14ca1fa-6f0e-4c1b", client: "Claude Code", pid: PID, cwd: FOLDER, permissionMode: "auto" }
 
 /** Runs `body` with a fresh world: the fake driver, a process check, and every service over them. */
 const run = <A, E>(body: (fake: FakeAgent, world: WakeWorld) => Effect.Effect<A, E, any>) =>
@@ -82,6 +87,14 @@ const nextEvent = (type: CelloEvent["type"]) =>
     return Stream.runHead(Stream.filter(stream, (e) => e.type === type)).pipe(Effect.map((e) => e._tag === "Some" ? e.value : null))
   })
 
+/** Lucas comments, 30 s pass: what the task's last wake event says, and whether a run started. */
+const outcome = (fake: FakeAgent, comment: (body?: string) => Effect.Effect<void, unknown, any>, taskId: string) =>
+  Effect.gen(function* () {
+    yield* comment()
+    yield* TestClock.adjust("2 minutes")
+    return { last: (yield* wakeEvents(taskId)).at(-1) ?? null, runs: yield* Queue.size(fake.turns) }
+  })
+
 describe("WakeService: a comment wakes the session", () => {
   it.effect("30 s after Lucas's comment it resumes the session in its folder and mode with the prompt, and records the run", () =>
     run((fake) =>
@@ -99,7 +112,7 @@ describe("WakeService: a comment wakes the session", () => {
         expect(turn.prompt).toBe(
           "Lucas acted on CEL-1, which you claimed: run `cello inbox` and act on it, then answer on the card. Cello woke this session because its process had ended.",
         )
-        expect(turn.input).toMatchObject({ nativeId: agent.session, cwd: "/repo", mode: "auto", env: { CELLO_WOKEN: "1", PATH: "/usr/bin:/bin" } })
+        expect(turn.input).toMatchObject({ nativeId: agent.session, cwd: FOLDER, mode: "auto", env: { CELLO_WOKEN: "1", PATH: "/usr/bin:/bin" } })
 
         const ended = yield* nextEvent("session.run_ended")
         yield* turn.finish({ outcome: "completed", exitCode: 0, error: null })
@@ -212,14 +225,92 @@ describe("WakeService: a comment wakes the session", () => {
       })))
 })
 
+describe("WakeService: the run's environment and the cap of a batch", () => {
+  it.effect("the run never acts as another session or the human: identity and Claude Code session variables are left out", () =>
+    run((fake, world) =>
+      Effect.gen(function* () {
+        world.env = {
+          PATH: "/usr/bin:/bin",
+          CLAUDE_CONFIG_DIR: "/claude",
+          CELLO_SESSION: "me",
+          CELLO_AGENT: "cello-builder/a1",
+          CELLO_PERMISSION_MODE: "bypassPermissions",
+          CLAUDE_PID: "123",
+          CLAUDE_CODE_SESSION_ID: "someone-else",
+          CLAUDE_CODE_ENTRYPOINT: "cli",
+          CLAUDE_CODE_OAUTH_TOKEN: "secret",
+        }
+        const { comment } = yield* setup()
+        yield* comment()
+        yield* TestClock.adjust("30 seconds")
+        const turn = yield* Queue.take(fake.turns)
+        expect(turn.input.env).toEqual({ PATH: "/usr/bin:/bin", CLAUDE_CONFIG_DIR: "/claude", CELLO_WOKEN: "1" })
+      })))
+
+  it.effect("a wake that covers two tasks counts toward each task's cap", () =>
+    run((fake) =>
+      Effect.gen(function* () {
+        const { wake, task, project, tasks } = yield* setup()
+        yield* wake.setSettings({ commandId: cmd(), project: { key: "CEL" }, capPerHour: 1 })
+        const { result: second } = yield* tasks.create({ commandId: cmd(), projectId: project.id, title: "And this one" })
+        yield* asAgent(agent)(tasks.claim({ commandId: cmd(), key: second.key }))
+        yield* TestClock.adjust("5 minutes")
+        const comments = yield* CommentService.CommentService
+        yield* comments.add({ commandId: cmd(), taskId: task.id, body: "first" })
+        yield* wake.noteAction(task.id, "comment")
+        yield* comments.add({ commandId: cmd(), taskId: second.id, body: "second" })
+        yield* wake.noteAction(second.id, "comment")
+        yield* TestClock.adjust("30 seconds")
+        const turn = yield* Queue.take(fake.turns)
+        expect(turn.prompt).toContain("CEL-1 and CEL-2")
+        const ended = yield* nextEvent("session.run_ended")
+        yield* turn.finish({ outcome: "completed", exitCode: 0, error: null })
+        yield* ended
+        yield* Effect.asVoid((yield* InboxService.InboxService).take({})).pipe(asAgent(agent))
+        yield* TestClock.adjust("5 minutes")
+        // CEL-1 wasn't the run's own task, but the run was for it too.
+        yield* comments.add({ commandId: cmd(), taskId: task.id, body: "again" })
+        yield* wake.noteAction(task.id, "comment")
+        yield* TestClock.adjust("30 seconds")
+        expect(yield* Queue.size(fake.turns)).toBe(0)
+        expect((yield* wakeEvents(task.id)).at(-1)).toEqual(["session.not_woken", "cap"])
+      })))
+})
+
 describe("WakeService: reasons not to wake", () => {
-  /** Lucas comments, 30 s pass: what the task's last wake event says, and whether a run started. */
-  const outcome = (fake: FakeAgent, comment: (body?: string) => Effect.Effect<void, unknown, any>, taskId: string) =>
-    Effect.gen(function* () {
-      yield* comment()
-      yield* TestClock.adjust("2 minutes")
-      return { last: (yield* wakeEvents(taskId)).at(-1) ?? null, runs: yield* Queue.size(fake.turns) }
-    })
+  it.effect("a run that outlived a server crash is still running: its process is alive, so no second run", () =>
+    run((fake, world) =>
+      Effect.gen(function* () {
+        const { task, comment, sessionId } = yield* setup()
+        const sql = yield* SqlClient.SqlClient
+        // Recorded stopped at the restart, but its process lives on.
+        yield* sql`INSERT INTO session_runs (id, session_id, task_id, why, agent_kind, mode, cello_mode, pid, started_at, ended_at, outcome, log_path)
+          VALUES ('crashed', ${sessionId}, ${task.id}, 'comment', 'claude-code', 'auto', 'auto', 5555, 1, 2, 'stopped', '/x')`
+        world.alive.add(5555)
+        expect(yield* outcome(fake, comment, task.id)).toEqual({ last: ["session.not_woken", "running"], runs: 0 })
+      })))
+
+  it.effect("its recorded folder isn't an absolute folder that exists", () =>
+    run((fake) =>
+      Effect.gen(function* () {
+        const { task, comment } = yield* setup({ identity: { ...agent, cwd: "../elsewhere" } })
+        expect(yield* outcome(fake, comment, task.id)).toEqual({ last: ["session.not_woken", "no_folder"], runs: 0 })
+      })))
+
+  it.effect("its recorded folder doesn't exist on this machine", () =>
+    run((fake) =>
+      Effect.gen(function* () {
+        const { task, comment } = yield* setup({ identity: { ...agent, cwd: "/nonexistent/cello-wake-test" } })
+        expect(yield* outcome(fake, comment, task.id)).toEqual({ last: ["session.not_woken", "no_folder"], runs: 0 })
+      })))
+
+  it.effect("its recorded permission mode is one the CLI doesn't have", () =>
+    run((fake) =>
+      Effect.gen(function* () {
+        const { task, comment } = yield* setup({ identity: { ...agent, permissionMode: "constructor" } })
+        expect(yield* outcome(fake, comment, task.id)).toEqual({ last: ["session.not_woken", "unknown_mode"], runs: 0 })
+      })))
+
 
   it.effect("waking is off for the project (the default)", () =>
     run((fake) =>

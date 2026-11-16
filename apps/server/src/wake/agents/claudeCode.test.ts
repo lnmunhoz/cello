@@ -12,7 +12,7 @@ import * as Exit from "effect/Exit"
 import { isAlive } from "../../process/isAlive.ts"
 import { tempDataDir } from "../../testing/tempDir.ts"
 import type { AgentOutput } from "./AgentDriver.ts"
-import { claudeArgs, claudeCode, MAX_TURNS } from "./claudeCode.ts"
+import { claudeArgs, claudeCode, isSessionId, MAX_TURNS, projectFolderName } from "./claudeCode.ts"
 
 const ID = "c14ca1fa-6f0e-4c1b-9d55-5b8c6c1e2a10"
 
@@ -23,6 +23,14 @@ const stubClaude = (dir: string, body: string) => {
   fs.writeFileSync(path.join(bin, "claude"), `#!/bin/sh\n${body}\n`, { mode: 0o755 })
   return bin
 }
+
+/**
+ * A shell line that leaves behind a process in a session of its own (setsid, so a signal to the run's
+ * group misses it) still holding stdout, its pid in `file`; the line returns once it has escaped.
+ */
+const escape = (file: string) =>
+  `perl -MPOSIX -e 'pipe(R, W); if (fork) { close W; <R>; exit } close R; POSIX::setsid(); ` +
+  `open(F, ">", "${file}"); print F $$; close F; close W; exec "sleep", "300"'`
 
 describe("claudeArgs", () => {
   it("is claude -p --resume with the mode, stream-json, --verbose, the turn limit and the prompt", () => {
@@ -37,9 +45,25 @@ describe("claudeArgs", () => {
       "--verbose",
       "--max-turns",
       String(MAX_TURNS),
+      "--",
       "Lucas acted on CEL-1",
     ])
     expect(MAX_TURNS).toBe(40)
+  })
+
+  it("puts `--` before the prompt, so a prompt starting with a dash is never read as a flag", () => {
+    expect(claudeArgs({ nativeId: ID, mode: "auto", prompt: "--dangerously" }).slice(-2)).toEqual(["--", "--dangerously"])
+  })
+})
+
+describe("isSessionId", () => {
+  it("lets only plain ids reach the command line", () => {
+    expect(isSessionId(ID)).toBe(true)
+    expect(isSessionId("../x")).toBe(false)
+    expect(isSessionId("-p")).toBe(false)
+    expect(isSessionId(".hidden")).toBe(false)
+    expect(isSessionId("a b")).toBe(false)
+    expect(isSessionId("")).toBe(false)
   })
 })
 
@@ -53,29 +77,45 @@ describe("claudeCode.modeFor", () => {
     expect(driver.modeFor("dontAsk")).toEqual({ native: "dontAsk", cello: "ask" })
     expect(driver.modeFor("bypassPermissions")).toEqual({ native: "bypassPermissions", cello: "bypass" })
   })
-  it("with no mode recorded (or one it doesn't know) it asks: default", () => {
+  it("with no mode recorded it asks: default", () => {
     expect(driver.modeFor(null)).toEqual({ native: "default", cello: "ask" })
-    expect(driver.modeFor("yolo")).toEqual({ native: "default", cello: "ask" })
+  })
+  it("a mode it doesn't know is null (the session isn't woken), Object's own keys included", () => {
+    expect(driver.modeFor("yolo")).toBeNull()
+    expect(driver.modeFor("constructor")).toBeNull()
+    expect(driver.modeFor("__proto__")).toBeNull()
+    expect(driver.modeFor("toString")).toBeNull()
   })
   it("declares resume and its modes; no streaming input or permission requests yet", () => {
     expect(driver.capabilities).toEqual({ resume: true, streamingInput: false, permissionRequests: false, modes: ["ask", "edits", "auto", "plan"] })
   })
 })
 
-describe("claudeCode.hasConversation", () => {
-  it.effect("finds <CLAUDE_CONFIG_DIR>/projects/<any folder>/<session id>.jsonl, and nothing else", () =>
+describe("projectFolderName", () => {
+  it("is Claude Code's name for a folder under projects/: every character but letters and digits becomes -", () => {
+    expect(projectFolderName("/Users/me/projects/cello")).toBe("-Users-me-projects-cello")
+    expect(projectFolderName("/private/tmp/claude-501/-Users-me/.t3/work tree")).toBe("-private-tmp-claude-501--Users-me--t3-work-tree")
+  })
+})
+
+describe("claudeCode.conversationFolder", () => {
+  it.effect("is the folder whose projects/<name>/<session id>.jsonl holds the conversation: the session's folder or the nearest parent", () =>
     Effect.gen(function* () {
       const dir = yield* tempDataDir
       const env = { CLAUDE_CONFIG_DIR: dir }
       const driver = claudeCode()
-      expect(yield* driver.hasConversation({ nativeId: ID, cwd: "/repo", env })).toBe(false)
+      expect(yield* driver.conversationFolder({ nativeId: ID, cwd: "/Users/me/repo/src", env })).toBeNull()
+      // Claude was started in /Users/me/repo; the session's last command ran in its src folder.
       fs.mkdirSync(path.join(dir, "projects", "-Users-me-repo"), { recursive: true })
       fs.writeFileSync(path.join(dir, "projects", "-Users-me-repo", `${ID}.jsonl`), "{}\n")
-      expect(yield* driver.hasConversation({ nativeId: ID, cwd: "/repo", env })).toBe(true)
+      expect(yield* driver.conversationFolder({ nativeId: ID, cwd: "/Users/me/repo/src", env })).toBe("/Users/me/repo")
+      expect(yield* driver.conversationFolder({ nativeId: ID, cwd: "/Users/me/repo", env })).toBe("/Users/me/repo")
+      // A conversation in another project's folder isn't this session's folder.
+      expect(yield* driver.conversationFolder({ nativeId: ID, cwd: "/Users/me/other", env })).toBeNull()
       // An id that would climb out of the folder is never looked up.
-      expect(yield* driver.hasConversation({ nativeId: `../-Users-me-repo/${ID}`, cwd: "/repo", env })).toBe(false)
+      expect(yield* driver.conversationFolder({ nativeId: `../-Users-me-repo/${ID}`, cwd: "/Users/me/repo", env })).toBeNull()
       // Without CLAUDE_CONFIG_DIR it's HOME/.claude.
-      expect(yield* driver.hasConversation({ nativeId: ID, cwd: "/repo", env: { HOME: path.join(dir, "home") } })).toBe(false)
+      expect(yield* driver.conversationFolder({ nativeId: ID, cwd: "/Users/me/repo", env: { HOME: path.join(dir, "home") } })).toBeNull()
     }))
 })
 
@@ -144,6 +184,51 @@ describe("claudeCode.open", () => {
       expect(yield* turn.ended).toMatchObject({ outcome: "interrupted" })
       expect(isAlive(turn.pid!)).toBe(false)
     }))
+
+  it.effect("a process that escaped the group still holding the output doesn't keep the turn open: it ends a grace after the CLI exits", () =>
+    Effect.gen(function* () {
+      const dir = yield* tempDataDir
+      const escapedFile = path.join(dir, "escaped.pid")
+      // A descendant in a session of its own (setsid), so a signal to the group misses it, holding stdout.
+      const bin = stubClaude(dir, `${escape(escapedFile)}\necho done`)
+      const handle = yield* claudeCode({ killGraceMs: 50 }).open({
+        nativeId: ID, cwd: dir, mode: "auto", env: { PATH: `${bin}:/usr/bin:/bin` }, onOutput: () => {}, onEvent: () => {},
+      })
+      const turn = yield* handle.resume("go")
+      expect(yield* turn.ended).toEqual({ outcome: "completed", exitCode: 0, error: null })
+      // Clean up the process this test started.
+      const escaped = Number(fs.readFileSync(escapedFile, "utf8"))
+      if (escaped > 0) process.kill(escaped, "SIGKILL")
+    }).pipe(Effect.scoped))
+
+  it.effect("Stop isn't held up by a process that escaped the group either", () =>
+    Effect.gen(function* () {
+      const dir = yield* tempDataDir
+      const escapedFile = path.join(dir, "escaped.pid")
+      const bin = stubClaude(dir, `${escape(escapedFile)}\necho ready\nwait`)
+      const ready = yield* Deferred.make<void>()
+      const scope = yield* Scope.make()
+      const handle = yield* claudeCode({ killGraceMs: 50 }).open({
+        nativeId: ID, cwd: dir, mode: "auto", env: { PATH: `${bin}:/usr/bin:/bin` },
+        onOutput: (o) => { if (o.line === "ready") Deferred.doneUnsafe(ready, Exit.void) },
+        onEvent: () => {},
+      }).pipe(Scope.provide(scope))
+      const turn = yield* handle.resume("go").pipe(Scope.provide(scope))
+      yield* Deferred.await(ready)
+      yield* Scope.close(scope, Exit.void)
+      expect(yield* turn.ended).toMatchObject({ outcome: "interrupted" })
+      const escaped = Number(fs.readFileSync(escapedFile, "utf8"))
+      if (escaped > 0) process.kill(escaped, "SIGKILL")
+    }))
+
+  it.effect("an id that isn't a plain session id never reaches the command line", () =>
+    Effect.gen(function* () {
+      const dir = yield* tempDataDir
+      const handle = yield* claudeCode().open({
+        nativeId: "--dangerously-skip-permissions", cwd: dir, mode: "auto", env: { PATH: stubClaude(dir, "exit 0") }, onOutput: () => {}, onEvent: () => {},
+      })
+      expect((yield* Effect.flip(handle.resume("go")))._tag).toBe("AgentStartFailed")
+    }).pipe(Effect.scoped))
 
   it.effect("a CLI that can't start is AgentStartFailed", () =>
     Effect.gen(function* () {

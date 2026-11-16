@@ -9,7 +9,7 @@ import * as path from "node:path"
 import { newCommandId } from "@cello/client/client"
 import type { CelloEvent } from "@cello/contract/events"
 import { startServer, tempDataDir } from "@cello/server/testing/servers"
-import { claudeArgs } from "@cello/server/wake/agents/claudeCode"
+import { claudeArgs, projectFolderName } from "@cello/server/wake/agents/claudeCode"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -46,10 +46,7 @@ const setup = Effect.gen(function* () {
   const bin = path.join(dataDir, "bin")
   fs.mkdirSync(bin)
   fs.writeFileSync(path.join(bin, "claude"), STUB, { mode: 0o755 })
-  // X's conversation, where Claude Code keeps it (a temp CLAUDE_CONFIG_DIR, never the real ~/.claude).
   const claudeDir = path.join(dataDir, "claude")
-  fs.mkdirSync(path.join(claudeDir, "projects", "-repo"), { recursive: true })
-  fs.writeFileSync(path.join(claudeDir, "projects", "-repo", `${X}.jsonl`), "{}\n")
   const record = path.join(dataDir, "stub.log")
   const tmp = path.join(dataDir, "tmp")
   fs.mkdirSync(tmp)
@@ -61,6 +58,9 @@ const setup = Effect.gen(function* () {
     },
   })
   const repo = gitRepo(dataDir, "app")
+  // X's conversation, where Claude Code keeps it for the repo (a temp CLAUDE_CONFIG_DIR, never the real ~/.claude).
+  fs.mkdirSync(path.join(claudeDir, "projects", projectFolderName(repo)), { recursive: true })
+  fs.writeFileSync(path.join(claudeDir, "projects", projectFolderName(repo), `${X}.jsonl`), "{}\n")
   const human = yield* connect(port)
   const workspaceId = (yield* human["snapshot.get"]({})).workspaces[0]!.id
   yield* human["project.create"]({ commandId: newCommandId(), workspaceId, name: "App", key: "CEL", repoPath: repo })

@@ -102,10 +102,14 @@ export interface AgentDriver {
   readonly capabilities: AgentCapabilities
   /** Whether its CLI is installed for the host's environment. */
   readonly installed: (env: Readonly<Record<string, string | undefined>>) => Effect.Effect<boolean>
-  /** Whether the session's conversation is on this machine, so it can be continued. */
-  readonly hasConversation: (input: { readonly nativeId: string; readonly cwd: string; readonly env: Readonly<Record<string, string | undefined>> }) => Effect.Effect<boolean>
-  /** The mode to run a session with, from the one its hooks recorded (null when none was). */
-  readonly modeFor: (recorded: string | null) => AgentMode
+  /**
+   * Where the session's conversation is on this machine: the folder to continue it in (`cwd`, the
+   * session's recorded folder, or the one above it the CLI keeps the conversation under); null when
+   * it isn't here, so it can't be continued.
+   */
+  readonly conversationFolder: (input: { readonly nativeId: string; readonly cwd: string; readonly env: Readonly<Record<string, string | undefined>> }) => Effect.Effect<string | null>
+  /** The mode to run a session with, from the one its hooks recorded (null when none was); null for a mode the CLI doesn't have. */
+  readonly modeFor: (recorded: string | null) => AgentMode | null
   /** Opens one of its sessions in the current scope: closing it stops whatever runs. */
   readonly open: (input: OpenInput) => Effect.Effect<AgentSessionHandle, never, Scope.Scope>
 }
