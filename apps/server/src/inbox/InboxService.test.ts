@@ -6,6 +6,7 @@ import type { InboxItem } from "@cello/contract/entities"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import * as SqlClient from "effect/sql/SqlClient"
 import * as CommentService from "../comment/CommentService.ts"
 import { ContextService } from "../context/ContextService.ts"
 import * as EventStore from "../events/EventStore.ts"
@@ -40,7 +41,8 @@ const setup = Effect.gen(function* () {
 })
 
 /** What each item says: a comment's body, or the kind and title of the ask an answers or withdrawn item is about. */
-const bodies = (items: ReadonlyArray<InboxItem>) => items.map((i) => (i.kind === "answers" || i.kind === "withdrawn" ? `${i.kind}: ${i.ask.title}` : i.comment.body))
+const bodies = (items: ReadonlyArray<InboxItem>) =>
+  items.map((i) => (i.kind === "answers" || i.kind === "withdrawn" ? `${i.kind}: ${i.ask.title}` : i.kind === "reaction" ? `${i.emoji}: ${i.comment.body}` : i.comment.body))
 
 describe("InboxService: who gets what", () => {
   it.effect("a human comment on a task goes to the session holding its claim, and to no one else", () =>
@@ -313,5 +315,117 @@ describe("ContextService.context: the inbox", () => {
       expect(bodies((yield* agent(inbox.take({ unreadOnly: true }))).items)).toEqual(["Please add a test"])
       expect((yield* agent(context.context({ key: "CEL" }))).inbox).toEqual([])
       expect((yield* context.context({ key: "CEL" })).inbox).toEqual([])
+    })))
+})
+
+// CEL-77: Lucas reacting to an agent's comment reaches the session that wrote it (the claim holder once
+// that session ended), once. Taking the reaction back before it's read takes the item back.
+describe("InboxService: reactions", () => {
+  /** What each item is: "👍 on <comment body>" for a reaction, else the comment's body. */
+  const said = (items: ReadonlyArray<InboxItem>) =>
+    items.map((i) => (i.kind === "reaction" ? `${i.emoji} on ${i.comment.body}` : bodies([i])[0]))
+
+  /** Session X's comment on CEL-1, which X claimed. */
+  const agentComment = Effect.gen(function* () {
+    const ctx = yield* setup
+    const written = yield* agent(ctx.comment(ctx.one.id, "Built it; shall I merge?"))
+    const react = (emoji: string, on = true) => ctx.comments.react({ commandId: cmd(), commentId: written.id, emoji, on })
+    return { ...ctx, written, react }
+  })
+
+  it.effect("Lucas's reaction to an agent's comment reaches the session that wrote it, and no one else", () =>
+    run(Effect.gen(function* () {
+      const { inbox, written, react } = yield* agentComment
+      const { result } = yield* react("👍")
+
+      expect(yield* agent(inbox.unread)).toEqual([{
+        id: expect.any(String),
+        kind: "reaction",
+        emoji: "👍",
+        taskId: written.taskId,
+        taskKey: "CEL-1",
+        taskTitle: "Comments reach agents",
+        comment: result,
+        author: "Lucas",
+        createdAt: result.reactions![0]!.createdAt,
+        readAt: null,
+      }])
+      expect(yield* other(inbox.unread)).toEqual([])
+    })))
+
+  it.effect("is handed over once, in order with comments, and comes back as earlier", () =>
+    run(Effect.gen(function* () {
+      const { inbox, one, comment, react } = yield* agentComment
+      yield* comment(one.id, "Before the reaction")
+      yield* react("👍")
+      yield* comment(one.id, "After it")
+      const taken = yield* agent(inbox.take({ unreadOnly: true }))
+      expect(said(taken.items)).toEqual(["Before the reaction", "👍 on Built it; shall I merge?", "After it"])
+      expect(taken.items.every((i) => typeof i.readAt === "number")).toBe(true)
+      expect((yield* agent(inbox.take({ unreadOnly: true }))).items).toEqual([])
+      expect(said((yield* agent(inbox.take({}))).earlier)).toEqual(["Before the reaction", "👍 on Built it; shall I merge?", "After it"])
+    })))
+
+  it.effect("taking the reaction back before it's read takes the item back; reacting again delivers again", () =>
+    run(Effect.gen(function* () {
+      const { inbox, react } = yield* agentComment
+      yield* react("👍")
+      yield* react("🎉")
+      yield* react("👍", false)
+      expect(said(yield* agent(inbox.unread))).toEqual(["🎉 on Built it; shall I merge?"])
+      yield* agent(inbox.take({ unreadOnly: true }))
+      yield* react("👍")
+      expect(said((yield* agent(inbox.take({ unreadOnly: true }))).items)).toEqual(["👍 on Built it; shall I merge?"])
+    })))
+
+  it.effect("goes to the claim holder once the session that wrote the comment ended, and to no one when nobody holds it", () =>
+    run(Effect.gen(function* () {
+      const { inbox, tasks, one, react } = yield* agentComment
+      const sql = yield* SqlClient.SqlClient
+      yield* agent(tasks.release({ commandId: cmd(), key: one.key }))
+      yield* other(tasks.claim({ commandId: cmd(), key: one.key }))
+      // While X lives, it's X's even without the claim.
+      yield* react("👀")
+      yield* sql`UPDATE agent_sessions SET ended_at = 1 WHERE external_id = 'session-x'`
+      yield* react("👍")
+      expect(said(yield* agent(inbox.unread))).toEqual(["👀 on Built it; shall I merge?"])
+      expect(said(yield* other(inbox.unread))).toEqual(["👍 on Built it; shall I merge?"])
+
+      yield* other(tasks.release({ commandId: cmd(), key: one.key }))
+      yield* react("🎉")
+      expect(said(yield* other(inbox.unread))).toEqual(["👍 on Built it; shall I merge?"])
+    })))
+
+  it.effect("agents' reactions, and Lucas's reactions to his own comments, reach no one", () =>
+    run(Effect.gen(function* () {
+      const { inbox, comments, one, comment, written } = yield* agentComment
+      yield* other(comments.react({ commandId: cmd(), commentId: written.id, emoji: "👍", on: true }))
+      yield* agent(comments.react({ commandId: cmd(), commentId: written.id, emoji: "🎉", on: true }))
+      const his = yield* comment(one.id, "Mine")
+      yield* agent(inbox.take({ unreadOnly: true }))
+      yield* comments.react({ commandId: cmd(), commentId: his.id, emoji: "👍", on: true })
+      expect(yield* agent(inbox.unread)).toEqual([])
+      expect(yield* other(inbox.unread)).toEqual([])
+    })))
+
+  it.effect("wakes a waiting session; delivering writes no event beyond the reaction's own", () =>
+    run(Effect.gen(function* () {
+      const { inbox, react } = yield* agentComment
+      const store = yield* EventStore.EventStore
+      const waiting = yield* Effect.forkChild(agent(inbox.wait))
+      yield* Effect.yieldNow
+      const before = yield* store.latestSeq
+      yield* react("👍")
+      expect(said((yield* Fiber.join(waiting)).items)).toEqual(["👍 on Built it; shall I merge?"])
+      expect(yield* store.latestSeq).toBe(before + 1)
+    })))
+
+  it.effect("cello context shows it without marking it read", () =>
+    run(Effect.gen(function* () {
+      const { inbox, react } = yield* agentComment
+      yield* react("✅")
+      const context = yield* ContextService
+      expect(said((yield* agent(context.context({ key: "CEL" }))).inbox)).toEqual(["✅ on Built it; shall I merge?"])
+      expect(said((yield* agent(inbox.take({ unreadOnly: true }))).items)).toEqual(["✅ on Built it; shall I merge?"])
     })))
 })

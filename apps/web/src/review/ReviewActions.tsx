@@ -1,5 +1,5 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import type { Task } from "@cello/contract/entities"
+import type { Attachment, Task } from "@cello/contract/entities"
 import { useAtomSet } from "@effect/atom-react"
 import { CheckIcon, CornerUpLeftIcon } from "lucide-react"
 import { useState } from "react"
@@ -8,23 +8,34 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } fr
 import { Textarea } from "../components/ui/Input.tsx"
 import { commands } from "../lib/cello.ts"
 import { Comments } from "../task/Comments.tsx"
+import { useCommentDraft } from "../task/commentDraft.ts"
 import { decisionNote } from "./queue.ts"
 
 /**
  * The Review page's decision (CEL-70): the task's comments (the task panel's thread) and one box, with
  * Comment, Send back and Approve under it. Comment keeps the task In Review and reaches the agent like
  * any comment. Send back and Approve send the box's text as their note, so nothing typed is lost;
- * with the box empty, Send back asks for a note and Approve goes without.
+ * with the box empty, Send back asks for a note and Approve goes without. Screenshots pasted into the
+ * box go too (CEL-73): with Send back's note, or with Approve as a comment holding them and the text.
+ * Send back and Approve wait while a screenshot is still uploading.
  */
 export function CommentOrDecide({ board, task, onDecided }: { board: BoardState; task: Task; onDecided?: (() => void) | undefined }) {
-  const [typed, setTyped] = useState("")
+  const { draft, update, clear } = useCommentDraft(task.id)
   return (
     <Comments
       board={board}
       task={task}
-      draft={{ value: typed, onChange: setTyped }}
       placeholder="Leave a comment, or write what to change and Send back…"
-      actions={<ReviewActions task={task} onDecided={onDecided} typed={typed} onNoteSent={() => setTyped("")} />}
+      actions={({ uploading }) => (
+        <ReviewActions
+          task={task}
+          onDecided={onDecided}
+          typed={draft.body}
+          screenshots={draft.attachments}
+          uploading={uploading}
+          onNoteSent={(withScreenshots) => (withScreenshots ? clear() : update((d) => ({ ...d, body: "" })))}
+        />
+      )}
     />
   )
 }
@@ -38,20 +49,32 @@ interface ReviewActionsProps {
    * for a note and Approve goes without one.
    */
   readonly typed?: string | undefined
-  readonly onNoteSent?: (() => void) | undefined
+  /**
+   * Screenshots pasted into that box (CEL-73): Send back's note carries them; Approve posts them as a
+   * comment with the typed text, in the same command.
+   */
+  readonly screenshots?: ReadonlyArray<Attachment> | undefined
+  /** A screenshot is still uploading into that box: Send back and Approve wait for it. */
+  readonly uploading?: boolean | undefined
+  /** What went, so the box can let go of it: `withScreenshots` empties it, otherwise only its text. */
+  readonly onNoteSent?: ((withScreenshots: boolean) => void) | undefined
 }
 
 /**
  * Approve (to Done) or send back with a note (to In Progress). The page updates when the events
  * arrive; `onDecided` runs once the server took the decision (the Review page opens the next packet).
  */
-export function ReviewActions({ task, onDecided, typed = "", onNoteSent }: ReviewActionsProps) {
+export function ReviewActions({ task, onDecided, typed = "", screenshots = [], uploading = false, onNoteSent }: ReviewActionsProps) {
   const approve = useAtomSet(commands.approveReview, { mode: "promiseExit" })
   const sendBack = useAtomSet(commands.sendBackReview, { mode: "promiseExit" })
   const [busy, setBusy] = useState(false)
   const [asking, setAsking] = useState(false)
   const [note, setNote] = useState("")
   const typedNote = decisionNote(typed)
+  const attachmentIds = screenshots.map((a) => a.id)
+  const withShots = attachmentIds.length > 0 ? { attachmentIds } : {}
+  const sendBackWith = (note: string) => sendBack({ key: task.key, note, ...withShots })
+  const waiting = busy || uploading
 
   const run = async (action: () => Promise<{ _tag: string }>) => {
     setBusy(true)
@@ -66,10 +89,10 @@ export function ReviewActions({ task, onDecided, typed = "", onNoteSent }: Revie
       <Button
         variant="secondary"
         size="md"
-        disabled={busy}
+        disabled={waiting}
         onClick={async () => {
           if (typedNote === null) return setAsking(true)
-          if (await run(() => sendBack({ key: task.key, note: typedNote }))) onNoteSent?.()
+          if (await run(() => sendBackWith(typedNote))) onNoteSent?.(true)
         }}
       >
         <CornerUpLeftIcon aria-hidden className="size-3.5" />
@@ -78,9 +101,10 @@ export function ReviewActions({ task, onDecided, typed = "", onNoteSent }: Revie
       <Button
         variant="primary"
         size="md"
-        disabled={busy}
+        disabled={waiting}
         onClick={async () => {
-          if (await run(() => approve({ key: task.key, ...(typedNote === null ? {} : { note: typedNote }) })) && typedNote !== null) onNoteSent?.()
+          const approved = await run(() => approve({ key: task.key, ...(typedNote === null ? {} : { note: typedNote }), ...withShots }))
+          if (approved && (typedNote !== null || attachmentIds.length > 0)) onNoteSent?.(attachmentIds.length > 0)
         }}
       >
         <CheckIcon aria-hidden className="size-3.5" />
@@ -97,9 +121,10 @@ export function ReviewActions({ task, onDecided, typed = "", onNoteSent }: Revie
             onSubmit={async (e) => {
               e.preventDefault()
               if (note.trim() === "") return
-              if (await run(() => sendBack({ key: task.key, note: note.trim() }))) {
+              if (await run(() => sendBackWith(note.trim()))) {
                 setAsking(false)
                 setNote("")
+                if (attachmentIds.length) onNoteSent?.(true)
               }
             }}
           >
@@ -115,7 +140,7 @@ export function ReviewActions({ task, onDecided, typed = "", onNoteSent }: Revie
             />
             <div className="flex justify-end gap-2">
               <DialogClose>Cancel</DialogClose>
-              <Button type="submit" variant="primary" disabled={busy || note.trim() === ""}>
+              <Button type="submit" variant="primary" disabled={waiting || note.trim() === ""}>
                 Send back
               </Button>
             </div>

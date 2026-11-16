@@ -89,6 +89,11 @@ describe("changeOf", () => {
     })
   })
 
+  it("a comment that is only a screenshot says so in its bubble (CEL-73)", () => {
+    const shot = { ...comment(""), attachments: [{ id: "f1", taskId: "t1", reviewId: null, askId: null, kind: "image" as const, name: "a.png", url: null, caption: "", mime: "image/png", bytes: 1, hasPoster: false, actorId: "human", sessionId: null, createdAt: 1, deletedAt: null }] }
+    expect(changeOf(ev({ type: "comment.added", comment: shot }), "p1", nowhere)?.note).toBe("(screenshot)")
+  })
+
   it("a claim that moves the card to a started column flies like a move, with a Claimed bubble", () => {
     const claimed = ev({ type: "task.claimed", id: "t1", version: 3, task: task("t1", { statusId: "doing" }) })
     expect(changeOf(claimed, "p1", at("todo"))).toMatchObject({ kind: "move", note: "Claimed" })

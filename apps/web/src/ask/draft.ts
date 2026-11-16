@@ -6,6 +6,7 @@
 import type { AskQuestion, Attachment } from "@cello/contract/entities"
 import type { AnswerInput } from "@cello/contract/rpcs"
 import { recommendedPicks, unanswered } from "@cello/shared/ask"
+import { attachmentsIn, isRecord } from "../screenshots/screenshots.ts"
 
 export interface DraftAnswer {
   readonly optionIds: ReadonlyArray<string>
@@ -33,9 +34,8 @@ export const startDraft = (questions: ReadonlyArray<AskQuestion>): AskDraft => (
 /** Where a draft is kept: one per ask. */
 export const draftKey = (askId: string): string => `cello:ask-draft:${askId}`
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v)
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [])
-const files = (v: unknown): Attachment[] => (Array.isArray(v) ? v.filter((a): a is Attachment => isRecord(a) && typeof a.id === "string") : [])
+const files = attachmentsIn
 
 /** A saved draft, or null when there's none or it can't be read (then a fresh one starts). */
 export const readDraft = (raw: string | null): AskDraft | null => {
@@ -114,27 +114,3 @@ export const toAnswers = (questions: ReadonlyArray<AskQuestion>, draft: AskDraft
   noteAttachmentIds: draft.noteAttachments.map((f) => f.id),
 })
 
-
-/** The image types Lucas can paste or drop (the server accepts the same), and the extension for a nameless one. */
-export const SCREENSHOT_TYPES: Readonly<Record<string, string>> = {
-  "image/png": ".png",
-  "image/jpeg": ".jpg",
-  "image/gif": ".gif",
-  "image/webp": ".webp",
-}
-export const MAX_SCREENSHOT_BYTES = 20 * 1024 * 1024
-
-/** The pasted or dropped files to upload, each with a name the server can type; what's left out, and why. */
-export const screenshotsFrom = (
-  list: ReadonlyArray<{ readonly name: string; readonly type: string; readonly size: number }>,
-): { readonly accepted: Array<{ readonly index: number; readonly name: string }>; readonly refused: string[] } => {
-  const accepted: Array<{ index: number; name: string }> = []
-  const refused: string[] = []
-  list.forEach((file, index) => {
-    const ext = SCREENSHOT_TYPES[file.type]
-    if (ext === undefined) refused.push(`${file.name || "That file"} isn't a PNG, JPEG, GIF or WebP image`)
-    else if (file.size > MAX_SCREENSHOT_BYTES) refused.push(`${file.name || "That image"} is over 20 MB`)
-    else accepted.push({ index, name: /\.[a-z0-9]+$/i.test(file.name) ? file.name : `${file.name || "screenshot"}${ext}` })
-  })
-  return { accepted, refused }
-}

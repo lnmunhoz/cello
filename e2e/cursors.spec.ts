@@ -8,7 +8,7 @@
 import * as path from "node:path"
 import type { Page } from "@playwright/test"
 import { openClient, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
-import { animationsSettled, caption, card, column, defaultWorkspace, expect, newCommandId, seedProject, test, uniqueKey } from "./fixtures.ts"
+import { animationsSettled, caption, card, contentAnimations, column, defaultWorkspace, expect, newCommandId, seedProject, test, uniqueKey } from "./fixtures.ts"
 import { celloAs, SHOTS } from "./packets.ts"
 
 interface Seen {
@@ -96,7 +96,7 @@ async function expectIdle(page: Page) {
   expect(await page.evaluate(() => document.getElementById("agent-cursor-styles")?.textContent ?? "")).toBe("")
   // Whatever is still animating (a card settling, a notice fading) ends; then nothing is left.
   await animationsSettled(page)
-  expect(await page.evaluate(() => document.getAnimations().length)).toBe(0)
+  expect(await contentAnimations(page)).toBe(0)
   // Nothing asks for animation frames, Motion's frame loop included: the spy was in place before the
   // app loaded, so every requestAnimationFrame the app or Motion makes is counted. Cards may still be
   // settling into a closed slot (a Motion spring); wait for ten frames in a row with no request, so a
@@ -207,6 +207,12 @@ test("CEL-6: an agent moves, creates, comments, claims and renames cards while t
   await rpc.run((c) => c["task.update"]({ commandId: newCommandId(), id: detail.task.id, expectedVersion: detail.task.version, title: "Polish the landing page" }))
   await until(page, (s) => s.typed.includes("Polish the landing page"))
   await rpc.close()
+
+  // While the agent holds the card its agent mark spins (CEL-69): it's at work. Done, it lets go.
+  await caption(page, "The agent is done: `cello task release`, with a Released bubble; the card's agent mark leaves with it")
+  agent("task", "release", `${key}-2`)
+  await until(page, (s) => s.bubbles.includes("Released"))
+  await expect(column(page, "In Progress").locator(`[data-task-key="${key}-2"] .agent-mark`)).toHaveCount(0)
 
   await caption(page, "The cursor fades after a moment of quiet; the board is right and nothing keeps animating")
   await expectIdle(page)

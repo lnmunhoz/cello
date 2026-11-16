@@ -146,7 +146,7 @@ const drawn = drawnMarks<MarkSeen & { readonly holder: LiveHolder | null }>()
  * The agent mark for a task's card or list row (CEL-69), in place of the presence dot, and for the task
  * panel's (`place`, CEL-55). It follows whoever the holder line names (a subagent, else the session: its
  * colour and presence) and shows what it's doing (agentMood). A page load, or coming back to a card that
- * was off screen, plays nothing: what's drawn first is the baseline. When Lucas approves and the claim
+ * was off screen, plays no entry: what's drawn first is the baseline. When Lucas approves and the claim
  * ends, the holder stays for Done, then leaves.
  */
 function useTaskMark(task: Task, board: BoardState, holder: LiveHolder | null, place: "card" | "panel" | "panel-bar" = "card") {
@@ -159,27 +159,25 @@ function useTaskMark(task: Task, board: BoardState, holder: LiveHolder | null, p
 
 /**
  * The agent mark, as the cards show it (CEL-69): `mood` in the holder's colour and presence. `id` says
- * where it is drawn, for its baseline. It moves only for an event seen on screen (markEntry), and every
- * motion ends: Done when the task moves into In Review or Done, the hop when it starts waiting in Needs
- * input, and a short burst of working or thinking when the agent starts it or checks in while at it. A
- * busy agent keeps moving, a quiet one goes still within seconds, and an idle board runs nothing.
+ * where it is drawn, for its baseline. Working and thinking loop while the holder is active, page load
+ * included: an agent at work looks alive wherever its mark is (card, panel, sidebar), and the mark rests
+ * once it goes quiet (the 30 s clock, useNow, notices). The entries play once, only for a change seen on
+ * screen (markEntry): Done when the task moves into In Review or Done, the hop when it starts waiting in
+ * Needs input. An idle board runs nothing.
  */
 function useAgentMark(id: string, mood: AgentMood, statusId: string, holder: LiveHolder | null, size: number): { mark: ReactNode; leaving: boolean } {
   const now = useNow()
   const presence: Presence = holder ? presenceOf(holder.subject, now) : "ended"
-  const seen: MarkSeen = { mood, statusId, checkIn: holder ? holder.subject.lastSeenAt : null }
+  const seen: MarkSeen = { mood, statusId }
   const [last, setLast] = useState(() => drawn.baseline(id, Date.now()) ?? { ...seen, holder })
-  // The motion playing right now, if any; it clears once played.
-  const [entry, setEntry] = useState<"done" | "waiting" | "burst" | null>(null)
-  // Counts the motions started: the mark's key, so a check-in mid-burst starts it again.
-  const [plays, setPlays] = useState(0)
+  // The entry playing right now, if any; it clears once played.
+  const [entry, setEntry] = useState<"done" | "waiting" | null>(null)
   // The holder whose claim ended as the task finished (Lucas approved it): it stays to play Done.
   const [gone, setGone] = useState<LiveHolder | null>(null)
-  const changed = last.mood !== seen.mood || last.statusId !== seen.statusId || last.checkIn !== seen.checkIn
+  const changed = last.mood !== seen.mood || last.statusId !== seen.statusId
   if (changed || liveId(last.holder) !== liveId(holder)) {
     setLast({ ...seen, holder })
     const next = changed ? markEntry(last, seen) : entry
-    if (changed && next !== null) setPlays(plays + 1)
     setEntry(next)
     // The leaving mark relies on the approve moving the task and ending the claim in one change (one
     // transaction, one event), so the card sees Done and no holder together. Were they to arrive
@@ -188,8 +186,8 @@ function useAgentMark(id: string, mood: AgentMood, statusId: string, holder: Liv
   }
   // Only when what the mark shows changes: a 200-card board re-renders every card on each event.
   useEffect(() => {
-    drawn.seen(id, { mood: seen.mood, statusId: seen.statusId, checkIn: seen.checkIn, holder })
-  }, [id, seen.mood, seen.statusId, seen.checkIn, liveId(holder)])
+    drawn.seen(id, { mood: seen.mood, statusId: seen.statusId, holder })
+  }, [id, seen.mood, seen.statusId, liveId(holder)])
   // Leaving the screen (not each re-render) starts the baseline's short lifetime.
   useEffect(() => () => drawn.left(id, Date.now()), [id])
   const shown = holder ?? gone
@@ -200,7 +198,6 @@ function useAgentMark(id: string, mood: AgentMood, statusId: string, holder: Liv
   }
   const mark = (
     <AgentMark
-      key={plays}
       mood={seen.mood}
       play={entry !== null}
       size={size}

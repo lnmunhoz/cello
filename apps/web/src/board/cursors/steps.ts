@@ -1,6 +1,7 @@
 // Which board events get an agent cursor, and what kind of step each one plays. Pure.
 import { agentKey } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
+import { commentGist } from "@cello/shared/comment"
 import type { StepKind } from "./pacing.ts"
 
 /** What an agent session did to a card, before the board decides how to show it. */
@@ -39,7 +40,7 @@ export const changeOf = (e: CelloEvent, projectId: string, before: Before): Chan
     case "task.labels_changed":
       return change(e.id, "field")
     case "comment.added":
-      return change(e.comment.taskId, "comment", excerpt(e.comment.body))
+      return change(e.comment.taskId, "comment", excerpt(commentGist(e.comment)))
     case "task.claimed":
     case "task.claim_taken":
     case "task.released": {

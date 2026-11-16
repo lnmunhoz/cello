@@ -13,6 +13,7 @@ import {
   Millis,
   Priority,
   Project,
+  Reaction,
   Review,
   ReviewDecision,
   SessionAgent,
@@ -108,6 +109,10 @@ export const CelloEvent = Schema.Union([
   event("comment.added", { comment: Comment }),
   event("comment.edited", { id: Id, taskId: Schema.optionalKey(Id), before: CommentPatch, after: CommentPatch }),
   event("comment.deleted", { id: Id, taskId: Schema.optionalKey(Id), lastCommentAt: Schema.optionalKey(Schema.NullOr(Millis)) }),
+  // An emoji reaction on a comment (CEL-77), added or removed (removed carries it as it was). Not
+  // activity on the task: its version and last change stay, and a claim doesn't end.
+  event("reaction.added", { reaction: Reaction }),
+  event("reaction.removed", { reaction: Reaction }),
   // A review packet with its attachments. The same command then moves the task (task.moved).
   event("review.submitted", { review: Review }),
   // Approved, sent back, or superseded by a newer review. `ts` is when.

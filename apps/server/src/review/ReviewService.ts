@@ -38,6 +38,15 @@ export interface DecideReview {
   readonly commandId: string
   readonly key: string
   readonly note?: string
+  /**
+   * Screenshots pasted into the Review page's box with the decision (CEL-73): they go in a comment with
+   * the note (Send back's note is always one; Approve's becomes one only when screenshots come with it).
+   */
+  readonly attachmentIds?: ReadonlyArray<string> | undefined
+}
+
+export interface SendBack extends DecideReview {
+  readonly note: string
 }
 
 /** A stored file to send: an attachment itself, or its video's poster. */
@@ -51,8 +60,13 @@ type Write<A, E> = Effect.Effect<Commands.Written<A>, E, Caller>
 
 export class ReviewService extends Context.Service<ReviewService, {
   readonly submit: (input: SubmitReview) => Write<{ readonly review: Review; readonly task: Task }, NotFound | Invalid>
+  /**
+   * With `attachmentIds`, the screenshots and the note go in a comment first (delivered like any comment),
+   * and the approval carries no note; otherwise the note is the approval's own.
+   */
   readonly approve: (input: DecideReview) => Write<Task, NotFound | Invalid | HumanOnly>
-  readonly sendBack: (input: DecideReview & { readonly note: string }) => Write<Task, NotFound | Invalid | HumanOnly>
+  /** `attachmentIds`: screenshots pasted with the note (the Review page's comment box, CEL-73); they go with its comment. */
+  readonly sendBack: (input: SendBack) => Write<Task, NotFound | Invalid | HumanOnly>
   /** Every review of a task, oldest first. */
   readonly list: (taskId: string) => Effect.Effect<ReadonlyArray<Review>, NotFound>
   /** The file behind an attachment (or its poster), for GET /attachments/<id>. Links and deleted files are NotFound. */
@@ -166,15 +180,21 @@ const make = Effect.gen(function* () {
       }))
 
   const approve = Effect.fn("ReviewService.approve")(function* (input: DecideReview) {
-    return yield* decide(input, "approved", (context, task) =>
+    const shots = input.attachmentIds ?? []
+    return yield* decide(shots.length > 0 ? { ...input, note: undefined } : input, "approved", (context, task) =>
       Effect.gen(function* () {
         const done = approveTarget(yield* statusesOf(task))
         if (done === null) return yield* new Invalid({ field: "key", reason: "this workspace has no completed status" })
+        // Before the move, while the agent still holds the task: the comment reaches it.
+        if (shots.length > 0) {
+          const comment = yield* comments.addWithin(context, { taskId: task.id, body: input.note ?? "", attachmentIds: shots })
+          yield* inbox.deliverWithin(context, comment, "comment")
+        }
         return yield* tasks.moveWithin(context, { id: task.id, statusId: done.id })
       }))
   })
 
-  const sendBack = Effect.fn("ReviewService.sendBack")(function* (input: DecideReview & { readonly note: string }) {
+  const sendBack = Effect.fn("ReviewService.sendBack")(function* (input: SendBack) {
     const note = yield* requireText("note", input.note)
     return yield* decide({ ...input, note }, "sent_back", (context, task) =>
       Effect.gen(function* () {
@@ -182,7 +202,7 @@ const make = Effect.gen(function* () {
         if (started === null) return yield* new Invalid({ field: "key", reason: "this workspace has no started status" })
         // Sent back to the same agent: its claim stays, and the note waits for it as a comment, in its inbox.
         const moved = yield* tasks.moveWithin(context, { id: task.id, statusId: started.id, keepClaim: true })
-        const comment = yield* comments.addWithin(context, { taskId: task.id, body: note })
+        const comment = yield* comments.addWithin(context, { taskId: task.id, body: note, attachmentIds: input.attachmentIds })
         yield* inbox.deliverWithin(context, comment, "send_back")
         return moved
       }))
