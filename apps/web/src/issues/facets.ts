@@ -1,9 +1,10 @@
 // The facet panel's rules (CEL-52), kept pure so they're tested without a page: how labels are laid out
-// in groups (Area cut to its busiest 6 until "Show all"), which agent sessions "An agent" opens into,
-// what ticking those does, and which filter shows: a link's, or the one kept for the project.
+// in groups (Area cut to its busiest 6 until "Show all"), which milestones the Milestone section lists,
+// which agent sessions "An agent" opens into, what ticking those does, and which filter shows: a link's,
+// or the one kept for the project.
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import { filterFromSearch, hasFilter, type MatchContext, type TaskFilter } from "@cello/client/sync/filters"
-import { type AgentSession, type Label, LABEL_GROUP_NAMES, type LabelGroup, type Task } from "@cello/contract/entities"
+import { facetGroup, filterFromSearch, hasFilter, type MatchContext, milestoneKey, NO_MILESTONE, type TaskFilter } from "@cello/client/sync/filters"
+import { type AgentSession, type Label, LABEL_GROUP_NAMES, type LabelGroup, type Milestone, type Task } from "@cello/contract/entities"
 import { type Presence, presenceOf } from "@cello/shared/presence"
 
 /** How many areas show before "Show all". */
@@ -20,12 +21,13 @@ export interface LabelSection {
   readonly hidden: number
 }
 
-const ORDER: ReadonlyArray<LabelGroup> = ["kind", "area", "milestone", "none"]
+// No Milestone group: milestones have their own section (CEL-113), and an old Milestone label is Other.
+const ORDER: ReadonlyArray<LabelGroup> = ["kind", "area", "none"]
 
 /**
  * The Labels section's groups. Kinds go by how many of the project's tasks carry them; areas show the
  * busiest TOP_AREAS, then (with `showAll`) the rest A to Z underneath, and an area you picked always
- * shows. Milestones and the rest go A to Z. Counts come from the whole project, not the filtered view,
+ * shows. The rest go A to Z. Counts come from the whole project, not the filtered view,
  * so rows stay put while you filter.
  */
 export const labelSections = (
@@ -38,9 +40,9 @@ export const labelSections = (
   for (const task of tasks) for (const id of task.labelIds) carried.set(id, (carried.get(id) ?? 0) + 1)
   const byName = (a: Label, b: Label) => a.name.localeCompare(b.name)
   const busiest = (a: Label, b: Label) => (carried.get(b.id) ?? 0) - (carried.get(a.id) ?? 0) || byName(a, b)
-  const grouped = labels.some((l) => l.group !== "none")
+  const grouped = labels.some((l) => facetGroup(l.group) !== "none")
   return ORDER.flatMap((group): LabelSection[] => {
-    const all = labels.filter((l) => l.group === group)
+    const all = labels.filter((l) => facetGroup(l.group) === group)
     if (all.length === 0) return []
     const heading = grouped ? LABEL_GROUP_NAMES[group] : null
     if (group === "kind") return [{ group, heading, rows: [...all].sort(busiest), size: all.length, hidden: 0 }]
@@ -52,6 +54,14 @@ export const labelSections = (
     return [{ group, heading, rows: [...top, ...extra], size: all.length, hidden: rest.length - extra.length }]
   })
 }
+
+/**
+ * The Milestone section's rows (CEL-113): the project's open milestones in the order the human set
+ * (`milestones` comes sorted, as `milestonesInScope` gives them), and a closed one only while it's
+ * picked, so a link to it can be unticked. No milestone is a row of its own, after these.
+ */
+export const milestoneRows = (milestones: ReadonlyArray<Milestone>, picked: ReadonlyArray<string>): Milestone[] =>
+  milestones.filter((m) => m.state === "open" || picked.includes(milestoneKey(m.name)))
 
 const PRESENCE_ORDER: Record<Presence, number> = { active: 0, idle: 1, ended: 2 }
 
@@ -100,9 +110,10 @@ export const shownFilter = (search: Record<string, unknown>, kept: TaskFilter): 
   return hasFilter(linked) ? linked : kept
 }
 
-/** Leaves out labels the workspace doesn't have (renamed, archived) and sessions the board doesn't know. */
+/** Leaves out labels the workspace doesn't have (renamed, archived), milestones it doesn't have, and sessions the board doesn't know. */
 export const sanitize = (f: TaskFilter, c: MatchContext): TaskFilter => ({
   ...f,
   labels: f.labels.filter((name) => c.labels.has(name.toLowerCase())),
+  milestones: f.milestones.filter((name) => name === NO_MILESTONE || c.milestones.has(milestoneKey(name))),
   sessions: f.sessions.filter((id) => c.board.sessions[id] !== undefined),
 })

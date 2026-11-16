@@ -330,7 +330,7 @@ cello task create "Restore refuses while a server runs" --parent CEL-23 --label 
 
 - **Todo or Backlog:** Todo means agreed and ready to build. When the human says "add to the backlog", use `--status Backlog`.
 - **Labels must already exist.** `cello label list` lists them, and an unknown label fails with the real names. `cello label create` makes a new one (see Labels).
-- **So must the milestone,** and it must be open: `cello milestone list` shows them, `cello milestone create` makes one (see Milestones).
+- **So must the milestone,** and it must be open: `cello milestone list` shows them, `cello milestone create` makes one (see Milestones). `--milestone none` is the same as leaving it out: no milestone.
 - **Priority:** `urgent`, `high`, `medium`, `low` or `none`.
 - **Long descriptions:** use `--body-file -` with a heredoc, or `--body-file notes.md`.
 
@@ -459,7 +459,7 @@ cello task list
 
 Labels say what a task is about: what kind of work, which part of the product. **Each project has its own labels**: the `cello label` commands, `cello context`, `cello task label` and `cello search` see only the current project's (the repository you're in, or `--project KEY`), and a task can only carry labels of its own project. Each label has a name (unique in its project, ignoring case), a colour and a group. Two projects can each have a label of the same name, such as `bug`; they're separate labels, and changing or archiving one leaves the other alone. Each project has its own convention for them; Cello's own board, for one, gives each task one kind (feature, bug, polish, chore, docs) and one or more areas (board, cli, agents…).
 
-**Groups** say what a label means, so the board's filter can sort them: **kind** (the kind of work: feature, bug…), **area** (the part of the product: board, cli…), **milestone** or **none** (the default; every screen calls it **Other**). Milestones are their own thing now (see Milestones): Cello turned the Milestone labels it had (M2, M3) into milestones and removed the labels, so don't make new Milestone labels. The Issues tab's filter panel lists labels under Kind, Area, Milestone and Other, and matches any label within a group and every group picked: ticking `bug` and `agents` shows the bugs in agents.
+**Groups** say what a label means, so the board's filter can sort them: **kind** (the kind of work: feature, bug…), **area** (the part of the product: board, cli…), **milestone** or **none** (the default; every screen calls it **Other**). Milestones are their own thing now (see Milestones): Cello turned the Milestone labels it had (M2, M3) into milestones and removed the labels, so don't make new Milestone labels. The Issues tab's filter panel lists labels under Kind, Area and Other (a label still in the Milestone group shows under Other, since milestones have a Milestone section of their own), and matches any label within a group and every group picked: ticking `bug` and `agents` shows the bugs in agents.
 
 ```bash
 cello label list                                           # the project's labels: colour, and how many of its tasks carry each, under its group
@@ -511,7 +511,7 @@ Until some label has a group, `cello label list` is one list without headings. `
 
 ## Milestones
 
-A milestone is a goal for a project, such as "M3 · Watching agents", with an optional target date. **Each task is in at most one milestone**, and the milestone's progress is counted from its tasks: done of total, where Done counts as done, Canceled is left out of the total, and Backlog is counted but shown apart (it isn't committed yet). Nobody types progress in; it moves as cards move. **Each project has its own milestones**, in the order the human sets (M2 before M3), each open or closed. The card shows its milestone next to the labels, and the task panel has a Milestone picker.
+A milestone is a goal for a project, such as "M3 · Watching agents", with an optional target date. **Each task is in at most one milestone**, and the milestone's progress is counted from its tasks: done of total, where Done counts as done, Canceled is left out of the total, and Backlog is counted but shown apart (it isn't committed yet). Nobody types progress in; it moves as cards move. **Each project has its own milestones**, in the order the human sets (M2 before M3), each open or closed. The card shows its milestone next to the labels, and the task panel has a Milestone picker. The board and list's filter panel has a **Milestone** section: the project's open milestones in order, then No milestone, each with how many tasks it would show; ticking M3 and No milestone shows the tasks in M3 and those in none. For you, `cello task list --milestone M3` is the same filter.
 
 ```bash
 cello milestone list                                              # every milestone in order: open or closed, progress, date, goal
@@ -1478,7 +1478,7 @@ cello task create [flags] <title>
 | `--status string` | Status by name. Default: the first visible one (Todo). Backlog for ideas that still need discussing. |
 | `--priority string` | urgent, high, medium, low or none. |
 | `--label string` | A label name; repeat it, or separate names with commas. |
-| `--milestone string` | An open milestone of the project, by name (`cello milestone list`). |
+| `--milestone string` | An open milestone of the project, by name (`cello milestone list`); none for no milestone. |
 | `--parent string` | Parent task key. |
 
 ### cello task edit

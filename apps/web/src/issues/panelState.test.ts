@@ -2,7 +2,12 @@ import { EMPTY_FILTER, type TaskFilter } from "@cello/client/sync/filters"
 import { describe, expect, it } from "vitest"
 import { foldedKeys, isPanelOpen, panelValue, pickedValues, toggleFold } from "./panelState.ts"
 
-const names = { labels: new Map([["bug", "bug"], ["agents", "agents"], ["m2", "M2"]]), sessions: new Map([["s1", "Claude Code · 8a41c9e2"]]), me: "Lucas" }
+const names = {
+  labels: new Map([["bug", "bug"], ["agents", "agents"], ["someday", "Someday"]]),
+  milestones: new Map([["m3", "M3"]]),
+  sessions: new Map([["s1", "Claude Code · 8a41c9e2"]]),
+  me: "Lucas",
+}
 
 describe("the panel, open or folded to the rail", () => {
   it("is open unless this device kept it as the rail", () => {
@@ -36,10 +41,22 @@ describe("folded sections", () => {
 
 describe("what's picked, for the rail's count and a folded heading", () => {
   it("names each value on, with its section, labels first and as written", () => {
-    const f: TaskFilter = { ...EMPTY_FILTER, labels: ["bug", "m2"], holder: ["nobody", "human"], sessions: ["s1"], priority: [1], due: ["overdue"], updated: "day", text: " drag " }
+    const f: TaskFilter = {
+      ...EMPTY_FILTER,
+      labels: ["bug", "someday"],
+      milestones: ["m3", "none"],
+      holder: ["nobody", "human"],
+      sessions: ["s1"],
+      priority: [1],
+      due: ["overdue"],
+      updated: "day",
+      text: " drag ",
+    }
     expect(pickedValues(f, names)).toEqual([
       { field: "labels", name: "bug" },
-      { field: "labels", name: "M2" },
+      { field: "labels", name: "Someday" },
+      { field: "milestones", name: "M3" },
+      { field: "milestones", name: "No milestone" },
       { field: "holder", name: "Nobody" },
       { field: "holder", name: "Lucas" },
       { field: "holder", name: "Claude Code · 8a41c9e2" },

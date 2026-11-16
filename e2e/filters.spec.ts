@@ -45,7 +45,9 @@ test("CEL-52: filter the board by kind and area: a bug and an area show the bugs
   await page.goto(`/${key}/issues`)
   await expectShown(boardCards(page), key, Array.from({ length: 30 }, (_, i) => i + 1))
 
-  await caption(page, "The filter panel: labels in Kind, Area and Milestone, each with how many tasks it would show")
+  await caption(page, "The filter panel: labels in Kind and Area, each with how many tasks it would show")
+  // Milestones have their own section (CEL-113), not a label group.
+  await expect(panel(page).locator('[data-label-group="milestone"]')).toHaveCount(0)
   await expect(panel(page).locator('[data-label-group="kind"] [data-facet-option]')).toHaveCount(5)
   await expect(option(page, "label-bug").locator("[data-facet-count]")).toHaveText("6")
   // The 6 busiest areas, by task count across the project.
@@ -323,6 +325,69 @@ test("CEL-52: the panel folds to a rail counting the filters on, ⌘⇧F opens a
   await panel(page).locator('[data-fold="Area"]').click()
   await expect(option(page, "label-agents")).toHaveAttribute("aria-checked", "true")
   await expect(panel(page).locator('[data-fold="Area"] [data-fold-summary]')).toHaveCount(0)
+})
+
+test("CEL-113: filter by milestone: the Milestone section lists the open milestones in order and No milestone with counts; it filters the board and the list, combines with labels, and a reload keeps it", async ({ page, cello, baseURL, browser }) => {
+  const { key } = await seed(cello, baseURL!, "MLF")
+  const rows = panel(page).locator('[data-facet="milestones"] [data-facet-option]')
+  await page.goto(`/${key}/issues`)
+  await expectShown(boardCards(page), key, Array.from({ length: 30 }, (_, i) => i + 1))
+
+  await caption(page, "The Milestone section, under Label: M2, M3, M4 in their order, then No milestone, each with how many tasks it would show")
+  await panel(page).locator('[data-facet="milestones"]').evaluate((el) => el.scrollIntoView({ block: "center" }))
+  await expect(rows).toHaveText(["M22", "M31", "M40", "No milestone27"])
+
+  await caption(page, "Tick M2: only its two tasks stay, and the address carries the filter")
+  await tick(page, "milestone-m2", "true")
+  await expectShown(boardCards(page), key, [2, 18])
+  await expect(panel(page).locator("[data-filter-result]")).toHaveText("2 of 30 tasks")
+  await expect(page).toHaveURL(/milestone=m2/)
+
+  await caption(page, "Tick M3 too: any picked milestone matches, so M2's and M3's tasks")
+  await tick(page, "milestone-m3", "true")
+  await expectShown(boardCards(page), key, [2, 18, 23])
+
+  await caption(page, "Tick the feature label: milestones and labels combine, and M3 now counts 0 (its task is a chore)")
+  await tick(page, "label-feature", "true")
+  await expectShown(boardCards(page), key, [2, 18])
+  await expect(option(page, "milestone-m3").locator("[data-facet-count]")).toHaveText("0")
+  await expect(option(page, "milestone-none").locator("[data-facet-count]")).toHaveText("15")
+
+  await caption(page, "Reload: the milestone filter stays, still ticked")
+  await page.reload()
+  await expectShown(boardCards(page), key, [2, 18])
+  await expect(option(page, "milestone-m2")).toHaveAttribute("aria-checked", "true")
+  await expect(option(page, "milestone-m3")).toHaveAttribute("aria-checked", "true")
+
+  await caption(page, "Switch to the list: the same filter")
+  await page.getByRole("button", { name: /^Display/ }).click()
+  await page.getByRole("radio", { name: "List" }).click()
+  await page.keyboard.press("Escape")
+  await expectShown(listRows(page), key, [2, 18])
+
+  await caption(page, "Clear all, then tick No milestone: the 27 tasks without a milestone")
+  await panel(page).getByRole("button", { name: "Clear all" }).click()
+  await expectShown(listRows(page), key, Array.from({ length: 30 }, (_, i) => i + 1))
+  await tick(page, "milestone-none", "true")
+  await expect(listRows(page)).toHaveCount(27)
+  await expect(listRows(page).filter({ hasText: "Release management" })).toHaveCount(0)
+
+  await caption(page, "Fold the Milestone section: its heading still names what's picked")
+  await fold(page, "Milestone")
+  await expect(panel(page).locator('[data-fold="Milestone"] [data-fold-summary]')).toHaveText("No milestone")
+
+  // The panel with the Milestone section and M2 ticked, light and dark, in unrecorded windows.
+  for (const colorScheme of ["light", "dark"] as const) {
+    const context = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height: 900 }, colorScheme })
+    await context.addInitScript(() => localStorage.setItem("cello:agent-cursors", "off"))
+    const shotPage = await context.newPage()
+    await shotPage.goto(`/${key}/issues?milestone=m2`)
+    await expectShown(boardCards(shotPage), key, [2, 18])
+    await panel(shotPage).locator('[data-facet="milestones"]').evaluate((el) => el.scrollIntoView({ block: "center" }))
+    await shotPage.mouse.move(1430, 890)
+    await shotPage.screenshot({ path: path.join(SHOTS, `cel-113-filter-milestone-${colorScheme}.png`) })
+    await context.close()
+  }
 })
 
 test("CEL-52: screenshots of the filter panel, light and dark", async ({ browser, cello, baseURL }) => {

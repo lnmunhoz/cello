@@ -1,6 +1,6 @@
 // The filter panel's own state (CEL-52), kept on this device: whether it's open or folded to the rail,
 // which sections are folded, and what's picked in each (the rail's count, a folded heading's words).
-import type { FilterField, TaskFilter } from "@cello/client/sync/filters"
+import { type FilterField, NO_MILESTONE, type TaskFilter } from "@cello/client/sync/filters"
 import { PRIORITY_LABELS } from "../components/ui/PriorityIcon.tsx"
 
 /** Where this device keeps whether the panel is open ("open") or folded to the rail ("rail"). */
@@ -34,6 +34,8 @@ export const groupKey = (group: string): string => `group-${group}`
 export interface PickedNames {
   /** Lower-case label name → the name as written. */
   readonly labels: ReadonlyMap<string, string>
+  /** Lower-case milestone name → the name as written (CEL-113). */
+  readonly milestones: ReadonlyMap<string, string>
   /** Session id → "Claude Code · 8a41c9e2". */
   readonly sessions: ReadonlyMap<string, string>
   /** The human's first name. */
@@ -45,6 +47,8 @@ export interface Picked {
   readonly name: string
 }
 
+/** The Milestone section's row for tasks without one. */
+export const NO_MILESTONE_NAME = "No milestone"
 const HOLDER = { agent: "An agent", nobody: "Nobody" } as const
 const WAITING = { review: "Open review packet", input: "Needs your input" } as const
 const DUE = { overdue: "Overdue", week: "Due this week", none: "No due date" } as const
@@ -55,6 +59,7 @@ export const pickedValues = (f: TaskFilter, names: PickedNames): Picked[] => {
   const text = f.text.trim()
   return [
     ...f.labels.map((l): Picked => ({ field: "labels", name: names.labels.get(l) ?? l })),
+    ...f.milestones.map((m): Picked => ({ field: "milestones", name: m === NO_MILESTONE ? NO_MILESTONE_NAME : names.milestones.get(m) ?? m })),
     ...f.holder.map((h): Picked => ({ field: "holder", name: h === "human" ? names.me : HOLDER[h] })),
     ...f.sessions.map((s): Picked => ({ field: "holder", name: names.sessions.get(s) ?? s })),
     ...f.priority.map((p): Picked => ({ field: "priority", name: PRIORITY_LABELS[p] })),

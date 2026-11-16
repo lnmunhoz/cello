@@ -4,7 +4,10 @@
 //
 // Labels match by group: any picked label within a group, and every group picked. `bug` + `agents`
 // shows the bugs in agents; `bug` + `feature` shows both kinds.
-import type { Label, LabelGroup, Priority, Scope, Task } from "@cello/contract/entities"
+//
+// Milestones (CEL-113) match any picked one, by name in any case; `none` is No milestone.
+import type { Label, LabelGroup, Milestone, Priority, Scope, Task } from "@cello/contract/entities"
+import { byPosition } from "@cello/shared/milestone"
 import type { BoardState } from "./applyEvents.ts"
 import { openAskOf } from "./asks.ts"
 import { openReviewOf } from "./reviews.ts"
@@ -20,6 +23,8 @@ export type Updated = "day" | "week"
 export interface TaskFilter {
   /** Label names, lower case (what the URL carries). */
   readonly labels: ReadonlyArray<string>
+  /** Milestone names, lower case, and `none` for tasks without one (CEL-113). */
+  readonly milestones: ReadonlyArray<string>
   readonly priority: ReadonlyArray<Priority>
   readonly holder: ReadonlyArray<Holder>
   /** Agent sessions by id: their claims match too, beside `holder` ("An agent" opens into these). */
@@ -31,8 +36,12 @@ export interface TaskFilter {
   readonly text: string
 }
 
+/** The value that picks tasks without a milestone. */
+export const NO_MILESTONE = "none"
+
 export const EMPTY_FILTER: TaskFilter = {
   labels: [],
+  milestones: [],
   priority: [],
   holder: [],
   sessions: [],
@@ -43,9 +52,9 @@ export const EMPTY_FILTER: TaskFilter = {
   text: "",
 }
 
-export type FilterField = "labels" | "priority" | "holder" | "maker" | "waiting" | "due" | "updated" | "text"
+export type FilterField = "labels" | "milestones" | "priority" | "holder" | "maker" | "waiting" | "due" | "updated" | "text"
 
-export const FIELDS: ReadonlyArray<FilterField> = ["labels", "priority", "holder", "maker", "waiting", "due", "updated", "text"]
+export const FIELDS: ReadonlyArray<FilterField> = ["labels", "milestones", "priority", "holder", "maker", "waiting", "due", "updated", "text"]
 
 export const isActive = (f: TaskFilter, field: FilterField): boolean => {
   switch (field) {
@@ -77,23 +86,47 @@ export interface MatchContext {
    * project's bug.
    */
   readonly labels: ReadonlyMap<string, ReadonlyArray<{ readonly id: string; readonly group: LabelGroup }>>
+  /**
+   * The milestones in view, closed ones too (a link to one keeps working): lower-case name → their ids.
+   * One per name in a project; All projects has each project's M2.
+   */
+  readonly milestones: ReadonlyMap<string, ReadonlyArray<string>>
   readonly now: number
 }
 
+/** Whether a milestone is in the scope: the project, or any project of the workspace. */
+const inScope = (board: BoardState, scope: Scope, projectId: string): boolean =>
+  "projectId" in scope ? projectId === scope.projectId : board.projects[projectId]?.workspaceId === scope.workspaceId
+
+/** The milestones a project's view offers, or All projects', closed ones too, in the order the human set. */
+export const milestonesInScope = (board: BoardState, scope: Scope): Milestone[] =>
+  Object.values(board.milestones).filter((m) => inScope(board, scope, m.projectId)).sort(byPosition)
+
+/** How a milestone name is matched: trimmed, any case (as @cello/shared/milestone's `findMilestone`). */
+export const milestoneKey = (name: string): string => name.trim().toLowerCase()
+
+/**
+ * The group a label is filtered and listed under. Milestones are their own thing since CEL-113, with
+ * their own section, so a label still in the old Milestone group counts as Other.
+ */
+export const facetGroup = (group: LabelGroup): LabelGroup => (group === "milestone" ? "none" : group)
+
 /** The live labels a project's view offers (`{ projectId }`), or All projects' (`{ workspaceId }`). */
 export const labelsInScope = (board: BoardState, scope: Scope): Label[] =>
-  Object.values(board.labels).filter((l) =>
-    l.archivedAt === null &&
-    ("projectId" in scope ? l.projectId === scope.projectId : board.projects[l.projectId]?.workspaceId === scope.workspaceId)
-  )
+  Object.values(board.labels).filter((l) => l.archivedAt === null && inScope(board, scope, l.projectId))
 
 export const matchContext = (board: BoardState, scope: Scope, now: number): MatchContext => {
   const labels = new Map<string, Array<{ readonly id: string; readonly group: LabelGroup }>>()
   for (const l of labelsInScope(board, scope)) {
     const name = l.name.toLowerCase()
-    labels.set(name, [...(labels.get(name) ?? []), { id: l.id, group: l.group }])
+    labels.set(name, [...(labels.get(name) ?? []), { id: l.id, group: facetGroup(l.group) }])
   }
-  return { board, labels, now }
+  const milestones = new Map<string, string[]>()
+  for (const m of milestonesInScope(board, scope)) {
+    const name = milestoneKey(m.name)
+    milestones.set(name, [...(milestones.get(name) ?? []), m.id])
+  }
+  return { board, labels, milestones, now }
 }
 
 const DAY = 86_400_000
@@ -137,6 +170,15 @@ const labelsMatch = (task: Task, f: TaskFilter, c: MatchContext, exceptGroup?: L
 }
 
 const check: Record<Exclude<FilterField, "labels">, (task: Task, f: TaskFilter, c: MatchContext) => boolean> = {
+  milestones: (task, f, c) => {
+    const names = f.milestones.map(milestoneKey)
+    const ids = names.flatMap((name) => c.milestones.get(name) ?? [])
+    const none = names.includes(NO_MILESTONE)
+    // Only names the view doesn't have: nothing to narrow by, as with labels.
+    if (!none && ids.length === 0) return true
+    const id = task.milestoneId ?? null
+    return id === null ? none : ids.includes(id)
+  },
   priority: (task, f) => f.priority.includes(task.priority),
   holder: (task, f, c) =>
     f.holder.includes(holderOf(task, c.board)) || (task.assigneeSessionId !== null && f.sessions.includes(task.assigneeSessionId)),
@@ -195,9 +237,10 @@ export const labelCount = (tasks: ReadonlyArray<Task>, f: TaskFilter, c: MatchCo
 
 // ---------- URL ----------
 
-/** The filter's search params: `?label=bug,agents&priority=urgent&who=agent&session=<id>&by=human&waiting=review&due=overdue&updated=day&q=drag`. */
+/** The filter's search params: `?label=bug,agents&milestone=m3,none&priority=urgent&who=agent&session=<id>&by=human&waiting=review&due=overdue&updated=day&q=drag`. */
 export interface FilterSearch {
   readonly label?: string
+  readonly milestone?: string
   readonly priority?: string
   readonly who?: string
   readonly session?: string
@@ -217,6 +260,7 @@ const pick = <T extends string>(values: ReadonlyArray<string>, allowed: Readonly
 /** The filter a search names. Unknown values are dropped. */
 export const filterFromSearch = (s: Record<string, unknown>): TaskFilter => ({
   labels: words(s["label"]),
+  milestones: words(s["milestone"]),
   priority: words(s["priority"]).flatMap((w) => {
     const entry = Object.entries(PRIORITY_WORDS).find(([, word]) => word === w)
     return entry ? [Number(entry[0]) as Priority] : []
@@ -236,6 +280,7 @@ export const filterFromSearch = (s: Record<string, unknown>): TaskFilter => ({
 /** The search params for a filter; every empty field is undefined, which removes its param. */
 export const searchFromFilter = (f: TaskFilter): { [K in keyof Required<FilterSearch>]: Required<FilterSearch>[K] | undefined } => ({
   label: f.labels.length ? f.labels.join(",") : undefined,
+  milestone: f.milestones.length ? f.milestones.join(",") : undefined,
   priority: f.priority.length ? f.priority.map((p) => PRIORITY_WORDS[p]).join(",") : undefined,
   who: f.holder.length ? f.holder.join(",") : undefined,
   session: f.sessions.length ? f.sessions.join(",") : undefined,

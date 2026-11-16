@@ -1,6 +1,7 @@
 // The Issues tab's filter panel (CEL-52): on the left of the board and the list, every property with its
 // values, each with a checkbox and how many tasks it would show. Labels come in their groups (Area cut
-// to its busiest 6 until "Show all"), and "An agent" opens into the sessions holding claims. Each section
+// to its busiest 6 until "Show all"), Milestone lists the project's open milestones and No milestone
+// (CEL-113), and "An agent" opens into the sessions holding claims. Each section
 // and label group folds, and the whole panel folds to a rail (./FilterRail.tsx), both kept on this device.
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import {
@@ -14,11 +15,14 @@ import {
   type Maker,
   matchContext,
   type MatchContext,
+  milestoneKey,
+  milestonesInScope,
+  NO_MILESTONE,
   type TaskFilter,
   type Updated,
   type Waiting,
 } from "@cello/client/sync/filters"
-import type { Label, Priority, Task } from "@cello/contract/entities"
+import type { Label, Milestone, Priority, Task } from "@cello/contract/entities"
 import { presenceOf, presenceWords } from "@cello/shared/presence"
 import {
   BotIcon,
@@ -29,6 +33,7 @@ import {
   ClockIcon,
   FileCheckIcon,
   MessageCircleQuestionIcon,
+  MilestoneIcon,
   UserIcon,
 } from "lucide-react"
 import { type ReactNode, useState } from "react"
@@ -39,9 +44,9 @@ import { PRIORITY_LABELS, PriorityIcon } from "../components/ui/PriorityIcon.tsx
 import { sessionWho } from "../presence/model.ts"
 import { PresenceDot } from "../presence/Presence.tsx"
 import { useNow } from "../presence/useNow.ts"
-import { agentBox, claimSessions, labelSections, toggleAgent, toggleSession, TOP_AREAS } from "./facets.ts"
+import { agentBox, claimSessions, labelSections, milestoneRows, toggleAgent, toggleSession, TOP_AREAS } from "./facets.ts"
 import { FilterRail, HidePanelButton, useFolded, usePanelOpen } from "./FilterRail.tsx"
-import { groupKey, pickedValues } from "./panelState.ts"
+import { groupKey, NO_MILESTONE_NAME, pickedValues } from "./panelState.ts"
 import { type FilterState, projectTasks, useFilter, useProjectBoard } from "./useFilter.ts"
 
 const icon = "size-3.5 shrink-0 text-muted"
@@ -75,8 +80,11 @@ export function FacetPanel() {
   const me = Object.values(board.actors).find((a) => a.kind === "human")?.name.split(" ")[0] ?? "You"
   // The project's own labels (CEL-80): another project's Kinds and Areas aren't offered here.
   const labels = labelsInScope(board, { projectId: project.id })
+  // The project's milestones (CEL-113), closed ones too: a picked closed one still has its name.
+  const milestones = milestonesInScope(board, { projectId: project.id })
   const picked = pickedValues(state.filter, {
     labels: new Map(labels.map((l) => [l.name.toLowerCase(), l.name])),
+    milestones: new Map(milestones.map((m) => [milestoneKey(m.name), m.name])),
     sessions: new Map(Object.values(board.sessions).map((s) => [s.id, `${s.clientName} · ${sessionWho(s).short}`])),
     me,
   })
@@ -112,6 +120,9 @@ export function FacetPanel() {
       <TextFilter state={state} />
       <Section name="Label" field="labels" filter={state.filter} folds={folds} summary={summary("labels")}>
         <LabelFacet props={props} labels={labels} />
+      </Section>
+      <Section name="Milestone" field="milestones" filter={state.filter} folds={folds} summary={summary("milestones")}>
+        <MilestoneFacet props={props} milestones={milestones} />
       </Section>
       <Section name="Working on it" field="holder" filter={state.filter} folds={folds} summary={summary("holder")}>
         <WhoFacet props={props} me={me} open={sessionsOpen} onOpen={setSessionsOpen} now={now} />
@@ -300,6 +311,26 @@ function LabelFacet({ props, labels }: { props: PanelProps; labels: ReadonlyArra
           ) : null}
         </div>
       ))}
+    </>
+  )
+}
+
+/**
+ * The project's open milestones in order, then No milestone (CEL-113). Any picked one matches, and each
+ * counts with the other filters on, as the other sections do.
+ */
+function MilestoneFacet({ props, milestones }: { props: PanelProps; milestones: ReadonlyArray<Milestone> }) {
+  const picked = props.state.filter.milestones
+  const rows = milestoneRows(milestones, picked)
+  if (rows.length === 0 && !picked.includes(NO_MILESTONE)) return <p className="px-2 text-xs text-faint">No milestones yet</p>
+  const value = (key: string, name: string, shownIcon: ReactNode) => (
+    <Value key={key} props={props} field="milestones" id={`milestone-${key}`} name={name} icon={shownIcon} checked={on(picked.includes(key))}
+      toggle={(f) => ({ ...f, milestones: toggled(f.milestones, key) })} probe={{ milestones: [key] }} />
+  )
+  return (
+    <>
+      {rows.map((m) => value(milestoneKey(m.name), m.state === "closed" ? `${m.name} (closed)` : m.name, <MilestoneIcon aria-hidden className={icon} />))}
+      {value(NO_MILESTONE, NO_MILESTONE_NAME, <CircleDashedIcon aria-hidden className={icon} />)}
     </>
   )
 }
