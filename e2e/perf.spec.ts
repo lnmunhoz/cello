@@ -1,14 +1,22 @@
 // M1 "Done when": a board with 200 tasks keeps 60 fps while dragging. Seeds 200 tasks through the RPC
 // client, drags a card across the columns for about 2 seconds, and counts animation frames meanwhile.
 // CEL-6 adds the same board with three agent sessions moving cards, so three cursors fly at once.
-// CEL-69 has 40 agents start building at once: their marks spin together while the main thread stays idle.
+// CEL-69 puts 40 working agents on a board: their marks spin while the main thread stays idle, and
+// stop when the agents end.
+import { type ChildProcess, spawn } from "node:child_process"
 import type { Page } from "@playwright/test"
 import { openClient } from "../packages/client/test/support/promiseClient.ts"
-import { agentAs, animationsSettled, card, caption, column, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, test, uniqueKey } from "./fixtures.ts"
+import { agentAs, card, caption, column, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, test, uniqueKey } from "./fixtures.ts"
 
 const COLUMNS = ["Todo", "In Progress", "In Review", "Done"]
 const AGENT_COLUMNS = ["Todo", "In Progress", "Done"]
 const TITLES = ["Wire the SQLite store", "Draft the card drawer", "Fix due dates", "Polish theme tokens", "Add keyboard moves"]
+
+/** Processes a test started to stand for agent sessions: ended after it, whatever happened. */
+const children: ChildProcess[] = []
+test.afterEach(() => {
+  for (const child of children.splice(0)) child.kill()
+})
 
 /** Frame stats from requestAnimationFrame timestamps. */
 interface Frames {
@@ -213,26 +221,30 @@ test("performance: a 200-task board with three agent cursors flying at once stay
   expect(await page.evaluate(() => document.getElementById("agent-cursor-styles")?.textContent ?? "")).toBe("")
 })
 
-test("performance: 40 agents spinning at once stay near 60 fps (at least 55), with no long tasks, no extra layout and little extra style work, then go still (CEL-69)", async ({ page, cello, baseURL }, testInfo) => {
-  test.setTimeout(Math.max(test.info().timeout, 90_000))
+test("performance: 40 working agents spinning stay near 60 fps (at least 55), with no long tasks, no extra layout and little extra style work, and nothing runs once they end (CEL-69)", async ({ page, cello, baseURL }, testInfo) => {
+  // The server's sweep notices the agents' processes are gone within 30 s: this test waits for it once.
+  test.setTimeout(Math.max(test.info().timeout, 120_000))
   const key = uniqueKey("PERFA")
   const project = await seedProject(cello, "Agent marks", key)
   const { statuses } = await defaultWorkspace(cello)
+  // Each session's process is a child this test starts and ends, so the sessions can end on cue.
+  const processes = Array.from({ length: 4 }, () => spawn("sleep", ["600"], { stdio: "ignore" }))
+  children.push(...processes)
   const agents = await Promise.all(
-    ["4a1b2c3d-perf-mark-one", "5b2c3d4e-perf-mark-two", "6c3d4e5f-perf-mark-three", "7d4e5f60-perf-mark-four"].map((s) => agentAs(baseURL!, s, process.pid)),
+    ["4a1b2c3d-perf-mark-one", "5b2c3d4e-perf-mark-two", "6c3d4e5f-perf-mark-three", "7d4e5f60-perf-mark-four"].map((s, i) =>
+      agentAs(baseURL!, s, processes[i]!.pid!)),
   )
   const keys = Array.from({ length: 40 }, (_, i) => `${key}-${i + 1}`)
   for (const [i, taskKey] of keys.entries()) {
     await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title: `${TITLES[i % TITLES.length]} (${i + 1})`, statusId: statuses.Todo!.id }))
     const agent = agents[i % agents.length]!
     await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: taskKey }))
-    await agent.run((c) => c["task.stage"]({ commandId: newCommandId(), key: taskKey, stage: "review" }))
+    await agent.run((c) => c["task.stage"]({ commandId: newCommandId(), key: taskKey, stage: "building" }))
   }
   await page.goto(`/${key}/issues`)
-  // Each agent reviewing: its mark rests in the thinking pose, nothing moving as the board draws.
-  await expect(page.locator('[data-agent-mood="thinking"]')).toHaveCount(40)
-  expect(await page.evaluate(() => document.getAnimations().length)).toBe(0)
-  await caption(page, "40 agents move their tasks to Building at once: 40 marks spin together. Counting 150 frames, then again once they've gone still")
+  // An agent at work looks alive: each Building card's mark spins from the moment the board draws.
+  await expect(page.locator('[data-agent-mood="working"]')).toHaveCount(40)
+  await caption(page, "40 tasks with an agent building each: 40 marks spinning. Counting 150 frames, then again once the agents have ended")
 
   const cdp = await page.context().newCDPSession(page)
   await cdp.send("Performance.enable")
@@ -275,30 +287,12 @@ test("performance: 40 agents spinning at once stay near 60 fps (at least 55), wi
     }
   }
 
-  // Counts the spins as they start (two layers per mark: the body and the face), event by event.
-  await page.evaluate(() => {
-    const w = window as unknown as { __spinning?: Promise<void> }
-    w.__spinning = new Promise((resolve) => {
-      let started = 0
-      const on = (e: AnimationEvent) => {
-        if (e.animationName !== "agent-spin" && e.animationName !== "agent-follow") return
-        if (++started < 80) return
-        document.removeEventListener("animationstart", on)
-        resolve()
-      }
-      document.addEventListener("animationstart", on)
-    })
-  })
-  // Each session moves its ten tasks to Building at once: a burst of three spins (4.2 s) on every card.
-  await Promise.all(
-    agents.map((agent, a) =>
-      Promise.all(keys.filter((_, i) => i % agents.length === a).map((taskKey) => agent.run((c) => c["task.stage"]({ commandId: newCommandId(), key: taskKey, stage: "building" })))),
-    ),
-  )
-  await page.evaluate(() => (window as unknown as { __spinning: Promise<void> }).__spinning)
   const spinning = await measure()
-  // The bursts end by themselves: the board goes idle with no animation left.
-  await animationsSettled(page)
+  // The agents end (their processes exit): within 30 s the server notices, the board shows them ended,
+  // and their marks rest. Nothing is left running.
+  for (const p of processes) p.kill()
+  await expect(page.locator('.agent-mark[data-presence="ended"]')).toHaveCount(40, { timeout: 45_000 })
+  await expect(page.locator('[data-agent-mood="working"]')).toHaveCount(0)
   const still = await measure()
   console.log(`[perf] agent marks spinning ${JSON.stringify(spinning)}`)
   console.log(`[perf] agent marks still ${JSON.stringify(still)}`)

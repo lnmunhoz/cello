@@ -1,12 +1,14 @@
 // CEL-69: the agent mark on cards. Cello's teardrop agent stands in for the presence dot and says what
-// its agent is doing: working (eyes on the tip; three spins of the tip when it starts or checks in),
-// thinking (leaning back; one lean back and forth), a hop when the task starts waiting in Needs input,
-// a jump for joy when it reaches In Review or Done. Every motion ends, so an idle board runs nothing.
-// Nothing plays as the board first draws, and reduced motion stills it all. Agents act through RPC as the CLI would; agent
-// cursors are off, so cards change in place, and Needs input is its own column. The board is shown at
-// 140% browser zoom with the sidebar hidden, so the 15 px mark reads in the video, and the caption sits
-// bottom right, over empty column space; the stills come from a 3x page at 100%. Entries are caught by
-// their own animationstart events, so slow motion (review videos) can't make a check miss one.
+// its agent is doing: working (the tip spins) and thinking (it sways, eyes up) for as long as the agent
+// is active, page load included; a hop when the task starts waiting in Needs input and a jump for joy
+// when it reaches In Review or Done, never on page load. Once the agent ends, every mark rests, and
+// reduced motion stills it all. Agents act through RPC as the CLI would, the session's process a child
+// the test ends on cue; agent cursors are off, so cards change in place, and Needs input is its own
+// column. The board is shown at 140% browser zoom with the sidebar hidden, so the 15 px mark reads in
+// the video, and the caption sits bottom right, over empty column space; the stills come from a 3x
+// page at 100%. Entries are caught by their own animationstart events, so slow motion (review videos)
+// can't make a check miss one.
+import { type ChildProcess, spawn } from "node:child_process"
 import * as path from "node:path"
 import type { Browser, Locator, Page } from "@playwright/test"
 import { newCommandId } from "../packages/client/test/support/promiseClient.ts"
@@ -149,8 +151,15 @@ test.beforeEach(async ({ context }) => {
   }, ZOOM)
 })
 
-test("CEL-69: each card's agent shows what its agent is doing: a burst of spins or a lean when it acts or checks in, then still; a hop for Needs input, a jump for Done; nothing plays on load or with reduced motion", async ({ page, browser, cello, baseURL }) => {
-  test.setTimeout(Math.max(test.info().timeout, 90_000))
+/** Processes this spec started to stand for agent sessions: ended after it, whatever happened. */
+const children: ChildProcess[] = []
+test.afterEach(() => {
+  for (const child of children.splice(0)) child.kill()
+})
+
+test("CEL-69: each card's agent shows what its agent is doing: spinning while it builds and swaying while it thinks, for as long as it's active; a hop for Needs input, a jump for Done; still once it ends", async ({ page, browser, cello, baseURL }) => {
+  // The server's sweep notices the agent's process is gone within 30 s: this test waits for it once.
+  test.setTimeout(Math.max(test.info().timeout, 120_000))
   const key = uniqueKey("MARK")
   const project = await seedProject(cello, "Agent states", key)
   const { statuses } = await defaultWorkspace(cello)
@@ -159,7 +168,10 @@ test("CEL-69: each card's agent shows what its agent is doing: a burst of spins 
     await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title, statusId: statuses.Todo!.id }))
   }
   const [building, planning, asking, shipping] = titles.map((_, i) => `${key}-${i + 1}`) as [string, string, string, string]
-  const agent = await agentAs(baseURL!, "7c3e9a51-agent-mark", process.pid)
+  // The session's process is a child this test starts and ends, so the agent can end on cue.
+  const agentProcess = spawn("sleep", ["600"], { stdio: "ignore" })
+  children.push(agentProcess)
+  const agent = await agentAs(baseURL!, "7c3e9a51-agent-mark", agentProcess.pid!)
   for (const [taskKey, stage] of [[building, "building"], [planning, null], [asking, "fixing"], [shipping, "merged"]] as const) {
     await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: taskKey }))
     if (stage) await agent.run((c) => c["task.stage"]({ commandId: newCommandId(), key: taskKey, stage }))
@@ -168,13 +180,21 @@ test("CEL-69: each card's agent shows what its agent is doing: a burst of spins 
   await expect(column(page, "In Progress").locator("[data-task-key]")).toHaveCount(4)
   await showFrom(page, "In Progress")
 
-  await caption(page, "Session 7c3e9a51 holds four tasks. As the board draws nothing moves; each agent shows its pose: Building eyes on the tip, no stage leaning back, Merged happy")
+  await caption(page, "Session 7c3e9a51 is at work on four tasks. Building: its agent spins its tip from the moment the board draws. No stage yet: it sways, thinking")
   await expect(markOf(page, building)).toHaveAttribute("data-agent-mood", "working")
   await expect(markOf(page, planning)).toHaveAttribute("data-agent-mood", "thinking")
+  await expect(markOf(page, building)).toHaveAttribute("data-presence", "active")
+  expect(await playing(markOf(page, building))).toEqual(
+    expect.arrayContaining([{ name: "agent-spin", iterations: Infinity }, { name: "agent-follow", iterations: Infinity }]),
+  )
+  expect(await playing(markOf(page, planning))).toEqual(
+    expect.arrayContaining([{ name: "agent-think-tilt", iterations: Infinity }, { name: "agent-think-face", iterations: Infinity }]),
+  )
+
+  await caption(page, "Fixing findings spins too; Merged has happy eyes and keeps still")
   await expect(markOf(page, asking)).toHaveAttribute("data-agent-mood", "working")
   await expect(markOf(page, shipping)).toHaveAttribute("data-agent-mood", "merged")
-  await expect(markOf(page, building)).toHaveAttribute("data-presence", "active")
-  for (const taskKey of [building, planning, asking, shipping]) expect(await playing(markOf(page, taskKey))).toEqual([])
+  expect(await playing(markOf(page, shipping))).toEqual([])
 
   // Stills: each state at real size (the column, light and dark), and close up from a 3x page.
   for (const theme of ["light", "dark"] as const) {
@@ -189,52 +209,36 @@ test("CEL-69: each card's agent shows what its agent is doing: a burst of spins 
   await showFrom(page, "In Progress")
   const { lens, close } = await openLens(browser, baseURL!, key)
   await expect(markOf(lens, building)).toHaveAttribute("data-agent-mood", "working")
-  await stills(lens, building, "working-rest")
-  await stills(lens, planning, "thinking-rest")
+  // A quarter turn in: the tip points up and right, the eyes follow it.
+  await freezeAt(markOf(lens, building), 350)
+  await stills(lens, building, "working")
+  // Leaning furthest back, the eyes up toward the tip.
+  await freezeAt(markOf(lens, planning), 1260)
+  await stills(lens, planning, "thinking")
   await stills(lens, shipping, "merged")
 
-  await caption(page, "The agent starts building Plan the states: its agent spins its tip three times, then rests")
-  const spun = await watchEntry(page, planning, ["agent-spin", "agent-follow"])
-  // On the 3x page: a quarter turn in, the tip pointing up and right, the eyes following it.
-  const lensSpun = await freezeOnStart(lens, planning, "agent-spin", 350)
+  await caption(page, "The agent starts building Plan the states: its agent stops swaying and spins")
   await agent.run((c) => c["task.stage"]({ commandId: newCommandId(), key: planning, stage: "building" }))
-  await lensSpun()
-  expect((await spun()).every((a) => a.iterations === "3")).toBe(true)
-  await stills(lens, planning, "working")
-  await resume(markOf(lens, planning))
-  await entryPlayed(markOf(page, planning))
-  expect(await playing(markOf(page, planning))).toEqual([])
-  await expect(markOf(page, planning)).not.toHaveAttribute("data-play")
+  await expect(markOf(page, planning)).toHaveAttribute("data-agent-mood", "working")
+  expect((await playing(markOf(page, planning))).map((a) => a.name)).toEqual(expect.arrayContaining(["agent-spin", "agent-follow"]))
 
-  await caption(page, "A builder subagent takes Plan the states: the card names it, and its mark spins as it arrives")
+  await caption(page, "A builder subagent takes Plan the states: the card names it, and the mark spins in the subagent's colour")
   // Its own id each run: a stopped subagent is never revived by a launch.
   const builder = `a13bfb89${key.toLowerCase()}`
-  const arrived = await watchEntry(page, planning, ["agent-spin"])
   await agent.run((c) =>
     c["agent.report"]({ agentId: builder, agentType: "cello-builder", state: "launched", description: `${planning} build the states`, prompt: "Build it" }))
-  await arrived()
   await expect(card(page, planning).locator(`[data-agent="${builder}"]`)).toContainText("cello-builder")
-  await entryPlayed(markOf(page, planning))
-  expect(await playing(markOf(page, planning))).toEqual([])
+  expect((await playing(markOf(page, planning))).map((a) => a.name)).toContain("agent-spin")
 
-  await caption(page, "The subagent checks in: its mark spins once more, then goes still. A busy agent keeps moving; a quiet one rests")
-  const checkedIn = await watchEntry(page, planning, ["agent-spin"])
-  await agent.run((c) => c["agent.report"]({ agentId: builder, agentType: "cello-builder", state: "started" }))
-  await checkedIn()
-  await entryPlayed(markOf(page, planning))
-  expect(await playing(markOf(page, planning))).toEqual([])
+  await caption(page, "The subagent finishes: the card goes back to the session, which is still at work, so it keeps spinning")
+  await agent.run((c) => c["agent.report"]({ agentId: builder, agentType: "cello-builder", state: "stopped" }))
+  await expect(card(page, planning).locator(`[data-agent="${builder}"]`)).toHaveCount(0)
+  expect((await playing(markOf(page, planning))).map((a) => a.name)).toContain("agent-spin")
 
-  await caption(page, "Build the spinner goes to Agent review: its agent leans back and forth once, thinking, then rests")
-  const leaned = await watchEntry(page, building, ["agent-think-tilt", "agent-think-face"])
-  // On the 3x page: leaning furthest back, the eyes up toward the tip.
-  const lensLeaned = await freezeOnStart(lens, building, "agent-think-tilt", 1260)
+  await caption(page, "Build the spinner goes to Agent review: its agent stops spinning and sways, thinking")
   await agent.run((c) => c["task.stage"]({ commandId: newCommandId(), key: building, stage: "review" }))
-  await lensLeaned()
-  expect((await leaned()).every((a) => a.iterations === "1")).toBe(true)
-  await stills(lens, building, "thinking")
-  await resume(markOf(lens, building))
-  await entryPlayed(markOf(page, building))
-  expect(await playing(markOf(page, building))).toEqual([])
+  await expect(markOf(page, building)).toHaveAttribute("data-agent-mood", "thinking")
+  expect((await playing(markOf(page, building))).map((a) => a.name)).toEqual(expect.arrayContaining(["agent-think-tilt", "agent-think-face"]))
 
   await caption(page, "The agent asks Lucas about Pick the colours: Needs input. Its agent looks up with big eyes, hops twice and a ring goes out, once")
   const hopped = await watchEntry(page, asking, ["agent-hop", "agent-hop-squash", "agent-ring"])
@@ -307,16 +311,14 @@ test("CEL-69: each card's agent shows what its agent is doing: a burst of spins 
   expect(landing.every((a) => a.leaving)).toBe(true)
   await expect(column(page, "Done").locator(`[data-task-key="${shipping}"] [data-card-work]`)).toHaveCount(0)
 
-  await caption(page, "Reload: nothing plays as the board draws. Each agent keeps its pose: Needs input with big eyes, the others still")
+  await caption(page, "Reload: no entry plays as the board draws (Needs input rests, big eyes up), and the agents at work keep moving")
   await page.reload()
   await showFrom(page, "In Progress")
   await expect(markOf(page, asking)).toHaveAttribute("data-agent-mood", "waiting")
-  await expect(markOf(page, building)).toHaveAttribute("data-agent-mood", "thinking")
-  await expect(markOf(page, planning)).toHaveAttribute("data-agent-mood", "working")
-  for (const taskKey of [building, planning, asking]) {
-    await expect(markOf(page, taskKey)).not.toHaveAttribute("data-play")
-    expect(await playing(markOf(page, taskKey))).toEqual([])
-  }
+  await expect(markOf(page, asking)).not.toHaveAttribute("data-play")
+  expect(await playing(markOf(page, asking))).toEqual([])
+  expect((await playing(markOf(page, building))).map((a) => a.name)).toContain("agent-think-tilt")
+  expect((await playing(markOf(page, planning))).map((a) => a.name)).toContain("agent-spin")
 
   await caption(page, "With reduced motion, nothing moves: the agents keep their poses, still")
   await page.emulateMedia({ reducedMotion: "reduce" })
@@ -324,10 +326,20 @@ test("CEL-69: each card's agent shows what its agent is doing: a burst of spins 
     await entryPlayed(markOf(page, taskKey))
     expect(await playing(markOf(page, taskKey))).toEqual([])
   }
+  await page.emulateMedia({ reducedMotion: "no-preference" })
+  await page.reload()
+  await showFrom(page, "In Progress")
+  expect((await playing(markOf(page, planning))).map((a) => a.name)).toContain("agent-spin")
 
+  await caption(page, "The agent's session ends (its process exits). Within 30 s the server notices: every mark rests, and nothing on the board moves")
+  agentProcess.kill()
+  await expect(markOf(page, planning)).toHaveAttribute("data-presence", "ended", { timeout: 45_000 })
+  await expect(markOf(page, planning)).toHaveAttribute("data-agent-mood", "still")
+  await expect(markOf(page, building)).toHaveAttribute("data-agent-mood", "still")
+  for (const taskKey of [building, planning, asking]) expect(await playing(markOf(page, taskKey))).toEqual([])
+
+  // Cleanup (its next call resumes the session, out of the picture now).
   await agent.run((c) => c["ask.withdraw"]({ commandId: newCommandId(), key: asking }))
-  // The subagent stops, so later specs' Agents working list doesn't carry it.
-  await agent.run((c) => c["agent.report"]({ agentId: builder, agentType: "cello-builder", state: "stopped" }))
   for (const taskKey of [building, planning, asking]) await agent.run((c) => c["task.release"]({ commandId: newCommandId(), key: taskKey }))
   await agent.close()
 })

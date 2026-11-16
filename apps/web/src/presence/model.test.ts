@@ -154,11 +154,11 @@ describe("agentMood (CEL-69)", () => {
 })
 
 describe("markEntry (CEL-69)", () => {
-  const at = (mood: MarkSeen["mood"], statusId: string, checkIn: number | null = 100): MarkSeen => ({ mood, statusId, checkIn })
+  const at = (mood: MarkSeen["mood"], statusId: string): MarkSeen => ({ mood, statusId })
 
   it("plays Done when the card moves into In Review or Done while it's on screen, and again from In Review to Done", () => {
     expect(markEntry(at("working", "prog"), at("done", "review"))).toBe("done")
-    expect(markEntry(at("still", "prog"), at("done", "done", null))).toBe("done")
+    expect(markEntry(at("still", "prog"), at("done", "done"))).toBe("done")
     expect(markEntry(at("done", "review"), at("done", "done"))).toBe("done")
   })
 
@@ -166,23 +166,16 @@ describe("markEntry (CEL-69)", () => {
     expect(markEntry(at("thinking", "prog"), at("waiting", "needs"))).toBe("waiting")
   })
 
-  it("bursts when the agent starts working or thinking, and again at each check-in while it does: a busy agent keeps moving", () => {
-    expect(markEntry(at("still", "prog"), at("working", "prog"))).toBe("burst")
-    expect(markEntry(at("thinking", "prog"), at("working", "prog"))).toBe("burst")
-    expect(markEntry(at("working", "prog"), at("thinking", "prog"))).toBe("burst")
-    expect(markEntry(at("waiting", "needs"), at("thinking", "prog"))).toBe("burst")
-    expect(markEntry(at("working", "prog", 100), at("working", "prog", 160))).toBe("burst")
-    expect(markEntry(at("thinking", "prog", 100), at("thinking", "prog", 160))).toBe("burst")
+  it("has no entry for working or thinking: those loop by their mood, while the agent is active", () => {
+    expect(markEntry(at("still", "prog"), at("working", "prog"))).toBeNull()
+    expect(markEntry(at("thinking", "prog"), at("working", "prog"))).toBeNull()
+    expect(markEntry(at("waiting", "needs"), at("thinking", "prog"))).toBeNull()
   })
 
-  it("plays nothing when nothing arrived: the same mood, status and check-in, going still, a check-in while it waits or rests", () => {
-    expect(markEntry(at("working", "prog"), at("working", "prog"))).toBeNull()
+  it("plays nothing when nothing arrived: the same mood and status, going still", () => {
     expect(markEntry(at("done", "review"), at("done", "review"))).toBeNull()
     expect(markEntry(at("waiting", "needs"), at("waiting", "needs"))).toBeNull()
     expect(markEntry(at("working", "prog"), at("still", "prog"))).toBeNull()
-    expect(markEntry(at("waiting", "needs", 100), at("waiting", "needs", 160))).toBeNull()
-    expect(markEntry(at("done", "review", 100), at("done", "review", 160))).toBeNull()
-    expect(markEntry(at("merged", "prog", 100), at("merged", "prog", 160))).toBeNull()
   })
 })
 

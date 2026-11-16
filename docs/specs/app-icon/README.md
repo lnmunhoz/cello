@@ -39,19 +39,19 @@ compares it with `icon.svg` and `favicon.svg`, so a change to the icon has to ch
 
 The mark has states (CEL-69): `apps/web/src/components/ui/AgentMark.tsx` draws it with a mood, and cards
 and list rows show it in place of the session's presence dot, in the session's colour with white eyes.
-**Working** (stage Building or Fixing findings): narrowed eyes on the tip; a burst spins a shorter tip
-round the body three times, the eyes following it. **Thinking** (no stage, or Agent review): it leans
-back, eyes slanted up toward the tip; a burst leans further back and forward once. A burst plays when
-the agent starts working or thinking, or checks in while at it, so a busy agent keeps moving and a quiet
-one goes still. **Needs input**: big eyes looking up; arriving, it hops twice and a ring goes out, once.
-**Done** (In Review or Done, after ElevenLabs' take): a pancake squash, a leap with happy arches for
-eyes, a wobbly landing, a blink, once. Merged has happy eyes; a quiet or ended session keeps still
-(amber, grey). Every motion ends (nothing loops, so an idle board runs no animation), it plays only for
-a change seen on screen, and `prefers-reduced-motion` stills it all. Body and eyes are two CSS colours
-(`--agent-body`, `--agent-eye`, or the `body` and `eye` props), so it draws in any colour. Only
-transform and opacity animate, each on its own HTML layer (`AgentMark.css`). `e2e/perf.spec.ts` holds
-40 agents spinning at once to at least 55 fps (60 measured), no long tasks, no more layout than the
-board standing still and under 1.5 ms of extra style work a frame. The extra geometry (spinner tip, happy eyes, the square frame) is in `agentMark.ts`.
+**Working** (stage Building or Fixing findings): a shorter tip spins round the body, the narrowed eyes
+following it. **Thinking** (no stage, or Agent review): it leans back, eyes slanted up toward the tip,
+swaying back and forth. Both loop for as long as the agent holding the card (the subagent on it, else
+the session) is active, from page load on, and stop when it goes quiet or ends (Lucas, Nov 16: a card
+in Building should look alive). **Needs input**: big eyes looking up; arriving, it hops twice and a
+ring goes out, once. **Done** (In Review or Done, after ElevenLabs' take): a pancake squash, a leap
+with happy arches for eyes, a wobbly landing, a blink, once. Merged has happy eyes; a quiet or ended
+session keeps still (amber, grey). The entries play only for a change seen on screen, never on page
+load; an idle board runs no animation; `prefers-reduced-motion` stills it all. Body and eyes are two
+CSS colours (`--agent-body`, `--agent-eye`, or the `body` and `eye` props), so it draws in any colour.
+Only transform and opacity animate, each on its own HTML layer (`AgentMark.css`). `e2e/perf.spec.ts`
+holds 40 working agents to at least 55 fps (60 measured), no long tasks, no more layout than the board
+standing still and under 1.5 ms of extra style work a frame, then nothing running once they end. The extra geometry (spinner tip, happy eyes, the square frame) is in `agentMark.ts`.
 
 ## Where it ships (CEL-27)
 
