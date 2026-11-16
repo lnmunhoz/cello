@@ -8,6 +8,7 @@
 //   and ignoring case ("M3", "M3 ") make one milestone.
 // - Each task carrying such labels goes to the milestone of the latest of them in that order: a task with
 //   M2 and M3 gets M3. Archived tasks too, so a milestone keeps all its history.
+//   Only its own project's labels count: a stray link to another project's label is dropped with it.
 // - Then the Milestone labels are removed, from the tasks and from the project (Lucas: one way to say
 //   "milestone"). Other labels stay as they were.
 // - Unlike earlier migrations this one writes events, as the human: each milestone's `milestone.created`,
@@ -109,7 +110,10 @@ export default Effect.gen(function* () {
   const links = yield* sql<{ task_id: string; label_id: string; version: number; workspace_id: string; project_id: string }>`
     SELECT tl.task_id, tl.label_id, t.version, p.workspace_id, t.project_id
     FROM task_labels tl JOIN tasks t ON t.id = tl.task_id JOIN projects p ON p.id = t.project_id
+      JOIN labels l ON l.id = tl.label_id
     WHERE tl.label_id IN ${sql.in(labels.map((l) => l.id))}
+      -- A task only ever gets its own project's milestone, even from a stray link to another project's label.
+      AND l.project_id = t.project_id
     ORDER BY t.project_id, t.number`
   const name = new Map(labels.map((l) => [l.id, l.name]))
   for (const taskId of [...new Set(links.map((l) => l.task_id))]) {

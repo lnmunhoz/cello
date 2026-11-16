@@ -3,7 +3,8 @@
 // of the same names, in order, with their tasks; then the labels are gone. Edge cases: a task carrying
 // both M2 and M3 (it gets M3, and its history notes M2), a Milestone label on no task (an empty
 // milestone), two labels whose names clash once trimmed ("M3" and "M3 ": one milestone), an archived
-// Milestone label (a closed milestone), and another project's M2 (its own milestone).
+// Milestone label (a closed milestone), another project's M2 (its own milestone), and a stray link from a
+// THAI task to CEL's M2 (ignored: a task only ever gets its own project's milestone).
 import * as SqliteMigrator from "@effect/sql-sqlite-bun/SqliteMigrator"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -60,6 +61,8 @@ const board = Effect.gen(function* () {
     ["c12", "cel", 12, "done", ["l-m1"], null],
     ["c13", "cel", 13, "todo", ["l-feature"], null],
     ["th1", "thai", 1, "todo", ["t-m2"], null],
+    // A stray row: a THAI task linked to CEL's M2 label. It must never land in another project's milestone.
+    ["th2", "thai", 2, "todo", ["l-m2"], null],
   ]
   for (const [id, project, number, status, labelIds, archived] of tasks) {
     yield* sql`INSERT INTO tasks (id, project_id, number, title, status_id, position, created_by_actor_id, version, created_at, updated_at, archived_at)
@@ -110,7 +113,7 @@ describe("migration 0023_milestones", () => {
       expect(milestoneOf).toEqual({
         c1: "M2", c2: "M2", c3: "M2", c4: "M2", c5: "M2", c6: "M2", c7: "M2",
         c8: "M3", c9: "M3", c10: "M3", c11: "M3",
-        c12: "M1", c13: null, th1: "M2",
+        c12: "M1", c13: null, th1: "M2", th2: null,
       })
       expect(assigned.find((t) => t.id === "th1")!.milestone_id).toBe(named("thai", "M2").id)
 
@@ -132,7 +135,7 @@ describe("migration 0023_milestones", () => {
       // A task that got a milestone has a new version (its history has a new line); nothing else about it changed.
       const after = yield* sql<{ id: string; title: string; status_id: string; position: string; updated_at: number; version: number }>`
         SELECT id, title, status_id, position, updated_at, version FROM tasks ORDER BY id`
-      expect(after).toEqual(before.map((t) => ({ ...t, version: t.id === "c13" ? 3 : 4 })))
+      expect(after).toEqual(before.map((t) => ({ ...t, version: t.id === "c13" || t.id === "th2" ? 3 : 4 })))
 
       // History: each milestone's creation, and on each task what became of its labels, as Lucas.
       const store = yield* EventStore.EventStore
@@ -151,6 +154,7 @@ describe("migration 0023_milestones", () => {
       const [clashed] = yield* store.history("c11")
       expect(clashed).toMatchObject({ type: "task.milestone_changed", after: named("cel", "M3").id, fromLabels: ["M3 "] })
       expect(yield* store.history("c13")).toEqual([])
+      expect(yield* store.history("th2")).toEqual([])
 
       // Names are unique per project, ignoring case; another project may reuse one. A milestone needs a project.
       expect((yield* Effect.exit(sql`INSERT INTO milestones (id, project_id, name, position, created_at, updated_at)
