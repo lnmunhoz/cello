@@ -1,11 +1,14 @@
 // The Agents page's rules (CEL-65), kept pure: which row is open (`?open=`, so a reload or a link keeps
 // it), and the agents working, as rows (each session, then its subagents) in groups (waiting on Lucas,
-// working, quiet). The agents themselves come from ../presence/model.ts (workingSessions), the model
-// the sidebar's Agents working reads too.
+// working, quiet), then the ones that finished today (CEL-107). The agents themselves come from
+// ../presence/model.ts (workingSessions), the model the sidebar's Agents working reads too, and
+// @cello/client/sync/agents (finishedAgents), which `cello agents` reads too.
+import { agentPresence, type FinishedAgent, startOfDay } from "@cello/client/sync/agents"
+import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { isNeedsInputStatus } from "@cello/shared/ask"
-import type { Presence } from "@cello/shared/presence"
-import type { Who, Working, WorkingMark } from "../presence/model.ts"
+import { type Presence, presenceOf } from "@cello/shared/presence"
+import { agentWho, sessionWho, type Who, type Working, type WorkingMark, workingMark } from "../presence/model.ts"
 
 export interface AgentsSearch {
   /** The open row's id (`session:<id>`, `agent:<session>/<agent>`); none: every row is collapsed. */
@@ -35,6 +38,8 @@ export interface AgentRow {
   readonly mark: WorkingMark
   /** How many subagents a session has working under it. */
   readonly subagents: number
+  /** When a finished agent ended (Finished today); null while it works. */
+  readonly endedAt: number | null
 }
 
 /** Each session still working, then its subagents, in workingSessions' order (active first, freshest first). */
@@ -54,6 +59,7 @@ export const agentRows = (sessions: ReadonlyArray<Working>): AgentRow[] =>
         tasks: s.tasks,
         mark: s.mark,
         subagents: s.agents.length,
+        endedAt: null,
       },
       ...s.agents.map((a) => ({
         id: `agent:${s.session.id}/${a.agent.agentId}`,
@@ -67,6 +73,7 @@ export const agentRows = (sessions: ReadonlyArray<Working>): AgentRow[] =>
         tasks: a.task ? [a.task] : [],
         mark: a.mark,
         subagents: 0,
+        endedAt: null,
       })),
     ])
 
@@ -79,7 +86,47 @@ export const directTasks = (row: AgentRow, rows: ReadonlyArray<AgentRow>): Reado
     ? row.tasks
     : row.tasks.filter((t) => !rows.some((r) => r.parent?.session.id === row.session.id && r.tasks.some((rt) => rt.id === t.id)))
 
-export type AgentGroupId = "waiting" | "working" | "quiet"
+/** The row of an agent's log on the Agents page: `agent:<session>/<agent>`, or `session:<session>`. */
+const rowIdOf = (session: AgentSession, agent: SessionAgent | null) => (agent ? `agent:${session.id}/${agent.agentId}` : `session:${session.id}`)
+
+/**
+ * The agents that finished today (finishedAgents), as rows: each with the id it had while it worked, so
+ * a link to it opens it in either group; still, unless its task's status says otherwise (done in review).
+ */
+export const finishedRows = (board: BoardState, finished: ReadonlyArray<FinishedAgent>): AgentRow[] =>
+  finished.map((f) => ({
+    id: rowIdOf(f.session, f.agent),
+    kind: f.agent ? ("agent" as const) : ("session" as const),
+    who: f.agent ? agentWho(f.agent, f.session) : sessionWho(f.session),
+    role: f.agent ? (f.agent.agentType ?? "agent") : "session",
+    session: f.session,
+    agent: f.agent,
+    parent: null,
+    presence: "ended" as const,
+    tasks: f.tasks,
+    mark: workingMark(board, f.tasks, "ended"),
+    subagents: 0,
+    endedAt: f.endedAt,
+  }))
+
+/**
+ * The task panel's Log link (CEL-107): the row of the agent on the task, while the Agents page has it
+ * (working, or finished today); null for the human, who has no log, and for an agent that ended before today.
+ */
+export const logLinkOf = (
+  board: BoardState,
+  holder: { readonly session: AgentSession | null; readonly agent: SessionAgent | null },
+  now: number,
+): string | null => {
+  const { session, agent } = holder
+  if (session === null) return null
+  const presence = agent ? agentPresence(board, agent, now) : presenceOf(session, now)
+  if (presence !== "ended") return rowIdOf(session, agent)
+  const ended = agent ? (agent.endedAt ?? session.endedAt) : session.endedAt
+  return ended !== null && ended >= startOfDay(now) ? rowIdOf(session, agent) : null
+}
+
+export type AgentGroupId = "waiting" | "working" | "quiet" | "finished"
 
 export interface AgentGroup {
   readonly id: AgentGroupId
@@ -93,10 +140,11 @@ const GROUPS: ReadonlyArray<{ id: AgentGroupId; label: string }> = [
   { id: "quiet", label: "Quiet" },
 ]
 
-/** Waiting on Lucas when its task is in Needs input, quiet once it has gone quiet, else working. */
-export const groupOf = (row: AgentRow): AgentGroupId => (row.mark.mood === "waiting" ? "waiting" : row.presence === "idle" ? "quiet" : "working")
+/** Finished once it ended; else waiting on Lucas when its task is in Needs input, quiet once it has gone quiet, else working. */
+export const groupOf = (row: AgentRow): AgentGroupId =>
+  row.presence === "ended" ? "finished" : row.mark.mood === "waiting" ? "waiting" : row.presence === "idle" ? "quiet" : "working"
 
-const RANK: Record<AgentGroupId, number> = { waiting: 0, working: 1, quiet: 2 }
+const RANK: Record<AgentGroupId, number> = { waiting: 0, working: 1, quiet: 2, finished: 3 }
 
 /**
  * Where a row is placed: with its session, so subagents always sit under it (CEL-104: quiet subagents
@@ -109,9 +157,15 @@ const placeOf = (row: AgentRow, rows: ReadonlyArray<AgentRow>): AgentGroupId =>
     .map(groupOf)
     .reduce((best, g) => (RANK[g] < RANK[best] ? g : best), groupOf(row))
 
-/** The rows in their groups, waiting on Lucas first (like the Review page's Needs your input), empty groups left out. */
-export const agentGroups = (rows: ReadonlyArray<AgentRow>): AgentGroup[] =>
-  GROUPS.map((g) => ({ ...g, rows: rows.filter((r) => placeOf(r, rows) === g.id) })).filter((g) => g.rows.length > 0)
+/**
+ * The rows in their groups, waiting on Lucas first (like the Review page's Needs your input), then the
+ * ones that finished today at the bottom, newest first, each on its own (CEL-107); empty groups left out.
+ */
+export const agentGroups = (rows: ReadonlyArray<AgentRow>, finished: ReadonlyArray<AgentRow> = []): AgentGroup[] =>
+  [
+    ...GROUPS.map((g) => ({ ...g, rows: rows.filter((r) => placeOf(r, rows) === g.id) })),
+    { id: "finished" as const, label: "Finished today", rows: finished },
+  ].filter((g) => g.rows.length > 0)
 
 /** The rows' ids in the order the page shows them: what ↑ ↓ and j k walk. */
 export const rowKeysOf = (groups: ReadonlyArray<AgentGroup>): string[] => groups.flatMap((g) => g.rows.map((r) => r.id))

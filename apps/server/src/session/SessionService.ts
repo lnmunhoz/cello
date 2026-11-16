@@ -8,6 +8,7 @@
 import type { AgentSession } from "@cello/contract/entities"
 import { Caller, HUMAN_SESSION } from "@cello/contract/rpcs"
 import { colorFromSeed } from "@cello/shared/color"
+import { redact } from "@cello/shared/redact"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -31,6 +32,13 @@ export interface Identity {
   readonly agentType?: string | undefined
   /** The session's permission mode as its host reports it (Claude Code's hooks, CEL-92); kept until it reports another. */
   readonly permissionMode?: string | undefined
+  /**
+   * The caller's Claude Code transcript as its hook reports it (CEL-106): the session's own file, or with
+   * `agent` the subagent's. Kept until it reports another; only ever read through the agentLog guard.
+   */
+  readonly transcript?: string | undefined
+  /** Its last tool call in one line ("Bash · bun run test"), from the PostToolUse hook (CEL-106). */
+  readonly step?: string | undefined
 }
 
 /** Which agent CLI a client is (CEL-92), so the session host knows which adapter can continue its sessions. */
@@ -48,15 +56,53 @@ export const cleanAgentText = (value: string | null | undefined): string | null 
   return text ? text : null
 }
 
+/** Longest transcript path kept. */
+export const MAX_TRANSCRIPT_PATH = 1024
+
+/**
+ * A reported transcript path as kept (CEL-106): an absolute `.jsonl` path without control characters,
+ * else none. Where it points is checked when it's read (agentLog/transcriptPath.ts), not here.
+ */
+export const cleanTranscript = (value: string | null | undefined): string | null => {
+  const text = value?.trim()
+  if (!text || text.length > MAX_TRANSCRIPT_PATH || new RegExp(CONTROL_CHARACTERS.source).test(text)) return null
+  return text.startsWith("/") && text.endsWith(".jsonl") ? text : null
+}
+
+/** A reported current step as kept (CEL-106): one line, capped, keys masked; empty is none. */
+export const cleanStep = (value: string | null | undefined): string | null => {
+  const text = value?.replace(CONTROL_CHARACTERS, " ").replace(/\s+/g, " ").trim().slice(0, MAX_AGENT_TEXT)
+  return text ? redact(text).text : null
+}
+
+/** What a hook reported about the caller's log (CEL-106): its transcript and current step, each null when it said nothing. */
+export interface LogReport {
+  readonly transcript: string | null
+  readonly step: string | null
+}
+
+export const NO_LOG_REPORT: LogReport = { transcript: null, step: null }
+
 /**
  * Records a call from a session's subagent (CEL-55): created on first sight with its type, else seen
- * now, a type learnt late filled in, and an ended (resumed) agent live again. AgentService has the rest.
+ * now, a type learnt late filled in, and an ended (resumed) agent live again; a transcript or current
+ * step its hook reported replaces the one kept (CEL-106). AgentService has the rest.
  */
-export const touchAgent = (sql: SqlClient.SqlClient, sessionId: string, agentId: string, agentType: string | null, now: number) =>
-  sql`INSERT INTO session_agents (session_id, agent_id, agent_type, started_at, last_seen_at)
-    VALUES (${sessionId}, ${agentId}, ${agentType}, ${now}, ${now})
+export const touchAgent = (
+  sql: SqlClient.SqlClient,
+  sessionId: string,
+  agentId: string,
+  agentType: string | null,
+  now: number,
+  log: LogReport = NO_LOG_REPORT,
+) =>
+  sql`INSERT INTO session_agents (session_id, agent_id, agent_type, started_at, last_seen_at, transcript_path, current_step, current_step_at)
+    VALUES (${sessionId}, ${agentId}, ${agentType}, ${now}, ${now}, ${log.transcript}, ${log.step}, ${log.step === null ? null : now})
     ON CONFLICT (session_id, agent_id) DO UPDATE SET
-      last_seen_at = excluded.last_seen_at, ended_at = NULL, agent_type = COALESCE(excluded.agent_type, agent_type)`
+      last_seen_at = excluded.last_seen_at, ended_at = NULL, agent_type = COALESCE(excluded.agent_type, agent_type),
+      transcript_path = COALESCE(excluded.transcript_path, transcript_path),
+      current_step = COALESCE(excluded.current_step, current_step),
+      current_step_at = COALESCE(excluded.current_step_at, current_step_at)`
 
 /** A claim holder with no pid is gone after this long without a call. */
 export const IDLE_CLAIM_MS = 2 * 60 * 60 * 1000
@@ -134,6 +180,10 @@ interface SessionRow {
   started_at: number
   last_seen_at: number
   ended_at: number | null
+  /** CEL-106; left out by selects that don't need them. */
+  transcript_path?: string | null
+  current_step?: string | null
+  current_step_at?: number | null
 }
 
 export const toSession = (r: SessionRow): AgentSession => ({
@@ -147,6 +197,9 @@ export const toSession = (r: SessionRow): AgentSession => ({
   startedAt: r.started_at,
   lastSeenAt: r.last_seen_at,
   endedAt: r.ended_at,
+  hasLog: r.transcript_path != null,
+  currentStep: r.current_step ?? null,
+  currentStepAt: r.current_step_at ?? null,
 })
 
 /** Client name for sessions that don't say which client they are. */
@@ -179,9 +232,16 @@ const make = Effect.gen(function* () {
     const agentId = cleanAgentText(identity.agent)
     const mode = cleanAgentText(identity.permissionMode)
     const kind = AGENT_KINDS[client] ?? null
+    const log: LogReport = { transcript: cleanTranscript(identity.transcript), step: cleanStep(identity.step) }
+    // A subagent's call reports the subagent's log (CEL-106), never the session's.
+    const own = agentId === null ? log : NO_LOG_REPORT
     return yield* sql.withTransaction(Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis
-      const raw = JSON.stringify(identity)
+      const stepAt = own.step === null ? null : now
+      // The raw identity, without the log report (CEL-106): the step can hold a key and is kept only
+      // masked (current_step), and the transcript has its own column.
+      const { step: _step, transcript: _transcript, ...kept } = identity
+      const raw = JSON.stringify(kept)
       const existing = yield* sql<{ id: string; actor_id: string }>`
         SELECT id, actor_id FROM agent_sessions WHERE external_id = ${external}`
       let caller: { actorId: string; sessionId: string }
@@ -189,6 +249,8 @@ const make = Effect.gen(function* () {
         yield* sql`UPDATE agent_sessions SET last_seen_at = ${now}, ended_at = NULL, pid = COALESCE(${identity.pid ?? null}, pid),
             cwd = COALESCE(${identity.cwd ?? null}, cwd), entrypoint = COALESCE(${identity.entrypoint ?? null}, entrypoint),
             permission_mode = COALESCE(${mode}, permission_mode), agent_kind = COALESCE(agent_kind, ${kind}),
+            transcript_path = COALESCE(${own.transcript}, transcript_path), current_step = COALESCE(${own.step}, current_step),
+            current_step_at = COALESCE(${stepAt}, current_step_at),
             identity_json = ${raw}
           WHERE id = ${existing[0].id}`
         caller = { actorId: existing[0].actor_id, sessionId: existing[0].id }
@@ -196,14 +258,16 @@ const make = Effect.gen(function* () {
         const actorId = yield* actorFor(client, external, now)
         const id = newId(now)
         yield* sql`INSERT INTO agent_sessions (id, actor_id, external_id, client_name, entrypoint, cwd, project_id, pid,
-                                               permission_mode, agent_kind, identity_json, started_at, last_seen_at, created_at)
+                                               permission_mode, agent_kind, transcript_path, current_step, current_step_at,
+                                               identity_json, started_at, last_seen_at, created_at)
           VALUES (${id}, ${actorId}, ${external}, ${client}, ${identity.entrypoint ?? null}, ${identity.cwd ?? null}, NULL,
-                  ${identity.pid ?? null}, ${mode}, ${kind}, ${raw}, ${now}, ${now}, ${now})`
+                  ${identity.pid ?? null}, ${mode}, ${kind}, ${own.transcript}, ${own.step}, ${stepAt},
+                  ${raw}, ${now}, ${now}, ${now})`
         caller = { actorId, sessionId: id }
       }
       // A subagent's call (CEL-55): recorded under the session, and the caller says which agent it is.
       if (agentId === null) return caller
-      yield* touchAgent(sql, caller.sessionId, agentId, cleanAgentText(identity.agentType), now)
+      yield* touchAgent(sql, caller.sessionId, agentId, cleanAgentText(identity.agentType), now, log)
       return { ...caller, agentId }
     }))
   }, Effect.orDie)

@@ -41,6 +41,9 @@ export const identityHeaders = (env: Env, cwd: string): Record<string, string> =
     if (agent?.type) headers[IDENTITY_HEADERS.agentType] = agent.type
     // Set by the hooks only (claudeHook.ts hookIdentity): the session's permission mode (CEL-92).
     if (env.CELLO_PERMISSION_MODE) headers[IDENTITY_HEADERS.permissionMode] = env.CELLO_PERMISSION_MODE
+    // Set by the hooks only (hookIdentity): the caller's transcript and current step (CEL-106).
+    if (env.CELLO_TRANSCRIPT) headers[IDENTITY_HEADERS.transcript] = env.CELLO_TRANSCRIPT
+    if (env.CELLO_STEP) headers[IDENTITY_HEADERS.step] = env.CELLO_STEP
   }
   headers[IDENTITY_HEADERS.cwd] = cwd
   return headers

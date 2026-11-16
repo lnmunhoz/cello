@@ -2,6 +2,7 @@
 // already the contract's tagged errors.
 import { CelloRpcs } from "@cello/contract/rpcs"
 import * as Effect from "effect/Effect"
+import { AgentLogService } from "../agentLog/AgentLogService.ts"
 import * as AskService from "../ask/AskService.ts"
 import * as BackupService from "../backup/BackupService.ts"
 import * as BuildHistory from "../build/BuildHistory.ts"
@@ -44,6 +45,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
   const search = yield* SearchService.SearchService
   const agents = yield* AgentService
   const wake = yield* WakeService
+  const agentLogs = yield* AgentLogService
 
   return CelloRpcs.of({
     "snapshot.get": ({ scope }) => snapshots.get(scope),
@@ -77,6 +79,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "inbox.take": (query) => inbox.take(query),
     "inbox.wait": () => inbox.wait,
     "agent.report": (input) => agents.report(input),
+    "agent.log": (input) => agentLogs.log(input),
     "review.submit": (input) => reviews.submit(input),
     "review.approve": (input) => reviews.approve(input),
     "review.sendBack": (input) => reviews.sendBack(input),

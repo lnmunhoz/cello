@@ -1,10 +1,12 @@
+import { currentStepOf } from "@cello/client/sync/agentLog"
+import { finishedAgents, startOfDay } from "@cello/client/sync/agents"
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Task } from "@cello/contract/entities"
 import { stageInfo } from "@cello/contract/stages"
 import { isNeedsInputStatus } from "@cello/shared/ask"
 import { agoShort, presenceWords } from "@cello/shared/presence"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
-import { FolderIcon, ScrollTextIcon } from "lucide-react"
+import { FolderIcon } from "lucide-react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
 import { Centered } from "../app/Home.tsx"
 import { CardBody } from "../board/Card.tsx"
@@ -16,14 +18,28 @@ import { useNow } from "../presence/useNow.ts"
 import { QueueRow, type QueueRowState } from "../review/QueueRow.tsx"
 import { useQueue } from "../review/useQueue.ts"
 import { keepViewer } from "../viewer/search.ts"
-import { type AgentRow, agentGroups, agentRows, directTasks, groupOf, rowKeysOf, stateTaskOf, subagentsLabel, waitingTaskOf } from "./layout.ts"
+import { AgentLog } from "./AgentLog.tsx"
+import {
+  type AgentRow,
+  agentGroups,
+  agentRows,
+  directTasks,
+  finishedRows,
+  groupOf,
+  rowKeysOf,
+  stateTaskOf,
+  subagentsLabel,
+  waitingTaskOf,
+} from "./layout.ts"
 
 /**
  * The Agents page (CEL-65), opened from the sidebar's "Agents working": every agent session and subagent
  * working in the workspace, with the card each is on, laid out like the Review page. Agents waiting on
- * Lucas come first, then the ones working, then the quiet ones; subagents sit under their session. One
+ * the human come first, then the ones working, then the quiet ones; subagents sit under their session. One
  * row is open at a time (`?open=`): what the agent was asked and its card on the left, and on the right
- * its live log, which is phase 2. Rows come, move and go live, as agents start, wait, go quiet and finish.
+ * its live log (CEL-106, AgentLog.tsx). Rows come, move and go live, as agents start, wait, go quiet and finish;
+ * the ones that finished today fold into "Finished today" at the bottom, newest first, their logs still
+ * a click away while Claude Code keeps the transcript (CEL-107).
  */
 export function AgentsPage() {
   const board = useBoard()
@@ -38,7 +54,8 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const now = useNow()
   const sessions = workingSessions(board, workspaceId, now)
   const rows = agentRows(sessions)
-  const groups = agentGroups(rows)
+  const finished = finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now)))
+  const groups = agentGroups(rows, finished)
   const keys = rowKeysOf(groups)
   const openId = open !== undefined && keys.includes(open) ? open : null
   const queue = useQueue({ keys, open: openId, setOpen: (id) => void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(id === null ? {} : { open: id }) }), replace: true }) })
@@ -54,8 +71,8 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
               Agents working <span className="font-normal text-muted tabular-nums">{agentsWorkingCount(sessions)}</span>
             </h1>
             <p className="text-[13px] text-muted">
-              Every agent session and subagent on a task in this workspace, and the card it's on. Agents waiting on you come first. Open one
-              to see what it was asked. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
+              Every agent session and subagent on a task in this workspace, and the card it's on. Agents waiting on you come first, the ones
+              that finished today last. Open one to see what it was asked and its log. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
             </p>
           </header>
           {rows.length === 0 ? (
@@ -63,7 +80,8 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
               <p className="text-[15px] font-medium text-ink">No agent is working</p>
               <p>When an agent claims a task, or a subagent starts on one, it shows up here.</p>
             </div>
-          ) : (
+          ) : null}
+          {groups.length === 0 ? null : (
             <div {...queue.list} className="flex flex-col gap-6">
               {groups.map((group) => (
                 <section key={group.id} aria-labelledby={`agents-${group.id}`} data-agents-group={group.id} className="flex flex-col gap-2">
@@ -73,8 +91,8 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                   </h2>
                   <ul aria-label={group.label} className="flex flex-col gap-2">
                     {group.rows.map((row) => (
-                      // A subagent sits under its session, always in the same group (CEL-104).
-                      <li key={row.id} className={row.kind === "agent" ? "pl-6" : undefined}>
+                      // A subagent sits under its session, always in the same group (CEL-104); finished ones stand on their own.
+                      <li key={row.id} className={row.kind === "agent" && group.id !== "finished" ? "pl-6" : undefined}>
                         <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
                       </li>
                     ))}
@@ -91,12 +109,16 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
 
 const PRESENCE_TEXT = { active: "text-ink", idle: "text-idle", ended: "text-faint" } as const
 
-/** "active now" / "seen 12m ago", in the presence's colour. */
+/** "active now" / "seen 12m ago" / "finished 3m ago", in the presence's colour. */
 function PresenceText({ board, row }: { board: BoardState; row: AgentRow }) {
   const now = useNow()
   return (
-    <span className={`shrink-0 ${PRESENCE_TEXT[row.presence]}`} data-agent-presence>
-      {presenceWords(presenceSubjectOf(board, row.session, row.agent), now)}
+    <span
+      className={`shrink-0 ${PRESENCE_TEXT[row.presence]}`}
+      data-agent-presence
+      title={row.endedAt === null ? undefined : new Date(row.endedAt).toLocaleTimeString()}
+    >
+      {row.endedAt === null ? presenceWords(presenceSubjectOf(board, row.session, row.agent), now) : `finished ${agoShort(row.endedAt, now)}`}
     </span>
   )
 }
@@ -145,6 +167,7 @@ function AgentQueueRow({ board, row, rows, ...state }: QueueRowState & { board: 
               </span>
             </>
           ) : null}
+          <CurrentStep row={row} />
         </>
       }
       badge={<TaskState board={board} task={stateTaskOf(row, board.statuses)} />}
@@ -171,7 +194,7 @@ function AgentQueueRow({ board, row, rows, ...state }: QueueRowState & { board: 
             </div>
           ) : null}
         </div>
-        <LogPlaceholder />
+        <AgentLog board={board} row={row} />
       </div>
     </QueueRow>
   )
@@ -273,22 +296,16 @@ function Facts({ board, row }: { board: BoardState; row: AgentRow }) {
   )
 }
 
-/** Where the agent's live log goes (phase 2): a quiet placeholder, never made-up steps. */
-function LogPlaceholder() {
+/** What it's doing right now, from its last tool call ("Bash · bun run test"), while it's working (CEL-106). */
+function CurrentStep({ row }: { row: AgentRow }) {
+  const step = currentStepOf(row)
+  if (!step) return null
   return (
-    <section
-      aria-label="Live log, coming in phase 2"
-      data-log-placeholder
-      className="flex min-h-40 flex-col gap-2 rounded-lg border border-dashed border-line px-4 py-3"
-    >
-      <header className="flex items-center gap-2 text-[13px]">
-        <ScrollTextIcon aria-hidden className="size-3.5 text-faint" />
-        <span className="font-medium text-muted">Live log</span>
-        <span className="text-xs text-faint">coming in phase 2</span>
-      </header>
-      <p className="text-xs text-faint">
-        What this agent says and each tool it calls, with the result, newest at the bottom, following new steps as they arrive.
-      </p>
-    </section>
+    <>
+      <span className="text-faint">·</span>
+      <span className="min-w-0 truncate font-mono text-[12px] text-muted" data-agent-step>
+        {step}
+      </span>
+    </>
   )
 }

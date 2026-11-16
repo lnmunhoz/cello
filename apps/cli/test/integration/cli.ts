@@ -35,6 +35,8 @@ export const cello = (options: {
   readonly build?: { readonly commit: string | null }
   /** Hears each line the command prints to stderr as it prints it (a waiter saying it's waiting). */
   readonly onErr?: (line: string) => void
+  /** Hears each line the command prints to stdout as it prints it (`cello agents log --follow`'s new steps). */
+  readonly onOut?: (line: string) => void
   /**
    * Stands in for the system's opener (`cello open`). Without it, opening fails: a test never opens
    * anything on the machine it runs on.
@@ -48,7 +50,10 @@ export const cello = (options: {
       const lines: string[] = []
       const errors: string[] = []
       const console: Console.Console = Object.assign(Object.create(globalThis.console), {
-        log: (...parts: ReadonlyArray<unknown>) => lines.push(parts.join(" ")),
+        log: (...parts: ReadonlyArray<unknown>) => {
+          lines.push(parts.join(" "))
+          options.onOut?.(parts.join(" "))
+        },
         error: (...parts: ReadonlyArray<unknown>) => {
           errors.push(parts.join(" "))
           options.onErr?.(parts.join(" "))

@@ -7,7 +7,7 @@ import type { KeyboardEvent } from "react"
 import type { DraftAnswer } from "./draft.ts"
 
 /** What the agent expects; Lucas may still pick several options on any question (Nov 15). */
-export const KIND_HINTS = { one: "Pick one or more", any: "Pick any", text: "Your answer" } as const
+export const KIND_HINTS = { one: "Pick one or more", any: "Pick any", text: "Optional" } as const
 /** The "None of these" choice among a question's options. */
 export const NONE = "none"
 

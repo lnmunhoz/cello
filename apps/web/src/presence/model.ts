@@ -2,12 +2,13 @@
 // Progress (CEL-35), and which subagent of a session did it (CEL-55): read from board state, so the
 // card, the list row, the task panel and the sidebar all say the same thing. Presence itself (active,
 // idle, ended) is @cello/shared/presence.
+import { agentPresence, agentPresenceSubject, workingAgents } from "@cello/client/sync/agents"
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { type AgentSession, agentKey, type SessionAgent, type Task } from "@cello/contract/entities"
 import { type StageInfo, stageInfo } from "@cello/contract/stages"
 import { isNeedsInputStatus } from "@cello/shared/ask"
 import { colorFromSeed } from "@cello/shared/color"
-import { agoShort, type Presence, presenceOf, type SessionLike } from "@cello/shared/presence"
+import { agoShort, type Presence, presenceOf } from "@cello/shared/presence"
 import { isReviewStatus, stageStatus } from "@cello/shared/review"
 import type { AgentMood } from "../components/ui/AgentMark.tsx"
 import { formatDay } from "../lib/format.ts"
@@ -77,15 +78,7 @@ export const agentWho = (a: Pick<SessionAgent, "agentId" | "agentType">, session
   }
 }
 
-/** An agent's presence: its own, but ended once its session ended (the conversation is gone). */
-export const agentPresence = (board: BoardState, a: SessionAgent, now: number): Presence =>
-  board.sessions[a.sessionId]?.endedAt != null ? "ended" : presenceOf(a, now)
-
-/** What a presence dot and its words read: the agent's times, ended with its session. */
-export const agentPresenceSubject = (board: BoardState, a: SessionAgent): SessionLike => {
-  const ended = board.sessions[a.sessionId]?.endedAt
-  return ended != null && a.endedAt === null ? { lastSeenAt: a.lastSeenAt, endedAt: ended } : a
-}
+export { agentPresence, agentPresenceSubject }
 
 /**
  * The subagent when there is one (known to the board, or not yet: "agent · ffee0011"), else the session
@@ -207,47 +200,26 @@ export interface Working {
   readonly mark: WorkingMark
 }
 
-const ORDER: Record<Presence, number> = { active: 0, idle: 1, ended: 2 }
-
 /**
- * The agent sessions working in a workspace, active first: the ones holding claims there and the ones
- * with a subagent on a task there, each with the tasks it holds and its subagents still working.
+ * The agent sessions working in a workspace, active first (workingAgents, shared with `cello agents`),
+ * each with who it is and its mark, and its subagents' too.
  */
-export const workingSessions = (board: BoardState, workspaceId: string, now: number): Working[] => {
-  const inWorkspace = (task: Task | undefined): task is Task =>
-    task !== undefined && task.archivedAt === null && board.projects[task.projectId]?.workspaceId === workspaceId
-  const bySession = new Map<string, Task[]>()
-  for (const task of Object.values(board.tasks)) {
-    if (task.assigneeSessionId === null || !inWorkspace(task)) continue
-    bySession.set(task.assigneeSessionId, [...(bySession.get(task.assigneeSessionId) ?? []), task])
-  }
-  const agentsBySession = new Map<string, WorkingAgent[]>()
-  for (const agent of Object.values(board.agents)) {
-    const presence = agentPresence(board, agent, now)
-    if (presence === "ended") continue
-    const task = agent.taskId === null ? undefined : board.tasks[agent.taskId]
-    // An agent on a task elsewhere belongs to that workspace's list; one with no task, to its session's.
-    if (agent.taskId !== null && !inWorkspace(task)) continue
-    const list = agentsBySession.get(agent.sessionId) ?? []
-    const mark = workingMark(board, task ? [task] : [], presence)
-    list.push({ agent, who: agentWho(agent, board.sessions[agent.sessionId]), presence, task: task ?? null, mark })
-    agentsBySession.set(agent.sessionId, list)
-  }
-  const ids = new Set([...bySession.keys(), ...[...agentsBySession.entries()].filter(([, list]) => list.some((a) => a.task)).map(([id]) => id)])
-  return [...ids]
-    .flatMap((id) => {
-      const session = board.sessions[id]
-      if (!session) return []
-      const agents = (agentsBySession.get(id) ?? [])
-        .sort((a, b) => ORDER[a.presence] - ORDER[b.presence] || b.agent.lastSeenAt - a.agent.lastSeenAt)
-      const tasks = bySession.get(id) ?? []
-      const presence = presenceOf(session, now)
-      // The session's cards: those with no subagent working on them (agentOn names the subagent instead).
-      const mark = workingMark(board, tasks.filter((t) => agentOn(board, t, now) === null), presence)
-      return [{ session, who: sessionWho(session), presence, tasks, agents, mark }]
-    })
-    .sort((a, b) => ORDER[a.presence] - ORDER[b.presence] || b.session.lastSeenAt - a.session.lastSeenAt)
-}
+export const workingSessions = (board: BoardState, workspaceId: string, now: number): Working[] =>
+  workingAgents(board, workspaceId, now).map(({ session, presence, tasks, agents }) => ({
+    session,
+    who: sessionWho(session),
+    presence,
+    tasks,
+    agents: agents.map(({ agent, presence, task }) => ({
+      agent,
+      who: agentWho(agent, board.sessions[agent.sessionId]),
+      presence,
+      task,
+      mark: workingMark(board, task ? [task] : [], presence),
+    })),
+    // The session's cards: those with no subagent working on them (agentOn names the subagent instead).
+    mark: workingMark(board, tasks.filter((t) => agentOn(board, t, now) === null), presence),
+  }))
 
 /** "Agents working N": each active session, and each active subagent under it. */
 export const agentsWorkingCount = (working: ReadonlyArray<Working>): number =>

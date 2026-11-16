@@ -96,7 +96,7 @@ describe("the kept per-agent list: each entry shows the agent mark in its card's
 })
 
 describe("the task panel shows the card's mark (CEL-55)", () => {
-  const render = (t: Task) => renderToStaticMarkup(createElement("dl", null, createElement(ProvenanceRows, { task: t, board })))
+  const render = (t: Task) => routed(createElement("dl", null, createElement(ProvenanceRows, { task: t, board })))
   const topBar = (t: Task) => renderToStaticMarkup(createElement(Fragment, null, createElement(PanelWork, { task: t, board })))
 
   it("Working on it and the top bar: the subagent building it, working", () => {
@@ -112,5 +112,13 @@ describe("the task panel shows the card's mark (CEL-55)", () => {
 
   it("a task waiting in Needs input: the session's mark waits", () => {
     expect(markIn(render(tasks[1]!), "data-working-on-it")).toContain('data-agent-mood="waiting"')
+  })
+
+  it("Working on it links the agent's log on the Agents page, its row open (CEL-107)", () => {
+    const link = (html: string) => html.slice(html.indexOf("data-working-log")).match(/<a [^>]*>/)?.[0]
+    expect(link(render(tasks[0]!))).toContain(`href="/agents?open=agent%3As1%2F${builder.agentId}"`)
+    expect(link(render(tasks[1]!))).toContain('href="/agents?open=session%3As1"')
+    // The human has no log.
+    expect(render(task("t3", 3, { assigneeSessionId: null, assigneeActorId: "lucas" }))).not.toContain("data-working-log")
   })
 })

@@ -83,8 +83,8 @@ describe("subagents through the hooks", () => {
       expect((yield* agents)[0]).toMatchObject({ id: BUILDER, ended: false })
 
       expect(yield* hook("subagent-stop", { session_id: X, hook_event_name: "SubagentStop", agent_id: BUILDER, agent_type: "cello-builder" })).toEqual({ out: "", failure: null })
-      // A finished agent leaves the board; the task still lists it.
-      expect(yield* agents).toEqual([])
+      // A finished agent stays on the board, ended, for a day (Finished today, CEL-107); the task still lists it.
+      expect(yield* agents).toEqual([{ id: BUILDER, type: "cello-builder", task: "CEL-1", ended: true }])
       expect((yield* x("task", "get", "CEL-1")).out).toContain(`Subagents on it (1)
   cello-builder · ${BUILDER.slice(0, 8)} (under Claude Code session 2fd0505c): finished just now`)
       // Claude Code's own helpers stop without starting: nothing is recorded.

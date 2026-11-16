@@ -5,7 +5,9 @@
 //   stdin   { session_id, cwd, hook_event_name, stop_hook_active (Stop), agent_id and agent_type (inside a
 //             subagent, and on SubagentStart/SubagentStop), tool_name, tool_input (PreToolUse, PostToolUse),
 //             tool_response (PostToolUse; on the Agent tool it has the launched subagent's agentId),
-//             background_tasks: [{ id, type: "shell" | …, status, command (shell only) }] (Stop), … }
+//             background_tasks: [{ id, type: "shell" | …, status, command (shell only) }] (Stop),
+//             transcript_path (every event: the main session's transcript, even inside a subagent),
+//             agent_transcript_path (SubagentStop: the subagent's own, in `<session>/subagents/`, checked 2026-11-16), … }
 //   start   { "hookSpecificOutput": { "hookEventName": "SubagentStart", "additionalContext": "…" } }
 //   both    { "hookSpecificOutput": { "hookEventName": "Stop" | "PostToolUse", "additionalContext": "…" } }
 //   pre     { "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "…" } }
@@ -21,6 +23,7 @@
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
+import { stepLine } from "@cello/shared/toolSummary"
 import { isObject } from "./claudeSettings.ts"
 import { andList } from "./format.ts"
 import { agentVariable, type Env } from "./identity.ts"
@@ -59,6 +62,10 @@ export interface HookInput {
   readonly backgroundCommands: ReadonlyArray<string> | null
   /** The session's permission mode (`permission_mode`, every event): a woken run continues in it (CEL-92). */
   readonly permissionMode: string | null
+  /** `transcript_path` (every event): the main session's transcript, even inside a subagent (CEL-106). */
+  readonly transcriptPath: string | null
+  /** `agent_transcript_path` (SubagentStop): the subagent's own transcript (CEL-106). */
+  readonly agentTranscriptPath: string | null
 }
 
 export interface HookAgent {
@@ -123,7 +130,32 @@ export const parseHookInput = (raw: string): HookInput => {
       })
       : null,
     permissionMode: text(input.permission_mode),
+    transcriptPath: text(input.transcript_path),
+    agentTranscriptPath: text(input.agent_transcript_path),
   }
+}
+
+/**
+ * A subagent's transcript, next to its session's (CEL-106): `<dir>/<session>.jsonl` keeps its subagents
+ * in `<dir>/<session>/subagents/agent-<id>.jsonl`. Null for an id that isn't one plain name, or a session
+ * transcript that isn't a .jsonl.
+ */
+export const subagentTranscript = (sessionTranscript: string, agentId: string): string | null => {
+  if (!sessionTranscript.endsWith(".jsonl") || !/^[A-Za-z0-9_-]+$/.test(agentId)) return null
+  return path.join(sessionTranscript.slice(0, -".jsonl".length), "subagents", `agent-${agentId}.jsonl`)
+}
+
+/**
+ * The caller's transcript (CEL-106): in the main conversation the session's (`transcript_path`); inside a
+ * subagent its own: `agent_transcript_path` when given, `transcript_path` when it already is the agent's
+ * file, else the one next to the session's.
+ */
+export const transcriptOf = (input: HookInput): string | null => {
+  if (input.agent === null) return input.transcriptPath
+  if (input.agentTranscriptPath !== null) return input.agentTranscriptPath
+  if (input.transcriptPath === null) return null
+  if (path.basename(input.transcriptPath) === `agent-${input.agent.id}.jsonl`) return input.transcriptPath
+  return subagentTranscript(input.transcriptPath, input.agent.id)
 }
 
 /** The session to deliver to: stdin's `session_id`, else CLAUDE_CODE_SESSION_ID. */
@@ -135,14 +167,19 @@ export const hookSession = (input: HookInput, env: Env): string | null => input.
  * conversation CELLO_AGENT is dropped, whatever the environment had.
  */
 export const hookIdentity = (input: HookInput, env: Env): Env => {
-  const { CELLO_SESSION: _session, CELLO_AGENT: _agent, CELLO_PERMISSION_MODE: _mode, ...rest } = env
+  const { CELLO_SESSION: _session, CELLO_AGENT: _agent, CELLO_PERMISSION_MODE: _mode, CELLO_TRANSCRIPT: _transcript, CELLO_STEP: _step, ...rest } =
+    env
   const session = hookSession(input, env)
+  const transcript = transcriptOf(input)
   return {
     ...rest,
     ...(session ? { CLAUDE_CODE_SESSION_ID: session } : {}),
     ...(input.agent ? { CELLO_AGENT: agentVariable(input.agent) } : {}),
     // Its permission mode, as the hook was told it (CEL-92): what a woken run of it uses.
     ...(input.permissionMode ? { CELLO_PERMISSION_MODE: input.permissionMode } : {}),
+    // Its transcript, and after a tool call that call in one line (CEL-106): the Agents page's log and current step.
+    ...(transcript ? { CELLO_TRANSCRIPT: transcript } : {}),
+    ...(input.toolName ? { CELLO_STEP: stepLine(input.toolName, input.toolInput) } : {}),
   }
 }
 

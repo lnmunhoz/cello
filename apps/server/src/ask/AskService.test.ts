@@ -218,8 +218,10 @@ describe("AskService.answer", () => {
       const { asks, files } = yield* setup
       const { ask } = (yield* agent(asks.create(question(files)))).result
       expect(yield* Effect.flip(agent(asks.answer(answers(ask.id))))).toMatchObject({ _tag: "HumanOnly", action: "answer an ask", human: "Lucas" })
-      const partial = { ...answers(ask.id), answers: answers(ask.id).answers.slice(0, 2) }
-      expect(yield* Effect.flip(asks.answer(partial))).toMatchObject({ _tag: "Invalid", reason: "answer every question: \"Anything else?\" has no answer" })
+      // Every question with options needs an answer; a text-only one ("Anything else?") is optional (CEL-116).
+      const all = answers(ask.id).answers
+      const partial = { ...answers(ask.id), answers: [all[0]!, all[2]!] }
+      expect(yield* Effect.flip(asks.answer(partial))).toMatchObject({ _tag: "Invalid", reason: "answer every question: \"Which extras?\" has no answer" })
       expect(yield* Effect.flip(asks.answer(answers(ask.id, "q2o1")))).toMatchObject({ reason: "\"Which layout?\": no option q2o1" })
       const withFirst = (first: AnswerInput) => ({ ...answers(ask.id), answers: [first, ...answers(ask.id).answers.slice(1)] })
       // A comment alone doesn't answer a question with options; None of these needs one.
@@ -232,6 +234,15 @@ describe("AskService.answer", () => {
       const stranger = { ...answers(ask.id), answers: [...answers(ask.id).answers, { questionId: "q9", optionIds: [] }] }
       expect(yield* Effect.flip(asks.answer(stranger))).toMatchObject({ reason: "this ask has no question q9" })
       expect((yield* asks.latest("CEL-1")).state).toBe("open")
+    })))
+
+  it.effect("takes the answers with a text-only question left blank or out (CEL-116)", () =>
+    run(Effect.gen(function* () {
+      const { asks, files } = yield* setup
+      const { ask } = (yield* agent(asks.create(question(files)))).result
+      const all = answers(ask.id).answers
+      const { result } = yield* asks.answer({ ...answers(ask.id), answers: [all[0]!, all[1]!] })
+      expect(result.ask.state).toBe("answered")
     })))
 
   it.effect("saves the answers, brings the task back to In Progress with its claim, and drops them in the asking session's inbox", () =>

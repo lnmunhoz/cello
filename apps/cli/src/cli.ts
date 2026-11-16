@@ -7,6 +7,10 @@ import * as path from "node:path"
 import * as BunSocket from "@effect/platform-bun/BunSocket"
 import { CelloClient, makeClientLayer, newCommandId } from "@cello/client/client"
 import { describeEvent } from "@cello/client/history"
+import { unavailableWords } from "@cello/client/sync/agentLog"
+import { finishedAgents, startOfDay, workingAgents } from "@cello/client/sync/agents"
+import { type BoardState, fromSnapshot } from "@cello/client/sync/applyEvents"
+import type { LogUnavailable } from "@cello/contract/agentLog"
 import { STAGE_IDS, stageInfo, TASK_STAGES } from "@cello/contract/stages"
 import type { Backup } from "@cello/contract/backups"
 import type { TaskDetail } from "@cello/contract/views"
@@ -45,10 +49,12 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as Stream from "effect/Stream"
 import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
 import * as GlobalFlag from "effect/cli/GlobalFlag"
+import { agentsText, findAgent, logPrinter } from "./agents.ts"
 import { addAgentsSection, agentsFile, type AgentsResult } from "./agentsMd.ts"
 import { roundLabel } from "@cello/client/sync/asks"
 import { alreadyDeliveredText, answerLines, askResultText, askSpecFromArgs, askSpecFromFile, roundsText } from "./ask.ts"
@@ -73,6 +79,8 @@ import {
   parseHookInput,
   stopNudge,
   subagentContext,
+  subagentTranscript,
+  transcriptOf,
   waitHint,
   WOKEN_VARIABLE,
 } from "./claudeHook.ts"
@@ -640,7 +648,7 @@ const stage = Command.make("stage", {
     yield* print(next === null ? `Cleared the stage of ${task.key}  ${where}` : `${task.key} is now ${stageInfo(next)!.label}  ${where}`)
   })).pipe(Command.withDescription(
     `Say where your claimed task is inside In Progress, so the board shows it: ${TASK_STAGES.map((s) => s.label.toLowerCase()).join(", ")}. ` +
-      "Every session holding a claim sets it: on your own, designing, then building, then merged; an orchestrator, building, review, fixing, merged. " +
+      "Every session holding a claim sets it: on your own, planning (only when the task needs a decision before code), then building, then merged; an orchestrator, building, review, fixing, merged. " +
       "Only the session holding the claim (or the human), only in In Progress. Asking the human (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.",
   ))
 
@@ -885,7 +893,7 @@ const ask = Command.make("ask", {
   question: Flag.String("question").pipe(Flag.atLeast(0), Flag.withDescription("A question; the --kind, --option, --recommend and --because after it belong to it.")),
   kind: Flag.String("kind").pipe(
     Flag.atLeast(0),
-    Flag.withDescription("one (the human picks one option; the default with options), any (any number) or text (no options; the default without)."),
+    Flag.withDescription("one (the human picks one option; the default with options), any (any number) or text (no options, optional to answer; the default without)."),
   ),
   option: Flag.String("option").pipe(Flag.atLeast(0), Flag.withDescription("An option: \"Label\" or \"Label|one-line description\"; repeat in order.")),
   recommend: Flag.String("recommend").pipe(Flag.atLeast(0), Flag.withDescription("The label of the option you recommend; --because must follow.")),
@@ -1666,6 +1674,8 @@ const deliverToClaude = (event: DeliveryEvent) =>
     // The Agent tool just launched a subagent: the board learns it, and the task its launch names.
     const launched = hook.launched
     if (launched !== null) {
+      // Its transcript sits next to the session's (CEL-106), so its log opens before its own first hook.
+      const transcriptPath = hook.transcriptPath === null ? null : subagentTranscript(hook.transcriptPath, launched.agentId)
       yield* withClient((client) =>
         client["agent.report"]({
           agentId: launched.agentId,
@@ -1673,6 +1683,7 @@ const deliverToClaude = (event: DeliveryEvent) =>
           state: "launched",
           ...(launched.description ? { description: launched.description } : {}),
           ...(launched.prompt ? { prompt: launched.prompt } : {}),
+          ...(transcriptPath ? { transcriptPath } : {}),
         }), { headers }).pipe(
         // Telling the board is a nicety: if it fails, the comments below are still handed over.
         Effect.catch(() => Effect.void),
@@ -1751,7 +1762,9 @@ const subagentHook = (state: "started" | "stopped") =>
     if (state === "started") yield* print(JSON.stringify(subagentContext(agent)))
     const session = hookIdentity({ ...hook, agent: null }, env)
     if (!session.CLAUDE_CODE_SESSION_ID) return
-    yield* withClient((client) => client["agent.report"]({ agentId: agent.id, agentType: agent.type, state }), {
+    // The subagent's own transcript (CEL-106): its log on the Agents page.
+    const transcriptPath = transcriptOf(hook)
+    yield* withClient((client) => client["agent.report"]({ agentId: agent.id, agentType: agent.type, state, ...(transcriptPath ? { transcriptPath } : {}) }), {
       headers: identityHeaders(session, hook.cwd ?? cwd),
     })
   })
@@ -1785,7 +1798,8 @@ const hookClaude = Command.make("claude", {
       "when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that " +
       "holds a claim going once to start `cello inbox --wait` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) " +
       "or Claude is already continuing because of a Stop hook (stop_hook_active), and never in a run Cello woke (CELLO_WOKEN=1). Every run passes the session's " +
-      "permission_mode on to the server, so a run Cello wakes uses the same mode. pre-tool-use turns a Claude artifact publish " +
+      "permission_mode on to the server, so a run Cello wakes uses the same mode, and its Claude Code transcript_path (inside a subagent, the subagent's own " +
+      "file) with, after a tool call, that call in one line (\"Bash · bun run test\"), so the Agents page shows its live log and current step. pre-tool-use turns a Claude artifact publish " +
       "away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); " +
       "this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and " +
       "denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the " +
@@ -2322,6 +2336,151 @@ const sessions = Command.make("sessions").pipe(
   Command.withSubcommands([sessionsWake, sessionsRuns]),
 )
 
+// ── agents and their logs (CEL-107) ─────────────────────────────────────────────────────────────
+
+/**
+ * The board of the workspace a command is about (the project's, by --project or the working folder),
+ * else the first workspace's, when the folder isn't a project's: what `cello agents` lists from.
+ */
+const agentsBoard = <A>(project: Option.Option<string>, then: (board: BoardState, client: CelloClient["Service"]) => Effect.Effect<A, CliFailure>) =>
+  Effect.gen(function* () {
+    const { cwd } = yield* CliEnv
+    const ref = Option.isSome(project) || repoRootFor(cwd) !== null ? yield* projectRef(project) : null
+    return yield* withClient((client) =>
+      Effect.gen(function* () {
+        const found = ref === null ? null : (yield* client.whoami({ project: ref })).project
+        if (found === null && Option.isSome(project)) return yield* new CliFailure({ message: `No project with key ${project.value}.` })
+        const snapshot = yield* client["snapshot.get"](found === null ? {} : { scope: { workspaceId: found.workspaceId } })
+        const board = fromSnapshot(snapshot)
+        const workspaceId = found?.workspaceId ?? snapshot.workspaces[0]?.id ?? ""
+        return { board, workspaceId, result: yield* then(board, client) }
+      })
+    )
+  })
+
+const agentsList = Command.make("agents", {
+  all: Flag.Boolean("all").pipe(Flag.withDefault(false), Flag.withDescription("Also list the agents that finished today, newest first.")),
+  project,
+  json,
+}, (input) =>
+  Effect.gen(function* () {
+    const { now } = yield* CliEnv
+    const { board, workspaceId } = yield* agentsBoard(input.project, () => Effect.void)
+    const at = now()
+    const working = workingAgents(board, workspaceId, at)
+    const finished = finishedAgents(board, workspaceId, startOfDay(at))
+    if (input.json) return yield* printJson({ working: working.filter((w) => w.presence !== "ended"), finished: input.all ? finished : [] })
+    yield* print(agentsText({ working, finished, all: input.all, now: at }))
+  })).pipe(
+    Command.withDescription(
+      "List the agents working in this project's workspace, as the Agents page does: each agent session, its subagents under it, with " +
+        "the tasks it's on, whether it's active, and what it's doing right now (its last tool call). `cello agents log <id>` prints one's log.",
+    ),
+    Command.withExamples([
+      { command: "cello agents", description: "Who's working, on what, doing what" },
+      { command: "cello agents --all", description: "Also the agents that finished today" },
+    ]),
+  )
+
+const agentsLog = Command.make("log", {
+  id: Argument.String("id").pipe(
+    Argument.withDescription(
+      "Whose log: a session's id or its start (2fd0505c), or a subagent's id or its start, with its type in front or not " +
+        "(cello-builder/a13bfb89, or a13bfb89), as `cello agents` lists them.",
+    ),
+  ),
+  follow: Flag.Boolean("follow").pipe(
+    Flag.withAlias("f"),
+    Flag.withDefault(false),
+    Flag.withDescription("Keep printing new steps as the agent works, until Ctrl-C. Rides out a server restart (reconnects for up to 2 minutes)."),
+  ),
+  full: Flag.Boolean("full").pipe(Flag.withDefault(false), Flag.withDescription("Print each result whole, instead of its first 3 lines.")),
+  thinking: Flag.Boolean("thinking").pipe(Flag.withDefault(false), Flag.withDescription("Also print the agent's thinking (hidden by default, as on the Agents page).")),
+  showSecrets: Flag.Boolean("show-secrets").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Print keys and tokens as they are instead of masked. For the human only: when an agent asks, they stay masked."),
+  ),
+  project,
+  json: Flag.Boolean("json").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Print the steps as JSON; with --follow, each update the server sends as one JSON line."),
+  ),
+}, (input) =>
+  Effect.gen(function* () {
+    const options = { full: input.full, thinking: input.thinking }
+    const again = `cello agents log ${input.id} --follow`
+    const { result: target } = yield* agentsBoard(input.project, (board) =>
+      Effect.gen(function* () {
+        const found = findAgent(input.id, { sessions: Object.values(board.sessions), agents: Object.values(board.agents) })
+        if (found._tag === "none") {
+          return yield* new CliFailure({ message: `No agent or session starts with "${input.id.trim()}". \`cello agents --all\` lists them.` })
+        }
+        if (found._tag === "ambiguous") {
+          return yield* new CliFailure({ message: `"${input.id.trim()}" starts more than one: ${andList(found.names)}. Give more of the id.` })
+        }
+        return found
+      })
+    )
+    const live = target.agent ? target.agent.endedAt === null && target.session.endedAt === null : target.session.endedAt === null
+    const payload = {
+      sessionId: target.session.id,
+      ...(target.agent ? { agentId: target.agent.agentId } : {}),
+      ...(input.showSecrets ? { reveal: true } : {}),
+    }
+    const failure = (reason: LogUnavailable) => new CliFailure({ message: unavailableWords(reason, live && input.follow) })
+
+    if (!input.follow) {
+      const first = yield* withClient((client) => Stream.runHead(client["agent.log"](payload)))
+      const update = Option.getOrUndefined(first)
+      if (update === undefined) return yield* failure("missing")
+      if (update._tag === "unavailable") {
+        return yield* new CliFailure({ message: `${unavailableWords(update.reason, false)}${update.reason === "missing" && live ? " `--follow` waits for it." : ""}` })
+      }
+      if (input.json) return yield* printJson({ steps: update.steps, skipped: update.skipped, older: update.older === true })
+      const lines = logPrinter(options).steps(update)
+      return yield* print(lines.length > 0 ? lines.join("\n") : "Nothing in the log yet.")
+    }
+
+    // Following: each update as it comes, through restarts; the printer remembers what it printed.
+    const printer = logPrinter(options)
+    let missingSaid = false
+    const ended = yield* throughRestarts((client) =>
+      client["agent.log"](payload).pipe(
+        Stream.runFoldEffect(() => null as LogUnavailable | null, (_, update) =>
+          Effect.gen(function* () {
+            if (input.json) {
+              yield* Console.log(JSON.stringify(update))
+              return update._tag === "unavailable" && update.reason !== "missing" ? update.reason : null
+            }
+            if (update._tag === "unavailable") {
+              if (update.reason !== "missing") return update.reason
+              if (!missingSaid) yield* Console.error(unavailableWords("missing", true))
+              missingSaid = true
+              return null
+            }
+            missingSaid = false
+            const lines = printer.steps(update)
+            if (lines.length > 0) yield* print(lines.join("\n"))
+            return null
+          })),
+      ), again)
+    // The log ended by itself: nothing to read (refused, unreadable, or no transcript reported).
+    if (ended !== null) return yield* failure(ended)
+  })).pipe(
+    Command.withDescription(
+      "Print an agent's log: the same steps as its log on the Agents page, read from its Claude Code transcript. Its prompt, what it said, " +
+        "each tool call with ✓ or ✗ and how long it took, its result folded to the first lines. Keys and tokens are masked. With --follow it " +
+        "keeps printing new steps: how an orchestrator watches a builder from the terminal.",
+    ),
+    Command.withExamples([
+      { command: "cello agents log cello-builder/a13bfb89", description: "What the builder has done so far" },
+      { command: "cello agents log a13bfb89 --follow", description: "Watch it work, step by step, until Ctrl-C" },
+      { command: "cello agents log 2fd0505c --full", description: "A session's own log, every result whole" },
+    ]),
+  )
+
+const agents = agentsList.pipe(Command.withSubcommands([agentsLog]))
+
 const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(
   Command.withDescription("Print the full guide for agents: concepts, workflow, examples, errors and every command (docs/cli.md)."),
 )
@@ -2442,7 +2601,7 @@ const service = Command.make("service").pipe(
 
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, init, profile, task, label, waitCommand, inbox, sessions, doc, openCommand, searchCommand, whoami, guide, install, uninstall, hook, startCommand, service, backup, restoreCommand, buildsCommand]),
+  Command.withSubcommands([context, init, profile, task, label, waitCommand, inbox, sessions, agents, doc, openCommand, searchCommand, whoami, guide, install, uninstall, hook, startCommand, service, backup, restoreCommand, buildsCommand]),
   Command.withGlobalFlags([AgentFlag]),
 )
 

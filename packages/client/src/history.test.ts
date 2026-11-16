@@ -1,6 +1,7 @@
 import type { CelloEvent, EventBody } from "@cello/contract/events"
 import type { BoardState } from "./sync/applyEvents.ts"
 import { describe, expect, it } from "vitest"
+import { decodeEvent } from "@cello/contract/events"
 import { describeEvent } from "./history.ts"
 
 const state = {
@@ -97,6 +98,13 @@ describe("describeEvent", () => {
     expect(describeEvent(ev({ type: "task.claim_ended", id: "t", version: 4, from, reason: "human_change" }), state)).toBe(
       "Lucas's change ended the agent's claim",
     )
+  })
+})
+
+describe("describeEvent: an old stage (CEL-105)", () => {
+  it("a stage change stored as `designing`, before it was renamed, reads as Planning", () => {
+    const stored = decodeEvent({ seq: 1, ts: 1, commandId: "c", actorId: "me", sessionId: null, workspaceId: "w", projectId: "p", schemaVersion: 1, type: "task.stage_changed", id: "t", version: 3, before: null, after: "designing" })
+    expect(describeEvent(stored, state)).toBe("Lucas set the stage to Planning")
   })
 })
 
