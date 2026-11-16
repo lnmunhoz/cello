@@ -199,8 +199,9 @@ export const Comment = Schema.Struct({
   updatedAt: Millis,
   deletedAt: Schema.NullOr(Millis),
   /**
-   * Its emoji reactions (CEL-77), oldest first. Read with the comment; comments inside events (and ones
-   * stored before reactions existed) have none. A reaction changing is its own event, not the comment's.
+   * Its emoji reactions (CEL-77), oldest first. Read with the comment, so `comment.added` carries an
+   * empty list; events stored before reactions existed leave it out. A reaction changing is its own
+   * event (`reaction.added`, `reaction.removed`), never a comment event.
    */
   reactions: Schema.optionalKey(Schema.Array(Reaction)),
 })

@@ -316,7 +316,8 @@ export const selectComments = (sql: Sql, where: Where) =>
 
 type InboxRow = { [K in keyof CommentRow]: CommentRow[K] | null } & {
   item_id: string
-  kind: InboxKind
+  /** What `inbox_items.kind` allows: reactions are their own rows (`selectReactionItems`). */
+  kind: Exclude<InboxKind, "reaction">
   item_task_id: string
   ask_id: string | null
   detail: string | null
@@ -364,8 +365,7 @@ export const selectInboxItems = (sql: Sql, where: Where) =>
         return [r.kind === "answers" ? { ...common, kind: "answers", ask } : { ...common, kind: "withdrawn", ask, status: r.detail ?? "another status" }]
       }
       const comment = comments.find((c) => c.id === r.id)
-      // Reactions reach an inbox through `selectReactionItems`; an `inbox_items` row never holds one.
-      if (!comment || r.kind === "reaction") return []
+      if (!comment) return []
       return [{ ...common, kind: r.kind, comment }]
     })
   })

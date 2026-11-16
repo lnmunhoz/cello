@@ -35,7 +35,7 @@ import { ACCEPTED } from "@cello/shared/attachment"
 import { pagePath } from "@cello/shared/document"
 import { formatBytes } from "@cello/shared/bytes"
 import { colorFromSeed } from "@cello/shared/color"
-import { groupReactions } from "@cello/shared/reaction"
+import { cleanReaction, groupReactions } from "@cello/shared/reaction"
 import { shortCommit } from "@cello/shared/build"
 import { APP_VERSION } from "@cello/shared/version"
 import * as Console from "effect/Console"
@@ -646,7 +646,7 @@ const react = Command.make("react", {
     )
     if (input.json) return yield* printJson(written.response)
     const { response, detail, target } = written
-    const emoji = input.emoji.trim()
+    const emoji = cleanReaction(input.emoji)
     const whose = `${author(detail, target.actorId, target.sessionId, target.agentId)}'s comment on ${detail.task.key}`
     const changed = response.seq !== null
     yield* print(

@@ -179,6 +179,16 @@ describe("CommentService.react", () => {
         ])
     })))
 
+  it.effect("stores one form, so ❤ and ❤️ are the same reaction", () =>
+    run(Effect.gen(function* () {
+      const { comments, comment } = yield* commented
+      const { result } = yield* comments.react({ commandId: cmd(), commentId: comment.id, emoji: "❤", on: true })
+      expect(result.reactions!.map((r) => r.emoji)).toEqual(["❤️"])
+      expect((yield* comments.react({ commandId: cmd(), commentId: comment.id, emoji: "❤️", on: true })).seq).toBeNull()
+      const off = yield* comments.react({ commandId: cmd(), commentId: comment.id, emoji: "❤️", on: false })
+      expect(off.result.reactions).toEqual([])
+    })))
+
   it.effect("is no activity on the task: its version, last change and claim stay", () =>
     run(Effect.gen(function* () {
       const { tasks, comments, comment, task } = yield* commented

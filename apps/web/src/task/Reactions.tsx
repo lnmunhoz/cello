@@ -1,6 +1,6 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Comment, Reaction } from "@cello/contract/entities"
-import { groupReactions, QUICK_REACTIONS, REACTION_PICKS } from "@cello/shared/reaction"
+import { groupReactions, pickMatches, QUICK_REACTIONS, REACTION_PICKS } from "@cello/shared/reaction"
 import { andList } from "@cello/shared/words"
 import { useAtomSet } from "@effect/atom-react"
 import { SmilePlusIcon } from "lucide-react"
@@ -31,8 +31,8 @@ export function Reactions({ board, comment }: { board: BoardState; comment: Comm
     setOpen(false)
     setQuery("")
   }
-  const words = query.trim().toLowerCase()
-  const picks = REACTION_PICKS.slice(QUICK_REACTIONS.length).filter((p) => words === "" || p.name.includes(words) || p.emoji === words)
+  // The grid holds the rest of the set; a search looks through all of it, the quick picks included.
+  const picks = query.trim() === "" ? REACTION_PICKS.slice(QUICK_REACTIONS.length) : REACTION_PICKS.filter((p) => pickMatches(p, query))
 
   return (
     <div role="group" aria-label="Reactions" className="flex flex-wrap items-center gap-1.5" data-reactions>
@@ -58,7 +58,7 @@ export function Reactions({ board, comment }: { board: BoardState; comment: Comm
           <div className="flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-2" aria-label="Pick a reaction" role="group">
             <div className="flex items-center justify-between gap-1" role="group" aria-label="Quick reactions">
               {QUICK_REACTIONS.map((emoji) => (
-                <EmojiPick key={emoji} size="quick" aria-label={`React ${emoji}`} aria-pressed={mine.has(emoji)} onClick={() => choose(emoji)}>
+                <EmojiPick key={emoji} size="quick" aria-label={`React ${emoji}`} title={REACTION_PICKS.find((p) => p.emoji === emoji)?.name} aria-pressed={mine.has(emoji)} onClick={() => choose(emoji)}>
                   {emoji}
                 </EmojiPick>
               ))}
@@ -67,7 +67,7 @@ export function Reactions({ board, comment }: { board: BoardState; comment: Comm
             {picks.length > 0 ? (
               <div className="grid grid-cols-8 gap-0.5" role="group" aria-label="More reactions">
                 {picks.map((p) => (
-                  <EmojiPick key={p.emoji} aria-label={`React ${p.emoji}`} title={p.name.split(" ")[0]} aria-pressed={mine.has(p.emoji)} onClick={() => choose(p.emoji)}>
+                  <EmojiPick key={p.emoji} aria-label={`React ${p.emoji}`} title={p.name} aria-pressed={mine.has(p.emoji)} onClick={() => choose(p.emoji)}>
                     {p.emoji}
                   </EmojiPick>
                 ))}

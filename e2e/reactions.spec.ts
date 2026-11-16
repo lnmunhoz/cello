@@ -1,6 +1,6 @@
 // CEL-77: Lucas reacts to an agent's comment with one click instead of typing a reply. 👍 from the
-// comment's picker shows as a chip under it and reaches the agent's `cello inbox --new`, once; the
-// agent's own ✅ (`cello task react … last ✅`) shows up live; clicking a chip toggles Lucas's reaction,
+// comment's picker shows as a chip under it and reaches the agent's `cello inbox --new`, once; a 🚀
+// found by searching the picker wakes the agent's background `cello inbox --wait`; the agent's own ✅ (`cello task react … last ✅`) shows up live; clicking a chip toggles Lucas's reaction,
 // and taking one back before the agent reads it means it never arrives. The same comments, with their
 // chips, show under the packet on the Review page. Stills (light and dark) go to e2e/videos/.
 import * as fs from "node:fs"
@@ -8,7 +8,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import type { Browser, Locator } from "@playwright/test"
 import { animationsSettled, caption, card, column, createProject, expect, taskPanel, test, uniqueKey } from "./fixtures.ts"
-import { celloAs, SHOTS, showTerminal, WEB_URL } from "./packets.ts"
+import { celloAs, celloInBackground, SHOTS, showTerminal, WEB_URL } from "./packets.ts"
 import { isReview } from "./recording.ts"
 
 const SESSION = "e2e0reactions-agent-session"
@@ -89,6 +89,24 @@ test("CEL-77: Lucas reacts 👍 to an agent's comment; the chip shows, and the a
   await showTerminal(page, "cello inbox --new", again)
   expect(again).toBe("")
 
+  await caption(page, "The agent ends its turn with `cello inbox --wait` running in the background, so Lucas can wake it")
+  const waiting = celloInBackground(SESSION)("inbox", "--wait")
+  const waitingLine = await waiting.printed
+  expect(waitingLine).toContain("Waiting for new comments")
+  await showTerminal(page, "cello inbox --wait   # in the background", waitingLine)
+
+  await caption(page, "Lucas searches the picker for “rocket” and reacts 🚀: the waiting command wakes with it")
+  await question.getByRole("button", { name: "Add a reaction" }).click()
+  const search = page.getByRole("group", { name: "Pick a reaction" })
+  await search.getByLabel("Search emoji").fill("rocket")
+  await search.getByRole("group", { name: "More reactions" }).getByRole("button", { name: "React 🚀" }).click()
+  await expect(chip(question, "🚀")).toHaveAttribute("aria-pressed", "true")
+  const woken = await waiting
+  expect(woken.code).toBe(0)
+  expect(woken.stdout).toMatch(/reacted 🚀 to your comment, just now\n {4}"Built the picker and the chips\. Shall I merge it\?"/)
+  await showTerminal(page, "# cello inbox --wait exits, waking the agent with:", woken.stdout)
+  await expect(page.getByLabel("Agent terminal")).toContainText("reacted 🚀 to your comment")
+
   await caption(page, "Lucas replies in words too; the agent reacts ✅ to that with `cello task react … last ✅`, and the chip shows up live")
   await panel.getByLabel("New comment").fill("Yes, merge it.")
   await panel.getByRole("button", { name: "Comment", exact: true }).click()
@@ -108,7 +126,8 @@ test("CEL-77: Lucas reacts 👍 to an agent's comment; the chip shows, and the a
   await caption(page, "A 🎉 on the agent's comment, taken back with a click before the agent reads it: it never arrives")
   await question.getByRole("button", { name: "Add a reaction" }).click()
   await page.getByRole("group", { name: "Pick a reaction" }).getByRole("button", { name: "React 🎉" }).click()
-  await expect(chip(question, "🎉")).toBeVisible()
+  await expect(chip(question, "🎉")).toHaveAttribute("aria-pressed", "true")
+  await caption(page, "There's the 🎉 chip, Lucas's own… and a click on it takes it back")
   await chip(question, "🎉").click()
   await expect(chip(question, "🎉")).toBeHidden()
   const nothing = agent("inbox", "--new")
@@ -116,7 +135,7 @@ test("CEL-77: Lucas reacts 👍 to an agent's comment; the chip shows, and the a
   expect(nothing).toBe("")
   await expect(page.getByLabel("Agent terminal")).toContainText("(prints nothing)")
 
-  await caption(page, "The agent hands the task in; on the Review page the comments carry their chips")
+  await caption(page, "The agent hands the task in (with a stand-in test log as its evidence); on the Review page the comments carry their chips")
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-reactions-"))
   fs.writeFileSync(path.join(dir, "vitest.log"), "Test Files  178 passed (178)\n")
   agent("task", "submit", task, "--summary", "Reactions on comments", "--step", "React to a comment", "--attach", path.join(dir, "vitest.log"))
