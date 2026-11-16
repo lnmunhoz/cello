@@ -100,10 +100,10 @@ There's a conflict here. The board has to be correct right away, but the animati
 Workspace ─┬─ Project ─┬─ Task ─┬─ Comment
            │           │        ├─ Link (commit, PR, branch, URL)
            │           │        └─ Sub-task (a task with parent_id)
+           │           ├─ Label (kind, area, milestone; the project's own)
            │           ├─ Document (kind: doc | spec)
            │           └─ Repo path (one or more folders)
            ├─ Status (columns, shared by the workspace's projects)
-           ├─ Label
            └─ View (saved layout, grouping, filters)
 
 Actor (human | agent) ── Agent session ── Event (everything above, over time)
@@ -111,8 +111,9 @@ Actor (human | agent) ── Agent session ── Event (everything above, over 
 
 **Workspaces and projects**
 
-- A **project** is one product, usually one repository. Each project has its own backlog, its own task key (`THAI-12`) and its own docs and specs.
-- A **workspace** is a group of projects that belong together, for example "Personal" (ThaiLookup, Cello) and a client's repos. Its projects share board columns, labels and saved views, and the workspace is the scope of the **All projects** view.
+- A **project** is one product, usually one repository. Each project has its own backlog, its own task key (`THAI-12`), its own labels (kinds, areas, milestones) and its own docs and specs.
+- A **workspace** is a group of projects that belong together, for example "Personal" (ThaiLookup, Cello) and a client's repos. Its projects share board columns and saved views, and the workspace is the scope of the **All projects** view.
+- **Labels belong to a project** (CEL-80). Pickers, filters, `cello label list`, `cello context` and search show only the project's own; a task carries only its project's labels. Two projects may each have a label of the same name; the All projects view groups labels by name, so filtering `bug` there matches every project's `bug`.
 - A project belongs to exactly one workspace.
 - **Cello starts with one workspace, created for you, and hides the concept** until you create a second one. Day to day you only see projects. If you never need a second workspace, you never see the switcher.
 
@@ -123,7 +124,7 @@ Actor (human | agent) ── Agent session ── Event (everything above, over 
 | `project_repos` | project_id, path, git_remote | Several paths per project (clones, worktrees) |
 | `statuses` | id, workspace_id, name, category, position, hidden | category: backlog, unstarted, started, completed, canceled. Defaults: Backlog, Todo, In Progress, In Review, Done, Canceled |
 | `tasks` | id, project_id, number, title, description, status_id, priority 0–4, position, due_date, parent_id, assignee_actor_id, assignee_session_id, created_by (actor, session), version, timestamps, archived_at | Shown as `THAI-12`. `position` is a fractional index string, so moving a card never renumbers the others |
-| `labels`, `task_labels` | id, workspace_id, name, color | |
+| `labels`, `task_labels` | id, workspace_id, project_id, name, color, label_group, archived_at | A label belongs to one project; names are unique per project, ignoring case, archived ones included |
 | `comments` | id, task_id, body, actor_id, session_id, timestamps | Markdown |
 | `links` | id, task_id, kind, ref, url, title, actor_id, session_id | kind: commit, pr, branch, url, file |
 | `documents` | id, workspace_id, project_id, kind, slug, title, summary, body, version, created_by (actor, session), updated_by_session, timestamps | `kind` = doc, spec or page. Specs and pages can link to tasks |
@@ -647,7 +648,7 @@ Three fresh-context reviewers (scope, design, implementation readiness) read thi
 **Subscriptions**
 
 - `seq` is global. A scoped stream skips the numbers outside its scope; the client tracks the highest `seq` it has seen.
-- A project subscription also receives workspace-level events (statuses, labels, views).
+- A project subscription also receives workspace-level events (statuses, views). Label events are their project's.
 - Moving a task to another project emits a removal in the old scope and a full-row upsert in the new one.
 - Presence uses its own unsequenced message type, so the seq filter never drops it.
 - `events.subscribe({ scope, afterSequence })` joins the live channel first, buffers, replays stored events up to the newest `seq`, then drains the buffer, skipping duplicates by `seq`.

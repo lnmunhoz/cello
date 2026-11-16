@@ -13,7 +13,7 @@ const task = (id: string, statusId: string, position: string, extra: Partial<Tas
 })
 
 const label = (id: string, archivedAt: number | null = null): Label => ({
-  id, workspaceId: "w1", name: id, color: "#e5484d", group: "none", archivedAt, createdAt: 1, updatedAt: 1,
+  id, workspaceId: "w1", projectId: "p1", name: id, color: "#e5484d", group: "none", archivedAt, createdAt: 1, updatedAt: 1,
 })
 
 const state: BoardState = {

@@ -71,7 +71,8 @@ const make = Effect.gen(function* () {
         workspaces,
         projects: yield* selectProjects(sql, projectFilter),
         statuses: yield* selectStatuses(sql, sql`s.workspace_id = ${workspaceId}`),
-        labels: yield* selectLabels(sql, sql`l.workspace_id = ${workspaceId}`),
+        // Labels belong to a project (CEL-80): a workspace's snapshot has every project's, a project's its own.
+        labels: yield* selectLabels(sql, sql`l.project_id IN (SELECT p.id FROM projects p WHERE ${projectFilter})`),
         tasks,
         sessions: yield* sessions.byIds([...sessionIds, ...boardAgents.map((a) => a.sessionId)]),
         agents: boardAgents,

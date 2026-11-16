@@ -58,7 +58,9 @@ describe("EventLog.subscribe", () => {
       })
       const fiber = yield* Effect.forkChild(collect(log.subscribe({ projectId: project.id }, 0), 3))
       yield* tasks.create({ commandId: cmd(), projectId: other.id, title: "Not mine" })
-      yield* (yield* LabelService.LabelService).create({ commandId: cmd(), workspaceId: workspace.id, name: "Bug", color: "#FF0000" })
+      // Labels belong to a project (CEL-80): the other project's label isn't this subscription's.
+      yield* (yield* LabelService.LabelService).create({ commandId: cmd(), projectId: other.id, name: "Theirs", color: "#00FF00" })
+      yield* (yield* LabelService.LabelService).create({ commandId: cmd(), projectId: project.id, name: "Bug", color: "#FF0000" })
       yield* tasks.create({ commandId: cmd(), projectId: project.id, title: "Mine" })
       const types = (yield* Fiber.join(fiber)).map(([, type]) => type)
       expect(types).toEqual(["project.created", "label.created", "task.created"])

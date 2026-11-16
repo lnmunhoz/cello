@@ -4,7 +4,7 @@
 //
 // Labels match by group: any picked label within a group, and every group picked. `bug` + `agents`
 // shows the bugs in agents; `bug` + `feature` shows both kinds.
-import type { LabelGroup, Priority, Task } from "@cello/contract/entities"
+import type { Label, LabelGroup, Priority, Scope, Task } from "@cello/contract/entities"
 import type { BoardState } from "./applyEvents.ts"
 import { openAskOf } from "./asks.ts"
 import { openReviewOf } from "./reviews.ts"
@@ -68,23 +68,33 @@ export const hasFilter = (f: TaskFilter): boolean => activeFields(f).length > 0
 export const clearField = (f: TaskFilter, field: FilterField): TaskFilter =>
   field === "holder" ? { ...f, holder: [], sessions: [] } : { ...f, [field]: EMPTY_FILTER[field] }
 
-/** What a match needs besides the task: the board (actors, reviews, asks), the workspace's labels by name, and today. */
+/** What a match needs besides the task: the board (actors, reviews, asks), the labels in view by name, and today. */
 export interface MatchContext {
   readonly board: BoardState
-  /** The workspace's live labels: lower-case name → id and group. */
-  readonly labels: ReadonlyMap<string, { readonly id: string; readonly group: LabelGroup }>
+  /**
+   * The live labels in view: lower-case name → the labels of that name, with their groups. A project's
+   * view has its own labels, one per name (CEL-80); All projects has every project's, so "bug" is each
+   * project's bug.
+   */
+  readonly labels: ReadonlyMap<string, ReadonlyArray<{ readonly id: string; readonly group: LabelGroup }>>
   readonly now: number
 }
 
-export const matchContext = (board: BoardState, workspaceId: string, now: number): MatchContext => ({
-  board,
-  labels: new Map(
-    Object.values(board.labels)
-      .filter((l) => l.workspaceId === workspaceId && l.archivedAt === null)
-      .map((l) => [l.name.toLowerCase(), { id: l.id, group: l.group }]),
-  ),
-  now,
-})
+/** The live labels a project's view offers (`{ projectId }`), or All projects' (`{ workspaceId }`). */
+export const labelsInScope = (board: BoardState, scope: Scope): Label[] =>
+  Object.values(board.labels).filter((l) =>
+    l.archivedAt === null &&
+    ("projectId" in scope ? l.projectId === scope.projectId : board.projects[l.projectId]?.workspaceId === scope.workspaceId)
+  )
+
+export const matchContext = (board: BoardState, scope: Scope, now: number): MatchContext => {
+  const labels = new Map<string, Array<{ readonly id: string; readonly group: LabelGroup }>>()
+  for (const l of labelsInScope(board, scope)) {
+    const name = l.name.toLowerCase()
+    labels.set(name, [...(labels.get(name) ?? []), { id: l.id, group: l.group }])
+  }
+  return { board, labels, now }
+}
 
 const DAY = 86_400_000
 
@@ -110,12 +120,11 @@ export const dueOf = (task: Task, now: number): Due | null => {
   return null
 }
 
-/** The picked labels the workspace has, by group: label ids per group. */
+/** The picked labels in view, by group: label ids per group. */
 const pickedGroups = (f: TaskFilter, c: MatchContext): Map<LabelGroup, string[]> => {
   const groups = new Map<LabelGroup, string[]>()
   for (const name of f.labels) {
-    const label = c.labels.get(name.toLowerCase())
-    if (label) groups.set(label.group, [...(groups.get(label.group) ?? []), label.id])
+    for (const label of c.labels.get(name.toLowerCase()) ?? []) groups.set(label.group, [...(groups.get(label.group) ?? []), label.id])
   }
   return groups
 }
@@ -180,9 +189,8 @@ export const countWith = (
 
 /** How many tasks carry the label `name` and pass every other filter, its own group's picks left out. */
 export const labelCount = (tasks: ReadonlyArray<Task>, f: TaskFilter, c: MatchContext, name: string): number => {
-  const label = c.labels.get(name.toLowerCase())
-  if (!label) return 0
-  return tasks.filter((t) => t.labelIds.includes(label.id) && passes(t, f, c, { group: label.group })).length
+  const labels = c.labels.get(name.toLowerCase()) ?? []
+  return tasks.filter((t) => labels.some((l) => t.labelIds.includes(l.id) && passes(t, f, c, { group: l.group }))).length
 }
 
 // ---------- URL ----------

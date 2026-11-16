@@ -191,7 +191,7 @@ export function Preview({ hit, board }: { hit: SearchHit; board: BoardState }) {
     <div className="flex min-h-full flex-col gap-4 p-5" data-preview={hit.kind}>
       <div className="flex items-center gap-2 text-xs text-muted">
         <i className={`size-3 ${hit.kind === "label" ? "rounded-full" : "rounded-[3px]"}`} style={{ background: hit.color ?? undefined }} />
-        {hit.kind === "label" ? "Label" : `Project · ${hit.projectKey}`} · {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
+        {hit.kind === "label" ? `Label · ${hit.projectKey}` : `Project · ${hit.projectKey}`} · {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
       </div>
       <h3 className="text-[17px] font-semibold">
         <Marked text={hit.title} ranges={hit.titleRanges} />

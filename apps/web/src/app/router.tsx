@@ -13,7 +13,7 @@ import { ProjectLayout } from "../project/ProjectLayout.tsx"
 import { parseReviewSearch } from "../review/queue.ts"
 import { ReviewPage } from "../review/ReviewPage.tsx"
 import { BuildsPage } from "../settings/BuildsPage.tsx"
-import { Settings } from "../settings/Settings.tsx"
+import { parseSettingsSearch, Settings } from "../settings/Settings.tsx"
 import { parseTaskSearch } from "../task/view.ts"
 import { isEmbedded } from "../viewer/viewer.ts"
 import { AppShell, EmbeddedShell } from "./AppShell.tsx"
@@ -26,7 +26,7 @@ const embedded = isEmbedded({ self: window.self, top: window.top, search: window
 const root = createRootRoute({ component: embedded ? EmbeddedShell : AppShell, ...embedSearch })
 
 const home = createRoute({ getParentRoute: () => root, path: "/", component: Home })
-const settings = createRoute({ getParentRoute: () => root, path: "/settings", component: Settings })
+const settings = createRoute({ getParentRoute: () => root, path: "/settings", component: Settings, validateSearch: parseSettingsSearch })
 // Settings → Builds (CEL-50). Static routes win over `$projectKey`; each top-level word is reserved as a
 // project key (reservedKeyProblem in packages/shared/src/taskKey.ts).
 const builds = createRoute({ getParentRoute: () => root, path: "/builds", component: BuildsPage })

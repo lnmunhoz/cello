@@ -1,8 +1,8 @@
-import { placement, statusesOf } from "@cello/client/sync/selectors"
+import { placement, projectsOf, statusesOf } from "@cello/client/sync/selectors"
 import { type Label, LABEL_GROUP_NAMES, LABEL_GROUPS, type LabelGroup, type Status } from "@cello/contract/entities"
 import { buildLine } from "@cello/shared/build"
 import { useAtomSet } from "@effect/atom-react"
-import { Link } from "@tanstack/react-router"
+import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { ArrowDownIcon, ArrowUpIcon, ArchiveIcon, EyeIcon, EyeOffIcon, LayoutListIcon, PanelRightIcon } from "lucide-react"
 import { useState } from "react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
@@ -20,13 +20,28 @@ import { writeStored } from "../lib/storage.ts"
 import { SegmentedControl, SegmentedControlItem } from "../components/ui/SegmentedControl.tsx"
 import { BAR_LAYOUT_KEY, LAYOUT_NAMES, useBarLayout } from "../search/layout.ts"
 
+/** `/settings?project=THAI`: whose labels the Labels section shows (CEL-80). */
+export interface SettingsSearch {
+  readonly project?: string
+}
+
+export const parseSettingsSearch = (search: Record<string, unknown>): SettingsSearch => {
+  const project = search["project"]
+  return typeof project === "string" && project.trim() !== "" ? { project: project.trim().toUpperCase() } : {}
+}
+
 export function Settings() {
   const board = useBoard()
   const workspaceId = useWorkspaceId()
+  const search = useSearch({ from: "/settings" })
+  const navigate = useNavigate()
   if (!board || !workspaceId) return <Centered>Loading…</Centered>
   const statuses = statusesOf(board, workspaceId)
+  // Labels belong to a project (CEL-80): the one in the URL, else the first.
+  const projects = projectsOf(board, workspaceId)
+  const project = projects.find((p) => p.key === search.project) ?? projects[0]
   const labels = Object.values(board.labels)
-    .filter((l) => l.workspaceId === workspaceId && l.archivedAt === null)
+    .filter((l) => l.projectId === project?.id && l.archivedAt === null)
     .sort((a, b) => a.name.localeCompare(b.name))
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -40,13 +55,31 @@ export function Settings() {
               ))}
             </ul>
           </Section>
-          <Section title="Labels" description="Shared by every project in this workspace.">
-            <NewLabel workspaceId={workspaceId} />
-            <ul aria-label="Labels" className="divide-y divide-line rounded-lg border border-line empty:hidden">
-              {labels.map((l) => (
-                <LabelRow key={l.id} label={l} />
-              ))}
-            </ul>
+          <Section title="Labels" description="Each project has its own labels: its kinds, areas and milestones.">
+            {project ? (
+              <>
+                <div className="max-w-xs">
+                  <Select
+                    variant="boxed"
+                    label="Labels of project"
+                    value={project.id}
+                    options={projects.map((p) => ({ value: p.id, label: `${p.name} (${p.key})` }))}
+                    onValueChange={(id) => {
+                      const picked = projects.find((p) => p.id === id)
+                      if (picked) void navigate({ to: "/settings", search: { project: picked.key }, replace: true })
+                    }}
+                  />
+                </div>
+                <NewLabel projectId={project.id} />
+                <ul aria-label="Labels" className="divide-y divide-line rounded-lg border border-line empty:hidden">
+                  {labels.map((l) => (
+                    <LabelRow key={l.id} label={l} />
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="text-[13px] text-muted">Labels belong to a project: make a project first.</p>
+            )}
           </Section>
           <Section title="Workspaces" description="A second workspace adds a switcher at the top of the sidebar.">
             <NewWorkspace />
@@ -161,7 +194,7 @@ function LabelRow({ label }: { label: Label }) {
   )
 }
 
-function NewLabel({ workspaceId }: { workspaceId: string }) {
+function NewLabel({ projectId }: { projectId: string }) {
   const create = useAtomSet(commands.createLabel)
   const [name, setName] = useState("")
   const [color, setColor] = useState<string>(PALETTE[2])
@@ -171,7 +204,7 @@ function NewLabel({ workspaceId }: { workspaceId: string }) {
       onSubmit={(e) => {
         e.preventDefault()
         if (name.trim() === "") return
-        create({ workspaceId, name: name.trim(), color })
+        create({ projectId, name: name.trim(), color })
         setName("")
       }}
     >

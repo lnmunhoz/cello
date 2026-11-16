@@ -149,6 +149,7 @@ export const selectStatuses = (sql: Sql, where: Where) =>
 interface LabelRow {
   id: string
   workspace_id: string
+  project_id: string
   name: string
   color: string
   label_group: LabelGroup
@@ -164,6 +165,7 @@ export const selectLabels = (sql: Sql, where: Where) =>
       rows.map((r): Label => ({
         id: r.id,
         workspaceId: r.workspace_id,
+        projectId: r.project_id,
         name: r.name,
         color: r.color,
         group: r.label_group,

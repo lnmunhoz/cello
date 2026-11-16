@@ -29,7 +29,7 @@ const setup = Effect.gen(function* () {
   const { result: project } = yield* (yield* ProjectService.ProjectService).create({
     commandId: cmd(), workspaceId, name: "Cello", key: "CEL", repoPath: REPO,
   })
-  const { result: label } = yield* (yield* LabelService.LabelService).create({ commandId: cmd(), workspaceId, name: "cli", color: "#26B5CE" })
+  const { result: label } = yield* (yield* LabelService.LabelService).create({ commandId: cmd(), projectId: project.id, name: "cli", color: "#26B5CE" })
   const tasks = yield* TaskService.TaskService
   const make = (title: string, statusId: string, labelIds: string[] = []) =>
     tasks.create({ commandId: cmd(), projectId: project.id, title, statusId, labelIds }).pipe(Effect.map((w) => w.result))
@@ -63,6 +63,10 @@ describe("ContextService.context", () => {
       yield* agent(tasks.claim({ commandId: cmd(), key: one.key }))
       yield* rival(tasks.claim({ commandId: cmd(), key: three.key }))
       yield* agent((yield* CommentService.CommentService).add({ commandId: cmd(), taskId: one.id, body: "Started" }))
+
+      // Another project's labels aren't CEL's (CEL-80).
+      const { result: thai } = yield* (yield* ProjectService.ProjectService).create({ commandId: cmd(), workspaceId: project.workspaceId, name: "Thai", key: "THAI" })
+      yield* (yield* LabelService.LabelService).create({ commandId: cmd(), projectId: thai.id, name: "decks", color: "#8D7B68" })
 
       const ctx = yield* agent(context.context({ repoPath: REPO }))
       expect(ctx.project.id).toBe(project.id)
@@ -179,29 +183,33 @@ describe("ContextService.taskDetail", () => {
 })
 
 describe("ContextService.labelList", () => {
-  it.effect("lists the workspace's labels, archived ones too, with how many live tasks carry each here and in other projects", () =>
+  it.effect("lists the project's labels, archived ones too, with how many of its live tasks carry each; not another project's", () =>
     run(Effect.gen(function* () {
       const { context, project, status, label, tasks, one, two } = yield* setup
       const labels = yield* LabelService.LabelService
-      const { result: ui } = yield* labels.create({ commandId: cmd(), workspaceId: project.workspaceId, name: "ui", color: "#3B82F6" })
-      const { result: old } = yield* labels.create({ commandId: cmd(), workspaceId: project.workspaceId, name: "old", color: "#6B7280" })
+      const { result: ui } = yield* labels.create({ commandId: cmd(), projectId: project.id, name: "ui", color: "#3B82F6" })
+      const { result: old } = yield* labels.create({ commandId: cmd(), projectId: project.id, name: "old", color: "#6B7280" })
       yield* tasks.setLabels({ commandId: cmd(), id: one.id, add: [label.id, ui.id], remove: [] })
       yield* tasks.setLabels({ commandId: cmd(), id: two.id, add: [ui.id], remove: [] })
       yield* labels.archive({ commandId: cmd(), id: old.id })
-      // An archived task doesn't count; a task in another project of the workspace counts apart.
+      // An archived task doesn't count. Another project has its own "ui", carried by its own task.
       yield* tasks.archive({ commandId: cmd(), id: two.id })
       const { result: thai } = yield* (yield* ProjectService.ProjectService).create({
         commandId: cmd(), workspaceId: project.workspaceId, name: "Thai", key: "THAI",
       })
-      yield* tasks.create({ commandId: cmd(), projectId: thai.id, title: "Elsewhere", statusId: status["Todo"]!.id, labelIds: [ui.id] })
+      const { result: thaiUi } = yield* labels.create({ commandId: cmd(), projectId: thai.id, name: "ui", color: "#3B82F6" })
+      yield* tasks.create({ commandId: cmd(), projectId: thai.id, title: "Elsewhere", statusId: status["Todo"]!.id, labelIds: [thaiUi.id] })
 
       const list = yield* context.labelList({ repoPath: REPO })
       expect(list.project.key).toBe("CEL")
-      expect(list.labels.map((l) => [l.label.name, l.tasks, l.otherProjects, l.label.archivedAt === null])).toEqual([
-        ["cli", 2, 0, true],
-        ["old", 0, 0, false],
-        ["ui", 1, 1, true],
+      expect(list.labels.map((l) => [l.label.name, l.tasks, l.label.archivedAt === null])).toEqual([
+        ["cli", 2, true],
+        ["old", 0, false],
+        ["ui", 1, true],
       ])
+      expect(list.labels.find((l) => l.label.name === "ui")!.label.id).toBe(ui.id)
+      const thaiList = yield* context.labelList({ key: "THAI" })
+      expect(thaiList.labels.map((l) => [l.label.name, l.tasks])).toEqual([["ui", 1]])
       expect(yield* Effect.flip(context.labelList({ key: "NOPE" }))).toMatchObject({ _tag: "NotFound", entity: "project" })
     })))
 })

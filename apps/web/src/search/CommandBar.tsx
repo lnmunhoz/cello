@@ -130,7 +130,7 @@ function Bar({ chosen, layout, onClose, onToggleSidebar }: { chosen: BarLayout; 
       case "issues":
         return void navigate({ to: "/$projectKey/issues", params: { projectKey: target.projectKey } })
       case "settings":
-        return void navigate({ to: "/settings" })
+        return void navigate({ to: "/settings", search: target.projectKey ? { project: target.projectKey } : {} })
     }
   }
 
@@ -449,7 +449,7 @@ function HitRow({ hit, board, compact, jump }: { hit: SearchHit; board: BoardSta
             ? (status?.name ?? hit.status ?? "")
             : hit.kind === "project"
               ? hit.projectKey
-              : "Label"
+              : `Label · ${hit.projectKey}`
 
   // A comment or packet is its words: the snippet is the line, the task it's on goes under it.
   if (hit.kind === "comment" || hit.kind === "packet") {

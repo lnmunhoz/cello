@@ -64,7 +64,7 @@ const STATUSES = ["Backlog", "Todo", "In Progress", "Done"]
  */
 const fakeBoard = (
   init: {
-    readonly labels: ReadonlyArray<{ readonly name: string; readonly color: string; readonly group?: string; readonly otherProjects?: number }>
+    readonly labels: ReadonlyArray<{ readonly name: string; readonly color: string; readonly group?: string }>
     readonly tasks: ReadonlyArray<{ readonly key: string; readonly status: string; readonly labels: ReadonlyArray<string> }>
   },
   fail: (args: ReadonlyArray<string>) => string | null = () => null,
@@ -76,7 +76,6 @@ const fakeBoard = (
     color: l.color,
     group: l.group ?? "none",
     archivedAt: null as number | null,
-    otherProjects: l.otherProjects ?? 0,
   }))
   const find = (name: string) => labels.find((l) => l.name.toLowerCase() === name.toLowerCase())!
   const tasks = init.tasks.map((t) => ({ key: t.key, status: t.status, labelIds: t.labels.map((name) => find(name).id) }))
@@ -90,18 +89,14 @@ const fakeBoard = (
     const option = (flag: string) => args[args.indexOf(flag) + 1]!
     if (noun === "label" && verb === "list") {
       return ok({
-        labels: labels.map(({ otherProjects, ...label }) => ({
-          label,
-          tasks: tasks.filter((t) => t.labelIds.includes(label.id)).length,
-          otherProjects,
-        })),
+        labels: labels.map((label) => ({ label, tasks: tasks.filter((t) => t.labelIds.includes(label.id)).length })),
       })
     }
     if (noun === "context") return ok({ statuses: STATUSES.map((name) => ({ name })) })
     if (noun === "task" && verb === "list") return ok({ tasks: tasks.filter((t) => t.status === option("--status")) })
     const has = (flag: string) => args.includes(flag)
     if (noun === "label" && verb === "create") {
-      labels.push({ id: `l${++next}`, name: args[2]!, color: option("--color"), group: has("--group") ? option("--group") : "none", archivedAt: null, otherProjects: 0 })
+      labels.push({ id: `l${++next}`, name: args[2]!, color: option("--color"), group: has("--group") ? option("--group") : "none", archivedAt: null })
     } else if (noun === "label" && verb === "update") {
       const label = find(args[2]!)
       if (has("--color")) label.color = option("--color")
@@ -121,9 +116,9 @@ const fakeBoard = (
 }
 
 /** The board before CEL-56: ui, server and M2, four tasks. */
-const before = (uiElsewhere = 0) => ({
+const before = () => ({
   labels: [
-    { name: "ui", color: "#3B82F6", otherProjects: uiElsewhere },
+    { name: "ui", color: "#3B82F6" },
     { name: "server", color: "#22C55E" },
     { name: "M2", color: "#F59E0B" },
   ],
@@ -189,29 +184,6 @@ describe("apply, with a fake cello", () => {
     expect(board.calls.some((c) => c[1] === "archive")).toBe(false)
     expect(board.calls.some((c) => c[2] === "CEL-4")).toBe(false)
   })
-
-  it("leaves ui alone when other projects' tasks carry it, unless --archive-ui says go ahead, warning before the archive", async () => {
-    const warning = "2 tasks in other projects of the workspace carry ui; archiving hides it on them too, and it can't be undone."
-
-    const dry = fakeBoard(before(2))
-    const planned = await apply(dry.cli, { ...CEL, dryRun: true })
-    expect(planned).toContain(`Not archiving ui: ${warning} Run again with --archive-ui to archive it anyway.`)
-    expect(planned.some((l) => l.startsWith("Would: archive"))).toBe(false)
-
-    const held = fakeBoard(before(2))
-    const lines = await apply(held.cli, CEL)
-    expect(held.writes().some((c) => c[1] === "archive")).toBe(false)
-    expect(lines).toContain(`Not archiving ui: ${warning} Run again with --archive-ui to archive it anyway.`)
-    // The tasks in this project still lose ui.
-    expect(held.writes().filter((c) => c[1] === "label").map((c) => c[2])).toEqual(["CEL-1", "CEL-3", "CEL-4", "CEL-60"])
-
-    const forced = fakeBoard(before(2))
-    const done = await apply(forced.cli, { ...CEL, archiveUi: true })
-    expect(forced.writes().at(-1)).toEqual(["label", "archive", "ui", "--project", "CEL"])
-    const at = done.indexOf(`Warning: ${warning}`)
-    expect(at).toBeGreaterThan(-1)
-    expect(done[at + 1]).toBe("archived label ui (it can't be undone: there's no unarchive)")
-  })
 })
 
 /** A temp server with project CEL as it was before: labels ui, server and M2, and five tasks. */
@@ -225,7 +197,7 @@ const setup = Effect.gen(function* () {
   const status = Object.fromEntries(snapshot.statuses.map((s) => [s.name, s.id]))
   const { result: project } = yield* human["project.create"]({ commandId: newCommandId(), workspaceId, name: "Cello", key: "CEL", repoPath: repo })
   const label = (name: string, color: string) =>
-    human["label.create"]({ commandId: newCommandId(), workspaceId, name, color }).pipe(Effect.map((w) => w.result.id))
+    human["label.create"]({ commandId: newCommandId(), projectId: project.id, name, color }).pipe(Effect.map((w) => w.result.id))
   const ui = yield* label("ui", "#3B82F6")
   const server = yield* label("server", "#22C55E")
   const m2 = yield* label("M2", "#F59E0B")

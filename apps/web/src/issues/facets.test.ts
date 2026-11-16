@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest"
 import { agentBox, claimSessions, filterKey, filterSummary, labelSections, sanitize, shownFilter, toggleAgent, toggleSession, TOP_AREAS } from "./facets.ts"
 
 const label = (name: string, group: LabelGroup): Label => ({
-  id: `l-${name}`, workspaceId: "w1", name, color: "#000", group, createdAt: 0, updatedAt: 0, archivedAt: null,
+  id: `l-${name}`, workspaceId: "w1", projectId: "p1", name, color: "#000", group, createdAt: 0, updatedAt: 0, archivedAt: null,
 })
 const task = (n: number, labels: ReadonlyArray<string>, extra: Partial<Task> = {}): Task => ({
   id: `t${n}`, projectId: "p1", number: n, key: `CEL-${n}`, title: `T${n}`, description: "", statusId: "todo", priority: 0, position: "a0", commentCount: 0, lastCommentAt: null,
@@ -147,7 +147,7 @@ describe("the filter shown, and kept per project on this device", () => {
 
   it("labels and sessions the board doesn't have are dropped", () => {
     const board = { labels: Object.fromEntries(labels.map((l) => [l.id, l])), sessions: { s1: session("s1", now) } } as unknown as BoardState
-    const c = matchContext(board, "w1", now)
+    const c = matchContext(board, { projectId: "p1" }, now)
     expect(sanitize({ ...EMPTY_FILTER, labels: ["bug", "gone"], sessions: ["s1", "s9"], holder: ["human"] }, c)).toEqual({
       ...EMPTY_FILTER,
       labels: ["bug"],

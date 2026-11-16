@@ -19,8 +19,8 @@ const setup = Effect.gen(function* () {
   const human = yield* connect(port)
   const workspaceId = (yield* human["snapshot.get"]({})).workspaces[0]!.id
   const { result: project } = yield* human["project.create"]({ commandId: newCommandId(), workspaceId, name: "Cello", key: "CEL", repoPath: repo })
-  const { result: ui } = yield* human["label.create"]({ commandId: newCommandId(), workspaceId, name: "ui", color: "#3B82F6" })
-  yield* human["label.create"]({ commandId: newCommandId(), workspaceId, name: "server", color: "#22C55E" })
+  const { result: ui } = yield* human["label.create"]({ commandId: newCommandId(), projectId: project.id, name: "ui", color: "#3B82F6" })
+  yield* human["label.create"]({ commandId: newCommandId(), projectId: project.id, name: "server", color: "#22C55E" })
   yield* human["task.create"]({ commandId: newCommandId(), projectId: project.id, title: "Sidebar", labelIds: [ui.id] })
   return {
     human,
@@ -130,6 +130,34 @@ describe("cello label", () => {
       expect((yield* agent("task", "label", "CEL-1", "+ui")).failure).toContain(`No label named "ui"`)
       expect((yield* agent("label", "create", "ui")).failure).toContain(`There's already an archived label named "ui"`)
       expect((yield* agent("label", "archive", "nope")).failure).toBe(`No label named "nope". Labels: server, ui. \`cello label list\` shows them all.`)
+    }).pipe(Effect.scoped))
+
+  it.live("each project has its own labels (CEL-80): list, context, create, task label and archive see only the project's", () =>
+    Effect.gen(function* () {
+      const { agent, human, workspaceId } = yield* setup
+      const { result: thai } = yield* human["project.create"]({ commandId: newCommandId(), workspaceId, name: "ThaiLookup", key: "THAI" })
+      const { result: decks } = yield* human["label.create"]({ commandId: newCommandId(), projectId: thai.id, name: "decks", color: "#8D7B68" })
+      yield* human["task.create"]({ commandId: newCommandId(), projectId: thai.id, title: "Deck list", labelIds: [decks.id] })
+
+      expect((yield* agent("label", "list")).out).toBe(["server  #22C55E  no tasks", "ui      #3B82F6  1 task in CEL"].join("\n"))
+      expect((yield* agent("context")).out).toContain("Labels    server · ui\n")
+      expect(yield* agent("label", "list", "--project", "THAI")).toEqual({ out: "decks  #8D7B68  1 task in THAI", failure: null })
+
+      // A name CEL has is free in THAI, and the other way round; each project's "ui" is its own.
+      expect(yield* agent("label", "create", "ui", "--project", "THAI", "--color", "#3B82F6")).toEqual({ out: "Created label ui  #3B82F6", failure: null })
+      expect((yield* agent("label", "create", "decks")).failure).toBeNull()
+      expect((yield* agent("label", "list", "--project", "THAI")).out).toBe(["decks  #8D7B68  1 task in THAI", "ui     #3B82F6  no tasks"].join("\n"))
+
+      // CEL's task can't take THAI's label: it isn't one of CEL's names.
+      expect(yield* agent("task", "label", "CEL-1", "+deck")).toEqual({
+        out: "",
+        failure: `No label named "deck" (did you mean decks?). Nothing was changed. Labels: decks, server, ui. Make a new one with \`cello label create <name>\`.`,
+      })
+      expect(yield* agent("task", "label", "THAI-1", "+ui")).toEqual({ out: "THAI-1 labels: decks, ui (added ui)", failure: null })
+
+      // Archiving CEL's ui leaves THAI's.
+      yield* agent("label", "archive", "ui")
+      expect((yield* agent("label", "list", "--project", "THAI")).out).toBe(["decks  #8D7B68  1 task in THAI", "ui     #3B82F6  1 task in THAI"].join("\n"))
     }).pipe(Effect.scoped))
 })
 

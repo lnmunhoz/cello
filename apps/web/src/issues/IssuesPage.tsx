@@ -43,7 +43,7 @@ function FilterNotice() {
   if (!loaded || !state.active) return null
   const { board, workspaceId, project } = loaded
   const tasks = projectTasks(board, workspaceId, project.id).filter((t) => t.number > 0)
-  const shown = applyFilter(tasks, state.filter, matchContext(board, workspaceId, Date.now())).length
+  const shown = applyFilter(tasks, state.filter, matchContext(board, { projectId: project.id }, Date.now())).length
   return (
     <>
       <div className="flex shrink-0 items-center gap-2 px-3 pb-2 text-[13px] text-muted md:hidden" data-filter-strip>

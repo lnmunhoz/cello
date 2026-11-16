@@ -88,7 +88,7 @@ const make = Effect.gen(function* () {
       return {
         project,
         statuses: yield* selectStatuses(sql, sql`s.workspace_id = ${project.workspaceId}`),
-        labels: yield* selectLabels(sql, sql`l.workspace_id = ${project.workspaceId} AND l.archived_at IS NULL`),
+        labels: yield* selectLabels(sql, sql`l.project_id = ${project.id} AND l.archived_at IS NULL`),
         actors: yield* selectActors(sql),
         sessions: yield* sessions.byIds([...sessionIds.filter((id): id is string => id !== null), ...named.map((a) => a.sessionId)]),
         agents: named,
@@ -173,7 +173,7 @@ const make = Effect.gen(function* () {
     const caller = yield* Caller
     const project = yield* projects.resolve(query.project)
     const statuses = yield* selectStatuses(sql, sql`s.workspace_id = ${project.workspaceId}`)
-    const labels = yield* selectLabels(sql, sql`l.workspace_id = ${project.workspaceId} AND l.archived_at IS NULL`)
+    const labels = yield* selectLabels(sql, sql`l.project_id = ${project.id} AND l.archived_at IS NULL`)
     const status = query.status === undefined ? undefined : statuses.find((s) => sameName(s.name, query.status!))
     if (query.status !== undefined && !status) {
       return yield* new Invalid({
@@ -224,25 +224,13 @@ const make = Effect.gen(function* () {
 
   const labelList = Effect.fn("ContextService.labelList")(function* (ref: ProjectRef) {
     const project = yield* projects.resolve(ref)
-    const labels = yield* selectLabels(sql, sql`l.workspace_id = ${project.workspaceId}`)
-    const counts = yield* sql<{ label_id: string; here: number; elsewhere: number }>`
-      SELECT tl.label_id,
-        SUM(CASE WHEN t.project_id = ${project.id} THEN 1 ELSE 0 END) AS here,
-        SUM(CASE WHEN t.project_id = ${project.id} THEN 0 ELSE 1 END) AS elsewhere
-      FROM task_labels tl
-      JOIN tasks t ON t.id = tl.task_id
-      JOIN projects p ON p.id = t.project_id
-      WHERE p.workspace_id = ${project.workspaceId} AND t.archived_at IS NULL
+    const labels = yield* selectLabels(sql, sql`l.project_id = ${project.id}`)
+    const counts = yield* sql<{ label_id: string; tasks: number }>`
+      SELECT tl.label_id, COUNT(*) AS tasks FROM task_labels tl JOIN tasks t ON t.id = tl.task_id
+      WHERE t.project_id = ${project.id} AND t.archived_at IS NULL
       GROUP BY tl.label_id`
-    const byLabel = new Map(counts.map((c) => [c.label_id, c]))
-    return {
-      project,
-      labels: labels.map((label) => ({
-        label,
-        tasks: Number(byLabel.get(label.id)?.here ?? 0),
-        otherProjects: Number(byLabel.get(label.id)?.elsewhere ?? 0),
-      })),
-    }
+    const byLabel = new Map(counts.map((c) => [c.label_id, Number(c.tasks)]))
+    return { project, labels: labels.map((label) => ({ label, tasks: byLabel.get(label.id) ?? 0 })) }
   }, Effect.catchTag("SqlError", Effect.die))
 
   return ContextService.of({ whoami, context, taskList, taskDetail, labelList })

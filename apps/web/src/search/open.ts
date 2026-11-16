@@ -10,12 +10,13 @@ export type Target =
   | { readonly to: "review"; readonly key: string }
   | { readonly to: "page"; readonly projectKey: string; readonly slug: string }
   | { readonly to: "issues"; readonly projectKey: string }
-  | { readonly to: "settings" }
+  /** Settings, on a label's project's labels (CEL-80). */
+  | { readonly to: "settings"; readonly projectKey?: string }
 
 /**
  * Enter opens a hit; ⌘Enter (`full`) opens its task as a full page. A comment opens its task at the
  * comment; a packet still waiting for Lucas opens on the Review page; a label opens Settings, where
- * labels live.
+ * labels live, on its project's labels.
  */
 export const targetOf = (hit: SearchHit, full: boolean): Target | null => {
   const key = hit.taskKey ? parseTaskKey(hit.taskKey) : null
@@ -32,7 +33,7 @@ export const targetOf = (hit: SearchHit, full: boolean): Target | null => {
     case "project":
       return { to: "issues", projectKey: hit.projectKey }
     case "label":
-      return { to: "settings" }
+      return { to: "settings", projectKey: hit.projectKey }
   }
 }
 

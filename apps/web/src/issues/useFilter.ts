@@ -15,7 +15,7 @@ import {
   type TaskFilter,
 } from "@cello/client/sync/filters"
 import { boardColumns, projectByKey } from "@cello/client/sync/selectors"
-import type { Task } from "@cello/contract/entities"
+import type { Scope, Task } from "@cello/contract/entities"
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useEffect } from "react"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
@@ -30,6 +30,12 @@ export interface FilterState {
   readonly clear: () => void
 }
 
+/** Whose labels a filter matches (CEL-80): the project in the URL, or the workspace's until it loads. */
+const labelScope = (board: BoardState, workspaceId: string, projectKey: string): Scope => {
+  const project = projectByKey(board, projectKey)
+  return project ? { projectId: project.id } : { workspaceId }
+}
+
 /** The filter on screen and how to change it: each change is kept on this device and put in the URL. */
 export const useFilter = (): FilterState => {
   const { projectKey } = useParams({ from: "/$projectKey" })
@@ -38,7 +44,7 @@ export const useFilter = (): FilterState => {
   const board = useBoard()
   const workspaceId = useWorkspaceId()
   const shown = shownFilter(search, parseStoredFilter(useStored(key)))
-  const filter = board && workspaceId ? sanitize(shown, matchContext(board, workspaceId, Date.now())) : shown
+  const filter = board && workspaceId ? sanitize(shown, matchContext(board, labelScope(board, workspaceId, projectKey), Date.now())) : shown
   const navigate = useNavigate()
   const set = (next: TaskFilter) => {
     writeStored(key, storedFilter(next))
@@ -82,13 +88,17 @@ export interface Filtered {
 
 /** For the board and the list: what to keep of a column or group. */
 export const useFiltered = (): Filtered => {
+  const { projectKey } = useParams({ from: "/$projectKey" })
   const { filter, active } = useFilter()
   const board = useBoard()
   const workspaceId = useWorkspaceId()
   return {
     filter,
     active,
-    keep: (tasks) => (active && board && workspaceId ? applyFilter(tasks, filter, matchContext(board, workspaceId, Date.now())) : [...tasks]),
+    keep: (tasks) =>
+      active && board && workspaceId
+        ? applyFilter(tasks, filter, matchContext(board, labelScope(board, workspaceId, projectKey), Date.now()))
+        : [...tasks],
   }
 }
 

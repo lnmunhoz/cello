@@ -1,5 +1,6 @@
-// Labels: per workspace, shared by its projects. Names are unique within the workspace. Each label is in
-// a group (kind, area, milestone or none, CEL-52), which the Issues tab's filter groups by.
+// Labels: each belongs to one project (CEL-80), and names are unique within it. Each label is in a group
+// (kind, area, milestone or none, CEL-52), which the Issues tab's filter groups by. A label's events are
+// its project's, so a project subscription gets them and another project's doesn't.
 import type { Label, LabelGroup } from "@cello/contract/entities"
 import { Invalid, NotFound } from "@cello/contract/errors"
 import type { Caller } from "@cello/contract/rpcs"
@@ -14,7 +15,7 @@ import { requireColor, requireText } from "../validation.ts"
 
 export interface CreateLabel {
   readonly commandId: string
-  readonly workspaceId: string
+  readonly projectId: string
   readonly name: string
   readonly color: string
   /** `none` when left out. */
@@ -48,10 +49,10 @@ const make = Effect.gen(function* () {
       Effect.flatMap((rows) => rows[0] ? Effect.succeed(rows[0]) : Effect.fail(new NotFound({ entity: "label", id }))),
     )
 
-  /** Names are unique in the workspace ignoring case, archived labels included ("Board" and "board" are one label). */
-  const ensureNameFree = (workspaceId: string, name: string, exceptId: string | null) =>
+  /** Names are unique in the project ignoring case, archived labels included ("Board" and "board" are one label). */
+  const ensureNameFree = (projectId: string, name: string, exceptId: string | null) =>
     sql<{ id: string; name: string; archived_at: number | null }>`
-      SELECT id, name, archived_at FROM labels WHERE workspace_id = ${workspaceId} AND lower(name) = lower(${name})`.pipe(
+      SELECT id, name, archived_at FROM labels WHERE project_id = ${projectId} AND lower(name) = lower(${name})`.pipe(
       Effect.flatMap((rows) => {
         const taken = rows.find((r) => r.id !== exceptId)
         if (!taken) return Effect.void
@@ -65,14 +66,14 @@ const make = Effect.gen(function* () {
     const color = yield* requireColor("color", input.color)
     return yield* commands.write({ commandId: input.commandId, rpc: "label.create" }, ({ now, emit }) =>
       Effect.gen(function* () {
-        const workspaces = yield* sql<{ id: string }>`SELECT id FROM workspaces WHERE id = ${input.workspaceId}`
-        if (!workspaces[0]) return yield* new NotFound({ entity: "workspace", id: input.workspaceId })
-        yield* ensureNameFree(input.workspaceId, name, null)
+        const projects = yield* sql<{ workspace_id: string }>`SELECT workspace_id FROM projects WHERE id = ${input.projectId}`
+        if (!projects[0]) return yield* new NotFound({ entity: "project", id: input.projectId })
+        yield* ensureNameFree(input.projectId, name, null)
         const id = newId(now)
-        yield* sql`INSERT INTO labels (id, workspace_id, name, color, label_group, created_at, updated_at)
-          VALUES (${id}, ${input.workspaceId}, ${name}, ${color}, ${input.group ?? "none"}, ${now}, ${now})`
+        yield* sql`INSERT INTO labels (id, workspace_id, project_id, name, color, label_group, created_at, updated_at)
+          VALUES (${id}, ${projects[0].workspace_id}, ${input.projectId}, ${name}, ${color}, ${input.group ?? "none"}, ${now}, ${now})`
         const label = yield* load(id)
-        yield* emit({ type: "label.created", label }, { workspaceId: label.workspaceId, projectId: null })
+        yield* emit({ type: "label.created", label }, { workspaceId: label.workspaceId, projectId: label.projectId })
         return label
       }))
   })
@@ -86,7 +87,7 @@ const make = Effect.gen(function* () {
         const before: { name?: string; color?: string; group?: LabelGroup } = {}
         const after: { name?: string; color?: string; group?: LabelGroup } = {}
         if (name !== undefined && name !== current.name) {
-          yield* ensureNameFree(current.workspaceId, name, current.id)
+          yield* ensureNameFree(current.projectId, name, current.id)
           before.name = current.name
           after.name = name
         }
@@ -104,7 +105,7 @@ const make = Effect.gen(function* () {
           WHERE id = ${current.id}`
         yield* emit(
           { type: "label.updated", id: current.id, before, after },
-          { workspaceId: current.workspaceId, projectId: null },
+          { workspaceId: current.workspaceId, projectId: current.projectId },
         )
         return yield* load(current.id)
       }))
@@ -116,7 +117,7 @@ const make = Effect.gen(function* () {
         const current = yield* load(input.id)
         if (current.archivedAt !== null) return current
         yield* sql`UPDATE labels SET archived_at = ${now}, updated_at = ${now} WHERE id = ${current.id}`
-        yield* emit({ type: "label.archived", id: current.id }, { workspaceId: current.workspaceId, projectId: null })
+        yield* emit({ type: "label.archived", id: current.id }, { workspaceId: current.workspaceId, projectId: current.projectId })
         return yield* load(current.id)
       }))
   })
