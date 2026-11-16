@@ -32,18 +32,30 @@ export const readinessLines = (found: Detection): string[] => {
     ...found.readiness.flatMap((r) => {
       return [`  ${r.state.padEnd(11)}  ${r.kind.padEnd(19)}  ${r.note}`, ...(r.suggestion ? [`               → ${r.suggestion}`] : [])]
     }),
+    // CEL-96: what it saw but couldn't settle, left out of the profile instead of written half-resolved.
+    ...found.unresolved.flatMap((u) => [
+      `  ${"unknown".padEnd(11)}  ${u.field.padEnd(19)}  ${u.why}`,
+      `               → Set it with \`cello profile set ${u.field} "<value>"\` once you know it.`,
+    ]),
   ]
 }
 
-/** What `cello init` wrote into the profile from detection (`found`: how many fields it detected), and what it left. */
+/**
+ * What `cello init` wrote into the profile from detection (`found`: how many fields it detected; `profile`:
+ * how many the profile has after it), what it left, and the detected fields it cleared because this run
+ * didn't find them (CEL-96). Finding nothing clears nothing (the server's rule), so the profile stays.
+ */
 export const wroteLines = (
-  done: { readonly written: ReadonlyArray<string>; readonly kept: ReadonlyArray<string>; readonly found: number },
+  done: { readonly written: ReadonlyArray<string>; readonly kept: ReadonlyArray<string>; readonly cleared: ReadonlyArray<string>; readonly found: number; readonly profile: number },
 ): string[] => {
+  const cleared = done.cleared.length ? `Cleared ${andList([...done.cleared])}: detected before, not found this time.` : null
   if (done.written.length === 0 && done.kept.length === 0) {
+    if (cleared) return [`${cleared} See \`cello profile\`.`]
     if (done.found > 0) return ["The testing profile already has everything found. See `cello profile`."]
+    if (done.profile > 0) return ["Found nothing to detect here; kept the testing profile as it is."]
     return [`Nothing to write to the testing profile yet. Set fields as the repo gets them: ${SET_HINT}.`]
   }
   const wrote = done.written.length ? `Wrote ${done.written.join(", ")} to the testing profile` : "Wrote nothing new to the testing profile"
   const kept = done.kept.length ? `; kept ${andList([...done.kept])}, which an agent or the human set` : ""
-  return [`${wrote}${kept}. See \`cello profile\`.`]
+  return [`${wrote}${kept}. See \`cello profile\`.`, ...(cleared ? [cleared] : [])]
 }

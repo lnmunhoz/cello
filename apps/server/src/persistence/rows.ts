@@ -190,6 +190,7 @@ interface TaskRow {
   parent_id: string | null
   assignee_actor_id: string | null
   assignee_session_id: string | null
+  last_holder_session_id: string | null
   created_by_actor_id: string
   created_by_session_id: string | null
   updated_by_actor_id: string | null
@@ -238,6 +239,7 @@ export const selectTasks = (sql: Sql, where: Where) =>
       labelIds: labelIds.get(r.id) ?? [],
       assigneeActorId: r.assignee_actor_id,
       assigneeSessionId: r.assignee_session_id,
+      lastHolderSessionId: r.last_holder_session_id,
       createdByActorId: r.created_by_actor_id,
       createdBySessionId: r.created_by_session_id,
       updatedByActorId: r.updated_by_actor_id,
@@ -363,6 +365,8 @@ type InboxRow = { [K in keyof CommentRow]: CommentRow[K] | null } & {
   detail: string | null
   /** What Lucas did, on a `claim_ended` item (CEL-46). */
   cause: ClaimEndCause | null
+  /** On a comment that reopened its task (CEL-110): the status before; `detail` is the one after. */
+  reopened_from: string | null
   item_created_at: number
   read_at: number | null
   task_number: number
@@ -379,7 +383,7 @@ type InboxRow = { [K in keyof CommentRow]: CommentRow[K] | null } & {
 export const selectInboxItems = (sql: Sql, where: Where) =>
   Effect.gen(function* () {
     const rows = yield* sql<InboxRow>`
-      SELECT c.*, i.id AS item_id, i.kind, i.task_id AS item_task_id, i.ask_id, i.detail, i.cause, i.created_at AS item_created_at, i.read_at,
+      SELECT c.*, i.id AS item_id, i.kind, i.task_id AS item_task_id, i.ask_id, i.detail, i.cause, i.reopened_from, i.created_at AS item_created_at, i.read_at,
              t.number AS task_number, t.title AS task_title, p.key AS project_key,
              COALESCE(a.name, (SELECT name FROM actors WHERE kind = 'human' ORDER BY created_at LIMIT 1)) AS author
       FROM inbox_items i
@@ -412,7 +416,12 @@ export const selectInboxItems = (sql: Sql, where: Where) =>
       }
       const comment = comments.find((c) => c.id === r.id)
       if (!comment) return []
-      return [{ ...common, kind: r.kind, comment }]
+      return [{
+        ...common,
+        kind: r.kind,
+        comment,
+        ...(r.reopened_from === null ? {} : { reopened: { from: r.reopened_from, to: r.detail ?? r.reopened_from } }),
+      }]
     })
   })
 

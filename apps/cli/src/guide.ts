@@ -56,11 +56,27 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    Nothing to write to the testing profile yet. Set fields as the repo gets them: \`cello profile set <field> "<value>"\`.
    \`\`\`
 
+   It never writes a value it can't settle from the files alone. A value built from an environment variable resolves to the default the file gives (\`http://localhost:\${WEB_PORT}\` with \`const WEB_PORT = Number(process.env.WEB_PORT ?? 5199)\` is \`http://localhost:5199\`); with no default in the file (or an expression it can't work out), the field is left out and an **unknown** line says why. Each Playwright config (the root's and each workspace package's) is its own e2e surface, each with its own run command: \`desktop\` when the config uses \`_electron\`, when it sits in a workspace package that depends on Electron, or, for the root's config, when a root script named for the desktop (\`test:e2e:electron\`) runs Playwright; else \`web\`. Electron in the root package.json alone doesn't count: monorepos often keep electron-builder there. When an e2e run goes through Docker or a wrapper script instead of the tool itself, the finished videos land where the wrapper puts them, not in Playwright's folder, so the videos and screenshots folders are left out and the report says to set them. In a repo like that:
+
+   \`\`\`
+   Testing: detected web (Vite) · desktop (Electron) · CLI · bun · Vitest · Playwright
+     ready        unit tests           Vitest: bun run test
+     partial      e2e video            Playwright: bun run test:e2e (web), bun run test:docker:desktop (desktop)
+                  → set e2e.web.videos to the folder its finished videos land in: the run goes through \`bun scripts/test-in-docker.ts e2e\`, not straight to Playwright; set e2e.desktop.videos to …
+     partial      screenshots          Playwright can take them
+                  → Set e2e.web.screenshots to the folder its screenshots land in: …
+     ready        terminal transcript  commands to run and save with their output
+     unknown      app.url              baseURL in playwright.config.ts is \`process.env.BASE_URL\`, which names a variable with no default there
+                  → Set it with \`cello profile set app.url "<value>"\` once you know it.
+   \`\`\`
+
+   Find those folders (run the e2e once and see where its videos land) and set them with \`cello profile set e2e.web.videos "<folder>"\`, so builders after you pick the videos up from the right place.
+
    - **Tell the human what's missing.** A missing or partial line means builders here can't bring the evidence a packet needs (a video of the flow, above all). Say so when you report the setup, with the suggestion, so they can decide whether to set it up.
    - The defaults are fine unless the human named the project or its key: then pass \`--name "Thai Lookup"\` and \`--key THAI\`.
    - If the key is taken, it says which project has it: pick another, or leave \`--key\` out and Cello picks a free one (CEL, then CELL, CELLO, CEL2…).
    - \`--workspace Work\` puts it in another workspace, by name; the default is the first one.
-   - Running it again in a linked repo inspects again: new detected values fill fields that are empty or were detected before, a value found again unchanged is left as it is, and fields an agent or the human set are kept (the report says which). \`--skip-detect\` leaves the inspection out.
+   - Running it again in a linked repo inspects again: new detected values fill fields that are empty or were detected before, a value found again unchanged is left as it is, and fields an agent or the human set are kept (the report says which). A field that was detected before and isn't found this time (the repo changed, or an earlier version of Cello wrote a value it now leaves out) is cleared, and the report ends with \`Cleared app.url and e2e.web.videos: detected before, not found this time.\` A field an agent or the human set is never cleared. When it finds nothing at all (a worktree on a branch without the repo's files, a sparse or fresh checkout), it clears nothing and says \`Found nothing to detect here; kept the testing profile as it is.\` \`--skip-detect\` leaves the inspection out.
 4. **Hooks, so the human's comments reach your session.** Run \`cello install claude\` (or \`cello init --hooks\`, which does the same). It writes this machine's \`.claude/settings.local.json\` and makes sure git ignores it. It keeps a \`.bak\` of the old file; ignore that too if the repo's \`.gitignore\` doesn't cover it. Run it again any time; it changes nothing the second time. The same command adds two guards: in this project, Claude artifact publishes are turned away with a pointer to \`cello doc publish\` (see "Showing things to the human"), and an agent's edits in the repo are turned away until its session has claimed a task (see "Edits need a claimed task"). It also installs Cello's Claude Code plugin, which gives new sessions \`/cello:orchestrate\`, \`/cello:work\` and the \`cello\` skill (see "The Claude Code plugin"), and allows \`cello\` commands in Claude Code, so a permission check that fails can't cut agents off the board (see "\`cello\` commands skip Claude Code's permission check" below).
 5. **Tell the repo's agents.** \`cello init --agents-md\` adds this section, with the project's key in place of \`KEY\`, to the end of the AGENTS.md in the checkout you're in, or to CLAUDE.md if there's no AGENTS.md (creating it), between two markers: \`<!-- cello:agents-md:start sha256:… -->\` (a fingerprint of the text it wrote) and \`<!-- cello:agents-md:end -->\`. Run it again whenever Cello's text changes: it puts the current text between the markers and prints the lines that changed, or says it's already current. It changes nothing else in the file.
    - **Everything between the markers is Cello's and gets rewritten.** Put the repo's own notes outside them (above the start marker or below the end one). If the text between them isn't exactly what Cello wrote (someone added a note, or it names another project's key), the command still rewrites it, but keeps the old file as \`AGENTS.md.bak\` first and says so.
@@ -83,6 +99,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    - Put the task key in commit messages (\`fix(api): rate limit (KEY-12)\`).
    - In Progress means someone is on it right now. When you wait on the human's decision, ask on the card with \`cello task ask\` (the task waits in Needs input). When you stop, put the state on the card and move it back to Todo.
    - Hand finished work to the human only with \`cello task submit\`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
+   - This project has a testing profile: how to install, test, start the app and record evidence here. Read it in \`cello context\` and use its commands for your tests and evidence. When a field is wrong, fix it with \`cello profile set\` and say so in your packet; a field the human set is theirs, so ask on the card with \`cello task ask\`.
    - Answer the human on the card with \`cello task comment\`. Their comments come to your session by themselves.
    - When you end a turn while holding a claimed task, start \`cello inbox --wait\` in the background so the human's comments wake you.
    - When a decision is the human's (a design option, a scope, wording), ask on the card with \`cello task ask\` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. Their answers come back to your session.
@@ -147,12 +164,13 @@ Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.loca
 - **Claim:** "this session is working on this task". \`cello task claim\` assigns the task to your session and moves it to In Progress.
   - While your session is alive, other agents can't claim it.
   - If your session has exited, another session can claim the task and takes the claim over.
-  - The human always wins: when they change a task you've claimed (moves it to another status, edits it, changes its labels, archives it, claim it themselves or releases your claim), your claim ends. Your session hears it once, like a comment ("Ana Souza moved CEL-40 to Todo: your claim ended. Stop working on it."; see Comments from the human reach your session), and \`cello context\` lists it under "Claims you lost". Stop working on the task when you hear it.
+  - The human always wins: when they change a task you've claimed (moves it to another status, edits it, changes its labels, archives it, claim it themselves or releases your claim), your claim ends. Your session hears it once, like a comment ("Ana Souza moved CEL-40 to Todo: your claim ended. Stop working on it."; see Comments from the human reach your session), and \`cello context\` lists it under "Claims you lost" (until you hold the task again: claimed back, or reopened for you by their comment). Stop working on the task when you hear it.
   - Not every touch ends it: the human dragging your card to another place in the same column keeps your claim, and so does their comment. Their approval ends it without a notice, since your work is done. Your own changes (a move, \`cello task release\`, \`cello task submit\`) and your subagents' never tell you anything.
+  - **A task remembers the last session that held it.** When the human comments on a task nobody holds (Done after their approval, Canceled, moved back to Todo, released, or any other whose claim a change of theirs ended), the comment goes to that session, and the task is yours again: it moves back to In Progress (a task still In Progress, In Review or Needs input stays where it is) and your session holds the claim. Your session hears it like any comment, saying the comment reopened the task (see Comments from the human reach your session). A task no agent ever claimed, an archived one, and a task someone holds aren't touched; neither are agents' comments or Send back notes.
 - **Stage:** where a claimed task is inside In Progress: **planning**, **building**, **review** (Agent review), **fixing** (Fixing findings) or **merged**. In Progress holds a task from the claim to the packet, so without a stage a task being planned, one being built and one waiting for review look the same. **Every session holding a claim sets it** with \`cello task stage\`, not only orchestrators; the board shows it on the card. Pick it by the task: **planning** only when the task needs a decision before code (a spec, a scope with options, a question to the human); a clear task goes straight to **building**. A task with no stage whose agent is active shows as **Working**, so the board stays truthful if you forget, but it can't say which step you're on. Asking the human keeps it through Needs input; any other move out of In Progress, or submitting it, clears it. See Stages.
 - **Presence:** the board shows whether the session holding a claim is working right now: **active now** (it called Cello in the last 5 minutes), **seen 2h ago** (quiet, its process still running) or **ended** (its process exited). Every \`cello\` command and every hook run counts as a check-in; with the hooks installed that's every tool call, a subagent's included. A subagent checks in as itself too, so the card names the subagent working on it ("cello-builder · a13bfb89 active now") rather than its session. The board hears about each at most once a minute, which keeps "active now" steady without filling the history; each one plays a short motion on the card, and while you're working the card has a thin edge in your colour. You don't do anything for it.
 - **Review packet:** how finished work reaches the human. It holds a summary, how-to-check steps and evidence (videos, screenshots, test output, links). \`cello task submit\` creates it and moves the task to In Review. Then the human decides:
-  - **Approve:** the task moves to Done and your claim ends. Nothing reaches your session for it: the work is done. A note they typed with it shows under Reviews in \`cello task get\` (\`Note: …\`).
+  - **Approve:** the task moves to Done and your claim ends. Nothing reaches your session for it: the work is done. A note they typed with it shows under Reviews in \`cello task get\` (\`Note: …\`). If they comment on the task later, it comes back to your session, reopened (see Claim above).
   - **Send back:** the task returns to In Progress with their note, and your claim stays. The note comes to your session (see Comments from the human reach your session), and \`cello task get\` shows it under Reviews.
   - **Comment, without deciding yet:** the Review page shows the task's comments under the packet, with a comment box. A comment there leaves the task In Review and your claim in place, and comes to your session like any comment. Answer it on the card; if it asks for a change, move the task back to In Progress before you make it (that withdraws the packet), then submit again.
   - **Moved out without a decision** (\`cello task move\`, or the human dragging the card): the packet is **withdrawn** and leaves the Review page. \`cello task get\` shows it as withdrawn, with who moved the task and where. To hand the work over again, submit a new packet.
@@ -524,7 +542,22 @@ cello task react CEL-12 last 👍 --remove     # take it back
 
 ## Comments from the human reach your session
 
-The human's comments on a task you've claimed, their Send back notes, their answers to your asks (see Questions for the human) and their reactions to your comments are addressed to your session: the one holding the claim (for a reaction, the one that wrote the comment). Your own comments and other agents' never come back to you, and nothing does once your claim has ended. One exception: a Send back note still reaches the session that handed in the packet.
+The human's comments on a task you've claimed, their Send back notes, their answers to your asks (see Questions for the human) and their reactions to your comments are addressed to your session: the one holding the claim (for a reaction, the one that wrote the comment). Your own comments and other agents' never come back to you, and nothing does once another session or the human holds the claim. Two exceptions: a Send back note still reaches the session that handed in the packet, and a comment on a task nobody holds reaches the session that held it last, which holds it again (below).
+
+**A comment on a task you worked on, after your claim ended, reopens it for you.** Once the human approves your packet the task is Done and nobody holds it; the same goes after you release it, or after a change of theirs ended your claim (a move to Canceled or Todo, say). The comment reopens it from any of these: Done, Canceled, Todo, or released. If they then comment on it ("Let's add the video to the readme"), the comment's own change gives the task back to you: it moves to In Progress (unless it's still In Progress, In Review or Needs input, where it stays), your session holds its claim again, and the history says "Ana Souza's comment reopened it for Claude Code session 2fd0505c". Before they send it, the comment box tells them so ("Commenting reopens CEL-94 and sends it to Claude Code session 2fd0505c"), and the receipt then shows it delivered as usual. The comment reaches you the same ways as any other (the hooks, \`cello inbox\`, \`cello inbox --wait\`, a woken run when your process is gone and waking is on), and says the task was reopened:
+
+\`\`\`
+New Cello comment on a task you worked on before, now yours again:
+
+CEL-94  The setup video
+  Ana Souza commented while it was Done, reopening it, 1m ago
+    Let's add the instructional video to the repo readme
+
+Act on it now, then answer on the card: \`cello task comment CEL-94 "…"\` (or \`--body-file -\` for markdown), so Ana Souza sees your reply there.
+CEL-94 was Done: Ana Souza's comment reopened it and gave it back to you. It's in In Progress and claimed by this session again; when the work is done, hand it in with \`cello task submit CEL-94\`.
+\`\`\`
+
+Treat it as your task again: set its stage, do the work, answer on the card, and submit a new packet. On a task that stayed where it was (you released it while it was In Progress), the line says the comment gave it back to you instead. The task goes to the last agent session that held its claim, never to a subagent (they share your session) and never to the human. A task no agent ever claimed, an archived task and a task someone holds aren't reopened, agents' comments never reopen anything, and a Send back works as before.
 
 **So does word that the human ended your claim.** When a change the human makes to a task you hold ends your claim (they move the card to another status, edit it, change its labels, archive it, claim it themselves or release your claim), your session gets one notice, the same way as a comment: the hooks, \`cello inbox\`, \`cello inbox --wait\`, and listed (not taken) by \`cello context\`. It says what they did and where the card is now. Stop working on the task when it arrives; if you think the work should go on, say so on the card and let them decide. Your own changes and your subagents' never send one, and neither does their approval (the work is done) or their reordering your card within its column (your claim stays). When they move a card out of Needs input, the withdrawn ask is the notice (see Questions for the human), not a second one:
 
@@ -572,7 +605,7 @@ cello inbox --json
 - **Sent** while it waits in your inbox.
 - **✓ Delivered to 2fd0505c · 12s** once your session takes it (the hook, \`cello inbox\` or \`--wait\`). Showing it with \`cello context\` doesn't count.
 - **✓✓ Answered** once your session, or one of its subagents, comments on the task after it or reacts to it. So answer on the card, even with just a 👍.
-- **Not delivered** when no session held the claim as they wrote it.
+- **Not delivered** when no session held the claim as they wrote it, and no agent had ever held it either (otherwise the comment reopened the task for the last one, above).
 
 Under their latest comment, until you answer it, a status row in the thread (with your agent mark, like a chat's typing indicator) tells them where it stands:
 
@@ -581,7 +614,7 @@ Under their latest comment, until you answer it, a status row in the thread (wit
 - you're idle with no waiter: "2fd0505c is idle: it gets this when it next works"
 - your session has ended: "2fd0505c ended: it gets this if the session is resumed"
 - you took it and are working: "2fd0505c got your comment and is working on it…", with your mark thinking (it sways). Taking it through \`cello inbox --wait\` counts as waking up: the row says this from that moment, not from your next check-in
-- nobody holds the claim: "No agent holds this task: nobody will get this"
+- nobody holds the claim and no agent ever did: "No agent holds this task: nobody will get this"
 
 The row goes away once you answer (a comment or a reaction after taking it), so a comment you took and then left unanswered keeps saying "got your comment but hasn't answered yet" once you go idle or start waiting again.
 
@@ -661,11 +694,11 @@ Closing the terminal (or the Claude Code thread) ends the session. Nothing is lo
 1. **The waiter stops with it.** \`cello inbox --wait\` exits within a second once its Claude Code is gone, taking nothing.
 2. **The human's comments wait in that session's inbox.** On the card, the status row under their latest comment says the session ended and gets it if resumed, and the presence turns grey "ended" within about 30 seconds.
 3. **Resuming the session** (\`claude --resume\`, or reopening the thread) hands everything over at its first hook: its first tool call, or its first stop.
-4. **A new session that claims the task instead** doesn't receive what was sent to the old one; it reads it in the task's history (\`cello task get CEL-12\` shows every comment). New comments from then on go to the new session.
+4. **A new session that claims the task instead** doesn't receive what was sent to the old one; it reads it in the task's history (\`cello task get CEL-12\` shows every comment). New comments from then on go to the new session, and once it lets go, a comment reopens the task for it, not for the old one: the task goes to the last session that held it.
 
 ### When your process is gone, Cello can wake you
 
-A session doesn't die with its process: Claude Code keeps the conversation on disk. When the human comments on a task you claimed, answers your ask, sends it back or reacts to your comment, and nothing of your session is running, Cello can continue your conversation itself, headless, in the folder you started Claude Code in (where it keeps the conversation). That's a **woken run**. It's off until the human turns it on for the project (Settings → the project → "Wake agent sessions when you comment").
+A session doesn't die with its process: Claude Code keeps the conversation on disk. When the human comments on a task you claimed (or on one you worked on before, which their comment reopens for you), answers your ask, sends it back or reacts to your comment, and nothing of your session is running, Cello can continue your conversation itself, headless, in the folder you started Claude Code in (where it keeps the conversation). That's a **woken run**. It's off until the human turns it on for the project (Settings → the project → "Wake agent sessions when you comment").
 
 What happens:
 
@@ -1228,7 +1261,7 @@ cello context [flags]
 
 ### cello init
 
-Make the git repository you're in a Cello project: creates it with this repo's path (the main checkout's, from a worktree), named after the folder, with a free key made from the name, and prints its key and board URL. In a repo that's already a project it says which one and changes nothing. Then it inspects the repo (test runner, typecheck, e2e tool, how to start the app, and ffmpeg, Docker and Playwright's browsers on this machine), prints a readiness report per kind of evidence with what to do about what's missing, and writes what it found into the project's testing profile where a field is empty or was detected before. --hooks and --agents-md do the rest of the setup; each is safe to run again.
+Make the git repository you're in a Cello project: creates it with this repo's path (the main checkout's, from a worktree), named after the folder, with a free key made from the name, and prints its key and board URL. In a repo that's already a project it says which one and changes nothing. Then it inspects the repo (test runner, typecheck, e2e tool, how to start the app, and ffmpeg, Docker and Playwright's browsers on this machine), prints a readiness report per kind of evidence with what to do about what's missing, and writes what it found into the project's testing profile where a field is empty or was detected before, clearing detected values it no longer finds. --hooks and --agents-md do the rest of the setup; each is safe to run again.
 
 \`\`\`
 cello init [flags]
@@ -1243,7 +1276,7 @@ cello init [flags]
 | \`--agents-md\` | Also add the "Tracking work in Cello" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), or bring the one there up to date. |
 | \`--replace\` | With --agents-md: swap an old "Tracking work in Cello" section that has lines Cello didn't write for Cello's current one (the old file is kept as .bak). Without it, such a section is left as it is. |
 | \`--skip-detect\` | Don't inspect the repo: no testing report, and the testing profile is left as it is. |
-| \`--json\` | Print JSON: created, project, url, testing ({ detection: { stack, packageManager, tools, fields, readiness }, written, kept }), profile (the testing profile after it), hooks ({ file, changed, pluginFolder }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged, customised or foreign, backup, diff }), each null when not asked for or not reached, and error when detection, --hooks or --agents-md failed. |
+| \`--json\` | Print JSON: created, project, url, testing ({ detection: { stack, packageManager, tools, fields, unresolved ([{ field, why }]: found but not settled, so not written), readiness }, written, kept, cleared (detected fields this run didn't find, so removed) }), profile (the testing profile after it), hooks ({ file, changed, pluginFolder }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged, customised or foreign, backup, diff }), each null when not asked for or not reached, and error when detection, --hooks or --agents-md failed. |
 
 ### cello profile
 

@@ -34,4 +34,6 @@ export const PAST_SNIPPET_LINES: ReadonlyArray<string> = [
   "- When you end a turn while holding a claimed task, start `cello inbox --wait` in the background so the human's comments wake you.",
   "- When a decision is the human's (a design option, a scope, wording), ask on the card with `cello task ask` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. Their answers come back to your session.",
   "- Show the human reports, plans and evidence as Cello pages (`cello doc publish page.md --task KEY-n`), opened in Cello's panel with `cello open <slug>`. In replies, link a page with the `cello://` link those commands print, never its http address (that one opens Claude's browser, not Cello). Never as Claude artifacts or other outside pages, even if your global instructions say so: `cello install claude` enforces it with a hook that turns artifact publishes away.",
+  // CEL-96: the project's testing profile.
+  "- This project has a testing profile: how to install, test, start the app and record evidence here. Read it in `cello context` and use its commands for your tests and evidence. When a field is wrong, fix it with `cello profile set` and say so in your packet; a field the human set is theirs, so ask on the card with `cello task ask`.",
 ]

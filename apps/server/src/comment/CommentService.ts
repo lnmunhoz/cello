@@ -1,5 +1,6 @@
 // Comments on a task. Deleting sets `deleted_at`; nothing is hard-deleted. Adding, editing or deleting
 // one is activity on its task: the task's last change becomes the commenter's, in the same transaction.
+// The human's comment on a task nobody holds reopens it for the agent session that last held it (CEL-110).
 // A comment can carry screenshots (CEL-73): Lucas's are uploaded while he writes (`upload`, drafts of the
 // task's comment box, no event) and named by id when he sends; an agent's are image files copied in.
 // Emoji reactions on a comment (CEL-77) are no activity on the task: they leave it alone, and removing
@@ -77,6 +78,7 @@ export class CommentService extends Context.Service<CommentService, {
     context: Commands.WriteContext,
     input: NewComment,
     deliver: "comment" | "send_back",
+    reopened?: InboxService.Reopened | null,
   ) => Effect.Effect<Comment, NotFound | Invalid | SqlError>
   /** Stores a screenshot Lucas pasted or dropped into a task's comment box, as a draft (human only). */
   readonly upload: (input: CommentUpload) => Effect.Effect<Attachment, NotFound | Invalid | HumanOnly, Caller>
@@ -135,6 +137,7 @@ const make = Effect.gen(function* () {
     context: Commands.WriteContext,
     input: NewComment,
     deliver: "comment" | "send_back",
+    reopened: InboxService.Reopened | null = null,
   ) =>
     Effect.gen(function* () {
       const { now, caller, emit } = context
@@ -165,7 +168,7 @@ const make = Effect.gen(function* () {
       }).pipe(Effect.onError(() => assets.remove(copied)))
       yield* tasks.touchWithin(context, input.taskId)
       // A human comment on a claimed task waits for the claiming agent session.
-      yield* inbox.deliverWithin(context, { id, taskId: input.taskId, createdAt: now }, deliver)
+      yield* inbox.deliverWithin(context, { id, taskId: input.taskId, createdAt: now }, deliver, reopened)
       const comment = yield* load(id)
       yield* emit({ type: "comment.added", comment }, where)
       return comment
@@ -175,7 +178,10 @@ const make = Effect.gen(function* () {
     yield* bodyOf(input)
     return yield* commands.write({ commandId: input.commandId, rpc: "comment.add" }, (context) =>
       Effect.gen(function* () {
-        return yield* addWithin(context, input, "comment")
+        // The human writing on a task nobody holds (Done, released): it goes back to the agent that last
+        // held it, and the comment with it (CEL-110). Not the comment an approval or a Send back adds.
+        const reopened = yield* tasks.reopenWithin(context, input.taskId)
+        return yield* addWithin(context, input, "comment", reopened)
       }))
   })
 

@@ -1,6 +1,6 @@
 // CEL-89: a project's testing profile. Each field records who set it (detected, an agent, the human)
 // and when; every change is one `profile.changed` event in the same command; an agent can't change what
-// the human set; `cello init`'s detection only fills fields that are empty or were detected before.
+// the human set; `cello init`'s detection only fills fields that are empty or were detected before, and clears detected ones it no longer finds.
 import type { CelloEvent } from "@cello/contract/events"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -93,8 +93,45 @@ describe("ProfileService", () => {
       // The human confirming one field and changing another in one command.
       const mixed = yield* set({ typecheck: "tsc", install: "bun install" })
       expect(mixed.result).toMatchObject({ written: ["install"], confirmed: ["typecheck"], kept: [] })
-      // Detection never unsets.
+      // Detection takes no `unset`: it clears only what it stops finding.
       expect(yield* Effect.flip(set({}, { unset: ["typecheck"], detected: true }))).toMatchObject({ _tag: "Invalid", field: "unset" })
+    })))
+
+  it.effect("a detection clears the fields it detected before and no longer finds, in the same event; agent and human fields stay (CEL-96)", () =>
+    run(Effect.gen(function* () {
+      const { set, values, events } = yield* setup
+      // A board set up under CEL-89: a half-resolved URL and a wrong video folder, both detected.
+      yield* set({ "install": "bun install", "app.url": "http://localhost:${WEB_PORT}", "e2e.web.videos": "test-results/playwright", "unit": "x" }, { detected: true })
+      yield* agent(set({ typecheck: "bun run typecheck" }))
+      yield* set({ unit: "bun run test" })
+      const again = yield* set({ "install": "bun install", "app.url": "http://localhost:5199" }, { detected: true })
+      expect(again.result).toMatchObject({ written: ["app.url"], cleared: ["e2e.web.videos"], kept: [] })
+      expect(yield* values).toEqual({
+        "install": "bun install (detected)",
+        "unit": "bun run test (human)",
+        "typecheck": "bun run typecheck (agent)",
+        "app.url": "http://localhost:5199 (detected)",
+      })
+      const changed = (yield* events).filter((e): e is Extract<CelloEvent, { type: "profile.changed" }> => e.type === "profile.changed")
+      expect(changed.at(-1)!.seq).toBe(again.seq)
+      expect(changed.at(-1)!.changes.map((c) => [c.field, c.before?.value ?? null, c.after?.value ?? null])).toEqual([
+        ["app.url", "http://localhost:${WEB_PORT}", "http://localhost:5199"],
+        ["e2e.web.videos", "test-results/playwright", null],
+      ])
+      // A detection that names one field clears every other detected one, and only those.
+      expect((yield* set({ "app.url": "http://localhost:5199" }, { detected: true })).result).toMatchObject({ written: [], cleared: ["install"] })
+      expect(yield* values).toEqual({ "unit": "bun run test (human)", "typecheck": "bun run typecheck (agent)", "app.url": "http://localhost:5199 (detected)" })
+      // A hand-made write never clears what it doesn't name.
+      expect((yield* agent(set({ install: "bun i" }))).result).toMatchObject({ cleared: [] })
+    })))
+
+  it.effect("a detection that found nothing clears nothing: a checkout with no package.json (a bare branch, a sparse checkout) keeps the profile (CEL-96)", () =>
+    run(Effect.gen(function* () {
+      const { set, values } = yield* setup
+      yield* set({ "install": "bun install", "app.url": "http://localhost:5199" }, { detected: true })
+      const empty = yield* set({}, { detected: true })
+      expect(empty).toMatchObject({ seq: null, result: { written: [], cleared: [], kept: [] } })
+      expect(yield* values).toEqual({ "install": "bun install (detected)", "app.url": "http://localhost:5199 (detected)" })
     })))
 
   it.effect("refuses unknown fields and bad values, naming the field", () =>

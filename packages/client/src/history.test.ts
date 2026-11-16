@@ -99,6 +99,15 @@ describe("describeEvent", () => {
       "Lucas's change ended the agent's claim",
     )
   })
+
+  it("describes a comment reopening the task for its last session (CEL-110), naming it when the caller can", () => {
+    const reopened = (from: string) => ev({ type: "task.reopened", id: "t", version: 6, task: { statusId: "doing" } as never, from, session: "s1" })
+    const named = { ...state, sessionName: (id: string) => (id === "s1" ? "Claude Code session 7330433e" : id) }
+    expect(describeEvent(reopened("todo"), named)).toBe("Lucas's comment reopened it for Claude Code session 7330433e")
+    // Released, still In Progress: nothing to reopen, the claim just goes back.
+    expect(describeEvent(reopened("doing"), named)).toBe("Lucas's comment gave it back to Claude Code session 7330433e")
+    expect(describeEvent(reopened("todo"), state)).toBe("Lucas's comment reopened it for the agent session that last held it")
+  })
 })
 
 describe("describeEvent: an old stage (CEL-105)", () => {
