@@ -1,15 +1,19 @@
 // Cello for macOS. Finds or starts the Cello server (sidecar.ts), shows the board in the main window
 // with a browser panel on its right, and handles `cello://` links. One instance at a time: a second
 // launch hands its link to the running app and quits.
+import { execFile } from "node:child_process"
 import * as fs from "node:fs"
+import * as os from "node:os"
 import * as path from "node:path"
+import { plistPath, SERVICE_LABEL, serviceLogPath } from "@cello/shared/launchAgent"
 import { app, BaseWindow, dialog, Menu, session, webContents } from "electron"
 import { findCelloLink, parseCelloLink, routeCelloLink, SCHEME, type CelloLink } from "./links/celloLink.ts"
 import { INSTALLED_APP } from "./install/plan.ts"
-import { buildMenu } from "./menu.ts"
+import { buildMenu, type MenuActions } from "./menu.ts"
 import { PANEL_PARTITION } from "./panel/Panel.ts"
-import { celloCommand, serverConfig } from "./server/plan.ts"
-import { connectServer, type Server } from "./server/sidecar.ts"
+import { celloCommand, serverConfig, serviceFor, serviceInstaller } from "./server/plan.ts"
+import { answerOf, parseQuitChoice, planQuit, QUIT_CHOICE_FILE, QUIT_QUESTION, type QuitAnswer, type QuitChoice, serverStatusLabel } from "./server/quit.ts"
+import { connectServer, installService, lockHolder, type Server, startDetached } from "./server/sidecar.ts"
 import { appNotice, boardNotice, bundleOf, relaunchOptions, restartTarget, stampFile, type AppNotice } from "./update/appUpdate.ts"
 import { MainWindow } from "./window/MainWindow.ts"
 
@@ -67,9 +71,55 @@ function run() {
   /** The build this process loaded, to tell when another replaced it on disk (CEL-75). */
   const loadedStamp = readStamp()
   let notice: AppNotice | null = null
+  /** A Restart into a new build: quitting doesn't ask about the server then; the new app starts its own. */
+  let restarting = false
 
   /** The main window, unless it was closed (macOS keeps the app running without one). */
   const live = () => (main && !main.isClosed ? main : null)
+
+  const config = serverConfig(process.env)
+  /** The `cello` the app starts servers with. */
+  const appCommand = () =>
+    celloCommand({ env: process.env, isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, repoRoot: files.repoRoot, exists: fs.existsSync })
+
+  /** A background service is installed for this data folder (CEL-81): its plist in ~/Library/LaunchAgents names it. */
+  const serviceInstalled = () => {
+    try {
+      return serviceFor(fs.readFileSync(plistPath(process.env.HOME || os.homedir()), "utf8"), config.dataDir)
+    } catch {
+      return false
+    }
+  }
+  /** Asks launchd to start the installed service (a no-op when it already runs). */
+  const startService = () =>
+    new Promise<void>((resolve, reject) =>
+      execFile("launchctl", ["kickstart", `gui/${process.getuid?.() ?? 0}/${SERVICE_LABEL}`], (error) => (error ? reject(error) : resolve())))
+
+  /** Keep or Stop, as answered to the quit question; null until it was answered. */
+  const choiceFile = path.join(app.getPath("userData"), QUIT_CHOICE_FILE)
+  const rememberedChoice = () => {
+    try {
+      return parseQuitChoice(fs.readFileSync(choiceFile, "utf8"))
+    } catch {
+      return null
+    }
+  }
+  const remember = (choice: QuitChoice) => {
+    try {
+      fs.writeFileSync(choiceFile, JSON.stringify({ onQuit: choice }))
+    } catch {}
+  }
+
+  let menuActions: MenuActions | null = null
+  let menuStatus: string | null = null
+  /** Builds the menu again when the server status line changed: after connecting, and when the window takes focus. */
+  const refreshMenu = () => {
+    if (!menuActions) return
+    const status = serverStatusLabel(server && { startedByUs: server.startedByUs, service: serviceInstalled(), pid: lockHolder(config.dataDir) })
+    if (status === menuStatus) return
+    menuStatus = status
+    Menu.setApplicationMenu(buildMenu(app.name, menuActions, status))
+  }
 
   /**
    * Whether to offer a restart: another build replaced this one on disk, or this copy isn't
@@ -96,6 +146,7 @@ function run() {
     checkForUpdate()
     const target = restartTarget(notice, process.execPath, fs.existsSync)
     if (!target) return
+    restarting = true
     // The new instance starts once this one exits; without the lock released it could find it still
     // held, hand its arguments to this exiting instance and quit.
     app.releaseSingleInstanceLock()
@@ -160,20 +211,17 @@ function run() {
       platform: process.platform,
       restartApp: restart,
     })
-    main.window.on("focus", checkForUpdate)
+    main.window.on("focus", () => {
+      checkForUpdate()
+      refreshMenu()
+    })
     checkForUpdate()
     return main
   }
 
   const connect = async (window: MainWindow): Promise<Server | null> => {
-    const { port, dataDir } = serverConfig(process.env)
-    const command = celloCommand({
-      env: process.env,
-      isPackaged: app.isPackaged,
-      resourcesPath: process.resourcesPath,
-      repoRoot: files.repoRoot,
-      exists: fs.existsSync,
-    })
+    const { port, dataDir } = config
+    const command = appCommand()
     for (;;) {
       try {
         return await connectServer({
@@ -182,6 +230,7 @@ function run() {
           command: command ? [command] : null,
           env: process.env,
           log: (text) => process.stdout.write(text),
+          service: { installed: serviceInstalled(), start: startService },
         })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -207,27 +256,27 @@ function run() {
       target.setPermissionRequestHandler((_contents, permission, callback) => callback(allowed.has(permission)))
       target.setPermissionCheckHandler((_contents, permission) => allowed.has(permission))
     }
-    Menu.setApplicationMenu(
-      buildMenu(app.name, {
-        target: () => live()?.focusedContents(webContents.getFocusedWebContents()) ?? null,
-        togglePanel: () => live()?.panel.toggle(),
-        focusAddress: () => {
-          live()?.panel.show()
-          live()?.panel.focusAddress()
-        },
-        toggleFullScreen: () => {
-          const window = live()?.window
-          window?.setFullScreen(!window.isFullScreen())
-        },
-        go: (direction) => live()?.go(direction, webContents.getFocusedWebContents()),
-      }),
-    )
+    menuActions = {
+      target: () => live()?.focusedContents(webContents.getFocusedWebContents()) ?? null,
+      togglePanel: () => live()?.panel.toggle(),
+      focusAddress: () => {
+        live()?.panel.show()
+        live()?.panel.focusAddress()
+      },
+      toggleFullScreen: () => {
+        const window = live()?.window
+        window?.setFullScreen(!window.isFullScreen())
+      },
+      go: (direction) => live()?.go(direction, webContents.getFocusedWebContents()),
+    }
+    refreshMenu()
     if (!app.isPackaged && fs.existsSync(files.devIcon)) app.dock?.setIcon(files.devIcon)
 
     const window = openWindow()
     window.showMessage("Starting Cello…")
     server = await connect(window)
     if (!server) return app.quit()
+    refreshMenu()
     // A task link that launched the app decides the first page; page links open once it's up.
     const task = pending.find((link) => link.kind === "task")
     if (!window.isClosed) await window.loadBoard(server.url, task?.kind === "task" ? task.path : "/")
@@ -246,19 +295,56 @@ function run() {
     if (BaseWindow.getAllWindows().length === 0) showWindow()
   })
 
-  // Stop the server on quit, but only one the app started itself; quit again once it has stopped.
-  let stopping: Promise<void> | null = null
-  let stopped = false
-  app.on("before-quit", (event) => {
-    if (stopped || !server?.startedByUs) return
-    event.preventDefault()
-    const running = server
+  /**
+   * What quitting does to a server the app started (CEL-81, quit.ts): asks the first time, then keeps
+   * it running on its own, stops it, or installs the background service in its place. False when Lucas
+   * cancelled, and the app stays open.
+   */
+  const settleServer = async (running: Server, plan: "ask" | QuitChoice): Promise<boolean> => {
+    // On the window when there is one (a sheet on macOS); the app may be quitting with none open.
+    const window = live()?.window
+    const ask = () => (window ? dialog.showMessageBox(window, QUIT_QUESTION) : dialog.showMessageBox(QUIT_QUESTION))
+    let answer: QuitAnswer = plan === "ask" ? answerOf((await ask()).response) : plan
+    if (answer === "cancel") return false
+    if (plan === "ask" && answer !== "install") remember(answer)
     // Close the window first, so the board's WebSocket ends cleanly instead of being cut off; the
     // server stops within about a second either way (CEL-17). Closing (not destroying) still saves
     // the window's size and position.
     for (const window of BaseWindow.getAllWindows()) window.close()
-    stopping ??= running.stop().finally(() => {
-      stopped = true
+    await running.stop()
+    if (answer === "install") {
+      const installer = serviceInstaller({ env: process.env, exists: fs.existsSync, fallback: appCommand() })
+      const installed = installer
+        ? await installService({ command: installer, port: Number(new URL(running.url).port), dataDir: config.dataDir, env: process.env })
+        : { ok: false, output: "There's no cello binary to install the service with." }
+      if (installed.ok) return true
+      await dialog.showMessageBox({
+        type: "error",
+        message: "Cello couldn't install the background service",
+        detail: `${installed.output}\n\nThe server keeps running until the Mac restarts; \`cello service install\` in a terminal tries again.`,
+      })
+      answer = "keep"
+    }
+    const command = appCommand()
+    if (answer === "keep" && command) {
+      // The app's child can't outlive it (its output is piped to the app), so a fresh one takes over.
+      await startDetached({ command: [command], url: running.url, dataDir: config.dataDir, env: process.env, logPath: serviceLogPath(config.dataDir) })
+    }
+    return true
+  }
+
+  // A server the app joined is never stopped; one it started is settled first, then the app quits again.
+  let settling: Promise<void> | null = null
+  let settled = false
+  app.on("before-quit", (event) => {
+    if (settled || !server) return
+    const plan = planQuit({ startedByUs: server.startedByUs, service: serviceInstalled(), remembered: restarting ? "stop" : rememberedChoice() })
+    if (plan === "leave") return
+    event.preventDefault()
+    settling ??= settleServer(server, plan).then((quit) => {
+      settling = null
+      if (!quit) return
+      settled = true
       app.quit()
     })
   })

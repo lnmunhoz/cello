@@ -1,7 +1,6 @@
 // `cello service install | status | restart | uninstall` (CEL-81) against a temp HOME and a fake
 // `launchctl` on PATH, so a test never writes to the real ~/Library/LaunchAgents or reaches launchd.
-// The fake keeps launchd's state in files: `loaded` once bootstrapped, `pid` for the job's process,
-// which bootout and kickstart -k stop (only that pid), as launchd would.
+// The fake (../fakeLaunchctl.ts) keeps launchd's state in files.
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { startServer, tempDataDir } from "@cello/server/testing/servers"
@@ -11,26 +10,11 @@ import { plistPath, renderPlist, servicePathVariable } from "@cello/shared/launc
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import { installText, refusalText } from "../../src/service.ts"
+import { writeFakeLaunchctl } from "../fakeLaunchctl.ts"
 import { cello } from "./cli.ts"
 
 const UID = process.getuid!()
 const TARGET = `gui/${UID}/dev.cello.server`
-
-const fakeLaunchctl = (state: string) => `#!/bin/sh
-state=${JSON.stringify(state)}
-printf '%s\\n' "$*" >> "$state/calls.log"
-stop_job() { if [ -f "$state/pid" ]; then read pid < "$state/pid"; kill "$pid"; /bin/rm -f "$state/pid"; fi; }
-case "$1" in
-  print)
-    [ -f "$state/loaded" ] || { echo 'Could not find service "dev.cello.server" in domain for user gui: ${UID}' >&2; exit 113; }
-    if [ -f "$state/pid" ]; then read pid < "$state/pid"; printf 'gui/${UID}/dev.cello.server = {\\n\\tstate = running\\n\\tpid = %s\\n\\tlast exit code = (never exited)\\n}\\n' "$pid"
-    else printf 'gui/${UID}/dev.cello.server = {\\n\\tstate = not running\\n\\tlast exit code = 78: EX_CONFIG\\n}\\n'; fi ;;
-  bootstrap) [ -f "$state/bootstrap-fails" ] && { echo 'Bootstrap failed: 5: Input/output error' >&2; exit 5; }; : > "$state/loaded" ;;
-  bootout) [ -f "$state/loaded" ] || exit 113; stop_job; /bin/rm -f "$state/loaded" ;;
-  kickstart) [ -f "$state/loaded" ] || { echo 'Could not find service' >&2; exit 113; }; stop_job ;;
-esac
-exit 0
-`
 
 /** A process standing in for a server (or the service's job); killed when the test ends. */
 const sleeper = Effect.acquireRelease(
@@ -48,8 +32,8 @@ const setup = (options: { readonly port?: number } = {}) =>
     const dataDir = path.join(dir, "data")
     const bin = path.join(dir, "bin")
     const state = path.join(dir, "launchd")
-    for (const folder of [home, bin, state]) fs.mkdirSync(folder)
-    fs.writeFileSync(path.join(bin, "launchctl"), fakeLaunchctl(state), { mode: 0o755 })
+    fs.mkdirSync(home)
+    const { calls } = writeFakeLaunchctl(bin, state, UID)
     // The `cello` this command "is": a build folder of its own, as apps/cli/dist would be.
     const program = path.join(dir, "build", "cello")
     fs.mkdirSync(path.dirname(program))
@@ -57,7 +41,6 @@ const setup = (options: { readonly port?: number } = {}) =>
     const port = options.port ?? 1 // nothing answers on port 1
     const env = { HOME: home, PATH: bin, CELLO_DATA_DIR: dataDir, CELLO_PORT: String(port) }
     const run = (...args: string[]) => cello({ port, cwd: dir, env, self: [program] })(...args)
-    const calls = () => fs.existsSync(path.join(state, "calls.log")) ? fs.readFileSync(path.join(state, "calls.log"), "utf8").trim().split("\n") : []
     const plist = plistPath(home)
     const logPath = path.join(dataDir, "logs", "server.log")
     /** As if launchd started the job: loaded, with `pid` as its process. */

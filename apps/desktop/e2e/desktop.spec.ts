@@ -3,19 +3,31 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test"
+import { parsePlist, renderPlist } from "@cello/shared/launchAgent"
+import { writeFakeLaunchctl } from "../../cli/test/fakeLaunchctl.ts"
 import { recordWindow, screenshotWindow, type Recording } from "./recorder.ts"
 import {
+  answerQuitQuestion,
   appPages,
   buildWeb,
   CELLO_BIN,
   celloAsAgent,
   cleanup,
+  closeAppMenu,
+  closeQuitQuestion,
   COMMAND_OR_CONTROL,
   DESKTOP_DIR,
   entryOf,
   freePort,
   isAlive,
+  killOnCleanup,
   launchApp,
+  openAppMenu,
+  quitApp,
+  quitQuestions,
+  screenshotScreen,
+  serverStatus,
+  showQuitQuestion,
   overwrite,
   pressKey,
   readLock,
@@ -633,12 +645,14 @@ test("CEL-75: a Cello running from a build folder offers a restart from /Applica
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "app-restart-bar-elsewhere-light.png"))
 })
 
-test("starts the bundled cello when no server is running, and stops it on quit", async ({}, testInfo) => {
+test("CEL-81: starts the bundled cello when no server is running; the first quit asks, Stop Server stops it, and the next quit doesn't ask", async ({}, testInfo) => {
   const dataDir = tempDir("cello-desktop-e2e-")
   const userData = tempDir("cello-desktop-user-")
+  const asked = path.join(tempDir("cello-desktop-asked-"), "questions.jsonl")
   const port = await freePort()
   const url = `http://127.0.0.1:${port}`
-  const app = await launchApp({ CELLO_PORT: String(port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: userData, CELLO_BIN })
+  const env = { CELLO_PORT: String(port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: userData, CELLO_BIN }
+  const app = await launchApp(env)
   const video = record(app, testInfo.title)
   const { board } = await appPages(app, url)
 
@@ -647,17 +661,157 @@ test("starts the bundled cello when no server is running, and stops it on quit",
   const lock = readLock(dataDir)
   expect(lock?.port).toBe(port)
   expect(isAlive(lock!.pid)).toBe(true)
+  expect(await serverStatus(app)).toBe(`Server: started by this app (pid ${lock!.pid})`)
+  await openAppMenu(app)
+  await screenshotScreen(app, path.join(SCREENSHOTS_DIR, "server-status-started-by-this-app.png"))
+  await closeAppMenu(app)
 
-  await video.caption("Move and resize the window, then quit")
+  await video.caption("Quit: the app started this server, so it asks what to do with it")
+  await showQuitQuestion(app)
+  await screenshotScreen(app, path.join(SCREENSHOTS_DIR, "quit-question.png"))
+  await closeQuitQuestion(app)
+  await video.caption("Cancel keeps the app open, and the server with it")
+  await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
+  expect(isAlive(lock!.pid)).toBe(true)
+
+  await video.caption("Move and resize the window, then quit and pick Stop Server")
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setBounds({ x: 120, y: 80, width: 1100, height: 720 }))
+  await answerQuitQuestion(app, 1, asked)
   await recording!.stop()
   recording = null
   await app.close()
 
+  expect(quitQuestions(asked).map((q) => [q.message, q.buttons])).toEqual([
+    ["Keep Cello running for your agents?", ["Keep Running", "Stop Server", "Install Background Service", "Cancel"]],
+  ])
   expect(readLock(dataDir)).toBeNull()
   expect(isAlive(lock!.pid)).toBe(false)
+  expect(JSON.parse(fs.readFileSync(path.join(userData, "server-on-quit.json"), "utf8"))).toEqual({ onQuit: "stop" })
   const saved = JSON.parse(fs.readFileSync(path.join(userData, "window-state.json"), "utf8"))
   expect(saved.bounds).toEqual({ x: 120, y: 80, width: 1100, height: 720 })
+
+  // Stop was remembered: the next launch starts its own server again, and quitting stops it without asking.
+  const again = await launchApp(env)
+  await appPages(again, url)
+  const second = readLock(dataDir)
+  expect(isAlive(second!.pid)).toBe(true)
+  await answerQuitQuestion(again, 0, asked)
+  await again.close()
+  expect(quitQuestions(asked)).toHaveLength(1)
+  expect(isAlive(second!.pid)).toBe(false)
+})
+
+test("CEL-81: Keep Running leaves the server up after the app quits, so agents keep working; the next launch joins it", async ({}, testInfo) => {
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const userData = tempDir("cello-desktop-user-")
+  const asked = path.join(tempDir("cello-desktop-asked-"), "questions.jsonl")
+  const port = await freePort()
+  const url = `http://127.0.0.1:${port}`
+  const env = { CELLO_PORT: String(port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: userData, CELLO_BIN }
+  const app = await launchApp(env)
+  const video = record(app, testInfo.title)
+  const { board } = await appPages(app, url)
+  await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
+  const started = readLock(dataDir)!
+
+  await video.caption("Quit and pick Keep Running")
+  await answerQuitQuestion(app, 0, asked)
+  await recording!.stop()
+  recording = null
+  await quitApp(app)
+
+  // A server of its own took over before the app exited: another pid, on the same port.
+  const kept = readLock(dataDir)!
+  killOnCleanup(kept.pid)
+  expect(kept.pid).not.toBe(started.pid)
+  expect(kept.port).toBe(port)
+  expect(isAlive(kept.pid)).toBe(true)
+  expect(isAlive(started.pid)).toBe(false)
+  expect(JSON.parse(celloAsAgent(port, "whoami")).server.build.version).toEqual(expect.any(String))
+  expect(fs.readFileSync(path.join(dataDir, "logs/server.log"), "utf8")).toContain(`Cello is running at ${url}`)
+  expect(JSON.parse(fs.readFileSync(path.join(userData, "server-on-quit.json"), "utf8"))).toEqual({ onQuit: "keep" })
+
+  // The next launch joins it, says so, and quitting leaves it running without asking.
+  const again = await launchApp(env)
+  const next = record(again, `${testInfo.title} (next launch)`)
+  const pages = await appPages(again, url)
+  await expect(pages.board.getByRole("button", { name: "New project" }).first()).toBeVisible()
+  await next.caption("The next launch joins the server that kept running")
+  expect(await serverStatus(again)).toBe(`Server: started outside the app (pid ${kept.pid})`)
+  await answerQuitQuestion(again, 1, asked)
+  await recording!.stop()
+  recording = null
+  await again.close()
+  expect(quitQuestions(asked)).toHaveLength(1)
+  expect(isAlive(kept.pid)).toBe(true)
+})
+
+test("CEL-81: with the background service installed, the app joins it, says so in the menu, and never stops it on quit", async ({}, testInfo) => {
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const home = tempDir("cello-desktop-home-")
+  const asked = path.join(tempDir("cello-desktop-asked-"), "questions.jsonl")
+  // The service's server: `cello start`, as launchd would run it, and its plist in the temp HOME.
+  const server = await startCello(dataDir)
+  const plist = path.join(home, "Library/LaunchAgents/dev.cello.server.plist")
+  fs.mkdirSync(path.dirname(plist), { recursive: true })
+  fs.writeFileSync(plist, renderPlist({ program: [CELLO_BIN, "start"], home, path: "/usr/bin:/bin", dataDir, port: server.port, logPath: path.join(dataDir, "logs/server.log") }))
+  const app = await launchApp({ CELLO_PORT: String(server.port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-"), CELLO_BIN, HOME: home })
+  const video = record(app, testInfo.title)
+  const { board } = await appPages(app, server.url)
+  await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
+
+  await video.caption("The background service runs the server; the app menu says so")
+  expect(await serverStatus(app)).toBe(`Server: background service (pid ${server.pid})`)
+  await openAppMenu(app)
+  await screenshotScreen(app, path.join(SCREENSHOTS_DIR, "server-status-background-service.png"))
+  await closeAppMenu(app)
+
+  await video.caption("Quit: no question, and the service keeps running")
+  await answerQuitQuestion(app, 1, asked)
+  await recording!.stop()
+  recording = null
+  await app.close()
+  expect(quitQuestions(asked)).toEqual([])
+  expect(isAlive(server.pid)).toBe(true)
+  expect(JSON.parse(celloAsAgent(server.port, "whoami")).server.build.version).toEqual(expect.any(String))
+})
+
+test("CEL-81: Install Background Service stops the app's server and runs `cello service install` (a fake launchctl, a temp HOME)", async ({}, testInfo) => {
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const userData = tempDir("cello-desktop-user-")
+  const home = tempDir("cello-desktop-home-")
+  const scratch = tempDir("cello-desktop-launchd-")
+  const asked = path.join(scratch, "questions.jsonl")
+  const uid = process.getuid!()
+  const { calls } = writeFakeLaunchctl(path.join(scratch, "bin"), path.join(scratch, "state"), uid)
+  const port = await freePort()
+  const url = `http://127.0.0.1:${port}`
+  const app = await launchApp({
+    CELLO_PORT: String(port),
+    CELLO_DATA_DIR: dataDir,
+    CELLO_DESKTOP_USER_DATA: userData,
+    CELLO_BIN,
+    HOME: home,
+    PATH: `${path.join(scratch, "bin")}:${process.env.PATH}`,
+  })
+  const video = record(app, testInfo.title)
+  const { board } = await appPages(app, url)
+  await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
+  const started = readLock(dataDir)!
+
+  await video.caption("Quit and pick Install Background Service")
+  await answerQuitQuestion(app, 2, asked)
+  await recording!.stop()
+  recording = null
+  await app.close()
+
+  expect(isAlive(started.pid)).toBe(false)
+  const plist = path.join(home, "Library/LaunchAgents/dev.cello.server.plist")
+  const installed = parsePlist(fs.readFileSync(plist, "utf8"))
+  expect(installed).toMatchObject({ program: [fs.realpathSync(CELLO_BIN), "start"], dataDir, port, logPath: path.join(dataDir, "logs/server.log") })
+  expect(calls()).toEqual([`enable gui/${uid}/dev.cello.server`, `bootstrap gui/${uid} ${plist}`])
+  // Install isn't a remembered answer: once the service is there, quitting never asks.
+  expect(fs.existsSync(path.join(userData, "server-on-quit.json"))).toBe(false)
 })
 
 test("cello:// links from a second launch reach the running app", async ({}, testInfo) => {
