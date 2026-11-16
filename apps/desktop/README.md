@@ -26,6 +26,8 @@ bun run test:e2e   # Playwright's Electron tests, in Docker (same as test:docker
     icon (`resources/Cello.icon`) with actool into `Assets.car`, so macOS 26 draws it flat instead of
     redrawing it as glass, and it adds an `icon.icns` for older macOS. Without Xcode 26 the package
     step fails.
+- **`bun run package -- --install`** also makes `/Applications/Cello.app` the copy `cello://` links
+  open; see "Which copy opens `cello://` links" below.
 - **`bun run test:e2e`** runs the tests in a throwaway Linux container (`scripts/test-in-docker.ts`,
   OrbStack must be running), with the app under Xvfb, so no window opens on the Mac. Arguments
   after `--` go to `playwright test`. Videos and screenshots land in
@@ -118,12 +120,46 @@ The packaged app registers the scheme (Info.plist and `setAsDefaultProtocolClien
 runs at a time: opening a link while it runs, or launching it again, hands the link to the
 running app.
 
+### Which copy opens `cello://` links
+
+Every `Cello.app` on disk claims `cello://`, and macOS (LaunchServices) can hand a link to any copy it
+has seen: `/Applications/Cello.app`, but also `dist/mac-arm64/Cello.app` in the repo and in each agent's
+worktree. A copy started before a fix was merged keeps running the old code even after its files are
+replaced (CEL-75: a Cello started from `dist/` at 17:54 kept sending Cello pages to the browser panel
+after CEL-60 fixed that at 23:01).
+
+So `bun run package -- --install`, after copying the app to /Applications:
+
+1. **unregisters the build folders' copies** from LaunchServices (`lsregister -u`): every `Cello.app`
+   under `apps/desktop/dist*/` in the repo, its git worktrees and any folder in `.claude/worktrees/`,
+   whether it's still on disk or only still registered. The folders stay; nothing is deleted. Copies
+   anywhere else (Downloads, another clone) are left alone.
+2. **registers `/Applications/Cello.app` again** (`lsregister -f`), so links open it.
+3. **warns about a Cello that won't run the new build**, without quitting it: one running from another
+   copy, or `/Applications`' copy started before the install began.
+
+```text
+Installed /Applications/Cello.app
+Unregistered /Users/me/projects/cello/apps/desktop/dist/mac-arm64/Cello.app from LaunchServices (the folder stays)
+cello:// links now open /Applications/Cello.app
+! Cello (pid 95951) is running from /Users/me/projects/cello/apps/desktop/dist/mac-arm64/Cello.app, not /Applications/Cello.app. Quit it (⌘Q) and open /Applications/Cello.app, so cello:// links reach the new build.
+```
+
+When you see the `!` line, quit Cello and open it from /Applications (Launchpad, Spotlight, Raycast).
+`bun scripts/install.ts` prints what an install would do right now (which copies it would unregister,
+which running Cello it would warn about) and changes nothing. A later `bun run package` (without
+`--install`) makes a fresh `dist/` copy that macOS may register again; the next `--install` unregisters it.
+
+The decisions are in `src/install/plan.ts` (pure, unit-tested); `scripts/install.ts` gathers the facts
+(`git worktree list`, `lsregister -dump`, `ps`) and runs them.
+
 ## Code
 
 - `src/main.ts`: startup, single instance, links, menu, quit
 - `src/window/`: the main window, its layout (board view, panel views) and its back and forward
 - `src/panel/`: the panel (`Panel.ts`), its toolbar page (`chrome.*`) and the URL rules (`urls.ts`)
 - `src/server/`: finding or starting the server (`plan.ts` decides, `sidecar.ts` does it)
+- `src/install/plan.ts`: what `package -- --install` does after copying the app (LaunchServices, warnings)
 - `src/preload.ts`: `window.celloDesktop`
 - `scripts/`: bundling with Bun (`dist-electron/`), dev, packaging (electron-builder)
 - `resources/Cello.icon/` (the packaged app, an Icon Composer document) and `resources/icon.png` (the
