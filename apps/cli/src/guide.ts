@@ -605,7 +605,7 @@ cello inbox --wait --json   # the same as JSON: items, claimed
 \`\`\`
 
 - **It blocks until something new arrives for your session** (a comment, a Send back note, answers to your ask, an ask withdrawn, a reaction), then takes it the way \`cello inbox --new\` does (marked read, each item once) and prints it. Run in the background, its end wakes you with the text, as if the hook had delivered it. It returns at once when something is already waiting.
-- **It doesn't poll the board:** it listens on the server's event stream. When the server restarts, it reconnects and carries on; if the server stays away for 2 minutes, it exits 1 with "The Cello server on port 4747 went away and didn't come back within 2 minutes, so this stopped waiting." Start it (\`cello start\`) and run \`--wait\` again.
+- **It doesn't poll the board:** it listens on the server's event stream. When the server restarts (every deploy does), it says so on stderr, "The Cello server on port 4747 went away; reconnecting for up to 2 minutes…", reconnects and carries on; nothing is taken twice. If the server stays away for 2 minutes, it exits 1 with "The Cello server on port 4747 went away and didn't come back within 2 minutes, so this stopped waiting." Start it (\`cello start\`) and run \`--wait\` again. \`cello wait\` and \`cello task ask --wait\` ride out a restart the same way (Questions for Lucas).
 - **One per session.** While it waits it holds a lock file (\`$TMPDIR/cello-inbox-wait/<hash of port and session>\`, holding its pid and when it started) and says so on stderr: \`Waiting for new comments, Send back notes and answers for this session (pid 4242)…\`. A second \`cello inbox --wait\` for the same session leaves at once, saying on stderr \`\`Already waiting: a \`cello inbox --wait\` (pid 4242) is running for this session, and it wakes you when something new arrives.\`\` (with \`--json\`: \`{"waiting": true, "pid": 4242}\`). The lock goes when it ends, however it ends.
 - **It never outlives your session.** It stops, taking nothing, once the Claude Code that started it is gone (it checks \`CLAUDE_PID\` every second), and after a day with nothing new it stops and says so: "Nothing new for this session in 24 hours, so \`cello inbox --wait\` stopped. If you still hold a claim, start it again in the background." A lock whose pid is dead, or that's older than a day (its pid may belong to another process by then), is ignored.
 - **It shares nicely:** the hooks and \`cello inbox\` take from the same inbox, so whichever gets an item first hands it over and the others never see it. Answers a \`cello task ask --wait\` (or \`cello wait\`) is waiting for stay with that command.
@@ -776,6 +776,7 @@ What happens:
 3. The answers reach you, once:
    - **with \`--wait\`:** the command blocks until he sends, then prints the answers and exits. Run it in the background (Claude Code: \`run_in_background\`), so your session wakes when they arrive.
    - **without it:** the hook delivers them like a comment (see Comments from Lucas reach your session), or \`cello wait CEL-43\` waits for them later (after a restart, say).
+   - **a server restart doesn't stop the wait.** Every deploy restarts the server; \`--wait\` and \`cello wait\` say so on stderr ("The Cello server on port 4747 went away; reconnecting for up to 2 minutes…"), reconnect, and keep waiting on the same ask: nothing is asked again, and the answers are still printed once (or that the ask was withdrawn, if it was meanwhile). If the server stays away for 2 minutes they exit 1 with "…didn't come back within 2 minutes, so this stopped waiting. Start it (\`cello start\`), then run \`cello wait CEL-43\` again."; the ask is still open, so \`cello wait CEL-43\` picks it up once the server is back.
    - \`cello task answers CEL-43\` prints the latest answers again any time (\`--all\`: every round); \`--json\` for scripts.
 
 **The file** (JSON or YAML; paths are relative to it):
@@ -997,6 +998,7 @@ Every error is one sentence that says what to do next. The usual ones:
 | The message says | What it means | What to do |
 | --- | --- | --- |
 | Cello isn't running on 127.0.0.1:4747 | Lucas's server is down. | Tell him. Don't start one against \`~/.cello\` yourself unless he asks. |
+| The Cello server on port 4747 went away and didn't come back within 2 minutes, so this stopped waiting | A command waiting on Lucas (\`cello inbox --wait\`, \`cello wait\`, \`cello task ask --wait\`) lost the server, kept reconnecting for 2 minutes, and gave up. A plain restart doesn't cause this: they ride those out. | Tell Lucas the server is down if it still is; once it's back, run the command the message names again. Nothing was taken or asked twice. |
 | Cello on 127.0.0.1:4747 closed the connection before answering | The server stopped or restarted (a deploy) while your command ran. A change it had started still went through. | Look before you redo it: \`cello task get CEL-12\` shows whether the claim, move, comment or submit landed. A rerun is a new command, so running it blindly can do it twice. |
 | CEL-12 is claimed by Claude Code session 1a2b3c4d (active now) | Another live session is working on it. | Pick another task. |
 | No task CEL-99 · No status named … · No label named … | A typo, or something that doesn't exist. | The message lists the real names. |
@@ -1317,7 +1319,7 @@ cello task ask [flags] <key>
 | \`--attach string\` | A screenshot, video or text file to decide from; repeatable. |
 | \`--caption string\` | Describes the --attach or --link right before it. |
 | \`--link string\` | A link to decide from, e.g. the scope page; repeatable. |
-| \`--wait\` | Block until Lucas answers (or the ask is withdrawn), then print the answers. Run it in the background. |
+| \`--wait\` | Block until Lucas answers (or the ask is withdrawn), then print the answers. Run it in the background. Rides out a server restart; exits 1 if the server stays away for 2 minutes (the ask stays open: run \`cello wait\` then). |
 | \`--withdraw\` | Take back the open ask instead: the task returns to In Progress. |
 
 ### cello task answers
@@ -1396,7 +1398,7 @@ cello label archive [flags] <name>
 
 ### cello wait
 
-Wait for Lucas to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered.
+Wait for Lucas to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered. Rides out a server restart; exits 1 if the server stays away for 2 minutes.
 
 \`\`\`
 cello wait [flags] <key>
