@@ -83,12 +83,12 @@ test("hidden columns: hide a status in settings; it folds into the strip, and a 
 test("settings: create, rename and archive a project's label; the changes survive a reload; another project's labels are its own (CEL-80)", async ({ page, cello }) => {
   const key = uniqueKey("LBST")
   const otherKey = uniqueKey("LBSO")
-  await seedProject(cello, "Settings labels", key)
-  const other = await seedProject(cello, "Other settings labels", otherKey)
+  await seedProject(cello, "Label owner A", key)
+  const other = await seedProject(cello, "Label owner B", otherKey)
   await seedLabels(cello, other.id, [{ name: `Theirs ${key}`, color: "#8d7b68" }])
   const labels = page.getByRole("list", { name: "Labels" }).locator(`[data-label-row$="${key}"]`)
   await page.goto(`/settings?project=${key}`)
-  await expect(page.getByRole("combobox", { name: "Labels of project" })).toContainText(`Settings labels (${key})`)
+  await expect(page.getByRole("combobox", { name: "Labels of project" })).toContainText(`Label owner A (${key})`)
   await expect(page.locator(`[data-label-row="Theirs ${key}"]`)).toHaveCount(0)
 
   await caption(page, "Create the labels Design and Docs")
@@ -115,7 +115,7 @@ test("settings: create, rename and archive a project's label; the changes surviv
 
   await caption(page, "The other project lists its own label, not this one's")
   await page.getByRole("combobox", { name: "Labels of project" }).click()
-  await page.getByRole("option", { name: `Other settings labels (${otherKey})` }).click()
+  await page.getByRole("option", { name: `Label owner B (${otherKey})` }).click()
   await expect(page).toHaveURL(new RegExp(`project=${otherKey}`))
   await expect(page.locator(`[data-label-row="Theirs ${key}"]`)).toBeVisible()
   await expect(labels).toHaveCount(1)
