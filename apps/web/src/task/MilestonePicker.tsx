@@ -13,6 +13,7 @@ import { Field } from "../components/ui/Field.tsx"
 import { Input } from "../components/ui/Input.tsx"
 import { Select } from "../components/ui/Select.tsx"
 import { commands } from "../lib/cello.ts"
+import { newMilestoneStep } from "./newMilestone.ts"
 
 const NONE = "none"
 const NEW = "new"
@@ -53,14 +54,17 @@ export function MilestonePicker({ board, task }: { board: BoardState; task: Task
   )
 }
 
-/** Names a new milestone (last in the project's order) and puts the task in it. */
+/**
+ * Names a new milestone (last in the project's order) and puts the task in it; a name an open milestone
+ * already has puts the task in that one (newMilestone.ts).
+ */
 function NewMilestoneDialog({ open, onOpenChange, board, task }: { open: boolean; onOpenChange: (open: boolean) => void; board: BoardState; task: Task }) {
   const create = useAtomSet(commands.createMilestone, { mode: "promiseExit" })
+  const assign = useAtomSet(commands.setTaskMilestone, { mode: "promiseExit" })
   const [name, setName] = useState("")
   const [goal, setGoal] = useState("")
   const [error, setError] = useState<string | null>(null)
   const project = board.projects[task.projectId]
-  const taken = Object.values(board.milestones).find((m) => m.projectId === task.projectId && m.name.toLowerCase() === name.trim().toLowerCase())
 
   const close = () => {
     onOpenChange(false)
@@ -71,9 +75,11 @@ function NewMilestoneDialog({ open, onOpenChange, board, task }: { open: boolean
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (name.trim() === "") return setError("Give it a name")
-    if (taken) return setError(`${project?.key ?? "This project"} already has a milestone named ${taken.name}`)
-    const exit = await create({ projectId: task.projectId, name: name.trim(), ...(goal.trim() ? { goal: goal.trim() } : {}), taskId: task.id })
+    const step = newMilestoneStep(Object.values(board.milestones), task.projectId, project?.key ?? "This project", name)
+    if (step.kind === "problem") return setError(step.message)
+    const exit: Exit.Exit<unknown, unknown> = step.kind === "assign"
+      ? await assign({ id: task.id, milestoneId: step.milestoneId })
+      : await create({ projectId: task.projectId, name: step.name, ...(goal.trim() ? { goal: goal.trim() } : {}), taskId: task.id })
     if (Exit.isSuccess(exit)) close()
     else setError(describeError(Cause.squash(exit.cause)))
   }

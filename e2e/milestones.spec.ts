@@ -85,6 +85,15 @@ test("CEL-113: put a task in a milestone from the task panel, see the chip on th
   await expect(dialog).toBeHidden()
   await expect(milestonePicker(page, third)).toContainText("M4")
   await expect(chipOf(page, third)).toHaveText("M4")
+
+  await caption(page, "New milestone… again, typing m3, a name M3 already has: the task goes in M3 instead of failing")
+  await milestonePicker(page, third).click()
+  await page.getByRole("option", { name: "New milestone…" }).click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByLabel("Name").fill("m3")
+  await dialog.getByRole("button", { name: "Create milestone" }).click()
+  await expect(dialog).toBeHidden()
+  await expect(chipOf(page, third)).toHaveText("M3")
   const created = (await rpc.run((c) => c["milestone.list"]({ project: { key: projectKey } }))).milestones.map((s) => s.milestone.name)
   expect(created).toEqual(["M1", "M2", "M3", "M4"])
 
@@ -92,7 +101,7 @@ test("CEL-113: put a task in a milestone from the task panel, see the chip on th
   await page.reload()
   await expect(chipOf(page, first)).toHaveText("M3")
   await expect(chipOf(page, second)).toHaveText("M2")
-  await expect(chipOf(page, third)).toHaveText("M4")
+  await expect(chipOf(page, third)).toHaveText("M3")
 
   await caption(page, "Display → turn off Show milestone on cards: the chips go")
   await page.getByRole("button", { name: "Display" }).click()
