@@ -54,11 +54,27 @@ Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
    Nothing to write to the testing profile yet. Set fields as the repo gets them: `cello profile set <field> "<value>"`.
    ```
 
+   It never writes a value it can't settle from the files alone. A value built from an environment variable resolves to the default the file gives (`http://localhost:${WEB_PORT}` with `const WEB_PORT = Number(process.env.WEB_PORT ?? 5199)` is `http://localhost:5199`); with no default in the file (or an expression it can't work out), the field is left out and an **unknown** line says why. Each Playwright config (the root's and each workspace package's) is its own e2e surface, each with its own run command: `desktop` when the config uses `_electron`, when it sits in a workspace package that depends on Electron, or, for the root's config, when a root script named for the desktop (`test:e2e:electron`) runs Playwright; else `web`. Electron in the root package.json alone doesn't count: monorepos often keep electron-builder there. When an e2e run goes through Docker or a wrapper script instead of the tool itself, the finished videos land where the wrapper puts them, not in Playwright's folder, so the videos and screenshots folders are left out and the report says to set them. In a repo like that:
+
+   ```
+   Testing: detected web (Vite) · desktop (Electron) · CLI · bun · Vitest · Playwright
+     ready        unit tests           Vitest: bun run test
+     partial      e2e video            Playwright: bun run test:e2e (web), bun run test:docker:desktop (desktop)
+                  → set e2e.web.videos to the folder its finished videos land in: the run goes through `bun scripts/test-in-docker.ts e2e`, not straight to Playwright; set e2e.desktop.videos to …
+     partial      screenshots          Playwright can take them
+                  → Set e2e.web.screenshots to the folder its screenshots land in: …
+     ready        terminal transcript  commands to run and save with their output
+     unknown      app.url              baseURL in playwright.config.ts is `process.env.BASE_URL`, which names a variable with no default there
+                  → Set it with `cello profile set app.url "<value>"` once you know it.
+   ```
+
+   Find those folders (run the e2e once and see where its videos land) and set them with `cello profile set e2e.web.videos "<folder>"`, so builders after you pick the videos up from the right place.
+
    - **Tell the human what's missing.** A missing or partial line means builders here can't bring the evidence a packet needs (a video of the flow, above all). Say so when you report the setup, with the suggestion, so they can decide whether to set it up.
    - The defaults are fine unless the human named the project or its key: then pass `--name "Thai Lookup"` and `--key THAI`.
    - If the key is taken, it says which project has it: pick another, or leave `--key` out and Cello picks a free one (CEL, then CELL, CELLO, CEL2…).
    - `--workspace Work` puts it in another workspace, by name; the default is the first one.
-   - Running it again in a linked repo inspects again: new detected values fill fields that are empty or were detected before, a value found again unchanged is left as it is, and fields an agent or the human set are kept (the report says which). `--skip-detect` leaves the inspection out.
+   - Running it again in a linked repo inspects again: new detected values fill fields that are empty or were detected before, a value found again unchanged is left as it is, and fields an agent or the human set are kept (the report says which). A field that was detected before and isn't found this time (the repo changed, or an earlier version of Cello wrote a value it now leaves out) is cleared, and the report ends with `Cleared app.url and e2e.web.videos: detected before, not found this time.` A field an agent or the human set is never cleared. When it finds nothing at all (a worktree on a branch without the repo's files, a sparse or fresh checkout), it clears nothing and says `Found nothing to detect here; kept the testing profile as it is.` `--skip-detect` leaves the inspection out.
 4. **Hooks, so the human's comments reach your session.** Run `cello install claude` (or `cello init --hooks`, which does the same). It writes this machine's `.claude/settings.local.json` and makes sure git ignores it. It keeps a `.bak` of the old file; ignore that too if the repo's `.gitignore` doesn't cover it. Run it again any time; it changes nothing the second time. The same command adds two guards: in this project, Claude artifact publishes are turned away with a pointer to `cello doc publish` (see "Showing things to the human"), and an agent's edits in the repo are turned away until its session has claimed a task (see "Edits need a claimed task"). It also installs Cello's Claude Code plugin, which gives new sessions `/cello:orchestrate`, `/cello:work` and the `cello` skill (see "The Claude Code plugin"), and allows `cello` commands in Claude Code, so a permission check that fails can't cut agents off the board (see "`cello` commands skip Claude Code's permission check" below).
 5. **Tell the repo's agents.** `cello init --agents-md` adds this section, with the project's key in place of `KEY`, to the end of the AGENTS.md in the checkout you're in, or to CLAUDE.md if there's no AGENTS.md (creating it), between two markers: `<!-- cello:agents-md:start sha256:… -->` (a fingerprint of the text it wrote) and `<!-- cello:agents-md:end -->`. Run it again whenever Cello's text changes: it puts the current text between the markers and prints the lines that changed, or says it's already current. It changes nothing else in the file.
    - **Everything between the markers is Cello's and gets rewritten.** Put the repo's own notes outside them (above the start marker or below the end one). If the text between them isn't exactly what Cello wrote (someone added a note, or it names another project's key), the command still rewrites it, but keeps the old file as `AGENTS.md.bak` first and says so.
@@ -81,6 +97,7 @@ Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
    - Put the task key in commit messages (`fix(api): rate limit (KEY-12)`).
    - In Progress means someone is on it right now. When you wait on the human's decision, ask on the card with `cello task ask` (the task waits in Needs input). When you stop, put the state on the card and move it back to Todo.
    - Hand finished work to the human only with `cello task submit`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
+   - This project has a testing profile: how to install, test, start the app and record evidence here. Read it in `cello context` and use its commands for your tests and evidence. When a field is wrong, fix it with `cello profile set` and say so in your packet; a field the human set is theirs, so ask on the card with `cello task ask`.
    - Answer the human on the card with `cello task comment`. Their comments come to your session by themselves.
    - When you end a turn while holding a claimed task, start `cello inbox --wait` in the background so the human's comments wake you.
    - When a decision is the human's (a design option, a scope, wording), ask on the card with `cello task ask` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. Their answers come back to your session.
@@ -1242,7 +1259,7 @@ cello context [flags]
 
 ### cello init
 
-Make the git repository you're in a Cello project: creates it with this repo's path (the main checkout's, from a worktree), named after the folder, with a free key made from the name, and prints its key and board URL. In a repo that's already a project it says which one and changes nothing. Then it inspects the repo (test runner, typecheck, e2e tool, how to start the app, and ffmpeg, Docker and Playwright's browsers on this machine), prints a readiness report per kind of evidence with what to do about what's missing, and writes what it found into the project's testing profile where a field is empty or was detected before. --hooks and --agents-md do the rest of the setup; each is safe to run again.
+Make the git repository you're in a Cello project: creates it with this repo's path (the main checkout's, from a worktree), named after the folder, with a free key made from the name, and prints its key and board URL. In a repo that's already a project it says which one and changes nothing. Then it inspects the repo (test runner, typecheck, e2e tool, how to start the app, and ffmpeg, Docker and Playwright's browsers on this machine), prints a readiness report per kind of evidence with what to do about what's missing, and writes what it found into the project's testing profile where a field is empty or was detected before, clearing detected values it no longer finds. --hooks and --agents-md do the rest of the setup; each is safe to run again.
 
 ```
 cello init [flags]
@@ -1257,7 +1274,7 @@ cello init [flags]
 | `--agents-md` | Also add the "Tracking work in Cello" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), or bring the one there up to date. |
 | `--replace` | With --agents-md: swap an old "Tracking work in Cello" section that has lines Cello didn't write for Cello's current one (the old file is kept as .bak). Without it, such a section is left as it is. |
 | `--skip-detect` | Don't inspect the repo: no testing report, and the testing profile is left as it is. |
-| `--json` | Print JSON: created, project, url, testing ({ detection: { stack, packageManager, tools, fields, readiness }, written, kept }), profile (the testing profile after it), hooks ({ file, changed, pluginFolder }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged, customised or foreign, backup, diff }), each null when not asked for or not reached, and error when detection, --hooks or --agents-md failed. |
+| `--json` | Print JSON: created, project, url, testing ({ detection: { stack, packageManager, tools, fields, unresolved ([{ field, why }]: found but not settled, so not written), readiness }, written, kept, cleared (detected fields this run didn't find, so removed) }), profile (the testing profile after it), hooks ({ file, changed, pluginFolder }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged, customised or foreign, backup, diff }), each null when not asked for or not reached, and error when detection, --hooks or --agents-md failed. |
 
 ### cello profile
 
