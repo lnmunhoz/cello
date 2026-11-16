@@ -265,7 +265,11 @@ test("performance: 40 working agents spinning stay near 60 fps (at least 55), wi
             times.push(t)
             if (times.length <= 150) return void requestAnimationFrame(tick)
             observer.disconnect()
-            const running = document.getAnimations().filter((a) => a.playState === "running").length
+            // The board's own animations: the sidebar lists every active agent in the workspace, and on
+            // the shared test server another spec's agent may be working there too.
+            const running = document
+              .getAnimations()
+              .filter((a) => a.playState === "running" && a.effect instanceof KeyframeEffect && a.effect.target?.closest("main") != null).length
             resolve({ gaps: times.slice(1).map((x, i) => x - times[i]!), longTasks, animations: running })
           }
           requestAnimationFrame(tick)
@@ -288,15 +292,15 @@ test("performance: 40 working agents spinning stay near 60 fps (at least 55), wi
     }
   }
 
-  // Every working mark on the page spins: the 40 cards' and each session's in the sidebar.
-  const working = await page.locator('[data-agent-mood="working"]').count()
-  expect(working).toBeGreaterThanOrEqual(40)
+  // Every working mark on the board spins: the 40 cards'.
+  const working = await page.locator('main [data-agent-mood="working"]').count()
+  expect(working).toBe(40)
   const spinning = await measure()
   // The agents end (their processes exit): within 30 s the server notices, the board shows them ended,
   // and their marks rest. Nothing is left running.
   for (const p of processes) p.kill()
   await expect(page.locator('[data-task-key] .agent-mark[data-presence="ended"]')).toHaveCount(40, { timeout: 45_000 })
-  await expect(page.locator('[data-agent-mood="working"]')).toHaveCount(0)
+  await expect(page.locator('main [data-agent-mood="working"]')).toHaveCount(0)
   const still = await measure()
   console.log(`[perf] agent marks spinning ${JSON.stringify(spinning)}`)
   console.log(`[perf] agent marks still ${JSON.stringify(still)}`)
