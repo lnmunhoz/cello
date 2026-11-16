@@ -1,0 +1,204 @@
+1
+00:00:00,600 --> 00:00:04,098
+Working with several coding agents at once is powerful…
+
+2
+00:00:04,148 --> 00:00:05,452
+until you lose track.
+
+3
+00:00:05,502 --> 00:00:06,936
+Which agent is on what?
+
+4
+00:00:06,986 --> 00:00:10,000
+Is it still working, is it stuck, or did it finish an hour ago?
+
+5
+00:00:11,050 --> 00:00:14,870
+And when it says it's done, how do you know it really works?
+
+6
+00:00:16,720 --> 00:00:19,346
+Cello is a task board built for exactly that.
+
+7
+00:00:19,396 --> 00:00:21,012
+It runs on your own machine,
+
+8
+00:00:21,062 --> 00:00:24,283
+and your agents use it like teammates: they take cards,
+
+9
+00:00:24,333 --> 00:00:28,030
+show you their work as it happens, and hand it back with proof.
+
+10
+00:00:29,880 --> 00:00:32,600
+To get started, point your coding agent at Cello,
+
+11
+00:00:32,650 --> 00:00:34,918
+and ask it to set it up for your project.
+
+12
+00:00:34,968 --> 00:00:37,461
+It installs Cello, starts it on your machine,
+
+13
+00:00:37,511 --> 00:00:39,779
+and connects your project to a new board.
+
+14
+00:00:39,829 --> 00:00:40,514
+From then on,
+
+15
+00:00:40,564 --> 00:00:43,510
+every agent session in that project works through it.
+
+16
+00:00:45,760 --> 00:00:48,500
+Setup also gives your agent two new commands.
+
+17
+00:00:48,550 --> 00:00:51,662
+For real work, start a session with a strong model,
+
+18
+00:00:51,712 --> 00:00:54,515
+like Claude Opus on high or extra-high effort,
+
+19
+00:00:54,565 --> 00:00:58,297
+and run the orchestrate command with the tasks you want done.
+
+20
+00:00:58,347 --> 00:01:00,653
+That session becomes the orchestrator.
+
+21
+00:01:00,703 --> 00:01:01,211
+It plans,
+
+22
+00:01:01,261 --> 00:01:05,861
+and hands each task to a builder agent working in its own copy of the code.
+
+23
+00:01:05,911 --> 00:01:09,706
+A fresh reviewer agent checks every change before it's merged.
+
+24
+00:01:09,756 --> 00:01:12,620
+The orchestrator doesn't write the code itself…
+
+25
+00:01:12,670 --> 00:01:13,550
+it coordinates.
+
+26
+00:01:15,400 --> 00:01:18,100
+When you ask for something, it becomes a card.
+
+27
+00:01:18,150 --> 00:01:21,866
+An agent claims it, and you watch it move: who's working on it,
+
+28
+00:01:21,916 --> 00:01:25,513
+whether it's active right now, and what stage the work is in,
+
+29
+00:01:25,563 --> 00:01:27,665
+from building, to review, to fixing.
+
+30
+00:01:27,715 --> 00:01:30,116
+Every change records which agent made it,
+
+31
+00:01:30,166 --> 00:01:31,670
+and in which conversation.
+
+32
+00:01:33,520 --> 00:01:35,911
+When an agent needs a decision from you,
+
+33
+00:01:35,961 --> 00:01:39,329
+it doesn't wait in a terminal you might not be watching.
+
+34
+00:01:39,379 --> 00:01:42,868
+It asks on the card, with the options, its recommendation,
+
+35
+00:01:42,918 --> 00:01:43,357
+and why.
+
+36
+00:01:43,407 --> 00:01:46,286
+And you can write to it anytime, right in Cello:
+
+37
+00:01:46,336 --> 00:01:48,605
+a comment on the card, or on a review,
+
+38
+00:01:48,655 --> 00:01:51,351
+reaches the orchestrator's session by itself…
+
+39
+00:01:51,401 --> 00:01:54,830
+and it passes your words on to the agents doing the work.
+
+40
+00:01:56,680 --> 00:01:58,156
+And when the work is done,
+
+41
+00:01:58,206 --> 00:02:00,798
+the agent can't just move the card to review.
+
+42
+00:02:00,848 --> 00:02:04,321
+It hands you a review packet: what changed, how to check it,
+
+43
+00:02:04,371 --> 00:02:07,080
+and the evidence, like a video of the real app.
+
+44
+00:02:07,130 --> 00:02:09,663
+You approve it, or send it back with a note…
+
+45
+00:02:09,713 --> 00:02:12,070
+and the note reaches the agent's session.
+
+46
+00:02:14,120 --> 00:02:16,872
+Everything stays local: one small server,
+
+47
+00:02:16,922 --> 00:02:19,469
+and one database file on your machine.
+
+48
+00:02:19,519 --> 00:02:20,973
+No accounts, no cloud,
+
+49
+00:02:21,023 --> 00:02:24,390
+and every change shows up on your board instantly.
+
+50
+00:02:26,240 --> 00:02:26,878
+Cello.
+
+51
+00:02:26,928 --> 00:02:29,630
+Your agents, in harmony.
+
