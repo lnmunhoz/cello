@@ -26,7 +26,7 @@ function bubble(x, y, s, k, { bg = C.cream, fg = C.ink, size = 34, tail = "down"
 }
 const tick = (x, y, r, k, bg = C.green) => at(x, y, k, `<circle r="${r}" fill="${bg}"/><path d="M${f(-r * 0.42)} ${f(r * 0.02)} L${f(-r * 0.1)} ${f(r * 0.34)} L${f(r * 0.46)} ${f(-r * 0.32)}" fill="none" stroke="${C.white}" stroke-width="${f(r * 0.26)}" stroke-linecap="round" stroke-linejoin="round"/>`);
 // a dashed line drawn from (x1, y1) towards (x2, y2), k of the way
-const dash = (x1, y1, x2, y2, k, col = C.ink, w = 6) => (k <= 0 ? "" : `<line x1="${f(x1)}" y1="${f(y1)}" x2="${f(lerp(x1, x2, k))}" y2="${f(lerp(y1, y2, k))}" stroke="${col}" stroke-width="${w}" stroke-dasharray="14 12" stroke-linecap="round"/>`);
+const dash = (x1, y1, x2, y2, k, col = C.ink, w = 6) => (k < 0.02 ? "" : `<line x1="${f(x1)}" y1="${f(y1)}" x2="${f(lerp(x1, x2, k))}" y2="${f(lerp(y1, y2, k))}" stroke="${col}" stroke-width="${w}" stroke-dasharray="14 12" stroke-linecap="round"/>`);
 const lock = (x, y, k) => at(x, y, k, `<path d="M-26 -8 V-30 A26 26 0 0 1 26 -30 V-8" fill="none" stroke="${C.ink}" stroke-width="12"/><rect x="-42" y="-12" width="84" height="66" rx="14" fill="${C.ink}"/><circle cy="18" r="9" fill="${C.cream}"/>`);
 const magnifier = (x, y) => `<g transform="translate(${f(x)} ${f(y)})"><circle r="34" fill="${C.white}" fill-opacity="0.35" stroke="${C.ink}" stroke-width="9"/><line x1="25" y1="25" x2="58" y2="58" stroke="${C.ink}" stroke-width="13" stroke-linecap="round"/></g>`;
 const folder = (x, y, col = C.ink) => `<path d="M${x} ${y} h22 l8 8 h26 v30 h-56 Z" fill="${col}"/>`;
@@ -68,13 +68,13 @@ const board = (title = "Acme Shop") => panel(BX, BY, BW, BH, C.cream, 36) + txt(
 const carried = (key, p, u, t0, t1, o = {}) => tcard(key, p.x - GRAB[0] * SC, p.y - GRAB[1] * SC, u, { lift: lifted(u, t0, t1), ...o });
 
 // ── scenes. u = seconds since the scene's narration line started (negative during the lead-in).
-// Word times are measured from the take-A recordings: pauses with ffmpeg silencedetect, words inside a
-// phrase split by their share of its characters. ──
+// Word times are measured from the take-A recordings: the gaps between words with ffmpeg silencedetect
+// (noise=-30dB:d=0.06), and where a phrase has no gap, its words split by their share of its characters. ──
 
 // ① The problem: three agents, each in its own terminal; you can't tell what each is doing
 function s1(u) {
   // "Working with several coding agents at once is powerful… | until you lose track. | Which agent is on what? |
-  //  Is it still working, (6.89) is it stuck, (8.10) or did it finish an hour ago? (8.86) | And when it says it's done, (11.03) | how do you know it really works? (12.45)"
+  //  Is it still working, (6.89) is it stuck, (8.03) or did it finish an hour ago? (8.93) | And when it says it's done, (11.03) | how do you know it really works? (12.59)"
   let s = "";
   const AG = [[420, C.ink, "zsh · checkout", 1e9, null], [960, C.cream, "zsh · search", 7.7, "stuck"], [1500, C.navy, "zsh · wishlist", 8.6, "done"]];
   AG.forEach(([x, fg, title, freeze, end], i) => {
@@ -92,13 +92,13 @@ function s1(u) {
     if (end === "stuck" && u > freeze) w += txt(30, th - 34, "? Allow this command? (y/n)", 19, "#FEBC2E", { a: "start", mono: true, w: 600 }) + (Math.floor(u * 2.5) % 2 ? bar(352, th - 50, 12, 22, "#FEBC2E", 2) : "");
     if (end === "done" && u > freeze) w += txt(30, th - 34, "✓ Done · 1 hour ago", 19, "#7FD99A", { a: "start", mono: true, w: 600 });
     s += kw > 0 ? `<g transform="translate(${tx + 220} ${ty + th / 2}) rotate(${f(shake)}) scale(${f(kw)}) translate(-220 ${-th / 2})">${w}</g>` : "";
-    const look = u < 3.6 ? 0 : u < 5.3 ? Math.sin(u * 2.6 + i * 2.1) : u < 12.45 ? 0 : i < 2 ? 0.8 : -0.2;
+    const look = u < 3.6 ? 0 : u < 5.3 ? Math.sin(u * 2.6 + i * 2.1) : u < 12.59 ? 0 : i < 2 ? 0.8 : -0.2;
     s += drop(x, 740, 0.28, u, { fg, k, lx: look, ly: u > 5.3 && u < 10.6 ? -0.5 : 0, bls: [1.6 + i * 0.7, 9.6 + i * 0.3, 13.2] });
   });
   const qb = (x, q, t0) => bubble(x, 205, q, pop(u, t0) * (1 - prog(u, 10.5, 10.8)), { size: 36 });
-  s += qb(420, "Still working?", 6.89) + qb(960, "Stuck?", 8.1) + qb(1500, "Finished an hour ago?", 8.86);
+  s += qb(420, "Still working?", 6.89) + qb(960, "Stuck?", 8.03) + qb(1500, "Finished an hour ago?", 8.93);
   s += bubble(1730, 650, "Done!", pop(u, 11.03), { bg: C.navy, fg: C.white, tail: "left", size: 38 });
-  s += say(u, "Which agent is on what?", 5.34, 10.5) + say(u, "…does it really work?", 12.45, 1e9, 72);
+  s += say(u, "Which agent is on what?", 5.34, 10.5) + say(u, "…does it really work?", 12.59, 1e9, 72);
   return s;
 }
 
@@ -115,7 +115,7 @@ function banner(u, u0, sub, subAt) {
 // ② What Cello is: a board on your machine; agents take cards, show their work, hand it back with proof
 function s2(u) {
   // "Cello is a task board built for exactly that. | It runs on your own machine, (3.48) and your agents use it like teammates: (5.0) |
-  //  they take cards, (7.10) show you their work as it happens, (7.9) | and hand it back with proof. (9.83)"
+  //  they take cards, (7.11) show you their work as it happens, (8.15) | and hand it back with proof. (9.83)"
   let s = G(1 - prog(u, 3.0, 3.35), banner(u, -0.55, "A task board for you and your agents", 0.9));
   const bk = out(prog(u, 3.25, 3.85));
   if (bk <= 0) return s;
@@ -151,9 +151,9 @@ function s2(u) {
 // ③ Setting it up: ask your agent; it installs, starts and connects; every session then works through the board
 function s3(u) {
   // "To get started, | point your coding agent at Cello, and ask it to set it up for your project. (1.14) | It installs Cello, (5.25) |
-  //  starts it on your machine, (6.49) and connects your project (7.7) to a new board. (9.1) | From then on, (10.22) every agent session (10.9) in that project works through it."
+  //  starts it on your machine, (6.49) and connects your project (7.91) to a new board. (9.0) | From then on, (10.22) every agent session (10.98) in that project works through it."
   let s = "";
-  const away = io(prog(u, 8.2, 8.9));
+  const away = io(prog(u, 8.4, 9.0));
   if (away < 1) {
     let c = panel(360, 150, 1200, 680, C.cream, 36) + txt(400, 208, "Your coding agent", 26, C.grey, { a: "start", w: 600 }) + bar(400, 232, 1120, 3, C.line, 1);
     const kb = pop(u, 1.05, 0.4), L1 = "Set up Cello for this project:", L2 = "github.com/lnmunhoz/cello";
@@ -162,7 +162,7 @@ function s3(u) {
     const kr = pop(u, 4.2, 0.4);
     if (kr > 0) {
       let r = panel(0, 0, 820, 330, C.white, 26);
-      [["Installs Cello", 5.25], ["Starts it on your machine", 6.49], ["Connects your project", 7.7]].forEach(([n, t0], i) => {
+      [["Installs Cello", 5.25], ["Starts it on your machine", 6.49], ["Connects your project", 7.91]].forEach(([n, t0], i) => {
         r += tick(60, 72 + i * 96, 26, pop(u, t0)) + G(fade(u, t0), txt(110, 84 + i * 96, n, 36, C.ink, { a: "start", w: 600 }));
         if (u > t0 - 0.5 && u < t0) r += `<circle cx="60" cy="${72 + i * 96}" r="24" fill="none" stroke="${C.line}" stroke-width="6"/>`;
       });
@@ -171,10 +171,10 @@ function s3(u) {
     s += G(1 - away, c, `translate(${f(-260 * away)} 0)`);
   }
   // the new board, then the sessions that work through it
-  const kb = pop(u, 8.6, 0.55);
+  const kb = pop(u, 8.75, 0.55);
   if (kb > 0) {
     const bx = 760, by = 170, bw = 1000, bh = 640, cw = 223, cx = (i) => bx + 30 + i * (cw + 16);
-    let b = panel(bx, by, bw, bh, C.cream, 34) + txt(bx + 40, by + 64, "Acme Shop", 38, C.ink, { a: "start" }) + G(pop(u, 9.1), pill(bx + 290, by + 30, "new board", C.green, C.white, 22));
+    let b = panel(bx, by, bw, bh, C.cream, 34) + txt(bx + 40, by + 64, "Acme Shop", 38, C.ink, { a: "start" }) + G(pop(u, 9.0), pill(bx + 290, by + 30, "new board", C.green, C.white, 22));
     COLS.forEach((n, i) => { b += panel(cx(i), by + 100, cw, bh - 124, C.paper, 18) + txt(cx(i) + 18, by + 142, n, 24, C.ink, { a: "start" }); });
     [["claude", 220, "ACME-12"], ["codex", 420, "ACME-15"], ["cursor", 620, "ACME-9"]].forEach(([id, y, key], i) => {
       const t0 = 10.85 + i * 0.3, ln = io(prog(u, t0 + 0.3, t0 + 0.8)), [n, fg, eye] = WHO[id];
@@ -186,15 +186,15 @@ function s3(u) {
     });
     s = at(bx + bw / 2, by + bh / 2, kb, `<g transform="translate(${-(bx + bw / 2)} ${-(by + bh / 2)})">${b}</g>`) + s;
   }
-  s += say(u, "Point your agent at Cello.", 1.14, 8.2) + say(u, "Every session works through it.", 10.9);
+  s += say(u, "Point your agent at Cello.", 1.14, 8.4) + say(u, "Every session works through it.", 10.9);
   return s;
 }
 
 // ③b The orchestrator: two new commands; a strong model runs /cello:orchestrate and coordinates builders and a reviewer
 function s3b(u) {
   // "Setup also gives your agent two new commands. (1.6) | For real work, (3.19) | start a session with a strong model, (4.19) like Claude Opus on high or extra-high effort, (6.21)
-  //  and run the orchestrate command (8.78) with the tasks you want done. | That session becomes the orchestrator. (12.71) | It plans, (15.04) and hands each task to a builder agent (15.61)
-  //  working in its own copy of the code. (17.83) | A fresh reviewer agent checks every change (20.24) before it's merged. (23.0) | The orchestrator doesn't write the code itself… (24.18) | it coordinates. (26.76)"
+  //  and run the orchestrate command (9.34) with the tasks you want done. | That session becomes the orchestrator. (12.71) | It plans, (15.04) and hands each task to a builder agent (15.32)
+  //  working in its own copy of the code. (17.5) | A fresh reviewer agent checks every change (20.24) before it's merged. (22.04) | The orchestrator doesn't write the code itself… (24.18) | it coordinates. (26.76)"
   let s = "";
   // the two commands
   const a1 = 1 - prog(u, 3.1, 3.45);
@@ -208,12 +208,12 @@ function s3b(u) {
   if (a2 > 0) {
     let w = term(0, 0, 1100, 500, "Claude Code · acme-shop");
     w += at(900, 26, pop(u, 6.25, 0.5), pill(-180, -24, "Claude Opus · high effort", C.orange, C.white, 24));
-    const cmd = "/cello:orchestrate ACME-1 ACME-2", shown = typed(cmd, u, 8.9, 22);
+    const cmd = "/cello:orchestrate ACME-1 ACME-2", shown = typed(cmd, u, 9.4, 22);
     w += txt(50, 150, ">", 36, C.orange, { a: "start", mono: true }) + txt(90, 150, shown, 36, C.white, { a: "start", mono: true, w: 500 });
-    if (u < 10.5 && Math.floor(u * 2.5) % 2) w += bar(92 + shown.length * 21.7, 122, 18, 36, C.white, 2);
-    if (u > 10.8) w += txt(90, 230, "● Orchestrating ACME-1, ACME-2…", 28, "#7FD99A", { a: "start", mono: true, w: 500 });
+    if (u < 11.0 && Math.floor(u * 2.5) % 2) w += bar(92 + shown.length * 21.7, 122, 18, 36, C.white, 2);
+    if (u > 11.3) w += txt(90, 230, "● Orchestrating ACME-1, ACME-2…", 28, "#7FD99A", { a: "start", mono: true, w: 500 });
     s += G(a2, `<g transform="translate(410 ${f(170 + 40 * (1 - out(prog(u, 4.1, 4.5))))})">${w}</g>`);
-    s += say(u, "Start a session with a strong model.", 4.3, 8.7) + say(u, "Run it with the tasks you want done.", 8.9, 12.3);
+    s += say(u, "Start a session with a strong model.", 4.3, 9.1) + say(u, "Run it with the tasks you want done.", 9.35, 12.3);
   }
   // the orchestrator plans and hands out the work
   const b0 = 12.7;
@@ -224,16 +224,16 @@ function s3b(u) {
     if (kp > 0) s += at(1150, 150, kp, panel(0, 0, 420, 200, C.cream, 26) + txt(30, 48, "Plan", 28, C.ink, { a: "start" }) +
       [["ACME-1", "Add search"], ["ACME-2", "Dark theme"]].map(([key, n], i) => G(fade(u, 15.15 + i * 0.25), `<rect x="30" y="${80 + i * 56}" width="26" height="26" rx="7" fill="none" stroke="${C.ink}" stroke-width="4"/>` + tick(43, 93 + i * 56, 16, pop(u, 23.25 + i * 0.2)) + txt(72, 102 + i * 56, key, 22, C.grey, { a: "start", w: 600 }) + txt(170, 102 + i * 56, n, 26, C.ink, { a: "start", w: 600 }))).join(""));
     [[300, "ACME-1", 0], [1120, "ACME-2", 1]].forEach(([bx, key, i]) => {
-      const kbox = out(prog(u, 17.9 + i * 0.3, 18.3 + i * 0.3));
+      const kbox = out(prog(u, 17.45 + i * 0.3, 17.85 + i * 0.3));
       if (kbox > 0) s += G(kbox, `<rect x="${bx}" y="470" width="500" height="390" rx="30" fill="${C.cream}" fill-opacity="0.3" stroke="${C.ink}" stroke-width="5" stroke-dasharray="16 12"/>` + folder(bx + 28, 494) + txt(bx + 100, 522, "its own copy of the code", 26, C.ink, { a: "start", w: 600 }));
-      s += dash(O[0] + (i ? 70 : -70), 300, bx + 250, 470, io(prog(u, 15.7 + i * 0.3, 16.2 + i * 0.3)));
+      s += dash(O[0] + (i ? 70 : -70), 300, bx + 250, 470, io(prog(u, 15.35 + i * 0.3, 15.85 + i * 0.3)));
       // the task card flies from the plan to the builder
-      const fk = io(prog(u, 15.85 + i * 0.3, 16.6 + i * 0.3));
+      const fk = io(prog(u, 15.5 + i * 0.3, 16.25 + i * 0.3));
       if (fk > 0) s += tcard(key, lerp(1180, bx + 30, fk), lerp(220 + i * 56, 560, fk), u, { sc: lerp(0.3, 0.62, fk) });
-      s += drop(bx + 120, 738, 0.16, u, { k: pop(u, 16.0 + i * 0.3), fg: i ? C.navy : C.ink, bls: [17.2 + i, 21.8 + i], lx: u > 20.3 ? (i ? -0.7 : 0.7) : 0 });
-      s += G(pop(u, 16.3 + i * 0.3), label(bx + 128, 788, "builder", i ? C.navy : C.ink, C.white, 22));
+      s += drop(bx + 120, 738, 0.16, u, { k: pop(u, 15.7 + i * 0.3), fg: i ? C.navy : C.ink, bls: [17.2 + i, 21.8 + i], lx: u > 20.3 ? (i ? -0.7 : 0.7) : 0 });
+      s += G(pop(u, 16.0 + i * 0.3), label(bx + 128, 788, "builder", i ? C.navy : C.ink, C.white, 22));
       // it writes code
-      for (let j = 0; j < 4; j++) { const g = prog(u, 16.8 + i * 0.3 + j * 0.45, 17.4 + i * 0.3 + j * 0.45); if (g > 0) s += bar(bx + 240, 660 + j * 34, 210 * g * [1, 0.7, 0.85, 0.55][j], 14, j === 1 ? C.white : C.ink, 7); }
+      for (let j = 0; j < 4; j++) { const g = prog(u, 16.5 + i * 0.3 + j * 0.45, 17.1 + i * 0.3 + j * 0.45); if (g > 0) s += bar(bx + 240, 660 + j * 34, 210 * g * [1, 0.7, 0.85, 0.55][j], 14, j === 1 ? C.white : C.ink, 7); }
     });
     // the reviewer checks the change, then it's merged
     const kr = pop(u, 20.3);
@@ -259,16 +259,17 @@ function detailCard(x, y, sc, u, { footer = 1, who = 0, live = 0, stage = null, 
   if (footer > 0.6) {
     c += G(who, agent({ x: 44, y: 148, s: 0.055 }) + txt(70, 156, "Claude", 24, C.ink, { a: "start", w: 600 }));
     c += G(live, pulseDot(182, 148, u, C.green, 8) + txt(198, 156, "active now", 22, C.green, { a: "start", w: 600 }));
-    if (stage) { const [n, bg] = stage; c += at(w - 24 - pillW(n, 22) / 2, 148, stageK, pill(-pillW(n, 22) / 2, -22, n, bg, C.white, 22)); }
   }
+  // the stage sits top-right, where it has room for "Agent review"
+  if (stage) { const [n, bg] = stage; c += at(w - 22 - pillW(n, 22) / 2, 38, stageK, pill(-pillW(n, 22) / 2, -22, n, bg, C.white, 22)); }
   return `<g transform="translate(${f(x)} ${f(y)}) scale(${f(sc)})">${c}</g>`;
 }
-const STAGE = (u) => (u < 10.64 ? ["Building", C.orange] : u < 11.28 ? ["Agent review", C.navy] : ["Fixing", C.red]);
+const STAGE = (u) => (u < 10.55 ? ["Building", C.orange] : u < 11.35 ? ["Agent review", C.navy] : ["Fixing", C.red]);
 
 // ④ Watch the work: a request becomes a card; an agent claims it; who, active, stage; who changed it, in which conversation
 function s4(u) {
   // "When you ask for something, | it becomes a card. (1.55) | An agent claims it, (2.92) | and you watch it move: (4.12) | who's working on it, (5.55) whether it's active right now, (6.56)
-  //  and what stage the work is in, (8.04) | from building, (9.76) to review, (10.64) to fixing. (11.28) | Every change records which agent made it, (12.31) and in which conversation. (14.56)"
+  //  and what stage the work is in, (8.12) | from building, (9.8) to review, (10.55) to fixing. (11.35) | Every change records which agent made it, (12.31) and in which conversation. (14.56)"
   let s = "";
   const zoom = io(prog(u, 5.15, 5.9)), A = 1 - prog(u, 12.1, 12.45);
   if (A > 0) {
@@ -282,7 +283,7 @@ function s4(u) {
     else {
       const ft = io(prog(u, 5.4, 5.75));
       mine = ft <= 0 ? tcard("ACME-12", ...slot(1, 1), u, { mark: "claude", ring: C.ink })
-        : detailCard(slot(1, 1)[0], rowY(1), 0.8 * 0.913, u, { footer: ft, who: fade(u, 5.55), live: fade(u, 6.56), stage: u > 8.04 ? STAGE(u) : null, stageK: pop(u, u < 10.64 ? 8.04 : u < 11.28 ? 10.64 : 11.28) });
+        : detailCard(slot(1, 1)[0], rowY(1), 0.8 * 0.913, u, { footer: ft, who: fade(u, 5.55), live: fade(u, 6.56), stage: u > 8.12 ? STAGE(u) : null, stageK: pop(u, u < 10.55 ? 8.12 : u < 11.35 ? 10.55 : 11.35) });
     }
     b += mine + top + (u < 5.6 ? mover(P, "claude", u, [3.6]) : "");
     // your request, in your words
@@ -382,7 +383,7 @@ function s5(u) {
 
 // ⑥ Nothing without proof: moving the card to Review is refused; the agent hands you a review packet; approve, or send back with a note
 function s6(u) {
-  // "And when the work is done, | the agent can't just move the card to review. (1.48) | It hands you a review packet: (4.11) | what changed, (6.0) how to check it, (6.75) |
+  // "And when the work is done, | the agent can't just move the card to review. (1.48) | It hands you a review packet: (4.11) | what changed, (6.08) how to check it, (7.01) |
   //  and the evidence, (7.96) like a video of the real app. (8.9) | You approve it, (10.85) | or send it back with a note… (11.68) | and the note reaches the agent's session. (13.34)"
   let s = "";
   const dimB = 1 - 0.75 * prog(u, 4.0, 4.4) + 0.75 * prog(u, 11.1, 11.4), boardOut = 1 - prog(u, 11.75, 12.05);
@@ -405,9 +406,9 @@ function s6(u) {
     p += txt(50, 64, "REVIEW PACKET", 20, C.grey, { a: "start", w: 700, ls: 2 }) + txt(50, 122, "ACME-12 · Add a wishlist", 44, C.ink, { a: "start" });
     p += agent({ x: 66, y: 166, s: 0.05 }) + txt(92, 174, "Claude Code · session 4f2a9c1e", 24, C.grey, { a: "start", w: 500 });
     p += G(fade(u, 6.0), txt(50, 260, "What changed", 32, C.ink, { a: "start" }) + bar(50, 286, 520, 16) + bar(50, 318, 430, 16));
-    p += G(fade(u, 6.75), txt(50, 410, "How to check", 32, C.ink, { a: "start" }));
+    p += G(fade(u, 7.0), txt(50, 410, "How to check", 32, C.ink, { a: "start" }));
     ["Open a product page", "Tap the heart", "Reload: it stays filled"].forEach((n, i) => {
-      p += G(fade(u, 6.8 + i * 0.2), `<circle cx="70" cy="${452 + i * 56}" r="18" fill="${C.ink}"/>` + txt(70, 461 + i * 56, String(i + 1), 22, C.white) + txt(104, 462 + i * 56, n, 28, C.ink, { a: "start", w: 500 }));
+      p += G(fade(u, 7.05 + i * 0.2), `<circle cx="70" cy="${452 + i * 56}" r="18" fill="${C.ink}"/>` + txt(70, 461 + i * 56, String(i + 1), 22, C.white) + txt(104, 462 + i * 56, n, 28, C.ink, { a: "start", w: 500 }));
     });
     // the evidence: a video of the real app
     const ek = out(prog(u, 7.96, 8.3));
@@ -453,44 +454,44 @@ function s6(u) {
 
 // ⑦ Local and instant: one small server and one database file on your machine; no accounts, no cloud; changes show up at once
 function s7(u) {
-  // "Everything stays local: | one small server, (1.79) and one database file on your machine. (2.82) | No accounts, (5.4) no cloud, (6.22) and every change shows up on your board instantly. (6.85, instantly 9.3)"
+  // "Everything stays local: | one small server, (1.79) and one database file on your machine. (2.94) | No accounts, (5.49) no cloud, (6.35) and every change shows up on your board instantly. (7.26, instantly 9.43)"
   let s = "";
   const kl = pop(u, -0.45, 0.6);
   let l = `<rect x="440" y="190" width="1040" height="580" rx="30" fill="${C.ink}"/><rect x="470" y="220" width="980" height="520" rx="14" fill="${C.cream}"/><path d="M360 770 L1560 770 L1510 818 L410 818 Z" fill="${C.ink}"/><rect x="890" y="770" width="140" height="12" rx="6" fill="#2A2A30"/>`;
   // the server
   l += at(640, 455, pop(u, 1.79), `<rect x="-100" y="-125" width="200" height="250" rx="22" fill="${C.ink}"/>` + [0, 1, 2].map((i) => bar(-74, -92 + i * 70, 110, 22, "#3A3A42", 8) + `<circle cx="64" cy="${-81 + i * 70}" r="9" fill="${C.green}"/>`).join("") + txt(0, 175, "server", 30, C.ink));
   // the database file
-  l += at(880, 455, pop(u, 2.82), `<path d="M-85 -95 V95 A85 26 0 0 0 85 95 V-95" fill="${C.navy}"/><ellipse cy="-95" rx="85" ry="26" fill="#2A3A66"/><path d="M-85 -20 A85 26 0 0 0 85 -20 M-85 40 A85 26 0 0 0 85 40" fill="none" stroke="#2A3A66" stroke-width="6"/>` + txt(0, 175, "one file", 30, C.ink));
+  l += at(880, 455, pop(u, 2.94), `<path d="M-85 -95 V95 A85 26 0 0 0 85 95 V-95" fill="${C.navy}"/><ellipse cy="-95" rx="85" ry="26" fill="#2A3A66"/><path d="M-85 -20 A85 26 0 0 0 85 -20 M-85 40 A85 26 0 0 0 85 40" fill="none" stroke="#2A3A66" stroke-width="6"/>` + txt(0, 175, "one file", 30, C.ink));
   l += dash(745, 455, 790, 455, prog(u, 3.0, 3.3), C.ink, 6);
   // the board
-  const kb = pop(u, 6.9);
+  const kb = pop(u, 7.2);
   if (kb > 0) {
-    const flash = Math.max(1 - Math.abs(u - 8.0) / 0.3, 1 - Math.abs(u - 9.35) / 0.3, 0);
+    const flash = Math.max(1 - Math.abs(u - 8.25) / 0.3, 1 - Math.abs(u - 9.45) / 0.3, 0);
     let b = panel(-200, -190, 400, 380, C.white, 22) + txt(-170, -140, "Acme Shop", 28, C.ink, { a: "start" });
     [0, 1, 2].forEach((i) => { b += panel(-180 + i * 124, -110, 112, 280, C.paper, 12); });
     b += bar(-172, -96, 96, 40, C.white, 8) + bar(-48, -96, 96, 40, C.white, 8);
-    const moved = u > 8.0;
+    const moved = u > 8.25;
     b += bar(moved ? 76 : -48, moved ? -96 : -46, 96, 40, moved ? C.green : C.orange, 8);
-    if (u > 9.35) b += bar(76, -46, 96, 40, C.green, 8);
+    if (u > 9.45) b += bar(76, -46, 96, 40, C.green, 8);
     b += `<rect x="-200" y="-190" width="400" height="380" rx="22" fill="none" stroke="${C.orange}" stroke-width="${f(10 * flash)}" opacity="${f(flash)}"/>`;
-    b += at(170, -160, pop(u, 9.3), `<path d="M8 -34 L-20 6 L0 6 L-8 34 L22 -8 L2 -8 Z" fill="${C.orange}" stroke="${C.ink}" stroke-width="4" stroke-linejoin="round"/>`);
+    b += at(170, -160, pop(u, 9.45), `<path d="M8 -34 L-20 6 L0 6 L-8 34 L22 -8 L2 -8 Z" fill="${C.orange}" stroke="${C.ink}" stroke-width="4" stroke-linejoin="round"/>`);
     l += at(1230, 470, kb, b);
   }
   // a change arrives: agent → server → board, then once more, faster
   const pulse = (t0, t1, t2) => {
     const a = prog(u, t0, t1), b2 = prog(u, t1, t2);
-    if (a > 0 && a < 1) return `<circle cx="${f(lerp(300, 640, io(a)))}" cy="${f(lerp(470, 455, io(a)))}" r="16" fill="${C.orange}" stroke="${C.ink}" stroke-width="4"/>`;
-    if (b2 > 0 && b2 < 1) return `<circle cx="${f(lerp(640, 1150, io(b2)))}" cy="455" r="16" fill="${C.orange}" stroke="${C.ink}" stroke-width="4"/>`;
+    if (a > 0 && a < 1) return `<circle cx="${f(lerp(300, 640, io(a)))}" cy="${f(lerp(470, 455, io(a)))}" r="18" fill="${C.white}" stroke="${C.ink}" stroke-width="5"/>`;
+    if (b2 > 0 && b2 < 1) return `<circle cx="${f(lerp(640, 1150, io(b2)))}" cy="455" r="18" fill="${C.orange}" stroke="${C.ink}" stroke-width="5"/>`;
     return "";
   };
   s += at(960, 500, kl, `<g transform="translate(-960 -500)">${l}</g>`);
-  s += drop(230, 470, 0.17, u, { k: pop(u, 6.7), lx: 0.8, bls: [8.4] }) + pulse(7.2, 7.6, 7.95) + pulse(8.95, 9.1, 9.3);
+  s += drop(230, 470, 0.17, u, { k: pop(u, 7.0), lx: 0.8, bls: [8.6] }) + pulse(7.5, 7.9, 8.25) + pulse(9.1, 9.25, 9.45);
   // no accounts, no cloud
   const ka = pop(u, 5.4);
   if (ka > 0) s += at(330, 110, ka, `<circle cx="0" cy="-12" r="16" fill="${C.ink}"/><path d="M-28 30 A28 26 0 0 1 28 30 Z" fill="${C.ink}"/><circle r="46" fill="none" stroke="${C.red}" stroke-width="8"/><line x1="-32" y1="32" x2="32" y2="-32" stroke="${C.red}" stroke-width="8"/>` + txt(70, 14, "No accounts", 40, C.ink, { a: "start" }));
-  const kc = pop(u, 6.22);
+  const kc = pop(u, 6.35);
   if (kc > 0) s += at(1300, 110, kc, `<path d="M-34 22 A20 20 0 0 1 -26 -12 A26 26 0 0 1 22 -18 A22 22 0 0 1 32 22 Z" fill="${C.cream}" stroke="${C.ink}" stroke-width="6"/><circle r="46" fill="none" stroke="${C.red}" stroke-width="8"/><line x1="-32" y1="32" x2="32" y2="-32" stroke="${C.red}" stroke-width="8"/>` + txt(70, 14, "No cloud", 40, C.ink, { a: "start" }));
-  s += say(u, "Everything stays on your machine.", 0.2, 6.6) + say(u, "Every change shows up instantly.", 6.9);
+  s += say(u, "Everything stays on your machine.", 0.2, 7.0) + say(u, "Every change shows up instantly.", 7.26);
   return s;
 }
 
