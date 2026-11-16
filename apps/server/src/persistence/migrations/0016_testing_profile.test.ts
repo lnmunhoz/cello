@@ -27,7 +27,7 @@ describe("migration 0016_testing_profile", () => {
       const before = { projects: yield* sql`SELECT * FROM projects`, tasks: yield* sql`SELECT * FROM tasks` }
 
       yield* Migrations.run
-      // 0020 adds the tasks' last holder (CEL-110), null on a task nobody claimed.
+      // 0021 adds the tasks' last holder (CEL-110), null on a task nobody claimed.
       const tasks = (yield* sql<Record<string, unknown>>`SELECT * FROM tasks`).map(({ last_holder_session_id: _holder, ...t }) => t)
       expect({ projects: yield* sql`SELECT * FROM projects`, tasks }).toEqual(before)
       yield* sql`INSERT INTO profile_fields (project_id, field, value, source, actor_id, session_id, updated_at)

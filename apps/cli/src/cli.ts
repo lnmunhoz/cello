@@ -658,7 +658,7 @@ const stage = Command.make("stage", {
     yield* print(next === null ? `Cleared the stage of ${task.key}  ${where}` : `${task.key} is now ${stageInfo(next)!.label}  ${where}`)
   })).pipe(Command.withDescription(
     `Say where your claimed task is inside In Progress, so the board shows it: ${TASK_STAGES.map((s) => s.label.toLowerCase()).join(", ")}. ` +
-      "Every session holding a claim sets it: on your own, designing, then building, then merged; an orchestrator, building, review, fixing, merged. " +
+      "Every session holding a claim sets it: on your own, planning (only when the task needs a decision before code), then building, then merged; an orchestrator, building, review, fixing, merged. " +
       "Only the session holding the claim (or the human), only in In Progress. Asking the human (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.",
   ))
 
@@ -903,7 +903,7 @@ const ask = Command.make("ask", {
   question: Flag.String("question").pipe(Flag.atLeast(0), Flag.withDescription("A question; the --kind, --option, --recommend and --because after it belong to it.")),
   kind: Flag.String("kind").pipe(
     Flag.atLeast(0),
-    Flag.withDescription("one (the human picks one option; the default with options), any (any number) or text (no options; the default without)."),
+    Flag.withDescription("one (the human picks one option; the default with options), any (any number) or text (no options, optional to answer; the default without)."),
   ),
   option: Flag.String("option").pipe(Flag.atLeast(0), Flag.withDescription("An option: \"Label\" or \"Label|one-line description\"; repeat in order.")),
   recommend: Flag.String("recommend").pipe(Flag.atLeast(0), Flag.withDescription("The label of the option you recommend; --because must follow.")),

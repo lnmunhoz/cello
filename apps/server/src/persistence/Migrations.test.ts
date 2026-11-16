@@ -399,7 +399,7 @@ const allRows = Effect.gen(function* () {
  * `inbox_items.read_via` (CEL-76), 0016's `profile_fields` table (CEL-89, empty after migrating),
  * 0017's `inbox_items.cause` (CEL-46, null on every row it finds), 0018's session columns and its
  * `session_runs` and `wake_settings` tables (CEL-92, empty after migrating), 0019's transcript and
- * current step columns on sessions and subagents (CEL-106, null on every row it finds), and 0020's
+ * current step columns on sessions and subagents (CEL-106, null on every row it finds), and 0021's
  * `tasks.last_holder_session_id` and `inbox_items.reopened_from` (CEL-110, null on rows no claim event names).
  */
 const withoutLaterAdditions = (rows: Record<string, unknown>): Record<string, unknown> => {
@@ -497,7 +497,7 @@ describe("migration 0011_agents", () => {
       const after = yield* everything
       expect({
         ...after,
-        // 0020's last holder (CEL-110): the board's claims were never events, so null too.
+        // 0021's last holder (CEL-110): the board's claims were never events, so null too.
         tasks: strip(strip(after.tasks, "updated_by_agent_id"), "last_holder_session_id"),
         comments: strip(after.comments, "agent_id"),
         events: strip(after.events, "agent_id"),

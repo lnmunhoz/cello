@@ -15,7 +15,7 @@ const tool = (id: string, status: "running" | "ok" | "error"): LogStep => ({
 describe("applyLogUpdate", () => {
   it("the first batch replaces what was shown; later ones add steps and replace a step sent again by id, in place", () => {
     let log = applyLogUpdate(EMPTY_LOG, { _tag: "steps", reset: true, skipped: 3, steps: [message("m1", "Starting.")] })
-    expect(log).toEqual({ status: "ready", reason: null, skipped: 3, older: false, steps: [message("m1", "Starting.")] })
+    expect(log).toEqual({ status: "ready", reason: null, skipped: 3, older: false, arrived: [], steps: [message("m1", "Starting.")] })
     log = applyLogUpdate(log, { _tag: "steps", reset: false, skipped: 0, steps: [tool("t1", "running"), message("m2", "Waiting.")] })
     log = applyLogUpdate(log, { _tag: "steps", reset: false, skipped: 0, steps: [tool("t1", "error")] })
     expect(log.steps.map((s) => [s.id, s.tool?.status])).toEqual([["m1", undefined], ["t1", "error"], ["m2", undefined]])
@@ -30,7 +30,22 @@ describe("applyLogUpdate", () => {
       _tag: "unavailable",
       reason: "missing",
     })
-    expect(log).toEqual({ status: "unavailable", reason: "missing", skipped: 0, older: false, steps: [] })
+    expect(log).toEqual({ status: "unavailable", reason: "missing", skipped: 0, older: false, arrived: [], steps: [] })
+  })
+
+  it("marks the steps that just arrived live (CEL-107): not the first batch, a reset or a step updated in place", () => {
+    let log = applyLogUpdate(EMPTY_LOG, { _tag: "steps", reset: true, skipped: 0, steps: [message("m1", "Starting."), tool("t1", "running")] })
+    expect(log.arrived).toEqual([])
+    log = applyLogUpdate(log, { _tag: "steps", reset: false, skipped: 0, steps: [message("m2", "Next."), message("m3", "Then.")] })
+    expect(log.arrived).toEqual(["m2", "m3"])
+    // The running call gets its result, and one new step comes with it: only the new one arrived.
+    log = applyLogUpdate(log, { _tag: "steps", reset: false, skipped: 0, steps: [tool("t1", "ok"), message("m4", "Done.")] })
+    expect(log.arrived).toEqual(["m4"])
+    log = applyLogUpdate(log, { _tag: "steps", reset: false, skipped: 0, steps: [tool("t1", "error")] })
+    expect(log.arrived).toEqual([])
+    // A reconnect's first batch replaces everything: nothing arrives.
+    log = applyLogUpdate(log, { _tag: "steps", reset: true, skipped: 0, steps: [message("m1", "Starting."), message("m5", "New.")] })
+    expect(log.arrived).toEqual([])
   })
 })
 

@@ -1,4 +1,4 @@
-// Migration 0020_task_last_holder (CEL-110) on a board with claim history: each task learns the agent
+// Migration 0021_task_last_holder (CEL-110) on a board with claim history: each task learns the agent
 // session that last held its claim from its claim events; the human's claims, sessions that no longer
 // exist and tasks nobody claimed leave it null. Every other column and row comes through as it was.
 import * as SqliteMigrator from "@effect/sql-sqlite-bun/SqliteMigrator"
@@ -9,11 +9,11 @@ import * as Migrations from "../Migrations.ts"
 import * as Sqlite from "../Sqlite.ts"
 
 const beforeLastHolder = SqliteMigrator.run({
-  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0020_task_last_holder"))),
+  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0021_task_last_holder"))),
   table: "migrations",
 }).pipe(Effect.orDie)
 
-describe("migration 0020_task_last_holder", () => {
+describe("migration 0021_task_last_holder", () => {
   it.effect("backfills each task's last agent holder from its claim events, and keeps every row as it was", () =>
     Effect.gen(function* () {
       yield* beforeLastHolder

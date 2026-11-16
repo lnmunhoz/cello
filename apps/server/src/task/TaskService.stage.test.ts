@@ -1,7 +1,9 @@
 // Where a task is inside In Progress (CEL-35) and who changed it last (CEL-5).
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as SqlClient from "effect/sql/SqlClient"
 import * as EventStore from "../events/EventStore.ts"
+import stagePlanning from "../persistence/migrations/0020_stage_planning.ts"
 import * as Seed from "../persistence/Seed.ts"
 import * as AskService from "../ask/AskService.ts"
 import * as ReviewService from "../review/ReviewService.ts"
@@ -29,6 +31,19 @@ const lastEvent = (id: string) =>
   })
 
 describe("TaskService.setStage", () => {
+  it.effect("a retry of a command stored while the stage was called designing gets planning back, once 0020 ran (CEL-105)", () =>
+    run(Effect.gen(function* () {
+      const { tasks, task } = yield* claimed
+      const sql = yield* SqlClient.SqlClient
+      const commandId = cmd()
+      yield* asAgent(builder)(tasks.setStage({ commandId, key: task.key, stage: "planning" }))
+      // As it was stored before the rename.
+      yield* sql`UPDATE command_receipts SET result = replace(result, '"stage":"planning"', '"stage":"designing"') WHERE command_id = ${commandId}`.pipe(Effect.orDie)
+      yield* stagePlanning.pipe(Effect.orDie)
+      const { result } = yield* asAgent(builder)(tasks.setStage({ commandId, key: task.key, stage: "planning" }))
+      expect(result.stage).toBe("planning")
+    })))
+
   it.effect("the claim holder sets a stage: stored on the task, with a task.stage_changed event and a new version", () =>
     run(Effect.gen(function* () {
       const { tasks, task } = yield* claimed

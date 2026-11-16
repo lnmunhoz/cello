@@ -26,7 +26,7 @@ describe("a draft of Lucas's answers", () => {
   it("starts with the recommended options picked", () => {
     const draft = startDraft([one, any, text])
     expect([draft.answers.q1!.optionIds, draft.answers.q2!.optionIds, draft.answers.q3!.optionIds]).toEqual([["q1o1"], [], []])
-    expect(missing([one, any, text], draft)).toEqual(["q2", "q3"])
+    expect(missing([one, any, text], draft)).toEqual(["q2"])
   })
 
   it("picks toggle, several on any question; None of these clears them, and a pick clears it", () => {
@@ -39,13 +39,13 @@ describe("a draft of Lucas's answers", () => {
     expect(pick(draft, "q1", "q1o1").answers.q1).toMatchObject({ none: false, optionIds: ["q1o1"] })
   })
 
-  it("is complete when every question has a pick, None of these with a comment, or words", () => {
+  it("is complete when every question with options has a pick or None of these with a comment; text-only ones are optional (CEL-116)", () => {
     let draft = pickNone(EMPTY_DRAFT, "q1")
     draft = pick(draft, "q2", "q2o2")
-    expect(missing([one, any, text], draft)).toEqual(["q1", "q3"])
+    expect(missing([one, any, text], draft)).toEqual(["q1"])
     draft = setComment(setComment(draft, "q1", "A third layout"), "q3", "Ship it")
     expect(missing([one, any, text], draft)).toEqual([])
-    expect(missing([text], addScreenshot(EMPTY_DRAFT, { questionId: "q3" }, shot("a1")))).toEqual(["q3"])
+    expect(missing([text], addScreenshot(EMPTY_DRAFT, { questionId: "q3" }, shot("a1")))).toEqual([])
   })
 
   it("becomes what ask.answer takes, with the note and its screenshots", () => {

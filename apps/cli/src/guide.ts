@@ -150,7 +150,7 @@ Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.loca
   - The human always wins: when they change a task you've claimed (moves it to another status, edits it, changes its labels, archives it, claim it themselves or releases your claim), your claim ends. Your session hears it once, like a comment ("Ana Souza moved CEL-40 to Todo: your claim ended. Stop working on it."; see Comments from the human reach your session), and \`cello context\` lists it under "Claims you lost". Stop working on the task when you hear it.
   - Not every touch ends it: the human dragging your card to another place in the same column keeps your claim, and so does their comment. Their approval ends it without a notice, since your work is done. Your own changes (a move, \`cello task release\`, \`cello task submit\`) and your subagents' never tell you anything.
   - **A task remembers the last session that held it.** When the human comments on a task nobody holds (Done after their approval, released, or one whose claim a change of theirs ended), the comment goes to that session, and the task is yours again: it moves back to In Progress (a task still In Progress, In Review or Needs input stays where it is) and your session holds the claim. Your session hears it like any comment, saying the comment reopened the task (see Comments from the human reach your session). A task no agent ever claimed, an archived one, and a task someone holds aren't touched; neither are agents' comments or Send back notes.
-- **Stage:** where a claimed task is inside In Progress: **designing**, **building**, **review** (Agent review), **fixing** (Fixing findings) or **merged**. In Progress holds a task from the claim to the packet, so without a stage a task being designed, one being built and one waiting for review look the same. **Every session holding a claim sets it** with \`cello task stage\`, not only orchestrators; the board shows it on the card. A task with no stage whose agent is active shows as **Working**, so the board stays truthful if you forget, but it can't say which step you're on. Asking the human keeps it through Needs input; any other move out of In Progress, or submitting it, clears it. See Stages.
+- **Stage:** where a claimed task is inside In Progress: **planning**, **building**, **review** (Agent review), **fixing** (Fixing findings) or **merged**. In Progress holds a task from the claim to the packet, so without a stage a task being planned, one being built and one waiting for review look the same. **Every session holding a claim sets it** with \`cello task stage\`, not only orchestrators; the board shows it on the card. Pick it by the task: **planning** only when the task needs a decision before code (a spec, a scope with options, a question to the human); a clear task goes straight to **building**. A task with no stage whose agent is active shows as **Working**, so the board stays truthful if you forget, but it can't say which step you're on. Asking the human keeps it through Needs input; any other move out of In Progress, or submitting it, clears it. See Stages.
 - **Presence:** the board shows whether the session holding a claim is working right now: **active now** (it called Cello in the last 5 minutes), **seen 2h ago** (quiet, its process still running) or **ended** (its process exited). Every \`cello\` command and every hook run counts as a check-in; with the hooks installed that's every tool call, a subagent's included. A subagent checks in as itself too, so the card names the subagent working on it ("cello-builder · a13bfb89 active now") rather than its session. The board hears about each at most once a minute, which keeps "active now" steady without filling the history; each one plays a short motion on the card, and while you're working the card has a thin edge in your colour. You don't do anything for it.
 - **Review packet:** how finished work reaches the human. It holds a summary, how-to-check steps and evidence (videos, screenshots, test output, links). \`cello task submit\` creates it and moves the task to In Review. Then the human decides:
   - **Approve:** the task moves to Done and your claim ends. Nothing reaches your session for it: the work is done. A note they typed with it shows under Reviews in \`cello task get\` (\`Note: …\`). If they comment on the task later, it comes back to your session, reopened (see Claim above).
@@ -269,7 +269,7 @@ The fields:
 
    Then fix, and submit a new packet. The same goes for feedback on a task in Done: comment it, and move it back to In Progress, or open a new task if it's a new request.
 7. **Mark each step with \`cello task stage\`** (see Stages), so the card says where the work is. Every session holding a claim does this, not only orchestrators:
-   - **Working by yourself:** \`designing\` while you read up, plan, write a spec or make design options; \`building\` once you write the code; \`merged\` once it's merged, just before you submit. \`/cello:work APP-12\` sets a Claude Code session up for this.
+   - **Working by yourself:** \`planning\` only when the task needs a decision before code: a spec to write, a scope with options for the human to pick, or a question to ask them. It stays in \`planning\` until that's settled. A clear task (you know what to build) goes straight to \`building\`. Then \`building\` while you write the code, and \`merged\` once it's merged, just before you submit. If building runs into a design question, go back to \`planning\` until it's answered. \`/cello:work APP-12\` sets a Claude Code session up for this.
    - **Running a feature through builder and reviewer agents** (the orchestrator): \`building\`, \`review\`, \`fixing\`, \`merged\` at each step. \`/cello:orchestrate APP-12 APP-14\` sets a Claude Code session up for this (see "The Claude Code plugin").
 8. **In Progress means someone is working on it right now.** When work stops before you submit, don't leave the card there: the board would show it as being built when nobody is on it.
    - **Waiting on the human** (a scope's options, a design choice, any decision that's theirs): ask on the card with \`cello task ask\` (see Questions for the human). The task moves to Needs input, your claim stays, and it comes back to In Progress when they answer.
@@ -400,20 +400,22 @@ cello task move CEL-31 backlog           # any case
 
 A stage says where a claimed task is inside In Progress, so the human can tell from the board why it's still there. **Every session holding a claim sets it**, at each step of its work:
 
-- **Working by yourself** (one session designs and builds the task): \`designing\` → \`building\` → \`merged\`.
-- **Orchestrating** builder and reviewer agents: \`building\` → \`review\` → \`fixing\` → \`merged\` (docs/feature-lifecycle.md).
+- **Working by yourself** (one session plans and builds the task): \`building\` → \`merged\` for a clear task; \`planning\` → \`building\` → \`merged\` when it needs a decision first.
+- **Orchestrating** builder and reviewer agents: \`building\` → \`review\` → \`fixing\` → \`merged\` (docs/feature-lifecycle.md), with \`planning\` first when the task needs a scope or a decision before the builder starts.
+
+**When to plan, by the task:** a clear task (a bug with a known fix, a change the task spells out) needs no plan: go straight to \`building\`. Use \`planning\` only when you can't start the code yet: the task asks for a spec, a scope with design options for the human to pick, or leaves a question only they can answer. It stays in \`planning\` until that's settled (their pick, their answer, the spec agreed). If building runs into a design question the task doesn't answer, set \`planning\` again while you ask, then back to \`building\`.
 
 | Stage | The board says | Set it when |
 | --- | --- | --- |
-| \`designing\` | Designing | you start reading up, planning, writing the spec or making design options, before any code |
+| \`planning\` | Planning | the task needs a decision before code: you're writing a spec, making a scope with options, or waiting on a question to the human. Not for a clear task |
 | \`building\` | Building | the code starts being written, by you or a builder agent |
 | \`review\` | Agent review | a reviewer agent starts reading the branch |
 | \`fixing\` | Fixing findings | the findings go back to the builder |
 | \`merged\` | Merged | the branch is merged into main, before the packet |
 
 \`\`\`bash
-cello task stage CEL-12 designing
-# CEL-12 is now Designing  (In Progress  Sidebar: collapse and resize)
+cello task stage CEL-12 planning
+# CEL-12 is now Planning  (In Progress  Sidebar: collapse and resize)
 cello task stage CEL-12 building
 # CEL-12 is now Building  (In Progress  Sidebar: collapse and resize)
 cello task stage CEL-12 review
@@ -425,7 +427,7 @@ cello task list
 - **Only the session holding the claim** sets it (or the human, with \`CELLO_SESSION=me\`, which keeps your claim). Claim the task first.
 - **Only in In Progress.** In any other status it's refused.
 - **It clears itself:** \`cello task submit\`, or a move to any other status, removes it. Reordering inside In Progress keeps it, and so does \`cello task ask\`: the stage waits in Needs input and is still there when the human's answers bring the task back.
-- **Forgot it?** A task with no stage whose agent is active shows as **Working** on the board: on its card, its list row and its task panel, and in a Working lane when In Progress is grouped by stage. So it doesn't look stuck while you work, and it goes back to no stage once your session is quiet for 5 minutes or ends. Set the stage anyway: Working can't tell the human whether you're designing or building.
+- **Forgot it?** A task with no stage whose agent is active shows as **Working** on the board: on its card, its list row and its task panel, and in a Working lane when In Progress is grouped by stage. So it doesn't look stuck while you work, and it goes back to no stage once your session is quiet for 5 minutes or ends. Set the stage anyway: Working can't tell the human whether you're planning or building.
 - **Subagents don't run it.** Builders and reviewers work for the claim of the session that started them; that session marks the steps.
 - \`cello task get\` shows it on the Status line ("Status: In Progress · Stage: Agent review") and in the history, with who changed the task last.
 
@@ -810,7 +812,7 @@ cello agents log cello-builder/a13bfb89
 | What | How you use it | What it does |
 | --- | --- | --- |
 | \`/cello:orchestrate [task keys, or a goal]\` | You type it at the start of a thread | Makes this thread the **orchestrator**: it claims the tasks (or creates them from a goal), then runs each one through a builder agent in its own worktree, a fresh reviewer, fixes, merge and \`cello task submit\`, marking each step with \`cello task stage\`. It doesn't write the feature code itself. |
-| \`/cello:work <task key, or what to do>\` | You type it | Does one task in this thread: find or create it, claim, mark it \`designing\` then \`building\`, test first, comment progress, submit with evidence. |
+| \`/cello:work <task key, or what to do>\` | You type it | Does one task in this thread: find or create it, claim, mark it \`planning\` when it needs a decision first, \`building\` once the code starts, test first, comment progress, submit with evidence. |
 | The \`cello\` skill | Claude loads it by itself in a repo tracked in Cello | The core rules in a few lines (a task before work, claim, ask on the card, submit), and a pointer to \`cello guide\`. |
 | \`cello:builder\` and \`cello:reviewer\` agents | The orchestrator starts them | A builder that works test first in its own worktree and never pushes or touches the live board; a read-only reviewer that judges the diff against the task text and gives a verdict. When the repo has its own agents in \`.claude/agents/\` (named like \`*-builder\`, \`*-reviewer\`), the orchestrator uses those instead. |
 
@@ -905,7 +907,7 @@ cello task ask CEL-43 --title "Search layout" \\
 What happens:
 
 1. The task moves to **Needs input** (your claim stays). It shows in the sidebar's Needs input count, first on the human's Review page, and in In Progress with a "Needs input" badge (or its own column, when they turn that on in Display).
-2. The human answers each question (a pick, several, or None of these with a comment; words for a text-only one) and sends. The task goes back to **In Progress**, still yours. If you asked from In Review, the open packet is withdrawn then: submit a new one when the work is ready again.
+2. The human answers each question (a pick, several, or None of these with a comment; words for a text-only one, which they may leave blank) and sends. The task goes back to **In Progress**, still yours. If you asked from In Review, the open packet is withdrawn then: submit a new one when the work is ready again.
 3. The answers reach you, once:
    - **with \`--wait\`:** the command blocks until they send, then prints the answers and exits. Run it in the background (Claude Code: \`run_in_background\`), so your session wakes when they arrive.
    - **without it:** the hook delivers them like a comment (see Comments from the human reach your session), or \`cello wait CEL-43\` waits for them later (after a restart, say).
@@ -939,7 +941,7 @@ questions:
   - prompt: Which extras?
     kind: any
     options: [Filters, Recent searches]
-  - prompt: Anything else before I build it?             # text only: no options
+  - prompt: Which empty state should the new page keep?  # text only: no options, and optional
 attach:                                                   # screenshots, videos, text files
   - shots/peek-dark.png
   - { path: shots/flow.mp4, caption: Both layouts, side by side }
@@ -948,6 +950,8 @@ links:
 \`\`\`
 
 - **Inline flags** in order: \`--question\` starts a question; the \`--kind\`, \`--option "Label|description"\`, \`--recommend "Label"\` and \`--because "why"\` after it belong to it. \`--attach\`, \`--caption\` and \`--link\` work as for \`submit\`; they add to a file's evidence too.
+- **Every question with options needs an answer; a text-only one is optional:** the human can send with it blank.
+- **Don't add an "Anything else?" question.** The form always ends with its own optional note ("Anything else?"), which reaches you as \`Note:\`; a question of your own with the same words shows it twice.
 - **Recommend at most one option** of a pick-one question, and always say why (\`because\`). Recommended options come **picked** for the human; they can change them, pick several on any question, or pick **None of these** and say what instead.
 - **Up to 20 questions, 9 options each** (they pick with the 1-9 keys).
 - **Only the session holding the claim asks or withdraws.** Claim the task first; another session's ask on it is refused, naming the holder, so the answers never reach a session that didn't ask.
@@ -970,8 +974,8 @@ Ana Souza answered "Search layout" on CEL-43, just now:
 2. Which extras?
    Picked: Filters
 
-3. Anything else before I build it?
-   Comment: Keep the empty state from the old page.
+3. Which empty state should the new page keep?
+   Comment: The one from the old page.
 
 Note: Ship it after the e2e passes.
 
@@ -1196,7 +1200,7 @@ Every error is one sentence that says what to do next. The usual ones:
 | CEL-12 isn't claimed: claim it first | \`cello task stage\` on a task nobody holds. | \`cello task claim CEL-12\`, then set the stage. |
 | CEL-12 is claimed by another session: only the session holding the claim sets its stage | Someone else holds it. | Leave its stage alone. |
 | CEL-12 is in Todo; a stage is only for tasks in In Progress | Stages live inside In Progress. | Claim it (which moves it to In Progress), or leave it. |
-| No stage "deploying" | Not one of the stages. | Use designing, building, review, fixing or merged. |
+| No stage "deploying" | Not one of the stages (\`designing\` was renamed \`planning\`). | Use planning, building, review, fixing or merged. |
 | A reaction must be one emoji, like 👍 | \`cello task react\` got text, or several emoji. | Pass one emoji. |
 | No comment 01JD… on CEL-12 · Ana Souza hasn't commented on CEL-12 yet | The comment id isn't on that task, or \`last\` found no comment from the human. | \`cello task get CEL-12\` shows each comment with its id. |
 | CEL-12 needs a review packet before it goes to In Review | You used \`move\` to hand work over. | Use \`cello task submit\`. |
@@ -1393,7 +1397,7 @@ cello task release [flags] <key>
 
 ### cello task stage
 
-Say where your claimed task is inside In Progress, so the board shows it: designing, building, agent review, fixing findings, merged. Every session holding a claim sets it: on your own, designing, then building, then merged; an orchestrator, building, review, fixing, merged. Only the session holding the claim (or the human), only in In Progress. Asking the human (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.
+Say where your claimed task is inside In Progress, so the board shows it: planning, building, agent review, fixing findings, merged. Every session holding a claim sets it: on your own, planning (only when the task needs a decision before code), then building, then merged; an orchestrator, building, review, fixing, merged. Only the session holding the claim (or the human), only in In Progress. Asking the human (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.
 
 \`\`\`
 cello task stage [flags] <key> [<stage>]
@@ -1402,7 +1406,7 @@ cello task stage [flags] <key> [<stage>]
 | | |
 | --- | --- |
 | \`key string\` | A task key, e.g. CEL-3. |
-| \`stage string\` | Where the work is: designing (brainstorming, writing the spec or making design options, before any code), building (the code is being written, by you or a builder agent), review (a reviewer agent is reading the branch), fixing (the builder is fixing what the review found), merged (merged into main; the packet comes next). (optional) |
+| \`stage string\` | Where the work is: planning (the task needs a decision before code: a spec, a scope with options, or a question to the human), building (the code is being written, by you or a builder agent), review (a reviewer agent is reading the branch), fixing (the builder is fixing what the review found), merged (merged into main; the packet comes next). (optional) |
 | \`--clear\` | Remove the stage instead. |
 | \`--json\` | Print JSON for scripts. |
 
@@ -1501,7 +1505,7 @@ cello task ask [flags] <key>
 | \`--title string\` | What the decision is about, e.g. "Search layout". Overrides the file's. |
 | \`--intro string\` | Context in markdown, shown above the questions. |
 | \`--question string\` | A question; the --kind, --option, --recommend and --because after it belong to it. |
-| \`--kind string\` | one (the human picks one option; the default with options), any (any number) or text (no options; the default without). |
+| \`--kind string\` | one (the human picks one option; the default with options), any (any number) or text (no options, optional to answer; the default without). |
 | \`--option string\` | An option: "Label" or "Label\\|one-line description"; repeat in order. |
 | \`--recommend string\` | The label of the option you recommend; --because must follow. |
 | \`--because string\` | Why you recommend it, right after --recommend. |

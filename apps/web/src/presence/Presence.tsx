@@ -6,7 +6,7 @@ import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import type { StageInfo } from "@cello/contract/stages"
 import { agoShort, type Presence, presenceOf, presenceWords, type SessionLike } from "@cello/shared/presence"
-import { ActivityIcon, BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, type LucideIcon, PencilRulerIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
+import { ActivityIcon, BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, ListChecksIcon, type LucideIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
 import { type ReactNode, useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { logLinkOf } from "../agents/layout.ts"
@@ -34,7 +34,7 @@ import {
 import { useNow } from "./useNow.ts"
 
 const STAGE_ICONS: Record<string, LucideIcon> = {
-  "pencil-ruler": PencilRulerIcon,
+  "list-checks": ListChecksIcon,
   hammer: HammerIcon,
   "scan-eye": ScanEyeIcon,
   wrench: WrenchIcon,

@@ -60,9 +60,10 @@ describe("answering a question (Lucas, Nov 15)", () => {
     expect(answerProblem(one, { ...empty, comment: "Hmm" })).toBe("unanswered")
   })
 
-  it("a text-only question needs words", () => {
+  it("a text-only question is optional (CEL-116): words, a screenshot or nothing", () => {
     expect(answerProblem(text, { ...empty, comment: "Ship it" })).toBeNull()
-    expect(answerProblem(text, { ...empty, attachmentIds: ["a1"] })).toBe("unanswered")
+    expect(answerProblem(text, { ...empty, attachmentIds: ["a1"] })).toBeNull()
+    expect(answerProblem(text, { ...empty, comment: "   " })).toBeNull()
     expect(answerProblem(text, { ...empty, comment: "x", none: true })).toBe("no options to refuse")
   })
 
@@ -74,6 +75,9 @@ describe("answering a question (Lucas, Nov 15)", () => {
   it("lists the questions still unanswered, in order", () => {
     expect(unanswered([one, any, text], { q1: { ...empty, optionIds: ["q1o1"] }, q3: { ...empty, comment: "Yes" } })).toEqual(["q2"])
     expect(unanswered([one], {})).toEqual(["q1"])
+    // A blank or missing text-only answer never holds up sending (CEL-116).
+    expect(unanswered([one, text], { q1: { ...empty, optionIds: ["q1o1"] } })).toEqual([])
+    expect(unanswered([text], { q3: { ...empty } })).toEqual([])
   })
 
   it("starts with the recommended options picked", () => {
