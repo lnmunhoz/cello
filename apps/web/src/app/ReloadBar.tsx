@@ -3,6 +3,7 @@ import { useAtomRefresh } from "@effect/atom-react"
 import { RefreshCwIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Button } from "../components/ui/Button.tsx"
+import { NoticeBar } from "../components/ui/NoticeBar.tsx"
 import { loadedBuild, reloadedFor, reloadInto, useServerBuild } from "../lib/build.ts"
 import { serverBuildAtom } from "../lib/cello.ts"
 import { isEditing } from "../lib/editing.ts"
@@ -59,11 +60,7 @@ export function ReloadBar() {
 
   if (action === "none" || served === null) return null
   return (
-    <div
-      role="status"
-      data-reload-bar={action}
-      className="fixed top-3 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-line bg-raised py-1 pr-1 pl-3 text-[13px] whitespace-nowrap text-ink shadow-pop"
-    >
+    <NoticeBar data-reload-bar={action}>
       <RefreshCwIcon aria-hidden className="size-3.5 text-accent" />
       <span className="font-medium">Cello was updated</span>
       <span className="text-muted">· build {shortCommit(served.commit)}</span>
@@ -71,6 +68,6 @@ export function ReloadBar() {
       <Button variant="primary" size="sm" onClick={() => reloadInto(served)}>
         Reload
       </Button>
-    </div>
+    </NoticeBar>
   )
 }

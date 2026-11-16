@@ -26,6 +26,8 @@ bun run test:e2e   # Playwright's Electron tests, in Docker (same as test:docker
     icon (`resources/Cello.icon`) with actool into `Assets.car`, so macOS 26 draws it flat instead of
     redrawing it as glass, and it adds an `icon.icns` for older macOS. Without Xcode 26 the package
     step fails.
+- **`bun run package -- --install`** also makes `/Applications/Cello.app` the copy `cello://` links
+  open; see "Which copy opens `cello://` links" below.
 - **`bun run test:e2e`** runs the tests in a throwaway Linux container (`scripts/test-in-docker.ts`,
   OrbStack must be running), with the app under Xvfb, so no window opens on the Mac. Arguments
   after `--` go to `playwright test`. Videos and screenshots land in
@@ -118,12 +120,69 @@ The packaged app registers the scheme (Info.plist and `setAsDefaultProtocolClien
 runs at a time: opening a link while it runs, or launching it again, hands the link to the
 running app.
 
+### Which copy opens `cello://` links
+
+Every `Cello.app` on disk claims `cello://`, and macOS (LaunchServices) can hand a link to any copy it
+has seen: `/Applications/Cello.app`, but also `dist/mac-arm64/Cello.app` in the repo and in each agent's
+worktree. A copy started before a fix was merged keeps running the old code even after its files are
+replaced (CEL-75: a Cello started from `dist/` at 17:54 kept sending Cello pages to the browser panel
+after CEL-60 fixed that at 23:01).
+
+So `bun run package -- --install` copies the app to `/Applications/.Cello.app.new` first and swaps it in
+only once that copy succeeded (a failed copy leaves the old app in place), then:
+
+1. **unregisters the build folders' copies** from LaunchServices (`lsregister -u`): every `Cello.app`
+   under `apps/desktop/dist*/` in the repo, its git worktrees and any folder in `.claude/worktrees/`,
+   whether it's still on disk or only still registered. The folders stay; nothing is deleted. Copies
+   anywhere else (Downloads, another clone) are left alone.
+2. **registers `/Applications/Cello.app` again** (`lsregister -f`), so links open it.
+3. **warns about a Cello that won't run the new build**, without quitting it: one running from another
+   copy, or `/Applications`' copy started before the install began.
+
+```text
+Installed /Applications/Cello.app
+Unregistered /Users/me/projects/cello/apps/desktop/dist/mac-arm64/Cello.app from LaunchServices (the folder stays)
+cello:// links now open /Applications/Cello.app
+! Cello (pid 95951) is running from /Users/me/projects/cello/apps/desktop/dist/mac-arm64/Cello.app, not /Applications/Cello.app. Quit it (⌘Q) and open /Applications/Cello.app, so cello:// links reach the new build.
+```
+
+When you see the `!` line, quit Cello and open it from /Applications (Launchpad, Spotlight, Raycast).
+`bun scripts/install.ts` prints what an install would do right now (which copies it would unregister,
+which running Cello it would warn about) and changes nothing. A later `bun run package` (without
+`--install`) makes a fresh `dist/` copy that macOS may register again; the next `--install` unregisters it.
+
+The decisions are in `src/install/plan.ts` (pure, unit-tested); `scripts/install.ts` gathers the facts
+(`git worktree list`, `lsregister -dump`, `ps`) and runs them.
+
+### The app says when it should restart
+
+The board reloads into a new web build by itself (CEL-37), but the app around it keeps the code it
+started with. So the app checks its own build too, each time its window takes focus and each time a
+`cello://` link arrives, and shows a notice at the top of the board:
+
+- **"The Cello app was updated · Restart"** when the build on disk isn't the one it loaded.
+  `scripts/build.ts` writes `dist-electron/build.json` (build time and commit) on every build;
+  electron-builder copies it beside `app.asar` (`Contents/Resources/build.json`), where the app reads it
+  at launch and again on each check. (Not from inside app.asar: Electron keeps the archive it loaded open.)
+- **"Cello is running from a build folder · Restart from Applications"** when the packaged app runs
+  from a copy other than `/Applications/Cello.app` while that one exists.
+
+**Restart** quits the app (stopping a server it started, as on any quit) and starts it again: the same
+executable with its launch arguments, or `/Applications/Cello.app` when it ran from another copy. It
+checks again first, and while that executable isn't on disk (an install halfway through) it does
+nothing and the notice stays. **×** hides the notice until the next build, or until the board reloads. Dev (`bun run dev`) gets the "updated" notice after a rebuild,
+never the build-folder one. The rules are `src/update/appUpdate.ts`; the notice is
+`apps/web/src/app/AppRestartBar.tsx`, through `window.celloDesktop.onAppNotice` and `restartApp`
+(missing in older app builds, where the web app shows nothing).
+
 ## Code
 
 - `src/main.ts`: startup, single instance, links, menu, quit
 - `src/window/`: the main window, its layout (board view, panel views) and its back and forward
 - `src/panel/`: the panel (`Panel.ts`), its toolbar page (`chrome.*`) and the URL rules (`urls.ts`)
 - `src/server/`: finding or starting the server (`plan.ts` decides, `sidecar.ts` does it)
+- `src/install/plan.ts`: what `package -- --install` does after copying the app (LaunchServices, warnings)
+- `src/update/appUpdate.ts`: when the running app offers a restart, and into which copy
 - `src/preload.ts`: `window.celloDesktop`
 - `scripts/`: bundling with Bun (`dist-electron/`), dev, packaging (electron-builder)
 - `resources/Cello.icon/` (the packaged app, an Icon Composer document) and `resources/icon.png` (the

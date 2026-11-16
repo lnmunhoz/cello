@@ -10,7 +10,10 @@
     "buildResources": "resources"
   },
   "files": ["package.json", "dist-electron/**/*", "resources/icon.png", "!dist-electron/**/*.map"],
-  "extraResources": [{ "from": "../cli/dist/cello", "to": "cello" }],
+  "extraResources": [
+    { "from": "../cli/dist/cello", "to": "cello" },
+    { "from": "dist-electron/build.json", "to": "build.json" }
+  ],
   "npmRebuild": false,
   "publish": null,
   "protocols": [{ "name": "Cello", "schemes": ["cello"] }],

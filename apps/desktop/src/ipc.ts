@@ -17,6 +17,14 @@ export const BOARD_OPEN_TASK = "cello:board-open-task"
  */
 export const BOARD_OPEN = "cello:board-open"
 
+/**
+ * Main → board: a `BoardNotice` (src/update/appUpdate.ts), or null, when the window takes focus and
+ * after each board load: the app itself was updated, or runs from a build folder (CEL-75).
+ */
+export const APP_NOTICE = "cello:app-notice"
+/** Board → main: restart the app (into /Applications' copy when it runs from another). */
+export const APP_RESTART = "cello:app-restart"
+
 /** Toolbar → main: a button or the address field. */
 export const CHROME_COMMAND = "cello:chrome-command"
 /** Toolbar → main: dragging the panel's left edge, with the pointer's screen x. */
