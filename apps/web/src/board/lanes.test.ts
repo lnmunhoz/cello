@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { laneDrop, laneHeadings, laneOf, stageLanes, WORKING_LANE } from "./lanes.ts"
+import { WORKING_LANE } from "../presence/model.ts"
+import { inLaneOrder, laneDrop, laneHeadings, laneOf, stageLanes } from "./lanes.ts"
 
 const card = (id: string, position: string, stage: string | null) => ({ id, position, stage })
 
@@ -47,6 +48,16 @@ describe("laneOf: which lane a task of In Progress goes in (CEL-105)", () => {
 
   it("with no stage and no active agent (quiet, ended, Lucas's or nobody's): no stage", () => {
     expect(laneOf({ stage: null }, false)).toBeNull()
+  })
+})
+
+describe("inLaneOrder: a column's tasks lane by lane, for the board and the list alike (CEL-105)", () => {
+  it("orders by each task's lane, keeping the order inside a lane, and hands back the tasks themselves", () => {
+    const tasks = [card("a", "a0", null), card("b", "a1", "building"), card("c", "a2", null), card("d", "a3", "designing")]
+    const active = new Set(["c"])
+    const ordered = inLaneOrder(tasks, (t) => laneOf(t, active.has(t.id)))
+    expect(ordered.map((t) => t.id)).toEqual(["d", "b", "c", "a"])
+    expect(ordered[0]).toBe(tasks[3])
   })
 })
 

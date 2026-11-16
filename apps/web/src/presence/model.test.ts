@@ -1,7 +1,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { agentMood, agentsWorkingCount, holderActive, markEntry, type MarkSeen, provenanceLine, provenanceOf, whoOf, workingSessions } from "./model.ts"
+import { agentMood, agentsWorkingCount, holderActive, markEntry, stepOf, type MarkSeen, provenanceLine, provenanceOf, whoOf, workingSessions } from "./model.ts"
 
 const MIN = 60_000
 const now = Date.UTC(2026, 10, 15, 12)
@@ -107,6 +107,27 @@ describe("holderActive (CEL-105)", () => {
   it("is false for a task Lucas holds, and for one nobody holds", () => {
     expect(holderActive(board([], []), task("t", { assigneeActorId: "lucas" }), now)).toBe(false)
     expect(holderActive(board([], []), task("u"), now)).toBe(false)
+  })
+})
+
+describe("stepOf: the step a card, row or panel shows (CEL-105)", () => {
+  it("the stage when it has one", () => {
+    const held = task("t", { assigneeActorId: "claude", assigneeSessionId: "8a41c9e2", stage: "designing" })
+    expect(stepOf(board([held], [session("8a41c9e2")]), held, now)?.label).toBe("Designing")
+  })
+
+  it("Working with no stage while its agent is active, and nothing once the agent is quiet or ended", () => {
+    const held = task("t", { assigneeActorId: "claude", assigneeSessionId: "8a41c9e2" })
+    expect(stepOf(board([held], [session("8a41c9e2")]), held, now)).toMatchObject({ id: "working", label: "Working" })
+    expect(stepOf(board([held], [session("8a41c9e2", { lastSeenAt: now - 20 * MIN })]), held, now)).toBeNull()
+    expect(stepOf(board([held], [session("8a41c9e2", { endedAt: now - MIN })]), held, now)).toBeNull()
+  })
+
+  it("provenanceOf carries it, next to the stage itself", () => {
+    const held = task("t", { assigneeActorId: "claude", assigneeSessionId: "8a41c9e2" })
+    const p = provenanceOf(board([held], [session("8a41c9e2")]), held, now)
+    expect(p.stage).toBeNull()
+    expect(p.step?.label).toBe("Working")
   })
 })
 

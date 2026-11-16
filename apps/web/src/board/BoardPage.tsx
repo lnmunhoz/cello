@@ -25,11 +25,9 @@ import { withHoles, type Hole } from "./cursors/holes.ts"
 import { useAgentCursors } from "./cursors/useAgentCursors.ts"
 import { activityOf } from "../presence/Activity.tsx"
 import { LaneHeading } from "../presence/Presence.tsx"
-import { holderActive } from "../presence/model.ts"
 import { useNow } from "../presence/useNow.ts"
 import { InlineCreate } from "./InlineCreate.tsx"
-import { laneDrop, laneHeadings, laneInfo, laneOf, stageLanes } from "./lanes.ts"
-import { workingOption } from "./workingOption.ts"
+import { inLaneOrder, laneDrop, laneHeadings, laneInfo, taskLane, withLanes } from "./lanes.ts"
 import { useStageLanes } from "./useStageLanes.ts"
 import { useNeedsInputColumn } from "./needsInputColumn.ts"
 import { Kanban, KanbanCard, KanbanColumn } from "./kanban.tsx"
@@ -104,8 +102,7 @@ function Board({
   // A task's lane: its stage, else Working while an agent on it is active (CEL-105). The clock moves a
   // task out of Working once its agent goes quiet.
   const now = useNow()
-  const laneKeyOf = (t: Task) => laneOf(t, workingOption === "A" && holderActive(board, t, now))
-  const asLaned = (tasks: ReadonlyArray<Task>) => tasks.map((task) => ({ id: task.id, position: task.position, stage: laneKeyOf(task), task }))
+  const laneKeyOf = (t: Task) => taskLane(board, t, now)
 
   // With the Needs input column off (the default), its cards sit at the bottom of In Progress, badged.
   const fold = needsInputFold([...columns.visible, ...columns.hidden], useNeedsInputColumn())
@@ -116,7 +113,7 @@ function Board({
     const own = orderTasks(keep(columns.tasks[s.id] ?? []), ordering)
     return [s.id, [
       // In the laned column (Display → Group In Progress by stage) its own cards go lane by lane (CEL-35).
-      ...(s.id === lanedId ? stageLanes(asLaned(own)).flatMap((lane) => lane.tasks.map((l) => l.task)) : own),
+      ...(s.id === lanedId ? inLaneOrder(own, laneKeyOf) : own),
       ...(s.id === fold?.into ? orderTasks(keep(columns.tasks[fold.from] ?? []), ordering) : []),
     ]]
   }))
@@ -141,7 +138,7 @@ function Board({
     // Folded cards sit below In Progress's own, which are all the placement counts.
     // The drop's index is among the cards shown; a filter (CEL-52) may hide some of the column's.
     const drop = found.to === lanedId
-      ? laneDrop(found, next[found.to] ?? [], task.statusId, ordering, asLaned(columns.tasks[found.to] ?? []))
+      ? laneDrop(found, next[found.to] ?? [], task.statusId, ordering, withLanes(columns.tasks[found.to] ?? [], laneKeyOf))
       : dropOf({ ...found, index: indexAmong(next[found.to] ?? [], found, target) }, task.statusId, ordering, target)
     if (drop) move({ id: task.id, ...drop })
   }

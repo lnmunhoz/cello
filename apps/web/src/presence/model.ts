@@ -46,6 +46,8 @@ export interface Provenance {
   readonly changeVerb: "changed" | "commented"
   readonly holder: Holder | null
   readonly stage: StageInfo | null
+  /** What the card, the row and the panel say: the stage, else Working while its agent is active (stepOf). */
+  readonly step: StageInfo | null
 }
 
 const shortId = (s: AgentSession) => (s.externalId ?? s.id).slice(0, 8)
@@ -128,8 +130,18 @@ export const provenanceOf = (board: BoardState, task: Task, now: number = Date.n
       ? null
       : { who: session ? sessionWho(session) : whoOf(board, task.assigneeActorId, task.assigneeSessionId), session, agent: null },
     stage: task.stage === null ? null : (stageInfo(task.stage) ?? null),
+    step: stepOf(board, task, now),
   }
 }
+
+/**
+ * Where a task with no stage goes while its agent is active (CEL-105): a session working by itself may
+ * never set one, and "No stage" made its task look stuck. Not a stage: nobody sets it, the board works it
+ * out, so the board stays truthful when an agent forgets.
+ */
+export const WORKING_LANE = "working"
+
+export const WORKING: StageInfo = { id: WORKING_LANE, label: "Working", icon: "activity", color: "var(--muted)", when: "an agent is on it and hasn't set a stage" }
 
 /**
  * Whether an agent on the task is active right now (CEL-105): the subagent working on it, else the agent
@@ -140,6 +152,10 @@ export const holderActive = (board: BoardState, task: Task, now: number): boolea
   const session = task.assigneeSessionId === null ? undefined : board.sessions[task.assigneeSessionId]
   return session !== undefined && presenceOf(session, now) === "active"
 }
+
+/** The step a task is at: its stage, else Working while an agent on it is active, else none. */
+export const stepOf = (board: BoardState, task: Task, now: number): StageInfo | null =>
+  task.stage !== null ? (stageInfo(task.stage) ?? null) : holderActive(board, task, now) ? WORKING : null
 
 /**
  * "Lucas created · 8a41c9e2 changed 4m ago", "Lucas created · 2fd0505c commented just now",

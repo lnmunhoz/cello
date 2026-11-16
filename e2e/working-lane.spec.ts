@@ -1,13 +1,13 @@
-// CEL-105 UI scope: a task a plain session works on never gets a stage, so In Progress put it under
-// "No stage" while its agent was active. Two designs, side by side, for Lucas to pick (the switch is
-// apps/web/src/board/workingOption.ts): A, a Working lane; B, the lanes as they were and the card says
-// Working. Both show the new Designing stage. The board has one task Designing, one Building, one
-// claimed by an active session with no stage, and one whose session has ended, with no stage.
+// CEL-105: a session working by itself may never set a stage, and In Progress put its task under
+// "No stage" while its agent was active. A task with no stage whose agent is active now says Working: on
+// its card, in a Working lane (Display → Group In Progress by stage), in the list's row and stage column,
+// and in the task panel's header. Designing is the first stage. The board has one task Designing, one
+// Building, one claimed by an active session with no stage, and one whose session has ended, with no stage.
 import { spawnSync } from "node:child_process"
 import * as path from "node:path"
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { newCommandId } from "../packages/client/test/support/promiseClient.ts"
-import { agentAs, caption, card, column, defaultWorkspace, expect, seedProject, test, uniqueKey } from "./fixtures.ts"
+import { agentAs, caption, card, column, defaultWorkspace, expect, seedProject, taskPanel, test, uniqueKey } from "./fixtures.ts"
 import { SHOTS } from "./packets.ts"
 
 /** Turns Display → "Group In Progress by stage" on or off, then closes the popover. */
@@ -20,19 +20,13 @@ async function groupByStage(page: Page, on: boolean) {
   await expect(page.getByRole("dialog", { name: "Display options" })).toBeHidden()
 }
 
-/** The In Progress column in light, then dark: `cel-105-<name>-<theme>.png`. */
-async function shoot(page: Page, name: string) {
+/** `of` in light, then dark: `cel-105-<name>-<theme>.png`. */
+async function shoot(page: Page, of: Page | Locator, name: string) {
   for (const theme of ["light", "dark"] as const) {
     await page.evaluate((dark) => document.documentElement.classList.toggle("dark", dark), theme === "dark")
-    await column(page, "In Progress").screenshot({ path: path.join(SHOTS, `cel-105-${name}-${theme}.png`), animations: "disabled" })
+    await of.screenshot({ path: path.join(SHOTS, `cel-105-${name}-${theme}.png`), animations: "disabled" })
   }
   await page.evaluate(() => document.documentElement.classList.remove("dark"))
-}
-
-/** Picks the design (read once at load), then reloads. */
-async function pick(page: Page, option: "A" | "B") {
-  await page.evaluate((o) => localStorage.setItem("cello:cel105-option", o), option)
-  await page.reload()
 }
 
 test.beforeEach(async ({ context }) => {
@@ -41,7 +35,7 @@ test.beforeEach(async ({ context }) => {
   })
 })
 
-test("CEL-105 scope: a task an agent works on with no stage shows Working; the new Designing stage (options A and B)", async ({ page, cello, baseURL }) => {
+test("CEL-105: a task an agent works on with no stage says Working on the board, in a Working lane, in the list and in the panel; Designing comes first", async ({ page, cello, baseURL }) => {
   // The server's sweep notices the exited process within 30 s: this test waits for it once.
   test.setTimeout(Math.max(test.info().timeout, 120_000))
   const key = uniqueKey("WORK")
@@ -67,24 +61,43 @@ test("CEL-105 scope: a task an agent works on with no stage shows Working; the n
   await caption(page, "Four tasks in In Progress: Designing, Building, one an active agent works on with no stage, one whose session ended")
   await expect(card(page, ended).locator("[data-card-work]")).toContainText("c1d2e3f4 ended", { timeout: 60_000 })
 
-  await caption(page, "Lanes off (the default): the card of the active agent with no stage says Working; the ended one says nothing")
+  await caption(page, "Each card says its step: the active agent's task with no stage says Working; the ended one says nothing")
   await expect(card(page, designing).locator('[data-stage="designing"]')).toHaveText("Designing")
   await expect(card(page, working).locator('[data-stage="working"]')).toHaveText("Working")
   await expect(card(page, ended).locator("[data-stage]")).toHaveCount(0)
-  await shoot(page, "lanes-off")
+  await shoot(page, progress, "board-cards")
 
-  await caption(page, "Option A: Display → Group In Progress by stage. Designing first, then Building, a Working lane, and No stage for the ended one")
+  await caption(page, "Display → Group In Progress by stage: Designing first, then Building, a Working lane, and No stage for the ended one")
   await groupByStage(page, true)
   await expect(progress.locator("[data-lane]")).toHaveText([/Designing\s*1/, /Building\s*1/, /Working\s*1/, /No stage\s*1/])
+  await expect(progress.locator("[data-task-key]")).toHaveText([new RegExp(designing), new RegExp(building), new RegExp(working), new RegExp(ended)])
+  // The lane says the step, so the cards don't repeat it.
   await expect(progress.locator("[data-card-work] [data-stage]")).toHaveCount(0)
-  await shoot(page, "A-lanes")
+  await shoot(page, progress, "board-lanes")
 
-  await caption(page, "Option B: the lanes stay as they were; the card in No stage says Working itself")
-  await pick(page, "B")
-  await expect(progress.locator("[data-lane]")).toHaveText([/Designing\s*1/, /Building\s*1/, /No stage\s*2/])
-  await expect(card(page, working).locator('[data-stage="working"]')).toHaveText("Working")
-  await expect(card(page, ended).locator("[data-stage]")).toHaveCount(0)
-  await shoot(page, "B-lanes")
+  await caption(page, "The task panel's header says Working too")
+  await card(page, working).click()
+  const panel = taskPanel(page, working)
+  await expect(panel.locator("[data-panel-work]")).toContainText("64a2ac46 active now")
+  await expect(panel.locator('[data-panel-work] [data-stage="working"]')).toHaveText("Working")
+  await shoot(page, page, "panel")
+  await caption(page, "Back to the board")
+  await panel.getByRole("button", { name: "Close task" }).click()
+
+  await caption(page, "The list, grouped by stage: rows in lane order, the stage column says Designing, Building, Working, and nothing for the ended one")
+  await page.goto(`/${key}/issues?layout=list`)
+  const rows = page.locator('[data-layout="list"] section[data-group="In Progress"] [data-task-key]')
+  await expect(rows).toHaveCount(4)
+  await expect(rows.nth(0).locator('[data-stage-column] [data-stage="designing"]')).toHaveText("Designing")
+  await expect(rows.nth(1).locator('[data-stage-column] [data-stage="building"]')).toHaveText("Building")
+  await expect(rows.nth(2).locator('[data-stage-column] [data-stage="working"]')).toHaveText("Working")
+  await expect(rows.nth(3).locator("[data-stage]")).toHaveCount(0)
+  await shoot(page, page, "list-lanes")
+
+  await caption(page, "Grouping off: each row says its step at the right, Working included")
+  await groupByStage(page, false)
+  await expect(rows.nth(2).locator('[data-row-work] [data-stage="working"]')).toHaveText("Working")
+  await shoot(page, page, "list")
 
   await live.run((c) => c["task.release"]({ commandId: newCommandId(), key: working }))
   await Promise.all([live.close(), gone.close()])

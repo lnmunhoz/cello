@@ -10,13 +10,14 @@ import { ChevronRightIcon, EyeOffIcon, PlusIcon } from "lucide-react"
 import { useRef, useState, type KeyboardEvent } from "react"
 import { Centered } from "../app/Home.tsx"
 import { InlineCreate } from "../board/InlineCreate.tsx"
-import { stageLanes } from "../board/lanes.ts"
+import { inLaneOrder, taskLane } from "../board/lanes.ts"
 import { useStageLanes } from "../board/useStageLanes.ts"
 import { Button } from "../components/ui/Button.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { useOrdering } from "../issues/useOrdering.ts"
 import { type Filtered, useFiltered } from "../issues/useFilter.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
+import { useNow } from "../presence/useNow.ts"
 import { useTaskView } from "../task/TaskPanel.tsx"
 import { behindTask } from "../task/view.ts"
 import { ListRow } from "./ListRow.tsx"
@@ -54,9 +55,10 @@ function TaskList({
   /** The filter (CEL-52): only the rows it keeps, and only the groups with one. */
   filtered: Filtered
 }) {
-  // Display → "Group In Progress by stage" (CEL-35): that group's own rows go lane by lane, with a stage
-  // column; folded Needs input rows stay below them.
+  // Display → "Group In Progress by stage" (CEL-35): that group's own rows go lane by lane, as on the
+  // board (Working included, CEL-105), with a stage column; folded Needs input rows stay below them.
   const lanesOn = useStageLanes()
+  const now = useNow()
   const needsInputColumn = useNeedsInputColumn()
   const all = listGroups(board, workspaceId, project.id, { needsInputColumn })
   const lanedId = lanesOn ? (stageStatus(all.map((g) => g.status))?.id ?? null) : null
@@ -67,7 +69,7 @@ function TaskList({
     if (filtered.active && tasks.length === 0) return []
     if (g.status.id !== lanedId) return [{ ...g, tasks }]
     const own = tasks.filter((t) => t.statusId === g.status.id)
-    return [{ ...g, tasks: [...stageLanes(own).flatMap((lane) => lane.tasks), ...tasks.filter((t) => t.statusId !== g.status.id)] }]
+    return [{ ...g, tasks: [...inLaneOrder(own, (t) => taskLane(board, t, now)), ...tasks.filter((t) => t.statusId !== g.status.id)] }]
   })
   const open = openNumber === undefined ? undefined : taskByKey(board, project.key, openNumber)
   // Groups you folded or unfolded; the rest follow the default in `isCollapsed`.

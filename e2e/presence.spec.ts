@@ -155,7 +155,8 @@ test("CEL-35: Display → Group In Progress by stage splits the column into lane
   await expect(rows).toHaveCount(4)
   await expect(rows.nth(0).locator('[data-stage-column] [data-stage="building"]')).toBeVisible()
   await expect(rows.nth(1).locator('[data-stage-column] [data-stage="review"]')).toBeVisible()
-  await expect(rows.nth(3).locator("[data-stage]")).toHaveCount(0)
+  // Its agent is active with no stage: Working, as its lane on the board (CEL-105).
+  await expect(rows.nth(3).locator('[data-stage-column] [data-stage="working"]')).toHaveText("Working")
   await expect(rows.locator("[data-row-work] [data-stage]")).toHaveCount(0)
   for (const theme of ["light", "dark"] as const) {
     await page.evaluate((dark) => document.documentElement.classList.toggle("dark", dark), theme === "dark")
