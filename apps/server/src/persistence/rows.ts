@@ -263,6 +263,8 @@ interface CommentRow {
   actor_id: string
   session_id: string | null
   agent_id: string | null
+  model: string | null
+  effort: string | null
   created_at: number
   updated_at: number
   deleted_at: number | null
@@ -275,6 +277,8 @@ const toComment = (r: CommentRow, attachments: ReadonlyArray<Attachment>): Comme
   actorId: r.actor_id,
   sessionId: r.session_id,
   agentId: r.agent_id,
+  model: r.model ?? null,
+  effort: r.effort ?? null,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
   deletedAt: r.deleted_at,

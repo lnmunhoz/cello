@@ -52,6 +52,13 @@ export const AgentSession = Schema.Struct({
   hasLog: Schema.optionalKey(Schema.Boolean),
   currentStep: Schema.optionalKey(Schema.NullOr(Schema.String)),
   currentStepAt: Schema.optionalKey(Schema.NullOr(Millis)),
+  /**
+   * Its current model and effort (CEL-119): the last ones read from its Claude Code transcript, as Claude
+   * Code names them (`claude-opus-5-5`, `high`). Null or absent when unknown (no transcript yet, an agent
+   * that isn't Claude Code, events stored before CEL-119).
+   */
+  model: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  effort: Schema.optionalKey(Schema.NullOr(Schema.String)),
 })
 export type AgentSession = typeof AgentSession.Type
 
@@ -81,6 +88,13 @@ export const SessionAgent = Schema.Struct({
   hasLog: Schema.optionalKey(Schema.Boolean),
   currentStep: Schema.optionalKey(Schema.NullOr(Schema.String)),
   currentStepAt: Schema.optionalKey(Schema.NullOr(Millis)),
+  /**
+   * Its current model and effort (CEL-119): the last ones read from its Claude Code transcript, as Claude
+   * Code names them (`claude-opus-5-5`, `high`). Null or absent when unknown (no transcript yet, an agent
+   * that isn't Claude Code, events stored before CEL-119).
+   */
+  model: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  effort: Schema.optionalKey(Schema.NullOr(Schema.String)),
 })
 export type SessionAgent = typeof SessionAgent.Type
 
@@ -371,6 +385,13 @@ export const Comment = Schema.Struct({
   sessionId: Schema.NullOr(Id),
   /** The subagent of the session that wrote it (CEL-55); absent or null when the session itself did. */
   agentId: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /**
+   * The model and effort that wrote it (CEL-119), as they were then (`claude-sonnet-5-5`, `medium`): a
+   * model switch later leaves it as it was. Null or absent when unknown: the human's comments, agents
+   * that aren't Claude Code, comments written before CEL-119.
+   */
+  model: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  effort: Schema.optionalKey(Schema.NullOr(Schema.String)),
   createdAt: Millis,
   updatedAt: Millis,
   deletedAt: Schema.NullOr(Millis),

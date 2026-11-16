@@ -23,6 +23,7 @@ import sessionWake from "./migrations/0018_session_wake.ts"
 import agentLogs from "./migrations/0019_agent_logs.ts"
 import stagePlanning from "./migrations/0020_stage_planning.ts"
 import taskLastHolder from "./migrations/0021_task_last_holder.ts"
+import writerModel from "./migrations/0022_writer_model.ts"
 
 /** Every migration by id. Tests of one migration run the ones before it from here. */
 export const records = {
@@ -47,6 +48,7 @@ export const records = {
   "0019_agent_logs": agentLogs,
   "0020_stage_planning": stagePlanning,
   "0021_task_last_holder": taskLastHolder,
+  "0022_writer_model": writerModel,
 }
 
 export const migrations = SqliteMigrator.fromRecord(records)

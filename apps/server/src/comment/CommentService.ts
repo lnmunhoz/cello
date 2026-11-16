@@ -150,8 +150,10 @@ const make = Effect.gen(function* () {
           AND deleted_at IS NULL AND actor_id = ${caller.actorId}`).map((d) => d.id)
       const attachmentIds = yield* drafts.take(input.attachmentIds ?? [], available, new Set(), "this task's comment box")
       const id = newId(now)
-      yield* sql`INSERT INTO comments (id, task_id, body, actor_id, session_id, agent_id, created_at, updated_at)
-        VALUES (${id}, ${input.taskId}, ${body}, ${caller.actorId}, ${caller.sessionId}, ${caller.agentId ?? null}, ${now}, ${now})`
+      // With the model and effort it was written with (CEL-119), kept as they are now.
+      yield* sql`INSERT INTO comments (id, task_id, body, actor_id, session_id, agent_id, model, effort, created_at, updated_at)
+        VALUES (${id}, ${input.taskId}, ${body}, ${caller.actorId}, ${caller.sessionId}, ${caller.agentId ?? null},
+                ${caller.model ?? null}, ${caller.effort ?? null}, ${now}, ${now})`
       if (attachmentIds.length > 0) {
         yield* sql`UPDATE attachments SET comment_id = ${id}, answer_to = NULL WHERE ${sql.in("id", attachmentIds)}`
       }

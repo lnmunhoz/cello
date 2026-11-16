@@ -18,6 +18,9 @@ export interface EventContext {
   readonly sessionId: string | null
   /** The session's subagent that caused it (CEL-55), or null. */
   readonly agentId: string | null
+  /** The model and effort the agent was on (CEL-119), or null when unknown (and for the human). */
+  readonly model: string | null
+  readonly effort: string | null
   readonly workspaceId: string
   readonly projectId: string | null
 }
@@ -32,6 +35,8 @@ interface EventRow {
   actor_id: string
   session_id: string | null
   agent_id: string | null
+  model: string | null
+  effort: string | null
   schema_version: number
   payload: string
 }
@@ -96,6 +101,8 @@ const decodeRow = (row: EventRow): CelloEvent =>
     actorId: row.actor_id,
     sessionId: row.session_id,
     agentId: row.agent_id,
+    model: row.model,
+    effort: row.effort,
     workspaceId: row.workspace_id,
     projectId: row.project_id,
     schemaVersion: row.schema_version,
@@ -135,10 +142,10 @@ const make = Effect.gen(function* () {
     const { type, ...payload } = body
     const rows = yield* sql<{ seq: number }>`
       INSERT INTO events (ts, type, entity_type, entity_id, workspace_id, project_id, command_id, actor_id, session_id,
-                          agent_id, schema_version, payload, created_at)
+                          agent_id, model, effort, schema_version, payload, created_at)
       VALUES (${context.ts}, ${type}, ${entity.type}, ${entity.id}, ${context.workspaceId}, ${context.projectId},
-              ${context.commandId}, ${context.actorId}, ${context.sessionId}, ${context.agentId}, ${CURRENT_SCHEMA_VERSION},
-              ${JSON.stringify(payload)}, ${context.ts})
+              ${context.commandId}, ${context.actorId}, ${context.sessionId}, ${context.agentId}, ${context.model},
+              ${context.effort}, ${CURRENT_SCHEMA_VERSION}, ${JSON.stringify(payload)}, ${context.ts})
       RETURNING seq`
     return { ...context, ...body, seq: rows[0]!.seq, schemaVersion: CURRENT_SCHEMA_VERSION } as CelloEvent
   })

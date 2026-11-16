@@ -54,11 +54,15 @@ import { AskWaited, DocumentList, Inbox, LabelList, ProjectContext, TaskDetail, 
 /**
  * Who is calling, resolved by the server from per-request RPC headers. `agentId`: the session's subagent
  * making the call (CEL-55), when it said so (`x-cello-agent`); absent or null for the session itself.
+ * `model` and `effort` (CEL-119): what the caller's last reply in its Claude Code transcript was written
+ * with (`claude-opus-5-5`, `high`), read as the request came in; absent or null when unknown.
  */
 export class Caller extends Context.Service<Caller, {
   readonly actorId: string
   readonly sessionId: string | null
   readonly agentId?: string | null
+  readonly model?: string | null
+  readonly effort?: string | null
 }>()("cello/Caller") {}
 
 /** What `agent.report` says happened to a subagent. */
