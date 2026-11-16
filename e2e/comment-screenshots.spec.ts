@@ -39,7 +39,7 @@ async function stillOfReview(browser: Browser, key: string, colorScheme: "light"
   await context.close()
 }
 
-test("CEL-73: paste screenshots into comments in the task panel and on the Review page; thumbnails open in the image modal; the draft survives a reload; the agent's inbox prints where each was saved; an agent attaches its own", async ({ page, context, browser }) => {
+test("CEL-73: paste screenshots into comments in the task panel and on the Review page; thumbnails open in the image modal; the draft survives a reload; the agent's inbox prints where each was saved; Send back and Approve carry them and wait for uploads; an agent attaches its own", async ({ page, context, browser }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"])
   const key = uniqueKey("SHOT")
   const task = `${key}-1`
@@ -177,6 +177,46 @@ test("CEL-73: paste screenshots into comments in the task panel and on the Revie
   expect(sentBack).toContain("Almost: the footer still jumps on load.")
   expect(pngSize(/Screenshot: (\S+)/.exec(sentBack)![1]!)).toEqual(pngSize(jump))
   await hideTerminal(page)
+
+  await caption(page, "The agent fixes it and hands it in again")
+  agent("task", "submit", task, "--summary", "The footer stays put on load.", "--step", `Open ${task}`, "--attach", fixed, "--caption", "Fixed")
+  await expect(article).toBeVisible()
+  await article.getByRole("button", { name: new RegExp(`^${task}\\b`) }).click()
+
+  await caption(page, "While a screenshot is still uploading, Send back and Approve wait for it")
+  // Hold the upload until the buttons have been checked, so the wait is seen, not raced.
+  let release = () => {}
+  const held = new Promise<void>((resolve) => (release = resolve))
+  await page.route("**/tasks/*/uploads*", async (route) => {
+    await held
+    await route.continue()
+  })
+  await reviewBox.fill("Approved. Keep this spacing everywhere:")
+  const spacing = path.join(dir, "spacing.png")
+  await page.screenshot({ path: spacing, clip: { x: 0, y: 0, width: 600, height: 360 } })
+  await paste(page, reviewBox, spacing)
+  await expect(article.getByRole("button", { name: "Approve", exact: true })).toBeDisabled()
+  await expect(article.getByRole("button", { name: "Send back" })).toBeDisabled()
+  release()
+  await expect(article.locator("img[data-pasted-screenshot]")).toHaveCount(1)
+  await expect(article.getByRole("button", { name: "Approve", exact: true })).toBeEnabled()
+  await page.unroute("**/tasks/*/uploads*")
+
+  await caption(page, "Approve with a screenshot in the box: it goes as a comment with the text, then the task is approved")
+  await article.getByRole("button", { name: "Approve", exact: true }).click()
+  await expect(article).toHaveCount(0)
+  const approvedInbox = agent("inbox", "--new")
+  await showTerminal(page, "cello inbox --new", approvedInbox)
+  expect(approvedInbox).toContain("Approved. Keep this spacing everywhere:")
+  expect(pngSize(/Screenshot: (\S+)/.exec(approvedInbox)![1]!)).toEqual(pngSize(spacing))
+  await hideTerminal(page)
+  await page.goto(`/${key}`)
+  await card(page, task).click()
+  const last = taskPanel(page, task).locator("[data-comment-id]").last()
+  await expect(last).toContainText("Approved. Keep this spacing everywhere:")
+  await expect(last.locator("img[data-screenshot]")).toHaveCount(1)
+  await expect(taskPanel(page, task).getByText("Done", { exact: true }).first()).toBeVisible()
+  await expect(taskPanel(page, task).getByLabel("New comment")).toHaveValue("")
 
   await caption(page, "Screenshots in comments: pasted, dropped or attached, shown in the thread, and saved as files for the agent")
   fs.rmSync(dir, { recursive: true, force: true })

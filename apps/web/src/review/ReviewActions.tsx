@@ -16,7 +16,8 @@ import { decisionNote } from "./queue.ts"
  * Comment, Send back and Approve under it. Comment keeps the task In Review and reaches the agent like
  * any comment. Send back and Approve send the box's text as their note, so nothing typed is lost;
  * with the box empty, Send back asks for a note and Approve goes without. Screenshots pasted into the
- * box go with Send back's note (CEL-73); Approve's note is text only, so they stay in the box.
+ * box go too (CEL-73): with Send back's note, or with Approve as a comment holding them and the text.
+ * Send back and Approve wait while a screenshot is still uploading.
  */
 export function CommentOrDecide({ board, task, onDecided }: { board: BoardState; task: Task; onDecided?: (() => void) | undefined }) {
   const { draft, update, clear } = useCommentDraft(task.id)
@@ -25,15 +26,16 @@ export function CommentOrDecide({ board, task, onDecided }: { board: BoardState;
       board={board}
       task={task}
       placeholder="Leave a comment, or write what to change and Send back…"
-      actions={
+      actions={({ uploading }) => (
         <ReviewActions
           task={task}
           onDecided={onDecided}
           typed={draft.body}
           screenshots={draft.attachments}
+          uploading={uploading}
           onNoteSent={(withScreenshots) => (withScreenshots ? clear() : update((d) => ({ ...d, body: "" })))}
         />
-      }
+      )}
     />
   )
 }
@@ -47,9 +49,14 @@ interface ReviewActionsProps {
    * for a note and Approve goes without one.
    */
   readonly typed?: string | undefined
-  /** Screenshots pasted into that box (CEL-73): Send back's note carries them. */
+  /**
+   * Screenshots pasted into that box (CEL-73): Send back's note carries them; Approve posts them as a
+   * comment with the typed text, in the same command.
+   */
   readonly screenshots?: ReadonlyArray<Attachment> | undefined
-  /** `withScreenshots`: the screenshots went too (Send back), so the box empties; Approve leaves them. */
+  /** A screenshot is still uploading into that box: Send back and Approve wait for it. */
+  readonly uploading?: boolean | undefined
+  /** What went, so the box can let go of it: `withScreenshots` empties it, otherwise only its text. */
   readonly onNoteSent?: ((withScreenshots: boolean) => void) | undefined
 }
 
@@ -57,7 +64,7 @@ interface ReviewActionsProps {
  * Approve (to Done) or send back with a note (to In Progress). The page updates when the events
  * arrive; `onDecided` runs once the server took the decision (the Review page opens the next packet).
  */
-export function ReviewActions({ task, onDecided, typed = "", screenshots = [], onNoteSent }: ReviewActionsProps) {
+export function ReviewActions({ task, onDecided, typed = "", screenshots = [], uploading = false, onNoteSent }: ReviewActionsProps) {
   const approve = useAtomSet(commands.approveReview, { mode: "promiseExit" })
   const sendBack = useAtomSet(commands.sendBackReview, { mode: "promiseExit" })
   const [busy, setBusy] = useState(false)
@@ -65,7 +72,9 @@ export function ReviewActions({ task, onDecided, typed = "", screenshots = [], o
   const [note, setNote] = useState("")
   const typedNote = decisionNote(typed)
   const attachmentIds = screenshots.map((a) => a.id)
-  const sendBackWith = (note: string) => sendBack({ key: task.key, note, ...(attachmentIds.length ? { attachmentIds } : {}) })
+  const withShots = attachmentIds.length > 0 ? { attachmentIds } : {}
+  const sendBackWith = (note: string) => sendBack({ key: task.key, note, ...withShots })
+  const waiting = busy || uploading
 
   const run = async (action: () => Promise<{ _tag: string }>) => {
     setBusy(true)
@@ -80,7 +89,7 @@ export function ReviewActions({ task, onDecided, typed = "", screenshots = [], o
       <Button
         variant="secondary"
         size="md"
-        disabled={busy}
+        disabled={waiting}
         onClick={async () => {
           if (typedNote === null) return setAsking(true)
           if (await run(() => sendBackWith(typedNote))) onNoteSent?.(true)
@@ -92,9 +101,10 @@ export function ReviewActions({ task, onDecided, typed = "", screenshots = [], o
       <Button
         variant="primary"
         size="md"
-        disabled={busy}
+        disabled={waiting}
         onClick={async () => {
-          if (await run(() => approve({ key: task.key, ...(typedNote === null ? {} : { note: typedNote }) })) && typedNote !== null) onNoteSent?.(false)
+          const approved = await run(() => approve({ key: task.key, ...(typedNote === null ? {} : { note: typedNote }), ...withShots }))
+          if (approved && (typedNote !== null || attachmentIds.length > 0)) onNoteSent?.(attachmentIds.length > 0)
         }}
       >
         <CheckIcon aria-hidden className="size-3.5" />
@@ -130,7 +140,7 @@ export function ReviewActions({ task, onDecided, typed = "", screenshots = [], o
             />
             <div className="flex justify-end gap-2">
               <DialogClose>Cancel</DialogClose>
-              <Button type="submit" variant="primary" disabled={busy || note.trim() === ""}>
+              <Button type="submit" variant="primary" disabled={waiting || note.trim() === ""}>
                 Send back
               </Button>
             </div>

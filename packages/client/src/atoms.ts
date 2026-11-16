@@ -277,7 +277,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     }),
     // No optimistic patch: the review closes and the task moves in one batch of events, a moment later.
     approveReview: command({
-      call: (c, a: { key: string; note?: string }, commandId) => c["review.approve"]({ commandId, ...a }),
+      call: (c, a: { key: string; note?: string; attachmentIds?: ReadonlyArray<string> }, commandId) => c["review.approve"]({ commandId, ...a }),
       subject: (a) => a.key,
     }),
     sendBackReview: command({

@@ -42,15 +42,19 @@ export interface DraftOwner {
 type Sql = SqlClient.SqlClient
 
 export const make = (sql: Sql, assets: AssetStore.AssetStore["Service"], human: { readonly name: string }) => {
+  /**
+   * One UPDATE that picks and marks the stale drafts together, so a send that takes a draft can never
+   * land between choosing it and deleting it: a draft a send took is no longer a draft by then. Only
+   * the files of the rows it marked are removed.
+   */
   const sweep = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis
-    const stale = yield* sql<{ id: string; path: string | null }>`
-      SELECT f.id, f.path FROM attachments f LEFT JOIN asks a ON a.id = f.ask_id
-      WHERE f.answer_to = 'draft' AND f.deleted_at IS NULL AND (
-        (f.ask_id IS NOT NULL AND a.state != 'open' AND f.created_at < ${now - DRAFT_TTL_MS})
-        OR (f.ask_id IS NULL AND f.comment_id IS NULL AND f.created_at < ${now - COMMENT_DRAFT_TTL_MS}))`
-    if (stale.length === 0) return 0
-    yield* sql`UPDATE attachments SET deleted_at = ${now} WHERE ${sql.in("id", stale.map((f) => f.id))}`
+    const stale = yield* sql<{ path: string | null }>`
+      UPDATE attachments SET deleted_at = ${now}
+      WHERE answer_to = 'draft' AND comment_id IS NULL AND deleted_at IS NULL AND (
+        (ask_id IS NOT NULL AND created_at < ${now - DRAFT_TTL_MS} AND ask_id IN (SELECT id FROM asks WHERE state != 'open'))
+        OR (ask_id IS NULL AND created_at < ${now - COMMENT_DRAFT_TTL_MS}))
+      RETURNING path`
     yield* assets.remove(stale.flatMap((f) => (f.path === null ? [] : [f.path])))
     return stale.length
   }).pipe(Effect.orDie, Effect.withSpan("Drafts.sweep"))
@@ -84,18 +88,24 @@ export const make = (sql: Sql, assets: AssetStore.AssetStore["Service"], human: 
 
   /**
    * Checks the ids a send names against the drafts it may use (`available`): each one of them, each
-   * used once across every call on the same `used` set. Returns the ids, in order.
+   * used once across every call on the same `used` set. Returns the ids, in order. A draft the sweep
+   * removed says so, so Lucas knows to paste it again.
    */
   const take = (ids: ReadonlyArray<string>, available: ReadonlyArray<string>, used: Set<string>, owner: string) =>
     Effect.gen(function* () {
       for (const id of ids) {
         if (used.has(id) || !available.includes(id)) {
-          return yield* new Invalid({ field: "attachmentIds", reason: `screenshot ${id} isn't a draft of ${owner}, or is used twice` })
+          const [swept] = yield* sql<{ id: string }>`
+            SELECT id FROM attachments WHERE id = ${id} AND answer_to = 'draft' AND deleted_at IS NOT NULL`
+          return yield* new Invalid({
+            field: "attachmentIds",
+            reason: swept ? "this screenshot expired; paste it again" : `screenshot ${id} isn't a draft of ${owner}, or is used twice`,
+          })
         }
         used.add(id)
       }
       return ids
-    })
+    }).pipe(Effect.catchTag("SqlError", Effect.die))
 
   return { sweep, store, take }
 }

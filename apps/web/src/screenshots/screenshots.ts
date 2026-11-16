@@ -39,7 +39,8 @@ export const uploadScreenshot = async (url: string, file: Blob, name: string): P
   return body
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v)
+/** A plain object, as read back from JSON. */
+export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v)
 
 /** The attachments in a saved draft's JSON value, skipping anything that isn't one. */
 export const attachmentsIn = (v: unknown): Attachment[] =>

@@ -305,8 +305,10 @@ export const CelloRpcs = RpcGroup.make(
     success: write(Schema.Struct({ review: Review, task: Task })),
     error: Schema.Union([NotFound, Invalid]),
   }),
+  // With `attachmentIds` (screenshots pasted into the Review page's box, CEL-73), they and the note go in
+  // a comment in the same command, and the approval carries no note.
   Rpc.make("review.approve", {
-    payload: { commandId, key: Schema.String, note: Schema.optionalKey(Schema.String) },
+    payload: { commandId, key: Schema.String, note: Schema.optionalKey(Schema.String), attachmentIds: Schema.optionalKey(Schema.Array(Id)) },
     success: write(Task),
     error: Schema.Union([NotFound, Invalid, HumanOnly]),
   }),

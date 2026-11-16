@@ -6,7 +6,7 @@
 import type { AskQuestion, Attachment } from "@cello/contract/entities"
 import type { AnswerInput } from "@cello/contract/rpcs"
 import { recommendedPicks, unanswered } from "@cello/shared/ask"
-import { attachmentsIn } from "../screenshots/screenshots.ts"
+import { attachmentsIn, isRecord } from "../screenshots/screenshots.ts"
 
 export interface DraftAnswer {
   readonly optionIds: ReadonlyArray<string>
@@ -34,7 +34,6 @@ export const startDraft = (questions: ReadonlyArray<AskQuestion>): AskDraft => (
 /** Where a draft is kept: one per ask. */
 export const draftKey = (askId: string): string => `cello:ask-draft:${askId}`
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v)
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [])
 const files = attachmentsIn
 

@@ -241,6 +241,33 @@ describe("CommentService screenshots", () => {
       expect(note).toMatchObject({ body: "They overlap" })
       expect(note!.attachments!.map((a) => a.id)).toEqual([shot.id])
     })))
+
+  it.effect("Approve with screenshots in the box posts them as a comment with the typed text, then approves, in one command", () =>
+    runWithFiles(Effect.gen(function* () {
+      const { comments, tasks, task, status } = yield* setup
+      const dir = yield* tempDataDir
+      const reviews = yield* ReviewService.ReviewService
+      yield* agent(reviews.submit({ commandId: cmd(), key: task.key, summary: "Done", steps: ["Look"], files: [{ path: writePng(dir) }], links: [] }))
+      const shot = yield* comments.upload({ taskId: task.id, name: "nice.png", bytes: png })
+      const commandId = cmd()
+      yield* reviews.approve({ commandId, key: task.key, note: "Ship it, and keep this spacing", attachmentIds: [shot.id] })
+      const [posted] = yield* comments.list(task.id)
+      expect(posted).toMatchObject({ body: "Ship it, and keep this spacing" })
+      expect(posted!.attachments!.map((a) => a.id)).toEqual([shot.id])
+      // The text went with the screenshots, so the approval itself carries no note.
+      const [review] = yield* reviews.list(task.id)
+      expect(review).toMatchObject({ decision: "approved", decisionNote: null })
+      expect((yield* tasks.byKey(task.key)).statusId).toBe(status["Done"]!.id)
+      // The agent that held the task hears it, like any comment.
+      const { items } = yield* agent((yield* InboxService.InboxService).take({ unreadOnly: true }))
+      expect(items.map((i) => i.kind === "comment" && i.comment.id)).toEqual([posted!.id])
+      // A bad screenshot refuses the whole approval.
+      const { result: other } = yield* tasks.create({ commandId: cmd(), projectId: task.projectId, title: "Other", statusId: status["Todo"]!.id })
+      yield* agent(tasks.claim({ commandId: cmd(), key: other.key }))
+      yield* agent(reviews.submit({ commandId: cmd(), key: other.key, summary: "Done", steps: ["Look"], files: [{ path: writePng(dir) }], links: [] }))
+      expect(yield* Effect.flip(reviews.approve({ commandId: cmd(), key: other.key, attachmentIds: ["nope"] }))).toMatchObject({ _tag: "Invalid", field: "attachmentIds" })
+      expect((yield* tasks.byKey(other.key)).statusId).not.toBe(status["Done"]!.id)
+    })))
 })
 
 describe("CommentService.upload", () => {
@@ -289,5 +316,54 @@ describe("CommentService.upload", () => {
       expect(fs.existsSync(leftPath)).toBe(false)
       expect(yield* Effect.flip(reviews.file(left.id, "original"))).toMatchObject({ _tag: "NotFound" })
       expect((yield* reviews.file(sent.id, "original")).bytes).toBe(1)
+    })))
+
+  it.effect("a stale draft a send takes is never swept: the sweep re-checks each draft as it removes it", () =>
+    runWithFiles(Effect.gen(function* () {
+      const comments = yield* CommentService.CommentService
+      const reviews = yield* ReviewService.ReviewService
+      const { project } = yield* setupProject
+      const { result: task } = yield* (yield* TaskService.TaskService).create({ commandId: cmd(), projectId: project.id, title: "T" })
+      // Taken by a send after it went stale, before any sweep ran: it stays with its comment.
+      const late = yield* comments.upload({ taskId: task.id, name: "late.png", bytes: new Uint8Array([1]) })
+      yield* TestClock.adjust(Drafts.COMMENT_DRAFT_TTL_MS + 1)
+      const { result: comment } = yield* comments.add({ commandId: cmd(), taskId: task.id, body: "Late", attachmentIds: [late.id] })
+      expect(yield* comments.sweepDrafts).toBe(0)
+      expect((yield* reviews.file(late.id, "original")).bytes).toBe(1)
+      expect((yield* comments.list(task.id))[0]!.attachments!.map((a) => a.id)).toEqual([comment.attachments![0]!.id])
+
+      // A sweep and a send at the same moment: either the send wins and the draft stays, or the sweep wins
+      // and the send is refused. Never a sent comment whose screenshot was removed.
+      for (let i = 0; i < 5; i++) {
+        const racing = yield* comments.upload({ taskId: task.id, name: `race-${i}.png`, bytes: new Uint8Array([2]) })
+        yield* TestClock.adjust(Drafts.COMMENT_DRAFT_TTL_MS + 1)
+        const [swept, sent] = yield* Effect.all(
+          [comments.sweepDrafts, Effect.exit(comments.add({ commandId: cmd(), taskId: task.id, body: `Race ${i}`, attachmentIds: [racing.id] }))],
+          { concurrency: "unbounded" },
+        )
+        const kept = yield* Effect.exit(reviews.file(racing.id, "original"))
+        if (sent._tag === "Success") {
+          expect(kept._tag).toBe("Success")
+          expect(sent.value.result.attachments!.map((a) => a.id)).toEqual([racing.id])
+        } else {
+          expect(swept).toBeGreaterThanOrEqual(1)
+          expect(kept._tag).toBe("Failure")
+        }
+      }
+    })))
+
+  it.effect("sending a draft the sweep removed says it expired and to paste it again", () =>
+    runWithFiles(Effect.gen(function* () {
+      const comments = yield* CommentService.CommentService
+      const { project } = yield* setupProject
+      const { result: task } = yield* (yield* TaskService.TaskService).create({ commandId: cmd(), projectId: project.id, title: "T" })
+      const stale = yield* comments.upload({ taskId: task.id, name: "stale.png", bytes: new Uint8Array([1]) })
+      yield* TestClock.adjust(Drafts.COMMENT_DRAFT_TTL_MS + 1)
+      expect(yield* comments.sweepDrafts).toBe(1)
+      expect(yield* Effect.flip(comments.add({ commandId: cmd(), taskId: task.id, body: "Here", attachmentIds: [stale.id] }))).toMatchObject({
+        _tag: "Invalid",
+        field: "attachmentIds",
+        reason: "this screenshot expired; paste it again",
+      })
     })))
 })

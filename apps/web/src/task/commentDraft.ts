@@ -4,7 +4,7 @@
 // as they land; the draft keeps their attachments.
 import type { Attachment } from "@cello/contract/entities"
 import { readStored, useStored, writeStored } from "../lib/storage.ts"
-import { attachmentsIn } from "../screenshots/screenshots.ts"
+import { attachmentsIn, isRecord } from "../screenshots/screenshots.ts"
 
 export interface CommentDraft {
   readonly body: string
@@ -21,8 +21,8 @@ export const readCommentDraft = (raw: string | null): CommentDraft => {
   if (raw === null || raw === "") return EMPTY_COMMENT
   try {
     const value: unknown = JSON.parse(raw)
-    if (typeof value !== "object" || value === null) return EMPTY_COMMENT
-    const { body, attachments } = value as Record<string, unknown>
+    if (!isRecord(value)) return EMPTY_COMMENT
+    const { body, attachments } = value
     return { body: typeof body === "string" ? body : "", attachments: attachmentsIn(attachments) }
   } catch {
     return EMPTY_COMMENT

@@ -23,7 +23,7 @@ interface CommentsProps {
   readonly task: Task
   readonly placeholder?: string | undefined
   /** More buttons after Comment, in its row (the Review page's Send back and Approve); the row's buttons are then full size. */
-  readonly actions?: ReactNode
+  readonly actions?: ((state: { readonly uploading: boolean }) => ReactNode) | undefined
 }
 
 /**
@@ -81,7 +81,7 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
           <Button variant="secondary" size={actions ? "md" : "sm"} onClick={submit} disabled={toSend === null}>
             Comment
           </Button>
-          {actions}
+          {actions?.({ uploading: uploading > 0 })}
         </div>
       </div>
     </section>
