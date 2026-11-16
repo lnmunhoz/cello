@@ -16,7 +16,7 @@ import { isAlive } from "@cello/server/process/isAlive"
 import type { Env } from "./identity.ts"
 
 /** What a waiter says on stderr once it holds the lock and starts waiting (followed by its pid). */
-export const WAITING = "Waiting for new comments, Send back notes and answers for this session"
+export const WAITING = "Waiting for new comments, Send back notes, answers and ended claims for this session"
 
 /** Where the waiters' lock files live: a folder under the system's temp folder (TMPDIR when set). */
 export const waiterLockDir = (env: Env) => path.join(env.TMPDIR || os.tmpdir(), "cello-inbox-wait")

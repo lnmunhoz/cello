@@ -147,11 +147,12 @@ Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.loca
 - **Claim:** "this session is working on this task". \`cello task claim\` assigns the task to your session and moves it to In Progress.
   - While your session is alive, other agents can't claim it.
   - If your session has exited, another session can claim the task and takes the claim over.
-  - The human always wins: when they change a task you've claimed (moves it, approves it), your claim ends, and \`cello context\` lists it under "Claims you lost".
+  - The human always wins: when they change a task you've claimed (moves it to another status, edits it, changes its labels, archives it, claim it themselves or releases your claim), your claim ends. Your session hears it once, like a comment ("Ana Souza moved CEL-40 to Todo: your claim ended. Stop working on it."; see Comments from the human reach your session), and \`cello context\` lists it under "Claims you lost". Stop working on the task when you hear it.
+  - Not every touch ends it: the human dragging your card to another place in the same column keeps your claim, and so does their comment. Their approval ends it without a notice, since your work is done. Your own changes (a move, \`cello task release\`, \`cello task submit\`) and your subagents' never tell you anything.
 - **Stage:** where a claimed task is inside In Progress: **building**, **review** (Agent review), **fixing** (Fixing findings) or **merged**. In Progress holds a task from the claim to the packet, so without a stage a task being built and one waiting for review look the same. The session holding the claim sets it with \`cello task stage\`; the board shows it on the card. Asking the human keeps it through Needs input; any other move out of In Progress, or submitting it, clears it. See Stages.
 - **Presence:** the board shows whether the session holding a claim is working right now: **active now** (it called Cello in the last 5 minutes), **seen 2h ago** (quiet, its process still running) or **ended** (its process exited). Every \`cello\` command and every hook run counts as a check-in; with the hooks installed that's every tool call, a subagent's included. A subagent checks in as itself too, so the card names the subagent working on it ("cello-builder · a13bfb89 active now") rather than its session. The board hears about each at most once a minute, which keeps "active now" steady without filling the history; each one plays a short motion on the card, and while you're working the card has a thin edge in your colour. You don't do anything for it.
 - **Review packet:** how finished work reaches the human. It holds a summary, how-to-check steps and evidence (videos, screenshots, test output, links). \`cello task submit\` creates it and moves the task to In Review. Then the human decides:
-  - **Approve:** the task moves to Done and your claim ends. A note they typed with it shows under Reviews in \`cello task get\` (\`Note: …\`).
+  - **Approve:** the task moves to Done and your claim ends. Nothing reaches your session for it: the work is done. A note they typed with it shows under Reviews in \`cello task get\` (\`Note: …\`).
   - **Send back:** the task returns to In Progress with their note, and your claim stays. The note comes to your session (see Comments from the human reach your session), and \`cello task get\` shows it under Reviews.
   - **Comment, without deciding yet:** the Review page shows the task's comments under the packet, with a comment box. A comment there leaves the task In Review and your claim in place, and comes to your session like any comment. Answer it on the card; if it asks for a change, move the task back to In Progress before you make it (that withdraws the packet), then submit again.
   - **Moved out without a decision** (\`cello task move\`, or the human dragging the card): the packet is **withdrawn** and leaves the Review page. \`cello task get\` shows it as withdrawn, with who moved the task and where. To hand the work over again, submit a new packet.
@@ -329,7 +330,7 @@ cello task edit CEL-12 --priority urgent --description "Short and new."
 
 - **Only the flags you give change.** \`--title\`, \`--description\` (or \`--body-file\`, a file or \`-\` for stdin) and \`--priority\` (\`urgent\`, \`high\`, \`medium\`, \`low\`, \`none\`), in any mix; together they're one change, one line in the history. With none of them it refuses and changes nothing. The same values again change nothing and say so ("Nothing to change on CEL-12  …").
 - **The description is replaced, not added to.** To add a note, comment instead. To keep part of the old text, read it first: \`cello task get CEL-12 --json | jq -r '.task.description'\`.
-- **Who edits:** you, on any task, claimed or not; editing isn't guarded by a claim, and another session's claim stays. When the human edits a task you hold, your claim ends, as with any change they make to it (see Claim in Concepts).
+- **Who edits:** you, on any task, claimed or not; editing isn't guarded by a claim, and another session's claim stays. When the human edits a task you hold, your claim ends, as with any change they make to it, and your session is told (see Claim in Concepts).
 - **If someone changes the task at the same moment,** it fails with "It was changed by … in the meantime"; run it again.
 
 ## Reading tasks
@@ -465,7 +466,7 @@ Until some label has a group, \`cello label list\` is one list without headings.
 
   Labels are never made on the fly. When a label really is missing, create it first. Another project's label doesn't count: if THAI has \`decks\` and CEL doesn't, \`cello task label CEL-12 +decks\` is refused the same way.
 - **A taken name is refused:** \`cello label create Board\` when the project has \`board\` fails and creates nothing, whatever the case, and archived labels keep their names too. Run \`cello label list\` first when you're not sure. A name another project uses is free here.
-- **Who labels:** you and the human, on any task. A label change is an ordinary change to the task, not one a claim guards: you may relabel a task another session holds, and its claim stays. When the human changes the labels of a task you hold, your claim ends, as with any change they make to it (see Claim in Concepts).
+- **Who labels:** you and the human, on any task. A label change is an ordinary change to the task, not one a claim guards: you may relabel a task another session holds, and its claim stays. When the human changes the labels of a task you hold, your claim ends, as with any change they make to it, and your session is told (see Claim in Concepts).
 - **Archiving** retires a label: it disappears from the cards, the list, the pickers and \`cello context\`, and it can't be put on a task any more. Nothing is deleted: tasks keep the link underneath, out of sight. Its name stays taken, and there's no unarchive yet.
   - It applies to this project's label only: another project's label of the same name stays as it is.
   - When you replace a label (say \`ui\` by areas), relabel its tasks first (\`cello task label CEL-12 +board -ui\`), so no card is left without one, then archive it.
@@ -513,6 +514,18 @@ cello task react CEL-12 last 👍 --remove     # take it back
 ## Comments from the human reach your session
 
 The human's comments on a task you've claimed, their Send back notes, their answers to your asks (see Questions for the human) and their reactions to your comments are addressed to your session: the one holding the claim (for a reaction, the one that wrote the comment). Your own comments and other agents' never come back to you, and nothing does once your claim has ended. One exception: a Send back note still reaches the session that handed in the packet.
+
+**So does word that the human ended your claim.** When a change the human makes to a task you hold ends your claim (they move the card to another status, edit it, change its labels, archive it, claim it themselves or release your claim), your session gets one notice, the same way as a comment: the hooks, \`cello inbox\`, \`cello inbox --wait\`, and listed (not taken) by \`cello context\`. It says what they did and where the card is now. Stop working on the task when it arrives; if you think the work should go on, say so on the card and let them decide. Your own changes and your subagents' never send one, and neither does their approval (the work is done) or their reordering your card within its column (your claim stays). When they move a card out of Needs input, the withdrawn ask is the notice (see Questions for the human), not a second one:
+
+\`\`\`
+Ana Souza ended your claim on a task in Cello:
+
+CEL-40  Board filters
+  Ana Souza ended your claim, 1m ago
+    Ana Souza moved CEL-40 to Todo: your claim ended. Stop working on it.
+
+Stop working on CEL-40: your claim on it ended. See where it stands with \`cello task get CEL-40\`. If you think the work should go on, say so on the card (\`cello task comment CEL-40 "…"\`) and leave the decision to Ana Souza.
+\`\`\`
 
 **With the hooks (the usual way),** they arrive by themselves:
 
@@ -606,9 +619,9 @@ cello inbox --wait          # in Claude Code: the Bash tool with run_in_backgrou
 cello inbox --wait --json   # the same as JSON: items, claimed
 \`\`\`
 
-- **It blocks until something new arrives for your session** (a comment, a Send back note, answers to your ask, an ask withdrawn, a reaction), then takes it the way \`cello inbox --new\` does (marked read, each item once) and prints it. Run in the background, its end wakes you with the text, as if the hook had delivered it. It returns at once when something is already waiting.
+- **It blocks until something new arrives for your session** (a comment, a Send back note, answers to your ask, an ask withdrawn, a reaction, word that the human ended your claim), then takes it the way \`cello inbox --new\` does (marked read, each item once) and prints it. Run in the background, its end wakes you with the text, as if the hook had delivered it. It returns at once when something is already waiting.
 - **It doesn't poll the board:** it listens on the server's event stream. When the server restarts (every deploy does), it says so on stderr, "The Cello server on port 4747 went away; reconnecting for up to 2 minutes…", reconnects and carries on; nothing is taken twice. If the server stays away for 2 minutes, it exits 1 with "The Cello server on port 4747 went away and didn't come back within 2 minutes, so this stopped waiting." Start it (\`cello start\`) and run \`--wait\` again. \`cello wait\` and \`cello task ask --wait\` ride out a restart the same way (Questions for the human).
-- **One per session.** While it waits it holds a lock file (\`$TMPDIR/cello-inbox-wait/<hash of port and session>\`, holding its pid and when it started) and says so on stderr: \`Waiting for new comments, Send back notes and answers for this session (pid 4242)…\`. A second \`cello inbox --wait\` for the same session leaves at once, saying on stderr \`\`Already waiting: a \`cello inbox --wait\` (pid 4242) is running for this session, and it wakes you when something new arrives.\`\` (with \`--json\`: \`{"waiting": true, "pid": 4242}\`). The lock goes when it ends, however it ends.
+- **One per session.** While it waits it holds a lock file (\`$TMPDIR/cello-inbox-wait/<hash of port and session>\`, holding its pid and when it started) and says so on stderr: \`Waiting for new comments, Send back notes, answers and ended claims for this session (pid 4242)…\`. A second \`cello inbox --wait\` for the same session leaves at once, saying on stderr \`\`Already waiting: a \`cello inbox --wait\` (pid 4242) is running for this session, and it wakes you when something new arrives.\`\` (with \`--json\`: \`{"waiting": true, "pid": 4242}\`). The lock goes when it ends, however it ends.
 - **It never outlives your session.** It stops, taking nothing, once the Claude Code that started it is gone (it checks \`CLAUDE_PID\` every second), and after a day with nothing new it stops and says so: "Nothing new for this session in 24 hours, so \`cello inbox --wait\` stopped. If you still hold a claim, start it again in the background." A lock whose pid is dead, or that's older than a day (its pid may belong to another process by then), is ignored.
 - **It shares nicely:** the hooks and \`cello inbox\` take from the same inbox, so whichever gets an item first hands it over and the others never see it. Answers a \`cello task ask --wait\` (or \`cello wait\`) is waiting for stay with that command.
 - **Start it again after it wakes you,** when you end that turn too: it hands over one batch and exits.
@@ -815,7 +828,7 @@ links:
 - **Only the session holding the claim asks or withdraws.** Claim the task first; another session's ask on it is refused, naming the holder, so the answers never reach a session that didn't ask.
 - **One ask per task at a time.** Asking again while one is open replaces it (the old one is kept, marked replaced).
 - **Withdraw** an ask you no longer need: \`cello task ask CEL-43 --withdraw\`. The task goes back to In Progress.
-- **If the human moves the card themselves** out of Needs input, the ask is withdrawn and your claim ends, as with any move they make. You hear it once, like a comment: "Ana Souza moved CEL-43 to Todo; your ask 'Search layout' was withdrawn." \`--wait\` then says it was withdrawn.
+- **If the human moves the card themselves** out of Needs input, the ask is withdrawn and your claim ends, as with any move they make. You hear it once, like a comment: "Ana Souza moved CEL-43 to Todo; your ask 'Search layout' was withdrawn." That one notice covers the ended claim too (no second "your claim ended"). \`--wait\` then says it was withdrawn.
 - **Rounds:** after their answers, ask again on the same card for a follow-up; the answered ask stays. The card shows the asks as a thread ("Round 1 · answered", "Round 2 · open"), and \`cello task answers CEL-43 --all\` prints every round.
 - **Scopes** always attach their screenshots and link the scope page.
 
@@ -1413,7 +1426,7 @@ cello wait [flags] <key>
 
 ### cello inbox
 
-Show the comments the human left on tasks this session claimed (Send back notes and answers to your asks too) and mark them read; each one arrives once. Use it when \`cello context\` lists new ones, or to reread what they said. With \`cello install claude\` they arrive by themselves while you work; \`--wait\` in the background wakes you with them when you've ended your turn. Not from a subagent: it shares its parent's session and would take the parent's comments.
+Show the comments the human left on tasks this session claimed (Send back notes, answers to your asks, and word that a change of theirs ended your claim too) and mark them read; each one arrives once. Use it when \`cello context\` lists new ones, or to reread what they said. With \`cello install claude\` they arrive by themselves while you work; \`--wait\` in the background wakes you with them when you've ended your turn. Not from a subagent: it shares its parent's session and would take the parent's comments.
 
 \`\`\`
 cello inbox [flags]

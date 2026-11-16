@@ -189,7 +189,8 @@ const make = Effect.gen(function* () {
         if (shots.length > 0) {
           yield* comments.addWithin(context, { taskId: task.id, body: input.note ?? "", attachmentIds: shots }, "comment")
         }
-        return yield* tasks.moveWithin(context, { id: task.id, statusId: done.id })
+        // The claim ends with the move, but the agent isn't told: its work is done, not cut short (CEL-46).
+        return yield* tasks.moveWithin(context, { id: task.id, statusId: done.id, tell: false })
       }))
   })
 

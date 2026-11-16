@@ -1,7 +1,7 @@
 // What an agent reads when comments reach it: `cello inbox`, `cello context` and the Claude Code hook
 // all print items the same way.
 import * as path from "node:path"
-import type { Attachment, InboxComment, InboxReaction } from "@cello/contract/entities"
+import type { Attachment, InboxClaimEnded, InboxComment, InboxReaction } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import { deliveryText, inboxEntries, inboxScreenshots, MAX_DELIVERY } from "./inbox.ts"
 
@@ -126,5 +126,61 @@ describe("deliveryText", () => {
     expect(text.length).toBeLessThanOrEqual(MAX_DELIVERY)
     expect(text).toContain("(cut short: read it all with `cello task get CEL-3`)")
     expect(text).toContain("answer on the card")
+  })
+})
+
+// CEL-46: Lucas ending the session's claim reaches it like a comment, and tells it to stop.
+describe("a claim Lucas ended", () => {
+  const ended = (overrides: Partial<InboxClaimEnded> = {}): InboxClaimEnded => ({
+    id: "item-20",
+    kind: "claim_ended",
+    taskId: "task-40",
+    taskKey: "CEL-40",
+    taskTitle: "Board filters",
+    author: "Lucas",
+    cause: "moved",
+    status: "Todo",
+    createdAt: NOW - 60_000,
+    readAt: null,
+    ...overrides,
+  })
+
+  it("says what he did and that the claim ended, then tells the agent to stop", () => {
+    expect(deliveryText([ended()], NOW)).toBe([
+      "Lucas ended your claim on a task in Cello:",
+      "",
+      "CEL-40  Board filters",
+      "  Lucas ended your claim, 1m ago",
+      "    Lucas moved CEL-40 to Todo: your claim ended. Stop working on it.",
+      "",
+      "Stop working on CEL-40: your claim on it ended. See where it stands with `cello task get CEL-40`. If you think the work should go on, say so on the card (`cello task comment CEL-40 \"…\"`) and leave the decision to Lucas.",
+    ].join("\n"))
+  })
+
+  it("names each way he can end it", () => {
+    const said = (overrides: Partial<InboxClaimEnded>) => inboxEntries([ended(overrides)], NOW)[2]!.trim()
+    expect(said({ status: "Canceled" })).toBe("Lucas moved CEL-40 to Canceled: your claim ended. Stop working on it.")
+    expect(said({ status: "Backlog" })).toBe("Lucas moved CEL-40 to Backlog: your claim ended. Stop working on it.")
+    expect(said({ cause: "edited", status: "In Progress" })).toBe("Lucas edited CEL-40: your claim ended. Stop working on it.")
+    expect(said({ cause: "labels", status: "In Progress" })).toBe("Lucas changed the labels of CEL-40: your claim ended. Stop working on it.")
+    expect(said({ cause: "archived", status: "In Progress" })).toBe("Lucas archived CEL-40: your claim ended. Stop working on it.")
+    expect(said({ cause: "claimed", status: "In Progress" })).toBe("Lucas took CEL-40 over: your claim ended. Stop working on it.")
+    expect(said({ cause: "released", status: "In Progress" })).toBe("Lucas released your claim on CEL-40: your claim ended. Stop working on it.")
+  })
+
+  it("with other items: counted in the first line, and a line on stopping after what to do with the rest", () => {
+    const text = deliveryText([item(), ended(), ended({ id: "item-21", taskKey: "CEL-41", cause: "archived" })], NOW)
+    expect(text.split("\n")[0]).toBe("New in Cello for you: a comment and 2 ended claims:")
+    expect(text).toContain("answer on the card: `cello task comment CEL-3 \"…\"`")
+    expect(text).toContain("Stop working on CEL-40 and CEL-41: your claims on them ended. See where they stand with `cello task get CEL-40`.")
+    expect(inboxScreenshots([ended()])).toEqual([])
+  })
+
+  it("counts tasks, not notices: two ended claims on one task (released, claimed again, edited) are one task to stop", () => {
+    const text = deliveryText([ended({ cause: "released" }), ended({ id: "item-21", cause: "edited" })], NOW)
+    expect(text.split("\n")[0]).toBe("Lucas ended your claim on a task in Cello:")
+    expect(text).toContain("Stop working on CEL-40: your claim on it ended.")
+    const two = deliveryText([ended(), ended({ id: "item-21", taskKey: "CEL-41", cause: "archived" })], NOW)
+    expect(two.split("\n")[0]).toBe("Lucas ended your claims on 2 tasks in Cello:")
   })
 })

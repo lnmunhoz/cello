@@ -1,10 +1,11 @@
 // How an agent session reads what reached it (CEL-15): Lucas's comments, Send back notes, his
-// answers to the questions it asked on a card and word that he withdrew one by moving the card (CEL-47).
+// answers to the questions it asked on a card and word that he withdrew one by moving the card (CEL-47),
+// his reactions (CEL-77), and word that a change of his ended its claim (CEL-46).
 // `cello inbox`, `cello context` and the Claude Code hook print items the same way, so the agent sees one
 // format wherever they arrive. Screenshots in Lucas's answers and comments (CEL-73) are saved to temp
 // files first, and the text names the files.
 import * as path from "node:path"
-import type { Ask, Attachment, Comment, InboxItem } from "@cello/contract/entities"
+import type { Ask, Attachment, Comment, InboxClaimEnded, InboxComment, InboxItem } from "@cello/contract/entities"
 import { answerLines, answerScreenshots, screenshotLine } from "./ask.ts"
 import { ago, andList } from "./format.ts"
 
@@ -38,7 +39,29 @@ export const commentScreenshots = (comment: Comment): ScreenshotFile[] =>
 
 /** Every screenshot in what reached the agent: in answers and in comments (a reaction quotes your own comment, so none). */
 export const inboxScreenshots = (items: ReadonlyArray<InboxItem>): ScreenshotFile[] =>
-  items.flatMap((i) => (i.kind === "answers" ? askScreenshots(i.ask) : i.kind === "withdrawn" || i.kind === "reaction" ? [] : commentScreenshots(i.comment)))
+  items.flatMap((i) => (i.kind === "answers" ? askScreenshots(i.ask) : isComment(i) ? commentScreenshots(i.comment) : []))
+
+/** A comment or a Send back note: the items to answer on the card. */
+const isComment = (item: InboxItem): item is InboxComment => item.kind === "comment" || item.kind === "send_back"
+
+/** What Lucas did that ended the claim (CEL-46), as a sentence about `task`. */
+const claimEnd = (item: InboxClaimEnded): string => {
+  const task = item.taskKey
+  switch (item.cause) {
+    case "moved":
+      return `moved ${task} to ${item.status}`
+    case "edited":
+      return `edited ${task}`
+    case "labels":
+      return `changed the labels of ${task}`
+    case "archived":
+      return `archived ${task}`
+    case "claimed":
+      return `took ${task} over`
+    case "released":
+      return `released your claim on ${task}`
+  }
+}
 
 /** A comment's words, then a line per screenshot naming the file it was saved to. */
 export const commentText = (comment: Comment, files: SavedFiles): string =>
@@ -56,6 +79,8 @@ const who = (item: InboxItem) => {
       return `${item.author} commented`
     case "reaction":
       return `${item.author} reacted ${item.emoji} to your comment`
+    case "claim_ended":
+      return `${item.author} ended your claim`
   }
 }
 
@@ -78,6 +103,8 @@ const textOf = (item: InboxItem, files: SavedFiles) => {
       return `${item.author} moved ${item.taskKey} to ${item.status}; your ask "${item.ask.title}" was withdrawn.`
     case "reaction":
       return quoteOf(item.comment.body)
+    case "claim_ended":
+      return `${item.author} ${claimEnd(item)}: your claim ended. Stop working on it.`
     default:
       return commentText(item.comment, files)
   }
@@ -111,33 +138,42 @@ const headOf = (items: ReadonlyArray<InboxItem>) => {
   const answers = items.filter((i) => i.kind === "answers").length
   const withdrawn = items.filter((i) => i.kind === "withdrawn").length
   const reactions = items.filter((i) => i.kind === "reaction").length
-  const comments = items.length - answers - withdrawn - reactions
+  const ended = items.filter((i) => i.kind === "claim_ended").length
+  const comments = items.length - answers - withdrawn - reactions - ended
   const parts = [
     ...(answers ? [answers === 1 ? "answers to the questions you asked" : `answers to ${answers} asks`] : []),
     ...(withdrawn ? [withdrawn === 1 ? "an ask withdrawn" : `${withdrawn} asks withdrawn`] : []),
     ...(comments ? [comments === 1 ? "a comment" : `${comments} comments`] : []),
     ...(reactions ? [reactions === 1 ? "a reaction" : `${reactions} reactions`] : []),
+    ...(ended ? [ended === 1 ? "an ended claim" : `${ended} ended claims`] : []),
   ]
-  if (answers + withdrawn + reactions === 0) return comments === 1 ? "New Cello comment on a task you claimed:" : `${comments} new Cello comments on tasks you claimed:`
+  const human = items[0]?.author ?? "the human"
+  if (comments === items.length) return comments === 1 ? "New Cello comment on a task you claimed:" : `${comments} new Cello comments on tasks you claimed:`
   if (reactions === items.length) {
-    const human = items[0]!.author
     return reactions === 1 ? `${human} reacted to your comment in Cello:` : `${human} reacted to your comments in Cello (${reactions}):`
+  }
+  if (ended === items.length) {
+    // A task can end twice in one batch (released, claimed again, edited): count the tasks.
+    const tasks = unique(items.map((i) => i.taskKey)).length
+    return tasks === 1 ? `${human} ended your claim on a task in Cello:` : `${human} ended your claims on ${tasks} tasks in Cello:`
   }
   return `New in Cello for you: ${andList(parts)}:`
 }
 
 /**
  * What the agent gets when new items arrive: what they are, the items, and what to do next: answer
- * comments on the card, hand a sent-back task in again, carry on with Lucas's answers. At most
- * MAX_DELIVERY characters. `files` says where the screenshots in answers were saved.
+ * comments on the card, hand a sent-back task in again, carry on with Lucas's answers, stop working on
+ * a task whose claim he ended. At most MAX_DELIVERY characters. `files` says where the screenshots in
+ * answers were saved.
  */
 export const deliveryText = (items: ReadonlyArray<InboxItem>, now: number, files: SavedFiles = NO_FILES): string => {
   const count = items.length
-  const comments = items.filter((i) => i.kind === "comment" || i.kind === "send_back")
-  const withShots = comments.some((i) => i.kind !== "answers" && i.kind !== "withdrawn" && (i.comment.attachments?.length ?? 0) > 0)
+  const comments = items.filter(isComment)
+  const withShots = comments.some((i) => (i.comment.attachments?.length ?? 0) > 0)
   const answered = unique(items.filter((i) => i.kind === "answers").map((i) => i.taskKey))
   const withdrawn = unique(items.filter((i) => i.kind === "withdrawn").map((i) => i.taskKey))
   const sentBack = unique(items.filter((i) => i.kind === "send_back").map((i) => i.taskKey))
+  const ended = unique(items.filter((i) => i.kind === "claim_ended").map((i) => i.taskKey))
   const reacted = items.some((i) => i.kind === "reaction")
   const human = items[0]?.author ?? "the human"
   const tail = [
@@ -154,6 +190,11 @@ export const deliveryText = (items: ReadonlyArray<InboxItem>, now: number, files
       ? [`Your claim on ${withdrawn.join(", ")} ended with the move. Check with \`cello task get ${withdrawn[0]}\`, and ask ${human} on the card before you carry on.`]
       : []),
     ...(reacted ? [`A reaction is ${human}'s quick answer to your comment: take it as their reply; there's no need to answer it on the card.`] : []),
+    ...(ended.length
+      ? [ended.length === 1
+        ? `Stop working on ${ended[0]}: your claim on it ended. See where it stands with \`cello task get ${ended[0]}\`. If you think the work should go on, say so on the card (\`cello task comment ${ended[0]} "…"\`) and leave the decision to ${human}.`
+        : `Stop working on ${andList(ended)}: your claims on them ended. See where they stand with \`cello task get ${ended[0]}\`. If you think the work should go on, say so on the card (\`cello task comment ${ended[0]} "…"\`) and leave the decision to ${human}.`]
+      : []),
   ]
   const build = (limit?: number) => [headOf(items), "", ...inboxEntries(items, now, limit, files), "", ...tail].join("\n")
   const full = build()

@@ -307,7 +307,8 @@ describe("AskService.answer", () => {
       expect(taken.statusId).toBe(status["Needs input"]!.id)
       yield* asks.answer(answers(ask.id))
       expect((yield* other(inbox.unread)).map((i) => i.kind)).toEqual(["answers"])
-      expect(yield* agent(inbox.unread)).toEqual([])
+      // The first session heard only that Lucas released its claim (CEL-46).
+      expect((yield* agent(inbox.unread)).map((i) => i.kind)).toEqual(["claim_ended"])
     })))
 
   it.effect("screenshots pasted into the answers are uploaded as drafts, then linked to what they answer", () =>
