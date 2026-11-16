@@ -65,6 +65,10 @@ The server backs up `<dataDir>` into `<dataDir>/backups/<YYYYMMDD-HHMMSS>/` (cel
 - Agents run `cello restore` only when Lucas asks. The command reference is in docs/cli.md.
 - Tests start servers with `autoBackup` off (`startServer`); the schedule is tested with TestClock.
 
+## Releases
+
+Every deploy is a release, cut by `bun run release` at the merge step (step 4 below). Cello has one version: the root package.json holds it, and a release writes it to `APP_VERSION` (packages/shared/src/version.ts) and apps/desktop's package.json; `scripts/release/version.test.ts` fails if they disagree, so never bump one by hand. Each release adds a CHANGELOG.md section from main's `merge:` and direct commits, tags `vX.Y.Z`, and attaches the `cello` binary and Cello.app (unsigned) to its GitHub release. Versions, the changelog, the dry run, minor and major, and rollback: [docs/releases.md](docs/releases.md). Code: `scripts/release/`.
+
 ## How a task flows: build, review, merge, submit
 
 The session running the work (the orchestrator) claims the task, then (the whole path, with diagrams: [docs/feature-lifecycle.md](docs/feature-lifecycle.md), also in Cello's Docs tab). With the Claude Code plugin installed (`cello install claude`), `/cello:orchestrate CEL-n …` puts a thread in this role; see [docs/claude-plugin.md](docs/claude-plugin.md):
@@ -77,8 +81,8 @@ At each step it marks the task's **stage** with `cello task stage CEL-n building
    - For UI work, the code reviewer also checks the videos and screenshots, using `cello-visual-reviewer`'s checklist, so each branch gets one reviewer, not two. A separate visual reviewer only for a large visual change.
    - Reviewers run only the tests the change touches. The orchestrator runs the whole suite at merge.
 3. **Fix** (`cello task stage CEL-n fixing`). Findings go back to the same builder agent, so it keeps its context. Only blockers get a re-check, by the same reviewer resumed. If one round of fixes doesn't settle a blocker, or it's a design question the task doesn't answer, ask Lucas on the card (`cello task ask`), not in the terminal. Comment the review's result on the card.
-4. **Merge** (`cello task stage CEL-n merged`). The orchestrator merges into main (`merge: <what> (CEL-n)`) and runs the whole suite (unit, integration, typecheck, e2e). If the server or web app changed, it rebuilds `cello` and restarts the live server (`cello service restart` once the background service is installed, CEL-81), backing up first when a migration ships.
-5. **Submit, right after the merge.** Don't batch merges or hold packets for a later deploy: deploying takes under a minute, and a merged task left in In Progress looks stuck on the board. `cello task submit` with the evidence, recorded once, at the end, in review mode. The summary says what the review found and what was fixed, and which models built and reviewed it.
+4. **Merge and release** (`cello task stage CEL-n merged`). The orchestrator merges into main (`merge: <what> (CEL-n)`: that subject is the task's line in the changelog, so write it for Lucas) and runs the e2e suites (`bun run test:docker`). Then **`bun run release`**, on main in the main checkout: every deploy is a release (CEL-36). It refuses off main or with uncommitted changes, runs the typecheck and unit and integration tests, bumps the patch version, writes CHANGELOG.md, commits and tags `vX.Y.Z`, builds `cello` and Cello.app, pushes, creates the GitHub release with both attached, then backs up and restarts the live server (`cello backup`, `cello service restart`). `bun run release -- minor` or `-- major` only when Lucas says; `-- --dry-run` previews it all. Never rebuild and restart by hand instead. [Releases](docs/releases.md) has the steps, the flags and how to roll back.
+5. **Submit, right after the release.** Don't batch merges or hold packets for a later release: releasing takes a few minutes, and a merged task left in In Progress looks stuck on the board. `cello task submit` with the evidence, recorded once, at the end, in review mode. The summary says what the review found and what was fixed, which models built and reviewed it, and the release it shipped in (`v0.3.1`).
 
 Small changes (docs, a one-line fix) skip steps 1–3: the orchestrator makes them directly, still test first. Later, these roles move into Cello itself (CEL-28).
 
@@ -127,6 +131,7 @@ bun run test:docker:e2e      # web e2e in Docker (same as test:e2e); -- e2e/boar
 bun run test:docker:desktop  # desktop (Electron) e2e in Docker under Xvfb; -- <playwright args>
 bun run test:e2e:local       # web e2e here, in headless Chromium (no window), when Docker isn't an option
 bun run docs:cli             # rewrite docs/cli.md's command reference and `cello guide` from the CLI
+bun run release              # the merge step: release (patch) and deploy; -- minor | major, -- --dry-run (docs/releases.md)
 ```
 
 - The Docker runs (`scripts/test-in-docker.ts`) need OrbStack running. They test the worktree they're run from: it's mounted read-only and copied into the container, which installs with a cached Bun store and has its own network, so the tests' default ports never meet the Mac's.

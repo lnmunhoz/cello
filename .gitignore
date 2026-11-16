@@ -11,6 +11,8 @@ e2e/videos/
 # review evidence (screenshots, mocks) made in worktrees; it's attached to the task, not committed
 evidence/
 apps/cli/.build/
+# the zips `bun run release` attaches to the GitHub release (CEL-36)
+/release/
 .claude/worktrees/
 # per-machine Claude Code settings, e.g. the hooks `cello install claude` adds (CEL-15)
 .claude/settings.local.json
