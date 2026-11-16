@@ -12,6 +12,7 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.
 import { commands, commentsFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
 import { type Who, whoOf } from "../presence/model.ts"
+import { Reactions } from "./Reactions.tsx"
 import type { TaskSearch } from "./view.ts"
 
 interface CommentsProps {
@@ -50,7 +51,7 @@ export function Comments({ board, task, draft, placeholder = "Leave a comment…
       {AsyncResult.isInitial(result) ? <p className="text-xs text-faint">Loading comments…</p> : null}
       <ul className="flex flex-col gap-2">
         {comments.map((c) => (
-          <CommentItem key={c.id} comment={c} author={whoOf(board, c.actorId, c.sessionId, c.agentId)} target={c.id === target} />
+          <CommentItem key={c.id} board={board} comment={c} author={whoOf(board, c.actorId, c.sessionId, c.agentId)} target={c.id === target} />
         ))}
       </ul>
       <div className="flex flex-col gap-2">
@@ -79,7 +80,7 @@ export function Comments({ board, task, draft, placeholder = "Leave a comment…
 }
 
 /** `target`: the comment the task was opened at; it's scrolled to on arrival and flashes once. */
-function CommentItem({ comment, author, target }: { comment: Comment; author: Who; target: boolean }) {
+function CommentItem({ board, comment, author, target }: { board: BoardState; comment: Comment; author: Who; target: boolean }) {
   const edit = useAtomSet(commands.editComment, { mode: "promiseExit" })
   const remove = useAtomSet(commands.deleteComment)
   const [draft, setDraft] = useState<string | null>(null)
@@ -127,7 +128,11 @@ function CommentItem({ comment, author, target }: { comment: Comment; author: Wh
         </span>
       </div>
       {draft === null ? (
-        <Markdown source={comment.body} />
+        <>
+          <Markdown source={comment.body} />
+          {/* The footer: emoji reactions (CEL-77). */}
+          <Reactions board={board} comment={comment} />
+        </>
       ) : (
         <div className="flex flex-col gap-2">
           <Textarea
