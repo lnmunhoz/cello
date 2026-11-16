@@ -126,12 +126,35 @@ const commandOf = (pid: number): string | null => {
   }
 }
 
-/** The lock's pid is a Cello server: a `… start` command, and its port answers as one. */
+/** Where lsof lives on macOS and Linux; looked up by path, since a command's PATH may not have it. */
+export const LSOF_PATHS = ["/usr/sbin/lsof", "/usr/bin/lsof", "/sbin/lsof", "/bin/lsof"]
+
+/** The pids listening on a TCP port (lsof), or null when lsof isn't there to say. */
+const listenersOf = (port: number): ReadonlyArray<number> | null => {
+  const lsof = LSOF_PATHS.find((file) => fs.existsSync(file))
+  if (!lsof) return null
+  try {
+    const result = Bun.spawnSync([lsof, "-nP", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"], { stdout: "pipe", stderr: "ignore" })
+    // 1 is lsof's "nothing matched".
+    if (result.exitCode !== 0 && result.exitCode !== 1) return null
+    return result.stdout.toString().split("\n").filter((line) => /^\d+$/.test(line.trim())).map(Number)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The lock's pid is a Cello server: a `… start` command, listening on the lock's port itself (when
+ * lsof can tell; a reused pid with another Cello on that port isn't it), and that port answers as Cello.
+ */
 const isCelloServer = <R>(lock: LockInfo, serverBuild: ServerBuild<R>) =>
   Effect.gen(function* () {
     const command = commandOf(lock.pid)
     if (command !== null && !/(^|\s)start$/.test(command)) return false
-    return lock.port > 0 && (yield* serverBuild(lock.port)) !== null
+    if (lock.port <= 0) return false
+    const listeners = listenersOf(lock.port)
+    if (listeners !== null && !listeners.includes(lock.pid)) return false
+    return (yield* serverBuild(lock.port)) !== null
   })
 
 /** Waits (up to EXIT_WAIT) for `pid` to exit; true once it has. */
@@ -249,7 +272,9 @@ export const installService = <R>(options: { readonly replace: boolean; readonly
       } else {
         fs.rmSync(plist, { force: true })
       }
-      return yield* fail(failedInstallText({ reason: failed.reason, dataDir: spec.dataDir, stopped: replaced !== null || !!job?.pid, restored }))
+      // The old service's server served its own folder, which may not be the new one's.
+      const stopped = [...(job?.pid ? [previous?.dataDir ?? spec.dataDir] : []), ...(replaced !== null ? [spec.dataDir] : [])]
+      return yield* fail(failedInstallText({ reason: failed.reason, stopped, restored }))
     }
     fs.rmSync(backup, { force: true })
     return {

@@ -68,21 +68,22 @@ describe("failedInstallText", () => {
   const reason = "Bootstrap failed: 5: Input/output error"
 
   it("says nothing changed when no server was stopped and there was no old service", () => {
-    expect(failedInstallText({ reason, dataDir: "/d", stopped: false, restored: null })).toBe(
+    expect(failedInstallText({ reason, stopped: [], restored: null })).toBe(
       `launchctl couldn't load the service: ${reason} Nothing was changed; \`cello service status\` shows the state.`,
     )
   })
 
   it("says the server was stopped and how to bring Cello back when the old service didn't come back", () => {
-    expect(failedInstallText({ reason, dataDir: "/d", stopped: true, restored: "not loaded" })).toBe(
+    expect(failedInstallText({ reason, stopped: ["/d"], restored: "not loaded" })).toBe(
       `launchctl couldn't load the service: ${reason} The old service's plist is back in place, but launchd didn't load it either. ` +
         "The server for /d was stopped. Run `cello start` to use Cello now; `cello service status` and the log say why the service didn't load.",
     )
-    expect(failedInstallText({ reason, dataDir: "/d", stopped: true, restored: null })).toContain("The server for /d was stopped.")
+    expect(failedInstallText({ reason, stopped: ["/d"], restored: null })).toContain("The server for /d was stopped.")
+    expect(failedInstallText({ reason, stopped: ["/old", "/d"], restored: null })).toContain("The servers for /old and /d were stopped.")
   })
 
   it("says the old service runs again when it does", () => {
-    expect(failedInstallText({ reason, dataDir: "/d", stopped: true, restored: "loaded" })).toBe(
+    expect(failedInstallText({ reason, stopped: ["/d"], restored: "loaded" })).toBe(
       `launchctl couldn't load the service: ${reason} The old service's plist is back in place and running again.`,
     )
   })
