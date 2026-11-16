@@ -93,6 +93,7 @@ const make = Effect.gen(function* () {
         const current = new Map((yield* fieldsOf(project.id)).map((f) => [f.field, f]))
         const changes: Array<{ field: string; before: ProfileField | null; after: ProfileField | null }> = []
         const written: string[] = []
+        const confirmed: string[] = []
         const kept: string[] = []
         for (const [field, value] of wanted) {
           const before = current.get(field) ?? null
@@ -122,14 +123,14 @@ const make = Effect.gen(function* () {
             ON CONFLICT (project_id, field) DO UPDATE SET value = excluded.value, source = excluded.source,
               actor_id = excluded.actor_id, session_id = excluded.session_id, updated_at = excluded.updated_at`
           changes.push({ field, before, after })
-          written.push(field)
+          ;(before?.value === value ? confirmed : written).push(field)
         }
         if (changes.length > 0) {
           changes.sort((a, b) => compareFields(a.field, b.field))
           yield* emit({ type: "profile.changed", project: project.id, changes }, { workspaceId: project.workspaceId, projectId: project.id })
         }
         const ordered = (fields: string[]) => fields.sort(compareFields)
-        return { profile: { projectId: project.id, fields: yield* fieldsOf(project.id) }, written: ordered(written), kept: ordered(kept) }
+        return { profile: { projectId: project.id, fields: yield* fieldsOf(project.id) }, written: ordered(written), confirmed: ordered(confirmed), kept: ordered(kept) }
       }))
   })
 

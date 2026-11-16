@@ -121,8 +121,17 @@ export const AnswerInput = Schema.Struct({
 })
 export type AnswerInput = typeof AnswerInput.Type
 
-/** What `profile.set` did: the profile now, the fields it wrote, and the ones it kept because someone else set them. */
-export const ProfileWrite = Schema.Struct({ profile: TestingProfile, written: Schema.Array(Schema.String), kept: Schema.Array(Schema.String) })
+/**
+ * What `profile.set` did: the profile now; the fields it changed (set to a new value, or unset); the ones
+ * it confirmed (set to the value they had: same value, new source and time); and the ones it kept because
+ * someone else set them.
+ */
+export const ProfileWrite = Schema.Struct({
+  profile: TestingProfile,
+  written: Schema.Array(Schema.String),
+  confirmed: Schema.Array(Schema.String),
+  kept: Schema.Array(Schema.String),
+})
 export type ProfileWrite = typeof ProfileWrite.Type
 
 export const CelloRpcs = RpcGroup.make(

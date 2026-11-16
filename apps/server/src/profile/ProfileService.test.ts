@@ -83,12 +83,16 @@ describe("ProfileService", () => {
       yield* TestClock.adjust(60_000)
       // `cello init` again, finding the same: nothing written, no event, the time stays.
       const again = yield* set({ typecheck: "tsc" }, { detected: true })
-      expect(again).toMatchObject({ seq: null, result: { written: [], kept: [] } })
+      expect(again).toMatchObject({ seq: null, result: { written: [], confirmed: [], kept: [] } })
       expect((yield* profiles.get(ref)).fields.find((f) => f.field === "typecheck")).toMatchObject({ source: "detected", updatedAt: 0 })
       // An agent setting the same value by hand confirms it: its source and time change.
       const confirmed = yield* agent(set({ typecheck: "tsc" }))
-      expect(confirmed.result.written).toEqual(["typecheck"])
+      // It's reported as confirmed, not changed, so the CLI can say so without reading the profile first.
+      expect(confirmed.result).toMatchObject({ written: [], confirmed: ["typecheck"], kept: [] })
       expect((yield* profiles.get(ref)).fields.find((f) => f.field === "typecheck")).toMatchObject({ source: "agent", updatedAt: 60_000 })
+      // The human confirming one field and changing another in one command.
+      const mixed = yield* set({ typecheck: "tsc", install: "bun install" })
+      expect(mixed.result).toMatchObject({ written: ["install"], confirmed: ["typecheck"], kept: [] })
       // Detection never unsets.
       expect(yield* Effect.flip(set({}, { unset: ["typecheck"], detected: true }))).toMatchObject({ _tag: "Invalid", field: "unset" })
     })))

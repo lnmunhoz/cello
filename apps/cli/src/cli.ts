@@ -1900,11 +1900,11 @@ const profileShow = Command.make("profile", { project, json }, (input) =>
   )
 
 /** "Set unit to `bun run test`." / "Confirmed unit: `…`." / "Unset unit." / "unit wasn't set." / the human's value kept. */
-const profileSetText = (field: string, written: ProfileWrite & { readonly confirmed: boolean }, value: string | null) => {
+const profileSetText = (field: string, written: ProfileWrite, value: string | null) => {
   const stored = written.profile.fields.find((f) => f.field === field)?.value ?? value
   if (written.kept.includes(field)) return `${field} is already \`${stored}\`, set by the human; left as it is.`
   if (value === null) return written.written.includes(field) ? `Unset ${field}.` : `${field} wasn't set.`
-  return written.confirmed ? `Confirmed ${field}: \`${stored}\`.` : `Set ${field} to \`${stored}\`.`
+  return written.confirmed.includes(field) ? `Confirmed ${field}: \`${stored}\`.` : `Set ${field} to \`${stored}\`.`
 }
 
 const profileSet = Command.make("set", {
@@ -1915,16 +1915,11 @@ const profileSet = Command.make("set", {
 }, (input) =>
   Effect.gen(function* () {
     const ref = yield* projectRef(input.project)
-    const written = yield* withClient((client) =>
-      Effect.gen(function* () {
-        const before = (yield* client["profile.get"]({ project: ref })).fields.find((f) => f.field === input.field)
-        const { result } = yield* client["profile.set"]({ commandId: newCommandId(), project: ref, set: [{ field: input.field, value: input.value }] })
-        const after = result.profile.fields.find((f) => f.field === input.field)
-        return { ...result, confirmed: before !== undefined && after !== undefined && before.value === after.value }
-      })
+    const { result } = yield* withClient((client) =>
+      client["profile.set"]({ commandId: newCommandId(), project: ref, set: [{ field: input.field, value: input.value }] })
     )
-    if (input.json) return yield* printJson(written.profile)
-    yield* print(profileSetText(input.field, written, input.value))
+    if (input.json) return yield* printJson(result.profile)
+    yield* print(profileSetText(input.field, result, input.value))
   })).pipe(Command.withDescription(
     "Set one field of the testing profile. Do it when a command in the profile fails or the repo changed (a new script, port or e2e " +
       "tool), and say so in your review packet. Setting the value it already has confirms it. An agent can't change a field the human set: " +
@@ -1938,7 +1933,7 @@ const profileUnset = Command.make("unset", { field: profileField, project, json 
       client["profile.set"]({ commandId: newCommandId(), project: ref, set: [], unset: [input.field] })
     )
     if (input.json) return yield* printJson(result.profile)
-    yield* print(profileSetText(input.field, { ...result, confirmed: false }, null))
+    yield* print(profileSetText(input.field, result, null))
   })).pipe(Command.withDescription(
     "Remove a field from the testing profile, when it no longer applies (the e2e surface is gone, the app has no dev server). " +
       "An agent can't unset a field the human set.",
