@@ -733,7 +733,7 @@ test("CEL-81: Keep Running leaves the server up after the app quits, so agents k
 
   // The next launch joins it, says so, and quitting leaves it running without asking.
   const again = await launchApp(env)
-  const next = record(again, `${testInfo.title} (next launch)`)
+  const next = record(again, "CEL-81: after Keep Running, the next launch joins the server that kept running")
   const pages = await appPages(again, url)
   await expect(pages.board.getByRole("button", { name: "New project" }).first()).toBeVisible()
   await next.caption("The next launch joins the server that kept running")
