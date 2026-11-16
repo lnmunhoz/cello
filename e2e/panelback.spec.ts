@@ -11,14 +11,19 @@ import { cello, SHOTS, WEB_URL } from "./packets.ts"
 
 const viewerOf = (page: Page) => page.getByRole("complementary", { name: "Viewer" })
 
-/** A long page linked to both tasks, so its TASKS chips show both and it scrolls. */
+/** A long page linked to both tasks, so its TASKS chips show both and it scrolls; Part 6 names the second task. */
 const notes = (key: string) =>
   [
     "# Saved library: design",
     "",
     `How ${key}-1 keeps saved items in one place; ${key}-2 builds the import.`,
     "",
-    ...Array.from({ length: 12 }, (_, i) => [`## Part ${i + 1}`, "", `Part ${i + 1} of the design, with enough words to fill a few lines of the reader beside the task. `.repeat(4), ""]).flat(),
+    ...Array.from({ length: 12 }, (_, i) => [
+      `## Part ${i + 1}`,
+      "",
+      `Part ${i + 1} of the design, with enough words to fill a few lines of the reader beside the task. `.repeat(4) + (i === 5 ? `The import is ${key}-2.` : ""),
+      "",
+    ]).flat(),
   ].join("\n")
 
 function publish(key: string) {
@@ -98,7 +103,7 @@ test("CEL-117: a page opened from the task in the side panel opens beside it, th
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
-test("CEL-117: Back in the side panel returns to what it showed before: page → its TASKS chip → Back to the page, a linked task in a comment → Back; ⌘[, reload and browser back/forward too", async ({ page }) => {
+test("CEL-117: Back in the side panel returns to what it showed before: page → its TASKS chip or a key in its text → Back to the page, where it was scrolled; a linked task in a comment → Back; ⌘[, reload and browser back/forward too", async ({ page }) => {
   const key = uniqueKey("PBH")
   await createProject(page, "Panel history", key)
   cello("task", "create", "Saved library: replace Chrome bookmarks", "--project", key)
@@ -114,12 +119,6 @@ test("CEL-117: Back in the side panel returns to what it showed before: page →
   await expect(viewer.getByRole("heading", { level: 1, name: "Saved library: design" })).toBeVisible()
   await expect(viewer.getByRole("button", { name: `Back to ${key}-1` })).toBeVisible()
 
-  await caption(page, "Scroll down the page to Part 6")
-  const reader = viewer.locator("[data-page-reader]")
-  await viewer.getByRole("heading", { level: 2, name: "Part 6" }).scrollIntoViewIfNeeded()
-  const scrolled = await reader.evaluate((el) => el.scrollTop)
-  expect(scrolled).toBeGreaterThan(200)
-
   await captionWithUrl(page, `Click ${key}-2 in the page's TASKS: it opens in the side panel, with a Back to the page`)
   await viewer.getByRole("group", { name: "Linked tasks" }).locator(`[data-task-chip="${key}-2"]`).click()
   await expect(second).toHaveAttribute("data-placement", "side")
@@ -127,11 +126,25 @@ test("CEL-117: Back in the side panel returns to what it showed before: page →
   const backToPage = second.getByRole("button", { name: "Back to Saved library: design" })
   await expect(backToPage).toBeVisible()
 
-  await captionWithUrl(page, "Back: the page is there again, scrolled where it was, beside the task it came from")
+  await captionWithUrl(page, "Back: the page is there again, beside the task it came from")
   await backToPage.click()
   await expect(viewer.getByRole("heading", { level: 1, name: "Saved library: design" })).toBeVisible()
   await expect(first).toHaveAttribute("data-placement", "page")
   await expect(page).toHaveURL(new RegExp(`/${key}/1\\?viewer=`))
+
+  await caption(page, `Scroll down to Part 6 and click ${key}-2 in its text: the task opens in the side panel`)
+  const reader = viewer.locator("[data-page-reader]")
+  // The last mention: the one in Part 6 (the first is in the opening line).
+  const inText = viewer.locator(`p [data-task-link="${key}-2"]`).last()
+  await inText.scrollIntoViewIfNeeded()
+  const scrolled = await reader.evaluate((el) => el.scrollTop)
+  expect(scrolled).toBeGreaterThan(200)
+  await inText.click()
+  await expect(second).toHaveAttribute("data-placement", "side")
+
+  await caption(page, "Back: the page comes back scrolled where it was")
+  await backToPage.click()
+  await expect(viewer.getByRole("heading", { level: 2, name: "Part 6" })).toBeVisible()
   expect(await reader.evaluate((el) => el.scrollTop)).toBe(scrolled)
 
   await captionWithUrl(page, `Browser forward goes to ${key}-2 again; ⌘[ comes back to the page`)
