@@ -69,6 +69,8 @@ export const entityOf = (body: EventBody): { readonly type: string; readonly id:
       return { type, id: `${body.agent.sessionId}/${body.agent.agentId}` }
     case "build.recorded":
       return { type, id: body.build.id }
+    case "profile.changed":
+      return { type, id: body.project }
     default:
       return { type, id: body.id }
   }
@@ -156,10 +158,11 @@ const make = Effect.gen(function* () {
     Effect.withSpan("EventStore.latestSeq"),
   )
 
-  // A session taking a comment (CEL-76) is a receipt, not activity: Recent activity leaves it out.
+  // A session taking a comment (CEL-76) is a receipt, not activity: Recent activity leaves it out. Testing
+  // profile changes (CEL-89) are in it, so agents see who changed how the repo is tested.
   const recent = Effect.fn("EventStore.recent")(function* (projectId: string, limit: number) {
     const rows = yield* sql<EventRow>`
-      SELECT * FROM events WHERE project_id = ${projectId} AND entity_type IN ('task', 'comment', 'review', 'ask')
+      SELECT * FROM events WHERE project_id = ${projectId} AND entity_type IN ('task', 'comment', 'review', 'ask', 'profile')
         AND type != 'comment.delivered'
       ORDER BY seq DESC LIMIT ${limit}`
     return rows.map(decodeRow)

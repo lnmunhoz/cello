@@ -10,6 +10,7 @@ import * as EventLog from "./events/EventLog.ts"
 import * as EventStore from "./events/EventStore.ts"
 import * as InboxService from "./inbox/InboxService.ts"
 import * as LabelService from "./label/LabelService.ts"
+import * as ProfileService from "./profile/ProfileService.ts"
 import * as ProjectService from "./project/ProjectService.ts"
 import * as RepoPaths from "./project/repoPath.ts"
 import * as ReviewService from "./review/ReviewService.ts"
@@ -41,8 +42,8 @@ const domain = Layer.mergeAll(
   Layer.provideMerge(EventStore.layer),
 )
 
-/** Reviews and asks move tasks and deliver to inboxes; documents link tasks. They sit on the domain services. */
-const reviews = Layer.mergeAll(ReviewService.layer, AskService.layer, DocumentService.layer).pipe(Layer.provideMerge(domain))
+/** Reviews and asks move tasks and deliver to inboxes; documents link tasks; testing profiles (CEL-89) name projects. They sit on the domain services. */
+const reviews = Layer.mergeAll(ReviewService.layer, AskService.layer, DocumentService.layer, ProfileService.layer).pipe(Layer.provideMerge(domain))
 
 /** The CLI's read models and search sit on top of the domain services. Tests can swap how project folders are normalized. */
 export const layerWith = (repoPaths: Layer.Layer<RepoPaths.RepoPaths>) =>

@@ -284,7 +284,7 @@ export const detectRepo = (facts: RepoFacts, machine: MachineFacts): Detection =
       ? "Add pytest and a tests/ folder, then set it with `cello profile set unit \"pytest\"`."
       : go
       ? "Add *_test.go files; `go test ./...` runs them."
-      : `Add a unit test runner (Vitest: \`${(js ?? JS_RUNNERS.npm!).install.split(" ")[0]} add -d vitest\`) and a "test" script.`)
+      : `Add a unit test runner (Vitest: \`${manager ?? "npm"} add -D vitest\`) and a "test" script.`)
   }
 
   if (knownNoUi) {

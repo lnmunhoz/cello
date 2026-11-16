@@ -35,6 +35,19 @@ describe("describeEvent", () => {
     expect(describeEvent(ev({ type: "comment.added", comment: {} as never }, "ghost"), state)).toBe("Someone commented")
   })
 
+  it("says which testing-profile fields changed, were unset or confirmed (CEL-89)", () => {
+    const field = (name: string, value: string) => ({ field: name, value, source: "agent" as const, updatedAt: 1, actorId: "me", sessionId: null })
+    const changed = (changes: ReadonlyArray<{ field: string; before: ReturnType<typeof field> | null; after: ReturnType<typeof field> | null }>) =>
+      describeEvent(ev({ type: "profile.changed", project: "p", changes }), state)
+    expect(changed([{ field: "unit", before: null, after: field("unit", "bun run test") }])).toBe("Lucas set the testing profile's unit to `bun run test`")
+    expect(changed([{ field: "unit", before: field("unit", "a"), after: null }])).toBe("Lucas unset the testing profile's unit")
+    expect(changed([{ field: "unit", before: field("unit", "a"), after: field("unit", "a") }])).toBe("Lucas confirmed the testing profile's unit")
+    expect(changed([
+      { field: "install", before: null, after: field("install", "bun install") },
+      { field: "unit", before: field("unit", "a"), after: null },
+    ])).toBe("Lucas changed the testing profile: set install, unset unit")
+  })
+
   it("says which emoji a reaction was (CEL-77)", () => {
     const reaction = { id: "x", commentId: "c", taskId: "t", emoji: "👍", actorId: "me", sessionId: null, createdAt: 1 }
     expect(describeEvent(ev({ type: "reaction.added", reaction }), state)).toBe("Lucas reacted 👍 to a comment")

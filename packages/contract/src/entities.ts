@@ -540,6 +540,28 @@ export const DocumentVersion = Schema.Struct({
 })
 export type DocumentVersion = typeof DocumentVersion.Type
 
+/**
+ * One field of a project's testing profile (CEL-89): how to install, test, start the app or collect
+ * evidence in its repo. `source` says who set it last (`cello init`'s detection, an agent, or the
+ * human), `updatedAt` when it was last set or confirmed. Field names are in @cello/shared/testingProfile.
+ */
+export const ProfileSource = Schema.Literals(["detected", "agent", "human"])
+export type ProfileSource = typeof ProfileSource.Type
+
+export const ProfileField = Schema.Struct({
+  field: Schema.String,
+  value: Schema.String,
+  source: ProfileSource,
+  updatedAt: Millis,
+  actorId: Id,
+  sessionId: Schema.NullOr(Id),
+})
+export type ProfileField = typeof ProfileField.Type
+
+/** A project's testing profile: its fields that are set, in display order. Current best knowledge, not fixed. */
+export const TestingProfile = Schema.Struct({ projectId: Id, fields: Schema.Array(ProfileField) })
+export type TestingProfile = typeof TestingProfile.Type
+
 /** Which project a CLI call is about: by key (`--project CEL`), or by the repository folder it runs in. */
 export const ProjectRef = Schema.Struct({
   key: Schema.optionalKey(Schema.String),

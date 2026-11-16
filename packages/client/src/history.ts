@@ -88,6 +88,15 @@ export const describeEvent = (e: CelloEvent, state: Pick<BoardState, "actors" | 
       return `${who} updated the ${e.document.kind} “${e.document.title}”`
     case "document.archived":
       return `${who} archived a document`
+    case "profile.changed": {
+      const verb = (c: (typeof e.changes)[number]) => c.after === null ? "unset" : c.before?.value === c.after.value ? "confirmed" : "set"
+      const [only] = e.changes
+      if (e.changes.length === 1 && only) {
+        const what = `the testing profile's ${only.field}`
+        return verb(only) === "set" ? `${who} set ${what} to \`${only.after!.value}\`` : `${who} ${verb(only)} ${what}`
+      }
+      return `${who} changed the testing profile: ${e.changes.map((c) => `${verb(c)} ${c.field}`).join(", ")}`
+    }
     default:
       return `${who} changed it`
   }

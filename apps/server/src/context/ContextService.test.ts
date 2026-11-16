@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect"
 import * as CommentService from "../comment/CommentService.ts"
 import * as InboxService from "../inbox/InboxService.ts"
 import * as LabelService from "../label/LabelService.ts"
+import * as ProfileService from "../profile/ProfileService.ts"
 import * as ProjectService from "../project/ProjectService.ts"
 import * as Seed from "../persistence/Seed.ts"
 import * as ReviewService from "../review/ReviewService.ts"
@@ -126,6 +127,17 @@ describe("ContextService.context", () => {
       const ctx = yield* agent(context.context({ key: "CEL" }))
       expect(ctx.recent.map((a) => a.event.type)).not.toContain("comment.delivered")
       expect(ctx.recent[0]).toMatchObject({ event: { type: "comment.added" }, taskKey: one.key })
+    })))
+
+  it.effect("carries the project's testing profile, so every agent sees it at the start of a session (CEL-89)", () =>
+    run(Effect.gen(function* () {
+      const { context, project } = yield* setup
+      expect((yield* agent(context.context({ key: "CEL" }))).profile).toEqual({ projectId: project.id, fields: [] })
+      yield* (yield* ProfileService.ProfileService).set({ commandId: cmd(), project: { key: "CEL" }, set: [{ field: "unit", value: "bun run test" }] })
+      const ctx = yield* agent(context.context({ key: "CEL" }))
+      expect(ctx.profile?.fields).toMatchObject([{ field: "unit", value: "bun run test", source: "human" }])
+      // The change shows in Recent activity, with no task key.
+      expect(ctx.recent[0]).toMatchObject({ event: { type: "profile.changed" }, taskKey: null })
     })))
 
   it.effect("fails with NotFound for a folder no project is linked to", () =>

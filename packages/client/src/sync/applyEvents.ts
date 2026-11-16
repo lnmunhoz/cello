@@ -185,6 +185,8 @@ const apply = (d: Draft, e: CelloEvent) => {
       return d.update("documents", e.id, (doc) => ({ ...doc, archivedAt: e.ts }))
     case "build.recorded":
       return // builds load on the Builds page, not in board state
+    case "profile.changed":
+      return // testing profiles load in Settings (sync/profile.ts), not in board state
     case "comment.delivered":
       return // receipts load with a task's comments (sync/comments.ts); taking one is no activity on the task
     case "reaction.added":
