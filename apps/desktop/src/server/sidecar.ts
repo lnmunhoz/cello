@@ -5,12 +5,18 @@ import { spawn, type ChildProcess } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { isAlive } from "@cello/server/process/isAlive"
+import { rotateLog } from "@cello/shared/logRotation"
 import { isAlreadyRunning, LOCK_FILE, parseBanner, parseLock, planServer, serverUrl, type ServerSurvey } from "./plan.ts"
 
 export interface Server {
   readonly url: string
   /** True when the app started this server; only then does `stop` stop it. */
   readonly startedByUs: boolean
+  /**
+   * Why the installed background service didn't start, when the app started its own server instead
+   * (CEL-81): a plist whose program is gone, or a job launchd won't run.
+   */
+  readonly serviceProblem?: string
   readonly stop: () => Promise<void>
 }
 
@@ -23,6 +29,11 @@ export interface ConnectOptions {
   readonly env: Readonly<Record<string, string | undefined>>
   /** Where the started server's output goes. */
   readonly log?: (text: string) => void
+  /**
+   * The background service is installed for this data folder (CEL-81): the app never starts a server of
+   * its own then, it asks launchd to start the service (`startService`) and waits for it.
+   */
+  readonly service?: { readonly installed: boolean; readonly start: () => Promise<void> }
 }
 
 const PROBE_TIMEOUT_MS = 1_000
@@ -41,7 +52,7 @@ export const probe = async (url: string): Promise<boolean> => {
 }
 
 /** Looks at CELLO_PORT and the data folder's server lock. */
-export const survey = async (port: number, dataDir: string): Promise<ServerSurvey> => {
+export const survey = async (port: number, dataDir: string, service = false): Promise<ServerSurvey> => {
   const lockPath = path.join(dataDir, LOCK_FILE)
   const lock = fs.existsSync(lockPath) ? parseLock(fs.readFileSync(lockPath, "utf8")) : null
   const [portAnswers, lockAnswers] = await Promise.all([
@@ -52,7 +63,15 @@ export const survey = async (port: number, dataDir: string): Promise<ServerSurve
     port,
     portAnswers,
     lock: lock && { ...lock, alive: isAlive(lock.pid), answers: lockAnswers ?? (lock.port === port && portAnswers) },
+    service,
   }
+}
+
+/** The pid in the data folder's server lock, when that process is alive. */
+export const lockHolder = (dataDir: string): number | null => {
+  const lockPath = path.join(dataDir, LOCK_FILE)
+  const lock = fs.existsSync(lockPath) ? parseLock(fs.readFileSync(lockPath, "utf8")) : null
+  return lock && isAlive(lock.pid) ? lock.pid : null
 }
 
 const joined = (url: string): Server => ({ url, startedByUs: false, stop: async () => {} })
@@ -60,10 +79,26 @@ const joined = (url: string): Server => ({ url, startedByUs: false, stop: async 
 export class ServerStartError extends Error {}
 
 export const connectServer = async (options: ConnectOptions): Promise<Server> => {
-  // A second pass covers a race: another `cello start` took the folder between the survey and ours.
-  for (let pass = 0; pass < 2; pass++) {
-    const plan = planServer(await survey(options.port, options.dataDir))
+  let service = options.service?.installed ?? false
+  let serviceProblem: string | undefined
+  // A second pass covers a race: another `cello start` took the folder between the survey and ours; a
+  // third, the start after a background service that didn't come up.
+  for (let pass = 0; pass < 3; pass++) {
+    const plan = planServer(await survey(options.port, options.dataDir, service))
     if (plan.kind === "join") return joined(plan.url)
+    if (plan.kind === "service") {
+      const failed = await options.service!.start().then(
+        () => null,
+        () => "launchd couldn't start it",
+      )
+      if (failed === null && (await waitUntilAnswers(plan.url))) return joined(plan.url)
+      // A stale plist (its program gone, a job launchd won't run) mustn't lock the app out: say why,
+      // and start the app's own server instead.
+      serviceProblem = failed ?? "it didn't answer"
+      options.log?.(`Cello's background service didn't start: ${serviceProblem}. Starting the app's own server.\n`)
+      service = false
+      continue
+    }
     if (plan.kind === "wait") {
       if (await waitUntilAnswers(plan.url)) return joined(plan.url)
       throw new ServerStartError(
@@ -76,7 +111,7 @@ export const connectServer = async (options: ConnectOptions): Promise<Server> =>
       )
     }
     const started = await startServer(options, options.command)
-    if (started.kind === "started") return started.server
+    if (started.kind === "started") return serviceProblem ? { ...started.server, serviceProblem } : started.server
     if (started.kind === "failed") throw new ServerStartError(started.message)
   }
   throw new ServerStartError(`Couldn't start or join the Cello server for ${options.dataDir}.`)
@@ -131,6 +166,58 @@ const startServer = (options: ConnectOptions, command: ReadonlyArray<string>): P
           ? { kind: "already-running" }
           : { kind: "failed", message: stderr.trim() || `cello start exited with code ${code}.` },
       ))
+  })
+
+/**
+ * Keep Running (CEL-81): starts `cello start` on its own, outliving the app, with its output appended
+ * to `logPath` (a pipe to the app would break when the app quits). Resolves to its pid once it answers
+ * at `url`, or null if it doesn't.
+ */
+export const startDetached = async (options: {
+  readonly command: ReadonlyArray<string>
+  readonly url: string
+  readonly dataDir: string
+  readonly env: Readonly<Record<string, string | undefined>>
+  readonly logPath: string
+}): Promise<number | null> => {
+  const [file, ...args] = options.command as [string, ...string[]]
+  fs.mkdirSync(path.dirname(options.logPath), { recursive: true })
+  rotateLog(options.logPath)
+  const out = fs.openSync(options.logPath, "a")
+  try {
+    const child = spawn(file, [...args, "start"], {
+      env: { ...options.env, CELLO_PORT: new URL(options.url).port, CELLO_DATA_DIR: options.dataDir },
+      detached: true,
+      stdio: ["ignore", out, out],
+    })
+    child.unref()
+    const failed = new Promise<false>((resolve) => {
+      child.once("error", () => resolve(false))
+      child.once("exit", () => resolve(false))
+    })
+    return (await Promise.race([waitUntilAnswers(options.url), failed])) ? child.pid ?? null : null
+  } finally {
+    fs.closeSync(out)
+  }
+}
+
+/** Install Background Service (CEL-81): runs `cello service install` and returns what it printed. */
+export const installService = (options: {
+  readonly command: string
+  readonly port: number
+  readonly dataDir: string
+  readonly env: Readonly<Record<string, string | undefined>>
+}): Promise<{ readonly ok: boolean; readonly output: string }> =>
+  new Promise((resolve) => {
+    const child = spawn(options.command, ["service", "install"], {
+      env: { ...options.env, CELLO_PORT: String(options.port), CELLO_DATA_DIR: options.dataDir },
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    let output = ""
+    child.stdout!.setEncoding("utf8").on("data", (chunk: string) => (output += chunk))
+    child.stderr!.setEncoding("utf8").on("data", (chunk: string) => (output += chunk))
+    child.on("error", (error) => resolve({ ok: false, output: `Couldn't run ${options.command}: ${error.message}` }))
+    child.on("close", (code) => resolve({ ok: code === 0, output: output.trim() }))
   })
 
 /** Stops a server the app started: SIGTERM lets it release its lock; SIGKILL if it hangs. */

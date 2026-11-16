@@ -165,7 +165,7 @@ flowchart TD
     Sink --> DB[("SQLite, WAL mode<br/>~/.cello/cello.db")]
 ```
 
-- **One process** serves the RPC WebSocket and the built React app. `cello start` runs it; a launchd agent can keep it running.
+- **One process** serves the RPC WebSocket and the built React app. `cello start` runs it. On macOS, `cello service install` sets up a launchd user agent (`dev.cello.server`, RunAtLoad and KeepAlive) that runs it from login and restarts it when it stops, so it outlives the desktop app and terminals (CEL-81). The app joins it, and never stops it on quit.
 - **One writer.** Only the server touches the SQLite file, so there's no file locking between agents.
 - **Local only.** It listens on `127.0.0.1`. It checks the `Host` and `Origin` headers so a web page in your browser can't call it (DNS rebinding). Non-browser clients send a token from `~/.cello/token`.
 - **Backups.** The SQLite file is the only copy, so the server takes a daily backup with SQLite's backup API, keeps 14, and can export everything to JSON and Markdown.
@@ -283,7 +283,7 @@ Commands are thin wrappers over the same RPCs and services (see "API contract an
 | `cello doc publish report.md` | Publish a markdown file as a page and print its link. Running it again on the same file updates the same page. `--title`, `--task THAI-12`, `--asset img.png`. |
 | `cello search "query"` | Full-text search over tasks, comments and docs (SQLite FTS5). |
 
-Plus commands for you: `cello start`, `cello init`, `cello install`, `cello hook install`, `cello backup`, `cello export`.
+Plus commands for you: `cello start`, `cello service install`, `cello init`, `cello install`, `cello hook install`, `cello backup`, `cello export`.
 
 ### Setup
 
@@ -293,7 +293,7 @@ cello install codex      # adds the guide pointer to ~/.codex/AGENTS.md
 cello init               # in a repo: registers it as a project (asks workspace, key)
 ```
 
-If the server isn't running, any `cello` command starts it in the background first.
+The server runs as a background service from login (`cello service install`, a launchd user agent; CEL-81). A `cello` command never starts the server itself: agents would otherwise start Lucas's live server against his data. When it's down, the command says so and `cello service status` shows why.
 
 ## Live sync and state in the browser
 

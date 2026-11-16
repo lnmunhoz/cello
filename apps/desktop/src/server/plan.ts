@@ -5,6 +5,7 @@
 // its pid and port before opening the database (apps/server/src/server/ServerLock.ts), so the app
 // never starts a second one against a folder a live server holds; it joins that server instead.
 import * as path from "node:path"
+import { parsePlist } from "@cello/shared/launchAgent"
 
 export const DEFAULT_PORT = 4747
 /** The lock file `cello start` keeps in its data folder (apps/server/src/server/ServerLock.ts). */
@@ -21,11 +22,14 @@ export interface ServerSurvey {
   readonly portAnswers: boolean
   /** `alive`: the pid still runs. `answers`: something answers on the lock's port. */
   readonly lock: (LockInfo & { readonly alive: boolean; readonly answers: boolean }) | null
+  /** A background service is installed for this data folder (CEL-81, `cello service install`). */
+  readonly service: boolean
 }
 
 export type ServerPlan =
   | { readonly kind: "join"; readonly url: string }
   | { readonly kind: "wait"; readonly url: string; readonly pid: number }
+  | { readonly kind: "service"; readonly url: string }
   | { readonly kind: "start" }
 
 export const serverUrl = (port: number): string => `http://127.0.0.1:${port}`
@@ -35,6 +39,8 @@ export const planServer = (survey: ServerSurvey): ServerPlan => {
   if (holder && holder.port > 0 && holder.answers) return { kind: "join", url: serverUrl(holder.port) }
   if (survey.portAnswers) return { kind: "join", url: serverUrl(survey.port) }
   if (holder) return { kind: "wait", url: serverUrl(holder.port > 0 ? holder.port : survey.port), pid: holder.pid }
+  // With the service installed, a server of the app's own would hold the folder and keep the service out.
+  if (survey.service) return { kind: "service", url: serverUrl(survey.port) }
   return { kind: "start" }
 }
 
@@ -75,4 +81,25 @@ export const celloCommand = (options: {
   if (options.isPackaged) return path.join(options.resourcesPath, "cello")
   const built = path.join(options.repoRoot, "apps/cli/dist/cello")
   return options.exists(built) ? built : null
+}
+
+/** Whether an installed plist (its text, null when there's none) is the background service for `dataDir`. */
+export const serviceFor = (plist: string | null, dataDir: string): boolean => {
+  const installed = plist === null ? null : parsePlist(plist)
+  return installed?.dataDir != null && path.resolve(installed.dataDir) === path.resolve(dataDir)
+}
+
+/**
+ * The `cello` that installs the background service from the quit question: the one Lucas runs (CELLO_BIN,
+ * else `cello` in CELLO_BIN_DIR or ~/.local/bin, which links to the repo build), else the app's own. The
+ * service runs whichever binary installs it.
+ */
+export const serviceInstaller = (options: {
+  readonly env: Env
+  readonly exists: (file: string) => boolean
+  readonly fallback: string | null
+}): string | null => {
+  if (options.env.CELLO_BIN) return options.env.CELLO_BIN
+  const linked = path.join(options.env.CELLO_BIN_DIR || path.join(options.env.HOME ?? "", ".local/bin"), "cello")
+  return options.exists(linked) ? linked : options.fallback
 }

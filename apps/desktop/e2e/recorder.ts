@@ -7,6 +7,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import type { ElectronApplication } from "@playwright/test"
+import { isReview } from "../../../e2e/recording.ts"
 
 /** Composes the window at `scale` (1 for video frames, 2 for sharp screenshots); runs in the main process. */
 const composeWindow = async (
@@ -55,8 +56,11 @@ export interface Recording {
 /** The captions' font: San Francisco on macOS (it has the ⌘ glyph), DejaVu Sans in the Docker image. */
 const FONT = process.platform === "darwin" ? "/System/Library/Fonts/SFNS.ttf" : "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
-/** Each step's result stays on screen this long in the video, so a fast test is still watchable. */
-const HOLD_SECONDS = 1.2
+/**
+ * Each step's result stays on screen this long in the video, so a fast test is still watchable; longer
+ * in review videos (CELLO_E2E_REVIEW=1, e2e/recording.ts), so each caption can be read.
+ */
+const HOLD_SECONDS = isReview(process.env) ? 3 : 1.2
 
 /**
  * Records the main window until `stop`. A frame is taken at every caption (so each step's result

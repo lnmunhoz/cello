@@ -1,33 +1,80 @@
 import { describe, expect, it } from "vitest"
-import { celloCommand, isAlreadyRunning, parseBanner, parseLock, planServer, serverConfig } from "./plan.ts"
+import { renderPlist } from "@cello/shared/launchAgent"
+import { celloCommand, isAlreadyRunning, parseBanner, parseLock, planServer, serverConfig, serviceFor, serviceInstaller } from "./plan.ts"
 
 describe("planServer", () => {
   it("starts the bundled server when nothing answers and no live server holds the data folder", () => {
-    expect(planServer({ port: 4747, portAnswers: false, lock: null })).toEqual({ kind: "start" })
+    expect(planServer({ port: 4747, portAnswers: false, lock: null, service: false })).toEqual({ kind: "start" })
   })
 
   it("joins whatever answers on CELLO_PORT (Lucas's terminal `cello start`)", () => {
-    expect(planServer({ port: 4747, portAnswers: true, lock: null })).toEqual({ kind: "join", url: "http://127.0.0.1:4747" })
+    expect(planServer({ port: 4747, portAnswers: true, lock: null, service: false })).toEqual({ kind: "join", url: "http://127.0.0.1:4747" })
   })
 
   it("starts over a lock left by a dead process: the new server takes it over", () => {
     const lock = { pid: 123, port: 4747, alive: false, answers: false }
-    expect(planServer({ port: 4747, portAnswers: false, lock })).toEqual({ kind: "start" })
+    expect(planServer({ port: 4747, portAnswers: false, lock, service: false })).toEqual({ kind: "start" })
   })
 
   it("joins the server that holds the data folder, on its own port, even when CELLO_PORT differs", () => {
     const lock = { pid: 123, port: 4800, alive: true, answers: true }
-    expect(planServer({ port: 4747, portAnswers: true, lock })).toEqual({ kind: "join", url: "http://127.0.0.1:4800" })
+    expect(planServer({ port: 4747, portAnswers: true, lock, service: false })).toEqual({ kind: "join", url: "http://127.0.0.1:4800" })
   })
 
   it("never starts a second server for a held data folder: it waits for the holder to answer", () => {
     const lock = { pid: 123, port: 4800, alive: true, answers: false }
-    expect(planServer({ port: 4747, portAnswers: false, lock })).toEqual({ kind: "wait", url: "http://127.0.0.1:4800", pid: 123 })
+    expect(planServer({ port: 4747, portAnswers: false, lock, service: false })).toEqual({ kind: "wait", url: "http://127.0.0.1:4800", pid: 123 })
   })
 
   it("waits on CELLO_PORT when the holder hasn't recorded its port yet", () => {
     const lock = { pid: 123, port: 0, alive: true, answers: false }
-    expect(planServer({ port: 4747, portAnswers: false, lock })).toEqual({ kind: "wait", url: "http://127.0.0.1:4747", pid: 123 })
+    expect(planServer({ port: 4747, portAnswers: false, lock, service: false })).toEqual({ kind: "wait", url: "http://127.0.0.1:4747", pid: 123 })
+  })
+})
+
+describe("planServer with the background service installed (CEL-81)", () => {
+  it("joins it when it answers, like any server", () => {
+    const lock = { pid: 44568, port: 4747, alive: true, answers: true }
+    expect(planServer({ port: 4747, portAnswers: true, lock, service: true })).toEqual({ kind: "join", url: "http://127.0.0.1:4747" })
+  })
+
+  it("never starts a server of its own beside it: it asks launchd to start the service and waits for it", () => {
+    expect(planServer({ port: 4747, portAnswers: false, lock: null, service: true })).toEqual({ kind: "service", url: "http://127.0.0.1:4747" })
+    const stale = { pid: 123, port: 4747, alive: false, answers: false }
+    expect(planServer({ port: 4747, portAnswers: false, lock: stale, service: true })).toEqual({ kind: "service", url: "http://127.0.0.1:4747" })
+  })
+})
+
+describe("serviceFor", () => {
+  const plist = renderPlist({
+    program: ["/Users/me/cello/apps/cli/dist/cello", "start"],
+    home: "/Users/me",
+    path: "/usr/bin:/bin",
+    dataDir: "/Users/me/.cello",
+    port: 4747,
+    logPath: "/Users/me/.cello/logs/server.log",
+  })
+
+  it("is true for an installed plist that serves this data folder", () => {
+    expect(serviceFor(plist, "/Users/me/.cello")).toBe(true)
+  })
+
+  it("is false with no plist, a broken one, or one for another data folder", () => {
+    expect(serviceFor(null, "/Users/me/.cello")).toBe(false)
+    expect(serviceFor("not a plist", "/Users/me/.cello")).toBe(false)
+    expect(serviceFor(plist, "/tmp/cello-e2e")).toBe(false)
+  })
+})
+
+describe("serviceInstaller", () => {
+  const exists = (file: string) => file === "/Users/me/.local/bin/cello" || file === "/opt/bin/cello"
+
+  it("installs with the cello Lucas runs: CELLO_BIN, else the one in CELLO_BIN_DIR or ~/.local/bin, else the app's own", () => {
+    expect(serviceInstaller({ env: { CELLO_BIN: "/x/cello", HOME: "/Users/me" }, exists, fallback: "/App/Resources/cello" })).toBe("/x/cello")
+    expect(serviceInstaller({ env: { HOME: "/Users/me" }, exists, fallback: "/App/Resources/cello" })).toBe("/Users/me/.local/bin/cello")
+    expect(serviceInstaller({ env: { HOME: "/Users/me", CELLO_BIN_DIR: "/opt/bin" }, exists, fallback: null })).toBe("/opt/bin/cello")
+    expect(serviceInstaller({ env: { HOME: "/Users/other" }, exists, fallback: "/App/Resources/cello" })).toBe("/App/Resources/cello")
+    expect(serviceInstaller({ env: { HOME: "/Users/other" }, exists, fallback: null })).toBeNull()
   })
 })
 

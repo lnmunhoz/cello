@@ -114,6 +114,8 @@ import { contextProfileLines, profileLines, readinessLines, wroteLines } from ".
 import { machineFacts, readRepoFacts } from "./repoFacts.ts"
 import { kindsOf, searchText } from "./search.ts"
 import { checkoutRootFor, repoRootFor } from "./repo.ts"
+import { installService, restartService, serviceStatus, uninstallService } from "./launchd.ts"
+import { installText, restartedText, statusText } from "./service.ts"
 import { start } from "./start.ts"
 
 export { CliEnv } from "./env.ts"
@@ -2286,9 +2288,114 @@ const startCommand = Command.make("start", {}, () => start).pipe(
   Command.withDescription("Run the Cello server on 127.0.0.1:4747 with data in ~/.cello (CELLO_PORT, CELLO_DATA_DIR), serving its built-in web app, or every file in CELLO_WEB_DIR when that folder has an index.html."),
 )
 
+// ── the background service (CEL-81) ─────────────────────────────────────────────────────────────
+
+/** Which build the server on `port` is; null when nothing answers there. */
+const serverBuildAt = (port: number) =>
+  Effect.gen(function* () {
+    const cliEnv = yield* CliEnv
+    return yield* withClient(
+      (client) => Effect.map(client["server.build"]({}), (build) => ({ version: build.version, commit: build.commit })),
+      { whenDown: Effect.succeed(null) },
+    ).pipe(
+      Effect.provideService(CliEnv, { ...cliEnv, env: { ...cliEnv.env, CELLO_PORT: String(port) } }),
+      Effect.catch(() => Effect.succeed(null)),
+    )
+  })
+
+const serviceInstall = Command.make("install", {
+  replace: Flag.Boolean("replace").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription(
+      "Replace what's in the way, after naming it: a Cello server started another way (`cello start` in a terminal, the desktop app) " +
+        "that holds the data folder, which it stops by the pid in its lock, and only after checking that pid is a Cello server " +
+        "answering on the lock's port; and an installed service that runs another binary, data folder or port. Without it, install " +
+        "refuses and says what's there.",
+    ),
+  ),
+  temporary: Flag.Boolean("temporary").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription(
+      "Install even though this cello is in a temp folder or a git worktree (.claude/worktrees/), which can disappear and leave the " +
+        "service with nothing to run. For trying a build; tests use it.",
+    ),
+  ),
+}, (input) =>
+  Effect.flatMap(installService({ replace: input.replace, temporary: input.temporary }, serverBuildAt), (done) => print(installText(done)))).pipe(
+  Command.withDescription(
+    "Run Cello's server as a macOS background service: writes the launchd user agent dev.cello.server to " +
+      "~/Library/LaunchAgents/dev.cello.server.plist and loads it, so `cello start` runs now, at every login, and again within " +
+      "5 seconds whenever it stops. It runs this cello binary (the absolute path, symlinks resolved), with CELLO_DATA_DIR " +
+      "(default ~/.cello) and CELLO_PORT (default 4747) as they are now, and logs to <data folder>/logs/server.log. Installing " +
+      "again replaces it (after a rebuild that moved, or to change the port). Refuses while another server holds the data folder.",
+  ),
+  Command.withShortDescription("Run the server as a background service from login (macOS)."),
+  Command.withExamples([
+    { command: "cello service install", description: "Install and start it; prints what runs, its data folder, port and log" },
+    { command: "cello service install --replace", description: "Stop the `cello start` that holds the data folder, then install" },
+  ]),
+)
+
+const serviceStatusCommand = Command.make("status", {
+  json: Flag.Boolean("json").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription(
+      "Print JSON: installed, plist, program, programExists, dataDir, port, logPath, loaded, running, pid, lastExit, server " +
+        "({ version, commit } or null), logTail and holder ({ pid, port } of the server holding the data folder, or null).",
+    ),
+  ),
+}, (input) =>
+  Effect.gen(function* () {
+    const status = yield* serviceStatus(serverBuildAt)
+    yield* input.json ? printJson(status) : print(statusText(status))
+  })).pipe(
+    Command.withDescription(
+      "Show the background service: whether it's installed and running, its pid, the program and data folder it runs with, " +
+        "whether its server answers and which build it is, the plist and log paths, and the log's last 10 lines. Flags a plist " +
+        "whose program no longer exists (the repo moved or the build was deleted). Without the service, says whether a server " +
+        "runs anyway.",
+    ),
+    Command.withShortDescription("Is the background service installed and running?"),
+  )
+
+const serviceRestart = Command.make("restart", {}, () =>
+  Effect.flatMap(restartService(serverBuildAt), ({ program, pid, port }) => print(restartedText(program, pid, port)))).pipe(
+    Command.withDescription(
+      "Restart the background service: launchd sends its server SIGTERM (the clean shutdown; never a kill), starts the program " +
+        "again, and this waits up to 30 s for the new server to answer, then prints its pid. A stopped service is started instead. " +
+        "This is the deploy step once the service is installed: rebuild cello, back up when a migration ships, then restart.",
+    ),
+    Command.withShortDescription("Restart the background service, e.g. after a rebuild."),
+  )
+
+const serviceUninstall = Command.make("uninstall", {}, () =>
+  Effect.gen(function* () {
+    const removed = yield* uninstallService
+    if (!removed) return yield* print("The background service isn't installed; nothing to remove.")
+    yield* print([
+      "Removed the background service: its server stopped, and nothing starts Cello at login any more.",
+      `Your data in ${removed.dataDir} is untouched; the log stays in ${removed.logPath}.`,
+      "Run `cello start` (or open the desktop app) to use Cello without the service.",
+    ].join("\n"))
+  })).pipe(
+    Command.withDescription(
+      "Remove the background service: unloads it from launchd (stopping its server) and deletes its plist. The data folder and " +
+        "the log are left as they are.",
+    ),
+    Command.withShortDescription("Stop and remove the background service; data stays."),
+  )
+
+const service = Command.make("service").pipe(
+  Command.withDescription(
+    "Cello's server as a macOS background service (a launchd user agent), so it runs from login whether or not the desktop app " +
+      "is open: install, status, restart, uninstall.",
+  ),
+  Command.withSubcommands([serviceInstall, serviceStatusCommand, serviceRestart, serviceUninstall]),
+)
+
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, init, profile, task, label, waitCommand, inbox, doc, openCommand, searchCommand, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand, buildsCommand]),
+  Command.withSubcommands([context, init, profile, task, label, waitCommand, inbox, doc, openCommand, searchCommand, whoami, guide, install, uninstall, hook, startCommand, service, backup, restoreCommand, buildsCommand]),
   Command.withGlobalFlags([AgentFlag]),
 )
 
