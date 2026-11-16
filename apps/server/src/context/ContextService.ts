@@ -154,7 +154,10 @@ const make = Effect.gen(function* () {
     const project = yield* projects.resolve(ref)
     const claimed = yield* selectTasks(sql, sql`t.project_id = ${project.id} AND t.archived_at IS NULL AND ${heldBy(caller)}`)
     const recent = yield* store.recent(project.id, RECENT)
-    const lost = caller.sessionId === null ? [] : yield* store.claimsLostBy(caller.sessionId, project.id, RECENT)
+    // A claim the session holds again (claimed back, or a comment reopened the task for it, CEL-110) isn't lost.
+    const lost = caller.sessionId === null
+      ? []
+      : (yield* store.claimsLostBy(caller.sessionId, project.id, RECENT)).filter((e) => !(e.type === "task.claim_taken" || e.type === "task.claim_ended") || !claimed.some((t) => t.id === e.id))
     const names = yield* projectNames(
       project,
       [caller.sessionId, ...sessionIdsOf(claimed, [...recent, ...lost])],

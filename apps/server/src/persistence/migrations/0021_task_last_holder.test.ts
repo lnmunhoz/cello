@@ -27,7 +27,7 @@ describe("migration 0021_task_last_holder", () => {
         VALUES ('p', 'w', 'CEL', 'Cello', '#000000', 5, 1, 1)`
       yield* sql`INSERT INTO statuses (id, workspace_id, name, category, position, color, created_at, updated_at)
         VALUES ('done', 'w', 'Done', 'completed', 'a5', '#000000', 1, 1)`
-      for (const n of [1, 2, 3, 4]) {
+      for (const n of [1, 2, 3, 4, 5]) {
         yield* sql`INSERT INTO tasks (id, project_id, number, title, status_id, position, created_by_actor_id, created_at, updated_at)
           VALUES (${`t${n}`}, 'p', ${n}, ${`Task ${n}`}, 'done', ${`a${n}`}, 'h', 1, 1)`
       }
@@ -44,12 +44,16 @@ describe("migration 0021_task_last_holder", () => {
       // t3: claimed by a session that no longer exists: nobody.
       yield* claim(5, "t3", "task.claimed", "gone", "gone")
       // t4: never claimed.
+      // t5: s1 claimed, then a claim event whose payload isn't JSON: skipped (not a failed start), s1 counts.
+      yield* claim(6, "t5", "task.claimed", "s1", "s1")
+      yield* sql`INSERT INTO events (seq, ts, type, entity_type, entity_id, workspace_id, project_id, command_id, actor_id, session_id, schema_version, payload, created_at)
+        VALUES (7, 7, 'task.claim_taken', 'task', 't5', 'w', 'p', 'c7', 'a1', 's2', 1, '{not json', 7)`
       const before = yield* sql`SELECT * FROM tasks ORDER BY id`
       const inboxBefore = yield* sql`SELECT * FROM inbox_items`
 
       yield* Migrations.run
       const after = yield* sql<Record<string, unknown>>`SELECT * FROM tasks ORDER BY id`
-      expect(after.map((t) => [t.id, t.last_holder_session_id])).toEqual([["t1", "s2"], ["t2", "s1"], ["t3", null], ["t4", null]])
+      expect(after.map((t) => [t.id, t.last_holder_session_id])).toEqual([["t1", "s2"], ["t2", "s1"], ["t3", null], ["t4", null], ["t5", "s1"]])
       expect(after.map(({ last_holder_session_id, ...rest }) => rest)).toEqual(before)
       expect(yield* sql`SELECT * FROM inbox_items`).toEqual(inboxBefore)
       const columns = yield* sql<{ name: string }>`SELECT name FROM pragma_table_info('inbox_items')`

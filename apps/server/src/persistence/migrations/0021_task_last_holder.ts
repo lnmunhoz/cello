@@ -15,11 +15,14 @@ export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   yield* sql`ALTER TABLE tasks ADD COLUMN last_holder_session_id TEXT REFERENCES agent_sessions(id)`
   yield* sql`ALTER TABLE inbox_items ADD COLUMN reopened_from TEXT`
+  // A payload that isn't valid JSON (it shouldn't happen) is skipped rather than failing the start:
+  // json_extract throws on one, and SQLite doesn't promise to test json_valid first in an AND.
+  const holder = sql`CASE WHEN json_valid(e.payload) THEN json_extract(e.payload, '$.task.assigneeSessionId') END`
   yield* sql`
     UPDATE tasks SET last_holder_session_id = (
-      SELECT json_extract(e.payload, '$.task.assigneeSessionId') FROM events e
+      SELECT ${holder} FROM events e
       WHERE e.entity_id = tasks.id AND e.type IN ('task.claimed', 'task.claim_taken')
-        AND json_extract(e.payload, '$.task.assigneeSessionId') IN (SELECT id FROM agent_sessions)
+        AND ${holder} IN (SELECT id FROM agent_sessions)
       ORDER BY e.seq DESC LIMIT 1
     )`
 })

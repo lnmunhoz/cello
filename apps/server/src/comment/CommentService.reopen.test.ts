@@ -7,6 +7,7 @@ import type { InboxItem } from "@cello/contract/entities"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/sql/SqlClient"
+import { ContextService } from "../context/ContextService.ts"
 import * as EventStore from "../events/EventStore.ts"
 import * as InboxService from "../inbox/InboxService.ts"
 import * as ReviewService from "../review/ReviewService.ts"
@@ -206,6 +207,32 @@ describe("CommentService: a comment on a task nobody holds reopens it (CEL-110)"
       yield* say("For the session")
       expect((yield* now()).assigneeSessionId).toBe(yield* sessionIdOf("session-x"))
       expect(yield* x(inbox.unread)).toHaveLength(1)
+    })))
+
+  it.effect("cello context stops listing a claim as lost once a comment gave the task back to the session", () =>
+    run(Effect.gen(function* () {
+      const { tasks, status, task, say } = yield* setup
+      const context = yield* ContextService
+      const lostKeys = Effect.map(x(context.context({ key: "CEL" })), (c) => c.lostClaims.map((l) => l.taskKey))
+      yield* x(tasks.claim({ commandId: cmd(), key: task.key }))
+      // The human drags it back to Todo: X lost the claim.
+      yield* tasks.move({ commandId: cmd(), id: task.id, statusId: status["Todo"]!.id })
+      expect(yield* lostKeys).toEqual(["CEL-1"])
+      // His comment gives it back: claimed by X, so not lost any more.
+      yield* say("Actually, carry on with it")
+      const after = yield* x(context.context({ key: "CEL" }))
+      expect(after.claimed.map((t) => t.key)).toEqual(["CEL-1"])
+      expect(after.lostClaims).toEqual([])
+    })))
+
+  it.effect("a Canceled task an agent worked on is reopened too", () =>
+    run(Effect.gen(function* () {
+      const { tasks, status, task, say, now } = yield* setup
+      yield* x(tasks.claim({ commandId: cmd(), key: task.key }))
+      yield* tasks.move({ commandId: cmd(), id: task.id, statusId: status["Canceled"]!.id })
+      yield* say("Let's do it after all")
+      const after = yield* now()
+      expect([after.statusId, after.assigneeSessionId]).toEqual([status["In Progress"]!.id, yield* sessionIdOf("session-x")])
     })))
 
   it.effect("a task the human holds, or an archived one, isn't reopened", () =>
