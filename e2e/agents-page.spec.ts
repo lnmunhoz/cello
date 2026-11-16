@@ -162,7 +162,7 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   await shoot(page, "page")
   await shoot(page, "sidebar", page.locator('aside[data-sidebar="expanded"] nav[aria-label="Inbox"]'))
 
-  await captionWithUrl(page, "Open the builder: what it was asked, its card (no repeat of its name), and where its live log goes")
+  await captionWithUrl(page, "Open the builder: what it was asked, its card (no repeat of its name), and its live log")
   await builderRow.getByRole("button").first().click()
   await expect(page).toHaveURL((url) => url.searchParams.get("open") === `agent:${orchestrator}/${BUILDER}`)
   await expect(builderRow.locator("[data-agent-facts]")).toContainText("Asked toCLO-1 build the Agents page, phase 1")
