@@ -124,10 +124,10 @@ test("CEL-25: with a wide board, the app fills the window: no page scroll, the s
   const panel = taskPanel(page, `${key}-1`)
   await expectFills(page, boardOf(page), { panels: [panel], sideways: true })
 
-  await caption(page, "Open the page linked in a comment: the side panel stretches to the bottom")
+  await caption(page, "Open the page linked in a comment: the task moves to the main area, and both it and the side panel stretch to the bottom")
   await panel.locator("[data-comment-id]").getByRole("link").click()
   await expect(viewerOf(page).getByText("The app fills the window.")).toBeVisible()
-  await expectFills(page, boardOf(page), { panels: [viewerOf(page)], sideways: true })
+  await expectFills(page, panel.getByRole("textbox", { name: "Title" }), { panels: [panel, viewerOf(page)] })
   await page.keyboard.press("Escape")
   await expect(viewerOf(page)).toHaveCount(0)
 
