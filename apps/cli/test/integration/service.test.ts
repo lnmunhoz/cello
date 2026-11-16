@@ -22,7 +22,7 @@ import {
 } from "../../src/service.ts"
 import { fakeJobPid, writeFakeLaunchctl } from "../fakeLaunchctl.ts"
 import { LSOF_PATHS } from "../../src/launchd.ts"
-import { cello, startProcess } from "./cli.ts"
+import { cello, startProcess, UNDER_LOAD } from "./cli.ts"
 
 const UID = process.getuid!()
 /** lsof, which tells who listens on a port; the reused-pid test needs it (as install does to be sure). */
@@ -121,6 +121,7 @@ describe("cello service install", () => {
       expect(fs.existsSync(plist)).toBe(false)
     }).pipe(Effect.scoped))
 
+  // UNDER_LOAD: the process is the point. A `cello start` process, then stopping it: 1.1 s idle, 5.3 s at load ~110.
   it.live("refuses while a Cello server started another way holds the data folder; --replace stops that server, and only it", () =>
     Effect.gen(function* () {
       const { dataDir, install, plist } = yield* setup()
@@ -137,7 +138,7 @@ describe("cello service install", () => {
       yield* Effect.promise(() => proc.exited)
       expect(isAlive(bystander.pid)).toBe(true)
       expect(fs.existsSync(plist)).toBe(true)
-    }).pipe(Effect.scoped))
+    }).pipe(Effect.scoped), UNDER_LOAD)
 
   it.live("never stops a process that isn't a Cello server: a lock whose pid is alive but nothing answers is stale, even with --replace", () =>
     Effect.gen(function* () {
