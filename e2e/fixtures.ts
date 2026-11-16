@@ -8,7 +8,7 @@ import type { Label, Project, Status } from "../packages/contract/src/entities.t
 import { defaultWorkspaceId } from "../packages/client/src/sync/follow.ts"
 import { AGENT_SQUASH, agentMarkBox, agentMarkSvg } from "../packages/shared/src/agentMark.ts"
 import { newCommandId, openClient, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
-import { cropFor, holdMs } from "./recording.ts"
+import { cropFor, holdMs, videoSizeOf } from "./recording.ts"
 
 declare global {
   interface Window {
@@ -26,6 +26,8 @@ const pointer = {
   svg: agentMarkSvg({ width: POINTER_WIDTH, body: "#141416", eyes: "#FF7A2F", outline: "white" }),
   tip: agentMarkBox(POINTER_WIDTH).tip,
   squash: AGENT_SQUASH.map((k) => ({ ...k })),
+  /** False for footage that is narrated instead (`test.use({ captions: false })`): the caption box never shows. */
+  captions: true,
 }
 
 /**
@@ -100,7 +102,7 @@ const overlay = (mark: typeof pointer) => {
       @keyframes e2e-ripple { from { transform: scale(.3); opacity: 1 } to { transform: scale(1.4); opacity: 0 } }
       #e2e-caption { position: fixed; z-index: 2147483647; left: 50%; bottom: 28px; translate: -50% 0; padding: 8px 14px; border-radius: 8px;
         background: rgb(20 20 24 / .88); color: white; font: 500 15px system-ui; pointer-events: none; max-width: calc(100vw - 48px); }
-      #e2e-caption:empty { display: none; }
+      #e2e-caption:empty { display: none; }${mark.captions ? "" : "\n      #e2e-caption { display: none !important; }"}
       #e2e-caption [data-url] { display: block; margin-top: 3px; font: 12px ui-monospace, monospace; opacity: .8; overflow-wrap: anywhere; }`
     document.head.append(style)
     const cursor = document.createElement("div")
@@ -163,7 +165,7 @@ const overlay = (mark: typeof pointer) => {
 
 const HOLD_MS = holdMs(process.env)
 /** Review videos only: keeps what's on screen for a moment. Without CELLO_E2E_REVIEW=1 it returns at once. */
-const hold = (page: Page) => (HOLD_MS > 0 && !page.isClosed() ? page.waitForTimeout(HOLD_MS) : Promise.resolve())
+export const hold = (page: Page) => (HOLD_MS > 0 && !page.isClosed() ? page.waitForTimeout(HOLD_MS) : Promise.resolve())
 
 /**
  * Shows what the test is doing, at the bottom of the video; `url` adds the page's current URL under
@@ -194,15 +196,17 @@ const slug = (title: string) => {
   return full.length <= 80 ? full : full.slice(0, 80).replace(/-[^-]*$/, "")
 }
 
-export const test = base.extend<{ cello: PromiseClient }>({
+export const test = base.extend<{ cello: PromiseClient; captions: boolean }>({
+  /** Whether the video shows the captions; off for narrated footage. Captions still hold in review mode. */
+  captions: [true, { option: true }],
   /** An RPC client for seeding data, through the preview server's /rpc proxy like the page itself. */
   cello: async ({ baseURL }, use) => {
     const client = await openClient(`${baseURL!.replace(/^http/, "ws")}/rpc`)
     await use(client)
     await client.close()
   },
-  context: async ({ context }, use, testInfo) => {
-    await context.addInitScript(overlay, pointer)
+  context: async ({ context, captions, video: videoOption }, use, testInfo) => {
+    await context.addInitScript(overlay, { ...pointer, captions })
     // Each tab's video, and the viewport sizes it showed, so teardown can crop away the grey
     // Playwright draws around a page smaller than the video (a phone width, a short window).
     const tabs: Array<{ video: Video | null; viewports: Array<{ width: number; height: number } | null> }> = []
@@ -238,7 +242,7 @@ export const test = base.extend<{ cello: PromiseClient }>({
         if (!video) return
         const file = `${import.meta.dirname}/videos/raw/${name}${tabs.length > 1 ? `-tab-${i + 1}` : ""}`
         await video.saveAs(`${file}.webm`)
-        const crop = cropFor(viewports)
+        const crop = cropFor(viewports, videoSizeOf(videoOption))
         if (crop) fs.writeFileSync(`${file}.crop.json`, JSON.stringify(crop))
       }),
     )
