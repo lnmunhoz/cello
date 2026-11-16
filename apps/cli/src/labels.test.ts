@@ -1,7 +1,7 @@
 // Labels in the CLI (CEL-56): `task label`'s +name/-name changes, close matches for a typo, and `label list`'s text.
 import type { Label } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { closeMatches, labelArgs, labelListText, parseChanges, parseGroup, resolveChanges } from "./labels.ts"
+import { labelArgs, labelListText, parseChanges, parseGroup, resolveChanges } from "./labels.ts"
 
 const label = (name: string, color = "#3B82F6", archivedAt: number | null = null): Label => ({
   id: `id-${name}`,
@@ -37,21 +37,6 @@ describe("parseChanges", () => {
     expect(parseChanges(["board"])).toBe(`Each change starts with + to add a label or - to remove one, e.g. +board -ui; "board" has neither.`)
     expect(parseChanges(["+"])).toBe(`"+" names no label: write +board to add board.`)
     expect(parseChanges([])).toBe("Say which labels to add and remove, e.g. `cello task label CEL-12 +board -ui`.")
-  })
-})
-
-describe("closeMatches", () => {
-  const names = ["board", "bug", "task-panel", "tests", "release", "review", "pages", "agents"]
-
-  it("finds names a typo or a part away, closest first", () => {
-    expect(closeMatches("bord", names)).toEqual(["board"])
-    expect(closeMatches("panel", names)).toEqual(["task-panel"])
-    expect(closeMatches("test", names)).toEqual(["tests"])
-    expect(closeMatches("reveiw", names)).toEqual(["review"])
-  })
-
-  it("finds nothing for a name unlike any", () => {
-    expect(closeMatches("zebra", names)).toEqual([])
   })
 })
 

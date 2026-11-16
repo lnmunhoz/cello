@@ -14,6 +14,10 @@ const state = {
     doing: { id: "doing", workspaceId: "w", name: "In Progress", category: "started", position: "a1", color: "#f2c94c", hidden: false, createdAt: 1, updatedAt: 1 },
   },
   labels: { bug: { id: "bug", workspaceId: "w", name: "Bug", color: "#f00", createdAt: 1, updatedAt: 1, archivedAt: null } },
+  milestones: {
+    m2: { id: "m2", projectId: "p", name: "M2", goal: "", targetDate: null, position: "a0", state: "open", closedAt: null, createdAt: 1, updatedAt: 1 },
+    m3: { id: "m3", projectId: "p", name: "M3", goal: "", targetDate: null, position: "a1", state: "open", closedAt: null, createdAt: 1, updatedAt: 1 },
+  },
   tasks: {},
 } as unknown as BoardState
 
@@ -34,6 +38,25 @@ describe("describeEvent", () => {
     )
     expect(describeEvent(ev({ type: "task.labels_changed", id: "t", added: ["bug"], removed: [], version: 2 }), state)).toBe("Lucas added Bug")
     expect(describeEvent(ev({ type: "comment.added", comment: {} as never }, "ghost"), state)).toBe("Someone commented")
+  })
+
+  it("says what became of a task's milestone, and of the labels the migration turned into one (CEL-113)", () => {
+    const changed = (before: string | null, after: string | null, fromLabels?: ReadonlyArray<string>) =>
+      describeEvent(ev({ type: "task.milestone_changed", id: "t", version: 2, before, after, ...(fromLabels ? { fromLabels } : {}) }), state)
+    expect(changed(null, "m3")).toBe("Lucas put it in M3")
+    expect(changed("m2", "m3")).toBe("Lucas moved it from M2 to M3")
+    expect(changed("m3", null)).toBe("Lucas took it out of M3")
+    expect(changed(null, "gone")).toBe("Lucas put it in a milestone")
+    // Without the names (`cello task get` has none from an old server), still a line.
+    expect(describeEvent(ev({ type: "task.milestone_changed", id: "t", version: 2, before: null, after: "m3" }), { ...state, milestones: undefined } as never)).toBe(
+      "Lucas put it in a milestone",
+    )
+    expect(changed(null, "m3", ["M3"])).toBe("Cello turned its M3 label into the milestone M3")
+    expect(changed(null, "m3", ["M3", "M2"])).toBe("Cello turned its M3 label into the milestone M3 (it also had M2; a task is in one milestone, so the later one)")
+    expect(describeEvent(ev({ type: "milestone.created", milestone: state.milestones["m3"]! }), state)).toBe("Lucas created the milestone M3")
+    expect(describeEvent(ev({ type: "milestone.closed", id: "m3" }), state)).toBe("Lucas closed M3")
+    expect(describeEvent(ev({ type: "milestone.reopened", id: "m3" }), state)).toBe("Lucas reopened M3")
+    expect(describeEvent(ev({ type: "milestone.updated", id: "m3", before: {}, after: { goal: "x", targetDate: null } }), state)).toBe("Lucas changed M3's goal and target date")
   })
 
   it("says which testing-profile fields changed, were unset or confirmed (CEL-89)", () => {

@@ -63,6 +63,12 @@ describe("explain", () => {
     )
   })
 
+  it("only the human closes and reopens milestones (CEL-113)", () => {
+    expect(explain(new HumanOnly({ action: "close a milestone", human: "Lucas" }), where)).toBe(
+      "Only Lucas can close a milestone. When its work looks done, say so on your task's card; Lucas closes it.",
+    )
+  })
+
   it("a restore refused while Cello runs says nothing changed and how to stop it", () => {
     expect(explain(new RestoreBlocked({ id: "20261115-120000", dataDir: "/data", pid: 42, port: 4747 }), where)).toBe(
       "Cello is running for /data (pid 42, http://127.0.0.1:4747), and restore only runs while it's stopped; nothing was changed. " +

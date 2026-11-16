@@ -54,7 +54,7 @@ describe("migration 0021_task_last_holder", () => {
       yield* Migrations.run
       const after = yield* sql<Record<string, unknown>>`SELECT * FROM tasks ORDER BY id`
       expect(after.map((t) => [t.id, t.last_holder_session_id])).toEqual([["t1", "s2"], ["t2", "s1"], ["t3", null], ["t4", null], ["t5", "s1"]])
-      expect(after.map(({ last_holder_session_id, ...rest }) => rest)).toEqual(before)
+      expect(after.map(({ last_holder_session_id, milestone_id: _milestone, ...rest }) => rest)).toEqual(before)
       expect(yield* sql`SELECT * FROM inbox_items`).toEqual(inboxBefore)
       const columns = yield* sql<{ name: string }>`SELECT name FROM pragma_table_info('inbox_items')`
       expect(columns.map((c) => c.name)).toContain("reopened_from")

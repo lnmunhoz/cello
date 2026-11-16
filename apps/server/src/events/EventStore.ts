@@ -10,6 +10,12 @@ import type { SqlError } from "effect/sql/SqlError"
 import { WAKE_EVENTS } from "@cello/contract/wake"
 import type { ResolvedScope } from "./scope.ts"
 
+/**
+ * How a migration marks the events it writes (CEL-113): their command id starts with this. They stay in
+ * each entity's history but are left out of Recent activity, which would otherwise fill with them on deploy.
+ */
+export const MIGRATION_COMMAND_PREFIX = "migration:"
+
 /** Where an event belongs and who caused it: everything in the envelope except `seq`. */
 export interface EventContext {
   readonly ts: number
@@ -51,6 +57,8 @@ export const entityOf = (body: EventBody): { readonly type: string; readonly id:
       return { type, id: body.project.id }
     case "label.created":
       return { type, id: body.label.id }
+    case "milestone.created":
+      return { type, id: body.milestone.id }
     case "task.created":
       return { type, id: body.task.id }
     case "comment.added":
@@ -122,7 +130,7 @@ export class EventStore extends Context.Service<EventStore, {
   readonly countAfter: (scope: ResolvedScope, afterSeq: number) => Effect.Effect<number>
   /** The highest committed seq, 0 when there are none. */
   readonly latestSeq: Effect.Effect<number>
-  /** A project's latest events on tasks, comments, reviews and asks, newest first. */
+  /** A project's latest events on tasks, comments, reviews and asks, newest first; not ones a migration wrote. */
   readonly recent: (projectId: string, limit: number) => Effect.Effect<ReadonlyArray<CelloEvent>>
   /** Claims `sessionId` lost in a project (`task.claim_taken`, `task.claim_ended`), newest first. */
   readonly claimsLostBy: (sessionId: string, projectId: string, limit: number) => Effect.Effect<ReadonlyArray<CelloEvent>>
@@ -183,7 +191,7 @@ const make = Effect.gen(function* () {
   const recent = Effect.fn("EventStore.recent")(function* (projectId: string, limit: number) {
     const rows = yield* sql<EventRow>`
       SELECT * FROM events WHERE project_id = ${projectId} AND entity_type IN ('task', 'comment', 'review', 'ask', 'profile')
-        AND type != 'comment.delivered'
+        AND type != 'comment.delivered' AND command_id NOT LIKE ${`${MIGRATION_COMMAND_PREFIX}%`}
       ORDER BY seq DESC LIMIT ${limit}`
     return rows.map(decodeRow)
   }, Effect.orDie)

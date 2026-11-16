@@ -9,13 +9,17 @@ describe("editFields", () => {
     expect(editFields("CEL-1", { title: "T", description: "D", priority: "High" })).toEqual({ title: "T", description: "D", priority: 2 })
   })
 
+  it("a milestone alone is something to change, with no task.update fields (CEL-113)", () => {
+    expect(editFields("CEL-1", { milestone: "M3" })).toEqual({})
+  })
+
   it("takes an empty description, which clears it", () => {
     expect(editFields("CEL-1", { description: "" })).toEqual({ description: "" })
   })
 
   it("refuses when nothing is given, saying how to edit", () => {
     expect(editFields("cel-1", {})).toBe(
-      "Say what to change: cello task edit CEL-1 --title \"…\", --description \"…\" (or --body-file - for markdown from stdin), or --priority high.",
+      "Say what to change: cello task edit CEL-1 --title \"…\", --description \"…\" (or --body-file - for markdown from stdin), --priority high, or --milestone M3.",
     )
   })
 

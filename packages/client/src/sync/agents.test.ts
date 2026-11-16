@@ -40,7 +40,7 @@ const board = (tasks: Task[], sessions: AgentSession[], agents: SessionAgent[] =
   reviews: {},
   asks: {},
   documents: {},
-  wakes: {},
+  wakes: {}, milestones: {},
 })
 
 const held = (id: string, sessionId: string, extra: Partial<Task> = {}) => task(id, { assigneeActorId: "claude", assigneeSessionId: sessionId, ...extra })

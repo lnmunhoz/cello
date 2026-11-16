@@ -53,9 +53,13 @@ export const explain = (error: unknown, where: Where): string => {
       return `${e.key} goes to ${e.status} only with questions for the human. Ask them instead: ` +
         `\`cello task ask ${e.key} --title "what to decide" --question "…" --option "A" --option "B"\` (or --file ask.json). See \`cello guide\`.`
     case "HumanOnly":
-      return e.action === "answer an ask"
-        ? `Only ${e.human} can answer the questions, on the card. Wait with \`cello wait\`, or let the hook deliver the answers.`
-        : `Only ${e.human} can ${e.action}. Leave the task in In Review; ${e.human} decides on the Review page.`
+      if (e.action === "answer an ask") {
+        return `Only ${e.human} can answer the questions, on the card. Wait with \`cello wait\`, or let the hook deliver the answers.`
+      }
+      if (String(e.action).endsWith("a milestone")) {
+        return `Only ${e.human} can ${e.action}. When its work looks done, say so on your task's card; ${e.human} closes it.`
+      }
+      return `Only ${e.human} can ${e.action}. Leave the task in In Review; ${e.human} decides on the Review page.`
     case "ProfileFieldLocked":
       return `${e.human} set ${e.field} (\`${e.value}\`), so an agent can't change it. If it's wrong, ask them on the card ` +
         `on your task: \`cello task ask <KEY-n> --title "Change ${e.field} in the testing profile?" --question "…" --option "A" --option "B"\` ` +

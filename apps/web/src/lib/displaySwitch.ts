@@ -28,6 +28,7 @@ export const displaySwitch = (key: string, fallback: boolean): DisplaySwitch => 
       writeStored(key, next ? "on" : "off")
       for (const l of listeners) l()
     },
-    use: () => useSyncExternalStore(subscribe, get),
+    // `get` serves as the server snapshot too, so a card renders to static markup in unit tests.
+    use: () => useSyncExternalStore(subscribe, get, get),
   }
 }

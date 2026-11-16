@@ -11,6 +11,7 @@ import {
   Id,
   Label,
   LabelGroup,
+  Milestone,
   Millis,
   NotWokenReason,
   Priority,
@@ -58,6 +59,7 @@ export const WorkspacePatch = patch({ name: Schema.String })
 export const ProjectPatch = patch({ name: Schema.String, color: Schema.String, description: Schema.String })
 export const StatusPatch = patch({ name: Schema.String, color: Schema.String, hidden: Schema.Boolean, position: Schema.String })
 export const LabelPatch = patch({ name: Schema.String, color: Schema.String, group: LabelGroup })
+export const MilestonePatch = patch({ name: Schema.String, goal: Schema.String, targetDate: Schema.NullOr(DueDate), position: Schema.String })
 export const TaskPatch = patch({
   title: Schema.String,
   description: Schema.String,
@@ -91,10 +93,25 @@ export const CelloEvent = Schema.Union([
   event("label.created", { label: Label }),
   event("label.updated", { id: Id, before: LabelPatch, after: LabelPatch }),
   event("label.archived", { id: Id }),
+  // Milestones (CEL-113). Closing and reopening are the human's only; `ts` is when.
+  event("milestone.created", { milestone: Milestone }),
+  event("milestone.updated", { id: Id, before: MilestonePatch, after: MilestonePatch }),
+  event("milestone.closed", { id: Id }),
+  event("milestone.reopened", { id: Id }),
   event("task.created", { task: Task }),
   event("task.updated", { id: Id, before: TaskPatch, after: TaskPatch, version: Schema.Number }),
   event("task.moved", { id: Id, from: Place, to: Place, version: Schema.Number, task: Task }),
   event("task.labels_changed", { id: Id, added: Schema.Array(Id), removed: Schema.Array(Id), version: Schema.Number }),
+  // A task's milestone changed (CEL-113): at most one, null for none. `fromLabels` is set only by the
+  // migration that turned the Milestone labels into milestones: the labels the task carried, the one it
+  // got first and any it also had (it keeps the later one), so its history says what became of them.
+  event("task.milestone_changed", {
+    id: Id,
+    version: Schema.Number,
+    before: Schema.NullOr(Id),
+    after: Schema.NullOr(Id),
+    fromLabels: Schema.optionalKey(Schema.Array(Schema.String)),
+  }),
   event("task.archived", { id: Id, version: Schema.Number }),
   event("task.unarchived", { id: Id, version: Schema.Number }),
   // Claims carry the whole task: a claim sets the assignee and may move it to a started status.

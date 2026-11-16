@@ -58,6 +58,28 @@ const ev = (seq: number, body: EventBody): CelloEvent =>
   }) as CelloEvent
 
 describe("applyEvents", () => {
+  it("keeps milestones (CEL-113): created, edited, closed and reopened; a task's milestone changes with its version", () => {
+    const m3 = { id: "m3", projectId: "p1", name: "M3", goal: "", targetDate: null, position: "a0", state: "open" as const, closedAt: null, createdAt: 1, updatedAt: 1 }
+    const state = fromSnapshot({ ...snapshot([task("t1")]), milestones: [m3] })
+    expect(state.milestones["m3"]).toEqual(m3)
+    const m4 = { ...m3, id: "m4", name: "M4", position: "a1" }
+    let next = applyEvents(state, [
+      ev(11, { type: "milestone.created", milestone: m4 }),
+      ev(12, { type: "milestone.updated", id: "m3", before: { goal: "" }, after: { goal: "Watching agents", targetDate: "2026-12-01" } }),
+      ev(13, { type: "task.milestone_changed", id: "t1", version: 2, before: null, after: "m3" }),
+    ])
+    expect(next.milestones["m4"]).toEqual(m4)
+    expect(next.milestones["m3"]).toMatchObject({ goal: "Watching agents", targetDate: "2026-12-01", updatedAt: 12 })
+    expect(next.tasks["t1"]).toMatchObject({ milestoneId: "m3", version: 2, updatedAt: 13, updatedByActorId: "me" })
+    next = applyEvents(next, [ev(14, { type: "milestone.closed", id: "m3" })])
+    expect(next.milestones["m3"]).toMatchObject({ state: "closed", closedAt: 14 })
+    next = applyEvents(next, [ev(15, { type: "milestone.reopened", id: "m3" }), ev(16, { type: "task.milestone_changed", id: "t1", version: 3, before: "m3", after: null })])
+    expect(next.milestones["m3"]).toMatchObject({ state: "open", closedAt: null })
+    expect(next.tasks["t1"]!.milestoneId).toBeNull()
+    // A snapshot from a server before milestones has none.
+    expect(fromSnapshot(snapshot([])).milestones).toEqual({})
+  })
+
   it("ignores events at or below the state's seq", () => {
     const state = fromSnapshot(snapshot([task("t1")], 10))
     const next = applyEvents(state, [ev(9, { type: "task.created", task: task("old") }), ev(10, { type: "task.archived", id: "t1", version: 2 })])

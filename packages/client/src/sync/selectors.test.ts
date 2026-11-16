@@ -32,7 +32,7 @@ const state: BoardState = {
   sessions: {}, agents: {},
   reviews: {},
   asks: {},
-  documents: {}, wakes: {},
+  documents: {}, wakes: {}, milestones: {},
 }
 
 describe("selectors", () => {

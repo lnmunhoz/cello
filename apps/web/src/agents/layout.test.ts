@@ -17,7 +17,7 @@ import {
 } from "./layout.ts"
 
 const EMPTY_BOARD: BoardState = {
-  seq: 1, actors: {}, workspaces: {}, projects: {}, statuses: {}, labels: {}, tasks: {}, sessions: {}, agents: {}, reviews: {}, asks: {}, documents: {}, wakes: {},
+  seq: 1, actors: {}, workspaces: {}, projects: {}, statuses: {}, labels: {}, tasks: {}, sessions: {}, agents: {}, reviews: {}, asks: {}, documents: {}, wakes: {}, milestones: {},
 }
 
 const now = Date.UTC(2026, 10, 16, 12)

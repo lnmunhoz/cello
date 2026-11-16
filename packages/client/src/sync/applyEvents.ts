@@ -1,5 +1,5 @@
 // Pure reducer from events to client state. Shared by the web app and any other client.
-import { type Actor, type AgentSession, agentKey, type Ask, type DocumentSummary, type Label, type Project, type Review, type SessionAgent, type Snapshot, type Status, type Task, type TaskWake, type Workspace } from "@cello/contract/entities"
+import { type Actor, type AgentSession, agentKey, type Ask, type DocumentSummary, type Label, type Milestone, type Project, type Review, type SessionAgent, type Snapshot, type Status, type Task, type TaskWake, type Workspace } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
 import { wakeOf } from "@cello/contract/wake"
 import { colorFromSeed } from "@cello/shared/color"
@@ -13,6 +13,8 @@ export interface BoardState {
   readonly projects: ById<Project>
   readonly statuses: ById<Status>
   readonly labels: ById<Label>
+  /** The projects' milestones (CEL-113), closed ones too: a task may still be in one. */
+  readonly milestones: ById<Milestone>
   readonly tasks: ById<Task>
   /** Agent sessions the tasks name, kept current by `session.seen` (who's working right now, CEL-35). */
   readonly sessions: ById<AgentSession>
@@ -38,6 +40,7 @@ export const fromSnapshot = (s: Snapshot): BoardState => ({
   projects: byId(s.projects),
   statuses: byId(s.statuses),
   labels: byId(s.labels),
+  milestones: byId(s.milestones ?? []),
   tasks: byId(s.tasks),
   sessions: byId(s.sessions),
   agents: Object.fromEntries(s.agents.map((a) => [agentKey(a.sessionId, a.agentId), a])),
@@ -111,6 +114,14 @@ const apply = (d: Draft, e: CelloEvent) => {
       return d.update("labels", e.id, (l) => ({ ...l, ...e.after, updatedAt: e.ts }))
     case "label.archived":
       return d.update("labels", e.id, (l) => ({ ...l, archivedAt: e.ts }))
+    case "milestone.created":
+      return d.set("milestones", e.milestone.id, e.milestone)
+    case "milestone.updated":
+      return d.update("milestones", e.id, (m) => ({ ...m, ...e.after, updatedAt: e.ts }))
+    case "milestone.closed":
+      return d.update("milestones", e.id, (m) => ({ ...m, state: "closed", closedAt: e.ts, updatedAt: e.ts }))
+    case "milestone.reopened":
+      return d.update("milestones", e.id, (m) => ({ ...m, state: "open", closedAt: null, updatedAt: e.ts }))
     case "task.created":
       return d.set("tasks", e.task.id, e.task)
     case "task.updated":
@@ -130,6 +141,8 @@ const apply = (d: Draft, e: CelloEvent) => {
         version: e.version,
         updatedAt: e.ts,
       }))
+    case "task.milestone_changed":
+      return d.update("tasks", e.id, (t) => ({ ...t, milestoneId: e.after, version: e.version, updatedAt: e.ts }))
     case "task.archived":
       return d.update("tasks", e.id, (t) => ({ ...t, archivedAt: e.ts, version: e.version, updatedAt: e.ts }))
     case "task.unarchived":

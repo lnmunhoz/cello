@@ -65,7 +65,7 @@ describe("cello task edit", () => {
       const { agent, human } = yield* setup
       expect(yield* agent("task", "edit", "CEL-1")).toEqual({
         out: "",
-        failure: "Say what to change: cello task edit CEL-1 --title \"…\", --description \"…\" (or --body-file - for markdown from stdin), or --priority high.",
+        failure: "Say what to change: cello task edit CEL-1 --title \"…\", --description \"…\" (or --body-file - for markdown from stdin), --priority high, or --milestone M3.",
       })
       expect((yield* agent("task", "edit", "CEL-1", "--priority", "asap")).failure)
         .toBe("No priority \"asap\". Use urgent, high, medium, low or none.")

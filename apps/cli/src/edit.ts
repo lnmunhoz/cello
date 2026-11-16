@@ -17,11 +17,17 @@ export interface EditFields {
 /** The fields `task edit` changes; a string is why it can't (nothing given, an unknown priority). */
 export const editFields = (
   key: string,
-  input: { readonly title?: string | undefined; readonly description?: string | undefined; readonly priority?: string | undefined },
+  input: {
+    readonly title?: string | undefined
+    readonly description?: string | undefined
+    readonly priority?: string | undefined
+    /** `--milestone` (CEL-113): changed with its own call, so it only counts as something to change here. */
+    readonly milestone?: string | undefined
+  },
 ): EditFields | string => {
-  if (input.title === undefined && input.description === undefined && input.priority === undefined) {
+  if (input.title === undefined && input.description === undefined && input.priority === undefined && input.milestone === undefined) {
     return `Say what to change: cello task edit ${key.toUpperCase()} --title "…", --description "…" ` +
-      "(or --body-file - for markdown from stdin), or --priority high."
+      "(or --body-file - for markdown from stdin), --priority high, or --milestone M3."
   }
   const priority = input.priority === undefined ? undefined : priorityOf(input.priority)
   if (typeof priority === "string") return priority

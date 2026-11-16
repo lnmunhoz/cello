@@ -239,6 +239,43 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
       call: (c, a, commandId) => c["task.setLabels"]({ commandId, ...a }),
       subject: taskKey,
     }),
+    // A task's milestone (CEL-113): at most one; null takes it out.
+    setTaskMilestone: command({
+      patch: (a: { id: string; milestoneId: string | null }) => patches.setTaskMilestone(a.id, a.milestoneId),
+      call: (c, a, commandId) => c["task.setMilestone"]({ commandId, ...a }),
+      subject: taskKey,
+    }),
+    // A new milestone, last in its project (CEL-113); with `taskId`, that task goes in it right after
+    // (the task panel's "New milestone…"), shown at once.
+    createMilestone: command({
+      patch: (a: { projectId: string; name: string; goal?: string; targetDate?: string | null; taskId?: string }, { state, commandId }) => {
+        const id = `optimistic:${commandId}`
+        const last = Object.values(state.milestones).filter((m) => m.projectId === a.projectId).reduce((max, m) => (m.position > max ? m.position : max), "")
+        const now = Date.now()
+        const add = patches.addMilestone({
+          id,
+          projectId: a.projectId,
+          name: a.name.trim(),
+          goal: a.goal?.trim() ?? "",
+          targetDate: a.targetDate ?? null,
+          // Sorts after every position the project has.
+          position: `${last}~`,
+          state: "open",
+          closedAt: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        return a.taskId === undefined ? add : (s) => patches.setTaskMilestone(a.taskId!, id)(add(s))
+      },
+      call: (c, a, commandId) =>
+        Effect.gen(function* () {
+          const { taskId, ...fields } = a
+          const created = yield* c["milestone.create"]({ commandId, ...fields })
+          if (taskId === undefined) return created
+          const assigned = yield* c["task.setMilestone"]({ commandId: `${commandId}:assign`, id: taskId, milestoneId: created.result.id })
+          return { result: created.result, seq: assigned.seq ?? created.seq }
+        }),
+    }),
     archiveTask: command({
       patch: (a: { id: string }) => patches.archiveTask(a.id),
       call: (c, a, commandId) => c["task.archive"]({ commandId, ...a }),

@@ -268,6 +268,30 @@ export const Label = Schema.Struct({
 })
 export type Label = typeof Label.Type
 
+/** Open while its work goes on; closed by the human when it's done (CEL-113), which only he does. */
+export const MilestoneState = Schema.Literals(["open", "closed"])
+export type MilestoneState = typeof MilestoneState.Type
+
+/**
+ * A goal for a project, with an optional target date (CEL-113). Each task belongs to at most one
+ * (`Task.milestoneId`); its progress is counted from those tasks (@cello/shared/milestone), never
+ * stored. Names are unique within the project, ignoring case; `position` is the order the human set.
+ */
+export const Milestone = Schema.Struct({
+  id: Id,
+  projectId: Id,
+  name: Schema.String,
+  /** One line, markdown; empty when none. */
+  goal: Schema.String,
+  targetDate: Schema.NullOr(DueDate),
+  position: Schema.String,
+  state: MilestoneState,
+  closedAt: Schema.NullOr(Millis),
+  createdAt: Millis,
+  updatedAt: Millis,
+})
+export type Milestone = typeof Milestone.Type
+
 export const Task = Schema.Struct({
   id: Id,
   projectId: Id,
@@ -281,6 +305,8 @@ export const Task = Schema.Struct({
   dueDate: Schema.NullOr(DueDate),
   parentId: Schema.NullOr(Id),
   labelIds: Schema.Array(Id),
+  /** Its milestone (CEL-113), at most one. The server always sends it; tasks inside events stored before milestones leave it out, which means none. */
+  milestoneId: Schema.optionalKey(Schema.NullOr(Id)),
   assigneeActorId: Schema.NullOr(Id),
   assigneeSessionId: Schema.NullOr(Id),
   /**
@@ -756,6 +782,8 @@ export const Snapshot = Schema.Struct({
   projects: Schema.Array(Project),
   statuses: Schema.Array(Status),
   labels: Schema.Array(Label),
+  /** The projects' milestones (CEL-113), closed ones included. The server always sends it; left out means none. */
+  milestones: Schema.optionalKey(Schema.Array(Milestone)),
   tasks: Schema.Array(Task),
   /**
    * The agent sessions the tasks in scope name (creator, claim, last change), so cards can say who
