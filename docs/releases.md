@@ -50,7 +50,7 @@ flowchart TD
 - A task lands on main as one `merge: <what> (CEL-n)` commit, so it's **one line**, not one per commit on its branch. The merge is filed by what its branch brought: any `feat` makes it a **Feature**, otherwise any `fix` makes it a **Fix**, otherwise it's an **Other change**.
 - Commits made straight on main are filed by their type: `feat` under Features, `fix` under Fixes, everything else (docs, test, chore, ci, build, art…) under Other changes. A scope shows in bold (`**web:** …`).
 - Release commits and merges of main into a branch are left out. Subjects keep their own words and CEL keys; each line links its commit on GitHub, and the heading links the compare view from the previous tag.
-- The first release, v0.3.0, covers the whole history since the first commit (Nov 14): it's only days old, so there's nothing to cut off. Builds before it said 0.1.0 (the desktop app) or 0.2.0 (the CLI) and weren't tagged.
+- The first release, v0.3.0 (`bun run release -- minor`, from 0.2.0), covers the whole history since the first commit (Nov 14): it's only days old, so there's nothing to cut off. Builds before it said 0.1.0 (the desktop app) or 0.2.0 (the CLI) and weren't tagged.
 
 Write subjects for the reader of the changelog: the merge subject is the line Lucas reads.
 
@@ -63,7 +63,7 @@ Write subjects for the reader of the changelog: the merge subject is the line Lu
 - **runs** the typecheck and the tests
 - prints the CHANGELOG.md section the release would add, and release-it's own preview: the commands it would run, the GitHub release it would create
 
-It writes no file, commits, tags, builds, pushes, releases or deploys nothing. It doesn't build either: in the main checkout a build would replace the live `cello`.
+It writes, commits, tags, pushes, releases and deploys nothing, and doesn't build: in the main checkout a build replaces the live `cello`.
 
 ## Flags
 
