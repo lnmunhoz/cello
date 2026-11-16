@@ -178,22 +178,35 @@ function AgentQueueRow({ board, row, rows, ...state }: QueueRowState & { board: 
 }
 
 /**
- * A task as its board card shows it, a click away from the task. Its work line is hidden: the row above
- * it already names the agent and its presence. (By CSS, so the card itself stays as the board has it.)
- * Positioned, so the edge of an agent at work on it (CEL-76) sits on this card.
+ * A task as its board card shows it, a click away from the task. No work line: the row above it already
+ * names the agent and its presence. The card is a container whose title is the link, stretched over the
+ * whole card, so a click anywhere opens the task while its evidence badge stays a control of its own (a
+ * button can't sit inside a link). Positioned, so the stretched link and the edge of an agent at work
+ * on it (CEL-76) sit on this card.
  */
 function TaskCard({ board, task }: { board: BoardState; task: Task }) {
   const project = board.projects[task.projectId]
   if (!project) return null
   return (
-    <Link
-      to="/$projectKey/$number"
-      params={{ projectKey: project.key, number: String(task.number) }}
+    <div
       data-agents-card={task.key}
-      className="relative flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-3 py-2.5 text-left shadow-card outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring [&_[data-card-work]]:hidden"
+      className="relative flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-3 py-2.5 text-left shadow-card hover:border-line-strong has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring"
     >
-      <CardBody task={task} board={board} />
-    </Link>
+      <CardBody
+        task={task}
+        board={board}
+        work={false}
+        titleLink={(title) => (
+          <Link
+            to="/$projectKey/$number"
+            params={{ projectKey: project.key, number: String(task.number) }}
+            className="outline-none after:absolute after:inset-0 after:rounded-lg after:content-['']"
+          >
+            {title}
+          </Link>
+        )}
+      />
+    </div>
   )
 }
 

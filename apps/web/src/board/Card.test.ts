@@ -68,6 +68,16 @@ describe("CardBody", () => {
     expect(render(task("t3", 3))).not.toContain("data-card-parent")
   })
 
+  it("titleLink wraps the title, so a card can be a container with its title as the link", () => {
+    const html = renderToStaticMarkup(createElement(CardBody, {
+      task: task("t2", 2, { title: "Ship it" }),
+      board,
+      titleLink: (title) => createElement("a", { href: "/CEL/2", "data-title-link": "" }, title),
+    }))
+    expect(html).toMatch(/<span[^>]*data-card-title[^>]*><a href="\/CEL\/2" data-title-link="">Ship it<\/a><\/span>/)
+    expect(render(task("t2", 2))).not.toContain("<a ")
+  })
+
   describe("who made it, who's on it, where it is (CEL-5, CEL-35)", () => {
     const now = Date.now()
     const session: AgentSession = {
@@ -118,6 +128,15 @@ describe("CardBody", () => {
     it("in a laned column the lane says the stage, so the card doesn't; nobody on it means no work line", () => {
       expect(renderIn(staffed, held, true)).not.toContain("data-stage")
       expect(renderIn(staffed, task("t5", 5))).not.toContain("data-card-work")
+    })
+
+    it("work={false} leaves the work line out, for a place that already names the agent (the Agents page)", () => {
+      expect(renderIn(staffed, held)).toContain("data-card-work")
+      const html = renderToStaticMarkup(createElement(CardBody, { task: held, board: staffed, work: false }))
+      expect(html).not.toContain("data-card-work")
+      expect(html).not.toContain("data-stage")
+      // The rest of the card stays.
+      expect(textAt(html, "data-provenance")).toBe("Lucas created · 8a41c9e2 changed 4m ago")
     })
 
     describe("the agent mark in place of the presence dot (CEL-69)", () => {

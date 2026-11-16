@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useRef, useState } from "react"
+import { type KeyboardEvent, useEffect, useEffectEvent, useRef, useState } from "react"
 import { nextRow } from "../list/rows.ts"
 import { nextAfterDecision, rowKey } from "./queue.ts"
 import type { QueueRowState } from "./QueueRow.tsx"
@@ -21,6 +21,8 @@ export function useQueue({ keys, open, setOpen }: {
   const [usingKeys, setUsingKeys] = useState(false)
   /** Set by openNext: the row it opens takes the focus, so the keys go on working. */
   const focusOpened = useRef(false)
+  /** Closes the open row with the latest setOpen: callers pass a new one each render, and the window's key listener shouldn't be re-added for it. */
+  const closeOpen = useEffectEvent(() => setOpen(null))
   // The one row Tab lands on; the arrow keys and j/k move it.
   const tabbable = focused !== null && keys.includes(focused) ? focused : (open ?? keys[0] ?? null)
 
@@ -46,7 +48,7 @@ export function useQueue({ keys, open, setOpen }: {
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.target !== document.body || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
       if (e.key === "Escape" && open !== null) {
-        setOpen(null)
+        closeOpen()
       } else if ((e.key === "j" || e.key === "k") && tabbable !== null) {
         e.preventDefault()
         setUsingKeys(true)
@@ -56,7 +58,7 @@ export function useQueue({ keys, open, setOpen }: {
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [open, tabbable, setOpen])
+  }, [open, tabbable])
 
   const onRowKeyDown = (e: KeyboardEvent<HTMLButtonElement>, key: string) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return
