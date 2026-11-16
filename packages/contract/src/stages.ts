@@ -18,6 +18,7 @@ export interface StageInfo {
 }
 
 export const TASK_STAGES = [
+  { id: "designing", label: "Designing", icon: "pencil-ruler", color: "#EC4899", when: "brainstorming, writing the spec or making design options, before building" },
   { id: "building", label: "Building", icon: "hammer", color: "#0EA5E9", when: "a builder agent is writing the code" },
   { id: "review", label: "Agent review", icon: "scan-eye", color: "#6366F1", when: "a reviewer agent is reading the branch" },
   { id: "fixing", label: "Fixing findings", icon: "wrench", color: "#F59E0B", when: "the builder is fixing what the review found" },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { laneDrop, laneHeadings, stageLanes } from "./lanes.ts"
+import { laneDrop, laneHeadings, laneOf, stageLanes, WORKING_LANE } from "./lanes.ts"
 
 const card = (id: string, position: string, stage: string | null) => ({ id, position, stage })
 
@@ -13,9 +13,40 @@ describe("stageLanes", () => {
     ])
   })
 
+  it("Designing comes first, before Building (CEL-105)", () => {
+    const tasks = [card("a", "a0", "building"), card("b", "a1", "designing")]
+    expect(stageLanes(tasks).map((l) => l.stage?.id ?? null)).toEqual(["designing", "building"])
+  })
+
+  it("a Working lane sits after the stages and before the tasks with no stage (CEL-105)", () => {
+    const tasks = [card("a", "a0", null), card("b", "a1", WORKING_LANE), card("c", "a2", "merged")]
+    const lanes = stageLanes(tasks)
+    expect(lanes.map((l) => [l.stage?.id ?? null, l.tasks.map((t) => t.id)])).toEqual([
+      ["merged", ["c"]],
+      ["working", ["b"]],
+      [null, ["a"]],
+    ])
+    expect(lanes[1]!.stage?.label).toBe("Working")
+  })
+
   it("leaves out empty lanes", () => {
     expect(stageLanes([card("a", "a0", "merged")]).map((l) => l.stage?.id)).toEqual(["merged"])
     expect(stageLanes([])).toEqual([])
+  })
+})
+
+describe("laneOf: which lane a task of In Progress goes in (CEL-105)", () => {
+  it("its stage, whatever its agent is doing", () => {
+    expect(laneOf({ stage: "designing" }, true)).toBe("designing")
+    expect(laneOf({ stage: "review" }, false)).toBe("review")
+  })
+
+  it("with no stage, Working while an agent on it is active", () => {
+    expect(laneOf({ stage: null }, true)).toBe(WORKING_LANE)
+  })
+
+  it("with no stage and no active agent (quiet, ended, Lucas's or nobody's): no stage", () => {
+    expect(laneOf({ stage: null }, false)).toBeNull()
   })
 })
 

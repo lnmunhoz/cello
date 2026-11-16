@@ -1,15 +1,35 @@
 // Display → "Group In Progress by stage" (CEL-35): the In Progress column split into one lane per stage,
-// in the stage list's order (new stages get a lane by themselves), then the tasks without a stage. The
+// in the stage list's order (new stages get a lane by themselves), then Working (no stage, an agent
+// active on it: CEL-105), then the tasks without a stage. The
 // ordering still holds inside each lane. A card dragged into another lane snaps back: the stage is the
 // orchestrator's to set (`cello task stage`), not a drag's.
 import type { Ordering } from "@cello/client/sync/ordering"
 import { placement, placementAtEnd } from "@cello/client/sync/selectors"
-import { type StageInfo, stageInfo, stageRank } from "@cello/contract/stages"
+import { STAGE_IDS, type StageInfo, stageInfo, stageRank } from "@cello/contract/stages"
 import { type Drop, indexAmong, type Move } from "./moves.ts"
+
+/**
+ * The lane of a task with no stage whose agent is active (CEL-105): a plain session working by itself
+ * never sets one, and "No stage" made its task look stuck. Not a stage: nobody sets it, the board works it out.
+ */
+export const WORKING_LANE = "working"
+
+export const WORKING: StageInfo = { id: WORKING_LANE, label: "Working", icon: "activity", color: "var(--muted)", when: "an agent is on it and hasn't said which step" }
+
+/** A task's lane in In Progress: its stage, else Working while an agent on it is active, else none (null). */
+export const laneOf = (task: { readonly stage: string | null }, active: boolean): string | null =>
+  task.stage ?? (active ? WORKING_LANE : null)
+
+/** A lane's place: the stages in their order, then Working, then no stage. */
+const laneRank = (lane: string | null): number => (lane === WORKING_LANE ? STAGE_IDS.length : lane === null ? STAGE_IDS.length + 1 : stageRank(lane))
+
+/** A lane's heading: the stage's, Working's, or null for no stage. */
+export const laneInfo = (lane: string | null): StageInfo | null => (lane === WORKING_LANE ? WORKING : lane === null ? null : (stageInfo(lane) ?? null))
 
 interface Staged {
   readonly id: string
   readonly position: string
+  /** The task's lane (laneOf): its stage, Working, or null. */
   readonly stage: string | null
 }
 
@@ -23,12 +43,12 @@ export interface Lane<T extends Staged> {
 export const stageLanes = <T extends Staged>(tasks: ReadonlyArray<T>): Lane<T>[] => {
   const byRank = new Map<number, T[]>()
   for (const task of tasks) {
-    const rank = stageRank(task.stage)
+    const rank = laneRank(task.stage)
     byRank.set(rank, [...(byRank.get(rank) ?? []), task])
   }
   return [...byRank.entries()]
     .sort(([a], [b]) => a - b)
-    .map(([, laneTasks]) => ({ stage: laneTasks[0]!.stage === null ? null : stageInfo(laneTasks[0]!.stage) ?? null, tasks: laneTasks }))
+    .map(([, laneTasks]) => ({ stage: laneInfo(laneTasks[0]!.stage), tasks: laneTasks }))
 }
 
 /**

@@ -132,6 +132,16 @@ export const provenanceOf = (board: BoardState, task: Task, now: number = Date.n
 }
 
 /**
+ * Whether an agent on the task is active right now (CEL-105): the subagent working on it, else the agent
+ * session holding its claim. Lucas has no presence, so a task he holds is never active this way.
+ */
+export const holderActive = (board: BoardState, task: Task, now: number): boolean => {
+  if (agentOn(board, task, now) !== null) return true
+  const session = task.assigneeSessionId === null ? undefined : board.sessions[task.assigneeSessionId]
+  return session !== undefined && presenceOf(session, now) === "active"
+}
+
+/**
  * "Lucas created · 8a41c9e2 changed 4m ago", "Lucas created · 2fd0505c commented just now",
  * "Lucas created · cello-builder · a13bfb89 changed 4m ago", "Lucas created · changed 2h ago", "Lucas created Nov 14".
  */

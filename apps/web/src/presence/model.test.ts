@@ -1,7 +1,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { agentMood, agentsWorkingCount, markEntry, type MarkSeen, provenanceLine, provenanceOf, whoOf, workingSessions } from "./model.ts"
+import { agentMood, agentsWorkingCount, holderActive, markEntry, type MarkSeen, provenanceLine, provenanceOf, whoOf, workingSessions } from "./model.ts"
 
 const MIN = 60_000
 const now = Date.UTC(2026, 10, 15, 12)
@@ -83,6 +83,30 @@ describe("provenanceOf", () => {
   it("a task Lucas holds has a holder with no session; an unclaimed one has none", () => {
     expect(provenanceOf(board([], []), task("t", { assigneeActorId: "lucas" })).holder).toMatchObject({ who: { short: "Lucas" }, session: null })
     expect(provenanceOf(board([], []), task("t")).holder).toBeNull()
+  })
+})
+
+describe("holderActive (CEL-105)", () => {
+  it("is true while the agent session holding the claim is active", () => {
+    const held = task("t", { assigneeActorId: "claude", assigneeSessionId: "8a41c9e2" })
+    expect(holderActive(board([held], [session("8a41c9e2")]), held, now)).toBe(true)
+  })
+
+  it("is false once the session is quiet or has ended", () => {
+    const held = task("t", { assigneeActorId: "claude", assigneeSessionId: "8a41c9e2" })
+    expect(holderActive(board([held], [session("8a41c9e2", { lastSeenAt: now - 20 * MIN })]), held, now)).toBe(false)
+    expect(holderActive(board([held], [session("8a41c9e2", { endedAt: now - MIN })]), held, now)).toBe(false)
+  })
+
+  it("is true while a subagent works on it, even when the holding session is quiet", () => {
+    const held = task("t", { assigneeActorId: "claude", assigneeSessionId: "2fd0505c" })
+    const state = board([held], [session("2fd0505c", { lastSeenAt: now - 20 * MIN })], [agent("2fd0505c", "a13bfb89", { taskId: "t" })])
+    expect(holderActive(state, held, now)).toBe(true)
+  })
+
+  it("is false for a task Lucas holds, and for one nobody holds", () => {
+    expect(holderActive(board([], []), task("t", { assigneeActorId: "lucas" }), now)).toBe(false)
+    expect(holderActive(board([], []), task("u"), now)).toBe(false)
   })
 })
 
