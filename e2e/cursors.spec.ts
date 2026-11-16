@@ -208,6 +208,12 @@ test("CEL-6: an agent moves, creates, comments, claims and renames cards while t
   await until(page, (s) => s.typed.includes("Polish the landing page"))
   await rpc.close()
 
+  // While the agent holds the card its agent mark spins (CEL-69): it's at work. Done, it lets go.
+  await caption(page, "The agent is done: `cello task release`, with a Released bubble; the card's agent mark leaves with it")
+  agent("task", "release", `${key}-2`)
+  await until(page, (s) => s.bubbles.includes("Released"))
+  await expect(column(page, "In Progress").locator(`[data-task-key="${key}-2"] .agent-mark`)).toHaveCount(0)
+
   await caption(page, "The cursor fades after a moment of quiet; the board is right and nothing keeps animating")
   await expectIdle(page)
   await expect(column(page, "In Progress").locator("[data-task-key]")).toHaveText([/Wire the event stream/, /Draft the cursor label/])

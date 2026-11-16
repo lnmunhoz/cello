@@ -242,12 +242,20 @@ export const test = base.extend<{ cello: PromiseClient }>({
 export { expect }
 
 /**
- * Resolves when every animation running on the page has ended. One cancelled meanwhile counts as ended:
- * an element leaving or moving in the document cancels its animations, as when the sidebar's Agents
- * working list reorders on a check-in and a row's presence ripple is cut short (CEL-69).
+ * Resolves when every animation on the page that ends has ended. One cancelled meanwhile counts as
+ * ended: an element leaving or moving in the document cancels its animations, as when the sidebar's
+ * Agents working list reorders on a check-in and a row's presence ripple is cut short. A loop never
+ * ends (an active agent's working or thinking mark, CEL-69), so it isn't waited for: a check that the
+ * page is idle asserts none is left, after this.
  */
 export const animationsSettled = (page: Page): Promise<void> =>
-  page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))).then(() => undefined))
+  page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+        .map((a) => a.finished.catch(() => undefined)),
+    ).then(() => undefined))
 
 /**
  * An agent session over RPC, as the CLI calls: its session id and its process's pid (x-cello-pid, so

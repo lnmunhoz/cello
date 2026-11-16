@@ -216,9 +216,10 @@ export const agentsWorkingCount = (working: ReadonlyArray<Working>): number =>
 
 /**
  * What the agent mark on a card shows (CEL-69). The task's status speaks first: waiting on Lucas in
- * Needs input, done once it's In Review or Done. Otherwise the session holding it: still while it's
- * quiet or has ended (nothing loops on an idle board), working while it builds or fixes findings,
- * thinking with no stage yet or in Agent review, happy and still once merged.
+ * Needs input, done once it's In Review or Done. Otherwise its holder (the subagent on it, else the
+ * session): working while it builds or fixes findings, thinking with no stage yet or in Agent review,
+ * happy and still once merged. Working and thinking loop, so they're given only while the holder is
+ * active (checked in within ACTIVE_MS); a quiet or ended holder keeps still, so an idle board runs none.
  */
 export const agentMood = (
   stage: string | null,
@@ -252,23 +253,19 @@ export const workingMark = (board: BoardState, tasks: ReadonlyArray<Task>, prese
   return best ?? { mood: presence === "active" ? "thinking" : "still", statusId: "" }
 }
 
-/** A card's mark as it was drawn: its mood, the task's status, and its holder's last check-in. */
+/** A mark as it was drawn: its mood and the task's status. */
 export interface MarkSeen {
   readonly mood: AgentMood
   readonly statusId: string
-  /** The holder's `lastSeenAt` (the subagent's, else the session's); null with no holder. */
-  readonly checkIn: number | null
 }
 
 /**
  * What plays once when a card changes while it's on screen: Done when the task moves into In Review or
- * Done (In Review to Done included), the Needs input hop when it starts waiting, and a short burst of
- * working or thinking when the agent starts it or checks in while at it (so a busy agent keeps moving
- * and a quiet one goes still); else nothing.
+ * Done (In Review to Done included), the Needs input hop when it starts waiting; else nothing. Working
+ * and thinking have no entry: they loop by their mood, page load included, while the agent is active.
  */
-export const markEntry = (before: MarkSeen, now: MarkSeen): "done" | "waiting" | "burst" | null => {
+export const markEntry = (before: MarkSeen, now: MarkSeen): "done" | "waiting" | null => {
   if (now.mood === "done" && (before.mood !== "done" || before.statusId !== now.statusId)) return "done"
   if (now.mood === "waiting" && before.mood !== "waiting") return "waiting"
-  if ((now.mood === "working" || now.mood === "thinking") && (before.mood !== now.mood || before.checkIn !== now.checkIn)) return "burst"
   return null
 }
