@@ -195,6 +195,10 @@ Developing on Cello itself: `bun run dev` starts a server on port 4748 with its 
 
 Cello is a personal tool going public early. The workflow it encodes (agents claim, prove, and ask; a human decides) is the stable part. The code, the CLI's flags and the data format will keep changing. Issues and ideas are very welcome; for anything bigger than a small fix, open an issue first so we can talk about it.
 
+## License
+
+[MIT](LICENSE)
+
 ---
 
 <p align="center"><sub>Made with agents, for working with agents. 🎻</sub></p>
