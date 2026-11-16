@@ -19,6 +19,7 @@ import * as Commands from "../commands/Commands.ts"
 import { newId } from "../persistence/ids.ts"
 import * as Seed from "../persistence/Seed.ts"
 import { isAlive } from "../process/isAlive.ts"
+import { testsOf } from "./activity.ts"
 
 /** What a request says about its caller, decoded from the identity headers. */
 export interface Identity {
@@ -85,8 +86,8 @@ export const NO_LOG_REPORT: LogReport = { transcript: null, step: null }
 
 /**
  * Records a call from a session's subagent (CEL-55): created on first sight with its type, else seen
- * now, a type learnt late filled in, and an ended (resumed) agent live again; a transcript or current
- * step its hook reported replaces the one kept (CEL-106). AgentService has the rest.
+ * now, a type learnt late filled in, and an ended (resumed) or waiting (CEL-133) agent working again; a
+ * transcript or current step its hook reported replaces the one kept (CEL-106). AgentService has the rest.
  */
 export const touchAgent = (
   sql: SqlClient.SqlClient,
@@ -99,7 +100,7 @@ export const touchAgent = (
   sql`INSERT INTO session_agents (session_id, agent_id, agent_type, started_at, last_seen_at, transcript_path, current_step, current_step_at)
     VALUES (${sessionId}, ${agentId}, ${agentType}, ${now}, ${now}, ${log.transcript}, ${log.step}, ${log.step === null ? null : now})
     ON CONFLICT (session_id, agent_id) DO UPDATE SET
-      last_seen_at = excluded.last_seen_at, ended_at = NULL, agent_type = COALESCE(excluded.agent_type, agent_type),
+      last_seen_at = excluded.last_seen_at, ended_at = NULL, waiting_json = NULL, agent_type = COALESCE(excluded.agent_type, agent_type),
       transcript_path = COALESCE(excluded.transcript_path, transcript_path),
       current_step = COALESCE(excluded.current_step, current_step),
       current_step_at = COALESCE(excluded.current_step_at, current_step_at)`
@@ -167,6 +168,11 @@ export class SessionService extends Context.Service<SessionService, {
    * it a board would show it waiting, last seen when the wait opened, until its next check-in.
    */
   readonly wokeWithin: (context: Commands.WriteContext, sessionId: string) => Effect.Effect<void, SqlError>
+  /**
+   * Tells the boards where the session holds a claim what it's doing now (`session.seen`), whatever
+   * PRESENCE_EVERY_MS says: its test run started, moved or ended (CEL-134).
+   */
+  readonly announce: (sessionId: string) => Effect.Effect<void>
 }>()("cello/SessionService") {}
 
 interface SessionRow {
@@ -189,6 +195,8 @@ interface SessionRow {
   effort?: string | null
   /** CEL-124; left out by selects that don't need it. */
   orchestrating?: number
+  /** CEL-134; left out by selects that don't need it. */
+  tests_json?: string | null
 }
 
 export const toSession = (r: SessionRow): AgentSession => ({
@@ -208,6 +216,7 @@ export const toSession = (r: SessionRow): AgentSession => ({
   model: r.model ?? null,
   effort: r.effort ?? null,
   orchestrating: r.orchestrating === 1,
+  tests: testsOf(r.tests_json),
 })
 
 /** Client name for sessions that don't say which client they are. */
@@ -327,6 +336,13 @@ const make = Effect.gen(function* () {
     if (session) yield* tell(session, due, now)
   }, Effect.orDie)
 
+  const announce = Effect.fn("SessionService.announce")(function* (sessionId: string) {
+    const now = yield* Clock.currentTimeMillis
+    const workspaces = yield* claimWorkspaces(sessionId)
+    const [session] = yield* byIds([sessionId])
+    if (session && workspaces.length > 0) yield* tell(session, workspaces, now)
+  }, Effect.orDie)
+
   const sweep = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis
     const holding = yield* sql<SessionRow>`
@@ -404,7 +420,7 @@ const make = Effect.gen(function* () {
       for (const id of workspaceIds) heard.set(`${sessionId} ${id}`, context.now)
     }).pipe(Effect.withSpan("SessionService.wokeWithin"))
 
-  return SessionService.of({ resolve, byIds, checkIn, sweep, waitingWhile, wokeWithin })
+  return SessionService.of({ resolve, byIds, checkIn, sweep, waitingWhile, wokeWithin, announce })
 })
 
 export const layer = Layer.effect(SessionService, make)

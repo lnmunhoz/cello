@@ -29,9 +29,10 @@ import {
   type SessionAgent,
   type Status,
   type Task,
+  TestProgress,
 } from "@cello/contract/entities"
 import type { CelloEvent, EventOf } from "@cello/contract/events"
-import { HUMAN_SESSION, IDENTITY_HEADERS, type ProfileWrite } from "@cello/contract/rpcs"
+import { type ActivityReport, HUMAN_SESSION, IDENTITY_HEADERS, type ProfileWrite } from "@cello/contract/rpcs"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { isAlive } from "@cello/server/process/isAlive"
 import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
@@ -44,12 +45,14 @@ import { cleanReaction, groupReactions } from "@cello/shared/reaction"
 import { type Detection, detectRepo } from "@cello/shared/detect"
 import { findMilestone, progressText } from "@cello/shared/milestone"
 import { missingFields } from "@cello/shared/testingProfile"
+import { isRunning, testRunWords } from "@cello/shared/testRun"
 import { shortCommit } from "@cello/shared/build"
 import { APP_VERSION } from "@cello/shared/version"
 import * as Console from "effect/Console"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
 import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
 import * as Argument from "effect/cli/Argument"
@@ -75,6 +78,7 @@ import {
   claimCheck,
   type DeliveryEvent,
   HOOK_EVENTS,
+  type HookEvent,
   hookAction,
   hookDeadline,
   hookIdentity,
@@ -86,7 +90,9 @@ import {
   stopNudge,
   subagentContext,
   subagentTranscript,
+  testReport,
   transcriptOf,
+  turnEndedReport,
   waitHint,
   WOKEN_VARIABLE,
 } from "./claudeHook.ts"
@@ -476,14 +482,22 @@ const byIds = (names: {
 
 /**
  * The agents on a task (CEL-55), freshest first: "cello-builder · a13bfb89 (under Claude Code session
- * 2fd0505c): working, seen 1m ago" or "…: finished 2h ago".
+ * 2fd0505c): working, seen 1m ago", "…: running tests (web e2e 7 of 13 · 3m12s), seen just now" (CEL-134),
+ * "…: waiting on its background work (Bash · bun run test:e2e), seen 4m
+ * ago" (CEL-133) or "…: finished 2h ago".
  */
 const agentLines = (detail: TaskDetail, now: number) =>
   (detail.agents ?? [])
     .filter((a) => a.taskId === detail.task.id)
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
     .map((a) => {
-      const state = a.endedAt === null ? `working, seen ${ago(a.lastSeenAt, now)}` : `finished ${ago(a.endedAt, now)}`
+      const state = a.endedAt !== null
+        ? `finished ${ago(a.endedAt, now)}`
+        : isRunning(a.tests, now)
+        ? `running tests (${testRunWords(a.tests!, now)}), seen ${ago(a.lastSeenAt, now)}`
+        : a.waitingOn
+        ? `waiting on its background work (${a.waitingOn.join(", ")}), seen ${ago(a.lastSeenAt, now)}`
+        : `working, seen ${ago(a.lastSeenAt, now)}`
       return `  ${agentName(a, detail.sessions.find((s) => s.id === a.sessionId), a)}: ${state}`
     })
 
@@ -1860,6 +1874,22 @@ const inbox = Command.make("inbox", {
       "Not from a subagent: it shares its parent's session and would take the parent's comments.",
   ))
 
+/** Tells the board what a hook saw the caller do (CEL-133, CEL-134). A nicety: if it fails, the hook carries on. */
+const reportActivity = (report: ActivityReport, headers: Record<string, string>) =>
+  withClient((client) => client["activity.report"]({ report }), { headers }).pipe(Effect.catch(() => Effect.void))
+
+/**
+ * The tool-call hooks that only follow test runs (CEL-134): PreToolUse on a Bash test command (a run
+ * starts) and PostToolUseFailure (a foreground run failed). Silent: they print nothing.
+ */
+const followTests = (input: HookInput, event: "pre-tool-use" | "post-tool-use-failure") =>
+  Effect.gen(function* () {
+    const { env, cwd } = yield* CliEnv
+    const report = testReport(input, event)
+    if (report === null || hookSession(input, env) === null) return
+    yield* reportActivity(report, identityHeaders(hookIdentity(input, env), input.cwd ?? cwd))
+  })
+
 /** What the comment hooks do: take the new comments for the session on stdin and print them for Claude Code. */
 const deliverToClaude = (event: DeliveryEvent) =>
   Effect.gen(function* () {
@@ -1887,10 +1917,16 @@ const deliverToClaude = (event: DeliveryEvent) =>
         Effect.catch(() => Effect.void),
       )
     }
+    // The call started background work (CEL-133): remembered, so a stop while it runs means waiting, not finished.
+    const started = hook.startedBackground
+    if (started !== null) yield* reportActivity({ kind: "background", id: started.id, label: started.label, toolUseId: hook.toolUseId, waits: started.waits }, headers)
+    // A foreground test run ended with its call (CEL-134); the main conversation's turn ended, and with it its foreground run.
+    const tests = event === "post-tool-use" ? testReport(hook, "post-tool-use") : turnEndedReport(hook)
+    if (tests !== null) yield* reportActivity(tests, headers)
     // A subagent's tool calls carry its parent's session: check it in (any call does) and leave the
     // comments for the main conversation.
     if (action === "check-in") {
-      if (launched === null) yield* withClient((client) => client["whoami"]({ project: {} }), { headers })
+      if (launched === null && started === null && tests === null) yield* withClient((client) => client["whoami"]({ project: {} }), { headers })
       return
     }
     // Taken and marked read in one step: a comment is handed over once, even to hooks running at the
@@ -1967,13 +2003,22 @@ const guardToolUse = Effect.gen(function* () {
   const answer = artifactGuard(input, env)
   if (answer) return yield* print(JSON.stringify(answer))
   if (input.toolName === "AskUserQuestion") return yield* guardAskUser(input)
+  // A Bash call about to run tests (CEL-134): its agent is Running tests. Never blocks the call.
+  if (input.toolName === "Bash") return yield* followTests(input, "pre-tool-use")
   yield* guardClaims(input)
+})
+
+/** PostToolUseFailure (CEL-134): a Bash test command that failed ends its foreground run, failed. */
+const toolFailed = Effect.gen(function* () {
+  const { readStdin } = yield* CliEnv
+  yield* followTests(parseHookInput(yield* Effect.promise(readStdin)), "post-tool-use-failure")
 })
 
 /**
  * SubagentStart and SubagentStop (CEL-55): a subagent of the session started (or was resumed) or
  * finished. Start first prints the context that tells it its --agent (no server needed), then
- * both tell the board, as the session.
+ * both tell the board, as the session. A stop also says which background work the session still runs
+ * (CEL-133): a subagent whose own work is among it is waiting on it, not finished.
  */
 const subagentHook = (state: "started" | "stopped") =>
   Effect.gen(function* () {
@@ -1986,7 +2031,15 @@ const subagentHook = (state: "started" | "stopped") =>
     if (!session.CLAUDE_CODE_SESSION_ID) return
     // The subagent's own transcript (CEL-106): its log on the Agents page.
     const transcriptPath = transcriptOf(hook)
-    yield* withClient((client) => client["agent.report"]({ agentId: agent.id, agentType: agent.type, state, ...(transcriptPath ? { transcriptPath } : {}) }), {
+    const running = state === "stopped" && hook.backgroundTasks !== null ? hook.backgroundTasks.map((task) => task.id) : null
+    yield* withClient((client) =>
+      client["agent.report"]({
+        agentId: agent.id,
+        agentType: agent.type,
+        state,
+        ...(transcriptPath ? { transcriptPath } : {}),
+        ...(running ? { running } : {}),
+      }), {
       headers: identityHeaders(session, hook.cwd ?? cwd),
     })
   })
@@ -1995,21 +2048,26 @@ const HOOK_WORK = {
   "stop": deliverToClaude("stop"),
   "post-tool-use": deliverToClaude("post-tool-use"),
   "pre-tool-use": guardToolUse,
+  "post-tool-use-failure": toolFailed,
   "subagent-start": subagentHook("started"),
   "subagent-stop": subagentHook("stopped"),
 } as const
 
 const hookClaude = Command.make("claude", {
-  event: Argument.Literals("event", HOOK_EVENTS).pipe(
+  // Any word, not a fixed list: an event this cello doesn't know (a settings file written by a newer or
+  // older `cello install claude`) must exit 0 silently, never show Claude Code a hook error.
+  event: Argument.String("event").pipe(
     Argument.withDescription(
-      "The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse), pre-tool-use (PreToolUse: the artifact, AskUserQuestion and claim guards), " +
-        "subagent-start (SubagentStart) or subagent-stop (SubagentStop).",
+      "The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse), pre-tool-use (PreToolUse: the artifact, AskUserQuestion and claim guards, " +
+        "and a Bash test run starting), post-tool-use-failure (PostToolUseFailure: a Bash test run failed), subagent-start (SubagentStart) or subagent-stop (SubagentStop). " +
+        "Any other event does nothing and exits 0.",
     ),
   ),
 }, (input) =>
   Effect.gen(function* () {
     const { env, exit } = yield* CliEnv
-    const work = HOOK_WORK[input.event]
+    const known = (HOOK_EVENTS as ReadonlyArray<string>).includes(input.event)
+    const work = known ? HOOK_WORK[input.event as HookEvent] : Effect.void
     // It must never break or stall the session: a slow or missing server, bad input, anything, is silence and exit 0.
     yield* work.pipe(Effect.timeout(hookDeadline(env)), Effect.catchCause(() => Effect.void))
     // An explicit end: a stdin that never closes would otherwise keep the process alive.
@@ -2033,9 +2091,47 @@ const hookClaude = Command.make("claude", {
       "edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a " +
       "minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; " +
       "post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start " +
-      "prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished. " +
+      "prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished, or " +
+      "waiting on background work while a test command it ran with run_in_background or a Monitor it started is still among Claude Code's " +
+      "background_tasks (post-tool-use remembers the background work each call starts). " +
+      "Test runs: pre-tool-use on a Bash command that runs tests (bun run test, test:e2e, test:docker*, scripts/test-in-docker.ts, " +
+      "vitest, playwright test, …) marks its agent Running tests; its post-tool-use ends a foreground run passed, post-tool-use-failure " +
+      "failed, and stop ends a run the main conversation's turn leaves behind unless it runs in the background. " +
       "Always exits 0.",
   ))
+
+// ── test runs (CEL-134) ─────────────────────────────────────────────────────────────────────────
+
+const testProgress = Command.make("progress", {
+  file: Flag.String("file").pipe(
+    Flag.withDescription(
+      "The progress file to report: JSON with stage, passed, failed, skipped, total (or null), current, failures, done, outcome (passed, failed, " +
+        "stopped or null) and folder; scripts/test-in-docker.ts writes it as progress.json in its run folder.",
+    ),
+  ),
+  json: Flag.Boolean("json").pipe(Flag.withDefault(false), Flag.withDescription("Print { matched }: whether a running test run took the report.")),
+}, (input) =>
+  Effect.gen(function* () {
+    const { cwd } = yield* CliEnv
+    const progress = yield* Effect.try({
+      try: () => Schema.decodeUnknownSync(TestProgress)(JSON.parse(fs.readFileSync(path.resolve(cwd, input.file), "utf8"))),
+      catch: (error) => new CliFailure({ message: `Can't read the progress in ${input.file}: ${error instanceof Error ? error.message : String(error)}` }),
+    })
+    const result = yield* withClient((client) => client["tests.progress"]({ cwd, progress }))
+    if (input.json) return yield* printJson(result)
+    yield* print(result.matched ? "Reported." : "No test run of this session is running here, so nothing took it.")
+  })).pipe(Command.withDescription(
+    "Report a test run's progress to the board, for the agent whose tool call started it: the test runner runs it, not you. " +
+      "The run is this session's, or one of its subagents', started from this folder (one inside the other), else the session's only " +
+      "running one; the Agents page, the card and the task panel show where it is (\"web e2e 7 of 13 · 1 failed\") and each failure " +
+      "as it happens. A run nobody started, or a call without a session, changes nothing. scripts/test-in-docker.ts calls it as it goes, " +
+      "and never waits on it: without a server the tests run as before.",
+  ))
+
+const test = Command.make("test").pipe(
+  Command.withDescription("Test runs on the board (CEL-134): `cello test progress` is what a test runner calls as it goes."),
+  Command.withSubcommands([testProgress]),
+)
 
 const hook = Command.make("hook").pipe(
   Command.withDescription("Hooks for agent hosts; `cello hook claude <event>` is what `cello install claude` puts in Claude Code's settings."),
@@ -2859,7 +2955,7 @@ const service = Command.make("service").pipe(
 
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, init, profile, task, label, milestone, waitCommand, inbox, sessions, agents, doc, openCommand, searchCommand, whoami, guide, install, uninstall, hook, startCommand, service, backup, restoreCommand, buildsCommand]),
+  Command.withSubcommands([context, init, profile, task, label, milestone, waitCommand, inbox, sessions, agents, doc, openCommand, searchCommand, whoami, guide, install, uninstall, hook, test, startCommand, service, backup, restoreCommand, buildsCommand]),
   Command.withGlobalFlags([AgentFlag]),
 )
 

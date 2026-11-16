@@ -140,9 +140,19 @@ const GROUPS: ReadonlyArray<{ id: AgentGroupId; label: string }> = [
   { id: "quiet", label: "Quiet" },
 ]
 
-/** Finished once it ended; else waiting on Lucas when its task is in Needs input, quiet once it has gone quiet, else working. */
+/**
+ * Finished once it ended; else waiting on Lucas when its task is in Needs input, quiet once it has gone
+ * quiet, else working. A subagent waiting on its own background work (CEL-133: its e2e run, a Monitor)
+ * is working: quiet only because nothing calls while that work runs.
+ */
 export const groupOf = (row: AgentRow): AgentGroupId =>
-  row.presence === "ended" ? "finished" : row.mark.mood === "waiting" ? "waiting" : row.presence === "idle" ? "quiet" : "working"
+  row.presence === "ended"
+    ? "finished"
+    : row.mark.mood === "waiting"
+    ? "waiting"
+    : row.presence === "idle" && !row.agent?.waitingOn
+    ? "quiet"
+    : "working"
 
 const RANK: Record<AgentGroupId, number> = { waiting: 0, working: 1, quiet: 2, finished: 3 }
 

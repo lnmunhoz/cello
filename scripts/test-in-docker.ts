@@ -9,7 +9,9 @@
 //
 // Each run gets its own folder, test-results/docker/<time>-<label>-<pid>/ (scripts/docker/runFolders.ts),
 // with summary.txt, logs/, web/videos (MP4), desktop/videos (MP4) and desktop/screenshots;
-// test-results/docker/latest points at the newest. The label is the mode, or CELLO_TEST_LABEL.
+// test-results/docker/latest points at the newest. progress.json there says where the run is as it goes
+// (stage, passed and failed of the total, each failure; CEL-134), and when an agent session runs it
+// (CLAUDE_CODE_SESSION_ID) `cello test progress` shows it on the board; without a server nothing changes. The label is the mode, or CELLO_TEST_LABEL.
 // TEST_CPUS and TEST_MEMORY change the 4 CPU and 6 GB caps. CELLO_E2E_SLOWMO and CELLO_E2E_ONLINE
 // are passed in. The image (docker/test.Dockerfile) is built on the first run and again only when
 // the Dockerfile or the pinned Playwright or Bun version changes.
@@ -17,6 +19,8 @@ import { spawn, spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { buildArgs, dockerArgs, imageTag, parseCommand, passedEnv, versions } from "./docker/container.ts"
+import { lineSplitter } from "./docker/progress.ts"
+import { progressReporter, REPORT_TIMEOUT_MS, writeAtomically } from "./docker/reporter.ts"
 import { finishRun, startRun } from "./docker/runFolders.ts"
 import { duration, parseSteps, resultFolders, stopReason, summarize } from "./docker/summary.ts"
 
@@ -35,6 +39,29 @@ const countFiles = (dir: string, ext: string) => {
     return 0
   }
 }
+
+/**
+ * `cello test progress --file <file>` (CEL-134), as the agent session running this: the `cello` on the
+ * PATH, or CELLO_BIN. Resolves however it ends, and kills it after REPORT_TIMEOUT_MS; a missing `cello`
+ * turns reporting off for the run.
+ */
+let celloMissing = false
+const reportWithCello = (file: string) =>
+  new Promise<void>((resolve) => {
+    if (celloMissing) return resolve()
+    const child = spawn(process.env.CELLO_BIN || "cello", ["test", "progress", "--file", file], { cwd: repo, stdio: "ignore" })
+    const timer = setTimeout(() => child.kill("SIGKILL"), REPORT_TIMEOUT_MS)
+    timer.unref()
+    child.once("error", () => {
+      clearTimeout(timer)
+      celloMissing = true
+      resolve()
+    })
+    child.once("exit", () => {
+      clearTimeout(timer)
+      resolve()
+    })
+  })
 
 const read = (file: string) => {
   try {
@@ -86,11 +113,32 @@ const stop = () => {
 }
 process.on("SIGINT", stop)
 process.on("SIGTERM", stop)
-const status = await new Promise<number | null>((resolve) => {
-  const child = spawn("docker", dockerArgs({ image, name, mode, args, repo, out, cpus, memory, env: process.env }), { stdio: "inherit" })
-  child.once("error", () => resolve(null))
-  child.once("exit", (code) => resolve(code))
+// Where the run is, in progress.json, and on the board for the agent that started it (CEL-134).
+const progress = progressReporter(out, {
+  now: Date.now,
+  write: writeAtomically,
+  report: process.env.CLAUDE_CODE_SESSION_ID ? reportWithCello : null,
+  schedule: (run, ms) => void setTimeout(run, ms).unref(),
 })
+const status = await new Promise<number | null>((resolve) => {
+  const child = spawn("docker", dockerArgs({ image, name, mode, args, repo, out, cpus, memory, env: process.env }), { stdio: ["inherit", "pipe", "pipe"] })
+  // The output still goes where it always did; each line also moves the progress on.
+  const follow = (from: NodeJS.ReadableStream | null, to: NodeJS.WriteStream) => {
+    const split = lineSplitter()
+    // Where it goes may close (`| head`): the run goes on, and so does its progress.
+    to.on("error", () => {})
+    from?.on("data", (chunk: Buffer) => {
+      to.write(chunk)
+      for (const line of split.push(chunk.toString("utf8"))) progress.line(line)
+    })
+    from?.on("end", () => split.end().forEach(progress.line))
+  }
+  follow(child.stdout, process.stdout)
+  follow(child.stderr, process.stderr)
+  child.once("error", () => resolve(null))
+  child.once("close", (code) => resolve(code))
+})
+await progress.finish({ exit: status, signalled })
 
 const steps = parseSteps(read(path.join(out, "steps.tsv")))
 const summary = summarize({

@@ -2,7 +2,7 @@
 // ones that finished today), which one an id means, and an agent's log as plain text, the same steps the
 // Agents page shows. Which agents count, and the log's words, are shared with the page
 // (@cello/client/sync/agents, @cello/client/sync/agentLog).
-import { currentStepOf, durationWords, previewOf } from "@cello/client/sync/agentLog"
+import { doingNowOf, durationWords, previewOf } from "@cello/client/sync/agentLog"
 import type { FinishedAgent, WorkingSessionOf } from "@cello/client/sync/agents"
 import type { LogStep, LogUpdate } from "@cello/contract/agentLog"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
@@ -89,14 +89,14 @@ export const agentsText = (input: {
       w.agents.length > 0 ? "orchestrator" : "session",
       presenceWords(w.session, input.now),
       w.tasks.length > 0 ? `holds ${keys(w.tasks)}` : "",
-      currentStepOf({ presence: w.presence, session: w.session, agent: null }) ?? "",
+      doingNowOf({ presence: w.presence, session: w.session, agent: null }, input.now) ?? "",
     ],
     ...w.agents.map((a) => [
       `    ${agentId(a.agent)}${model(a.agent)}`,
       "",
       presenceWords(a.agent, input.now),
       a.task ? `on ${a.task.key}` : "",
-      currentStepOf({ presence: a.presence, session: w.session, agent: a.agent }) ?? "",
+      doingNowOf({ presence: a.presence, session: w.session, agent: a.agent }, input.now) ?? "",
     ]),
   ])
   // An empty cell at the end would pad the line: drop trailing empties.

@@ -54,6 +54,9 @@ export const toolTarget = (name: string, input: Readonly<Record<string, unknown>
       return oneLine(text(i.query))
     case "Skill":
       return oneLine(text(i.skill))
+    // What a Monitor watches, in its own words (CEL-133): its command is a shell loop nobody reads.
+    case "Monitor":
+      return oneLine(text(i.description))
     default:
       return ""
   }

@@ -4,8 +4,10 @@
 //
 //   stdin   { session_id, cwd, hook_event_name, stop_hook_active (Stop), agent_id and agent_type (inside a
 //             subagent, and on SubagentStart/SubagentStop), tool_name, tool_input (PreToolUse, PostToolUse),
-//             tool_response (PostToolUse; on the Agent tool it has the launched subagent's agentId),
-//             background_tasks: [{ id, type: "shell" | …, status, command (shell only) }] (Stop),
+//             tool_response (PostToolUse; on the Agent tool it has the launched subagent's agentId; on Bash
+//             run in the background `backgroundTaskId`, on Monitor `taskId`, checked 2026-11-17), tool_use_id,
+//             background_tasks: [{ id, type: "shell" | "monitor" | …, status, command (shell only) }] (Stop, and
+//             SubagentStop, where it lists the whole session's work, not only the subagent's; checked 2026-11-17),
 //             transcript_path (every event: the main session's transcript, even inside a subagent),
 //             agent_transcript_path (SubagentStop: the subagent's own, in `<session>/subagents/`, checked 2026-11-16), … }
 //   start   { "hookSpecificOutput": { "hookEventName": "SubagentStart", "additionalContext": "…" } }
@@ -23,12 +25,14 @@
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
+import type { ActivityReport } from "@cello/contract/rpcs"
+import { commandWords, isTestCommand } from "@cello/shared/testRun"
 import { stepLine } from "@cello/shared/toolSummary"
 import { isObject } from "./claudeSettings.ts"
 import { andList } from "./format.ts"
 import { agentVariable, type Env } from "./identity.ts"
 
-export const HOOK_EVENTS = ["stop", "post-tool-use", "pre-tool-use", "subagent-start", "subagent-stop"] as const
+export const HOOK_EVENTS = ["stop", "post-tool-use", "pre-tool-use", "post-tool-use-failure", "subagent-start", "subagent-stop"] as const
 export type HookEvent = (typeof HOOK_EVENTS)[number]
 /** The events that hand comments over (CEL-15). */
 export type DeliveryEvent = "stop" | "post-tool-use"
@@ -66,6 +70,32 @@ export interface HookInput {
   readonly transcriptPath: string | null
   /** `agent_transcript_path` (SubagentStop): the subagent's own transcript (CEL-106). */
   readonly agentTranscriptPath: string | null
+  /** `tool_use_id` (PreToolUse, PostToolUse): which call it is. */
+  readonly toolUseId: string | null
+  /**
+   * Stop and SubagentStop (CEL-133): the session's background work still running (`background_tasks`),
+   * the whole session's, not only the caller's; null when Claude Code didn't send the list.
+   */
+  readonly backgroundTasks: ReadonlyArray<BackgroundTask> | null
+  /** PostToolUse (CEL-133): the background work this call started, when it did. */
+  readonly startedBackground: StartedBackground | null
+}
+
+/** One entry of `background_tasks`: its id, its kind (`shell`, `monitor`, `subagent`, …), and a shell's command. */
+export interface BackgroundTask {
+  readonly id: string
+  readonly type: string | null
+  readonly command: string | null
+}
+
+/**
+ * Background work a tool call started: the id `background_tasks` lists it under, the call in one line, and
+ * whether its agent waits for it (`waits`: a Monitor, or a test command; not a dev server left running).
+ */
+export interface StartedBackground {
+  readonly id: string
+  readonly label: string
+  readonly waits: boolean
 }
 
 export interface HookAgent {
@@ -102,6 +132,28 @@ const launchOf = (toolName: string | null, toolInput: Readonly<Record<string, un
   }
 }
 
+/**
+ * The background work a call started (CEL-133): Bash run with run_in_background answers with a
+ * `backgroundTaskId`, Monitor with a `taskId` (other tools' task ids, like TaskCreate's, aren't background work).
+ */
+const startedBackgroundOf = (toolName: string | null, toolInput: Readonly<Record<string, unknown>> | null, toolResponse: unknown): StartedBackground | null => {
+  if (toolName === null) return null
+  const response = record(toolResponse)
+  const id = text(response?.backgroundTaskId) ?? (toolName === "Monitor" ? text(response?.taskId) : null)
+  if (id === null) return null
+  const command = typeof toolInput?.command === "string" ? toolInput.command : ""
+  return { id, label: stepLine(toolName, toolInput), waits: toolName === "Monitor" || (toolName === "Bash" && isTestCommand(command)) }
+}
+
+const backgroundTasksOf = (value: unknown): ReadonlyArray<BackgroundTask> | null =>
+  Array.isArray(value)
+    ? value.flatMap((entry) => {
+      const task = record(entry)
+      const id = text(task?.id)
+      return id === null ? [] : [{ id, type: text(task?.type), command: text(task?.command) }]
+    })
+    : null
+
 /** Reads the hook's stdin. Empty or broken input means no information, never an error. */
 export const parseHookInput = (raw: string): HookInput => {
   let value: unknown = null
@@ -132,6 +184,9 @@ export const parseHookInput = (raw: string): HookInput => {
     permissionMode: text(input.permission_mode),
     transcriptPath: text(input.transcript_path),
     agentTranscriptPath: text(input.agent_transcript_path),
+    toolUseId: text(input.tool_use_id),
+    backgroundTasks: backgroundTasksOf(input.background_tasks),
+    startedBackground: startedBackgroundOf(toolName, toolInput, input.tool_response),
   }
 }
 
@@ -211,6 +266,30 @@ export const subagentContext = (agent: HookAgent) => {
  */
 export const hookAction = (input: HookInput, env: Env): "deliver" | "check-in" | "nothing" =>
   hookSession(input, env) === null ? "nothing" : input.inSubagent ? "check-in" : "deliver"
+
+// ── test runs (CEL-134) ─────────────────────────────────────────────────────────────────────────
+// A Bash call that runs a test command (@cello/shared/testRun) marks its agent Running tests: PreToolUse
+// says it starts (PostToolUse would be too late: for a foreground call it fires when the tests are done),
+// PostToolUse or PostToolUseFailure says a foreground run ended, passed or failed. A run started in the
+// background goes on: PostToolUse's background report (startedBackground) says so, and the runner's own
+// reports (`cello test progress`) or a stop end it.
+
+/** The tool-call hooks a test run hears. */
+export type ToolEvent = "pre-tool-use" | "post-tool-use" | "post-tool-use-failure"
+
+/** What a tool-call hook tells the board about a test run, or null: not a Bash test command, or no call id. */
+export const testReport = (input: HookInput, event: ToolEvent): ActivityReport | null => {
+  const command = typeof input.toolInput?.command === "string" ? input.toolInput.command : null
+  if (input.toolName !== "Bash" || input.toolUseId === null || command === null || !isTestCommand(command)) return null
+  if (event === "pre-tool-use") return { kind: "tests-started", toolUseId: input.toolUseId, command, cwd: input.cwd }
+  // Run in the background, the call returned at once: the run goes on (the background report links it).
+  if (event === "post-tool-use" && input.startedBackground !== null) return null
+  return { kind: "tool-finished", toolUseId: input.toolUseId, failed: event === "post-tool-use-failure" }
+}
+
+/** The main conversation's Stop (CEL-134): its turn is over, with the background work still running when Claude Code says. */
+export const turnEndedReport = (input: HookInput): ActivityReport | null =>
+  input.inSubagent ? null : { kind: "turn-ended", ...(input.backgroundTasks === null ? {} : { running: input.backgroundTasks.map((task) => task.id) }) }
 
 // ── the artifact guard (CEL-57) ─────────────────────────────────────────────────────────────────
 // In a Cello project, what an agent shows Lucas goes into Cello as a page, never a claude.ai artifact.
@@ -423,17 +502,13 @@ export const WAIT_NUDGE = (claimed: ReadonlyArray<string>, human: string) =>
 export const WAIT_HINT = (human: string) =>
   `When you end this turn, start \`cello inbox --wait\` in the background first (the Bash tool with run_in_background: true), so ${human}'s next comment wakes you.`
 
-/** Shell words, split at `&&`, `||`, `;` and `|`: enough to read a command line, not a shell. */
-const commandsOf = (line: string): string[][] =>
-  line.split(/&&|\|\||;|\|/).map((part) => part.trim().split(/\s+/).filter((word) => word !== "").map((word) => word.replace(/^["']|["']$/g, "")))
-
 /**
  * Whether one of the session's background shells (Stop's `background_tasks`) runs `cello inbox --wait`:
  * a command whose program is `cello` (after any VAR=value), then `inbox`, with `--wait` among its flags.
  */
 export const waitsInBackground = (input: HookInput): boolean =>
   (input.backgroundCommands ?? []).some((line) =>
-    commandsOf(line).some((words) => {
+    commandWords(line).some((words) => {
       const [program, sub, ...rest] = words.slice(words.findIndex((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)))
       return program !== undefined && path.basename(program) === "cello" && sub === "inbox" && rest.includes("--wait")
     }))

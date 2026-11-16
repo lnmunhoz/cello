@@ -4,6 +4,7 @@
 import type { LogStep, LogUnavailable, LogUpdate } from "@cello/contract/agentLog"
 import type { AgentSession, SessionAgent } from "@cello/contract/entities"
 import type { Presence } from "@cello/shared/presence"
+import { isRunning, testRunWords } from "@cello/shared/testRun"
 
 export interface LogView {
   /** `loading` until the first update; `unavailable` with its reason when there's no log. */
@@ -73,12 +74,30 @@ export const parseLogKey = (key: string): { sessionId: string; agentId: string |
 
 /**
  * What the row says the agent is doing right now: its last tool call, only while it's working. Once it
- * goes quiet or finishes, the last step it reported is no longer "now".
+ * goes quiet or finishes, the last step it reported is no longer "now". A subagent that ended its turn
+ * while its own background work runs (CEL-133) is waiting on that work, quiet or not.
  */
 export const currentStepOf = (row: { readonly presence: Presence; readonly agent: SessionAgent | null; readonly session: AgentSession }): string | null => {
+  if (row.presence !== "ended" && row.agent?.waitingOn) return waitingWords(row.agent.waitingOn)
   if (row.presence !== "active") return null
   return (row.agent ? row.agent.currentStep : row.session.currentStep) ?? null
 }
+
+/**
+ * What `cello agents` says the agent is doing now: its test run while it runs ("Running tests: web e2e 7
+ * of 13 · 1 failed · 3m12s", CEL-134), else currentStepOf.
+ */
+export const doingNowOf = (
+  row: { readonly presence: Presence; readonly agent: SessionAgent | null; readonly session: AgentSession },
+  now: number,
+): string | null => {
+  const run = (row.agent ? row.agent.tests : row.session.tests) ?? null
+  if (row.presence !== "ended" && isRunning(run, now)) return `Running tests: ${testRunWords(run!, now)}`
+  return currentStepOf(row)
+}
+
+/** "Waiting on background work: Bash · bun run test:e2e" (CEL-133). */
+export const waitingWords = (on: ReadonlyArray<string>): string => `Waiting on background work: ${on.join(", ")}`
 
 /** How long a tool call took: "40 ms", "2.5 s", "1 min 35 s"; empty when unknown. */
 export const durationWords = (ms: number | null): string => {

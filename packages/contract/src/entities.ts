@@ -25,6 +25,45 @@ export const Actor = Schema.Struct({
 })
 export type Actor = typeof Actor.Type
 
+/**
+ * Where a test run is (CEL-134), as the test runner reports it (`cello test progress`, from the progress.json
+ * `scripts/test-in-docker.ts` writes in its run folder): the stage running ("web-e2e"), the tests passed and
+ * failed so far of `total` (null until the runner knows it), the last spec file one finished in, each failure
+ * as it happened ("e2e/board.spec.ts:40 › drags a card"), and once it's `done`, how it ended and its folder.
+ */
+export const TestProgress = Schema.Struct({
+  stage: Schema.NullOr(Schema.String),
+  passed: Schema.Number,
+  failed: Schema.Number,
+  skipped: Schema.Number,
+  total: Schema.NullOr(Schema.Number),
+  current: Schema.NullOr(Schema.String),
+  failures: Schema.Array(Schema.String),
+  done: Schema.Boolean,
+  outcome: Schema.NullOr(Schema.Literals(["passed", "failed", "stopped"])),
+  /** The run's results folder (summary.txt, logs/, videos), an absolute path on this machine. */
+  folder: Schema.NullOr(Schema.String),
+})
+export type TestProgress = typeof TestProgress.Type
+
+/**
+ * An agent's test run (CEL-134): a tool call of it started a test command (`bun run test`, `bun run
+ * test:e2e`, …; @cello/shared/testRun), the one running (`endedAt` null) or the last one. `label` is what
+ * the board calls it ("web e2e"), `command` the command in one line, keys masked. A background run
+ * (run_in_background) runs on after the call returns. `outcome`: passed or failed by the command's exit
+ * or the runner's report; `ended` when the agent's turn ended without either.
+ */
+export const TestRun = Schema.Struct({
+  label: Schema.String,
+  command: Schema.String,
+  startedAt: Millis,
+  endedAt: Schema.NullOr(Millis),
+  outcome: Schema.NullOr(Schema.Literals(["passed", "failed", "ended"])),
+  background: Schema.Boolean,
+  progress: Schema.NullOr(TestProgress),
+})
+export type TestRun = typeof TestRun.Type
+
 /** One agent conversation, keyed by its host's session id (`externalId`, e.g. CLAUDE_CODE_SESSION_ID). */
 export const AgentSession = Schema.Struct({
   id: Id,
@@ -65,6 +104,8 @@ export const AgentSession = Schema.Struct({
    * AskUserQuestion away. Absent (events stored before CEL-124) means false.
    */
   orchestrating: Schema.optionalKey(Schema.Boolean),
+  /** Its test run, running or the last one (CEL-134). Null or absent: none seen. */
+  tests: Schema.optionalKey(Schema.NullOr(TestRun)),
 })
 export type AgentSession = typeof AgentSession.Type
 
@@ -101,6 +142,16 @@ export const SessionAgent = Schema.Struct({
    */
   model: Schema.optionalKey(Schema.NullOr(Schema.String)),
   effort: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /**
+   * What it's waiting on (CEL-133): it ended its turn while background work it started itself (a shell
+   * run with run_in_background, a Monitor) was still running, so Claude Code resumes it when that work
+   * ends. It isn't finished (`endedAt` stays null) until a stop with none of its work left. One line per
+   * piece of work, as its step was ("Bash · bun run test:e2e", "Monitor · e2e run finishing"). Null or
+   * absent: not waiting.
+   */
+  waitingOn: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String))),
+  /** Its test run, running or the last one (CEL-134). Null or absent: none seen. */
+  tests: Schema.optionalKey(Schema.NullOr(TestRun)),
 })
 export type SessionAgent = typeof SessionAgent.Type
 

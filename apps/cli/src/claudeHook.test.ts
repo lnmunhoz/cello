@@ -31,6 +31,8 @@ import {
   waitsInBackground,
   subagentContext,
   subagentTranscript,
+  testReport,
+  turnEndedReport,
   transcriptOf,
 } from "./claudeHook.ts"
 
@@ -56,6 +58,9 @@ describe("parseHookInput", () => {
       permissionMode: null,
       transcriptPath: "/tmp/t.jsonl",
       agentTranscriptPath: null,
+      toolUseId: null,
+      backgroundTasks: null,
+      startedBackground: null,
     })
   })
 
@@ -91,6 +96,7 @@ describe("parseHookInput", () => {
     const none = {
       sessionId: null, cwd: null, stopHookActive: false, inSubagent: false, agent: null, launched: null, toolName: null, toolInput: null,
       backgroundCommands: null, permissionMode: null, transcriptPath: null, agentTranscriptPath: null,
+      toolUseId: null, backgroundTasks: null, startedBackground: null,
     }
     expect(parseHookInput("")).toEqual(none)
     expect(parseHookInput("{not json")).toEqual(none)
@@ -127,6 +133,76 @@ describe("Stop's background_tasks (CEL-74)", () => {
     expect(waits("tail -f log")).toBe(false)
     expect(waitsInBackground(stop([]))).toBe(false)
     expect(waitsInBackground(stop(undefined))).toBe(false)
+  })
+})
+
+// CEL-133: a subagent that ends its turn with its own background work running isn't finished. Formats
+// as Claude Code sends them (checked 2026-11-17 against a real subagent's transcript and the hooks docs).
+describe("background work (CEL-133)", () => {
+  const post = (tool_name: string, tool_input: unknown, tool_response: unknown) =>
+    parseHookInput(JSON.stringify({ session_id: "s", hook_event_name: "PostToolUse", agent_id: "a1", tool_name, tool_input, tool_response, tool_use_id: "toolu_9" }))
+
+  it("reads the background work a tool call started: Bash's backgroundTaskId, Monitor's taskId, with the call in one line", () => {
+    const bash = post("Bash", { command: "bun run test:e2e -- e2e/agents-page.spec.ts", run_in_background: true }, {
+      stdout: "", stderr: "", interrupted: false, isImage: false, noOutputExpected: false, backgroundTaskId: "blo3xolgq",
+    })
+    expect(bash.startedBackground).toEqual({ id: "blo3xolgq", label: "Bash · bun run test:e2e -- e2e/agents-page.spec.ts", waits: true })
+    expect(bash.toolUseId).toBe("toolu_9")
+    const monitor = post("Monitor", { description: "review-mode e2e run finishing", command: "until …" }, { taskId: "bpz2edzeb", timeoutMs: 1800000, persistent: false })
+    expect(monitor.startedBackground).toEqual({ id: "bpz2edzeb", label: "Monitor · review-mode e2e run finishing", waits: true })
+    // A dev server left running isn't work its agent waits for (review S3): it would never finish.
+    expect(post("Bash", { command: "bun run dev", run_in_background: true }, { backgroundTaskId: "bdev" }).startedBackground)
+      .toEqual({ id: "bdev", label: "Bash · bun run dev", waits: false })
+    // A foreground call, or a taskId from a tool that isn't Monitor, started nothing.
+    expect(post("Bash", { command: "ls" }, { stdout: "x" }).startedBackground).toBeNull()
+    expect(post("TaskCreate", {}, { taskId: "t1" }).startedBackground).toBeNull()
+  })
+
+  it("reads SubagentStop's background_tasks, which list the whole session's work, as ids and lines", () => {
+    const stop = parseHookInput(JSON.stringify({
+      session_id: "s", hook_event_name: "SubagentStop", agent_id: "a1", agent_type: "cello-builder",
+      background_tasks: [
+        { id: "blo3xolgq", type: "shell", status: "running", description: "Run related e2e specs", command: "bun run test:e2e" },
+        { id: "bpz2edzeb", type: "monitor", status: "running", description: "review-mode e2e run finishing" },
+        { id: 7, type: "shell" },
+      ],
+    }))
+    expect(stop.backgroundTasks).toEqual([
+      { id: "blo3xolgq", type: "shell", command: "bun run test:e2e" },
+      { id: "bpz2edzeb", type: "monitor", command: null },
+    ])
+    expect(parseHookInput(JSON.stringify({ session_id: "s", hook_event_name: "SubagentStop" })).backgroundTasks).toBeNull()
+  })
+})
+
+describe("testReport and turnEndedReport (CEL-134): what a hook says about a test run", () => {
+  const call = (event: string, command: unknown, extra: Record<string, unknown> = {}) =>
+    parseHookInput(JSON.stringify({ session_id: "s", cwd: "/repo/wt", hook_event_name: event, agent_id: "a1", tool_name: "Bash", tool_input: { command }, tool_use_id: "toolu_7", ...extra }))
+
+  it("PreToolUse on a Bash test command: a run starts, from the call's folder", () => {
+    expect(testReport(call("PreToolUse", "bun run test:e2e -- e2e/x.spec.ts"), "pre-tool-use")).toEqual({
+      kind: "tests-started", toolUseId: "toolu_7", command: "bun run test:e2e -- e2e/x.spec.ts", cwd: "/repo/wt",
+    })
+  })
+
+  it("its PostToolUse ends a foreground run passed, its PostToolUseFailure failed; in the background, it goes on", () => {
+    expect(testReport(call("PostToolUse", "bun run test"), "post-tool-use")).toEqual({ kind: "tool-finished", toolUseId: "toolu_7", failed: false })
+    expect(testReport(call("PostToolUseFailure", "bun run test"), "post-tool-use-failure")).toEqual({ kind: "tool-finished", toolUseId: "toolu_7", failed: true })
+    expect(testReport(call("PostToolUse", "bun run test:e2e", { tool_response: { backgroundTaskId: "b1" } }), "post-tool-use")).toBeNull()
+  })
+
+  it("nothing for another command, another tool, or a call without its id", () => {
+    expect(testReport(call("PreToolUse", "bun run typecheck"), "pre-tool-use")).toBeNull()
+    expect(testReport(call("PreToolUse", 42), "pre-tool-use")).toBeNull()
+    expect(testReport(call("PreToolUse", "bun run test", { tool_name: "Read" }), "pre-tool-use")).toBeNull()
+    expect(testReport(call("PreToolUse", "bun run test", { tool_use_id: null }), "pre-tool-use")).toBeNull()
+  })
+
+  it("the main conversation's Stop ends its turn, saying what still runs when Claude Code says; a subagent's Stop isn't it", () => {
+    const stop = (extra: Record<string, unknown>) => parseHookInput(JSON.stringify({ session_id: "s", hook_event_name: "Stop", ...extra }))
+    expect(turnEndedReport(stop({ background_tasks: [{ id: "b1", type: "shell", command: "bun run test:e2e" }] }))).toEqual({ kind: "turn-ended", running: ["b1"] })
+    expect(turnEndedReport(stop({}))).toEqual({ kind: "turn-ended" })
+    expect(turnEndedReport(stop({ agent_id: "a1" }))).toBeNull()
   })
 })
 
