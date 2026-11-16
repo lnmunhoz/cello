@@ -4,11 +4,13 @@ export const GUIDE = `# The cello CLI, for agents
 
 Everything an agent needs to work with Cello through the \`cello\` command: the ideas behind it, the workflow, copy-paste examples, what each error means, and every command with its flags. \`cello guide\` prints this same page, so it reads the same in any repository.
 
+A Cello board belongs to one person: the one you work with, who reviews what you hand in. This page calls them **the human**. Cello itself shows their name (the git user name the board was first started with), and the examples here call them Ana Souza.
+
 This page is kept current: any change to a command, a flag, an output or a rule updates it in the same commit. The command reference at the end is generated from the CLI's own \`--help\`.
 
 ## Set up a repo for Cello
 
-When Lucas says "use Cello in this repo", or \`cello context\` fails here, go through these steps in order. Each one checks first, so running them again is safe.
+When the human says "use Cello in this repo", or \`cello context\` fails here, go through these steps in order. Each one checks first, so running them again is safe.
 
 \`\`\`mermaid
 flowchart TD
@@ -23,11 +25,11 @@ flowchart TD
 
 Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
 
-1. **The CLI.** \`cello --version\` prints a version. If the command isn't found, stop and tell Lucas: \`cello\` is installed from his Cello repo (\`apps/cli\`, linked at \`~/.local/bin/cello\`). Never install it yourself, unless you were asked to set Cello up from scratch on a machine that doesn't have it: then follow [docs/agent-setup.md](agent-setup.md), the first-time install.
-2. **The server.** \`cello whoami\` prints JSON with a \`server\` entry. If it says Cello isn't running, ask Lucas to open the Cello desktop app or run \`cello start\`. Don't start it yourself, since it serves his real data (the first-time install in docs/agent-setup.md is the one exception).
-3. **The project.** Run \`cello init\` inside this repo. It creates the project with this repo's path (the main checkout's when you're in a worktree), named after the repo's folder, with a key made from the name that no other project has, and prints the key and the board's URL. If the repo is already a project, it says which one and leaves the project as it is, however its path was typed in New project (\`~/…\`, a trailing \`/\`, a symlinked folder, a subfolder of the repo). It refuses a repo an archived project holds, naming it: ask Lucas then.
+1. **The CLI.** \`cello --version\` prints a version. If the command isn't found, stop and tell the human: \`cello\` is installed from their Cello checkout (\`apps/cli\`, linked at \`~/.local/bin/cello\`). Never install it yourself, unless you were asked to set Cello up from scratch on a machine that doesn't have it: then follow [docs/agent-setup.md](agent-setup.md), the first-time install.
+2. **The server.** \`cello whoami\` prints JSON with a \`server\` entry. If it says Cello isn't running, ask the human to open the Cello desktop app or run \`cello start\`. Don't start it yourself, since it serves their real data (the first-time install in docs/agent-setup.md is the one exception).
+3. **The project.** Run \`cello init\` inside this repo. It creates the project with this repo's path (the main checkout's when you're in a worktree), named after the repo's folder, with a key made from the name that no other project has, and prints the key and the board's URL. If the repo is already a project, it says which one and leaves the project as it is, however its path was typed in New project (\`~/…\`, a trailing \`/\`, a symlinked folder, a subfolder of the repo). It refuses a repo an archived project holds, naming it: ask the human then.
 
-   Then it inspects the repo, because Lucas relies on visual evidence and every packet needs some: it looks for a unit test runner, a typecheck, an e2e tool and its output folders, how to start the app and on which port, and checks this machine for ffmpeg, Docker and Playwright's browsers. It prints a readiness report, one line per kind of evidence (unit tests, e2e video, screenshots, terminal transcript): **ready**, **partial**, **missing**, or **not needed** (no UI found), each one that isn't ready with what to do. What it found goes into the project's testing profile (see The testing profile):
+   Then it inspects the repo, because the human relies on visual evidence and every packet needs some: it looks for a unit test runner, a typecheck, an e2e tool and its output folders, how to start the app and on which port, and checks this machine for ffmpeg, Docker and Playwright's browsers. It prints a readiness report, one line per kind of evidence (unit tests, e2e video, screenshots, terminal transcript): **ready**, **partial**, **missing**, or **not needed** (no UI found), each one that isn't ready with what to do. What it found goes into the project's testing profile (see The testing profile):
 
    \`\`\`
    $ cello init
@@ -54,12 +56,12 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    Nothing to write to the testing profile yet. Set fields as the repo gets them: \`cello profile set <field> "<value>"\`.
    \`\`\`
 
-   - **Tell Lucas what's missing.** A missing or partial line means builders here can't bring the evidence a packet needs (a video of the flow, above all). Say so when you report the setup, with the suggestion, so he can decide whether to set it up.
-   - The defaults are fine unless Lucas named the project or its key: then pass \`--name "Thai Lookup"\` and \`--key THAI\`.
+   - **Tell the human what's missing.** A missing or partial line means builders here can't bring the evidence a packet needs (a video of the flow, above all). Say so when you report the setup, with the suggestion, so they can decide whether to set it up.
+   - The defaults are fine unless the human named the project or its key: then pass \`--name "Thai Lookup"\` and \`--key THAI\`.
    - If the key is taken, it says which project has it: pick another, or leave \`--key\` out and Cello picks a free one (CEL, then CELL, CELLO, CEL2…).
    - \`--workspace Work\` puts it in another workspace, by name; the default is the first one.
-   - Running it again in a linked repo inspects again: new detected values fill fields that are empty or were detected before, a value found again unchanged is left as it is, and fields an agent or Lucas set are kept (the report says which). \`--skip-detect\` leaves the inspection out.
-4. **Hooks, so Lucas's comments reach your session.** Run \`cello install claude\` (or \`cello init --hooks\`, which does the same). It writes this machine's \`.claude/settings.local.json\` and makes sure git ignores it. It keeps a \`.bak\` of the old file; ignore that too if the repo's \`.gitignore\` doesn't cover it. Run it again any time; it changes nothing the second time. The same command adds two guards: in this project, Claude artifact publishes are turned away with a pointer to \`cello doc publish\` (see "Showing things to Lucas"), and an agent's edits in the repo are turned away until its session has claimed a task (see "Edits need a claimed task"). It also installs Cello's Claude Code plugin, which gives new sessions \`/cello:orchestrate\`, \`/cello:work\` and the \`cello\` skill (see "The Claude Code plugin"), and allows \`cello\` commands in Claude Code, so a permission check that fails can't cut agents off the board (see "\`cello\` commands skip Claude Code's permission check" below).
+   - Running it again in a linked repo inspects again: new detected values fill fields that are empty or were detected before, a value found again unchanged is left as it is, and fields an agent or the human set are kept (the report says which). \`--skip-detect\` leaves the inspection out.
+4. **Hooks, so the human's comments reach your session.** Run \`cello install claude\` (or \`cello init --hooks\`, which does the same). It writes this machine's \`.claude/settings.local.json\` and makes sure git ignores it. It keeps a \`.bak\` of the old file; ignore that too if the repo's \`.gitignore\` doesn't cover it. Run it again any time; it changes nothing the second time. The same command adds two guards: in this project, Claude artifact publishes are turned away with a pointer to \`cello doc publish\` (see "Showing things to the human"), and an agent's edits in the repo are turned away until its session has claimed a task (see "Edits need a claimed task"). It also installs Cello's Claude Code plugin, which gives new sessions \`/cello:orchestrate\`, \`/cello:work\` and the \`cello\` skill (see "The Claude Code plugin"), and allows \`cello\` commands in Claude Code, so a permission check that fails can't cut agents off the board (see "\`cello\` commands skip Claude Code's permission check" below).
 5. **Tell the repo's agents.** \`cello init --agents-md\` adds this section, with the project's key in place of \`KEY\`, to the end of the AGENTS.md in the checkout you're in, or to CLAUDE.md if there's no AGENTS.md (creating it), between two markers: \`<!-- cello:agents-md:start sha256:… -->\` (a fingerprint of the text it wrote) and \`<!-- cello:agents-md:end -->\`. Run it again whenever Cello's text changes: it puts the current text between the markers and prints the lines that changed, or says it's already current. It changes nothing else in the file.
    - **Everything between the markers is Cello's and gets rewritten.** Put the repo's own notes outside them (above the start marker or below the end one). If the text between them isn't exactly what Cello wrote (someone added a note, or it names another project's key), the command still rewrites it, but keeps the old file as \`AGENTS.md.bak\` first and says so.
    - **A section from before the markers** (a "Tracking work in Cello" heading that mentions \`cello guide\` or \`cello context\`) runs up to the next heading of any level, a setext heading or a \`---\` rule, so what follows it is never touched. What happens to it depends on whether anyone changed it:
@@ -73,23 +75,23 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    \`\`\`markdown
    ## Tracking work in Cello
 
-   This repo's tasks live in Cello, project **KEY** on Lucas's board. Agents use it only through the \`cello\` CLI.
+   This repo's tasks live in Cello, project **KEY**, on the board of the person you work with (the human, below). Agents use it only through the \`cello\` CLI.
 
    - Before your first \`cello\` command in a session, run \`cello guide\` once: it's the full reference (concepts, workflow, every command, what each error means). Don't guess.
-   - **First decide: is Lucas asking you to do something, or just talking?** Questions, brainstorming and explanations are conversation: answer, no task. A request to do something (build, fix, change, write, set up) is work, and work starts as a Cello task **before you read code or plan**: check whether the task exists (\`cello task list\`, \`cello task get KEY-n\`); if not, \`cello task create "<title>"\` with his words quoted in the description; then \`cello task claim KEY-n\`, then do it. This covers small requests, follow-ups and anything he sends mid-task (each distinct request is its own task). When a chat turns into "ok, do it", that's the moment to create it. \`cello install claude\` enforces it: a hook refuses your edits in this repo until your session has claimed a task.
+   - **First decide: is the human asking you to do something, or just talking?** Questions, brainstorming and explanations are conversation: answer, no task. A request to do something (build, fix, change, write, set up) is work, and work starts as a Cello task **before you read code or plan**: check whether the task exists (\`cello task list\`, \`cello task get KEY-n\`); if not, \`cello task create "<title>"\` with their words quoted in the description; then \`cello task claim KEY-n\`, then do it. This covers small requests, follow-ups and anything they send mid-task (each distinct request is its own task). When a chat turns into "ok, do it", that's the moment to create it. \`cello install claude\` enforces it: a hook refuses your edits in this repo until your session has claimed a task.
    - Run \`cello context\` at the start of each session.
    - Put the task key in commit messages (\`fix(api): rate limit (KEY-12)\`).
-   - In Progress means someone is on it right now. When you wait on Lucas's decision, ask on the card with \`cello task ask\` (the task waits in Needs input). When you stop, put the state on the card and move it back to Todo.
-   - Hand finished work to Lucas only with \`cello task submit\`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
-   - Answer Lucas on the card with \`cello task comment\`. His comments come to your session by themselves.
-   - When you end a turn while holding a claimed task, start \`cello inbox --wait\` in the background so Lucas's comments wake you.
-   - When a decision is Lucas's (a design option, a scope, wording), ask on the card with \`cello task ask\` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. His answers come back to your session.
-   - Show Lucas reports, plans and evidence as Cello pages (\`cello doc publish page.md --task KEY-n\`), opened in Cello's panel with \`cello open <slug>\`. In replies, link a page with the \`cello://\` link those commands print, never its http address (that one opens Claude's browser, not Cello). Never as Claude artifacts or other outside pages, even if your global instructions say so: \`cello install claude\` enforces it with a hook that turns artifact publishes away.
+   - In Progress means someone is on it right now. When you wait on the human's decision, ask on the card with \`cello task ask\` (the task waits in Needs input). When you stop, put the state on the card and move it back to Todo.
+   - Hand finished work to the human only with \`cello task submit\`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).
+   - Answer the human on the card with \`cello task comment\`. Their comments come to your session by themselves.
+   - When you end a turn while holding a claimed task, start \`cello inbox --wait\` in the background so the human's comments wake you.
+   - When a decision is the human's (a design option, a scope, wording), ask on the card with \`cello task ask\` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. Their answers come back to your session.
+   - Show the human reports, plans and evidence as Cello pages (\`cello doc publish page.md --task KEY-n\`), opened in Cello's panel with \`cello open <slug>\`. In replies, link a page with the \`cello://\` link those commands print, never its http address (that one opens Claude's browser, not Cello). Never as Claude artifacts or other outside pages, even if your global instructions say so: \`cello install claude\` enforces it with a hook that turns artifact publishes away.
    \`\`\`
    <!-- agents-md:end -->
 
    \`cello init --agents-md\` copies this block, so changing it here changes what the command writes.
-6. **Check.** \`cello context\` shows the project, its statuses and labels, and its testing profile. Tell Lucas the repo is set up: the project key, that the hooks and the plugin are installed (new sessions get \`/cello:orchestrate\`), that \`cello\` commands are on Claude Code's allow list (\`Bash(cello:*)\`), and that the AGENTS.md section was added or brought up to date (uncommitted, unless he asks you to commit it).
+6. **Check.** \`cello context\` shows the project, its statuses and labels, and its testing profile. Tell the human the repo is set up: the project key, that the hooks and the plugin are installed (new sessions get \`/cello:orchestrate\`), that \`cello\` commands are on Claude Code's allow list (\`Bash(cello:*)\`), and that the AGENTS.md section was added or brought up to date (uncommitted, unless they ask you to commit it).
 
 ### \`cello\` commands skip Claude Code's permission check
 
@@ -113,7 +115,7 @@ Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.loca
 
 - **It merges.** The rule goes after the rules already in \`permissions.allow\`; \`deny\`, \`ask\` and every other permission setting stay as they are. A \`deny\` rule still wins: \`"deny": ["Bash(cello restore:*)"]\` keeps blocking that one command.
 - **Once.** Running install again changes nothing (it says \`\` \`cello\` commands are already allowed in … \`\`). If the file already allows \`Bash(cello *)\` (the same rule in Claude Code's newer spelling), install leaves it and adds nothing.
-- **Where:** this project's \`.claude/settings.local.json\` by default, \`~/.claude/settings.json\` with \`--user\` (every project, which is where Lucas's own fix went), the committed \`.claude/settings.json\` with \`--shared\` (everyone who clones the repo gets it, along with the hooks).
+- **Where:** this project's \`.claude/settings.local.json\` by default, \`~/.claude/settings.json\` with \`--user\` (every project, which is where the human's own fix went), the committed \`.claude/settings.json\` with \`--shared\` (everyone who clones the repo gets it, along with the hooks).
 - **A project set up before this** gets the rule the next time you run \`cello install claude\` there; nothing else in the file changes.
 - **Uninstalling:** \`cello uninstall claude\` takes out exactly the \`Bash(cello:*)\` entry, and the empty \`allow\` list and \`permissions\` object it leaves, if any. Cello can't tell that entry from one you added by hand with the same text, so uninstall takes out a hand-added \`Bash(cello:*)\` too, and says "If you added the Bash(cello:*) rule yourself, put it back." Your \`Bash(cello *)\` stays.
 - **A \`permissions\` block Cello can't merge into** (\`permissions\` isn't an object, or \`allow\` isn't a list) is never overwritten. Install refuses with a sentence and changes nothing; uninstall leaves that block as it is (Cello's rule can't be in it) and still takes out the hooks and the plugin.
@@ -121,7 +123,7 @@ Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.loca
 
 ## Concepts
 
-**Cello** is the task board Lucas shares with his agents. Its server runs on his Mac (\`cello start\`, http://127.0.0.1:4747, data in \`~/.cello\`). The board in the browser, the desktop app and the CLI all talk to that server, and every change shows up live everywhere.
+**Cello** is the task board the human shares with their coding agents. Its server runs on their Mac (\`cello start\`, http://127.0.0.1:4747, data in \`~/.cello\`). The board in the browser, the desktop app and the CLI all talk to that server, and every change shows up live everywhere.
 
 - **Workspace:** a group of projects that share statuses and views.
 - **Label:** a name and a colour on a task. Each project has its own labels: CEL's \`bug\` and THAI's \`bug\` are two labels. A task can carry several of its project's labels. \`cello label list\` shows them; see Labels.
@@ -134,33 +136,33 @@ Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.loca
   | Backlog (hidden) | An idea or request that still needs discussing. Nobody builds from here. | \`cello task create … --status Backlog\` |
   | Todo | Agreed and ready to build. | The default for new tasks |
   | In Progress | Someone is working on it. | \`cello task claim\` |
-  | Needs input | Waiting for Lucas to decide something an agent asked on the card. On the board it shows in In Progress with a "Needs input" badge, unless Display turns its column on. | Only \`cello task ask\` |
-  | In Review | Waiting for Lucas, with a review packet. | Only \`cello task submit\` |
-  | Done | Lucas approved it. | Lucas, on the Review page |
-  | Canceled (hidden) | It won't be done. | Lucas |
+  | Needs input | Waiting for the human to decide something an agent asked on the card. On the board it shows in In Progress with a "Needs input" badge, unless Display turns its column on. | Only \`cello task ask\` |
+  | In Review | Waiting for the human, with a review packet. | Only \`cello task submit\` |
+  | Done | The human approved it. | The human, on the Review page |
+  | Canceled (hidden) | It won't be done. | The human |
 
   Hidden statuses are folded on the board and left out of \`cello task list\` unless you ask for them.
 - **Agent session:** one agent conversation. Cello credits every change to the session that made it ("Claude Code session 2fd0505c"), from \`CLAUDE_CODE_SESSION_ID\`, which Claude Code sets.
-- **Subagent:** an agent the session started with Claude Code's Agent tool (a builder, a reviewer, an \`Explore\`). It works under its parent's session, with the same \`CLAUDE_CODE_SESSION_ID\`, so Cello names it on its own: its type and a short id, "cello-builder · a13bfb89", with the session as its parent. The board shows which subagent is on each card and counts each one in "Agents working". Claims and Lucas's comments stay with the session. See Subagents.
+- **Subagent:** an agent the session started with Claude Code's Agent tool (a builder, a reviewer, an \`Explore\`). It works under its parent's session, with the same \`CLAUDE_CODE_SESSION_ID\`, so Cello names it on its own: its type and a short id, "cello-builder · a13bfb89", with the session as its parent. The board shows which subagent is on each card and counts each one in "Agents working". Claims and the human's comments stay with the session. See Subagents.
 - **Claim:** "this session is working on this task". \`cello task claim\` assigns the task to your session and moves it to In Progress.
   - While your session is alive, other agents can't claim it.
   - If your session has exited, another session can claim the task and takes the claim over.
-  - Lucas always wins: when he changes a task you've claimed (moves it, approves it), your claim ends, and \`cello context\` lists it under "Claims you lost".
-- **Stage:** where a claimed task is inside In Progress: **building**, **review** (Agent review), **fixing** (Fixing findings) or **merged**. In Progress holds a task from the claim to the packet, so without a stage a task being built and one waiting for review look the same. The session holding the claim sets it with \`cello task stage\`; the board shows it on the card. Asking Lucas keeps it through Needs input; any other move out of In Progress, or submitting it, clears it. See Stages.
+  - The human always wins: when they change a task you've claimed (moves it, approves it), your claim ends, and \`cello context\` lists it under "Claims you lost".
+- **Stage:** where a claimed task is inside In Progress: **building**, **review** (Agent review), **fixing** (Fixing findings) or **merged**. In Progress holds a task from the claim to the packet, so without a stage a task being built and one waiting for review look the same. The session holding the claim sets it with \`cello task stage\`; the board shows it on the card. Asking the human keeps it through Needs input; any other move out of In Progress, or submitting it, clears it. See Stages.
 - **Presence:** the board shows whether the session holding a claim is working right now: **active now** (it called Cello in the last 5 minutes), **seen 2h ago** (quiet, its process still running) or **ended** (its process exited). Every \`cello\` command and every hook run counts as a check-in; with the hooks installed that's every tool call, a subagent's included. A subagent checks in as itself too, so the card names the subagent working on it ("cello-builder · a13bfb89 active now") rather than its session. The board hears about each at most once a minute, which keeps "active now" steady without filling the history; each one plays a short motion on the card, and while you're working the card has a thin edge in your colour. You don't do anything for it.
-- **Review packet:** how finished work reaches Lucas. It holds a summary, how-to-check steps and evidence (videos, screenshots, test output, links). \`cello task submit\` creates it and moves the task to In Review. Then Lucas decides:
-  - **Approve:** the task moves to Done and your claim ends. A note he typed with it shows under Reviews in \`cello task get\` (\`Note: …\`).
-  - **Send back:** the task returns to In Progress with his note, and your claim stays. The note comes to your session (see Comments from Lucas reach your session), and \`cello task get\` shows it under Reviews.
+- **Review packet:** how finished work reaches the human. It holds a summary, how-to-check steps and evidence (videos, screenshots, test output, links). \`cello task submit\` creates it and moves the task to In Review. Then the human decides:
+  - **Approve:** the task moves to Done and your claim ends. A note they typed with it shows under Reviews in \`cello task get\` (\`Note: …\`).
+  - **Send back:** the task returns to In Progress with their note, and your claim stays. The note comes to your session (see Comments from the human reach your session), and \`cello task get\` shows it under Reviews.
   - **Comment, without deciding yet:** the Review page shows the task's comments under the packet, with a comment box. A comment there leaves the task In Review and your claim in place, and comes to your session like any comment. Answer it on the card; if it asks for a change, move the task back to In Progress before you make it (that withdraws the packet), then submit again.
-  - **Moved out without a decision** (\`cello task move\`, or Lucas dragging the card): the packet is **withdrawn** and leaves the Review page. \`cello task get\` shows it as withdrawn, with who moved the task and where. To hand the work over again, submit a new packet.
-- **Ask (Needs input):** how you get a decision from Lucas: questions on the card, each with options (one recommended, with your reason), plus evidence. \`cello task ask\` moves the task to Needs input; he answers in Cello, next to the evidence; the task comes back to In Progress, still yours, and his answers reach your session. Never ask him in the terminal when the decision is his (see Questions for Lucas).
+  - **Moved out without a decision** (\`cello task move\`, or the human dragging the card): the packet is **withdrawn** and leaves the Review page. \`cello task get\` shows it as withdrawn, with who moved the task and where. To hand the work over again, submit a new packet.
+- **Ask (Needs input):** how you get a decision from the human: questions on the card, each with options (one recommended, with your reason), plus evidence. \`cello task ask\` moves the task to Needs input; they answer in Cello, next to the evidence; the task comes back to In Progress, still yours, and their answers reach your session. Never ask them in the terminal when the decision is theirs (see Questions for the human).
 - **Documents:** markdown published into the project's Docs tab with \`cello doc publish\`. There are three kinds:
   - a **page** reports on finished work (a snapshot to read now)
   - a **doc** explains how something works (kept up to date)
   - a **spec** plans work before it starts
 
   Publishing again updates a document in place, and its old versions are kept.
-- **Reaction:** an emoji on a comment (👍 ✅ 👀 ❤️ 🎉 …), Lucas's quick answer that needs no words. His reactions to your comments reach your session like his comments; \`cello task react\` adds yours. See Reactions.
+- **Reaction:** an emoji on a comment (👍 ✅ 👀 ❤️ 🎉 …), the human's quick answer that needs no words. Their reactions to your comments reach your session like their comments; \`cello task react\` adds yours. See Reactions.
 - **Testing profile:** how to test this project's repo and collect evidence: the install, unit test and typecheck commands, how to start the app and where it's ready, each e2e surface with its videos and screenshots folders, and what a packet needs. It lives in Cello, one per project, shown by \`cello context\` and in Settings. It's current best knowledge, not a fixed config: it changes as the repo does, and agents keep it right. See The testing profile.
 - **History:** every change is recorded with who made it. \`cello task get\` shows a task's history; \`cello context\` shows recent activity.
 
@@ -170,7 +172,7 @@ Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.loca
 cello context
 \`\`\`
 
-It shows the project, its statuses (hidden ones in brackets), its labels, its testing profile (how to test and collect evidence here, each field with who set it, and what's missing), new comments from Lucas on tasks you've claimed (shown, not taken; see Comments from Lucas reach your session), the tasks your session has claimed, claims you lost and why, and recent activity:
+It shows the project, its statuses (hidden ones in brackets), its labels, its testing profile (how to test and collect evidence here, each field with who set it, and what's missing), new comments from the human on tasks you've claimed (shown, not taken; see Comments from the human reach your session), the tasks your session has claimed, claims you lost and why, and recent activity:
 
 \`\`\`
 Project   CEL · Cello · /Users/lnmunhoz/projects/cello
@@ -194,7 +196,7 @@ Testing   how to test this repo and collect evidence; current best knowledge, so
 
 New comments for you (1)
   CEL-22  Review page: collapsed rows, one packet open at a time
-    Lucas N. Munhoz commented, 5m ago
+    Ana Souza commented, 5m ago
       Use the same row height as the list layout.
   Answer on the card: \`cello task comment CEL-22 "…"\`. They stay new until the hook or \`cello inbox\` hands them over.
 
@@ -202,21 +204,21 @@ Claimed by you
   CEL-22  In Progress  Review page: collapsed rows, one packet open at a time
 
 Recent activity
-  2m ago   CEL-22  Lucas N. Munhoz commented
+  2m ago   CEL-22  Ana Souza commented
 \`\`\`
 
 Run it first in every session, and again when you come back to a task.
 
 ## The testing profile
 
-Each project has a testing profile in Cello: how to test its repo and how to collect the evidence a review packet needs. Lucas relies on visual evidence (a video of the flow, screenshots), so before you build, read the profile in \`cello context\` (or \`cello profile\`) and use its commands for your tests and your evidence: install with \`install\`, run \`unit\` and \`typecheck\`, start the app with \`app.start\` and open \`app.url\`, record the flow with the e2e surface's \`run\` and pick the videos and screenshots up from its folders, and bring what \`evidence.ui\` or \`evidence.cli\` asks for. Stay away from what \`never.touch\` names.
+Each project has a testing profile in Cello: how to test its repo and how to collect the evidence a review packet needs. The human relies on visual evidence (a video of the flow, screenshots), so before you build, read the profile in \`cello context\` (or \`cello profile\`) and use its commands for your tests and your evidence: install with \`install\`, run \`unit\` and \`typecheck\`, start the app with \`app.start\` and open \`app.url\`, record the flow with the e2e surface's \`run\` and pick the videos and screenshots up from its folders, and bring what \`evidence.ui\` or \`evidence.cli\` asks for. Stay away from what \`never.touch\` names.
 
 **It's current best knowledge, not set in stone.** \`cello init\` drafts it from what it detects, and the repo keeps changing after that. Treat a field as what worked last time, and fix it when it's wrong:
 
 - **When a command in it fails** because the command is wrong (the script was renamed, the port moved), find the right one and set it.
 - **When the repo changes** (you add an e2e tool, a new surface, a script, a port), update the fields your change affects in the same task.
 - **Say so in your review packet**, in the summary: which fields you changed and why ("\`e2e.web.run\` was \`bun run e2e\`, which no longer exists; now \`bun run test:e2e\`").
-- **Fields Lucas set himself are his.** An agent can't change or unset them; Cello refuses with "Lucas set unit himself (…)". If one is wrong, ask him on the card with \`cello task ask\` (see Questions for Lucas) and mention it in your packet. His edits, in Settings or from his own \`cello\`, overwrite anything.
+- **Fields the human set are theirs.** An agent can't change or unset them; Cello refuses with "Ana Souza set unit (…)". If one is wrong, ask them on the card with \`cello task ask\` (see Questions for the human) and mention it in your packet. Their edits, in Settings or from their own \`cello\`, overwrite anything.
 - **Nothing to record with?** When the profile has no e2e surface and the work is UI, say so in your packet and bring what you can (screenshots, a transcript); don't set up a new e2e tool unless the task asks for it.
 
 Each field records who set it last (\`detected\`, \`agent\` or \`human\`) and when; setting the value it already has confirms it. Every change is an event, so Recent activity in \`cello context\` and Settings show who changed what.
@@ -252,33 +254,33 @@ The fields:
 
 ## The workflow
 
-1. **Find the work, or make it.** When Lucas asks for something that will change code, docs or anything else, it becomes a task **before you read code or plan**: \`cello task list\` to check it isn't there already, else \`cello task create\` with his words. \`cello task list\` shows Todo and In Progress; \`cello task get CEL-12\` reads one task in full, including Lucas's notes on earlier packets and every comment.
+1. **Find the work, or make it.** When the human asks for something that will change code, docs or anything else, it becomes a task **before you read code or plan**: \`cello task list\` to check it isn't there already, else \`cello task create\` with their words. \`cello task list\` shows Todo and In Progress; \`cello task get CEL-12\` reads one task in full, including the human's notes on earlier packets and every comment.
 2. **Claim it.** \`cello task claim CEL-12\`. If it says another session holds the task, pick another one. Don't work on a task someone else holds. With the hooks installed, an edit in the repo is refused until you hold one (see "Edits need a claimed task" below).
 3. **Work, test first, and put the key in every commit:** \`feat(web): collapsed review rows (CEL-22)\`.
-4. **Comment** progress and decisions on the card (\`cello task comment\`). Lucas reads them there.
-   - **When a decision is his** (which design, which scope, what wording), ask on the card with \`cello task ask\` and wait for his answers (see Questions for Lucas). Never ask him in the terminal.
-5. **Hand it over** with \`cello task submit\` and evidence he can look at (see Review packets). The task moves to In Review.
-6. **If it's sent back,** his note comes to your session (by the hook, or \`cello inbox\`), and \`cello task get CEL-12\` shows it under Reviews. Fix it, then submit again.
-   **Lucas's feedback in chat counts as a Send back.** When he reviews a task in your conversation instead of on the card (a screenshot, "this should be…", "I don't like…"), do both of these before you start fixing:
-   - put his words on the card as a comment, quoted as he said them and marked as his (\`**Lucas, in chat (review):** "…"\`), so the review lives with the task;
-   - if the task is In Review, move it back with \`cello task move CEL-12 "In Progress"\`, so the board shows it's being worked on again. The move withdraws the open packet, so it leaves Lucas's Review page.
+4. **Comment** progress and decisions on the card (\`cello task comment\`). The human reads them there.
+   - **When a decision is theirs** (which design, which scope, what wording), ask on the card with \`cello task ask\` and wait for their answers (see Questions for the human). Never ask them in the terminal.
+5. **Hand it over** with \`cello task submit\` and evidence they can look at (see Review packets). The task moves to In Review.
+6. **If it's sent back,** their note comes to your session (by the hook, or \`cello inbox\`), and \`cello task get CEL-12\` shows it under Reviews. Fix it, then submit again.
+   **The human's feedback in chat counts as a Send back.** When they review a task in your conversation instead of on the card (a screenshot, "this should be…", "I don't like…"), do both of these before you start fixing:
+   - put their words on the card as a comment, quoted as they said them and marked as theirs (\`**<their name>, in chat (review):** "…"\`), so the review lives with the task;
+   - if the task is In Review, move it back with \`cello task move CEL-12 "In Progress"\`, so the board shows it's being worked on again. The move withdraws the open packet, so it leaves the human's Review page.
 
    Then fix, and submit a new packet. The same goes for feedback on a task in Done: comment it, and move it back to In Progress, or open a new task if it's a new request.
 7. **If you run a feature through builder and reviewer agents** (the orchestrator), mark each step with \`cello task stage\` (see Stages), so the card says where the work is. In Claude Code, \`/cello:orchestrate APP-12 APP-14\` sets a session up for this (see "The Claude Code plugin").
 8. **In Progress means someone is working on it right now.** When work stops before you submit, don't leave the card there: the board would show it as being built when nobody is on it.
-   - **Waiting on Lucas** (a scope's options, a design choice, any decision that's his): ask on the card with \`cello task ask\` (see Questions for Lucas). The task moves to Needs input, your claim stays, and it comes back to In Progress when he answers.
+   - **Waiting on the human** (a scope's options, a design choice, any decision that's theirs): ask on the card with \`cello task ask\` (see Questions for the human). The task moves to Needs input, your claim stays, and it comes back to In Progress when they answer.
    - **Stopping or pausing:** comment where it stands, move it back to Todo, and \`cello task release CEL-12\`.
-   - A **scope** is part of its task. Claim the task to make the scope; once the scope is published, ask its questions with \`cello task ask\` (attach its screenshots, link the page): the task waits in Needs input until he picks.
+   - A **scope** is part of its task. Claim the task to make the scope; once the scope is published, ask its questions with \`cello task ask\` (attach its screenshots, link the page): the task waits in Needs input until they pick.
    - \`cello task release\` alone keeps the status, so only use it on its own when another session takes over the work straight away.
 
-Never move a task to Done or Canceled yourself: Lucas decides.
+Never move a task to Done or Canceled yourself: the human decides.
 
 ### Edits need a claimed task
 
 \`cello install claude\` (and \`cello init --hooks\`) puts a PreToolUse hook on Claude Code's \`Edit\`, \`Write\` and \`NotebookEdit\` into the project's settings. Before one of them changes a file **inside this repo**, the hook asks the server whether your session holds an open task (Todo, In Progress, Needs input or In Review) in this repo's project. When it holds none, Claude Code blocks the edit and shows you this reason (with the project's key):
 
 \`\`\`
-Cello: this session hasn't claimed a task in KEY. Before editing for a request, check it exists (\`cello task list\`), else \`cello task create "<title>"\` with Lucas's words, then \`cello task claim KEY-n\`.
+Cello: this session hasn't claimed a task in KEY. Before editing for a request, check it exists (\`cello task list\`), else \`cello task create "<title>"\` with the human's words, then \`cello task claim KEY-n\`.
 \`\`\`
 
 - Do what it says, then make the edit again. Once you've claimed, the next edit goes through.
@@ -286,7 +288,7 @@ Cello: this session hasn't claimed a task in KEY. Before editing for a request, 
 - **Subagents share your session,** so a builder subagent working in a worktree of the repo edits under the task you claimed.
 - **It never stops work it can't be sure about:** when the server is down or doesn't answer within 2 seconds, the repo isn't a Cello project, or the hook's input is broken, the edit goes through silently.
 - A claim it saw is remembered for a minute (a small file under the system's temp folder), so a run of edits doesn't ask the server each time. A refusal isn't remembered: right after you claim, the edit goes through.
-- **\`CELLO_ALLOW_UNTRACKED=1\`** in Claude Code's environment turns the check off. It's Lucas's switch, for when he wants to work without tasks (\`CELLO_ALLOW_UNTRACKED=1 claude\`). Agents never set it on their own, nor work around the hook another way (writing files through Bash to dodge it, say).
+- **\`CELLO_ALLOW_UNTRACKED=1\`** in Claude Code's environment turns the check off. It's the human's switch, for when they want to work without tasks (\`CELLO_ALLOW_UNTRACKED=1 claude\`). Agents never set it on their own, nor work around the hook another way (writing files through Bash to dodge it, say).
 
 ## Creating tasks
 
@@ -297,7 +299,7 @@ cello task create "Sidebar: collapse and resize" --label ui --priority high \\
 
 # Still needs discussing: Backlog
 cello task create "Idea: media library per project" --status Backlog --body-file - <<'EOF'
-Lucas makes promo videos, icons and designs for each project. A place in Cello to keep them,
+The human makes promo videos, icons and designs for each project. A place in Cello to keep them,
 link them to tasks, and sync them later.
 EOF
 
@@ -305,7 +307,7 @@ EOF
 cello task create "Restore refuses while a server runs" --parent CEL-23 --label server,M2
 \`\`\`
 
-- **Todo or Backlog:** Todo means agreed and ready to build. When Lucas says "add to the backlog", use \`--status Backlog\`.
+- **Todo or Backlog:** Todo means agreed and ready to build. When the human says "add to the backlog", use \`--status Backlog\`.
 - **Labels must already exist.** \`cello label list\` lists them, and an unknown label fails with the real names. \`cello label create\` makes a new one (see Labels).
 - **Priority:** \`urgent\`, \`high\`, \`medium\`, \`low\` or \`none\`.
 - **Long descriptions:** use \`--body-file -\` with a heredoc, or \`--body-file notes.md\`.
@@ -327,7 +329,7 @@ cello task edit CEL-12 --priority urgent --description "Short and new."
 
 - **Only the flags you give change.** \`--title\`, \`--description\` (or \`--body-file\`, a file or \`-\` for stdin) and \`--priority\` (\`urgent\`, \`high\`, \`medium\`, \`low\`, \`none\`), in any mix; together they're one change, one line in the history. With none of them it refuses and changes nothing. The same values again change nothing and say so ("Nothing to change on CEL-12  …").
 - **The description is replaced, not added to.** To add a note, comment instead. To keep part of the old text, read it first: \`cello task get CEL-12 --json | jq -r '.task.description'\`.
-- **Who edits:** you, on any task, claimed or not; editing isn't guarded by a claim, and another session's claim stays. When Lucas edits a task you hold, your claim ends, as with any change he makes to it (see Claim in Concepts).
+- **Who edits:** you, on any task, claimed or not; editing isn't guarded by a claim, and another session's claim stays. When the human edits a task you hold, your claim ends, as with any change they make to it (see Claim in Concepts).
 - **If someone changes the task at the same moment,** it fails with "It was changed by … in the meantime"; run it again.
 
 ## Reading tasks
@@ -345,7 +347,7 @@ Every command takes \`--json\` and prints the whole response, for scripts.
 
 ## Searching
 
-\`cello search\` finds things in the project by what they say: task keys, titles and descriptions, comments, review packets, pages and docs, and project and label names. Use it before creating a task (is there one already?), to find the comment where Lucas decided something, or the page that explains a part of the system. Lucas's ⌘K bar in the app runs the same search, so you both see the same results.
+\`cello search\` finds things in the project by what they say: task keys, titles and descriptions, comments, review packets, pages and docs, and project and label names. Use it before creating a task (is there one already?), to find the comment where the human decided something, or the page that explains a part of the system. The human's ⌘K bar in the app runs the same search, so you both see the same results.
 
 \`\`\`bash
 cello search evidence video              # every word must match the start of a word
@@ -362,7 +364,7 @@ Tasks (2)
   CEL-9   Todo       Record the flow
           The [evidence] goes in the packet.
 Comments (1 of 3)
-  CEL-9  Lucas N. Munhoz, 2h ago, on Record the flow
+  CEL-9  Ana Souza, 2h ago, on Record the flow
          The [evidence] video stops before the inbox shows the comment.
 Pages and docs (1)
   evidence-videos  doc  How [evidence] videos are made  · Claude Code, 1d ago
@@ -386,13 +388,13 @@ cello task move CEL-31 backlog           # any case
 
 - **Moving into In Review is refused:** use \`cello task submit\`.
 - **Moving out of In Review withdraws the open packet:** it leaves the Review page, and coming back takes a new \`cello task submit\`.
-- **Moving into Needs input is refused,** to everyone, Lucas included: only \`cello task ask\` puts a task there, with your questions.
+- **Moving into Needs input is refused,** to everyone, the human included: only \`cello task ask\` puts a task there, with your questions.
 - **Don't move tasks to Done or Canceled.**
 - **"It was changed by … in the meantime":** someone changed the task while you were acting. Run the command again.
 
 ## Stages
 
-A stage says where a claimed task is inside In Progress, so Lucas can tell from the board why it's still there. The orchestrator (the session holding the claim) sets it at each step of a feature (docs/feature-lifecycle.md):
+A stage says where a claimed task is inside In Progress, so the human can tell from the board why it's still there. The orchestrator (the session holding the claim) sets it at each step of a feature (docs/feature-lifecycle.md):
 
 | Stage | The board says | Set it when |
 | --- | --- | --- |
@@ -410,9 +412,9 @@ cello task list
 # CEL-12  In Progress · Agent review  Sidebar: collapse and resize  · Claude Code session 2fd0505c
 \`\`\`
 
-- **Only the session holding the claim** sets it (or Lucas, with \`CELLO_SESSION=me\`, which keeps your claim). Claim the task first.
+- **Only the session holding the claim** sets it (or the human, with \`CELLO_SESSION=me\`, which keeps your claim). Claim the task first.
 - **Only in In Progress.** In any other status it's refused.
-- **It clears itself:** \`cello task submit\`, or a move to any other status, removes it. Reordering inside In Progress keeps it, and so does \`cello task ask\`: the stage waits in Needs input and is still there when Lucas's answers bring the task back.
+- **It clears itself:** \`cello task submit\`, or a move to any other status, removes it. Reordering inside In Progress keeps it, and so does \`cello task ask\`: the stage waits in Needs input and is still there when the human's answers bring the task back.
 - **Subagents don't run it.** Builders and reviewers work for the orchestrator's session; the orchestrator marks the steps.
 - \`cello task get\` shows it on the Status line ("Status: In Progress · Stage: Agent review") and in the history, with who changed the task last.
 
@@ -463,7 +465,7 @@ Until some label has a group, \`cello label list\` is one list without headings.
 
   Labels are never made on the fly. When a label really is missing, create it first. Another project's label doesn't count: if THAI has \`decks\` and CEL doesn't, \`cello task label CEL-12 +decks\` is refused the same way.
 - **A taken name is refused:** \`cello label create Board\` when the project has \`board\` fails and creates nothing, whatever the case, and archived labels keep their names too. Run \`cello label list\` first when you're not sure. A name another project uses is free here.
-- **Who labels:** you and Lucas, on any task. A label change is an ordinary change to the task, not one a claim guards: you may relabel a task another session holds, and its claim stays. When Lucas changes the labels of a task you hold, your claim ends, as with any change he makes to it (see Claim in Concepts).
+- **Who labels:** you and the human, on any task. A label change is an ordinary change to the task, not one a claim guards: you may relabel a task another session holds, and its claim stays. When the human changes the labels of a task you hold, your claim ends, as with any change they make to it (see Claim in Concepts).
 - **Archiving** retires a label: it disappears from the cards, the list, the pickers and \`cello context\`, and it can't be put on a task any more. Nothing is deleted: tasks keep the link underneath, out of sight. Its name stays taken, and there's no unarchive yet.
   - It applies to this project's label only: another project's label of the same name stays as it is.
   - When you replace a label (say \`ui\` by areas), relabel its tasks first (\`cello task label CEL-12 +board -ui\`), so no card is left without one, then archive it.
@@ -485,32 +487,32 @@ cello task comment CEL-12 "The empty state, built" --attach empty-state.png --at
 # Commented on CEL-12 with 2 images
 \`\`\`
 
-Comments are markdown, rendered on the card, and links in them can be clicked. Task keys (e.g. CEL-12) link to the task, with its live status; keys of unknown tasks, and keys in backticks or code blocks, stay plain. Answer Lucas's comments and Send back notes on the card, so the conversation stays with the task. His comments come to your session by themselves (next section).
+Comments are markdown, rendered on the card, and links in them can be clicked. Task keys (e.g. CEL-12) link to the task, with its live status; keys of unknown tasks, and keys in backticks or code blocks, stay plain. Answer the human's comments and Send back notes on the card, so the conversation stays with the task. Their comments come to your session by themselves (next section).
 
-**Screenshots in comments.** \`--attach\` takes an image (PNG, JPEG, GIF, WebP or AVIF, up to 50 MB), relative to the folder you run it in; repeat it for more. A comment with screenshots needs no text. Anything else is refused ("notes.txt isn't an image (PNG, JPEG, GIF, WebP or AVIF)"): test output and videos go in a review packet. Lucas pastes (⌘V) or drops screenshots into the comment box in the task panel and on the Review page; they reach you as files (next section). \`cello task get CEL-12\` saves every comment's screenshots to temp files and prints their paths under the comment's text (\`Screenshot: /var/folders/…/T/cello-comments/<comment id>/1.png\`); \`--json\` has them as each comment's \`attachments\`.
+**Screenshots in comments.** \`--attach\` takes an image (PNG, JPEG, GIF, WebP or AVIF, up to 50 MB), relative to the folder you run it in; repeat it for more. A comment with screenshots needs no text. Anything else is refused ("notes.txt isn't an image (PNG, JPEG, GIF, WebP or AVIF)"): test output and videos go in a review packet. The human pastes (⌘V) or drops screenshots into the comment box in the task panel and on the Review page; they reach you as files (next section). \`cello task get CEL-12\` saves every comment's screenshots to temp files and prints their paths under the comment's text (\`Screenshot: /var/folders/…/T/cello-comments/<comment id>/1.png\`); \`--json\` has them as each comment's \`attachments\`.
 
 A comment counts as activity on its task: adding, editing or deleting one moves the task's last change (\`updatedAt\`, "Last changed by" in \`cello task get\`) to you, and the card says "2fd0505c commented just now". It's not a status change, so it never ends anyone's claim. \`cello task get CEL-12 --json\` has them as \`.task.commentCount\` and \`.task.lastCommentAt\`.
 
 ## Reactions
 
-A reaction is an emoji on a comment: a quick answer that needs no words. Lucas clicks 👍 under your "Shall I merge it?" instead of typing "yes". You can react too:
+A reaction is an emoji on a comment: a quick answer that needs no words. The human clicks 👍 under your "Shall I merge it?" instead of typing "yes". You can react too:
 
 \`\`\`bash
-cello task react CEL-12 last 👍              # on Lucas's newest comment on CEL-12
+cello task react CEL-12 last 👍              # on the human's newest comment on CEL-12
 cello task react CEL-12 01JD2X7Q8M4K5N6P7R8S9T0V1W ✅   # on one comment, by its id
 cello task react CEL-12 last 👍 --remove     # take it back
 \`\`\`
 
-- **Which comment:** \`last\` is Lucas's newest comment on the task. For any other comment, pass its id: \`cello task get CEL-12\` prints it after each comment's author (\`Lucas · 5m ago · id 01JD2X…\`), and \`--json\` has it as \`.comments[].id\`.
+- **Which comment:** \`last\` is the human's newest comment on the task. For any other comment, pass its id: \`cello task get CEL-12\` prints it after each comment's author (\`Ana Souza · 5m ago · id 01JD2X…\`), and \`--json\` has it as \`.comments[].id\`.
 - **One emoji per reaction**, any emoji (skin tones and flags count as one). The board offers 👍 ✅ 👀 ❤️ 🎉 and a short picker.
-- **Once per emoji:** reacting with the same emoji again changes nothing ("You had already reacted 👍 …"), and \`--remove\` takes yours back. Each party reacts on its own: Lucas's 👍 and your 👍 are two.
+- **Once per emoji:** reacting with the same emoji again changes nothing ("You had already reacted 👍 …"), and \`--remove\` takes yours back. Each party reacts on its own: the human's 👍 and your 👍 are two.
 - **Not activity on the task:** a reaction doesn't move the task's last change, doesn't show in its history, and never ends a claim.
-- **\`cello task get\` shows them** under each comment: \`Reactions: 👍 Lucas · ✅ Claude Code session 2fd0505c\`. In \`--json\` they're \`.comments[].reactions\`.
-- **Lucas's reactions to your comments reach your session**, like his comments do (next section). Your reactions reach no one: they show on the board, that's all.
+- **\`cello task get\` shows them** under each comment: \`Reactions: 👍 Ana Souza · ✅ Claude Code session 2fd0505c\`. In \`--json\` they're \`.comments[].reactions\`.
+- **The human's reactions to your comments reach your session**, like their comments do (next section). Your reactions reach no one: they show on the board, that's all.
 
-## Comments from Lucas reach your session
+## Comments from the human reach your session
 
-Lucas's comments on a task you've claimed, his Send back notes, his answers to your asks (see Questions for Lucas) and his reactions to your comments are addressed to your session: the one holding the claim (for a reaction, the one that wrote the comment). Your own comments and other agents' never come back to you, and nothing does once your claim has ended. One exception: a Send back note still reaches the session that handed in the packet.
+The human's comments on a task you've claimed, their Send back notes, their answers to your asks (see Questions for the human) and their reactions to your comments are addressed to your session: the one holding the claim (for a reaction, the one that wrote the comment). Your own comments and other agents' never come back to you, and nothing does once your claim has ended. One exception: a Send back note still reaches the session that handed in the packet.
 
 **With the hooks (the usual way),** they arrive by themselves:
 
@@ -525,7 +527,7 @@ cello uninstall claude          # takes them out of all three
 - **It merges** with the hooks already there, and running it again changes nothing. The old file is kept as \`<file>.bak\`.
 - **The same command installs the Claude Code plugin** in the same settings file (see "The Claude Code plugin" below), and allows \`cello\` commands there (\`Bash(cello:*)\`, see "\`cello\` commands skip Claude Code's permission check"); \`cello uninstall claude\` takes both out with the hooks.
 - **What runs:** Claude Code runs \`cello hook claude stop\` when you finish a turn, and \`cello hook claude post-tool-use\` after each tool call. New comments come in as context. If you were about to stop, they keep you going: the transcript shows them as "Stop hook feedback". With nothing new, a stop while you hold a claim and nothing waits for you asks you once to start \`cello inbox --wait\` (below).
-- **A third hook, the guards:** \`cello hook claude pre-tool-use\` runs before each call to Claude Code's \`Artifact\`, \`Edit\`, \`Write\` and \`NotebookEdit\` tools. It turns artifact publishes away (see "Showing things to Lucas") and edits in the repo from a session that hasn't claimed a task (see "Edits need a claimed task"). It goes into the project's settings (\`.claude/settings.local.json\`, or \`.claude/settings.json\` with \`--shared\`), never into \`~/.claude/settings.json\` with \`--user\`, since not every project is a Cello project. Running \`cello install claude\` again in a project set up before the claim guard existed adds it.
+- **A third hook, the guards:** \`cello hook claude pre-tool-use\` runs before each call to Claude Code's \`Artifact\`, \`Edit\`, \`Write\` and \`NotebookEdit\` tools. It turns artifact publishes away (see "Showing things to the human") and edits in the repo from a session that hasn't claimed a task (see "Edits need a claimed task"). It goes into the project's settings (\`.claude/settings.local.json\`, or \`.claude/settings.json\` with \`--shared\`), never into \`~/.claude/settings.json\` with \`--user\`, since not every project is a Cello project. Running \`cello install claude\` again in a project set up before the claim guard existed adds it.
 - **Two more, for subagents:** \`cello hook claude subagent-start\` and \`cello hook claude subagent-stop\` run when a subagent starts and finishes (see Subagents). The start hook only goes into the project's settings, like the guards; the stop hook goes everywhere. Running \`cello install claude\` again in a project set up before them adds them.
 - **\`cello\` must be on the PATH** Claude Code starts with (\`~/.local/bin\`). When the server is down, the hook stays silent and your session carries on.
 
@@ -541,14 +543,14 @@ cello inbox --json
 
 **Each comment arrives once.** Whichever gets it first (the Stop hook, the PostToolUse hook, \`cello inbox\` or \`cello inbox --wait\`) marks it read, so it never comes a second time, even when parallel tool calls run the hook at the same moment. \`cello context\` only shows them.
 
-**Lucas sees each comment's receipt**, like a messenger's ticks, under his comment on the card:
+**The human sees each comment's receipt**, like a messenger's ticks, under their comment on the card:
 
 - **Sent** while it waits in your inbox.
 - **✓ Delivered to 2fd0505c · 12s** once your session takes it (the hook, \`cello inbox\` or \`--wait\`). Showing it with \`cello context\` doesn't count.
 - **✓✓ Answered** once your session, or one of its subagents, comments on the task after it or reacts to it. So answer on the card, even with just a 👍.
-- **Not delivered** when no session held the claim as he wrote it.
+- **Not delivered** when no session held the claim as they wrote it.
 
-Under his latest comment, until you answer it, a status row in the thread (with your agent mark, like a chat's typing indicator) tells him where it stands:
+Under their latest comment, until you answer it, a status row in the thread (with your agent mark, like a chat's typing indicator) tells them where it stands:
 
 - you're working and haven't taken it yet: "2fd0505c gets this at its next step"
 - a \`cello inbox --wait\` of yours is running: "2fd0505c is waiting for you: it gets this in about a second"
@@ -565,39 +567,39 @@ That's another reason to keep \`cello inbox --wait\` running when you end a turn
 New Cello comment on a task you claimed:
 
 CEL-22  Review page: collapsed rows, one packet open at a time
-  Lucas N. Munhoz sent it back, 2m ago
+  Ana Souza sent it back, 2m ago
     The next row doesn't open by itself after Approve.
 
-Act on it now, then answer on the card: \`cello task comment CEL-22 "…"\` (or \`--body-file -\` for markdown), so Lucas N. Munhoz sees your reply there.
-For a task Lucas N. Munhoz sent back, fix what the note asks, then hand it in again with \`cello task submit CEL-22\`.
+Act on it now, then answer on the card: \`cello task comment CEL-22 "…"\` (or \`--body-file -\` for markdown), so Ana Souza sees your reply there.
+For a task Ana Souza sent back, fix what the note asks, then hand it in again with \`cello task submit CEL-22\`.
 \`\`\`
 
-**Screenshots come as files.** When Lucas pastes screenshots into a comment or a Send back note, the hook, \`cello inbox\` and \`cello context\` save each one to a temp file and print its path under the text, so you can open it (Claude Code's Read tool shows images):
+**Screenshots come as files.** When the human pastes screenshots into a comment or a Send back note, the hook, \`cello inbox\` and \`cello context\` save each one to a temp file and print its path under the text, so you can open it (Claude Code's Read tool shows images):
 
 \`\`\`
 CEL-22  Review page: collapsed rows, one packet open at a time
-  Lucas N. Munhoz commented, just now
+  Ana Souza commented, just now
     The rows overlap here:
     Screenshot: /var/folders/…/T/cello-comments/01JD…/1.png
 
-Act on it now (its screenshots are files you can open), then answer on the card: \`cello task comment CEL-22 "…"\` (or \`--body-file -\` for markdown), so Lucas N. Munhoz sees your reply there.
+Act on it now (its screenshots are files you can open), then answer on the card: \`cello task comment CEL-22 "…"\` (or \`--body-file -\` for markdown), so Ana Souza sees your reply there.
 \`\`\`
 
 One that can't be fetched (the server stopped in between) shows the path the server serves it at instead (\`Screenshot: /attachments/<id>\`).
 
-**Lucas's reactions come the same way.** When he reacts to a comment your session wrote (a 👍 under "Shall I merge it?"), it reaches your session once, through the hooks, \`cello inbox\` or \`cello inbox --wait\`, even if you no longer hold the task's claim. Once your session has ended it goes to whoever holds the claim instead, and to no one when nobody does. If he takes the reaction back before it reaches you, it never arrives. It quotes the start of your comment:
+**The human's reactions come the same way.** When they react to a comment your session wrote (a 👍 under "Shall I merge it?"), it reaches your session once, through the hooks, \`cello inbox\` or \`cello inbox --wait\`, even if you no longer hold the task's claim. Once your session has ended it goes to whoever holds the claim instead, and to no one when nobody does. If they take the reaction back before it reaches you, it never arrives. It quotes the start of your comment:
 
 \`\`\`
-Lucas reacted to your comment in Cello:
+Ana Souza reacted to your comment in Cello:
 
 CEL-22  Review page: collapsed rows, one packet open at a time
-  Lucas reacted 👍 to your comment, 1m ago
+  Ana Souza reacted 👍 to your comment, 1m ago
     "Built the collapsed rows. Shall I merge it now, or wait for the Review page tests?"
 
-A reaction is Lucas's quick answer to your comment: take it as his reply; there's no need to answer it on the card.
+A reaction is Ana Souza's quick answer to your comment: take it as their reply; there's no need to answer it on the card.
 \`\`\`
 
-**When you end a turn while holding a claimed task, start \`cello inbox --wait\` in the background so Lucas's comments wake you.** The hooks only fire while you work: after a tool call, or when you stop. Once your turn has ended and the session sits waiting for its human, nothing fires, and a comment Lucas leaves then stays unread until someone types to you. \`cello inbox --wait\` closes that gap:
+**When you end a turn while holding a claimed task, start \`cello inbox --wait\` in the background so the human's comments wake you.** The hooks only fire while you work: after a tool call, or when you stop. Once your turn has ended and the session sits waiting for its human, nothing fires, and a comment the human leaves then stays unread until someone types to you. \`cello inbox --wait\` closes that gap:
 
 \`\`\`bash
 cello inbox --wait          # in Claude Code: the Bash tool with run_in_background: true
@@ -614,14 +616,14 @@ cello inbox --wait --json   # the same as JSON: items, claimed
 **The Stop hook asks for it.** When you stop with nothing new, while you hold a claimed task and no waiter is running for your session, the Stop hook keeps you going once with:
 
 \`\`\`
-Cello: you hold a claim on CEL-22, and nothing is waiting for Lucas's comments, so once this turn ends Lucas can't reach you. Start \`cello inbox --wait\` in the background now (the Bash tool with run_in_background: true), then end your turn. It wakes you when Lucas comments, sends a task back or answers your questions.
+Cello: you hold a claim on CEL-22, and nothing is waiting for Ana Souza's comments, so once this turn ends Ana Souza can't reach you. Start \`cello inbox --wait\` in the background now (the Bash tool with run_in_background: true), then end your turn. It wakes you when Ana Souza comments, sends a task back or answers your questions.
 \`\`\`
 
 - **"A waiter is running"** means one of Claude Code's background shells runs \`cello inbox --wait\` (the hook reads the list Claude Code sends it), or, when Claude Code sends no list, the session's lock is held by a live process. When the list is there and has no waiter, a lock doesn't count: it belongs to a waiter that outlived its session.
-- **When the stop hands comments over,** the same advice comes as a last line under them, since the stop you make after acting on them won't be nudged: "When you end this turn, start \`cello inbox --wait\` in the background first (the Bash tool with run_in_background: true), so Lucas's next comment wakes you."
+- **When the stop hands comments over,** the same advice comes as a last line under them, since the stop you make after acting on them won't be nudged: "When you end this turn, start \`cello inbox --wait\` in the background first (the Bash tool with run_in_background: true), so Ana Souza's next comment wakes you."
 - **It never loops:** the stop you make right after a nudge goes through whatever you did, and so does any stop it can't judge (no server, a lock it can't read, past its 2-second deadline).
 
-**Answer on the card.** Act on the comment, then reply with \`cello task comment CEL-22 "…"\` (\`--body-file -\` for markdown), so the conversation stays with the task and Lucas sees it there.
+**Answer on the card.** Act on the comment, then reply with \`cello task comment CEL-22 "…"\` (\`--body-file -\` for markdown), so the conversation stays with the task and the human sees it there.
 
 **When a task is sent back,** it's in In Progress again and still yours. The note arrives the same way, marked "sent it back" (\`cello task get\` also shows it under Reviews). Fix what it asks, test, then hand the task in again with \`cello task submit CEL-22\` and new evidence.
 
@@ -633,7 +635,7 @@ Cello: you hold a claim on CEL-22, and nothing is waiting for Lucas's comments, 
 Closing the terminal (or the Claude Code thread) ends the session. Nothing is lost; delivery pauses:
 
 1. **The waiter stops with it.** \`cello inbox --wait\` exits within a second once its Claude Code is gone, taking nothing.
-2. **Lucas's comments wait in that session's inbox.** On the card, the status row under his latest comment says the session ended and gets it if resumed, and the presence turns grey "ended" within about 30 seconds.
+2. **The human's comments wait in that session's inbox.** On the card, the status row under their latest comment says the session ended and gets it if resumed, and the presence turns grey "ended" within about 30 seconds.
 3. **Resuming the session** (\`claude --resume\`, or reopening the thread) hands everything over at its first hook: its first tool call, or its first stop.
 4. **A new session that claims the task instead** doesn't receive what was sent to the old one; it reads it in the task's history (\`cello task get CEL-12\` shows every comment). New comments from then on go to the new session.
 
@@ -657,7 +659,7 @@ cello --agent cello-code-reviewer/b77d0e11aa22bb33 whoami     # "x-cello-agent" 
 
 **Why a flag and not \`CELLO_AGENT=… cello …\`:** the \`CELLO_AGENT\` variable does the same thing and still works, but a command with a variable in front doesn't start with \`cello\`, so Claude Code's allow rule \`Bash(cello:*)\` doesn't match it and the command goes through the permission check (see "\`cello\` commands skip Claude Code's permission check"). Given both, \`--agent\` wins.
 
-A command without it is credited to the session, as before. So a subagent's comments and changes are credited to it **only where \`subagent-start\` is installed** (a project's settings: \`cello install claude\` or \`--shared\`, not \`--user\`) **and only when the subagent follows that instruction**: it's context the model reads, not something Cello enforces. Its presence and the task it was launched on don't depend on either: the PostToolUse hook reports them. Nothing else changes: **claims and Lucas's comments stay with the session.** A subagent's claim is the session's claim, the main conversation keeps holding it, and comments are delivered there (never \`cello inbox\` from a subagent).
+A command without it is credited to the session, as before. So a subagent's comments and changes are credited to it **only where \`subagent-start\` is installed** (a project's settings: \`cello install claude\` or \`--shared\`, not \`--user\`) **and only when the subagent follows that instruction**: it's context the model reads, not something Cello enforces. Its presence and the task it was launched on don't depend on either: the PostToolUse hook reports them. Nothing else changes: **claims and the human's comments stay with the session.** A subagent's claim is the session's claim, the main conversation keeps holding it, and comments are delivered there (never \`cello inbox\` from a subagent).
 
 **What \`cello task get\` shows:** the subagents launched on the task, and who did what.
 
@@ -729,14 +731,14 @@ cello task submit CEL-22 \\
 \`\`\`
 
 - **\`--summary\`** says what changed and why, in markdown. Use \`--summary-file -\` for a long one from stdin.
-- **\`--step\`** says how Lucas checks it, one step per flag, in order.
+- **\`--step\`** says how the human checks it, one step per flag, in order.
 - **\`--attach\`** takes images, videos (MP4, WebM, MOV) and text files (txt, log, md, json, cast), up to 50 MB each.
   - Paths are relative to your working folder.
   - The server copies each file into \`~/.cello/assets\`, so you can delete the original afterwards (in a worktree, say).
 - **\`--link\`** adds a URL: a PR, or a page you published.
 - **\`--caption\`** describes the \`--attach\` or \`--link\` right before it.
 - **Submitting again** while a packet is still open replaces it.
-- **A packet waits on Lucas only while its task is in In Review** (or in Needs input, when you asked from In Review). Approve and Send back close it with his decision. Any other move closes it as **withdrawn**: you or Lucas moving the task back to In Progress, to Todo or anywhere else, and his answers to an ask you made from In Review, which bring the task back to In Progress. A withdrawn packet leaves the Review page; it stays in the task's list, where \`cello task get\` shows it:
+- **A packet waits on the human only while its task is in In Review** (or in Needs input, when you asked from In Review). Approve and Send back close it with their decision. Any other move closes it as **withdrawn**: you or the human moving the task back to In Progress, to Todo or anywhere else, and their answers to an ask you made from In Review, which bring the task back to In Progress. A withdrawn packet leaves the Review page; it stays in the task's list, where \`cello task get\` shows it:
 
   \`\`\`
   Reviews (1)
@@ -745,15 +747,15 @@ cello task submit CEL-22 \\
 
 What to bring, by kind of work (the project's testing profile says how to make it here: \`evidence.ui\`, \`evidence.cli\` and the e2e surfaces in \`cello context\`; if you changed the profile, say which fields in the summary):
 
-- **A flow being validated** (steps, states, systems talking to each other): add a diagram to the summary. A \`\`\`mermaid block in \`--summary-file\` renders as a diagram on the Review page; draw it top to bottom (\`flowchart TD\`). Lucas reads the diagram first.
+- **A flow being validated** (steps, states, systems talking to each other): add a diagram to the summary. A \`\`\`mermaid block in \`--summary-file\` renders as a diagram on the Review page; draw it top to bottom (\`flowchart TD\`). The human reads the diagram first.
 
 - **UI:** MP4 videos of the flow (the Playwright e2e videos) plus screenshots, in light and dark when it matters. How they're made: \`docs/evidence-videos.md\` in the Cello repository, also in Cello's Docs tab.
-- **CLI or server:** a terminal transcript or a test-output file (\`… > vitest.log\`), plus steps Lucas can run himself.
+- **CLI or server:** a terminal transcript or a test-output file (\`… > vitest.log\`), plus steps the human can run themselves.
 - **A report you published:** \`--link <page url> --caption "The report"\`.
 
-## Questions for Lucas (Needs input)
+## Questions for the human (Needs input)
 
-When you need Lucas to decide something (which design option, which stages, what wording), ask **on the card**, never in the terminal. He sees your questions next to the evidence, picks options, writes what he likes and doesn't, and can paste screenshots to show what he means. His answers come back to your session.
+When you need the human to decide something (which design option, which stages, what wording), ask **on the card**, never in the terminal. They see your questions next to the evidence, pick options, write what they like and don't, and can paste screenshots to show what they mean. Their answers come back to your session.
 
 \`\`\`bash
 # Anything real: a file with the questions and the evidence, waiting for the answers
@@ -771,11 +773,11 @@ cello task ask CEL-43 --title "Search layout" \\
 
 What happens:
 
-1. The task moves to **Needs input** (your claim stays). It shows in the sidebar's Needs input count, first on Lucas's Review page, and in In Progress with a "Needs input" badge (or its own column, when he turns that on in Display).
-2. Lucas answers each question (a pick, several, or None of these with a comment; words for a text-only one) and sends. The task goes back to **In Progress**, still yours. If you asked from In Review, the open packet is withdrawn then: submit a new one when the work is ready again.
+1. The task moves to **Needs input** (your claim stays). It shows in the sidebar's Needs input count, first on the human's Review page, and in In Progress with a "Needs input" badge (or its own column, when they turn that on in Display).
+2. The human answers each question (a pick, several, or None of these with a comment; words for a text-only one) and sends. The task goes back to **In Progress**, still yours. If you asked from In Review, the open packet is withdrawn then: submit a new one when the work is ready again.
 3. The answers reach you, once:
-   - **with \`--wait\`:** the command blocks until he sends, then prints the answers and exits. Run it in the background (Claude Code: \`run_in_background\`), so your session wakes when they arrive.
-   - **without it:** the hook delivers them like a comment (see Comments from Lucas reach your session), or \`cello wait CEL-43\` waits for them later (after a restart, say).
+   - **with \`--wait\`:** the command blocks until they send, then prints the answers and exits. Run it in the background (Claude Code: \`run_in_background\`), so your session wakes when they arrive.
+   - **without it:** the hook delivers them like a comment (see Comments from the human reach your session), or \`cello wait CEL-43\` waits for them later (after a restart, say).
    - \`cello task answers CEL-43\` prints the latest answers again any time (\`--all\`: every round); \`--json\` for scripts.
 
 **The file** (JSON or YAML; paths are relative to it):
@@ -786,7 +788,7 @@ intro: |                             # optional markdown, shown above the questi
   Both layouts are built; the screenshots are from the real app.
 questions:
   - prompt: Which layout?
-    kind: one                        # what you expect: one (the default with options), any, text (no options). He may still pick several
+    kind: one                        # what you expect: one (the default with options), any, text (no options). They may still pick several
     options:
       - label: "Peek: list + preview"
         description: Shows the highlighted result's text   # one line, optional
@@ -807,19 +809,19 @@ links:
 \`\`\`
 
 - **Inline flags** in order: \`--question\` starts a question; the \`--kind\`, \`--option "Label|description"\`, \`--recommend "Label"\` and \`--because "why"\` after it belong to it. \`--attach\`, \`--caption\` and \`--link\` work as for \`submit\`; they add to a file's evidence too.
-- **Recommend at most one option** of a pick-one question, and always say why (\`because\`). Recommended options come **picked** for Lucas; he can change them, pick several on any question, or pick **None of these** and say what instead.
-- **Up to 20 questions, 9 options each** (he picks with the 1-9 keys).
+- **Recommend at most one option** of a pick-one question, and always say why (\`because\`). Recommended options come **picked** for the human; they can change them, pick several on any question, or pick **None of these** and say what instead.
+- **Up to 20 questions, 9 options each** (they pick with the 1-9 keys).
 - **Only the session holding the claim asks or withdraws.** Claim the task first; another session's ask on it is refused, naming the holder, so the answers never reach a session that didn't ask.
 - **One ask per task at a time.** Asking again while one is open replaces it (the old one is kept, marked replaced).
 - **Withdraw** an ask you no longer need: \`cello task ask CEL-43 --withdraw\`. The task goes back to In Progress.
-- **If Lucas moves the card himself** out of Needs input, the ask is withdrawn and your claim ends, as with any move he makes. You hear it once, like a comment: "Lucas moved CEL-43 to Todo; your ask 'Search layout' was withdrawn." \`--wait\` then says it was withdrawn.
-- **Rounds:** after his answers, ask again on the same card for a follow-up; the answered ask stays. The card shows the asks as a thread ("Round 1 · answered", "Round 2 · open"), and \`cello task answers CEL-43 --all\` prints every round.
+- **If the human moves the card themselves** out of Needs input, the ask is withdrawn and your claim ends, as with any move they make. You hear it once, like a comment: "Ana Souza moved CEL-43 to Todo; your ask 'Search layout' was withdrawn." \`--wait\` then says it was withdrawn.
+- **Rounds:** after their answers, ask again on the same card for a follow-up; the answered ask stays. The card shows the asks as a thread ("Round 1 · answered", "Round 2 · open"), and \`cello task answers CEL-43 --all\` prints every round.
 - **Scopes** always attach their screenshots and link the scope page.
 
-**What arrives** (by \`--wait\`, the hook, or \`cello inbox\`) is each question with what he picked and his comment; screenshots he pasted are saved as files you can open, and their paths printed:
+**What arrives** (by \`--wait\`, the hook, or \`cello inbox\`) is each question with what they picked and their comment; screenshots they pasted are saved as files you can open, and their paths printed:
 
 \`\`\`
-Lucas answered "Search layout" on CEL-43, just now:
+Ana Souza answered "Search layout" on CEL-43, just now:
 
 1. Which layout?
    Picked: Peek: list + preview (your recommendation)
@@ -837,7 +839,7 @@ Note: Ship it after the e2e passes.
 CEL-43 is back in progress: carry on with these answers. Reply on the card with \`cello task comment CEL-43 "…"\` if something is unclear.
 \`\`\`
 
-A question can come back as "Picked: None of these": no option fitted, and his comment says what he wants instead. He may also pick several options on any question, even one you asked as \`kind: one\`.
+A question can come back as "Picked: None of these": no option fitted, and their comment says what they want instead. They may also pick several options on any question, even one you asked as \`kind: one\`.
 
 ## Pages, docs and specs
 
@@ -873,13 +875,13 @@ cello doc archive billing-audit      # hidden from the Docs tab; the link keeps 
   http://127.0.0.1:4747/CEL/pages/palette-scope
   Link in replies (opens in Cello): cello://open?url=http%3A%2F%2F127.0.0.1%3A4747%2FCEL%2Fpages%2Fpalette-scope
   \`\`\`
-- **Two links come back:** the page's address, and its \`cello://\` link, the one to put in your replies (see Showing things to Lucas). \`--json\` has both, as \`url\` and \`link\`.
+- **Two links come back:** the page's address, and its \`cello://\` link, the one to put in your replies (see Showing things to the human). \`--json\` has both, as \`url\` and \`link\`.
 - **Publishing the same file again** updates the page and keeps the old version, and the link never changes.
-- **Publish reports, plans and summaries here,** not as Claude artifacts: Lucas reads them next to the tasks.
+- **Publish reports, plans and summaries here,** not as Claude artifacts: the human reads them next to the tasks.
 
-## Showing things to Lucas
+## Showing things to the human
 
-**Everything you show Lucas goes into Cello, never into another tool's page** (a claude.ai artifact, a gist, a pastebin): reports, plans, comparisons, evidence before a packet, video and screenshot galleries. He reads them next to the task, and they're backed up with the board.
+**Everything you show the human goes into Cello, never into another tool's page** (a claude.ai artifact, a gist, a pastebin): reports, plans, comparisons, evidence before a packet, video and screenshot galleries. They read them next to the task, and they're backed up with the board.
 
 \`\`\`bash
 cello doc publish evidence.md --task CEL-12 --kind page   # images inline; linked videos and files go up too
@@ -896,25 +898,25 @@ Opened http://127.0.0.1:4747/CEL/pages/evidence in Cello.
 Link in replies (opens in Cello): cello://open?url=http%3A%2F%2F127.0.0.1%3A4747%2FCEL%2Fpages%2Fevidence
 \`\`\`
 
-- **In replies, link pages with the \`cello://\` link, never the http one.** Lucas reads your replies in Claude's desktop app, where clicking an http link opens Claude's own built-in browser, outside Cello. A \`cello://\` link opens the page in Cello's side panel, next to the board. \`cello doc publish\` and \`cello open\` both print it, so never build or URL-encode one by hand. Write it as a markdown link with a readable name: \`[Billing audit](cello://open?url=http%3A%2F%2F127.0.0.1%3A4747%2FCEL%2Fpages%2Fbilling-audit)\`. A task is \`cello://CEL-12\`.
+- **In replies, link pages with the \`cello://\` link, never the http one.** The human reads your replies in Claude's desktop app, where clicking an http link opens Claude's own built-in browser, outside Cello. A \`cello://\` link opens the page in Cello's side panel, next to the board. \`cello doc publish\` and \`cello open\` both print it, so never build or URL-encode one by hand. Write it as a markdown link with a readable name: \`[Billing audit](cello://open?url=http%3A%2F%2F127.0.0.1%3A4747%2FCEL%2Fpages%2Fbilling-audit)\`. A task is \`cello://CEL-12\`.
 - **Slugs are lower case,** so \`cello open cel-12\` looks for a page called cel-12; write a task's key in capitals (\`CEL-12\`).
 - **A slug that isn't a page** fails before anything opens (\`No document CEL/evidnce\`); \`cello doc list\` lists them.
 - **When nothing can open it** (the desktop app isn't installed), the command fails and still prints the link.
 - **\`--json\`** prints \`{ "link", "url", "opened" }\` (\`url\` is null for a task).
 - **Where it opens.** A Cello page or doc (\`/KEY/pages/<slug>\`) opens in the board's own side panel, docked on the right like the task panel, in the page reader, with buttons to expand it to a full page and to close it. So does a text file on the board (a transcript, a test log, \`.md\`, \`.json\`, \`.csv\`: shown as text, with Copy and Download). The app's built-in browser panel is only for outside sites (claude.ai, GitHub, a dev server). In a plain browser tab, Cello pages open in the same side panel.
 - This holds even when your own global instructions say to use artifacts: in a Cello project, the project's rule wins.
-- Use his browser only when the desktop app isn't running.
+- Use their browser only when the desktop app isn't running.
 
 **A hook enforces it.** \`cello install claude\` (and \`cello init --hooks\`) adds a PreToolUse hook on Claude Code's \`Artifact\` tool to the project's settings. When you try to publish an artifact (no \`action\`, or \`action: "publish"\`, which covers uploading files and assets and creating one from a type), Claude Code blocks the call and shows you this reason:
 
 \`\`\`
-This project uses Cello. Show it as a Cello page: \`cello doc publish page.md --task KEY-n\` (images inline, videos with --asset), then open it in Cello's panel with \`cello open <slug>\`. In your reply, link the page with the cello:// link those commands print, never its http address: an http link opens Claude's own browser, not Cello. Claude artifacts are only for when Lucas asks for one by name; if he did, tell him this project's Cello hook stopped it (he can allow them by starting Claude Code with CELLO_ALLOW_ARTIFACTS=1).
+This project uses Cello. Show it as a Cello page: \`cello doc publish page.md --task KEY-n\` (images inline, videos with --asset), then open it in Cello's panel with \`cello open <slug>\`. In your reply, link the page with the cello:// link those commands print, never its http address: an http link opens Claude's own browser, not Cello. Claude artifacts are only for when the human asks for one by name; if they did, tell them this project's Cello hook stopped it (they can allow them by starting Claude Code with CELLO_ALLOW_ARTIFACTS=1).
 \`\`\`
 
 - Do what it says: publish a Cello page, open it in the panel, and link it in your reply with its \`cello://\` link. Don't retry the artifact.
 - Every other action (\`read\`, \`list\`, \`open\`, \`delete\`, \`pin\`, \`unpin\`, \`quickstart\`) goes through, so you can still read an artifact link someone gives you.
 - The hook needs no server, and anything it can't read (broken input, another tool) goes through, so it never gets in the way of other work.
-- **\`CELLO_ALLOW_ARTIFACTS=1\`** in Claude Code's environment lets every artifact call through. It's for when Lucas explicitly asks for a claude.ai artifact; he sets it by starting Claude Code with it (\`CELLO_ALLOW_ARTIFACTS=1 claude\`). Agents never set it on their own, nor work around the hook any other way.
+- **\`CELLO_ALLOW_ARTIFACTS=1\`** in Claude Code's environment lets every artifact call through. It's for when the human explicitly asks for a claude.ai artifact; they set it by starting Claude Code with it (\`CELLO_ALLOW_ARTIFACTS=1 claude\`). Agents never set it on their own, nor work around the hook any other way.
 - \`cello uninstall claude\` takes it out with the other hooks.
 
 ## Backups
@@ -925,18 +927,18 @@ The server backs up its data folder every day: the database and every evidence f
 cello backup                     # take one now: prints the folder, its size, files linked vs copied
 cello backup --json              # the same as JSON
 cello backup list                # id, when, kind, size and file count, newest first
-cello restore 20261115-120000    # only when Lucas asks, with Cello stopped
+cello restore 20261115-120000    # only when the human asks, with Cello stopped
 \`\`\`
 
 - **When:** when the server starts, if the newest daily backup is 24 hours old (or there's none), then every 24 hours. Take one by hand before something risky.
 - **Small:** files unchanged since the previous backup are hard links to it, so a backup only adds what changed.
 - **With or without a server:** \`cello backup\` and \`cello backup list\` ask the server on \`CELLO_PORT\`. When none answers, they work on \`CELLO_DATA_DIR\` (\`~/.cello\` by default) directly; \`cello backup\` then holds the data folder's lock while it copies, as a server would.
 - **What's kept:** the newest 14 of each kind, counted apart: **auto** (the daily ones), **manual** (\`cello backup\`) and **safety** (the copy of the current state that restore takes first). Taking many manual backups never pushes out the daily history or the undo for a restore. Only Cello's own folders (a \`YYYYMMDD-HHMMSS\` name and a manifest.json) are ever pruned; anything else in \`backups/\` is left alone.
-- **Restore** replaces the database and evidence files with a backup's. Stop Cello first (Ctrl-C where \`cello start\` runs, or quit the desktop app): it refuses while a server runs. It takes a safety backup of the current state first ("before restoring <id>" in the list), so restoring that one undoes it. **Agents run \`cello restore\` only when Lucas asks.**
+- **Restore** replaces the database and evidence files with a backup's. Stop Cello first (Ctrl-C where \`cello start\` runs, or quit the desktop app): it refuses while a server runs. It takes a safety backup of the current state first ("before restoring <id>" in the list), so restoring that one undoes it. **Agents run \`cello restore\` only when the human asks.**
 
 ## Which build is running
 
-Each build of Cello knows the commit it was built from. When Lucas asks whether his Cello has a change yet, compare that commit with the merge:
+Each build of Cello knows the commit it was built from. When the human asks whether their Cello has a change yet, compare that commit with the merge:
 
 \`\`\`bash
 cello --version        # the CLI: 0.2.0 (build c602f25)
@@ -951,12 +953,12 @@ git merge-base --is-ancestor <merge commit> c602f25 && echo "it's in"
 \`\`\`
 
 - \`web\` is the web app the server serves; \`changes\` lists the commit subjects merged since the build before it. The sidebar's footer shows the same line, "Cello 0.2.0 · build c602f25 · live since 18:19", and a click lists those changes.
-- After a new build is started, open tabs and the desktop app notice it the next time they reconnect: they show "Cello was updated · Reload" and reload by themselves after a few seconds, unless Lucas is typing.
+- After a new build is started, open tabs and the desktop app notice it the next time they reconnect: they show "Cello was updated · Reload" and reload by themselves after a few seconds, unless the human is typing.
 - \`build dev\` means the commit is unknown: a build made outside a git checkout without \`CELLO_BUILD_COMMIT\`.
 
 ### Every build so far
 
-The server records each build the first time it starts on it, so the board keeps a history of every deploy. \`cello builds\` lists it, newest first; Lucas sees the same on the **Builds** page (Settings → Builds, or "See all builds →" in the footer's popover).
+The server records each build the first time it starts on it, so the board keeps a history of every deploy. \`cello builds\` lists it, newest first; the human sees the same on the **Builds** page (Settings → Builds, or "See all builds →" in the footer's popover).
 
 \`\`\`bash
 cello builds
@@ -977,16 +979,16 @@ cello builds
 
 | Variable | What it does |
 | --- | --- |
-| \`CLAUDE_CODE_SESSION_ID\` | Set by Claude Code. Your agent session: your changes are credited to it, your claims belong to it, and Lucas's comments on them come to it. Subagents get their parent's. |
+| \`CLAUDE_CODE_SESSION_ID\` | Set by Claude Code. Your agent session: your changes are credited to it, your claims belong to it, and the human's comments on them come to it. Subagents get their parent's. |
 | \`CELLO_AGENT\` | Which subagent of the session is calling, as \`<type>/<id>\` (\`cello-builder/a13bfb89\`) or just the id. The SubagentStart hook tells each subagent its value. Subagents pass it as \`cello --agent <value> …\` instead, which does the same and wins over the variable, so the command still starts with \`cello\` (see Subagents). Your changes and comments are then credited to that subagent, under the session; claims stay with the session. See Subagents. |
 | \`CLAUDE_PID\` | Set by Claude Code. Lets Cello tell whether your session is still alive, so a dead session's claim can be taken over. |
-| \`CELLO_SESSION\` | Overrides the session. An agent that isn't Claude Code sets a stable id for its conversation here. \`CELLO_SESSION=me\` acts as Lucas: only when he asks you to. |
+| \`CELLO_SESSION\` | Overrides the session. An agent that isn't Claude Code sets a stable id for its conversation here. \`CELLO_SESSION=me\` acts as the human: only when they ask you to. |
 | \`CELLO_PORT\` | The server's port, 4747 by default. Dev servers and tests use other ports. |
 | \`CELLO_DATA_DIR\` | \`cello start\`'s data folder, \`~/.cello\` by default. |
 | \`CELLO_WEB_DIR\` | A built web app (\`vite build\`'s folder) for \`cello start\` to serve instead of its own. It serves **every file in that folder** to anything that can reach the port, so point it only at a build. Without an \`index.html\` there, \`cello start\` says so on stderr and serves its own app. Tests use it to serve two builds. |
 | \`CELLO_BUILD_COMMIT\` | The commit a build records, when it's made outside a git checkout (Docker): a commit hash (7 to 40 lowercase hex characters); anything else is ignored. \`vite build\`, \`bun run build\` and \`cello\` from source otherwise read the checkout's HEAD. |
 
-With no session at all, changes are recorded as Lucas. When something gets credited to the wrong person, \`cello whoami\` prints what Cello sees.
+With no session at all, changes are recorded as the human. When something gets credited to the wrong person, \`cello whoami\` prints what Cello sees.
 
 Agents never open, copy or change anything in \`~/.cello\` directly. Everything goes through \`cello\`.
 
@@ -996,7 +998,7 @@ Every error is one sentence that says what to do next. The usual ones:
 
 | The message says | What it means | What to do |
 | --- | --- | --- |
-| Cello isn't running on 127.0.0.1:4747 | Lucas's server is down. | Tell him. Don't start one against \`~/.cello\` yourself unless he asks. |
+| Cello isn't running on 127.0.0.1:4747 | The human's server is down. | Tell them. Don't start one against \`~/.cello\` yourself unless they ask. |
 | Cello on 127.0.0.1:4747 closed the connection before answering | The server stopped or restarted (a deploy) while your command ran. A change it had started still went through. | Look before you redo it: \`cello task get CEL-12\` shows whether the claim, move, comment or submit landed. A rerun is a new command, so running it blindly can do it twice. |
 | CEL-12 is claimed by Claude Code session 1a2b3c4d (active now) | Another live session is working on it. | Pick another task. |
 | No task CEL-99 · No status named … · No label named … | A typo, or something that doesn't exist. | The message lists the real names. |
@@ -1008,10 +1010,10 @@ Every error is one sentence that says what to do next. The usual ones:
 | CEL-12 is in Todo; a stage is only for tasks in In Progress | Stages live inside In Progress. | Claim it (which moves it to In Progress), or leave it. |
 | No stage "deploying" | Not one of the stages. | Use building, review, fixing or merged. |
 | A reaction must be one emoji, like 👍 | \`cello task react\` got text, or several emoji. | Pass one emoji. |
-| No comment 01JD… on CEL-12 · Lucas hasn't commented on CEL-12 yet | The comment id isn't on that task, or \`last\` found no comment from Lucas. | \`cello task get CEL-12\` shows each comment with its id. |
+| No comment 01JD… on CEL-12 · Ana Souza hasn't commented on CEL-12 yet | The comment id isn't on that task, or \`last\` found no comment from the human. | \`cello task get CEL-12\` shows each comment with its id. |
 | CEL-12 needs a review packet before it goes to In Review | You used \`move\` to hand work over. | Use \`cello task submit\`. |
-| Only Lucas can approve a review | Approving and sending back are his. | Leave the task in In Review. |
-| CEL-12 goes to Needs input only with questions for Lucas | You used \`move\` to wait on him. | Ask with \`cello task ask\` (see Questions for Lucas). |
+| Only Ana Souza can approve a review | Approving and sending back are theirs. | Leave the task in In Review. |
+| CEL-12 goes to Needs input only with questions for the human | You used \`move\` to wait on them. | Ask with \`cello task ask\` (see Questions for the human). |
 | Say why you recommend "…" (because) · question 2 needs options… | The ask's questions can't be answered well as written. | Fix what it says; nothing was asked. |
 | CEL-12 has no open ask to withdraw | It was answered, withdrawn or replaced already. | \`cello task answers CEL-12\` shows what happened. |
 | claim CEL-12 first (cello task claim CEL-12): only the session working on a task asks on it | You asked on a task nobody holds. | Claim it, then ask. Asking on a task another session holds is refused like a claim (it names the holder). |
@@ -1019,15 +1021,15 @@ Every error is one sentence that says what to do next. The usual ones:
 | No project is linked to /path | This repository isn't a Cello project yet. | Set it up: \`cello init\` (see Set up a repo for Cello), or pass \`--project KEY\`. |
 | The key THAI is taken by ThaiLookup | \`cello init --key\` named a key another project has. | Pick another key, or leave \`--key\` out and Cello picks a free one. |
 | --key builds won't do: a key can't be BUILDS, the address of Cello's Builds page | The key is a word the board uses for its own pages (BUILDS, SETTINGS, REVIEW, AGENTS, ASSETS, ICONS, ATTACHMENTS, RPC), so the project's board would be hidden. | Pick another key, or leave \`--key\` out. |
-| … is already used by Old Cello (archived), so it can't be linked again | An archived project holds this repo's folder. | Ask Lucas. |
-| Several projects use this folder (A, B) | More than one project was linked to this repo. | Pass \`--project KEY\`, and tell Lucas. |
-| Lucas set unit himself (\`bun run test\`), so an agent can't change it | You tried to set or unset a testing-profile field Lucas set. Nothing in that command was changed. | If it's wrong, ask him on the card with \`cello task ask\`, and say so in your packet. |
+| … is already used by Old Cello (archived), so it can't be linked again | An archived project holds this repo's folder. | Ask the human. |
+| Several projects use this folder (A, B) | More than one project was linked to this repo. | Pass \`--project KEY\`, and tell the human. |
+| Ana Souza set unit (\`bun run test\`), so an agent can't change it | You tried to set or unset a testing-profile field the human set. Nothing in that command was changed. | If it's wrong, ask them on the card with \`cello task ask\`, and say so in your packet. |
 | Unknown field "deploy". Fields: install, unit, … | Not a testing-profile field. | Use one of the names it lists (see The testing profile). |
 | Project CEL is set up, but the next step failed: … | \`cello init\` made or found the project; inspecting the repo, \`--hooks\` or \`--agents-md\` then failed. | Fix what the message says, then run the same \`cello init\` again: it skips what's done. |
-| Cello is running for …, and restore only runs while it's stopped | \`cello restore\` runs only while no server does. Nothing was changed. | Lucas stops Cello, then runs it again. |
+| Cello is running for …, and restore only runs while it's stopped | \`cello restore\` runs only while no server does. Nothing was changed. | The human stops Cello, then runs it again. |
 | No backup 20261115-120000 in … | That backup id doesn't exist. | \`cello backup list\` shows the real ones. |
-| The backup failed (…) | The disk is full, or a file in \`assets/\` can't be read. Nothing was saved. | Tell Lucas, with the message. |
-| The restore of … failed while … | The disk or a file got in the way. The sentence says whether anything changed, the safety backup's id and, if needed, where the data was kept. | Tell Lucas, with the message. Don't start Cello if it says not to. |
+| The backup failed (…) | The disk is full, or a file in \`assets/\` can't be read. Nothing was saved. | Tell the human, with the message. |
+| The restore of … failed while … | The disk or a file got in the way. The sentence says whether anything changed, the safety backup's id and, if needed, where the data was kept. | Tell the human, with the message. Don't start Cello if it says not to. |
 
 ## Command reference
 
@@ -1081,7 +1083,7 @@ cello profile <subcommand> [flags]
 
 ### cello profile set
 
-Set one field of the testing profile. Do it when a command in the profile fails or the repo changed (a new script, port or e2e tool), and say so in your review packet. Setting the value it already has confirms it. An agent can't change a field the human set: ask him on the card with \`cello task ask\`.
+Set one field of the testing profile. Do it when a command in the profile fails or the repo changed (a new script, port or e2e tool), and say so in your review packet. Setting the value it already has confirms it. An agent can't change a field the human set: ask them on the card with \`cello task ask\`.
 
 \`\`\`
 cello profile set [flags] <field> <value>
@@ -1126,7 +1128,7 @@ cello task list [flags]
 
 ### cello task get
 
-One task in full: description, labels, claim, pages, review packets with Lucas's notes, comments, history.
+One task in full: description, labels, claim, pages, review packets with the human's notes, comments, history.
 
 \`\`\`
 cello task get [flags] <key>
@@ -1159,7 +1161,7 @@ cello task create [flags] <title>
 
 ### cello task edit
 
-Change a task's title, description or priority; only the flags you give change. Any task, claimed or not; Lucas's edits end a claim as his other changes do.
+Change a task's title, description or priority; only the flags you give change. Any task, claimed or not; the human's edits end a claim as their other changes do.
 
 \`\`\`
 cello task edit [flags] <key>
@@ -1202,7 +1204,7 @@ cello task release [flags] <key>
 
 ### cello task stage
 
-Say where your claimed task is inside In Progress, so the board shows it: building, agent review, fixing findings, merged. Only the session holding the claim (or Lucas), only in In Progress. Asking Lucas (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.
+Say where your claimed task is inside In Progress, so the board shows it: building, agent review, fixing findings, merged. Only the session holding the claim (or the human), only in In Progress. Asking the human (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.
 
 \`\`\`
 cello task stage [flags] <key> [<stage>]
@@ -1245,7 +1247,7 @@ cello task label [flags] <key> [<changes...>]
 
 ### cello task comment
 
-Add a markdown comment to a task: progress, a question, an answer to Lucas. --attach adds screenshots.
+Add a markdown comment to a task: progress, a question, an answer to the human. --attach adds screenshots.
 
 \`\`\`
 cello task comment [flags] <key> [<text>]
@@ -1261,7 +1263,7 @@ cello task comment [flags] <key> [<text>]
 
 ### cello task react
 
-React to a comment with an emoji: a quick answer that needs no words (👍 to Lucas's "go ahead"). Once per emoji; --remove takes it back. Lucas's reactions to your comments reach your session like his comments do.
+React to a comment with an emoji: a quick answer that needs no words (👍 to the human's "go ahead"). Once per emoji; --remove takes it back. The human's reactions to your comments reach your session like their comments do.
 
 \`\`\`
 cello task react [flags] <key> <comment> <emoji>
@@ -1270,14 +1272,14 @@ cello task react [flags] <key> <comment> <emoji>
 | | |
 | --- | --- |
 | \`key string\` | A task key, e.g. CEL-3. |
-| \`comment string\` | The comment's id (\`cello task get\` shows it after each comment's author), or \`last\` for Lucas's newest comment on the task. |
+| \`comment string\` | The comment's id (\`cello task get\` shows it after each comment's author), or \`last\` for the human's newest comment on the task. |
 | \`emoji string\` | One emoji, e.g. 👍 ✅ 👀 ❤️ 🎉. |
 | \`--remove\` | Take your reaction with that emoji back instead. |
 | \`--json\` | Print JSON for scripts. |
 
 ### cello task submit
 
-Hand finished work to Lucas: a review packet (summary, steps, evidence) that moves the task to In Review.
+Hand finished work to the human: a review packet (summary, steps, evidence) that moves the task to In Review.
 
 \`\`\`
 cello task submit [flags] <key>
@@ -1296,7 +1298,7 @@ cello task submit [flags] <key>
 
 ### cello task ask
 
-Ask Lucas to decide something, on the card: questions with options (one recommended, with a reason) and evidence. The task moves to Needs input until he answers; then it's back in In Progress and the answers reach you (hook, --wait or \`cello wait\`).
+Ask the human to decide something, on the card: questions with options (one recommended, with a reason) and evidence. The task moves to Needs input until they answer; then it's back in In Progress and the answers reach you (hook, --wait or \`cello wait\`).
 
 \`\`\`
 cello task ask [flags] <key>
@@ -1310,19 +1312,19 @@ cello task ask [flags] <key>
 | \`--title string\` | What the decision is about, e.g. "Search layout". Overrides the file's. |
 | \`--intro string\` | Context in markdown, shown above the questions. |
 | \`--question string\` | A question; the --kind, --option, --recommend and --because after it belong to it. |
-| \`--kind string\` | one (Lucas picks one option; the default with options), any (any number) or text (no options; the default without). |
+| \`--kind string\` | one (the human picks one option; the default with options), any (any number) or text (no options; the default without). |
 | \`--option string\` | An option: "Label" or "Label\\|one-line description"; repeat in order. |
 | \`--recommend string\` | The label of the option you recommend; --because must follow. |
 | \`--because string\` | Why you recommend it, right after --recommend. |
 | \`--attach string\` | A screenshot, video or text file to decide from; repeatable. |
 | \`--caption string\` | Describes the --attach or --link right before it. |
 | \`--link string\` | A link to decide from, e.g. the scope page; repeatable. |
-| \`--wait\` | Block until Lucas answers (or the ask is withdrawn), then print the answers. Run it in the background. |
+| \`--wait\` | Block until the human answers (or the ask is withdrawn), then print the answers. Run it in the background. |
 | \`--withdraw\` | Take back the open ask instead: the task returns to In Progress. |
 
 ### cello task answers
 
-Print Lucas's latest answers on a task again (--all: every round of questions); screenshots he pasted are saved to files and their paths printed.
+Print the human's latest answers on a task again (--all: every round of questions); screenshots they pasted are saved to files and their paths printed.
 
 \`\`\`
 cello task answers [flags] <key>
@@ -1396,7 +1398,7 @@ cello label archive [flags] <name>
 
 ### cello wait
 
-Wait for Lucas to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered.
+Wait for the human to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered.
 
 \`\`\`
 cello wait [flags] <key>
@@ -1409,7 +1411,7 @@ cello wait [flags] <key>
 
 ### cello inbox
 
-Show the comments Lucas left on tasks this session claimed (Send back notes and answers to your asks too) and mark them read; each one arrives once. Use it when \`cello context\` lists new ones, or to reread what he said. With \`cello install claude\` they arrive by themselves while you work; \`--wait\` in the background wakes you with them when you've ended your turn. Not from a subagent: it shares its parent's session and would take the parent's comments.
+Show the comments the human left on tasks this session claimed (Send back notes and answers to your asks too) and mark them read; each one arrives once. Use it when \`cello context\` lists new ones, or to reread what they said. With \`cello install claude\` they arrive by themselves while you work; \`--wait\` in the background wakes you with them when you've ended your turn. Not from a subagent: it shares its parent's session and would take the parent's comments.
 
 \`\`\`
 cello inbox [flags]
@@ -1602,7 +1604,7 @@ cello backup list [flags]
 
 ### cello restore
 
-Put a backup's database and evidence files back in place of the current ones, in CELLO_DATA_DIR (default ~/.cello). Use it when the board's data is lost or damaged. Stop Cello first (Ctrl-C where \`cello start\` runs, or quit the desktop app): restore refuses while a server holds the data folder. It first takes a safety backup of the current state (kind safety, "before restoring <id>"), so restoring that one undoes it. Agents run it only when Lucas asks.
+Put a backup's database and evidence files back in place of the current ones, in CELLO_DATA_DIR (default ~/.cello). Use it when the board's data is lost or damaged. Stop Cello first (Ctrl-C where \`cello start\` runs, or quit the desktop app): restore refuses while a server holds the data folder. It first takes a safety backup of the current state (kind safety, "before restoring <id>"), so restoring that one undoes it. Agents run it only when the human asks.
 
 \`\`\`
 cello restore [flags] <id>

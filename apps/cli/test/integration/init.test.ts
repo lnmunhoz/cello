@@ -147,7 +147,7 @@ describe("cello init", () => {
       const { result } = yield* human["project.create"]({ commandId: newCommandId(), workspaceId, name: "Old Cello", key: "OLD", repoPath: repo })
       yield* human["project.archive"]({ commandId: newCommandId(), id: result.id })
       expect((yield* agent(repo)("init")).failure).toBe(
-        `${repo} is already used by Old Cello (archived), so it can't be linked again. Ask Lucas what to do with it.`,
+        `${repo} is already used by Old Cello (archived), so it can't be linked again. Ask the human what to do with it.`,
       )
     }).pipe(Effect.scoped))
 

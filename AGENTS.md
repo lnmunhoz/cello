@@ -38,13 +38,13 @@ Cello's own backlog is the **CEL** project on Lucas's board (`cello start`, port
   - the hooks only fire while you work, so **when you end a turn while holding a claimed task, start `cello inbox --wait` in the background** (Bash `run_in_background`): it wakes you when Lucas writes. The Stop hook asks for it once when none is running (CEL-74)
   - subagents share their parent's session: the hook skips them, and a subagent must not run `cello inbox`
   - act on them, then answer on the card with `cello task comment CEL-n "…"` (`--body-file -` for markdown); a sent-back task goes back to Lucas with `cello task submit`
-  - `docs/cli.md`, "Comments from Lucas reach your session", has the details
+  - `docs/cli.md`, "Comments from the human reach your session", has the details
 - **Decisions that are Lucas's are asked on the card, never in the terminal** (CEL-47): which design option, which stages, what wording, anything a task or scope leaves to him.
   - `cello task ask CEL-n --file ask.yaml --wait` (run it in the background): questions with options, a recommended option always with its reason (`because`), and the evidence to decide from
   - scopes always attach their screenshots and link the scope page
   - one ask per task at a time; asking again replaces the open one, `--withdraw` takes it back
   - the task waits in **Needs input** (only `cello task ask` puts it there); Lucas answers next to the evidence, the task returns to In Progress, still yours, and his answers reach your session (`--wait`, the hook, or `cello wait CEL-n`), with any screenshots he pasted saved as files
-  - `docs/cli.md`, "Questions for Lucas", has the file format and the details
+  - `docs/cli.md`, "Questions for the human", has the file format and the details
 - put the task key in commit messages (`feat(cli): task claim (CEL-3)`)
 - hand finished work to Lucas **only with `cello task submit`**: a review packet (summary, how-to-check steps, evidence) that moves the task to **In Review**. `cello task move CEL-n "In Review"` is refused. Lucas approves it (Done) or sends it back with a note, on the Review page.
   - UI work: MP4 video(s) of the flow (the e2e videos) and screenshots, light and dark when it matters

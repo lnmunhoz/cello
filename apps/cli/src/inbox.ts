@@ -139,7 +139,7 @@ export const deliveryText = (items: ReadonlyArray<InboxItem>, now: number, files
   const withdrawn = unique(items.filter((i) => i.kind === "withdrawn").map((i) => i.taskKey))
   const sentBack = unique(items.filter((i) => i.kind === "send_back").map((i) => i.taskKey))
   const reacted = items.some((i) => i.kind === "reaction")
-  const human = items[0]?.author ?? "Lucas"
+  const human = items[0]?.author ?? "the human"
   const tail = [
     ...(comments.length
       ? [`Act on ${comments.length === 1 ? "it" : "them"} now${withShots ? ` (${comments.length === 1 ? "its" : "their"} screenshots are files you can open)` : ""}, then answer on the card: ${answerHint(comments.map((i) => i.taskKey))}, so ${human} sees your reply there.`]
@@ -153,7 +153,7 @@ export const deliveryText = (items: ReadonlyArray<InboxItem>, now: number, files
     ...(withdrawn.length
       ? [`Your claim on ${withdrawn.join(", ")} ended with the move. Check with \`cello task get ${withdrawn[0]}\`, and ask ${human} on the card before you carry on.`]
       : []),
-    ...(reacted ? [`A reaction is ${human}'s quick answer to your comment: take it as his reply; there's no need to answer it on the card.`] : []),
+    ...(reacted ? [`A reaction is ${human}'s quick answer to your comment: take it as their reply; there's no need to answer it on the card.`] : []),
   ]
   const build = (limit?: number) => [headOf(items), "", ...inboxEntries(items, now, limit, files), "", ...tail].join("\n")
   const full = build()

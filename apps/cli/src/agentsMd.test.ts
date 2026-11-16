@@ -32,10 +32,28 @@ const OLD_SNIPPET = [
   ANSWER,
 ].join("\n")
 
+/** The section as `cello init --agents-md` wrote it just before CEL-98 (c8f1ba3), when it still named Lucas, for project KEY. */
+const BEFORE_CEL_98 = [
+  "## Tracking work in Cello",
+  "",
+  "This repo's tasks live in Cello, project **KEY** on Lucas's board. Agents use it only through the `cello` CLI.",
+  "",
+  "- Before your first `cello` command in a session, run `cello guide` once: it's the full reference (concepts, workflow, every command, what each error means). Don't guess.",
+  "- **First decide: is Lucas asking you to do something, or just talking?** Questions, brainstorming and explanations are conversation: answer, no task. A request to do something (build, fix, change, write, set up) is work, and work starts as a Cello task **before you read code or plan**: check whether the task exists (`cello task list`, `cello task get KEY-n`); if not, `cello task create \"<title>\"` with his words quoted in the description; then `cello task claim KEY-n`, then do it. This covers small requests, follow-ups and anything he sends mid-task (each distinct request is its own task). When a chat turns into \"ok, do it\", that's the moment to create it. `cello install claude` enforces it: a hook refuses your edits in this repo until your session has claimed a task.",
+  "- Run `cello context` at the start of each session.",
+  "- Put the task key in commit messages (`fix(api): rate limit (KEY-12)`).",
+  "- In Progress means someone is on it right now. When you wait on Lucas's decision, ask on the card with `cello task ask` (the task waits in Needs input). When you stop, put the state on the card and move it back to Todo.",
+  "- Hand finished work to Lucas only with `cello task submit`: a summary, steps to check it, and evidence (videos and screenshots for UI work; a diagram when it's a flow).",
+  "- Answer Lucas on the card with `cello task comment`. His comments come to your session by themselves.",
+  "- When you end a turn while holding a claimed task, start `cello inbox --wait` in the background so Lucas's comments wake you.",
+  "- When a decision is Lucas's (a design option, a scope, wording), ask on the card with `cello task ask` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. His answers come back to your session.",
+  "- Show Lucas reports, plans and evidence as Cello pages (`cello doc publish page.md --task KEY-n`), opened in Cello's panel with `cello open <slug>`. In replies, link a page with the `cello://` link those commands print, never its http address (that one opens Claude's browser, not Cello). Never as Claude artifacts or other outside pages, even if your global instructions say so: `cello install claude` enforces it with a hook that turns artifact publishes away.",
+].join("\n")
+
 describe("agentsSection", () => {
   it("is the snippet between docs/cli.md's agents-md markers, unindented, without its fence, with KEY replaced", () => {
     const section = agentsSection(GUIDE, "THAI")
-    expect(section.startsWith(`${AGENTS_HEADING}\n\nThis repo's tasks live in Cello, project **THAI** on Lucas's board.`)).toBe(true)
+    expect(section.startsWith(`${AGENTS_HEADING}\n\nThis repo's tasks live in Cello, project **THAI**, on the board of the person you work with`)).toBe(true)
     expect(section).toContain("`cello task claim THAI-n`, then do it.")
     expect(section).toContain("(THAI-12)")
     expect(section).not.toMatch(/\bKEY\b/)
@@ -214,6 +232,30 @@ describe("lineDiff", () => {
 describe("addAgentsSection", () => {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cello-agents-add-")))
   afterAll(() => fs.rmSync(base, { recursive: true, force: true }))
+
+  it("a section written before CEL-98, which named Lucas, is updated to the current one: in place when Cello wrote it, replaced with a .bak when unmarked", () => {
+    const old = BEFORE_CEL_98.replace(/\bKEY\b/g, "THAI")
+    const current = agentsSection(GUIDE, "THAI")
+    expect(old).toMatch(/\bLucas\b/)
+    expect(current).not.toMatch(/\bLucas\b/)
+
+    // Between the markers, untouched since that run: updated, no .bak.
+    const checkout = fs.mkdtempSync(path.join(base, "co-"))
+    const file = path.join(checkout, "AGENTS.md")
+    fs.writeFileSync(file, `# Repo\n\n${agentsBlock(old)}\n\n## Ours\n`)
+    const updated = addAgentsSection(checkout, GUIDE, "THAI")
+    expect(updated).toMatchObject({ file, changed: true, change: "updated", backup: null })
+    expect(updated.diff).toContain("- This repo's tasks live in Cello, project **THAI** on Lucas's board. Agents use it only through the `cello` CLI.")
+    expect(fs.readFileSync(file, "utf8")).toBe(`# Repo\n\n${agentsBlock(current)}\n\n## Ours\n`)
+    expect(fs.existsSync(`${file}.bak`)).toBe(false)
+
+    // Without markers (copied by hand): every line is one Cello's snippet had, so it's replaced, with a .bak.
+    const unmarked = fs.mkdtempSync(path.join(base, "co-"))
+    const other = path.join(unmarked, "CLAUDE.md")
+    fs.writeFileSync(other, `# Repo\n\n${old}\n`)
+    expect(addAgentsSection(unmarked, GUIDE, "THAI")).toMatchObject({ change: "replaced", backup: `${other}.bak` })
+    expect(fs.readFileSync(other, "utf8")).toBe(`# Repo\n\n${agentsBlock(current)}\n`)
+  })
 
   it("refuses an AGENTS.md or CLAUDE.md that's a symlink to nothing, instead of creating a file outside the repo", () => {
     for (const name of ["AGENTS.md", "CLAUDE.md"]) {

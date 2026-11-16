@@ -503,7 +503,7 @@ const get = Command.make("get", { key, json }, (input) =>
     lines.push(...columns(detail.history.map((e) => [ago(e.ts, now), describeEvent(e, { ...byIds(detail), actors: {} }, author(detail, e.actorId, e.sessionId, e.agentId))]))
       .map((l) => `  ${l}`))
     yield* print(lines.join("\n"))
-  })).pipe(Command.withDescription("One task in full: description, labels, claim, pages, review packets with Lucas's notes, comments, history."))
+  })).pipe(Command.withDescription("One task in full: description, labels, claim, pages, review packets with the human's notes, comments, history."))
 
 const create = Command.make("create", {
   title: Argument.String("title").pipe(Argument.withDescription("The task's title, in quotes.")),
@@ -606,7 +606,7 @@ const stage = Command.make("stage", {
     yield* print(next === null ? `Cleared the stage of ${task.key}  ${where}` : `${task.key} is now ${stageInfo(next)!.label}  ${where}`)
   })).pipe(Command.withDescription(
     "Say where your claimed task is inside In Progress, so the board shows it: building, agent review, fixing findings, merged. " +
-      "Only the session holding the claim (or Lucas), only in In Progress. Asking Lucas (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.",
+      "Only the session holding the claim (or the human), only in In Progress. Asking the human (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.",
   ))
 
 const move = Command.make("move", {
@@ -659,12 +659,12 @@ const comment = Command.make("comment", {
     if (input.json) return yield* printJson(response)
     const shots = files.length === 0 ? "" : files.length === 1 ? " with 1 image" : ` with ${files.length} images`
     yield* print(`Commented on ${input.key.toUpperCase()}${shots}`)
-  })).pipe(Command.withDescription("Add a markdown comment to a task: progress, a question, an answer to Lucas. --attach adds screenshots."))
+  })).pipe(Command.withDescription("Add a markdown comment to a task: progress, a question, an answer to the human. --attach adds screenshots."))
 
 const react = Command.make("react", {
   key,
   comment: Argument.String("comment").pipe(
-    Argument.withDescription("The comment's id (`cello task get` shows it after each comment's author), or `last` for Lucas's newest comment on the task."),
+    Argument.withDescription("The comment's id (`cello task get` shows it after each comment's author), or `last` for the human's newest comment on the task."),
   ),
   emoji: Argument.String("emoji").pipe(Argument.withDescription("One emoji, e.g. 👍 ✅ 👀 ❤️ 🎉.")),
   remove: Flag.Boolean("remove").pipe(Flag.withDefault(false), Flag.withDescription("Take your reaction with that emoji back instead.")),
@@ -701,10 +701,10 @@ const react = Command.make("react", {
         : changed ? `Reacted ${emoji} to ${whose}: "${commentStart(target.body)}"` : `You had already reacted ${emoji} to ${whose}`,
     )
   })).pipe(Command.withDescription(
-    "React to a comment with an emoji: a quick answer that needs no words (👍 to Lucas's \"go ahead\"). Once per emoji; --remove takes it back. " +
-      "Lucas's reactions to your comments reach your session like his comments do.",
+    "React to a comment with an emoji: a quick answer that needs no words (👍 to the human's \"go ahead\"). Once per emoji; --remove takes it back. " +
+      "The human's reactions to your comments reach your session like their comments do.",
   ), Command.withExamples([
-    { command: "cello task react CEL-3 last 👍", description: "Thumbs up on Lucas's newest comment" },
+    { command: "cello task react CEL-3 last 👍", description: "Thumbs up on the human's newest comment" },
     { command: "cello task react CEL-3 01JD2X7Q8M4K5N6P7R8S9T0V1W ✅", description: "A check on one comment, by its id" },
     { command: "cello task react CEL-3 last 👍 --remove", description: "Take the thumbs up back" },
   ]))
@@ -734,7 +734,7 @@ const edit = Command.make("edit", {
     const task = response.result
     yield* print(response.seq === null ? `Nothing to change on ${task.key}  ${task.title}` : `Edited ${task.key}  ${task.title}`)
   })).pipe(Command.withDescription(
-    "Change a task's title, description or priority; only the flags you give change. Any task, claimed or not; Lucas's edits end a claim as his other changes do.",
+    "Change a task's title, description or priority; only the flags you give change. Any task, claimed or not; the human's edits end a claim as their other changes do.",
   ))
 
 const submit = Command.make("submit", {
@@ -774,13 +774,13 @@ const submit = Command.make("submit", {
     )
     if (input.json) return yield* printJson(written.response)
     const { before, response } = written
-    const human = before.actors.find((a) => a.kind === "human")?.name ?? "Lucas"
+    const human = humanName(before.actors)
     yield* print([
       `Submitted ${response.result.task.key} for review  ${statusName(before, before.task.statusId)} → ${statusName(before, response.result.task.statusId)}`,
       `  ${packetCounts(response.result.review)}`,
       `  ${human} reviews it at http://127.0.0.1:${portOf(env)}/review`,
     ].join("\n"))
-  })).pipe(Command.withDescription("Hand finished work to Lucas: a review packet (summary, steps, evidence) that moves the task to In Review."))
+  })).pipe(Command.withDescription("Hand finished work to the human: a review packet (summary, steps, evidence) that moves the task to In Review."))
 
 // ── needs input (CEL-47) ────────────────────────────────────────────────────────────────────────
 
@@ -812,7 +812,7 @@ const saveScreenshots = (shots: ReadonlyArray<ScreenshotFile>) =>
     return saved as ReadonlyMap<string, string>
   })
 
-const humanName = (actors: ReadonlyArray<Actor>) => actors.find((a) => a.kind === "human")?.name ?? "Lucas"
+const humanName = (actors: ReadonlyArray<Actor>) => actors.find((a) => a.kind === "human")?.name ?? "the human"
 
 /** Waits for the task's latest ask to close, then prints the answers (screenshots saved as files) or why there are none. */
 const waitAndPrint = (key: string, json: boolean) =>
@@ -840,7 +840,7 @@ const ask = Command.make("ask", {
   question: Flag.String("question").pipe(Flag.atLeast(0), Flag.withDescription("A question; the --kind, --option, --recommend and --because after it belong to it.")),
   kind: Flag.String("kind").pipe(
     Flag.atLeast(0),
-    Flag.withDescription("one (Lucas picks one option; the default with options), any (any number) or text (no options; the default without)."),
+    Flag.withDescription("one (the human picks one option; the default with options), any (any number) or text (no options; the default without)."),
   ),
   option: Flag.String("option").pipe(Flag.atLeast(0), Flag.withDescription("An option: \"Label\" or \"Label|one-line description\"; repeat in order.")),
   recommend: Flag.String("recommend").pipe(Flag.atLeast(0), Flag.withDescription("The label of the option you recommend; --because must follow.")),
@@ -850,7 +850,7 @@ const ask = Command.make("ask", {
   link: Flag.String("link").pipe(Flag.atLeast(0), Flag.withDescription("A link to decide from, e.g. the scope page; repeatable.")),
   wait: Flag.Boolean("wait").pipe(
     Flag.withDefault(false),
-    Flag.withDescription("Block until Lucas answers (or the ask is withdrawn), then print the answers. Run it in the background."),
+    Flag.withDescription("Block until the human answers (or the ask is withdrawn), then print the answers. Run it in the background."),
   ),
   withdraw: Flag.Boolean("withdraw").pipe(
     Flag.withDefault(false),
@@ -915,8 +915,8 @@ const ask = Command.make("ask", {
     }
     if (input.wait) yield* waitAndPrint(task.key, input.json)
   })).pipe(Command.withDescription(
-    "Ask Lucas to decide something, on the card: questions with options (one recommended, with a reason) and evidence. " +
-      "The task moves to Needs input until he answers; then it's back in In Progress and the answers reach you (hook, --wait or `cello wait`).",
+    "Ask the human to decide something, on the card: questions with options (one recommended, with a reason) and evidence. " +
+      "The task moves to Needs input until they answer; then it's back in In Progress and the answers reach you (hook, --wait or `cello wait`).",
   ))
 
 const answers = Command.make("answers", {
@@ -932,11 +932,11 @@ const answers = Command.make("answers", {
     if (input.json) return yield* printJson({ asks: shown, files: Object.fromEntries(files) })
     yield* print(roundsText(detail.asks, { all: input.all, taskKey: detail.task.key, human: humanName(detail.actors), files, now: (yield* CliEnv).now() }))
   })).pipe(Command.withDescription(
-    "Print Lucas's latest answers on a task again (--all: every round of questions); screenshots he pasted are saved to files and their paths printed.",
+    "Print the human's latest answers on a task again (--all: every round of questions); screenshots they pasted are saved to files and their paths printed.",
   ))
 
 const waitCommand =Command.make("wait", { key, json }, (input) => waitAndPrint(input.key, input.json)).pipe(
-  Command.withDescription("Wait for Lucas to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered."),
+  Command.withDescription("Wait for the human to answer the task's open ask (after a restart, say), then print the answers. Returns at once when it's already answered."),
 )
 
 // ── labels ──────────────────────────────────────────────────────────────────────────────────────
@@ -1468,7 +1468,7 @@ const restoreCommand = Command.make("restore", {
     "Put a backup's database and evidence files back in place of the current ones, in CELLO_DATA_DIR (default " +
       "~/.cello). Use it when the board's data is lost or damaged. Stop Cello first (Ctrl-C where `cello start` runs, or " +
       "quit the desktop app): restore refuses while a server holds the data folder. It first takes a safety backup of the " +
-      "current state (kind safety, \"before restoring <id>\"), so restoring that one undoes it. Agents run it only when Lucas asks.",
+      "current state (kind safety, \"before restoring <id>\"), so restoring that one undoes it. Agents run it only when the human asks.",
   ), Command.withShortDescription("Put a backup back in place of the current data (stop Cello first)."), Command.withExamples([
     { command: "cello backup list", description: "First, pick the backup to restore" },
     { command: "cello restore 20261115-120000", description: "Restore it; the current state is backed up first" },
@@ -1624,8 +1624,8 @@ const inbox = Command.make("inbox", {
     if (taken.earlier.length) lines.push("", "Earlier", ...indent(inboxEntries(taken.earlier, now, undefined, files)))
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
-    "Show the comments Lucas left on tasks this session claimed (Send back notes and answers to your asks too) and mark them read; each one arrives once. " +
-      "Use it when `cello context` lists new ones, or to reread what he said. With `cello install claude` they arrive by themselves while you work; " +
+    "Show the comments the human left on tasks this session claimed (Send back notes and answers to your asks too) and mark them read; each one arrives once. " +
+      "Use it when `cello context` lists new ones, or to reread what they said. With `cello install claude` they arrive by themselves while you work; " +
       "`--wait` in the background wakes you with them when you've ended your turn. " +
       "Not from a subagent: it shares its parent's session and would take the parent's comments.",
   ))
@@ -2030,7 +2030,7 @@ const profileSet = Command.make("set", {
   })).pipe(Command.withDescription(
     "Set one field of the testing profile. Do it when a command in the profile fails or the repo changed (a new script, port or e2e " +
       "tool), and say so in your review packet. Setting the value it already has confirms it. An agent can't change a field the human set: " +
-      "ask him on the card with `cello task ask`.",
+      "ask them on the card with `cello task ask`.",
   ))
 
 const profileUnset = Command.make("unset", { field: profileField, project, json }, (input) =>
@@ -2163,7 +2163,7 @@ const init = Command.make("init", {
               // Another `cello init` may have linked it a moment ago; otherwise an archived project holds the path.
               const now = yield* linkedProject
               if (now) return { project: now, created: false }
-              return yield* new CliFailure({ message: `${repoPath} is ${e.reason}, so it can't be linked again. Ask Lucas what to do with it.` })
+              return yield* new CliFailure({ message: `${repoPath} is ${e.reason}, so it can't be linked again. Ask the human what to do with it.` })
             })),
         )
       })
