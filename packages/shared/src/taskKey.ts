@@ -13,6 +13,7 @@ const RESERVED_KEYS: Readonly<Record<string, string>> = {
   BUILDS: "Builds page",
   SETTINGS: "Settings page",
   REVIEW: "Review page",
+  AGENTS: "Agents page",
   ASSETS: "app files",
   ICONS: "app icons",
   ATTACHMENTS: "evidence files",

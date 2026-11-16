@@ -39,6 +39,8 @@ describe("project keys", () => {
   it("never a word the board's own pages use at the top level (/builds, /settings, /review…), which would hide the project (CEL-50)", () => {
     expect(reservedKeyProblem("BUILDS")).toBe("can't be BUILDS, the address of Cello's Builds page (/builds)")
     for (const key of ["SETTINGS", "REVIEW", "ASSETS", "ICONS", "ATTACHMENTS", "RPC"]) expect(reservedKeyProblem(key)).not.toBeNull()
+    // The Agents page (CEL-65).
+    expect(reservedKeyProblem("agents")).toBe("can't be AGENTS, the address of Cello's Agents page (/agents)")
     expect(reservedKeyProblem("CEL")).toBeNull()
     expect(reservedKeyProblem("BUILD")).toBeNull()
     // Without a key given, one made from the name skips them.
