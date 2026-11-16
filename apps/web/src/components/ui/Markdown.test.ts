@@ -27,6 +27,31 @@ describe("Markdown (task descriptions, comments, packet summaries)", () => {
   })
 })
 
+// Comments, descriptions, packets and asks read GitHub-flavored markdown, as pages do (CEL-127).
+describe("Markdown: GitHub-flavored markdown", () => {
+  it("renders a pipe table as a table, inside a wrapper that scrolls it sideways", () => {
+    const html = render(["| Run | Time | Tests |", "| --- | ---: | --- |", "| e2e | 4m 12s | 31 passed |"].join("\n"))
+    expect(html).not.toContain("| Run |")
+    expect(html).toMatch(/<div data-markdown-table="" class="[^"]*overflow-x-auto[^"]*"><table[^>]*><thead><tr><th[^>]*>Run<\/th>/)
+    expect(html).toMatch(/<td[^>]*style="text-align:right"[^>]*>4m 12s<\/td>/)
+  })
+
+  it("strikes through ~~text~~", () => {
+    expect(render("~~old plan~~ new plan")).toContain("<del>old plan</del>")
+  })
+
+  it("shows task lists as checkboxes, ticked or not", () => {
+    const html = render(["- [x] tests", "- [ ] evidence"].join("\n"))
+    expect(html).toMatch(/<input type="checkbox" disabled="" checked=""\/> tests/)
+    expect(html).toMatch(/<input type="checkbox" disabled=""\/> evidence/)
+    expect(html).not.toContain("[x]")
+  })
+
+  it("links a bare www. address", () => {
+    expect(render("See www.example.com for it.")).toContain('href="http://www.example.com"')
+  })
+})
+
 describe("Markdown with images as text (an agent's log, CEL-107)", () => {
   const renderWith = (source: string, images?: "show" | "text") =>
     renderToStaticMarkup(
