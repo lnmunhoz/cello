@@ -19,8 +19,14 @@ const ZOOM_STEP = 0.5
 /** The app menu's status line (quit.ts's serverStatusLabel), found by this id to read or update. */
 export const SERVER_STATUS_ID = "server-status"
 
-/** `serverStatus` is the app menu's line saying who runs the server (CEL-81); main.ts rebuilds the menu when it changes. */
-export const buildMenu = (appName: string, actions: MenuActions, serverStatus: string): Menu => {
+/** The app menu's line saying why the background service didn't start, when it didn't. */
+export const SERVICE_PROBLEM_ID = "service-problem"
+
+/**
+ * `serverStatus` is the app menu's line saying who runs the server (CEL-81), and `serviceProblem` why
+ * the background service didn't start, if it didn't; main.ts rebuilds the menu when they change.
+ */
+export const buildMenu = (appName: string, actions: MenuActions, serverStatus: string, serviceProblem: string | null = null): Menu => {
   const onTarget = (run: (contents: WebContents) => void) => () => {
     const contents = actions.target()
     if (contents && !contents.isDestroyed()) run(contents)
@@ -33,6 +39,7 @@ export const buildMenu = (appName: string, actions: MenuActions, serverStatus: s
         { role: "about" },
         { type: "separator" },
         { id: SERVER_STATUS_ID, label: serverStatus, enabled: false },
+        ...(serviceProblem ? [{ id: SERVICE_PROBLEM_ID, label: serviceProblem, enabled: false }] : []),
         { type: "separator" },
         { role: "services" },
         { type: "separator" },

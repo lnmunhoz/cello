@@ -54,12 +54,14 @@ Electron's Node can't run the Bun server, so the app uses the `cello` binary as 
    the app joins it and leaves it alone on quit. That includes the background service
    (`cello service install`, CEL-81).
 2. If the background service is installed for the data folder but nothing answers, it asks
-   launchd to start it (`launchctl kickstart`) and waits; it never starts a server beside it.
+   launchd to start it (`launchctl kickstart`) and waits; it never starts a server beside it. If the
+   service doesn't come up (a stale plist), it starts its own server and the app menu says why.
 3. Otherwise it runs `cello start` (with `CELLO_PORT` and `CELLO_DATA_DIR`), waits for its
    "Cello is running at …" line, and loads the board from it.
 4. On quit, only for a server it started (`src/server/quit.ts`), the first time it asks: **Keep
    Running** (it stops its child, whose output is piped to the app, and starts a detached
-   `cello start` logging to `<data folder>/logs/server.log`), **Stop Server** (SIGTERM, SIGKILL
+   `cello start` logging to `<data folder>/logs/server.log`; if that one doesn't answer, it says so,
+   stays open and starts its own server again), **Stop Server** (SIGTERM, SIGKILL
    after 5 s), or **Install Background Service** (stops its child, then `cello service install`
    with the `cello` in `CELLO_BIN`, `~/.local/bin` or the app). Keep and Stop are remembered in
    `server-on-quit.json` in the app's user data folder; delete it to be asked again.

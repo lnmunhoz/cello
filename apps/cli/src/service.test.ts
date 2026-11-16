@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest"
 import {
+  failedInstallText,
   installSteps,
   installText,
-  parsePrint,
+  isTemporaryPath,
   refusalText,
   restartSteps,
+  sameService,
   selfCommand,
   type ServiceStatus,
   statusText,
@@ -24,31 +26,65 @@ describe("launchctl steps", () => {
     expect(installSteps(501, "/p.plist", { loaded: true })[0]).toEqual({ what: "unloading the old service", args: ["bootout", "gui/501/dev.cello.server"], optional: true })
   })
 
-  it("restarts with kickstart -k (kill, then start again) and uninstalls with bootout", () => {
-    expect(restartSteps(501)).toEqual([{ what: "restarting the service", args: ["kickstart", "-k", "gui/501/dev.cello.server"], optional: false }])
+  it("restarts a running server with SIGTERM through launchd (never kickstart -k, which may SIGKILL), and starts a stopped one", () => {
+    expect(restartSteps(501, { running: true })).toEqual([
+      { what: "stopping the service's server", args: ["kill", "SIGTERM", "gui/501/dev.cello.server"], optional: false },
+    ])
+    expect(restartSteps(501, { running: false })).toEqual([{ what: "starting the service", args: ["kickstart", "gui/501/dev.cello.server"], optional: false }])
+  })
+
+  it("uninstalls with bootout", () => {
     expect(uninstallSteps(501)).toEqual([{ what: "unloading the service", args: ["bootout", "gui/501/dev.cello.server"], optional: true }])
   })
 })
 
-describe("parsePrint", () => {
-  it("reads the state, pid and last exit code of a running job", () => {
-    const text = [
-      "gui/501/dev.cello.server = {",
-      "\tactive count = 1",
-      "\tpath = /Users/me/Library/LaunchAgents/dev.cello.server.plist",
-      "\ttype = LaunchAgent",
-      "\tstate = running",
-      "",
-      "\tprogram = /Users/me/cello/apps/cli/dist/cello",
-      "\tpid = 44568",
-      "\tlast exit code = (never exited)",
-      "}",
-    ].join("\n")
-    expect(parsePrint(text)).toEqual({ running: true, pid: 44568, lastExit: "(never exited)" })
+describe("isTemporaryPath", () => {
+  const temp = ["/private/var/folders/xy/T", "/tmp", "/private/tmp"]
+
+  it("is true in a temp folder or a git worktree", () => {
+    expect(isTemporaryPath("/private/var/folders/xy/T/cello-1/cello", temp)).toBe(true)
+    expect(isTemporaryPath("/tmp/cello", temp)).toBe(true)
+    expect(isTemporaryPath("/Users/me/cello/.claude/worktrees/agent-1/apps/cli/dist/cello", temp)).toBe(true)
   })
 
-  it("reads a job that isn't running", () => {
-    expect(parsePrint("\tstate = not running\n\tlast exit code = 1\n")).toEqual({ running: false, pid: null, lastExit: "1" })
+  it("is false for the repo's build or ~/.local/bin, and for a folder that only starts like a temp one", () => {
+    expect(isTemporaryPath("/Users/me/cello/apps/cli/dist/cello", temp)).toBe(false)
+    expect(isTemporaryPath("/tmpfiles/cello", temp)).toBe(false)
+  })
+})
+
+describe("sameService", () => {
+  const installed = { program: ["/c/cello", "start"], dataDir: "/d", port: 4747 }
+
+  it("is the same only when the program, data folder and port all match", () => {
+    expect(sameService(installed, { ...installed })).toBe(true)
+    expect(sameService(installed, { ...installed, dataDir: "/other" })).toBe(false)
+    expect(sameService(installed, { ...installed, port: 4800 })).toBe(false)
+    expect(sameService(installed, { ...installed, program: ["/elsewhere/cello", "start"] })).toBe(false)
+  })
+})
+
+describe("failedInstallText", () => {
+  const reason = "Bootstrap failed: 5: Input/output error"
+
+  it("says nothing changed when no server was stopped and there was no old service", () => {
+    expect(failedInstallText({ reason, dataDir: "/d", stopped: false, restored: null })).toBe(
+      `launchctl couldn't load the service: ${reason} Nothing was changed; \`cello service status\` shows the state.`,
+    )
+  })
+
+  it("says the server was stopped and how to bring Cello back when the old service didn't come back", () => {
+    expect(failedInstallText({ reason, dataDir: "/d", stopped: true, restored: "not loaded" })).toBe(
+      `launchctl couldn't load the service: ${reason} The old service's plist is back in place, but launchd didn't load it either. ` +
+        "The server for /d was stopped. Run `cello start` to use Cello now; `cello service status` and the log say why the service didn't load.",
+    )
+    expect(failedInstallText({ reason, dataDir: "/d", stopped: true, restored: null })).toContain("The server for /d was stopped.")
+  })
+
+  it("says the old service runs again when it does", () => {
+    expect(failedInstallText({ reason, dataDir: "/d", stopped: true, restored: "loaded" })).toBe(
+      `launchctl couldn't load the service: ${reason} The old service's plist is back in place and running again.`,
+    )
   })
 })
 

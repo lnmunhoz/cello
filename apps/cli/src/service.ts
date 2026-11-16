@@ -1,7 +1,7 @@
 // `cello service` (CEL-81), the pure part: the launchctl steps for install, restart and uninstall,
 // reading `launchctl print`, and the words each command prints. launchd.ts carries the steps out.
 // The plist itself is packages/shared/src/launchAgent.ts, which the desktop app reads too.
-import { SERVICE_LABEL } from "@cello/shared/launchAgent"
+import { SERVICE_LABEL, serviceTarget } from "@cello/shared/launchAgent"
 import { shortCommit } from "@cello/shared/build"
 import { columns } from "./format.ts"
 
@@ -11,9 +11,6 @@ export interface Step {
   readonly args: ReadonlyArray<string>
   readonly optional: boolean
 }
-
-/** The service in the user's GUI session: gui/<uid>/dev.cello.server. */
-export const serviceTarget = (uid: number): string => `gui/${uid}/${SERVICE_LABEL}`
 
 export const installSteps = (uid: number, plist: string, options: { readonly loaded: boolean }): ReadonlyArray<Step> => [
   // launchd reads a plist when it's loaded, so a loaded one goes first.
@@ -25,29 +22,21 @@ export const installSteps = (uid: number, plist: string, options: { readonly loa
 ]
 
 /** -k kills the running server first, so launchd starts the binary afresh (a rebuilt one). */
-export const restartSteps = (uid: number): ReadonlyArray<Step> => [
-  { what: "restarting the service", args: ["kickstart", "-k", serviceTarget(uid)], optional: false },
-]
+/**
+ * A restart: SIGTERM to the running server through launchd (the server only shuts down cleanly on
+ * SIGTERM; `kickstart -k` may SIGKILL it), and KeepAlive starts the program again. A job that isn't
+ * running is started instead.
+ */
+export const restartSteps = (uid: number, options: { readonly running: boolean }): ReadonlyArray<Step> =>
+  options.running
+    ? [{ what: "stopping the service's server", args: ["kill", "SIGTERM", serviceTarget(uid)], optional: false }]
+    : [{ what: "starting the service", args: ["kickstart", serviceTarget(uid)], optional: false }]
 
 export const uninstallSteps = (uid: number): ReadonlyArray<Step> => [
   { what: "unloading the service", args: ["bootout", serviceTarget(uid)], optional: true },
 ]
 
 export const printArgs = (uid: number): ReadonlyArray<string> => ["print", serviceTarget(uid)]
-
-/** What `launchctl print gui/<uid>/<label>` says about a loaded job. */
-export interface JobState {
-  readonly running: boolean
-  readonly pid: number | null
-  /** "(never exited)", "0", "78: EX_CONFIG"…; null when it doesn't say. */
-  readonly lastExit: string | null
-}
-
-export const parsePrint = (text: string): JobState => {
-  const field = (name: string) => new RegExp(`^\\s*${name} = (.+)$`, "m").exec(text)?.[1]?.trim() ?? null
-  const pid = field("pid")
-  return { running: field("state") === "running", pid: pid !== null && /^\d+$/.test(pid) ? Number(pid) : null, lastExit: field("last exit code") }
-}
 
 /**
  * The command that runs this `cello`, for the plist: the binary itself when compiled (Bun reports its
@@ -93,7 +82,7 @@ export interface ServiceStatus {
 
 const serverUrl = (port: number) => `http://127.0.0.1:${port}`
 
-const staleProgram = (program: ReadonlyArray<string>) =>
+export const staleProgram = (program: ReadonlyArray<string>) =>
   `The service's program ${program.slice(0, -1).join(" ")} doesn't exist any more (the repo moved, or the build was deleted). ` +
   "Build it again, or run `cello service install` with the cello you want the service to run."
 
@@ -136,6 +125,68 @@ export const refusalText = (dataDir: string, holder: Holder): string =>
   `Cello is already running for ${dataDir} (pid ${holder.pid}, ${serverUrl(holder.port)}), outside the service. ` +
   "Stop it first (Ctrl-C in its terminal, or quit the desktop app and pick Stop), or run `cello service install --replace` " +
   `to stop pid ${holder.pid} and install the service in its place.`
+
+const lockFile = (dataDir: string) => `${dataDir}/server.lock`
+
+/** A lock naming a pid that can't be another server (0, 1, negative, or the installer itself). */
+export const invalidLockText = (dataDir: string, pid: number): string =>
+  `${lockFile(dataDir)} names pid ${pid}, which can't be another Cello server, so nothing was stopped. ` +
+  `If no Cello server runs for ${dataDir}, delete that file, then install again.`
+
+/** A lock whose pid runs but isn't a Cello server answering on the lock's port: never signalled. */
+export const staleLockText = (dataDir: string, holder: Holder): string =>
+  `${lockFile(dataDir)} names pid ${holder.pid}, which is running but isn't a Cello server answering on ${serverUrl(holder.port)}: ` +
+  "probably a lock left by a server that died, its pid since taken by another program. Nothing was stopped. " +
+  `If no Cello server runs for ${dataDir}, delete that file, then install again.`
+
+export interface ServiceConfig {
+  readonly program: ReadonlyArray<string>
+  readonly dataDir: string | null
+  readonly port: number | null
+}
+
+/** Whether installing `next` would change what the installed service runs. */
+export const sameService = (installed: ServiceConfig, next: ServiceConfig): boolean =>
+  installed.dataDir === next.dataDir && installed.port === next.port && installed.program.join("\u0000") === next.program.join("\u0000")
+
+/** Install refuses to replace a service that runs something else, unless --replace. */
+export const otherServiceText = (installed: ServiceConfig, next: ServiceConfig): string =>
+  `The background service already runs \`${installed.program.join(" ")}\` for ${installed.dataDir ?? "an unknown data folder"} on port ` +
+  `${installed.port ?? "unknown"}. Installing would replace it with \`${next.program.join(" ")}\` for ${next.dataDir} on port ${next.port}. ` +
+  "Run `cello service install --replace` to replace it."
+
+/** A cello in a temp folder or a git worktree: the service would lose its program when it goes. */
+export const isTemporaryPath = (file: string, tempDirs: ReadonlyArray<string>): boolean =>
+  file.includes("/.claude/worktrees/") || tempDirs.some((dir) => file === dir || file.startsWith(dir.endsWith("/") ? dir : `${dir}/`))
+
+export const temporaryText = (program: string): string =>
+  `${program} is in a temp folder or a git worktree (.claude/worktrees/), which can disappear and leave the service with nothing to run. ` +
+  "Install with the cello you keep (~/.local/bin/cello, the repo's apps/cli/dist/cello), or pass --temporary to install this one anyway."
+
+/** Why an install failed, what state it left, and how to get Cello running again. */
+export const failedInstallText = (failure: {
+  readonly reason: string
+  readonly dataDir: string
+  /** A server for the data folder was stopped on the way (the old service's, or one --replace stopped). */
+  readonly stopped: boolean
+  /** The old plist was put back: and launchd loaded it again, or didn't. null when there was none. */
+  readonly restored: "loaded" | "not loaded" | null
+}): string => [
+  `launchctl couldn't load the service: ${failure.reason}`,
+  ...(failure.restored === "loaded" ? ["The old service's plist is back in place and running again."] : []),
+  ...(failure.restored === "not loaded" ? ["The old service's plist is back in place, but launchd didn't load it either."] : []),
+  ...(failure.restored !== "loaded" && failure.stopped
+    ? [`The server for ${failure.dataDir} was stopped. Run \`cello start\` to use Cello now; \`cello service status\` and the log say why the service didn't load.`]
+    : []),
+  ...(failure.restored === null && !failure.stopped ? ["Nothing was changed; `cello service status` shows the state."] : []),
+].join(" ")
+
+export const restartedText = (program: ReadonlyArray<string>, pid: number, port: number): string =>
+  `Restarted the background service: launchd started \`${program.join(" ")}\` again (pid ${pid}), and it answers on ${serverUrl(port)}.`
+
+export const restartTimeoutText = (port: number, seconds: number): string =>
+  `The service's server was stopped, but no new one answered on ${serverUrl(port)} within ${seconds} s. ` +
+  "`cello service status` shows whether launchd is starting it and the log's last lines; `cello start` runs Cello in the meantime."
 
 export interface Installed {
   readonly plist: string

@@ -34,7 +34,8 @@ export const QUIT_QUESTION = {
   message: "Keep Cello running for your agents?",
   detail:
     "This app started Cello's server. Agents in your terminals use it too: when it stops, their cello commands fail until Cello runs again.\n\n" +
-    "Keep Running leaves it on after the app quits, until the Mac restarts. Install Background Service runs it from every login " +
+    "Keep Running restarts the server on its own, so it stays on after the app quits, until the Mac restarts. Install Background " +
+    "Service runs it from every login " +
     "(cello service install), and the app never asks again.\n\nCello remembers Keep or Stop.",
   buttons: [...BUTTONS],
   defaultId: 0,

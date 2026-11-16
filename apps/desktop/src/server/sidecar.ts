@@ -5,12 +5,18 @@ import { spawn, type ChildProcess } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { isAlive } from "@cello/server/process/isAlive"
+import { rotateLog } from "@cello/shared/logRotation"
 import { isAlreadyRunning, LOCK_FILE, parseBanner, parseLock, planServer, serverUrl, type ServerSurvey } from "./plan.ts"
 
 export interface Server {
   readonly url: string
   /** True when the app started this server; only then does `stop` stop it. */
   readonly startedByUs: boolean
+  /**
+   * Why the installed background service didn't start, when the app started its own server instead
+   * (CEL-81): a plist whose program is gone, or a job launchd won't run.
+   */
+  readonly serviceProblem?: string
   readonly stop: () => Promise<void>
 }
 
@@ -73,16 +79,25 @@ const joined = (url: string): Server => ({ url, startedByUs: false, stop: async 
 export class ServerStartError extends Error {}
 
 export const connectServer = async (options: ConnectOptions): Promise<Server> => {
-  // A second pass covers a race: another `cello start` took the folder between the survey and ours.
-  for (let pass = 0; pass < 2; pass++) {
-    const plan = planServer(await survey(options.port, options.dataDir, options.service?.installed ?? false))
+  let service = options.service?.installed ?? false
+  let serviceProblem: string | undefined
+  // A second pass covers a race: another `cello start` took the folder between the survey and ours; a
+  // third, the start after a background service that didn't come up.
+  for (let pass = 0; pass < 3; pass++) {
+    const plan = planServer(await survey(options.port, options.dataDir, service))
     if (plan.kind === "join") return joined(plan.url)
     if (plan.kind === "service") {
-      await options.service!.start().catch(() => {})
-      if (await waitUntilAnswers(plan.url)) return joined(plan.url)
-      throw new ServerStartError(
-        `Cello's background service is installed for ${options.dataDir} but didn't start at ${plan.url}. Run \`cello service status\` in a terminal to see why.`,
+      const failed = await options.service!.start().then(
+        () => null,
+        (error: Error) => `launchctl couldn't start it (${error.message.split("\n")[0]})`,
       )
+      if (failed === null && (await waitUntilAnswers(plan.url))) return joined(plan.url)
+      // A stale plist (its program gone, a job launchd won't run) mustn't lock the app out: say why,
+      // and start the app's own server instead.
+      serviceProblem = failed ?? `it didn't answer at ${plan.url}`
+      options.log?.(`Cello's background service didn't start: ${serviceProblem}. Starting the app's own server.\n`)
+      service = false
+      continue
     }
     if (plan.kind === "wait") {
       if (await waitUntilAnswers(plan.url)) return joined(plan.url)
@@ -96,7 +111,7 @@ export const connectServer = async (options: ConnectOptions): Promise<Server> =>
       )
     }
     const started = await startServer(options, options.command)
-    if (started.kind === "started") return started.server
+    if (started.kind === "started") return serviceProblem ? { ...started.server, serviceProblem } : started.server
     if (started.kind === "failed") throw new ServerStartError(started.message)
   }
   throw new ServerStartError(`Couldn't start or join the Cello server for ${options.dataDir}.`)
@@ -167,6 +182,7 @@ export const startDetached = async (options: {
 }): Promise<number | null> => {
   const [file, ...args] = options.command as [string, ...string[]]
   fs.mkdirSync(path.dirname(options.logPath), { recursive: true })
+  rotateLog(options.logPath)
   const out = fs.openSync(options.logPath, "a")
   try {
     const child = spawn(file, [...args, "start"], {

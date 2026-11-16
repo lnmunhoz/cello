@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parsePlist, plistPath, renderPlist, SERVICE_LABEL, serviceLogPath, servicePathVariable, type ServiceSpec } from "./launchAgent.ts"
+import { parsePlist, parsePrint, plistPath, renderPlist, SERVICE_LABEL, serviceLogPath, servicePathVariable, type ServiceSpec } from "./launchAgent.ts"
 
 const spec: ServiceSpec = {
   program: ["/Users/me/cello/apps/cli/dist/cello", "start"],
@@ -102,3 +102,26 @@ describe("servicePathVariable", () => {
     expect(servicePathVariable("/x/cello", "::/ok:/bad\u0001dir")).toBe("/x:/ok:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
   })
 })
+
+describe("parsePrint", () => {
+  it("reads the state, pid and last exit code of a running job", () => {
+    const text = [
+      "gui/501/dev.cello.server = {",
+      "\tactive count = 1",
+      "\tpath = /Users/me/Library/LaunchAgents/dev.cello.server.plist",
+      "\ttype = LaunchAgent",
+      "\tstate = running",
+      "",
+      "\tprogram = /Users/me/cello/apps/cli/dist/cello",
+      "\tpid = 44568",
+      "\tlast exit code = (never exited)",
+      "}",
+    ].join("\n")
+    expect(parsePrint(text)).toEqual({ running: true, pid: 44568, lastExit: "(never exited)" })
+  })
+
+  it("reads a job that isn't running", () => {
+    expect(parsePrint("\tstate = not running\n\tlast exit code = 1\n")).toEqual({ running: false, pid: null, lastExit: "1" })
+  })
+})
+

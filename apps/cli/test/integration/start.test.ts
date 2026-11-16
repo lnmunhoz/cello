@@ -4,7 +4,6 @@
 import * as fs from "node:fs"
 import * as net from "node:net"
 import * as path from "node:path"
-import { fileURLToPath } from "node:url"
 import * as BunSocket from "@effect/platform-bun/BunSocket"
 import { CelloClient, makeClientLayer, newCommandId } from "@cello/client/client"
 import { isAlive } from "@cello/server/process/isAlive"
@@ -21,49 +20,7 @@ import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
 import { APP_VERSION } from "@cello/shared/version"
 import { connect } from "../../../server/test/integration/harness.ts"
-
-const MAIN = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../src/bin.ts")
-
-/** Runs `cello start` as its own process; it's killed (by its pid) when the scope closes. */
-const spawnStart = (env: Record<string, string>) =>
-  Effect.acquireRelease(
-    Effect.sync(() =>
-      Bun.spawn([process.execPath, MAIN, "start"], {
-        env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", ...env },
-        stdout: "pipe",
-        stderr: "pipe",
-      })
-    ),
-    (proc) => Effect.promise(async () => {
-      if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL")
-      await proc.exited
-    }),
-  )
-
-/** Reads a stream until `pattern` matches what has arrived so far. */
-const readUntil = (stream: ReadableStream<Uint8Array>, pattern: RegExp) =>
-  Effect.promise(async () => {
-    const reader = stream.getReader()
-    const decoder = new TextDecoder()
-    let text = ""
-    while (!pattern.test(text)) {
-      const { value, done } = await reader.read()
-      if (done) break
-      text += decoder.decode(value)
-    }
-    reader.releaseLock()
-    return text
-  })
-
-const RUNNING = /Cello is running at http:\/\/127\.0\.0\.1:(\d+) .*\n/
-
-/** Starts `cello start` (daily backup on, as in production) and waits for its banner. */
-const startProcess = (dataDir: string, env: Record<string, string> = {}) =>
-  Effect.gen(function* () {
-    const proc = yield* spawnStart({ CELLO_DATA_DIR: dataDir, CELLO_PORT: "0", ...env })
-    const banner = yield* readUntil(proc.stdout, RUNNING)
-    return { proc, port: Number(RUNNING.exec(banner)![1]) }
-  })
+import { readUntil, spawnStart, startProcess } from "./cli.ts"
 
 /** A board tab: an RPC client with a live event subscription that has delivered an event. */
 const connectSubscriber = (port: number) =>

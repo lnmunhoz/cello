@@ -8,6 +8,23 @@
 export const SERVICE_LABEL = "dev.cello.server"
 export const PLIST_FILE = `${SERVICE_LABEL}.plist`
 
+/** The service in the user's GUI session, as launchctl names it: gui/<uid>/dev.cello.server. */
+export const serviceTarget = (uid: number): string => `gui/${uid}/${SERVICE_LABEL}`
+
+/** What `launchctl print gui/<uid>/dev.cello.server` says about a loaded job. */
+export interface JobState {
+  readonly running: boolean
+  readonly pid: number | null
+  /** "(never exited)", "0", "78: EX_CONFIG"…; null when it doesn't say. */
+  readonly lastExit: string | null
+}
+
+export const parsePrint = (text: string): JobState => {
+  const field = (name: string) => new RegExp(`^\\s*${name} = (.+)$`, "m").exec(text)?.[1]?.trim() ?? null
+  const pid = field("pid")
+  return { running: field("state") === "running", pid: pid !== null && /^\d+$/.test(pid) ? Number(pid) : null, lastExit: field("last exit code") }
+}
+
 /** ~/Library/LaunchAgents/dev.cello.server.plist */
 export const plistPath = (home: string): string => `${home}/Library/LaunchAgents/${PLIST_FILE}`
 

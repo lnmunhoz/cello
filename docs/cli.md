@@ -938,13 +938,14 @@ On macOS, Cello's server can run as a **background service**: a launchd user age
 ```bash
 cello service status               # installed? running? pid, program, data folder, port, version, log
 cello service install              # write ~/Library/LaunchAgents/dev.cello.server.plist and start it
-cello service install --replace    # the same, stopping the `cello start` that holds the data folder first
-cello service restart              # the deploy step: launchd runs the (rebuilt) binary again
+cello service install --replace    # the same, replacing what's in the way (it says what first)
+cello service restart              # the deploy step: a clean stop, and launchd runs the (rebuilt) binary again
 cello service uninstall            # stop it and remove the plist; data and log stay
 ```
 
 - **What it runs:** the `cello` binary that ran `install`, by its absolute path with symlinks resolved. Installed from a Cello checkout, that's its build, `apps/cli/dist/cello` (what `~/.local/bin/cello` links to), so rebuilding updates what the service runs on its next restart. It gets `CELLO_DATA_DIR` and `CELLO_PORT` as they were at install (default `~/.cello` and 4747), plus PATH and HOME, since launchd doesn't read a shell profile.
-- **Its log:** `<data folder>/logs/server.log`. `cello service status` prints its last 10 lines, which is where to look when the service keeps stopping.
+- **Not from a worktree or a temp folder:** `install` refuses a `cello` in a git worktree (`.claude/worktrees/`) or a temp folder, since it can disappear and leave the service with nothing to run. Install with the one you keep (`~/.local/bin/cello`). `--temporary` installs it anyway, for trying a build.
+- **Its log:** `<data folder>/logs/server.log`, with the one before it as `server.log.1` once it passes 5 MB (checked at each install and restart). `cello service status` prints its last 10 lines, which is where to look when the service keeps stopping.
 - **One server per data folder** still holds. `install` refuses while a server started another way (a terminal's `cello start`, the desktop app) holds the data folder, and names it:
 
   ```
@@ -953,10 +954,18 @@ cello service uninstall            # stop it and remove the plist; data and log 
   51234 and install the service in its place.
   ```
 
-  `--replace` stops that pid, and only that one, then installs. Installing again while the service runs is fine: it unloads the old one first (after a rebuild moved the binary, or to change the port).
-- **A plist pointing at a binary that's gone** (the repo moved, the build was deleted): `status` says so, and `restart` refuses. Build it again, or run `install` again with the cello you want it to run.
+  `--replace` stops that pid, and only that one, and only after checking it's a Cello server: its command is a `cello … start` and the lock's port answers as Cello. A lock whose pid runs something else (a server that died, its pid since reused) is reported and never touched, and so is one naming pid 0, 1 or a negative pid: delete `server.lock` if no Cello server runs for that folder.
+- **One service per user.** Installing again with the same binary, data folder and port is fine: it unloads the running one first. Installing one that runs another binary, data folder or port refuses and names both; `--replace` replaces it.
+- **If launchd won't load it,** install puts the old plist back (kept as `dev.cello.server.plist.bak` meanwhile) and loads it again, or removes the new one when there was none. It says whether a server was stopped on the way, and that `cello start` runs Cello meanwhile.
+- **A plist pointing at a binary that's gone** (the repo moved, the build was deleted): `status` says so, and `restart` refuses. Build it again, or run `install` again with the cello you want it to run. The desktop app then starts its own server and says in its menu why the service didn't start.
+- **Restart is a clean stop:** launchd sends the server SIGTERM (`launchctl kill SIGTERM`; never `kickstart -k`, which can kill it mid-write), KeepAlive starts the program again, and `restart` waits up to 30 s for the new server to answer and prints its pid. A service that isn't running is started instead.
+
+  ```
+  $ cello service restart
+  Restarted the background service: launchd started `/Users/me/cello/apps/cli/dist/cello start` again (pid 51302), and it answers on http://127.0.0.1:4747.
+  ```
 - **Deploying with the service installed:** rebuild `cello` (`bun run build` in `apps/cli`), `cello backup` when a migration ships, then `cello service restart`. Without the service, restart `cello start` by hand as before.
-- **The desktop app** joins the service whenever it's installed and never stops it when it quits. Without the service, the app starts its own server, and the first time the human quits it asks once: **Keep Running** (the server stays up until the Mac restarts), **Stop Server**, or **Install Background Service**. It remembers Keep or Stop (in `server-on-quit.json` in the app's user data folder; deleting it brings the question back). The app menu says which it is: "Server: background service (pid 44568)", "Server: started by this app (pid …)" or "Server: started outside the app (pid …)".
+- **The desktop app** joins the service whenever it's installed and never stops it when it quits. Without the service, the app starts its own server, and the first time the human quits it asks once: **Keep Running** (the server restarts on its own and stays up until the Mac restarts; if it doesn't come up, the app says so and stays open), **Stop Server**, or **Install Background Service**. It remembers Keep or Stop (in `server-on-quit.json` in the app's user data folder; deleting it brings the question back). The app menu says which it is: "Server: background service (pid 44568)" when launchd's job is the server it uses, "Server: started by this app (pid …)" or "Server: started outside the app (pid …)".
 - **Agents:** `cello service status` is safe to run any time, to see why Cello isn't answering. `install`, `restart` and `uninstall` change the human's machine: run them only when they ask, or as the orchestrator's deploy step. Tests never run them against the real `~/Library/LaunchAgents` or launchctl: they use a temp HOME and a fake `launchctl` on PATH.
 
 ## Backups
@@ -1043,6 +1052,11 @@ Every error is one sentence that says what to do next. The usual ones:
 | The background service isn't installed | `cello service restart` with no service set up. | `cello service install` sets it up (when the human asks); without it, restart `cello start` by hand. |
 | The service's program … doesn't exist any more | The plist points at a `cello` binary that was moved or deleted. | Build it again (`bun run build` in `apps/cli`), or run `cello service install` with the cello it should run. |
 | `cello service` runs Cello as a macOS launchd service, and launchctl isn't on the PATH | Not macOS (or a PATH without `/bin`). | Run `cello start` yourself instead. |
+| …/server.lock names pid …, which is running but isn't a Cello server | `cello service install` found a lock whose process isn't a Cello server (a server died and its pid was reused). Nothing was stopped. | If no Cello server runs for that folder, delete the `server.lock` it names, then install again. |
+| The background service already runs … Installing would replace it with … | An installed service runs another binary, data folder or port. | Only when the human wants it replaced: `cello service install --replace`. |
+| … is in a temp folder or a git worktree | `cello service install` from a worktree's or a temp folder's build. | Install with `~/.local/bin/cello`; `--temporary` only to try a build. |
+| launchctl couldn't load the service: … | launchd refused the plist. The old one is back in place if there was one. | Do what it says: `cello start` runs Cello meanwhile; `cello service status` and the log say why. |
+| The service's server was stopped, but no new one answered on … | `cello service restart` stopped the server and none came back within 30 s. | `cello service status` and the log say why; `cello start` runs Cello meanwhile. Tell the human. |
 | The Cello server on port 4747 went away and didn't come back within 2 minutes, so this stopped waiting | A command waiting on the human (`cello inbox --wait`, `cello wait`, `cello task ask --wait`) lost the server, kept reconnecting for 2 minutes, and gave up. A plain restart doesn't cause this: they ride those out. | Tell the human the server is down if it still is; once it's back, run the command the message names again. Nothing was taken or asked twice. |
 | Cello on 127.0.0.1:4747 closed the connection before answering | The server stopped or restarted (a deploy) while your command ran. A change it had started still went through. | Look before you redo it: `cello task get CEL-12` shows whether the claim, move, comment or submit landed. A rerun is a new command, so running it blindly can do it twice. |
 | CEL-12 is claimed by Claude Code session 1a2b3c4d (active now) | Another live session is working on it. | Pick another task. |
@@ -1633,7 +1647,8 @@ cello service install [flags]
 
 | | |
 | --- | --- |
-| `--replace` | When a server started another way (`cello start` in a terminal, the desktop app) holds the data folder, stop it by the pid in its lock, and only that pid, then install. Without it, install refuses and names that server. |
+| `--replace` | Replace what's in the way, after naming it: a Cello server started another way (`cello start` in a terminal, the desktop app) that holds the data folder, which it stops by the pid in its lock, and only after checking that pid is a Cello server answering on the lock's port; and an installed service that runs another binary, data folder or port. Without it, install refuses and says what's there. |
+| `--temporary` | Install even though this cello is in a temp folder or a git worktree (.claude/worktrees/), which can disappear and leave the service with nothing to run. For trying a build; tests use it. |
 
 ### cello service status
 
@@ -1649,7 +1664,7 @@ cello service status [flags]
 
 ### cello service restart
 
-Restart the background service (launchctl kickstart -k): its server stops and launchd starts the program again. This is the deploy step once the service is installed: rebuild cello, back up when a migration ships, then restart.
+Restart the background service: launchd sends its server SIGTERM (the clean shutdown; never a kill), starts the program again, and this waits up to 30 s for the new server to answer, then prints its pid. A stopped service is started instead. This is the deploy step once the service is installed: rebuild cello, back up when a migration ships, then restart.
 
 ```
 cello service restart [flags]

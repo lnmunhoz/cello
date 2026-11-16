@@ -5,7 +5,7 @@ import { execFile } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { plistPath, SERVICE_LABEL, serviceLogPath } from "@cello/shared/launchAgent"
+import { parsePrint, plistPath, serviceLogPath, serviceTarget } from "@cello/shared/launchAgent"
 import { app, BaseWindow, dialog, Menu, session, webContents } from "electron"
 import { findCelloLink, parseCelloLink, routeCelloLink, SCHEME, type CelloLink } from "./links/celloLink.ts"
 import { INSTALLED_APP } from "./install/plan.ts"
@@ -93,7 +93,7 @@ function run() {
   /** Asks launchd to start the installed service (a no-op when it already runs). */
   const startService = () =>
     new Promise<void>((resolve, reject) =>
-      execFile("launchctl", ["kickstart", `gui/${process.getuid?.() ?? 0}/${SERVICE_LABEL}`], (error) => (error ? reject(error) : resolve())))
+      execFile("launchctl", ["kickstart", serviceTarget(process.getuid?.() ?? 0)], (error) => (error ? reject(error) : resolve())))
 
   /** Keep or Stop, as answered to the quit question; null until it was answered. */
   const choiceFile = path.join(app.getPath("userData"), QUIT_CHOICE_FILE)
@@ -110,15 +110,27 @@ function run() {
     } catch {}
   }
 
+  /** The pid of the service's job as launchd reports it; null when it isn't loaded or running. */
+  const serviceJobPid = () =>
+    new Promise<number | null>((resolve) =>
+      execFile("launchctl", ["print", serviceTarget(process.getuid?.() ?? 0)], (error, stdout) => resolve(error ? null : parsePrint(stdout).pid)))
+
   let menuActions: MenuActions | null = null
-  let menuStatus: string | null = null
-  /** Builds the menu again when the server status line changed: after connecting, and when the window takes focus. */
-  const refreshMenu = () => {
+  let menuKey: string | null = null
+  /**
+   * Builds the menu again when its server lines changed: after connecting, and when the window takes
+   * focus. The server is "the background service" only when launchd's job is the pid holding the lock.
+   */
+  const refreshMenu = async () => {
     if (!menuActions) return
-    const status = serverStatusLabel(server && { startedByUs: server.startedByUs, service: serviceInstalled(), pid: lockHolder(config.dataDir) })
-    if (status === menuStatus) return
-    menuStatus = status
-    Menu.setApplicationMenu(buildMenu(app.name, menuActions, status))
+    const pid = lockHolder(config.dataDir)
+    const service = !!server && !server.startedByUs && serviceInstalled() && pid !== null && (await serviceJobPid()) === pid
+    const status = serverStatusLabel(server && { startedByUs: server.startedByUs, service, pid })
+    const note = server?.serviceProblem ? `Background service didn't start: ${server.serviceProblem}` : null
+    const key = `${status}\n${note}`
+    if (key === menuKey || !menuActions) return
+    menuKey = key
+    Menu.setApplicationMenu(buildMenu(app.name, menuActions, status, note))
   }
 
   /**
@@ -213,7 +225,7 @@ function run() {
     })
     main.window.on("focus", () => {
       checkForUpdate()
-      refreshMenu()
+      void refreshMenu()
     })
     checkForUpdate()
     return main
@@ -269,14 +281,14 @@ function run() {
       },
       go: (direction) => live()?.go(direction, webContents.getFocusedWebContents()),
     }
-    refreshMenu()
+    await refreshMenu()
     if (!app.isPackaged && fs.existsSync(files.devIcon)) app.dock?.setIcon(files.devIcon)
 
     const window = openWindow()
     window.showMessage("Starting Cello…")
     server = await connect(window)
     if (!server) return app.quit()
-    refreshMenu()
+    await refreshMenu()
     // A task link that launched the app decides the first page; page links open once it's up.
     const task = pending.find((link) => link.kind === "task")
     if (!window.isClosed) await window.loadBoard(server.url, task?.kind === "task" ? task.path : "/")
@@ -325,12 +337,35 @@ function run() {
       })
       answer = "keep"
     }
-    const command = appCommand()
-    if (answer === "keep" && command) {
+    if (answer === "keep") {
       // The app's child can't outlive it (its output is piped to the app), so a fresh one takes over.
-      await startDetached({ command: [command], url: running.url, dataDir: config.dataDir, env: process.env, logPath: serviceLogPath(config.dataDir) })
+      const command = appCommand()
+      const logPath = serviceLogPath(config.dataDir)
+      const kept = command ? await startDetached({ command: [command], url: running.url, dataDir: config.dataDir, env: process.env, logPath }) : null
+      if (kept === null) {
+        await dialog.showMessageBox({
+          type: "error",
+          message: "Cello couldn't keep its server running",
+          detail:
+            `The server for ${config.dataDir} stopped, and the one that should take over didn't answer at ${running.url}. Its log is ${logPath}.\n\n` +
+            "Cello stays open and starts its server again.",
+        })
+        await reopen()
+        return false
+      }
     }
     return true
+  }
+
+  /** After a quit that couldn't keep the server: a window again, on a server of the app's own. */
+  const reopen = async () => {
+    server = null
+    const window = openWindow()
+    window.showMessage("Starting Cello…")
+    server = await connect(window)
+    if (!server) return app.quit()
+    await refreshMenu()
+    if (!window.isClosed) await window.loadBoard(server.url)
   }
 
   // A server the app joined is never stopped; one it started is settled first, then the app quits again.
@@ -338,7 +373,8 @@ function run() {
   let settled = false
   app.on("before-quit", (event) => {
     if (settled || !server) return
-    const plan = planQuit({ startedByUs: server.startedByUs, service: serviceInstalled(), remembered: restarting ? "stop" : rememberedChoice() })
+    // A service that didn't start (the app fell back to its own server) can't take over: ask as without one.
+    const plan = planQuit({ startedByUs: server.startedByUs, service: serviceInstalled() && !server.serviceProblem, remembered: restarting ? "stop" : rememberedChoice() })
     if (plan === "leave") return
     event.preventDefault()
     settling ??= settleServer(server, plan).then((quit) => {

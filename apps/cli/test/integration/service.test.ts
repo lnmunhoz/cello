@@ -9,9 +9,19 @@ import { isAlive } from "@cello/server/process/isAlive"
 import { plistPath, renderPlist, servicePathVariable } from "@cello/shared/launchAgent"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import { installText, refusalText } from "../../src/service.ts"
-import { writeFakeLaunchctl } from "../fakeLaunchctl.ts"
-import { cello } from "./cli.ts"
+import {
+  failedInstallText,
+  installText,
+  invalidLockText,
+  otherServiceText,
+  refusalText,
+  restartTimeoutText,
+  staleLockText,
+  staleProgram,
+  temporaryText,
+} from "../../src/service.ts"
+import { fakeJobPid, writeFakeLaunchctl } from "../fakeLaunchctl.ts"
+import { cello, startProcess } from "./cli.ts"
 
 const UID = process.getuid!()
 const TARGET = `gui/${UID}/dev.cello.server`
@@ -25,7 +35,7 @@ const sleeper = Effect.acquireRelease(
   }),
 )
 
-const setup = (options: { readonly port?: number } = {}) =>
+const setup = (options: { readonly port?: number; readonly env?: Record<string, string> } = {}) =>
   Effect.gen(function* () {
     const dir = yield* tempDataDir
     const home = path.join(dir, "home")
@@ -34,13 +44,24 @@ const setup = (options: { readonly port?: number } = {}) =>
     const state = path.join(dir, "launchd")
     fs.mkdirSync(home)
     const { calls } = writeFakeLaunchctl(bin, state, UID)
-    // The `cello` this command "is": a build folder of its own, as apps/cli/dist would be.
+    // A job the fake started (respawn) is killed, by its pid, when the test ends.
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        const pid = fakeJobPid(state)
+        if (pid !== null && pid > 1 && isAlive(pid)) process.kill(pid, "SIGKILL")
+      })
+    )
+    // The `cello` this command "is": a build folder of its own, as apps/cli/dist would be. It sits in
+    // a temp folder, so installs pass --temporary.
     const program = path.join(dir, "build", "cello")
     fs.mkdirSync(path.dirname(program))
     fs.writeFileSync(program, "#!/bin/sh\n", { mode: 0o755 })
     const port = options.port ?? 1 // nothing answers on port 1
-    const env = { HOME: home, PATH: bin, CELLO_DATA_DIR: dataDir, CELLO_PORT: String(port) }
-    const run = (...args: string[]) => cello({ port, cwd: dir, env, self: [program] })(...args)
+    const env = { HOME: home, PATH: bin, CELLO_DATA_DIR: dataDir, CELLO_PORT: String(port), ...options.env }
+    const runWith = (extra: Record<string, string>) => (...args: string[]) =>
+      cello({ port, cwd: dir, env: { ...env, ...extra }, self: [program] })(...args)
+    const run = runWith({})
+    const install = (...flags: string[]) => run("service", "install", "--temporary", ...flags)
     const plist = plistPath(home)
     const logPath = path.join(dataDir, "logs", "server.log")
     /** As if launchd started the job: loaded, with `pid` as its process. */
@@ -48,15 +69,19 @@ const setup = (options: { readonly port?: number } = {}) =>
       fs.writeFileSync(path.join(state, "loaded"), "")
       fs.writeFileSync(path.join(state, "pid"), String(pid))
     }
-    return { dir, home, dataDir, bin, state, program, port, env, run, calls, plist, logPath, loadJob }
+    const writeLock = (pid: number, lockPort: number) => {
+      fs.mkdirSync(dataDir, { recursive: true })
+      fs.writeFileSync(path.join(dataDir, LOCK_FILE), JSON.stringify({ pid, port: lockPort }))
+    }
+    return { dir, home, dataDir, bin, state, program, port, env, run, runWith, install, calls, plist, logPath, loadJob, writeLock }
   })
 
 describe("cello service install", () => {
   it.live("writes the launch agent into HOME's LaunchAgents and loads it; the plist runs this cello's `start` with its data folder and port", () =>
     Effect.gen(function* () {
-      const { dir, home, dataDir, program, bin, run, calls, plist, logPath } = yield* setup()
+      const { dir, home, dataDir, program, bin, install, calls, plist, logPath } = yield* setup()
 
-      const installed = yield* run("service", "install")
+      const installed = yield* install()
 
       expect(installed.failure).toBeNull()
       expect(plist.startsWith(dir)).toBe(true)
@@ -73,79 +98,150 @@ describe("cello service install", () => {
       expect(installed.out).toBe(installText({ plist, program: [program, "start"], dataDir, port: 1, logPath, replaced: null, previous: null }))
     }).pipe(Effect.scoped))
 
-  it.live("refuses a data folder another server holds, saying why; --replace stops that pid, and only that one", () =>
+  it.live("won't install a cello from a temp folder or a git worktree, which can disappear, unless --temporary", () =>
     Effect.gen(function* () {
-      const { dataDir, run, calls, plist } = yield* setup()
-      const server = yield* sleeper
-      const bystander = yield* sleeper
-      fs.mkdirSync(dataDir, { recursive: true })
-      fs.writeFileSync(path.join(dataDir, LOCK_FILE), JSON.stringify({ pid: server.pid, port: 4791 }))
-
-      const refused = yield* run("service", "install")
-      expect(refused.failure).toBe(refusalText(dataDir, { pid: server.pid, port: 4791 }))
+      const { run, program, plist, calls } = yield* setup()
+      expect((yield* run("service", "install")).failure).toBe(temporaryText(program))
       expect(fs.existsSync(plist)).toBe(false)
       expect(calls()).toEqual([])
+    }).pipe(Effect.scoped))
 
-      const replaced = yield* run("service", "install", "--replace")
+  it.live("refuses a CELLO_PORT that isn't a port, and a HOME that isn't an absolute path", () =>
+    Effect.gen(function* () {
+      const { runWith, plist } = yield* setup()
+      expect((yield* runWith({ CELLO_PORT: "abc" })("service", "install", "--temporary")).failure).toBe(
+        "CELLO_PORT is \"abc\", which isn't a port (1 to 65535), so the service couldn't listen on it.",
+      )
+      expect((yield* runWith({ HOME: "home" })("service", "install", "--temporary")).failure).toBe(
+        "HOME is \"home\", which isn't an absolute path, so there's no LaunchAgents folder to put the service in.",
+      )
+      expect(fs.existsSync(plist)).toBe(false)
+    }).pipe(Effect.scoped))
+
+  it.live("refuses while a Cello server started another way holds the data folder; --replace stops that server, and only it", () =>
+    Effect.gen(function* () {
+      const { dataDir, install, plist } = yield* setup()
+      const { proc, port } = yield* startProcess(dataDir)
+      const bystander = yield* sleeper
+
+      const refused = yield* install()
+      expect(refused.failure).toBe(refusalText(dataDir, { pid: proc.pid, port }))
+      expect(fs.existsSync(plist)).toBe(false)
+
+      const replaced = yield* install("--replace")
       expect(replaced.failure).toBeNull()
-      expect(replaced.out.split("\n")[0]).toBe(`Stopped the server that held ${dataDir} (pid ${server.pid}).`)
-      expect(yield* Effect.promise(() => server.exited)).not.toBe(0)
+      expect(replaced.out.split("\n")[0]).toBe(`Stopped the server that held ${dataDir} (pid ${proc.pid}).`)
+      yield* Effect.promise(() => proc.exited)
       expect(isAlive(bystander.pid)).toBe(true)
       expect(fs.existsSync(plist)).toBe(true)
     }).pipe(Effect.scoped))
 
-  it.live("never stops itself: a lock naming this very process is refused even with --replace", () =>
+  it.live("never stops a process that isn't a Cello server: a lock whose pid is alive but nothing answers is stale, even with --replace", () =>
     Effect.gen(function* () {
-      const { dataDir, run } = yield* setup()
-      fs.mkdirSync(dataDir, { recursive: true })
-      fs.writeFileSync(path.join(dataDir, LOCK_FILE), JSON.stringify({ pid: process.pid, port: 4791 }))
-      const refused = yield* run("service", "install", "--replace")
-      expect(refused.failure).toBe(`The server holding ${dataDir} is this very process (pid ${process.pid}); stop it another way.`)
+      const { dataDir, install, writeLock, plist } = yield* setup()
+      const reused = yield* sleeper // a stale lock's pid, since taken by another program
+      writeLock(reused.pid, 1)
+
+      for (const flags of [[], ["--replace"]]) {
+        expect((yield* install(...flags)).failure).toBe(staleLockText(dataDir, { pid: reused.pid, port: 1 }))
+      }
+      expect(isAlive(reused.pid)).toBe(true)
+      expect(fs.existsSync(plist)).toBe(false)
     }).pipe(Effect.scoped))
 
-  it.live("installing again unloads the running service first (its server isn't 'another server'), then loads the new plist", () =>
+  it.live("never signals a pid that can't be another server: 0, 1, -1, or this very process", () =>
     Effect.gen(function* () {
-      const { dataDir, run, calls, plist, loadJob, program } = yield* setup()
-      expect((yield* run("service", "install")).failure).toBeNull()
+      const { dataDir, install, writeLock } = yield* setup()
+      for (const pid of [0, 1, -1, process.pid]) {
+        writeLock(pid, 4791)
+        expect((yield* install("--replace")).failure).toBe(invalidLockText(dataDir, pid))
+      }
+    }).pipe(Effect.scoped))
+
+  it.live("installing again with the same settings unloads the running service first, then loads the plist again", () =>
+    Effect.gen(function* () {
+      const { install, calls, plist, loadJob, writeLock } = yield* setup()
+      expect((yield* install()).failure).toBeNull()
       const job = yield* sleeper
       loadJob(job.pid)
-      fs.writeFileSync(path.join(dataDir, LOCK_FILE), JSON.stringify({ pid: job.pid, port: 1 }))
+      writeLock(job.pid, 1) // the service's own server isn't "another server"
 
-      const again = yield* run("service", "install")
+      const again = yield* install()
 
       expect(again.failure).toBeNull()
-      expect(again.out).toContain(`It replaces the service that ran \`${program} start\` for ${dataDir}.`)
       expect(calls().slice(2)).toEqual([`print ${TARGET}`, `bootout ${TARGET}`, `enable ${TARGET}`, `bootstrap gui/${UID} ${plist}`])
       expect(yield* Effect.promise(() => job.exited)).not.toBe(0)
     }).pipe(Effect.scoped))
 
+  it.live("won't replace a service for another data folder or port without --replace, naming both", () =>
+    Effect.gen(function* () {
+      const { dir, dataDir, program, install, runWith, calls, plist } = yield* setup()
+      expect((yield* install()).failure).toBeNull()
+      const before = fs.readFileSync(plist, "utf8")
+      const other = path.join(dir, "other")
+      const otherInstall = runWith({ CELLO_DATA_DIR: other, CELLO_PORT: "4799" })
+
+      const refused = yield* otherInstall("service", "install", "--temporary")
+      expect(refused.failure).toBe(otherServiceText(
+        { program: [program, "start"], dataDir, port: 1 },
+        { program: [program, "start"], dataDir: other, port: 4799 },
+      ))
+      expect(fs.readFileSync(plist, "utf8")).toBe(before)
+      expect(calls()).toHaveLength(2)
+
+      const replaced = yield* otherInstall("service", "install", "--temporary", "--replace")
+      expect(replaced.failure).toBeNull()
+      expect(replaced.out).toContain(`It replaces the service that ran \`${program} start\` for ${dataDir}.`)
+      expect(fs.readFileSync(plist, "utf8")).toContain(`<string>${other}</string>`)
+    }).pipe(Effect.scoped))
+
   it.live("says plainly when launchctl isn't there (not macOS), before changing anything", () =>
     Effect.gen(function* () {
-      const { dir, env, program, plist } = yield* setup()
-      const run = cello({ port: 1, cwd: dir, env: { ...env, PATH: path.join(dir, "nowhere") }, self: [program] })
-      expect((yield* run("service", "install")).failure).toBe(
+      const { dir, runWith, plist } = yield* setup()
+      expect((yield* runWith({ PATH: path.join(dir, "nowhere") })("service", "install", "--temporary")).failure).toBe(
         "`cello service` runs Cello as a macOS launchd service, and launchctl isn't on the PATH. On other systems, run `cello start` yourself.",
       )
       expect(fs.existsSync(plist)).toBe(false)
     }).pipe(Effect.scoped))
 
-  it.live("fails with launchctl's own words when loading fails", () =>
+  it.live("a first install that launchd won't load leaves no plist behind, and says launchctl's words", () =>
     Effect.gen(function* () {
-      const { run, state } = yield* setup()
+      const { dataDir, install, state, plist } = yield* setup()
       fs.writeFileSync(path.join(state, "bootstrap-fails"), "")
-      expect((yield* run("service", "install")).failure).toBe(
-        "launchctl couldn't do it (loading the service): Bootstrap failed: 5: Input/output error",
-      )
+      expect((yield* install()).failure).toBe(failedInstallText({
+        reason: "Bootstrap failed: 5: Input/output error",
+        dataDir,
+        stopped: false,
+        restored: null,
+      }))
+      expect(fs.existsSync(plist)).toBe(false)
+    }).pipe(Effect.scoped))
+
+  it.live("a reinstall that launchd won't load puts the old plist back, and says the server stopped and how to start it", () =>
+    Effect.gen(function* () {
+      const { dataDir, install, state, plist, loadJob, calls } = yield* setup()
+      expect((yield* install()).failure).toBeNull()
+      const before = fs.readFileSync(plist, "utf8")
+      const job = yield* sleeper
+      loadJob(job.pid)
+      fs.writeFileSync(path.join(state, "bootstrap-fails"), "")
+
+      const failed = yield* install()
+
+      expect(failed.failure).toBe(failedInstallText({ reason: "Bootstrap failed: 5: Input/output error", dataDir, stopped: true, restored: "not loaded" }))
+      expect(failed.failure).toContain("cello start")
+      expect(fs.readFileSync(plist, "utf8")).toBe(before)
+      expect(fs.existsSync(`${plist}.bak`)).toBe(false)
+      expect(calls().filter((call) => call.startsWith("bootstrap"))).toHaveLength(3) // the first install, the new one, the old one again
     }).pipe(Effect.scoped))
 })
 
 describe("cello service status", () => {
   it.live("before install: not installed, and names a server running anyway", () =>
     Effect.gen(function* () {
-      const { dataDir, run } = yield* setup()
+      const { dataDir, run, writeLock } = yield* setup()
       const server = yield* sleeper
-      fs.mkdirSync(dataDir, { recursive: true })
-      fs.writeFileSync(path.join(dataDir, LOCK_FILE), JSON.stringify({ pid: server.pid, port: 4791 }))
+      writeLock(server.pid, 4791)
       expect((yield* run("service", "status")).out).toBe([
         "The background service isn't installed: nothing starts Cello at login, or again when it stops.",
         `A server is running for ${dataDir} (pid ${server.pid}, http://127.0.0.1:4791), started by hand or by the desktop app.`,
@@ -156,10 +252,9 @@ describe("cello service status", () => {
   it.live("installed and running: its pid, the server's version, and the log's last lines", () =>
     Effect.gen(function* () {
       const dir = yield* tempDataDir
-      const dataDir = path.join(dir, "served")
-      const { port } = yield* startServer(dataDir)
-      const { run, loadJob, logPath, plist, program } = yield* setup({ port })
-      expect((yield* run("service", "install")).failure).toBeNull()
+      const { port } = yield* startServer(path.join(dir, "served"))
+      const { install, run, loadJob, logPath, plist, program } = yield* setup({ port })
+      expect((yield* install()).failure).toBeNull()
       loadJob(4242)
       fs.writeFileSync(logPath, [...Array.from({ length: 12 }, (_, i) => `line ${i + 1}`), ""].join("\n"))
 
@@ -178,46 +273,76 @@ describe("cello service status", () => {
 
   it.live("flags a plist whose program no longer exists", () =>
     Effect.gen(function* () {
-      const { run, program } = yield* setup()
-      expect((yield* run("service", "install")).failure).toBeNull()
+      const { install, run, program } = yield* setup()
+      expect((yield* install()).failure).toBeNull()
       fs.rmSync(program)
       const status = yield* run("service", "status")
       expect(status.out.split("\n")[0]).toBe("Background service dev.cello.server: installed, not running (last exit code 78: EX_CONFIG)")
-      expect(status.out).toContain(`The service's program ${program} doesn't exist any more`)
+      expect(status.out).toContain(staleProgram([program, "start"]))
     }).pipe(Effect.scoped))
 })
 
 describe("cello service restart", () => {
-  it.live("kickstarts the service with -k, so launchd runs the binary afresh", () =>
+  it.live("asks launchd to send the server SIGTERM (a clean shutdown), then waits for the new server KeepAlive starts to answer", () =>
     Effect.gen(function* () {
-      const { run, calls, loadJob, program } = yield* setup()
-      expect((yield* run("service", "install")).failure).toBeNull()
+      const dir = yield* tempDataDir
+      const { port } = yield* startServer(path.join(dir, "served"))
+      const { install, run, calls, loadJob, program, state } = yield* setup({ port })
+      expect((yield* install()).failure).toBeNull()
       const job = yield* sleeper
       loadJob(job.pid)
+      fs.writeFileSync(path.join(state, "respawn"), "")
 
       const restarted = yield* run("service", "restart")
 
       expect(restarted.failure).toBeNull()
-      expect(calls().at(-1)).toBe(`kickstart -k ${TARGET}`)
+      expect(calls()).toContain(`kill SIGTERM ${TARGET}`)
+      expect(calls().some((call) => call.startsWith("kickstart"))).toBe(false)
       expect(yield* Effect.promise(() => job.exited)).not.toBe(0)
-      expect(restarted.out).toBe(`Restarted the background service: launchd runs \`${program} start\` again, so a rebuilt cello takes over now.`)
+      const fresh = fakeJobPid(state)!
+      expect(fresh).not.toBe(job.pid)
+      expect(restarted.out).toBe(
+        `Restarted the background service: launchd started \`${program} start\` again (pid ${fresh}), and it answers on http://127.0.0.1:${port}.`,
+      )
+    }).pipe(Effect.scoped))
+
+  it.live("starts a service that isn't running (kickstart, no kill)", () =>
+    Effect.gen(function* () {
+      const dir = yield* tempDataDir
+      const { port } = yield* startServer(path.join(dir, "served"))
+      const { install, run, calls, state } = yield* setup({ port })
+      expect((yield* install()).failure).toBeNull() // loaded, no job process
+      fs.writeFileSync(path.join(state, "respawn"), "")
+      expect((yield* run("service", "restart")).failure).toBeNull()
+      expect(calls()).toContain(`kickstart ${TARGET}`)
+      expect(calls().some((call) => call.startsWith("kill"))).toBe(false)
+    }).pipe(Effect.scoped))
+
+  it.live("says so, with where to look, when no new server comes back", () =>
+    Effect.gen(function* () {
+      const { install, runWith, loadJob } = yield* setup()
+      expect((yield* install()).failure).toBeNull()
+      const job = yield* sleeper
+      loadJob(job.pid) // no respawn: nothing comes back
+      const restarted = yield* runWith({ CELLO_TEST_SERVICE_WAIT_MS: "300" })("service", "restart")
+      expect(restarted.failure).toBe(restartTimeoutText(1, 0.3))
     }).pipe(Effect.scoped))
 
   it.live("refuses when the service isn't installed, or its program is gone", () =>
     Effect.gen(function* () {
-      const { run, program } = yield* setup()
+      const { install, run, program } = yield* setup()
       expect((yield* run("service", "restart")).failure).toBe("The background service isn't installed. Install it with `cello service install`.")
-      expect((yield* run("service", "install")).failure).toBeNull()
+      expect((yield* install()).failure).toBeNull()
       fs.rmSync(program)
-      expect((yield* run("service", "restart")).failure).toContain(`The service's program ${program} doesn't exist any more`)
+      expect((yield* run("service", "restart")).failure).toBe(staleProgram([program, "start"]))
     }).pipe(Effect.scoped))
 })
 
 describe("cello service uninstall", () => {
   it.live("unloads the service (stopping its server) and deletes the plist; the data folder and log stay", () =>
     Effect.gen(function* () {
-      const { run, calls, loadJob, plist, dataDir, logPath } = yield* setup()
-      expect((yield* run("service", "install")).failure).toBeNull()
+      const { install, run, calls, loadJob, plist, dataDir, logPath } = yield* setup()
+      expect((yield* install()).failure).toBeNull()
       const job = yield* sleeper
       loadJob(job.pid)
       fs.writeFileSync(path.join(dataDir, "cello.db"), "data")

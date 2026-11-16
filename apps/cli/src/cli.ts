@@ -115,7 +115,7 @@ import { machineFacts, readRepoFacts } from "./repoFacts.ts"
 import { kindsOf, searchText } from "./search.ts"
 import { checkoutRootFor, repoRootFor } from "./repo.ts"
 import { installService, restartService, serviceStatus, uninstallService } from "./launchd.ts"
-import { installText, statusText } from "./service.ts"
+import { installText, restartedText, statusText } from "./service.ts"
 import { start } from "./start.ts"
 
 export { CliEnv } from "./env.ts"
@@ -2299,11 +2299,21 @@ const serviceInstall = Command.make("install", {
   replace: Flag.Boolean("replace").pipe(
     Flag.withDefault(false),
     Flag.withDescription(
-      "When a server started another way (`cello start` in a terminal, the desktop app) holds the data folder, stop it by the pid " +
-        "in its lock, and only that pid, then install. Without it, install refuses and names that server.",
+      "Replace what's in the way, after naming it: a Cello server started another way (`cello start` in a terminal, the desktop app) " +
+        "that holds the data folder, which it stops by the pid in its lock, and only after checking that pid is a Cello server " +
+        "answering on the lock's port; and an installed service that runs another binary, data folder or port. Without it, install " +
+        "refuses and says what's there.",
     ),
   ),
-}, (input) => Effect.flatMap(installService({ replace: input.replace }), (done) => print(installText(done)))).pipe(
+  temporary: Flag.Boolean("temporary").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription(
+      "Install even though this cello is in a temp folder or a git worktree (.claude/worktrees/), which can disappear and leave the " +
+        "service with nothing to run. For trying a build; tests use it.",
+    ),
+  ),
+}, (input) =>
+  Effect.flatMap(installService({ replace: input.replace, temporary: input.temporary }, serverBuildAt), (done) => print(installText(done)))).pipe(
   Command.withDescription(
     "Run Cello's server as a macOS background service: writes the launchd user agent dev.cello.server to " +
       "~/Library/LaunchAgents/dev.cello.server.plist and loads it, so `cello start` runs now, at every login, and again within " +
@@ -2341,11 +2351,11 @@ const serviceStatusCommand = Command.make("status", {
   )
 
 const serviceRestart = Command.make("restart", {}, () =>
-  Effect.flatMap(restartService, ({ program }) =>
-    print(`Restarted the background service: launchd runs \`${program.join(" ")}\` again, so a rebuilt cello takes over now.`))).pipe(
+  Effect.flatMap(restartService(serverBuildAt), ({ program, pid, port }) => print(restartedText(program, pid, port)))).pipe(
     Command.withDescription(
-      "Restart the background service (launchctl kickstart -k): its server stops and launchd starts the program again. This is " +
-        "the deploy step once the service is installed: rebuild cello, back up when a migration ships, then restart.",
+      "Restart the background service: launchd sends its server SIGTERM (the clean shutdown; never a kill), starts the program " +
+        "again, and this waits up to 30 s for the new server to answer, then prints its pid. A stopped service is started instead. " +
+        "This is the deploy step once the service is installed: rebuild cello, back up when a migration ships, then restart.",
     ),
     Command.withShortDescription("Restart the background service, e.g. after a rebuild."),
   )
