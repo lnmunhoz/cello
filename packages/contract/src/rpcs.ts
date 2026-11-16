@@ -8,6 +8,7 @@ import { LogUpdate } from "./agentLog.ts"
 import { Backup } from "./backups.ts"
 import { BuildPage, ServerBuild } from "./build.ts"
 import {
+  AgentSession,
   Ask,
   Comment,
   Document,
@@ -557,6 +558,13 @@ export const CelloRpcs = RpcGroup.make(
   Rpc.make("session.cancelWake", { payload: { commandId, taskId: Id }, success: write(Schema.Boolean), error: NotFound }),
   // The card's Stop: ends a woken run (SIGTERM to its process group). False when it had already ended.
   Rpc.make("session.stopRun", { payload: { commandId, runId: Id }, success: write(Schema.Boolean), error: NotFound }),
+  // `cello sessions orchestrate on|off` (CEL-124): the calling agent session goes into orchestrate mode or
+  // out of it; the event goes to `project`'s board. The human has no session to put in it (Invalid).
+  Rpc.make("session.orchestrate", {
+    payload: { commandId, project: ProjectRef, on: Schema.Boolean },
+    success: write(AgentSession),
+    error: Schema.Union([NotFound, Invalid]),
+  }),
   // A session's woken runs, newest first, each with its log file (`cello sessions runs`).
   Rpc.make("session.runs", {
     payload: { session: Schema.String },

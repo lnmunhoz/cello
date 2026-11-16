@@ -246,34 +246,48 @@ export const artifactGuard = (input: HookInput, env: Env) => {
 }
 
 // ── the AskUserQuestion guard (CEL-124) ─────────────────────────────────────────────────────────
-// In a Cello project, a question for the human goes on the card (`cello task ask`), where the task
-// moves to Needs input and the answer wakes the session. Claude's own AskUserQuestion dialog blocks the
-// session until it's answered, with the card saying only "idle" and the human's comments queued behind
-// it (Nov 16: 40 minutes, after a refused ask on a Done task). The same PreToolUse hook denies every
-// call to it, with the way to ask on the card instead.
+// Claude's own AskUserQuestion dialog blocks the session until someone answers it. Where nobody watches
+// the window, that's a session stuck with the card saying "idle" and the human's comments queued behind
+// it (Nov 16: 40 minutes). So the same PreToolUse hook denies it there, pointing to `cello task ask`:
+//
+// - inside a subagent (`agent_id` in the input) or a run Cello woke (CELLO_WOKEN=1, CEL-92): at once,
+//   with no server
+// - in a session in orchestrate mode (`cello sessions orchestrate on`, which /cello:orchestrate runs):
+//   the hook asks the server (`whoami`) each time, uncached, so `off` takes effect on the next call
+//
+// A session chatting with the human keeps the dialog. Like the claim guard it never stops work on doubt:
+// no session, no server, a slow one, or a repo that isn't a Cello project all let the dialog through.
 
-/** The env var that lets AskUserQuestion through, for when the human asks for questions in the terminal. */
+/** The env var that lets AskUserQuestion through everywhere, for when the human wants questions in the terminal. */
 export const ALLOW_ASK_USER_VARIABLE = "CELLO_ALLOW_ASK_USER"
 
-/** What the agent reads when its question is turned away: where to ask instead. */
+/** What the agent reads when its question is turned away: why, where to ask instead, and how a human gets the dialog back. */
 export const ASK_USER_DENY_REASON =
-  "This project uses Cello: questions for the human go on the card, never in Claude's own window, which blocks this session until it's answered. " +
+  "This project uses Cello, and nobody is watching this window: this session is orchestrating, is a subagent, or is a run Cello woke. " +
+  "Claude's question dialog would block it until someone answered, so questions for the human go on the card. " +
   "Ask with `cello task ask KEY-n --file ask.yaml --wait`, run in the background (the Bash tool with run_in_background: true): " +
   "the task moves to Needs input and the answers come back to you. " +
   "If no open task you hold fits the question (yours was approved, or it's a new decision), create one: " +
   "`cello task create \"<the decision>\" --status Todo`, claim it with `cello task claim KEY-n`, and ask there. " +
-  "Terminal questions are only for when the human asks for them; if they did, tell them this project's Cello hook stopped it " +
-  `(they can allow them by starting Claude Code with ${ALLOW_ASK_USER_VARIABLE}=1).`
+  "If the human is chatting with you in this session and wants the dialog back, they can say \"/cello:orchestrate off\" " +
+  `(or start Claude Code with ${ALLOW_ASK_USER_VARIABLE}=1).`
 
 /**
- * The PreToolUse hook's answer for AskUserQuestion: always a deny, whatever it asks. Never fails
- * closed: input it can't read, another tool, or the opt-out all mean null.
+ * What the guard does with this call: "deny" (a subagent or a woken run), "ask-server" (whether the
+ * session is orchestrating decides), or null (let it through: another tool, the opt-out, input it can't
+ * read, or no session to ask about).
  */
-export const askUserGuard = (input: HookInput, env: Env) => {
-  if (env[ALLOW_ASK_USER_VARIABLE] === "1") return null
-  if (input.toolName !== "AskUserQuestion") return null
-  return preToolDeny(ASK_USER_DENY_REASON)
+export const askUserCheck = (input: HookInput, env: Env): "deny" | "ask-server" | null => {
+  if (env[ALLOW_ASK_USER_VARIABLE] === "1" || input.toolName !== "AskUserQuestion") return null
+  if (input.inSubagent || env[WOKEN_VARIABLE] === "1") return "deny"
+  return hookSession(input, env) === null ? null : "ask-server"
 }
+
+/** The deny the guard prints. */
+export const askUserDeny = () => preToolDeny(ASK_USER_DENY_REASON)
+
+/** The hook's answer once the server said whether the session is orchestrating: null lets the dialog through. */
+export const askUserAnswer = (session: { readonly orchestrating: boolean }) => (session.orchestrating ? askUserDeny() : null)
 
 /** A PreToolUse answer that blocks the call and shows Claude `reason`. */
 const preToolDeny = (reason: string) => ({

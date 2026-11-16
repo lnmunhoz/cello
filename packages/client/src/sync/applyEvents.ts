@@ -155,6 +155,10 @@ const apply = (d: Draft, e: CelloEvent) => {
     case "session.waiting":
       if (!(e.session in d.get("sessions"))) return
       return d.update("sessions", e.session, (s) => ({ ...s, waiting: e.waiting }))
+    // `cello sessions orchestrate on|off` (CEL-124).
+    case "session.orchestrating":
+      if (!(e.session in d.get("sessions"))) return
+      return d.update("sessions", e.session, (s) => ({ ...s, orchestrating: e.orchestrating }))
     // Comments load per task; the board keeps each task's count and latest comment time. A comment is
     // activity: the server set the task's last change and bumped its version in the same command.
     case "comment.added":

@@ -1,7 +1,7 @@
 // The Claude Code hook's side of the wire (https://code.claude.com/docs/en/hooks): what it reads on
 // stdin and what it prints for Stop and PostToolUse, and the PreToolUse guard that turns Claude
 // artifact publishes away (CEL-57), edits from a session that hasn't claimed a task (CEL-61), and
-// every AskUserQuestion, since questions go on the card (CEL-124).
+// AskUserQuestion where nobody watches the window, since questions go on the card (CEL-124).
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
@@ -10,7 +10,8 @@ import {
   ARTIFACT_DENY_REASON,
   artifactGuard,
   ASK_USER_DENY_REASON,
-  askUserGuard,
+  askUserAnswer,
+  askUserCheck,
   CLAIM_CACHE_MS,
   claimAnswer,
   claimCache,
@@ -387,42 +388,60 @@ describe("artifactGuard (CEL-57)", () => {
   })
 })
 
-describe("askUserGuard (CEL-124)", () => {
-  const ask = (toolInput: unknown, extra: Record<string, unknown> = {}) =>
-    parseHookInput(JSON.stringify({ session_id: "s", hook_event_name: "PreToolUse", tool_name: "AskUserQuestion", tool_input: toolInput, ...extra }))
+describe("the AskUserQuestion guard (CEL-124)", () => {
+  // Claude's question dialog blocks the session until someone answers it. It's denied only where nobody
+  // watches the window: a subagent, a run Cello woke, a session in orchestrate mode. A chat keeps it.
+  const ask = (extra: Record<string, unknown> = {}) =>
+    parseHookInput(JSON.stringify({
+      session_id: "s",
+      hook_event_name: "PreToolUse",
+      tool_name: "AskUserQuestion",
+      tool_input: { questions: [{ question: "Merge it?", header: "Merge", multiSelect: false, options: [{ label: "Yes" }, { label: "No" }] }] },
+      ...extra,
+    }))
   const deny = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: ASK_USER_DENY_REASON } }
-  const question = { questions: [{ question: "Merge it?", header: "Merge", multiSelect: false, options: [{ label: "Yes" }, { label: "No" }] }] }
 
-  it("denies every AskUserQuestion, whatever it asks, inside a subagent too", () => {
-    expect(askUserGuard(ask(question), {})).toEqual(deny)
-    expect(askUserGuard(ask({ questions: [] }), {})).toEqual(deny)
-    expect(askUserGuard(ask(question, { agent_id: "a1" }), {})).toEqual(deny)
-    // A tool_input it can't read is still a question in Claude's window: the tool is known, so it's denied.
-    expect(askUserGuard(ask(undefined), {})).toEqual(deny)
+  it("a session chatting in the terminal: the server is asked whether it's orchestrating; not orchestrating lets the dialog through", () => {
+    expect(askUserCheck(ask(), {})).toBe("ask-server")
+    expect(askUserAnswer({ orchestrating: false })).toBeNull()
   })
 
-  it("says to ask on the card, to make a task when none fits, and how the human opts out", () => {
+  it("orchestrating: denied; once it's off again, allowed", () => {
+    expect(askUserAnswer({ orchestrating: true })).toEqual(deny)
+    expect(askUserAnswer({ orchestrating: false })).toBeNull()
+  })
+
+  it("a subagent or a run Cello woke (CELLO_WOKEN=1): denied without asking the server", () => {
+    expect(askUserCheck(ask({ agent_id: "a1", agent_type: "cello-builder" }), {})).toBe("deny")
+    expect(askUserCheck(ask(), { CELLO_WOKEN: "1" })).toBe("deny")
+    expect(askUserCheck(ask(), { CELLO_WOKEN: "0" })).toBe("ask-server")
+  })
+
+  it("CELLO_ALLOW_ASK_USER=1 lets everything through, a subagent and a woken run too", () => {
+    expect(askUserCheck(ask(), { CELLO_ALLOW_ASK_USER: "1" })).toBeNull()
+    expect(askUserCheck(ask({ agent_id: "a1" }), { CELLO_ALLOW_ASK_USER: "1" })).toBeNull()
+    expect(askUserCheck(ask(), { CELLO_ALLOW_ASK_USER: "1", CELLO_WOKEN: "1" })).toBeNull()
+  })
+
+  it("never fails closed: broken input, another tool, or no session to ask about all mean allow", () => {
+    expect(askUserCheck(parseHookInput(""), {})).toBeNull()
+    expect(askUserCheck(parseHookInput("{not json"), {})).toBeNull()
+    expect(askUserCheck(parseHookInput(JSON.stringify({ tool_name: "Bash", tool_input: { command: "ls" } })), {})).toBeNull()
+    expect(askUserCheck(parseHookInput(JSON.stringify({ tool_name: "Artifact", tool_input: { file_path: "/tmp/r.html" } })), { CELLO_WOKEN: "1" })).toBeNull()
+    expect(askUserCheck(ask({ session_id: undefined }), {})).toBeNull()
+    expect(askUserCheck(ask({ session_id: undefined }), { CLAUDE_CODE_SESSION_ID: "s" })).toBe("ask-server")
+  })
+
+  it("the reason says to ask on the card, to make a task when none fits, and how a chatting human gets the dialog back", () => {
     expect(ASK_USER_DENY_REASON).toContain("This project uses Cello")
     expect(ASK_USER_DENY_REASON).toContain("`cello task ask KEY-n --file ask.yaml --wait`")
     expect(ASK_USER_DENY_REASON).toContain("run_in_background")
     expect(ASK_USER_DENY_REASON).toContain("Needs input")
     expect(ASK_USER_DENY_REASON).toContain("`cello task create \"<the decision>\" --status Todo`")
+    expect(ASK_USER_DENY_REASON).toContain("/cello:orchestrate off")
     expect(ASK_USER_DENY_REASON).toContain("CELLO_ALLOW_ASK_USER=1")
     // docs/cli.md quotes it word for word, so agents know what they'll read.
     expect(fs.readFileSync(path.resolve(import.meta.dirname, "../../../docs/cli.md"), "utf8")).toContain(`\n${ASK_USER_DENY_REASON}\n`)
-  })
-
-  it("CELLO_ALLOW_ASK_USER=1 (the human asked for terminal questions) lets it through", () => {
-    expect(askUserGuard(ask(question), { CELLO_ALLOW_ASK_USER: "1" })).toBeNull()
-    expect(askUserGuard(ask(question), { CELLO_ALLOW_ASK_USER: "0" })).toEqual(deny)
-    expect(askUserGuard(ask(question), { CELLO_ALLOW_ASK_USER: "" })).toEqual(deny)
-  })
-
-  it("never fails closed: broken input or another tool means allow", () => {
-    expect(askUserGuard(parseHookInput(""), {})).toBeNull()
-    expect(askUserGuard(parseHookInput("{not json"), {})).toBeNull()
-    expect(askUserGuard(parseHookInput(JSON.stringify({ tool_name: "Bash", tool_input: { command: "ls" } })), {})).toBeNull()
-    expect(askUserGuard(parseHookInput(JSON.stringify({ tool_name: "Artifact", tool_input: { file_path: "/tmp/r.html" } })), {})).toBeNull()
   })
 })
 

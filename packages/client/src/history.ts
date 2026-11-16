@@ -131,6 +131,8 @@ export const describeEvent = (e: CelloEvent, state: HistoryNames, name?: string 
       const length = e.run.endedAt === null ? "" : ` ${runLength(e.run.endedAt - e.run.startedAt)}`
       return `${plain}'s woken run ${RUN_END_TEXT[e.run.outcome]}${length}${e.run.error ? `: ${e.run.error}` : ""}`
     }
+    case "session.orchestrating":
+      return e.orchestrating ? `${who} started orchestrating` : `${who} stopped orchestrating`
     case "wake.settings_changed": {
       const parts = [
         ...(e.after.enabled === undefined ? [] : [e.after.enabled ? "turned waking agent sessions on" : "turned waking agent sessions off"]),

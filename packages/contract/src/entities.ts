@@ -59,6 +59,12 @@ export const AgentSession = Schema.Struct({
    */
   model: Schema.optionalKey(Schema.NullOr(Schema.String)),
   effort: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /**
+   * In orchestrate mode (CEL-124): `cello sessions orchestrate on`, which /cello:orchestrate runs, until
+   * `off`. It runs work through agents with nobody watching its window, so the Claude Code hook turns its
+   * AskUserQuestion away. Absent (events stored before CEL-124) means false.
+   */
+  orchestrating: Schema.optionalKey(Schema.Boolean),
 })
 export type AgentSession = typeof AgentSession.Type
 
