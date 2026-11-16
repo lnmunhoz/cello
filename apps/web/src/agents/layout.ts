@@ -37,6 +37,10 @@ export interface AgentRow {
   readonly subagents: number
 }
 
+/** What a session row says after its name: "orchestrator · 1 subagent", "orchestrator · 2 subagents", or "session". */
+export const roleLabel = (row: Pick<AgentRow, "role" | "subagents">): string =>
+  row.role === "orchestrator" ? `orchestrator · ${row.subagents} subagent${row.subagents === 1 ? "" : "s"}` : "session"
+
 /** Each session still working, then its subagents, in workingSessions' order (active first, freshest first). */
 export const agentRows = (sessions: ReadonlyArray<Working>): AgentRow[] =>
   sessions

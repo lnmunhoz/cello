@@ -1,7 +1,7 @@
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import type { Working, WorkingAgent } from "../presence/model.ts"
-import { agentGroups, agentRows, directTasks, parseAgentsSearch, rowKeysOf, waitingTaskOf } from "./layout.ts"
+import { agentGroups, agentRows, directTasks, parseAgentsSearch, roleLabel, rowKeysOf, waitingTaskOf } from "./layout.ts"
 
 const now = Date.UTC(2026, 10, 16, 12)
 
@@ -111,5 +111,16 @@ describe("agentGroups", () => {
 
   it("leaves out empty groups", () => {
     expect(agentGroups(agentRows([working(session("aaaa0000"))])).map((g) => g.id)).toEqual(["working"])
+  })
+})
+
+describe("roleLabel", () => {
+  it("counts an orchestrator's subagents in words that agree with the number", () => {
+    expect(roleLabel({ role: "orchestrator", subagents: 1 })).toBe("orchestrator · 1 subagent")
+    expect(roleLabel({ role: "orchestrator", subagents: 2 })).toBe("orchestrator · 2 subagents")
+  })
+
+  it("calls any other session a session", () => {
+    expect(roleLabel({ role: "session", subagents: 0 })).toBe("session")
   })
 })

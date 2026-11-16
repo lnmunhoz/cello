@@ -15,7 +15,7 @@ import { AgentMarkOf, presenceSubjectOf, StageWord } from "../presence/Presence.
 import { useNow } from "../presence/useNow.ts"
 import { QueueRow, type QueueRowState } from "../review/QueueRow.tsx"
 import { useQueue } from "../review/useQueue.ts"
-import { type AgentRow, agentGroups, agentRows, directTasks, groupOf, rowKeysOf, waitingTaskOf } from "./layout.ts"
+import { type AgentRow, agentGroups, agentRows, directTasks, groupOf, roleLabel, rowKeysOf, waitingTaskOf } from "./layout.ts"
 
 /**
  * The Agents page (CEL-65), opened from the sidebar's "Agents working": every agent session and subagent
@@ -124,7 +124,7 @@ function AgentQueueRow({ board, row, rows, ...state }: QueueRowState & { board: 
         <>
           <span className="truncate font-semibold text-ink">{row.kind === "agent" ? row.who.name : row.who.short}</span>
           {row.kind === "session" ? (
-            <span className="shrink-0 text-muted">{row.role === "orchestrator" ? `orchestrator · ${row.subagents} subagents` : "session"}</span>
+            <span className="shrink-0 text-muted">{roleLabel(row)}</span>
           ) : row.who.parentShort ? (
             <span className="shrink-0 text-faint">under {row.who.parentShort}</span>
           ) : null}
