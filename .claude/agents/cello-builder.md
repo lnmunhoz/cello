@@ -26,6 +26,10 @@ You build one Cello task in a git worktree of the Cello repo. The orchestrator's
 
 Lucas reviews visually, so produce evidence as you go and save it inside the worktree. How it's made is in `docs/evidence-videos.md`.
 
+**How to test and record here is in the project's testing profile:** read it in `cello context` (or `cello profile`) before you start, and use its commands: `install`, `unit`, `typecheck`, `app.start` and `app.url`, each e2e surface's `run` with its `videos` and `screenshots` folders, `review.env` for review videos, and what `evidence.ui` or `evidence.cli` asks for. Never touch what `never.touch` names.
+
+- **It's current best knowledge, not fixed.** When one of its commands fails because it's wrong, or your change alters how the repo is tested (a new script, port or e2e surface), fix it with `cello profile set <field> "<value>"` and list the fields you changed in your report. A field Lucas set can't be changed by an agent: say in your report what's wrong with it, so the orchestrator asks him on the card.
+
 - **UI work:** MP4s of the e2e runs recorded in review mode (`CELLO_E2E_REVIEW=1 bun run test:docker:e2e -- <spec>`), plus screenshots in light and dark when it matters.
 - **A diagram when the work is a flow** (steps, states, or systems talking to each other): a ```mermaid flowchart TD, top to bottom, ready for the review packet's summary. Put it in your report.
 - **CLI or server work:** a plain-text terminal transcript (commands and their output) of the flow against a temp server, plus the test output.
@@ -35,6 +39,7 @@ Lucas reviews visually, so produce evidence as you go and save it inside the wor
 - branch, worktree path and commits
 - test names with pass/fail, and the `npx tsc -p .` result
 - contract and migration changes
+- testing-profile fields you changed, and any Lucas set that look wrong
 - the decisions you made and why
 - evidence paths
 - anything unfinished or deviating from the brief

@@ -394,11 +394,17 @@ const allRows = Effect.gen(function* () {
   return rows
 })
 
-/** The rows without 0014's `inbox_items.read_via` (CEL-76), for the tests of the migrations before it. */
-const withoutReadVia = (rows: Record<string, unknown>): Record<string, unknown> => ({
-  ...rows,
-  inbox_items: ((rows["inbox_items"] ?? []) as ReadonlyArray<Record<string, unknown>>).map(({ read_via: _via, ...rest }) => rest),
-})
+/**
+ * The rows without what later migrations add, for the tests of the migrations before them: 0014's
+ * `inbox_items.read_via` (CEL-76) and 0016's `profile_fields` table (CEL-89, empty after migrating).
+ */
+const withoutLaterAdditions = (rows: Record<string, unknown>): Record<string, unknown> => {
+  const { profile_fields: _profiles, ...rest } = rows
+  return {
+    ...rest,
+    inbox_items: ((rows["inbox_items"] ?? []) as ReadonlyArray<Record<string, unknown>>).map(({ read_via: _via, ...row }) => row),
+  }
+}
 
 // CEL-71: a packet whose task leaves In Review by a plain move closes as `withdrawn`. SQLite can't change
 // the decision CHECK in place, so 0010 rebuilds `reviews` under the attachments that reference it, and
@@ -511,7 +517,7 @@ describe("migration 0012_comment_attachments", () => {
 
       yield* Migrations.run
       // The reactions table is 0013's (CEL-77), with its own test below.
-      const { comment_reactions: _reactions, ...after } = withoutReadVia(yield* allRows)
+      const { comment_reactions: _reactions, ...after } = withoutLaterAdditions(yield* allRows)
       const attachments = (after["attachments"] as ReadonlyArray<Record<string, unknown>>).map(({ comment_id, ...rest }) => {
         expect(comment_id).toBeNull()
         return rest
@@ -551,7 +557,7 @@ describe("migration 0013_reactions", () => {
       const before = yield* allRows
 
       yield* Migrations.run
-      const { comment_reactions: added, ...after } = withoutReadVia(yield* allRows)
+      const { comment_reactions: added, ...after } = withoutLaterAdditions(yield* allRows)
       expect(added).toEqual([])
       expect(after).toEqual(before)
 
@@ -597,7 +603,7 @@ describe("migration 0014_inbox_read_via", () => {
       yield* Migrations.run
       const after = yield* allRows
       for (const row of after["inbox_items"] as ReadonlyArray<Record<string, unknown>>) expect(row["read_via"]).toBeNull()
-      expect(withoutReadVia(after)).toEqual(before)
+      expect(withoutLaterAdditions(after)).toEqual(before)
 
       // Only the three ways a session takes an item.
       expect((yield* Effect.exit(sql`UPDATE inbox_items SET read_via = 'hook' WHERE rowid = (SELECT MIN(rowid) FROM inbox_items)`))._tag)

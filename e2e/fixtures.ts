@@ -168,10 +168,16 @@ const hold = (page: Page) => (HOLD_MS > 0 && !page.isClosed() ? page.waitForTime
 /**
  * Shows what the test is doing, at the bottom of the video; `url` adds the page's current URL under
  * it (for checks like a reload keeping `?open=`). In review videos the previous step's result is
- * held under its own caption first, then the new caption is held before the step runs.
+ * held under its own caption first, then the new caption is held before the step runs. `beforeShowing` runs
+ * between the two, to clear what the previous step drew (the agent's terminal) before the next one starts.
  */
-export const caption = async (page: Page, text: string, options: { readonly url?: boolean } = {}) => {
+export const caption = async (
+  page: Page,
+  text: string,
+  options: { readonly url?: boolean; readonly beforeShowing?: () => Promise<unknown> } = {},
+) => {
   await hold(page)
+  await options.beforeShowing?.()
   await page.evaluate(([t, url]) => window.__e2eCaption?.(t, url), [text, options.url ?? false] as const)
   await hold(page)
 }

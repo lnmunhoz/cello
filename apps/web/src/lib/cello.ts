@@ -26,6 +26,7 @@ export const {
   commentsFamily,
   reviewsFamily,
   asksFamily,
+  profileFamily,
   historyFamily,
   pageFamily,
   documentHistoryFamily,

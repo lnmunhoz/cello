@@ -56,3 +56,15 @@ export class AskRequired extends Schema.TaggedError<AskRequired>()("AskRequired"
   key: Schema.String,
   status: Schema.String,
 }) {}
+
+/**
+ * An agent tried to change or unset a testing-profile field the human set himself (CEL-89). Agents ask
+ * him on the card (`cello task ask`) instead; his own edits overwrite anything.
+ */
+export class ProfileFieldLocked extends Schema.TaggedError<ProfileFieldLocked>()("ProfileFieldLocked", {
+  field: Schema.String,
+  /** The value he set. */
+  value: Schema.String,
+  /** The human's name. */
+  human: Schema.String,
+}) {}

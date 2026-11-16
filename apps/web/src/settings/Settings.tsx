@@ -1,5 +1,5 @@
 import { placement, projectsOf, statusesOf } from "@cello/client/sync/selectors"
-import { type Label, LABEL_GROUP_NAMES, LABEL_GROUPS, type LabelGroup, type Status } from "@cello/contract/entities"
+import { type Label, LABEL_GROUP_NAMES, LABEL_GROUPS, type LabelGroup, type Project, type Status } from "@cello/contract/entities"
 import { buildLine } from "@cello/shared/build"
 import { useAtomSet } from "@effect/atom-react"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
@@ -19,6 +19,7 @@ import { SAVES_ON_BLUR } from "../lib/editing.ts"
 import { writeStored } from "../lib/storage.ts"
 import { SegmentedControl, SegmentedControlItem } from "../components/ui/SegmentedControl.tsx"
 import { BAR_LAYOUT_KEY, LAYOUT_NAMES, useBarLayout } from "../search/layout.ts"
+import { TestingProfile } from "./TestingProfile.tsx"
 
 /** `/settings?project=THAI`: whose labels the Labels section shows (CEL-80). */
 export interface SettingsSearch {
@@ -34,7 +35,6 @@ export function Settings() {
   const board = useBoard()
   const workspaceId = useWorkspaceId()
   const search = useSearch({ from: "/settings" })
-  const navigate = useNavigate()
   if (!board || !workspaceId) return <Centered>Loading…</Centered>
   const statuses = statusesOf(board, workspaceId)
   // Labels belong to a project (CEL-80): the one in the URL, else the first.
@@ -58,18 +58,7 @@ export function Settings() {
           <Section title="Labels" description="Each project has its own labels: its kinds, areas and milestones.">
             {project ? (
               <>
-                <div className="max-w-xs">
-                  <Select
-                    variant="boxed"
-                    label="Labels of project"
-                    value={project.id}
-                    options={projects.map((p) => ({ value: p.id, label: `${p.name} (${p.key})` }))}
-                    onValueChange={(id) => {
-                      const picked = projects.find((p) => p.id === id)
-                      if (picked) void navigate({ to: "/settings", search: { project: picked.key }, replace: true })
-                    }}
-                  />
-                </div>
+                <ProjectPicker label="Labels of project" projectId={project.id} projects={projects} />
                 <NewLabel projectId={project.id} />
                 <ul aria-label="Labels" className="divide-y divide-line rounded-lg border border-line empty:hidden">
                   {labels.map((l) => (
@@ -81,6 +70,15 @@ export function Settings() {
               <p className="text-[13px] text-muted">Labels belong to a project: make a project first.</p>
             )}
           </Section>
+          {project ? (
+            <Section
+              title="Testing"
+              description={`How agents test ${project.name} and collect evidence for review. cello init drafts it from the repo and agents fix it when the repo changes; what you set here, agents can't change.`}
+            >
+              <ProjectPicker label="Testing profile of project" projectId={project.id} projects={projects} />
+              <TestingProfile key={project.key} projectKey={project.key} />
+            </Section>
+          ) : null}
           <Section title="Workspaces" description="A second workspace adds a switcher at the top of the sidebar.">
             <NewWorkspace />
           </Section>
@@ -92,6 +90,25 @@ export function Settings() {
           </Section>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Which project a per-project section shows (labels, the testing profile), kept in the URL. */
+function ProjectPicker({ label, projectId, projects }: { label: string; projectId: string; projects: ReadonlyArray<Project> }) {
+  const navigate = useNavigate()
+  return (
+    <div className="max-w-xs">
+      <Select
+        variant="boxed"
+        label={label}
+        value={projectId}
+        options={projects.map((p) => ({ value: p.id, label: `${p.name} (${p.key})` }))}
+        onValueChange={(id) => {
+          const picked = projects.find((p) => p.id === id)
+          if (picked) void navigate({ to: "/settings", search: { project: picked.key }, replace: true })
+        }}
+      />
     </div>
   )
 }

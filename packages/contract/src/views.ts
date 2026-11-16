@@ -1,7 +1,7 @@
 // Read models for the CLI (and later MCP): one RPC returns everything a command prints.
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { Actor, AgentSession, Ask, Comment, DocumentSummary, InboxItem, Label, Project, Review, SessionAgent, Status, Task } from "./entities.ts"
+import { Actor, AgentSession, Ask, Comment, DocumentSummary, InboxItem, Label, Project, Review, SessionAgent, Status, Task, TestingProfile } from "./entities.ts"
 import { CelloEvent } from "./events.ts"
 
 /**
@@ -46,6 +46,11 @@ export const ProjectContext = Schema.Struct({
    * human). Showing them doesn't mark them read: subagents share their parent's session.
    */
   inbox: Schema.Array(InboxItem),
+  /**
+   * The project's testing profile (CEL-89): how to test the repo and collect evidence. Optional so a
+   * newer CLI still reads an older server's context.
+   */
+  profile: Schema.optionalKey(TestingProfile),
 })
 export type ProjectContext = typeof ProjectContext.Type
 

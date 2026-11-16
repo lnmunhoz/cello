@@ -27,9 +27,21 @@ import {
   Snapshot,
   Status,
   Task,
+  TestingProfile,
   Workspace,
 } from "./entities.ts"
-import { AskRequired, HumanOnly, Invalid, KeyTaken, NotFound, ReviewRequired, SnapshotRequired, TaskClaimed, VersionConflict } from "./errors.ts"
+import {
+  AskRequired,
+  HumanOnly,
+  Invalid,
+  KeyTaken,
+  NotFound,
+  ProfileFieldLocked,
+  ReviewRequired,
+  SnapshotRequired,
+  TaskClaimed,
+  VersionConflict,
+} from "./errors.ts"
 import { CelloEvent } from "./events.ts"
 import { SearchKind, SearchResults } from "./search.ts"
 import { TaskStage } from "./stages.ts"
@@ -109,6 +121,19 @@ export const AnswerInput = Schema.Struct({
 })
 export type AnswerInput = typeof AnswerInput.Type
 
+/**
+ * What `profile.set` did: the profile now; the fields it changed (set to a new value, or unset); the ones
+ * it confirmed (set to the value they had: same value, new source and time); and the ones it kept because
+ * someone else set them.
+ */
+export const ProfileWrite = Schema.Struct({
+  profile: TestingProfile,
+  written: Schema.Array(Schema.String),
+  confirmed: Schema.Array(Schema.String),
+  kept: Schema.Array(Schema.String),
+})
+export type ProfileWrite = typeof ProfileWrite.Type
+
 export const CelloRpcs = RpcGroup.make(
   // No scope: the first non-archived workspace by position. Every snapshot lists all non-archived workspaces.
   Rpc.make("snapshot.get", { payload: { scope: Schema.optionalKey(Scope) }, success: Snapshot, error: NotFound }),
@@ -151,6 +176,22 @@ export const CelloRpcs = RpcGroup.make(
     error: Schema.Union([NotFound, Invalid]),
   }),
   Rpc.make("project.archive", { payload: { commandId, id: Id }, success: write(Project), error: NotFound }),
+  // A project's testing profile (CEL-89): how to test its repo and collect evidence.
+  Rpc.make("profile.get", { payload: { project: ProjectRef }, success: TestingProfile, error: Schema.Union([NotFound, Invalid]) }),
+  // Sets and unsets fields in one command. The caller is the source: the human, or an agent, who can't
+  // change a field the human set (ProfileFieldLocked). `detected` (`cello init`) writes only fields that
+  // are unset or were detected before, keeps the rest, and never unsets.
+  Rpc.make("profile.set", {
+    payload: {
+      commandId,
+      project: ProjectRef,
+      set: Schema.Array(Schema.Struct({ field: Schema.String, value: Schema.String })),
+      unset: Schema.optionalKey(Schema.Array(Schema.String)),
+      detected: Schema.optionalKey(Schema.Boolean),
+    },
+    success: write(ProfileWrite),
+    error: Schema.Union([NotFound, Invalid, ProfileFieldLocked]),
+  }),
 
   Rpc.make("status.update", {
     payload: {

@@ -13,6 +13,7 @@ import {
   LabelGroup,
   Millis,
   Priority,
+  ProfileField,
   Project,
   Reaction,
   Review,
@@ -72,6 +73,13 @@ export const CelloEvent = Schema.Union([
   event("project.created", { project: Project }),
   event("project.updated", { id: Id, before: ProjectPatch, after: ProjectPatch }),
   event("project.archived", { id: Id }),
+  // The project's testing profile changed (CEL-89): fields set, unset, or confirmed (same value, new
+  // time). `before` is null for a field that wasn't set, `after` null for one unset. `project` is the
+  // project's id (the profile's entity id), the same as the envelope's projectId.
+  event("profile.changed", {
+    project: Id,
+    changes: Schema.Array(Schema.Struct({ field: Schema.String, before: Schema.NullOr(ProfileField), after: Schema.NullOr(ProfileField) })),
+  }),
   event("status.updated", { id: Id, before: StatusPatch, after: StatusPatch }),
   event("label.created", { label: Label }),
   event("label.updated", { id: Id, before: LabelPatch, after: LabelPatch }),

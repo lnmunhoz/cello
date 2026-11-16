@@ -54,6 +54,10 @@ export const explain = (error: unknown, where: Where): string => {
       return e.action === "answer an ask"
         ? `Only ${e.human} can answer the questions; he does it on the card. Wait with \`cello wait\`, or let the hook deliver the answers.`
         : `Only ${e.human} can ${e.action}. Leave the task in In Review; ${e.human} decides on the Review page.`
+    case "ProfileFieldLocked":
+      return `${e.human} set ${e.field} himself (\`${e.value}\`), so an agent can't change it. If it's wrong, ask him on the card ` +
+        `on your task: \`cello task ask <KEY-n> --title "Change ${e.field} in the testing profile?" --question "…" --option "A" --option "B"\` ` +
+        "(or --file ask.json; see `cello guide`, \"Questions for Lucas\"), and say so in your packet."
     case "RpcClientError":
       // Connected, then cut off: the server stopped mid-command, and a write it had started still commits.
       if (["SocketCloseError", "SocketReadError", "SocketWriteError"].includes(e.reason?._tag)) {
