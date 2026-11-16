@@ -712,7 +712,7 @@ When you run builders and reviewers with Claude Code's Agent tool, they all carr
 - **The launch names the task.** When the Agent tool returns, the PostToolUse hook in your conversation tells Cello the subagent's id and type, and the task the launch's **description** (else its prompt) names: of the keys there that are real tasks, the one your session has claimed, else the first. A foreground subagent's launch arrives after it finished; it links the task and leaves the subagent finished. So put the task key first in the description: \`"CEL-55 which agent is on each card"\`. A launch that names no task leaves the subagent under your session with no task.
 - **Its tool calls check it in.** Every tool call inside the subagent runs the PostToolUse hook, which checks it in as itself, under your session.
 - **SubagentStart hands it its name.** A subagent's shell can't see its own id, so \`cello hook claude subagent-start\` tells it, as context: "give every \`cello\` command you run \`--agent cello-builder/a13bfb89\`".
-- **SubagentStop marks it finished,** so it leaves "Agents working". A resumed subagent comes back.
+- **SubagentStop marks it finished,** so it leaves "Agents working" for "Finished today" at the bottom of the Agents page (and \`cello agents --all\`), where its log still opens while Claude Code keeps the transcript. A resumed subagent comes back.
 
 **Inside a subagent,** give each \`cello\` command the \`--agent\` you were given, right after \`cello\`, so the board credits it to you rather than to the main conversation:
 
@@ -755,6 +755,37 @@ Comments (1)
   cello-builder · a13bfb89 (under Claude Code session 2fd0505c) · just now
     Built; tests pass
 \`\`\`
+
+### Checking on your builders from the terminal
+
+An orchestrator doesn't need the Agents page to see what its builders are doing: \`cello agents\` lists the agents working in the project's workspace, and \`cello agents log <id>\` prints one's log, the same steps the page shows, as plain text.
+
+\`\`\`bash
+cello agents
+# Agents working (3):
+#   Claude Code session 2fd0505c    orchestrator  active now    holds CEL-7  Agent · cello-builder: CEL-7 pancake timer
+#     cello-builder/a13bfb89                      active now    on CEL-7     Bash · bun run test
+#     cello-code-reviewer/b77d0e11                seen 12m ago  on CEL-6
+#
+# 1 agent finished today: \`cello agents --all\` lists them.
+# \`cello agents log <id>\` prints one's log: a session's short id (2fd0505c) or a subagent's (cello-builder/a13bfb89).
+
+cello agents log cello-builder/a13bfb89
+# 09:00:00  Prompt  Build CEL-7, test first.
+# 09:00:01  Said    Reading AGENTS.md first.
+# 09:00:02  ✗ Bash · bun run test  2.0 s
+#             FAIL src/timer.test.ts
+#               flips after 90 seconds
+#                 at step 1
+#             … 2 more lines (--full shows them)
+\`\`\`
+
+- **Which agent:** a session by the start of its id (\`2fd0505c\`), a subagent by the start of its id with its type in front or not (\`cello-builder/a13bfb89\`, or \`a13bfb89\`), as \`cello agents\` prints them. An id that starts more than one says which, so you can give more of it. \`--all\` adds the agents that finished today; their logs still print while Claude Code keeps the transcript.
+- **What each line is:** the time, then \`Prompt\` (what the agent was told), \`Said\` (what it wrote), or a tool call with ✓ (it worked), ✗ (it failed) or ▸ (still running) and how long it took. A result shows its first 3 lines; \`--full\` prints it whole. A subagent the agent launched shows its id after \`→\`. Thinking is left out unless you pass \`--thinking\`.
+- **\`--follow\` (or \`-f\`)** keeps printing steps as they're written, until Ctrl-C: a running call prints when it starts and again with its result when it ends. It rides out a server restart the way \`cello inbox --wait\` does: it says on stderr that the server went away, reconnects for up to 2 minutes, and carries on without printing a step twice. A log that isn't on disk yet (a subagent that just started) says so on stderr and prints once Claude Code writes it.
+- **Keys and tokens stay masked** for agents. \`--show-secrets\` shows them only when the human runs it.
+- **\`--json\`** prints the steps as JSON (\`{ steps, skipped, older }\`); with \`--follow\`, each update the server sends, one JSON line at a time (a step sent again replaces the one with its \`id\`).
+- **When there's no log,** it says why and exits 1: the agent's hooks never said where its transcript is (\`cello install claude\` adds them), Claude Code cleaned the file up, or it's outside Claude Code's projects folder.
 
 ## The Claude Code plugin
 
@@ -1590,6 +1621,38 @@ cello sessions runs [flags] <session>
 | --- | --- |
 | \`session string\` | A session id, or its first 8 characters (c14ca1fa). |
 | \`--json\` | Print JSON for scripts. |
+
+### cello agents
+
+List the agents working in this project's workspace, as the Agents page does: each agent session, its subagents under it, with the tasks it's on, whether it's active, and what it's doing right now (its last tool call). \`cello agents log <id>\` prints one's log.
+
+\`\`\`
+cello agents <subcommand> [flags]
+\`\`\`
+
+| | |
+| --- | --- |
+| \`--all\` | Also list the agents that finished today, newest first. |
+| \`--project string\` | Project key, instead of the working folder's. |
+| \`--json\` | Print JSON for scripts. |
+
+### cello agents log
+
+Print an agent's log: the same steps as its log on the Agents page, read from its Claude Code transcript. Its prompt, what it said, each tool call with ✓ or ✗ and how long it took, its result folded to the first lines. Keys and tokens are masked. With --follow it keeps printing new steps: how an orchestrator watches a builder from the terminal.
+
+\`\`\`
+cello agents log [flags] <id>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`id string\` | Whose log: a session's id or its start (2fd0505c), or a subagent's id or its start, with its type in front or not (cello-builder/a13bfb89, or a13bfb89), as \`cello agents\` lists them. |
+| \`--follow, -f\` | Keep printing new steps as the agent works, until Ctrl-C. Rides out a server restart (reconnects for up to 2 minutes). |
+| \`--full\` | Print each result whole, instead of its first 3 lines. |
+| \`--thinking\` | Also print the agent's thinking (hidden by default, as on the Agents page). |
+| \`--show-secrets\` | Print keys and tokens as they are instead of masked. For the human only: when an agent asks, they stay masked. |
+| \`--project string\` | Project key, instead of the working folder's. |
+| \`--json\` | Print the steps as JSON; with --follow, each update the server sends as one JSON line. |
 
 ### cello doc publish
 

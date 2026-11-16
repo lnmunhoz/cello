@@ -1,7 +1,24 @@
+import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import type { Working, WorkingAgent } from "../presence/model.ts"
-import { agentGroups, agentRows, directTasks, parseAgentsSearch, rowKeysOf, stateTaskOf, subagentsLabel, waitingTaskOf } from "./layout.ts"
+import {
+  agentGroups,
+  agentRows,
+  directTasks,
+  finishedRows,
+  groupOf,
+  logLinkOf,
+  parseAgentsSearch,
+  rowKeysOf,
+  stateTaskOf,
+  subagentsLabel,
+  waitingTaskOf,
+} from "./layout.ts"
+
+const EMPTY_BOARD: BoardState = {
+  seq: 1, actors: {}, workspaces: {}, projects: {}, statuses: {}, labels: {}, tasks: {}, sessions: {}, agents: {}, reviews: {}, asks: {}, documents: {}, wakes: {},
+}
 
 const now = Date.UTC(2026, 10, 16, 12)
 
@@ -156,5 +173,68 @@ describe("subagentsLabel (CEL-104)", () => {
   it("counts its subagents in singular or plural", () => {
     expect(subagentsLabel(1)).toBe("1 subagent")
     expect(subagentsLabel(3)).toBe("3 subagents")
+  })
+})
+
+describe("Finished today (CEL-107)", () => {
+  const a = session("2fd0505c")
+  const t = task("t1", "CEL-7")
+  const done: SessionAgent = {
+    sessionId: a.id, agentId: "a13bfb89", agentType: "cello-builder", taskId: "t1", description: "CEL-7 timer", startedAt: now - 600_000,
+    lastSeenAt: now - 120_000, endedAt: now - 60_000,
+  }
+  const board: BoardState = {
+    ...EMPTY_BOARD,
+    statuses: { prog: { id: "prog", workspaceId: "w1", name: "In Progress", category: "started", position: "a", color: "#000", hidden: false, createdAt: 1, updatedAt: 1 } },
+    sessions: { [a.id]: a },
+    agents: { [`${a.id}/a13bfb89`]: done },
+    tasks: { t1: t },
+  }
+  const ended = { ...a, id: "9a8b7c6d", externalId: "9a8b7c6d-417a", endedAt: now - 300_000 }
+  const finished = finishedRows(board, [
+    { session: a, agent: done, endedAt: done.endedAt!, tasks: [t] },
+    { session: ended, agent: null, endedAt: ended.endedAt, tasks: [] },
+  ])
+
+  it("each finished agent is a row with the same id as when it worked, its end and its task", () => {
+    expect(finished.map((r) => [r.id, r.kind, r.role, r.presence, r.endedAt, r.tasks.map((x) => x.key), r.who.name])).toEqual([
+      ["agent:2fd0505c/a13bfb89", "agent", "cello-builder", "ended", now - 60_000, ["CEL-7"], "cello-builder · a13bfb89"],
+      ["session:9a8b7c6d", "session", "session", "ended", now - 300_000, [], "Claude Code session 9a8b7c6d"],
+    ])
+    expect(finished[0]!.who.parentShort).toBe("2fd0505c")
+    expect(finished[0]!.mark.mood).toBe("still")
+  })
+
+  it("they go last, in their own group, whatever group their session is in; the keys walk them too", () => {
+    const rows = agentRows([working(a, { mark: { mood: "waiting", statusId: "needs" } })])
+    const groups = agentGroups(rows, finished)
+    expect(groups.map((g) => [g.id, g.label, g.rows.map((r) => r.id)])).toEqual([
+      ["waiting", "Waiting on you", ["session:2fd0505c"]],
+      ["finished", "Finished today", ["agent:2fd0505c/a13bfb89", "session:9a8b7c6d"]],
+    ])
+    expect(rowKeysOf(groups).at(-1)).toBe("session:9a8b7c6d")
+    expect(groupOf(finished[0]!)).toBe("finished")
+  })
+})
+
+describe("logLinkOf: the task panel's Log link (CEL-107)", () => {
+  const a = session("2fd0505c")
+  const builder: SessionAgent = {
+    sessionId: a.id, agentId: "a13bfb89", agentType: "cello-builder", taskId: "t1", description: null, startedAt: now, lastSeenAt: now, endedAt: null,
+  }
+  const board = (s: AgentSession, ag: SessionAgent[] = []): BoardState =>
+    ({ ...EMPTY_BOARD, sessions: { [s.id]: s }, agents: Object.fromEntries(ag.map((x) => [`${x.sessionId}/${x.agentId}`, x])) })
+
+  it("opens the Agents page on the holder's row: the subagent's, else the session's", () => {
+    expect(logLinkOf(board(a, [builder]), { session: a, agent: builder }, now)).toBe("agent:2fd0505c/a13bfb89")
+    expect(logLinkOf(board(a), { session: a, agent: null }, now)).toBe("session:2fd0505c")
+  })
+
+  it("while the row is on the page: working, or finished today; not for the human, or an agent that finished before today", () => {
+    const today = { ...a, endedAt: now - 60_000 }
+    expect(logLinkOf(board(today), { session: today, agent: null }, now)).toBe("session:2fd0505c")
+    const old = { ...a, endedAt: now - 2 * 86_400_000 }
+    expect(logLinkOf(board(old), { session: old, agent: null }, now)).toBeNull()
+    expect(logLinkOf(board(a), { session: null, agent: null }, now)).toBeNull()
   })
 })

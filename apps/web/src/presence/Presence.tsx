@@ -9,7 +9,9 @@ import { agoShort, type Presence, presenceOf, presenceWords, type SessionLike } 
 import { ActivityIcon, BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, type LucideIcon, PencilRulerIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
 import { type ReactNode, useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"
+import { logLinkOf } from "../agents/layout.ts"
 import { AgentMark, type AgentMood } from "../components/ui/AgentMark.tsx"
+import { LinkButton } from "../components/ui/Button.tsx"
 import { formatDay } from "../lib/format.ts"
 import { drawnMarks } from "./drawnMarks.ts"
 import {
@@ -366,12 +368,16 @@ export function WhoName({ who }: { who: Who }) {
   )
 }
 
-/** The task panel's Created by, Last changed and Working on it rows. */
+/**
+ * The task panel's Created by, Last changed and Working on it rows. Working on it links the agent's log
+ * on the Agents page (CEL-107) while the page has its row: working, or finished today.
+ */
 export function ProvenanceRows({ task, board }: { task: Task; board: BoardState }) {
   const now = useNow()
   const p = provenanceOf(board, task, now)
   const holder = p.holder
   const shown = live(board, holder)
+  const log = holder ? logLinkOf(board, holder, now) : null
   // Working on it shows who's on it now: once the claim ends, "Nobody" (the top bar plays Done's leaving).
   const { mark } = useTaskMark(task, board, shown, "panel")
   const row = "flex h-8 min-w-0 items-center gap-2 px-2"
@@ -401,7 +407,16 @@ export function ProvenanceRows({ task, board }: { task: Task; board: BoardState 
       <dt className="text-muted">Working on it</dt>
       <dd className={row} data-working-on-it>
         {shown ? (
-          <HolderWords live={shown} full boxed mark={mark} />
+          <>
+            <HolderWords live={shown} full boxed mark={mark} />
+            {log ? (
+              <span className="ml-auto flex shrink-0" data-working-log>
+                <LinkButton variant="ghost" size="sm" to="/agents" search={{ open: log }} aria-label={`Open ${shown.holder.who.name}'s log on the Agents page`}>
+                  Log
+                </LinkButton>
+              </span>
+            ) : null}
+          </>
         ) : holder ? (
           <>
             <Avatar who={holder.who} />

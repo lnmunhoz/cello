@@ -40,6 +40,12 @@ export interface AgentRef {
 /** How long a quiet agent that never stopped still comes with a board, so the sidebar can list it. */
 export const LIVE_AGENT_MS = 24 * 60 * 60 * 1000
 
+/**
+ * How long an agent that finished still comes with a board (CEL-107): the Agents page lists the ones that
+ * ended today under "Finished today", and opens their logs. A day covers any "today" the board's clock has.
+ */
+export const FINISHED_AGENT_MS = 24 * 60 * 60 * 1000
+
 interface AgentRow {
   session_id: string
   agent_id: string
@@ -78,8 +84,9 @@ export class AgentService extends Context.Service<AgentService, {
   readonly byRefs: (refs: ReadonlyArray<AgentRef>) => Effect.Effect<ReadonlyArray<SessionAgent>>
   /**
    * What a board needs: the agents still working (not stopped) on these tasks, and the live ones (not
-   * stopped, seen within LIVE_AGENT_MS) of these sessions. Oldest first. The agent that last changed a
-   * task comes from `byRefs`, finished or not.
+   * stopped, seen within LIVE_AGENT_MS) of these sessions; and on either, the ones that stopped within
+   * FINISHED_AGENT_MS (Finished today, CEL-107). Oldest first. The agent that last changed a task comes
+   * from `byRefs`, finished or not.
    */
   readonly forBoard: (taskIds: ReadonlyArray<string>, sessionIds: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<SessionAgent>>
   /** Every agent ever launched on a task, finished ones too, oldest first: `cello task get` lists them. */
@@ -210,10 +217,11 @@ const make = Effect.gen(function* () {
 
   const forBoard = Effect.fn("AgentService.forBoard")(function* (taskIds: ReadonlyArray<string>, sessionIds: ReadonlyArray<string>) {
     const now = yield* Clock.currentTimeMillis
-    const onTasks = taskIds.length === 0 ? sql`0` : sql`(ended_at IS NULL AND ${sql.in("task_id", [...new Set(taskIds)])})`
+    const finished = sql`ended_at > ${now - FINISHED_AGENT_MS}`
+    const onTasks = taskIds.length === 0 ? sql`0` : sql`((ended_at IS NULL OR ${finished}) AND ${sql.in("task_id", [...new Set(taskIds)])})`
     const live = sessionIds.length === 0
       ? sql`0`
-      : sql`(ended_at IS NULL AND last_seen_at > ${now - LIVE_AGENT_MS} AND ${sql.in("session_id", [...new Set(sessionIds)])})`
+      : sql`(((ended_at IS NULL AND last_seen_at > ${now - LIVE_AGENT_MS}) OR ${finished}) AND ${sql.in("session_id", [...new Set(sessionIds)])})`
     const rows = yield* sql<AgentRow>`SELECT * FROM session_agents WHERE ${onTasks} OR ${live} ORDER BY started_at, agent_id`
     return rows.map(toAgent)
   }, Effect.orDie)
