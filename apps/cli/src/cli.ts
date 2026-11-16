@@ -26,7 +26,7 @@ import {
   type Task,
 } from "@cello/contract/entities"
 import type { CelloEvent, EventOf } from "@cello/contract/events"
-import { HUMAN_SESSION, IDENTITY_HEADERS } from "@cello/contract/rpcs"
+import { HUMAN_SESSION, IDENTITY_HEADERS, type ProfileWrite } from "@cello/contract/rpcs"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { isAlive } from "@cello/server/process/isAlive"
 import { BackupFailed, backupOffline, listBackups, reasonOf, restore } from "@cello/server/backup/offline"
@@ -35,6 +35,8 @@ import { pagePath } from "@cello/shared/document"
 import { formatBytes } from "@cello/shared/bytes"
 import { colorFromSeed } from "@cello/shared/color"
 import { cleanReaction, groupReactions } from "@cello/shared/reaction"
+import { type Detection, detectRepo } from "@cello/shared/detect"
+import { missingFields } from "@cello/shared/testingProfile"
 import { shortCommit } from "@cello/shared/build"
 import { APP_VERSION } from "@cello/shared/version"
 import * as Console from "effect/Console"
@@ -106,6 +108,8 @@ import {
 } from "./inboxWait.ts"
 import { groupWord, labelArgs, labelListText, labelNames, parseChanges, parseGroup, resolveChanges } from "./labels.ts"
 import { pageFiles } from "./pageFiles.ts"
+import { contextProfileLines, profileLines, readinessLines, wroteLines } from "./profile.ts"
+import { machineFacts, readRepoFacts } from "./repoFacts.ts"
 import { kindsOf, searchText } from "./search.ts"
 import { checkoutRootFor, repoRootFor } from "./repo.ts"
 import { start } from "./start.ts"
@@ -322,6 +326,7 @@ const context = Command.make("context", { project, json }, (input) =>
       `You       ${ctx.session ? `${sessionName(ctx.session)}${ctx.session.entrypoint ? ` (${ctx.session.entrypoint})` : ""}` : `${ctx.actor.name} (human)`}`,
       `Statuses  ${visible.join(" · ")}${hidden.length ? ` (hidden: ${hidden.join(", ")})` : ""}`,
       `Labels    ${ctx.labels.map((l) => l.name).join(" · ") || "none yet"}`,
+      ...(ctx.profile ? contextProfileLines(ctx.profile) : []),
     ]
     if (ctx.inbox.length) {
       const sentBack = ctx.inbox.find((i) => i.kind === "send_back")
@@ -1862,6 +1867,85 @@ const uninstallClaude = Command.make("claude", {}, () =>
       "since other projects may still enable it.",
   ))
 
+// ── the testing profile (CEL-89) ────────────────────────────────────────────────────────────────
+
+const PROFILE_FIELDS_TEXT =
+  "install, unit, typecheck, ui.runsIn (local or docker), app.start, app.url, e2e.<surface>.run, e2e.<surface>.videos, " +
+  "e2e.<surface>.screenshots (surface: web, desktop, …), evidence.ui, evidence.cli, review.env or never.touch"
+const profileField = Argument.String("field").pipe(Argument.withDescription(`The field: ${PROFILE_FIELDS_TEXT}.`))
+
+const profileShow = Command.make("profile", { project, json }, (input) =>
+  Effect.gen(function* () {
+    const ref = yield* projectRef(input.project)
+    const ctx = yield* withClient((client) => Effect.all([client["whoami"]({ project: ref }), client["profile.get"]({ project: ref })]))
+    const [who, profile] = ctx
+    if (input.json) return yield* printJson(profile)
+    const key = who.project?.key ?? ref.key ?? "this project"
+    if (profile.fields.length === 0) {
+      return yield* print(`Testing profile of ${key}: nothing set yet. \`cello init\` detects what it can; set a field with \`cello profile set <field> "<value>"\`.`)
+    }
+    const missing = missingFields(profile.fields)
+    yield* print([
+      `Testing profile of ${key}: current best knowledge of how to test this repo; fix a field when a command in it fails or the repo changes.`,
+      ...indent(profileLines(profile.fields, (yield* CliEnv).now())),
+      ...(missing.length ? [`Missing: ${missing.join(", ")}.`] : []),
+    ].join("\n"))
+  })).pipe(
+    Command.withDescription(
+      "Show the project's testing profile: how to install, run the unit tests and typecheck, start the app, run each e2e surface and where " +
+        "its videos and screenshots land, and what evidence a review packet needs. Each field says who set it (detected by `cello init`, an " +
+        "agent, or the human) and when. It's current best knowledge, not a fixed config: `cello profile set` fixes a field.",
+    ),
+    Command.withShortDescription("Show how to test this repo and collect evidence."),
+  )
+
+/** "Set unit to `bun run test`." / "Confirmed unit: `…`." / "Unset unit." / "unit wasn't set." / the human's value kept. */
+const profileSetText = (field: string, written: ProfileWrite & { readonly confirmed: boolean }, value: string | null) => {
+  const stored = written.profile.fields.find((f) => f.field === field)?.value ?? value
+  if (written.kept.includes(field)) return `${field} is already \`${stored}\`, set by the human; left as it is.`
+  if (value === null) return written.written.includes(field) ? `Unset ${field}.` : `${field} wasn't set.`
+  return written.confirmed ? `Confirmed ${field}: \`${stored}\`.` : `Set ${field} to \`${stored}\`.`
+}
+
+const profileSet = Command.make("set", {
+  field: profileField,
+  value: Argument.String("value").pipe(Argument.withDescription("Its new value, e.g. \"bun run test\"; quote it when it has spaces.")),
+  project,
+  json,
+}, (input) =>
+  Effect.gen(function* () {
+    const ref = yield* projectRef(input.project)
+    const written = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const before = (yield* client["profile.get"]({ project: ref })).fields.find((f) => f.field === input.field)
+        const { result } = yield* client["profile.set"]({ commandId: newCommandId(), project: ref, set: [{ field: input.field, value: input.value }] })
+        const after = result.profile.fields.find((f) => f.field === input.field)
+        return { ...result, confirmed: before !== undefined && after !== undefined && before.value === after.value }
+      })
+    )
+    if (input.json) return yield* printJson(written.profile)
+    yield* print(profileSetText(input.field, written, input.value))
+  })).pipe(Command.withDescription(
+    "Set one field of the testing profile. Do it when a command in the profile fails or the repo changed (a new script, port or e2e " +
+      "tool), and say so in your review packet. Setting the value it already has confirms it. An agent can't change a field the human set: " +
+      "ask him on the card with `cello task ask`.",
+  ))
+
+const profileUnset = Command.make("unset", { field: profileField, project, json }, (input) =>
+  Effect.gen(function* () {
+    const ref = yield* projectRef(input.project)
+    const { result } = yield* withClient((client) =>
+      client["profile.set"]({ commandId: newCommandId(), project: ref, set: [], unset: [input.field] })
+    )
+    if (input.json) return yield* printJson(result.profile)
+    yield* print(profileSetText(input.field, { ...result, confirmed: false }, null))
+  })).pipe(Command.withDescription(
+    "Remove a field from the testing profile, when it no longer applies (the e2e surface is gone, the app has no dev server). " +
+      "An agent can't unset a field the human set.",
+  ))
+
+const profile = profileShow.pipe(Command.withSubcommands([profileSet, profileUnset]))
+
 // ── setting up a repo (CEL-41) ──────────────────────────────────────────────────────────────────
 
 /** Where the board shows a project: the web app `cello start` serves on the same port. */
@@ -1928,11 +2012,17 @@ const init = Command.make("init", {
         "(the old file is kept as .bak). Without it, such a section is left as it is.",
     ),
   ),
+  skipDetect: Flag.Boolean("skip-detect").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Don't inspect the repo: no testing report, and the testing profile is left as it is."),
+  ),
   json: Flag.Boolean("json").pipe(
     Flag.withDefault(false),
     Flag.withDescription(
-      "Print JSON: created, project, url, hooks ({ file, changed, pluginFolder }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged, " +
-        "customised or foreign, backup, diff }), each null when not asked for or not reached, and error when --hooks or --agents-md failed.",
+      "Print JSON: created, project, url, testing ({ detection: { stack, packageManager, tools, fields, readiness }, written, kept }), " +
+        "profile (the testing profile after it), hooks ({ file, changed, pluginFolder }) and agentsMd ({ file, changed, change: added, " +
+        "updated, replaced, unchanged, customised or foreign, backup, diff }), each null when not asked for or not reached, and error " +
+        "when detection, --hooks or --agents-md failed.",
     ),
   ),
 }, (input) =>
@@ -1988,10 +2078,28 @@ const init = Command.make("init", {
     }
     // The rest of the setup. What it did is kept even when a later step fails, so it can be reported.
     const done: {
+      testing: { detection: Detection; written: ReadonlyArray<string>; kept: ReadonlyArray<string> } | null
+      profile: ProfileWrite["profile"] | null
       hooks: Effect.Success<ReturnType<typeof installHooks>> | null
       agentsMd: ReturnType<typeof addAgentsSection> | null
-    } = { hooks: null, agentsMd: null }
+    } = { testing: null, profile: null, hooks: null, agentsMd: null }
     const failure = yield* Effect.gen(function* () {
+      // CEL-89: what this checkout tests with, as a first draft of the profile. Detected values only fill
+      // fields that are empty or were detected before; the server keeps what an agent or the human set.
+      if (!input.skipDetect) {
+        const detection = detectRepo(readRepoFacts(checkout), machineFacts(env))
+        const { result } = yield* withClient((client) =>
+          client["profile.set"]({
+            commandId: newCommandId(),
+            project: { key: project.key },
+            set: Object.entries(detection.fields).map(([field, value]) => ({ field, value })),
+            detected: true,
+          })
+        )
+        done.testing = { detection, written: result.written, kept: result.kept }
+        done.profile = result.profile
+        if (!input.json) yield* print([...readinessLines(detection), ...wroteLines(result)].join("\n"))
+      }
       if (input.hooks) done.hooks = yield* installHooks("local")
       if (input.agentsMd) {
         done.agentsMd = yield* Effect.try({
@@ -2009,6 +2117,8 @@ const init = Command.make("init", {
         created,
         project,
         url,
+        testing: done.testing,
+        profile: done.profile,
         hooks: hooks && { file: hooks.file, changed: hooks.changed, pluginFolder: hooks.pluginFolder },
         agentsMd,
         ...(failure ? { error: failure.message } : {}),
@@ -2024,7 +2134,10 @@ const init = Command.make("init", {
   })).pipe(Command.withDescription(
     "Make the git repository you're in a Cello project: creates it with this repo's path (the main checkout's, from a worktree), " +
       "named after the folder, with a free key made from the name, and prints its key and board URL. In a repo that's already a " +
-      "project it says which one and changes nothing. --hooks and --agents-md do the rest of the setup; each is safe to run again.",
+      "project it says which one and changes nothing. Then it inspects the repo (test runner, typecheck, e2e tool, how to start the app, " +
+      "and ffmpeg, Docker and Playwright's browsers on this machine), prints a readiness report per kind of evidence with what to do " +
+      "about what's missing, and writes what it found into the project's testing profile where a field is empty or was detected " +
+      "before. --hooks and --agents-md do the rest of the setup; each is safe to run again.",
   ))
 
 const install = Command.make("install").pipe(
@@ -2052,7 +2165,7 @@ const startCommand = Command.make("start", {}, () => start).pipe(
 
 export const cello = Command.make("cello").pipe(
   Command.withDescription("A local task board for you and your coding agents."),
-  Command.withSubcommands([context, init, task, label, waitCommand, inbox, doc, searchCommand, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand, buildsCommand]),
+  Command.withSubcommands([context, init, profile, task, label, waitCommand, inbox, doc, searchCommand, whoami, guide, install, uninstall, hook, startCommand, backup, restoreCommand, buildsCommand]),
 )
 
 /**

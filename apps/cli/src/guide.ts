@@ -14,8 +14,9 @@ When Lucas says "use Cello in this repo", or \`cello context\` fails here, go th
 flowchart TD
     A["① Is the cello CLI installed?<br/>cello --version"] --> B["② Is Cello running?<br/>cello whoami: server answers"]
     B --> C{"③ cello init<br/>Is this repo a Cello project yet?"}
-    C -->|"no: creates it<br/>(folder's name, a free key, this repo's path)"| E
-    C -->|"yes: says which one, changes nothing"| E
+    C -->|"no: creates it<br/>(folder's name, a free key, this repo's path)"| D
+    C -->|"yes: says which one, changes nothing"| D
+    D["Then it inspects the repo: how to test it, how to collect evidence<br/>prints a readiness report, drafts the testing profile"] --> E
     E["④ Hooks and plugin: cello install claude<br/>(or cello init --hooks)"] --> F["⑤ Tell this repo's agents: a Cello section<br/>in AGENTS.md / CLAUDE.md (or cello init --agents-md)"]
     F --> G(["⑥ Check: cello context shows the project"])
 \`\`\`
@@ -26,15 +27,38 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
 2. **The server.** \`cello whoami\` prints JSON with a \`server\` entry. If it says Cello isn't running, ask Lucas to open the Cello desktop app or run \`cello start\`. Don't start it yourself, since it serves his real data.
 3. **The project.** Run \`cello init\` inside this repo. It creates the project with this repo's path (the main checkout's when you're in a worktree), named after the repo's folder, with a key made from the name that no other project has, and prints the key and the board's URL. If the repo is already a project, it says which one and leaves the project as it is, however its path was typed in New project (\`~/…\`, a trailing \`/\`, a symlinked folder, a subfolder of the repo). It refuses a repo an archived project holds, naming it: ask Lucas then.
 
+   Then it inspects the repo, because Lucas relies on visual evidence and every packet needs some: it looks for a unit test runner, a typecheck, an e2e tool and its output folders, how to start the app and on which port, and checks this machine for ffmpeg, Docker and Playwright's browsers. It prints a readiness report, one line per kind of evidence (unit tests, e2e video, screenshots, terminal transcript): **ready**, **partial**, **missing**, or **not needed** (no UI found), each one that isn't ready with what to do. What it found goes into the project's testing profile (see The testing profile):
+
    \`\`\`
    $ cello init
-   Created project CEL · cello for /Users/lnmunhoz/projects/cello (tasks CEL-1, CEL-2, …)
-   http://127.0.0.1:4747/CEL
+   Created project SHOP · shop for /Users/lnmunhoz/projects/shop (tasks SHOP-1, SHOP-2, …)
+   http://127.0.0.1:4747/SHOP
+   Testing: detected web (Vite) · bun · Vitest · Playwright
+     ready        unit tests           Vitest: bun run test
+     partial      e2e video            Playwright: bun run test:e2e
+                  → turn videos on in playwright.config.ts (use: { video: "on" }).
+     ready        screenshots          saved in test-results
+     ready        terminal transcript  commands to run and save with their output
+   Wrote install, unit, typecheck, ui.runsIn, app.start, app.url, evidence.ui, evidence.cli, e2e.web.run, e2e.web.videos, e2e.web.screenshots to the testing profile. See \`cello profile\`.
    \`\`\`
 
+   In a repo with nothing to test yet, every kind says what's missing and how to set it up:
+
+   \`\`\`
+   Testing: nothing detected (no test runner, e2e tool or app found)
+     missing      unit tests           no unit test command found
+                  → Add a unit test runner (Vitest: \`npm add -D vitest\`) and a "test" script.
+     missing      e2e video            no e2e tool found
+                  → Set up Playwright (\`npm init playwright@latest\`) with use: { video: "on" }, so builders can record the flow headless.
+     …
+   Nothing to write to the testing profile yet. Set fields as the repo gets them: \`cello profile set <field> "<value>"\`.
+   \`\`\`
+
+   - **Tell Lucas what's missing.** A missing or partial line means builders here can't bring the evidence a packet needs (a video of the flow, above all). Say so when you report the setup, with the suggestion, so he can decide whether to set it up.
    - The defaults are fine unless Lucas named the project or its key: then pass \`--name "Thai Lookup"\` and \`--key THAI\`.
    - If the key is taken, it says which project has it: pick another, or leave \`--key\` out and Cello picks a free one (CEL, then CELL, CELLO, CEL2…).
    - \`--workspace Work\` puts it in another workspace, by name; the default is the first one.
+   - Running it again in a linked repo inspects again: detected values fill fields that are empty or were detected before, and fields an agent or Lucas set are kept (the report says which). \`--skip-detect\` leaves the inspection out.
 4. **Hooks, so Lucas's comments reach your session.** Run \`cello install claude\` (or \`cello init --hooks\`, which does the same). It writes this machine's \`.claude/settings.local.json\` and makes sure git ignores it. It keeps a \`.bak\` of the old file; ignore that too if the repo's \`.gitignore\` doesn't cover it. Run it again any time; it changes nothing the second time. The same command adds two guards: in this project, Claude artifact publishes are turned away with a pointer to \`cello doc publish\` (see "Showing things to Lucas"), and an agent's edits in the repo are turned away until its session has claimed a task (see "Edits need a claimed task"). It also installs Cello's Claude Code plugin, which gives new sessions \`/cello:orchestrate\`, \`/cello:work\` and the \`cello\` skill (see "The Claude Code plugin").
 5. **Tell the repo's agents.** \`cello init --agents-md\` adds this section, with the project's key in place of \`KEY\`, to the end of the AGENTS.md in the checkout you're in, or to CLAUDE.md if there's no AGENTS.md (creating it), between two markers: \`<!-- cello:agents-md:start sha256:… -->\` (a fingerprint of the text it wrote) and \`<!-- cello:agents-md:end -->\`. Run it again whenever Cello's text changes: it puts the current text between the markers and prints the lines that changed, or says it's already current. It changes nothing else in the file.
    - **Everything between the markers is Cello's and gets rewritten.** Put the repo's own notes outside them (above the start marker or below the end one). If the text between them isn't exactly what Cello wrote (someone added a note, or it names another project's key), the command still rewrites it, but keeps the old file as \`AGENTS.md.bak\` first and says so.
@@ -65,7 +89,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    <!-- agents-md:end -->
 
    \`cello init --agents-md\` copies this block, so changing it here changes what the command writes.
-6. **Check.** \`cello context\` shows the project, its statuses and labels. Tell Lucas the repo is set up: the project key, that the hooks and the plugin are installed (new sessions get \`/cello:orchestrate\`), and that the AGENTS.md section was added or brought up to date (uncommitted, unless he asks you to commit it).
+6. **Check.** \`cello context\` shows the project, its statuses and labels, and its testing profile. Tell Lucas the repo is set up: the project key, that the hooks and the plugin are installed (new sessions get \`/cello:orchestrate\`), and that the AGENTS.md section was added or brought up to date (uncommitted, unless he asks you to commit it).
 
 ## Concepts
 
@@ -109,6 +133,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
 
   Publishing again updates a document in place, and its old versions are kept.
 - **Reaction:** an emoji on a comment (👍 ✅ 👀 ❤️ 🎉 …), Lucas's quick answer that needs no words. His reactions to your comments reach your session like his comments; \`cello task react\` adds yours. See Reactions.
+- **Testing profile:** how to test this project's repo and collect evidence: the install, unit test and typecheck commands, how to start the app and where it's ready, each e2e surface with its videos and screenshots folders, and what a packet needs. It lives in Cello, one per project, shown by \`cello context\` and in Settings. It's current best knowledge, not a fixed config: it changes as the repo does, and agents keep it right. See The testing profile.
 - **History:** every change is recorded with who made it. \`cello task get\` shows a task's history; \`cello context\` shows recent activity.
 
 ## Start of every session
@@ -117,13 +142,27 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
 cello context
 \`\`\`
 
-It shows the project, its statuses (hidden ones in brackets), its labels, new comments from Lucas on tasks you've claimed (shown, not taken; see Comments from Lucas reach your session), the tasks your session has claimed, claims you lost and why, and recent activity:
+It shows the project, its statuses (hidden ones in brackets), its labels, its testing profile (how to test and collect evidence here, each field with who set it, and what's missing), new comments from Lucas on tasks you've claimed (shown, not taken; see Comments from Lucas reach your session), the tasks your session has claimed, claims you lost and why, and recent activity:
 
 \`\`\`
 Project   CEL · Cello · /Users/lnmunhoz/projects/cello
 You       Claude Code session 2fd0505c (cli)
 Statuses  Todo · In Progress · Needs input · In Review · Done (hidden: Backlog, Canceled)
 Labels    M2 · M3 · server · ui
+Testing   how to test this repo and collect evidence; current best knowledge, so fix it with \`cello profile set\` when it's wrong
+  install          bun install  (detected)
+  unit             bun run test  (detected)
+  typecheck        bun run typecheck  (detected)
+  ui.runsIn        docker  (human)
+  app.start        bun run dev  (detected)
+  app.url          http://127.0.0.1:5199  (agent)
+  evidence.ui      MP4 video of the e2e run of the flow, plus screenshots (light and dark when it matters)  (detected)
+  evidence.cli     terminal transcript of the commands and their output, plus the test output  (detected)
+  review.env       CELLO_E2E_REVIEW=1  (human)
+  never.touch      ~/.cello and port 4747  (human)
+  e2e.web.run      bun run test:e2e  (detected)
+  e2e.web.videos   test-results/docker/latest/web/videos  (agent)
+  e2e.desktop.run  bun run test:docker:desktop  (human)
 
 New comments for you (1)
   CEL-22  Review page: collapsed rows, one packet open at a time
@@ -139,6 +178,49 @@ Recent activity
 \`\`\`
 
 Run it first in every session, and again when you come back to a task.
+
+## The testing profile
+
+Each project has a testing profile in Cello: how to test its repo and how to collect the evidence a review packet needs. Lucas relies on visual evidence (a video of the flow, screenshots), so before you build, read the profile in \`cello context\` (or \`cello profile\`) and use its commands for your tests and your evidence: install with \`install\`, run \`unit\` and \`typecheck\`, start the app with \`app.start\` and open \`app.url\`, record the flow with the e2e surface's \`run\` and pick the videos and screenshots up from its folders, and bring what \`evidence.ui\` or \`evidence.cli\` asks for. Stay away from what \`never.touch\` names.
+
+**It's current best knowledge, not set in stone.** \`cello init\` drafts it from what it detects, and the repo keeps changing after that. Treat a field as what worked last time, and fix it when it's wrong:
+
+- **When a command in it fails** because the command is wrong (the script was renamed, the port moved), find the right one and set it.
+- **When the repo changes** (you add an e2e tool, a new surface, a script, a port), update the fields your change affects in the same task.
+- **Say so in your review packet**, in the summary: which fields you changed and why ("\`e2e.web.run\` was \`bun run e2e\`, which no longer exists; now \`bun run test:e2e\`").
+- **Fields Lucas set himself are his.** An agent can't change or unset them; Cello refuses with "Lucas set unit himself (…)". If one is wrong, ask him on the card with \`cello task ask\` (see Questions for Lucas) and mention it in your packet. His edits, in Settings or from his own \`cello\`, overwrite anything.
+- **Nothing to record with?** When the profile has no e2e surface and the work is UI, say so in your packet and bring what you can (screenshots, a transcript); don't set up a new e2e tool unless the task asks for it.
+
+Each field records who set it last (\`detected\`, \`agent\` or \`human\`) and when; setting the value it already has confirms it. Every change is an event, so Recent activity in \`cello context\` and Settings show who changed what.
+
+\`\`\`bash
+cello profile                                                    # every field, with who set it and when
+cello profile set e2e.web.run "bun run test:e2e"                 # Set e2e.web.run to \`bun run test:e2e\`.
+cello profile set app.url http://127.0.0.1:5199                  # after the dev server moved to another port
+cello profile set ui.runsIn docker                               # local (the default) or docker
+cello profile unset e2e.mobile.run                               # Unset e2e.mobile.run. (the surface is gone)
+cello profile --json                                             # { projectId, fields: [{ field, value, source, updatedAt, actorId, sessionId }] }
+\`\`\`
+
+The fields:
+
+| Field | What it holds | Example |
+| --- | --- | --- |
+| \`install\` | How to install dependencies | \`bun install\` |
+| \`unit\` | How to run the unit tests | \`bun run test\` |
+| \`typecheck\` | How to typecheck | \`bun run typecheck\` |
+| \`ui.runsIn\` | Where UI tests run: \`local\` (headless, the default when unset) or \`docker\` | \`docker\` |
+| \`app.start\` | How to start the app | \`bun run dev\` |
+| \`app.url\` | The URL it's ready at | \`http://127.0.0.1:5199\` |
+| \`e2e.<surface>.run\` | How to run one surface's e2e tests (\`web\`, \`desktop\`, \`mobile\`, any lower-case name) | \`bun run test:e2e\` |
+| \`e2e.<surface>.videos\` | Where that run's videos land | \`test-results/docker/latest/web/videos\` |
+| \`e2e.<surface>.screenshots\` | Where its screenshots land | \`test-results/docker/latest/desktop/screenshots\` |
+| \`evidence.ui\` | What a packet for UI work needs | MP4 video of the flow, plus screenshots light and dark |
+| \`evidence.cli\` | What a packet for CLI or server work needs | terminal transcript plus the test output |
+| \`review.env\` | Variables that record review videos (slow motion, held steps) | \`CELLO_E2E_REVIEW=1\` |
+| \`never.touch\` | Paths and ports agents must never touch | \`~/.cello and port 4747\` |
+
+\`cello context\` lists what's missing (\`missing: typecheck, e2e.<surface>.run\`); \`review.env\` and \`never.touch\` are optional, and \`ui.runsIn\` means local when it's unset.
 
 ## The workflow
 
@@ -630,7 +712,7 @@ cello task submit CEL-22 \\
     Review (withdrawn 3m ago: Claude Code session 2fd0505c moved it to In Progress), submitted by Claude Code session 2fd0505c, 20m ago
   \`\`\`
 
-What to bring, by kind of work:
+What to bring, by kind of work (the project's testing profile says how to make it here: \`evidence.ui\`, \`evidence.cli\` and the e2e surfaces in \`cello context\`; if you changed the profile, say which fields in the summary):
 
 - **A flow being validated** (steps, states, systems talking to each other): add a diagram to the summary. A \`\`\`mermaid block in \`--summary-file\` renders as a diagram on the Review page; draw it top to bottom (\`flowchart TD\`). Lucas reads the diagram first.
 
@@ -891,7 +973,9 @@ Every error is one sentence that says what to do next. The usual ones:
 | --key builds won't do: a key can't be BUILDS, the address of Cello's Builds page | The key is a word the board uses for its own pages (BUILDS, SETTINGS, REVIEW, AGENTS, ASSETS, ICONS, ATTACHMENTS, RPC), so the project's board would be hidden. | Pick another key, or leave \`--key\` out. |
 | … is already used by Old Cello (archived), so it can't be linked again | An archived project holds this repo's folder. | Ask Lucas. |
 | Several projects use this folder (A, B) | More than one project was linked to this repo. | Pass \`--project KEY\`, and tell Lucas. |
-| Project CEL is set up, but the next step failed: … | \`cello init\` made or found the project; \`--hooks\` or \`--agents-md\` then failed. | Fix what the message says, then run the same \`cello init\` again: it skips what's done. |
+| Lucas set unit himself (\`bun run test\`), so an agent can't change it | You tried to set or unset a testing-profile field Lucas set. Nothing in that command was changed. | If it's wrong, ask him on the card with \`cello task ask\`, and say so in your packet. |
+| Unknown field "deploy". Fields: install, unit, … | Not a testing-profile field. | Use one of the names it lists (see The testing profile). |
+| Project CEL is set up, but the next step failed: … | \`cello init\` made or found the project; inspecting the repo, \`--hooks\` or \`--agents-md\` then failed. | Fix what the message says, then run the same \`cello init\` again: it skips what's done. |
 | Cello is running for …, and restore only runs while it's stopped | \`cello restore\` runs only while no server does. Nothing was changed. | Lucas stops Cello, then runs it again. |
 | No backup 20261115-120000 in … | That backup id doesn't exist. | \`cello backup list\` shows the real ones. |
 | The backup failed (…) | The disk is full, or a file in \`assets/\` can't be read. Nothing was saved. | Tell Lucas, with the message. |
@@ -917,7 +1001,7 @@ cello context [flags]
 
 ### cello init
 
-Make the git repository you're in a Cello project: creates it with this repo's path (the main checkout's, from a worktree), named after the folder, with a free key made from the name, and prints its key and board URL. In a repo that's already a project it says which one and changes nothing. --hooks and --agents-md do the rest of the setup; each is safe to run again.
+Make the git repository you're in a Cello project: creates it with this repo's path (the main checkout's, from a worktree), named after the folder, with a free key made from the name, and prints its key and board URL. In a repo that's already a project it says which one and changes nothing. Then it inspects the repo (test runner, typecheck, e2e tool, how to start the app, and ffmpeg, Docker and Playwright's browsers on this machine), prints a readiness report per kind of evidence with what to do about what's missing, and writes what it found into the project's testing profile where a field is empty or was detected before. --hooks and --agents-md do the rest of the setup; each is safe to run again.
 
 \`\`\`
 cello init [flags]
@@ -931,7 +1015,50 @@ cello init [flags]
 | \`--hooks\` | Also install the Claude Code hooks and plugin for this machine, as \`cello install claude\` does. |
 | \`--agents-md\` | Also add the "Tracking work in Cello" section to this checkout's AGENTS.md (CLAUDE.md when there's no AGENTS.md), or bring the one there up to date. |
 | \`--replace\` | With --agents-md: swap an old "Tracking work in Cello" section that has lines Cello didn't write for Cello's current one (the old file is kept as .bak). Without it, such a section is left as it is. |
-| \`--json\` | Print JSON: created, project, url, hooks ({ file, changed, pluginFolder }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged, customised or foreign, backup, diff }), each null when not asked for or not reached, and error when --hooks or --agents-md failed. |
+| \`--skip-detect\` | Don't inspect the repo: no testing report, and the testing profile is left as it is. |
+| \`--json\` | Print JSON: created, project, url, testing ({ detection: { stack, packageManager, tools, fields, readiness }, written, kept }), profile (the testing profile after it), hooks ({ file, changed, pluginFolder }) and agentsMd ({ file, changed, change: added, updated, replaced, unchanged, customised or foreign, backup, diff }), each null when not asked for or not reached, and error when detection, --hooks or --agents-md failed. |
+
+### cello profile
+
+Show the project's testing profile: how to install, run the unit tests and typecheck, start the app, run each e2e surface and where its videos and screenshots land, and what evidence a review packet needs. Each field says who set it (detected by \`cello init\`, an agent, or the human) and when. It's current best knowledge, not a fixed config: \`cello profile set\` fixes a field.
+
+\`\`\`
+cello profile <subcommand> [flags]
+\`\`\`
+
+| | |
+| --- | --- |
+| \`--project string\` | Project key, instead of the working folder's. |
+| \`--json\` | Print JSON for scripts. |
+
+### cello profile set
+
+Set one field of the testing profile. Do it when a command in the profile fails or the repo changed (a new script, port or e2e tool), and say so in your review packet. Setting the value it already has confirms it. An agent can't change a field the human set: ask him on the card with \`cello task ask\`.
+
+\`\`\`
+cello profile set [flags] <field> <value>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`field string\` | The field: install, unit, typecheck, ui.runsIn (local or docker), app.start, app.url, e2e.<surface>.run, e2e.<surface>.videos, e2e.<surface>.screenshots (surface: web, desktop, …), evidence.ui, evidence.cli, review.env or never.touch. |
+| \`value string\` | Its new value, e.g. "bun run test"; quote it when it has spaces. |
+| \`--project string\` | Project key, instead of the working folder's. |
+| \`--json\` | Print JSON for scripts. |
+
+### cello profile unset
+
+Remove a field from the testing profile, when it no longer applies (the e2e surface is gone, the app has no dev server). An agent can't unset a field the human set.
+
+\`\`\`
+cello profile unset [flags] <field>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`field string\` | The field: install, unit, typecheck, ui.runsIn (local or docker), app.start, app.url, e2e.<surface>.run, e2e.<surface>.videos, e2e.<surface>.screenshots (surface: web, desktop, …), evidence.ui, evidence.cli, review.env or never.touch. |
+| \`--project string\` | Project key, instead of the working folder's. |
+| \`--json\` | Print JSON for scripts. |
 
 ### cello task list
 

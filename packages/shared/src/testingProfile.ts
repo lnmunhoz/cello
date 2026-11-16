@@ -64,11 +64,11 @@ export const profileFieldProblem = (field: string): string | null =>
 /** A value as stored (trimmed; ui.runsIn lower-cased), or why it can't be. Empty is refused: unsetting removes a field. */
 export const checkProfileValue = (field: string, raw: string): { readonly value: string } | { readonly problem: string } => {
   const value = raw.trim()
-  if (value === "") return { problem: `${field} can't be empty; unset it instead` }
-  if (value.length > MAX_VALUE) return { problem: `${field} is longer than ${MAX_VALUE} characters` }
+  if (value === "") return { problem: `the value of ${field} can't be empty; unset it instead` }
+  if (value.length > MAX_VALUE) return { problem: `the value of ${field} is longer than ${MAX_VALUE} characters` }
   if (field === "ui.runsIn") {
     const lower = value.toLowerCase()
-    return (UI_RUNS_IN as ReadonlyArray<string>).includes(lower) ? { value: lower } : { problem: `ui.runsIn is "local" or "docker", not "${value}"` }
+    return (UI_RUNS_IN as ReadonlyArray<string>).includes(lower) ? { value: lower } : { problem: `the value of ui.runsIn must be "local" or "docker", not "${value}"` }
   }
   return { value }
 }
@@ -94,20 +94,6 @@ export const fieldOrder = (field: string): number => {
   if (fixed !== -1) return fixed
   const e2e = e2eField(field)
   return e2e ? 100 + E2E_PARTS.indexOf(e2e.part) : 1000
-}
-
-interface FieldLike {
-  readonly field: string
-  readonly value: string
-  readonly source: ProfileSource
-}
-
-const SOURCE_WORDS: Record<ProfileSource, string> = { detected: "detected", agent: "set by an agent", human: "set by the human" }
-
-/** "unit             bun run test  (set by the human)", one line per field, for `cello context` and `cello profile`. */
-export const profileLines = (fields: ReadonlyArray<FieldLike>): string[] => {
-  const width = Math.max(16, ...fields.map((f) => f.field.length + 1))
-  return fields.map((f) => `${f.field.padEnd(width)} ${f.value}  (${SOURCE_WORDS[f.source]})`)
 }
 
 /** Fields a builder needs that nobody has set yet. ui.runsIn defaults to local; review.env and never.touch are optional. */

@@ -98,7 +98,7 @@ describe("detecting how a repo tests (CEL-89)", () => {
   })
 
   it("a monorepo whose e2e runs in Docker: Electron and Vite from the workspace packages, ui.runsIn docker", () => {
-    const found = detectRepo(repo({
+    const monorepo = repo({
       paths: ["package.json", "bun.lock", "playwright.config.ts", "apps/web/package.json", "apps/desktop/package.json", "apps/cli/package.json"],
       packages: [
         { path: "package.json", json: { scripts: { test: "vitest run", "test:e2e": "bun scripts/test-in-docker.ts e2e" }, devDependencies: { "@playwright/test": "1" } } },
@@ -107,10 +107,16 @@ describe("detecting how a repo tests (CEL-89)", () => {
         { path: "apps/cli/package.json", json: { bin: { cello: "src/bin.ts" } } },
       ],
       texts: { "playwright.config.ts": `use: { video: process.env.CI ? "on" : "retain-on-failure" }` },
-    }), ALL_TOOLS)
+    })
+    const found = detectRepo(monorepo, ALL_TOOLS)
     expect(found.stack).toEqual(["web (Vite)", "desktop (Electron)", "CLI"])
     expect(found.fields["ui.runsIn"]).toBe("docker")
     expect(found.fields["e2e.web.run"]).toBe("bun run test:e2e")
+    expect(found.readiness.find((r) => r.kind === "e2e video")!.state).toBe("ready")
+    expect(detectRepo(monorepo, { ...ALL_TOOLS, docker: false }).readiness.find((r) => r.kind === "e2e video")).toMatchObject({
+      state: "partial",
+      suggestion: "install or start Docker: the e2e runs in it.",
+    })
   })
 
   it("a Python service with pytest, a Go module and a CLI-only package: no UI, so no e2e video needed", () => {

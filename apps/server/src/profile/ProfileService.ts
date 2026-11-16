@@ -125,7 +125,8 @@ const make = Effect.gen(function* () {
         if (changes.length > 0) {
           yield* emit({ type: "profile.changed", project: project.id, changes }, { workspaceId: project.workspaceId, projectId: project.id })
         }
-        return { profile: { projectId: project.id, fields: yield* fieldsOf(project.id) }, written, kept }
+        const ordered = (fields: string[]) => fields.sort((a, b) => fieldOrder(a) - fieldOrder(b) || a.localeCompare(b))
+        return { profile: { projectId: project.id, fields: yield* fieldsOf(project.id) }, written: ordered(written), kept: ordered(kept) }
       }))
   })
 

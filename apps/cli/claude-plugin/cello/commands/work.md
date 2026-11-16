@@ -5,7 +5,7 @@ argument-hint: "<task key, or what to do>"
 
 Do this task yourself, in this thread: $ARGUMENTS
 
-1. **Read up.** Run `cello context`. If you haven't read `cello guide` in this session, read it once. Don't guess flags.
+1. **Read up.** Run `cello context`. If you haven't read `cello guide` in this session, read it once. Don't guess flags. Its testing profile says how to test this repo and record evidence; use those commands, and fix a field with `cello profile set` when it's wrong (say so in your packet).
 2. **Find the task, or make it.** A key: `cello task get <KEY>`. A request: check it isn't on the board (`cello task list`), else `cello task create` with the person's words in the description.
 3. **Claim it** (`cello task claim <KEY>`) and mark it `cello task stage <KEY> building`.
 4. **Test first.** Each behaviour starts as a failing test, then the code that passes it. Put the key in every commit message.

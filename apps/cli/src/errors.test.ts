@@ -1,5 +1,5 @@
 // Errors say what to do next, from one table keyed by error tag.
-import { HumanOnly, KeyTaken, NotFound, ReviewRequired, TaskClaimed } from "@cello/contract/errors"
+import { HumanOnly, KeyTaken, NotFound, ProfileFieldLocked, ReviewRequired, TaskClaimed } from "@cello/contract/errors"
 import { BackupFailed, RestoreBlocked, RestoreFailed } from "@cello/server/backup/offline"
 import { describe, expect, it } from "vitest"
 import { explain } from "./errors.ts"
@@ -17,6 +17,13 @@ describe("explain", () => {
     )
     expect(explain(new TaskClaimed({ key: "CEL-3", holder: "Lucas", sessionId: null, lastSeenAt: null }), where)).toBe(
       "CEL-3 is claimed by Lucas. Pick another task or run `cello task get CEL-3`.",
+    )
+  })
+
+  it("a profile field the human set: who set it, to what, and to ask on the card (CEL-89)", () => {
+    expect(explain(new ProfileFieldLocked({ field: "unit", value: "bun run test", human: "Lucas" }), where)).toBe(
+      "Lucas set unit himself (`bun run test`), so an agent can't change it. If it's wrong, ask him on the card " +
+        "(`cello task ask KEY --question \"…\"`), and say so in your packet.",
     )
   })
 

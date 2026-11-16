@@ -34,7 +34,12 @@ const setup = Effect.gen(function* () {
   const bin = path.join(dataDir, "bin")
   fs.mkdirSync(bin)
   fs.writeFileSync(path.join(bin, "cello"), "#!/bin/sh\n", { mode: 0o755 })
-  const agent = (cwd: string) => cello({ port, env: { ...claude, HOME: home, PATH: bin }, cwd })
+  // The testing report (CEL-89) has its own tests (profile.test.ts); here `init` runs without it, so the
+  // output is the project and the setup steps only.
+  const agent = (cwd: string) => {
+    const run = cello({ port, env: { ...claude, HOME: home, PATH: bin }, cwd })
+    return (...args: string[]) => run(...args, ...(args[0] === "init" ? ["--skip-detect"] : []))
+  }
   const projects = Effect.map(human["snapshot.get"]({}), (s) => s.projects)
   return { port, dataDir, home, human, agent, projects, url: (key: string) => `http://127.0.0.1:${port}/${key}` }
 })

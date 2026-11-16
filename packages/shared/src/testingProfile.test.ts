@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { checkProfileValue, e2eSurfaces, fieldLabel, PROFILE_FIELDS, profileFieldProblem, profileLines, missingFields } from "./testingProfile.ts"
+import { checkProfileValue, e2eSurfaces, fieldLabel, missingFields, PROFILE_FIELDS, profileFieldProblem } from "./testingProfile.ts"
 
 describe("profile field names (CEL-89)", () => {
   it("accepts the fixed fields and e2e.<surface>.<part>, nothing else", () => {
@@ -16,10 +16,10 @@ describe("profile field names (CEL-89)", () => {
 
   it("ui.runsIn is local or docker; other values are trimmed text", () => {
     expect(checkProfileValue("ui.runsIn", " Docker ")).toEqual({ value: "docker" })
-    expect(checkProfileValue("ui.runsIn", "vm")).toEqual({ problem: 'ui.runsIn is "local" or "docker", not "vm"' })
+    expect(checkProfileValue("ui.runsIn", "vm")).toEqual({ problem: 'the value of ui.runsIn must be "local" or "docker", not "vm"' })
     expect(checkProfileValue("unit", "  bun run test ")).toEqual({ value: "bun run test" })
-    expect(checkProfileValue("unit", "   ")).toEqual({ problem: "unit can't be empty; unset it instead" })
-    expect(checkProfileValue("unit", "x".repeat(1001))).toEqual({ problem: "unit is longer than 1000 characters" })
+    expect(checkProfileValue("unit", "   ")).toEqual({ problem: "the value of unit can't be empty; unset it instead" })
+    expect(checkProfileValue("unit", "x".repeat(1001))).toEqual({ problem: "the value of unit is longer than 1000 characters" })
   })
 
   it("names fields in plain words, and lists the e2e surfaces in order of their first field", () => {
@@ -31,14 +31,9 @@ describe("profile field names (CEL-89)", () => {
 
 const field = (name: string, value: string, source: "detected" | "agent" | "human" = "detected") => ({ field: name, value, source, updatedAt: 0 })
 
-describe("what `cello context` says about the profile", () => {
-  it("lists what's set with its source, and what's missing", () => {
+describe("what a profile is missing", () => {
+  it("lists the fields a builder needs that nobody set", () => {
     const fields = [field("install", "bun install"), field("unit", "bun run test", "human"), field("e2e.web.run", "bun run test:e2e", "agent")]
-    expect(profileLines(fields)).toEqual([
-      "install          bun install  (detected)",
-      "unit             bun run test  (set by the human)",
-      "e2e.web.run      bun run test:e2e  (set by an agent)",
-    ])
     // ui.runsIn has a default (local); review.env and never.touch are optional.
     expect(missingFields(fields)).toEqual(["typecheck", "app.start", "app.url", "evidence.ui", "evidence.cli"])
     expect(missingFields([field("install", "x")])).toEqual([

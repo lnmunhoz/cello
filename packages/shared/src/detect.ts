@@ -302,6 +302,7 @@ export const detectRepo = (facts: RepoFacts, machine: MachineFacts): Detection =
       ...(first.videoProblem ? [first.videoProblem] : []),
       ...(playwright && !machine.playwrightBrowsers ? ["download a browser with `npx playwright install chromium`"] : []),
       ...(!machine.ffmpeg ? ["install ffmpeg to turn the videos into MP4"] : []),
+      ...(fields["ui.runsIn"] === "docker" && !machine.docker ? ["install or start Docker: the e2e runs in it"] : []),
     ]
     add("e2e video", problems.length ? "partial" : "ready", `${e2e.map((entry) => entry.tool).join(", ")}: ${first.run}`,
       problems.length ? `${problems.join("; ")}.` : null)
