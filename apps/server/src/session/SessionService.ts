@@ -187,6 +187,8 @@ interface SessionRow {
   /** CEL-119; left out by selects that don't need them. */
   model?: string | null
   effort?: string | null
+  /** CEL-124; left out by selects that don't need it. */
+  orchestrating?: number
 }
 
 export const toSession = (r: SessionRow): AgentSession => ({
@@ -205,6 +207,7 @@ export const toSession = (r: SessionRow): AgentSession => ({
   currentStepAt: r.current_step_at ?? null,
   model: r.model ?? null,
   effort: r.effort ?? null,
+  orchestrating: r.orchestrating === 1,
 })
 
 /** Client name for sessions that don't say which client they are. */

@@ -29,8 +29,8 @@ describe("migration 0018_session_wake", () => {
 
       yield* Migrations.run
       const after = yield* sql<Record<string, unknown>>`SELECT * FROM agent_sessions ORDER BY id`
-      // 0019 (CEL-106) adds the transcript and current step columns after it, 0022 (CEL-119) the model and effort.
-      expect(after.map(({ permission_mode, agent_kind, transcript_path, current_step, current_step_at, model, effort, ...rest }) => rest)).toEqual(before)
+      // 0019 (CEL-106) adds the transcript and current step columns after it, 0022 (CEL-119) the model and effort, 0023 (CEL-124) orchestrating.
+      expect(after.map(({ permission_mode, agent_kind, transcript_path, current_step, current_step_at, model, effort, orchestrating, ...rest }) => rest)).toEqual(before)
       expect(after.map((r) => [r.id, r.agent_kind, r.permission_mode])).toEqual([["s1", "claude-code", null], ["s2", null, null]])
 
       yield* sql`INSERT INTO session_runs (id, session_id, task_id, why, agent_kind, mode, cello_mode, pid, started_at, outcome, log_path)

@@ -128,6 +128,9 @@ export const CelloEvent = Schema.Union([
   // and close, so boards can say a comment reaches it at once. Sent when the first opens and the last
   // closes (at most twice a turn). Workspace-level like session.seen: one per workspace it holds claims in.
   event("session.waiting", { session: Id, waiting: Schema.Boolean }),
+  // A session went into orchestrate mode or out of it (CEL-124, `cello sessions orchestrate on|off`).
+  // Written as the session itself, in the project it ran the command in; running it again changes nothing.
+  event("session.orchestrating", { session: Id, orchestrating: Schema.Boolean }),
   // Waking sessions (CEL-92). Lucas acted on a task the session claimed while nothing of it was
   // running: a wake is due `at` (30 s after his last action, reset by each new one); or it won't happen
   // and why; or a woken run started or ended (its row in session_runs is written in the same command).

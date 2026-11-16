@@ -14,6 +14,7 @@ import * as EventLog from "../events/EventLog.ts"
 import * as InboxService from "../inbox/InboxService.ts"
 import * as LabelService from "../label/LabelService.ts"
 import * as ProfileService from "../profile/ProfileService.ts"
+import * as OrchestrateService from "../session/OrchestrateService.ts"
 import * as ProjectService from "../project/ProjectService.ts"
 import * as ReviewService from "../review/ReviewService.ts"
 import * as SearchService from "../search/SearchService.ts"
@@ -30,6 +31,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
   const workspaces = yield* WorkspaceService.WorkspaceService
   const projects = yield* ProjectService.ProjectService
   const profiles = yield* ProfileService.ProfileService
+  const orchestrate = yield* OrchestrateService.OrchestrateService
   const statuses = yield* StatusService.StatusService
   const labels = yield* LabelService.LabelService
   const tasks = yield* TaskService.TaskService
@@ -106,6 +108,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "session.cancelWake": (input) => wake.cancel(input),
     "session.stopRun": (input) => wake.stopRun(input),
     "session.runs": ({ session }) => wake.runs(session),
+    "session.orchestrate": (input) => orchestrate.set(input),
     "comment.list": ({ taskId }) => comments.list(taskId),
     "comment.add": (input) => comments.add(input),
     "comment.edit": (input) => comments.edit(input),

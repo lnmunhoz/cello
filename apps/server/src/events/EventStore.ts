@@ -58,6 +58,7 @@ export const entityOf = (body: EventBody): { readonly type: string; readonly id:
     case "comment.delivered":
       return { type, id: body.commentId }
     case "session.waiting":
+    case "session.orchestrating":
       return { type, id: body.session }
     case "reaction.added":
     case "reaction.removed":

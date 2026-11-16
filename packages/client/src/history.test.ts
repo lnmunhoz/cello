@@ -129,6 +129,12 @@ describe("describeEvent with a name (CEL-55)", () => {
     expect(describeEvent(ev({ type: "agent.seen", agent: { ...agent, endedAt: 3 } }), state, "cello-builder · a13bfb89")).toBe("cello-builder · a13bfb89 finished")
   })
 
+  it("orchestrate mode (CEL-124): the session started or stopped orchestrating", () => {
+    const who = "Claude Code session c14ca1fa"
+    expect(describeEvent(ev({ type: "session.orchestrating", session: "s1", orchestrating: true }), state, who)).toBe("Claude Code session c14ca1fa started orchestrating")
+    expect(describeEvent(ev({ type: "session.orchestrating", session: "s1", orchestrating: false }), state, who)).toBe("Claude Code session c14ca1fa stopped orchestrating")
+  })
+
   it("waking sessions (CEL-92): what Cello did with the session, and what Lucas changed in the settings", () => {
     const run = { id: "r1", sessionId: "s1", taskId: "t1", why: "comment" as const, agentKind: "claude-code", mode: "auto", celloMode: "auto" as const, pid: 7, startedAt: 1_000, endedAt: null, exitCode: null, outcome: "running" as const, error: null }
     const who = "Claude Code session c14ca1fa"

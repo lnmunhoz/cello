@@ -228,6 +228,18 @@ describe("applyEvents: stage, last change and presence (CEL-5, CEL-35)", () => {
     expect(applyEvents(state, [agent(11, { type: "session.waiting", session: "s9", waiting: true })]).sessions["s9"]).toBeUndefined()
   })
 
+  it("a session going into orchestrate mode and out (CEL-124) says so; a session the board doesn't know is ignored", () => {
+    const session = {
+      id: "s1", actorId: "claude", externalId: "2fd0505c-1", clientName: "Claude Code", entrypoint: null, cwd: null, pid: null,
+      startedAt: 1, lastSeenAt: 5, endedAt: null,
+    }
+    const state = fromSnapshot({ ...snapshot([task("t1")]), sessions: [session] })
+    const on = applyEvents(state, [agent(11, { type: "session.orchestrating", session: "s1", orchestrating: true })])
+    expect(on.sessions["s1"]).toMatchObject({ orchestrating: true, lastSeenAt: 5 })
+    expect(applyEvents(on, [agent(12, { type: "session.orchestrating", session: "s1", orchestrating: false })]).sessions["s1"]?.orchestrating).toBe(false)
+    expect(applyEvents(state, [agent(11, { type: "session.orchestrating", session: "s9", orchestrating: true })]).sessions["s9"]).toBeUndefined()
+  })
+
   it("a session whose agent the board doesn't know yet brings it in, named after its client, so history can name it", () => {
     const session = {
       id: "s9", actorId: "codex", externalId: "9f9f9f9f-1", clientName: "Codex", entrypoint: null, cwd: null, pid: null,

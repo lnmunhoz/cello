@@ -64,7 +64,9 @@ import {
   ALLOW_ASK_USER_VARIABLE,
   ALLOW_UNTRACKED_VARIABLE,
   artifactGuard,
-  askUserGuard,
+  askUserAnswer,
+  askUserCheck,
+  askUserDeny,
   claimAnswer,
   claimCache,
   claimCacheDir,
@@ -398,7 +400,11 @@ const context = Command.make("context", { project, json }, (input) =>
     const hidden = ctx.statuses.filter((s) => s.hidden).map((s) => s.name)
     const lines = [
       `Project   ${ctx.project.key} · ${ctx.project.name}${ctx.project.repoPath ? ` · ${ctx.project.repoPath}` : ""}`,
-      `You       ${ctx.session ? `${sessionName(ctx.session)}${ctx.session.entrypoint ? ` (${ctx.session.entrypoint})` : ""}` : `${ctx.actor.name} (human)`}`,
+      `You       ${
+        ctx.session
+          ? `${sessionName(ctx.session)}${ctx.session.entrypoint ? ` (${ctx.session.entrypoint})` : ""}${ctx.session.orchestrating ? " · orchestrating" : ""}`
+          : `${ctx.actor.name} (human)`
+      }`,
       `Statuses  ${visible.join(" · ")}${hidden.length ? ` (hidden: ${hidden.join(", ")})` : ""}`,
       `Labels    ${ctx.labels.map((l) => l.name).join(" · ") || "none yet"}`,
       ...(ctx.profile ? contextProfileLines(ctx.profile) : []),
@@ -1752,15 +1758,38 @@ const guardClaims = (hook: HookInput) =>
   })
 
 /**
+ * What the AskUserQuestion guard does (CEL-124): denied in a subagent or a woken run without asking
+ * anyone; otherwise denied only while the session is orchestrating, which the server says (`whoami`,
+ * every time, so `off` counts at once). Any doubt (no repo, not a Cello project, no server, an error)
+ * lets the dialog through.
+ */
+const guardAskUser = (hook: HookInput) =>
+  Effect.gen(function* () {
+    const { env, cwd: ownCwd } = yield* CliEnv
+    const check = askUserCheck(hook, env)
+    if (check === null) return
+    if (check === "deny") return yield* print(JSON.stringify(askUserDeny()))
+    const cwd = hook.cwd ?? ownCwd
+    const repoPath = repoRootFor(cwd)
+    if (repoPath === null) return
+    const headers = identityHeaders({ ...env, CELLO_SESSION: undefined, CLAUDE_CODE_SESSION_ID: hookSession(hook, env) ?? undefined }, cwd)
+    const who = yield* withClient((client) => client["whoami"]({ project: { repoPath } }), { headers })
+    if (who.project === null) return
+    const answer = askUserAnswer({ orchestrating: who.session?.orchestrating === true })
+    if (answer) yield* print(JSON.stringify(answer))
+  })
+
+/**
  * The PreToolUse hook: an Artifact call goes to the artifact guard (CEL-57: denies a publish, pointing
- * to `cello doc publish`; no server needed), AskUserQuestion to its guard (CEL-124: always denied,
- * pointing to `cello task ask`; no server needed), an edit to the claim guard (CEL-61).
+ * to `cello doc publish`; no server needed), AskUserQuestion to its guard (CEL-124: denied where nobody
+ * watches the window, pointing to `cello task ask`), an edit to the claim guard (CEL-61).
  */
 const guardToolUse = Effect.gen(function* () {
   const { env, readStdin } = yield* CliEnv
   const input = parseHookInput(yield* Effect.promise(readStdin))
-  const answer = artifactGuard(input, env) ?? askUserGuard(input, env)
+  const answer = artifactGuard(input, env)
   if (answer) return yield* print(JSON.stringify(answer))
+  if (input.toolName === "AskUserQuestion") return yield* guardAskUser(input)
   yield* guardClaims(input)
 })
 
@@ -1817,9 +1846,11 @@ const hookClaude = Command.make("claude", {
       "permission_mode on to the server, so a run Cello wakes uses the same mode, and its Claude Code transcript_path (inside a subagent, the subagent's own " +
       "file) with, after a tool call, that call in one line (\"Bash · bun run test\"), so the Agents page shows its live log and current step. pre-tool-use turns a Claude artifact publish " +
       "away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); " +
-      "this artifact guard needs no server. It denies every AskUserQuestion (Claude's own question dialog, which blocks the session) " +
-      "with a pointer to `cello task ask`, and to `cello task create` when no open task the session holds fits the question " +
-      `(all of them through with ${ALLOW_ASK_USER_VARIABLE}=1); this guard needs no server either. ` +
+      "this artifact guard needs no server. It denies AskUserQuestion (Claude's own question dialog, which blocks the session) where " +
+      "nobody watches the window, with a pointer to `cello task ask`, and to `cello task create` when no open task the session holds fits: " +
+      "inside a subagent or a run Cello woke (CELLO_WOKEN=1) at once, and in a session in orchestrate mode (`cello sessions orchestrate on`) " +
+      "after asking the server, uncached; a session chatting with the human keeps the dialog, and so does every session when the server " +
+      `doesn't answer, the repo isn't a Cello project, or ${ALLOW_ASK_USER_VARIABLE}=1. ` +
       "For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and " +
       "denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the " +
       "edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a " +
@@ -1952,8 +1983,9 @@ const installHooks = (scope: keyof typeof SCOPES) =>
             ? [
               "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. " +
               `Start Claude Code with ${ALLOW_ARTIFACTS_VARIABLE}=1 when you want one.`,
-              "Agents here can't ask you questions in Claude's own window: they're told to ask on the card, where the task waits in Needs input. " +
-              `Start Claude Code with ${ALLOW_ASK_USER_VARIABLE}=1 when you want questions in the terminal.`,
+              "Orchestrating sessions, subagents and runs Cello woke can't ask you questions in Claude's own window, where nobody watches: " +
+              "they're told to ask on the card, where the task waits in Needs input. A session you chat with keeps the dialog. " +
+              `"/cello:orchestrate off" gives an orchestrating session it back; ${ALLOW_ASK_USER_VARIABLE}=1 lets every session use it.`,
               "Agents here can't edit files in the repo until their session has claimed a Cello task: they're told to create or claim one first. " +
               `Start Claude Code with ${ALLOW_UNTRACKED_VARIABLE}=1 to turn that off.`,
             ]
@@ -1994,7 +2026,8 @@ const installClaude = Command.make("claude", {
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription(
     "Connect Claude Code to Cello. Adds hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), " +
-      "and one that turns Claude artifact publishes away in favour of Cello pages, AskUserQuestion away in favour of `cello task ask` on the card, " +
+      "and one that turns Claude artifact publishes away in favour of Cello pages, AskUserQuestion away in favour of `cello task ask` on the card " +
+      "where nobody watches the window (orchestrating sessions, subagents, woken runs), " +
       "and edits away until the session has claimed a task " +
       "(PreToolUse on Artifact, AskUserQuestion, Edit, Write and NotebookEdit; not with --user), all running `cello hook claude`. Installs Cello's " +
       "Claude Code plugin too (/cello:orchestrate, /cello:work, the cello skill, and builder and reviewer agents): writes its files to " +
@@ -2353,9 +2386,35 @@ const sessionsRuns = Command.make("runs", {
     yield* print(runsText(listed.session, listed.runs))
   })).pipe(Command.withDescription("List the times Cello woke a session (newest first): why, the permission mode, how each run ended, and its log file."))
 
+const sessionsOrchestrate = Command.make("orchestrate", {
+  mode: Argument.Literals("mode", ["on", "off"] as const).pipe(
+    Argument.withDescription("on: this session runs work through agents, with nobody watching its window; off: it's back to a normal session."),
+  ),
+  project,
+  json,
+}, (input) =>
+  Effect.gen(function* () {
+    const ref = yield* projectRef(input.project)
+    const written = yield* withClient((client) => client["session.orchestrate"]({ commandId: newCommandId(), project: ref, on: input.mode === "on" }))
+    if (input.json) return yield* printJson(written)
+    yield* print(
+      written.result.orchestrating
+        ? `This session is orchestrating (${sessionName(written.result)}). Claude's question dialog is turned away here: questions go on the card ` +
+          "(`cello task ask`). `cello sessions orchestrate off`, or /cello:orchestrate off, ends it."
+        : `This session stopped orchestrating (${sessionName(written.result)}). Claude's question dialog works here again.`,
+    )
+  })).pipe(Command.withDescription(
+    "Put your agent session in orchestrate mode, or take it out (CEL-124). /cello:orchestrate runs `on` first, and `/cello:orchestrate off` runs `off`. " +
+      "While it's on, the Claude Code hook turns your AskUserQuestion away, since nobody watches an orchestrator's window: questions go on the " +
+      "card with `cello task ask`. A session chatting with the human stays off and keeps the dialog. Running it again changes nothing; " +
+      "`cello context` shows the mode. The human has no session to put in it, and a subagent can't change its session's mode.",
+  ))
+
 const sessions = Command.make("sessions").pipe(
-  Command.withDescription("Agent sessions Cello wakes by itself (CEL-92): wake one now, or list its woken runs and their logs."),
-  Command.withSubcommands([sessionsWake, sessionsRuns]),
+  Command.withDescription(
+    "Agent sessions: put yours in orchestrate mode or take it out (CEL-124); wake one now, or list its woken runs and their logs (CEL-92).",
+  ),
+  Command.withSubcommands([sessionsOrchestrate, sessionsWake, sessionsRuns]),
 )
 
 // ── agents and their logs (CEL-107) ─────────────────────────────────────────────────────────────

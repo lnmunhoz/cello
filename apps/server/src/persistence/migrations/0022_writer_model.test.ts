@@ -45,7 +45,8 @@ describe("migration 0022_writer_model", () => {
 
       for (const table of TABLES) {
         const after = yield* sql<Record<string, unknown>>`SELECT * FROM ${sql(table)} ORDER BY rowid`
-        expect(after.map(({ model, effort, ...rest }) => rest)).toEqual(before.get(table))
+        // 0023 (CEL-124) adds orchestrating to sessions after it.
+        expect(after.map(({ model, effort, orchestrating, ...rest }) => rest)).toEqual(before.get(table))
         for (const row of after) expect([row.model, row.effort]).toEqual([null, null])
       }
       expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
