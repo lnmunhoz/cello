@@ -7,7 +7,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { APP_VERSION } from "@cello/shared/version"
 import * as Effect from "effect/Effect"
 import { connect } from "../../../server/test/integration/harness.ts"
-import { cello, gitRepo } from "./cli.ts"
+import { cello, gitRepo, UNDER_LOAD } from "./cli.ts"
 
 const SESSION = "2fd0505c-417a-4167-acfe-2d66080fcae0"
 const claude = { CLAUDE_CODE_SESSION_ID: SESSION, CLAUDE_PID: String(process.pid), CLAUDE_CODE_ENTRYPOINT: "cli" }
@@ -39,6 +39,7 @@ const json = <T = any>(output: { out: string; failure: string | null }): T => {
 }
 
 describe("cello commands against a real server", () => {
+  // UNDER_LOAD: twenty-five commands against the server, some running git (0.4 s idle, 5.4 s at load ~110).
   it.live("create, list, claim, comment, move, get and release, in text and --json", () =>
     Effect.gen(function* () {
       const { agent, other, piped } = yield* setup
@@ -95,7 +96,7 @@ describe("cello commands against a real server", () => {
       expect(yield* agent("task", "release", "CEL-1")).toEqual({ out: "Released CEL-1  In Progress  Write the CLI", failure: null })
       expect(json(yield* agent("task", "claim", "CEL-1", "--json")).result.assigneeSessionId).toBe(sessionId)
       expect(json(yield* agent("task", "release", "CEL-1", "--json")).result.assigneeSessionId).toBeNull()
-    }).pipe(Effect.scoped))
+    }).pipe(Effect.scoped), UNDER_LOAD)
 
   it.live("context starts a session: project, statuses, labels, claims and recent activity", () =>
     Effect.gen(function* () {

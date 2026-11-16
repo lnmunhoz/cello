@@ -14,7 +14,7 @@ import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Scope from "effect/Scope"
 import { connect } from "../../../server/test/integration/harness.ts"
-import { cello, gitRepo } from "./cli.ts"
+import { cello, gitRepo, UNDER_LOAD } from "./cli.ts"
 
 const X = "2fd0505c-417a-4167-acfe-2d66080fcae0"
 const BUILDER = "a13bfb89c0de1234f"
@@ -109,6 +109,7 @@ const setup = Effect.gen(function* () {
   }
 })
 
+// UNDER_LOAD on every test in this file: its setup alone is a server and five commands (the slowest test took 5.5 s at load ~110).
 describe("cello agents (CEL-107)", () => {
   it.live("lists the session working and the builder under it, with their tasks and what each is doing; --all adds the ones that finished today", () =>
     Effect.gen(function* () {
@@ -128,7 +129,7 @@ describe("cello agents (CEL-107)", () => {
       const json = JSON.parse((yield* me("agents", "--all", "--json")).out) as { working: Array<{ session: { externalId: string } }>; finished: Array<{ agent: { agentId: string } }> }
       expect(json.working.map((w) => w.session.externalId)).toEqual([X])
       expect(json.finished.map((f) => f.agent.agentId)).toEqual([BUILDER])
-    }).pipe(Effect.scoped))
+    }).pipe(Effect.scoped), UNDER_LOAD)
 })
 
 describe("cello agents log (CEL-107)", () => {
@@ -162,7 +163,7 @@ describe("cello agents log (CEL-107)", () => {
       // --json: the steps as the server sends them.
       const json = JSON.parse((yield* me("agents", "log", "a13bfb89", "--json")).out) as { steps: Array<{ id: string; kind: string }> }
       expect(json.steps.map((s) => s.kind)).toEqual(["user", "message", "tool"])
-    }).pipe(Effect.scoped))
+    }).pipe(Effect.scoped), UNDER_LOAD)
 
   it.live("an id matching nobody, or more than one, says so", () =>
     Effect.gen(function* () {
@@ -170,7 +171,7 @@ describe("cello agents log (CEL-107)", () => {
       expect((yield* me("agents", "log", "ffff")).failure).toBe("No agent or session starts with \"ffff\". `cello agents --all` lists them.")
       // The type has to match.
       expect((yield* me("agents", "log", "cello-code-reviewer/a13b")).failure).toContain("No agent or session starts with")
-    }).pipe(Effect.scoped))
+    }).pipe(Effect.scoped), UNDER_LOAD)
 
   it.live("--follow prints each step appended to the transcript as it's written", () =>
     Effect.gen(function* () {
@@ -183,7 +184,7 @@ describe("cello agents log (CEL-107)", () => {
       yield* follow.out.printed("✓ Bash · bun run test src/timer.test.ts  2.0 s")
       yield* follow.out.printed("1 passed")
       yield* Fiber.interrupt(follow.fiber)
-    }).pipe(Effect.scoped))
+    }).pipe(Effect.scoped), UNDER_LOAD)
 
   it.live("--follow rides out a server restart: it reconnects and prints only the steps it hadn't", () =>
     Effect.gen(function* () {
@@ -200,5 +201,5 @@ describe("cello agents log (CEL-107)", () => {
       expect(follow.out.lines.filter((l) => l.includes("Reading AGENTS.md first."))).toHaveLength(1)
       expect(follow.out.lines.filter((l) => l.includes("✗ Bash · bun run test"))).toHaveLength(1)
       expect(port).toBeGreaterThan(0)
-    }).pipe(Effect.scoped))
+    }).pipe(Effect.scoped), UNDER_LOAD)
 })

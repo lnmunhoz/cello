@@ -1,9 +1,10 @@
 // CEL-61: in a Cello project, `cello hook claude pre-tool-use` also runs before Claude Code's Edit,
-// Write and NotebookEdit. Against a real server and a temp repo, as a real process: an edit inside the
-// repo is denied while the session holds no claimed task in the project, and goes through once it
-// claims one. Everything it can't be sure of goes through silently: a file outside the repo, a server
-// that's down, a repo that isn't a Cello project, CELLO_ALLOW_UNTRACKED=1. The claim cache lives in a
-// temp TMPDIR, never the real one.
+// Write and NotebookEdit. Against a real server and a temp repo: an edit inside the repo is denied
+// while the session holds no claimed task in the project, and goes through once it claims one.
+// Everything it can't be sure of goes through silently: a file outside the repo, a server that's
+// down, a repo that isn't a Cello project, CELLO_ALLOW_UNTRACKED=1. The claim cache lives in a temp
+// TMPDIR, never the real one. The hook runs in this process; one test runs it as a real process, as
+// Claude Code does (a process for every run outlasted Vitest's 5 s on a loaded machine, CEL-121).
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { newCommandId } from "@cello/client/client"
@@ -12,7 +13,7 @@ import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import { connect } from "../../../server/test/integration/harness.ts"
 import { claimDenyReason } from "../../src/claudeHook.ts"
-import { cello, gitRepo, hookProcess, installSetup, TEST_HOME } from "./cli.ts"
+import { cello, gitRepo, hookInProcess, hookProcess, installSetup, TEST_HOME, UNDER_LOAD } from "./cli.ts"
 
 const X = "2fd0505c-417a-4167-acfe-2d66080fcae0"
 const Y = "9f2c1a7b-other-session"
@@ -48,7 +49,7 @@ const deadPort = () => {
   return String(port)
 }
 
-/** Project APP linked to a git repo "app"; nobody has claimed anything. The hook runs as a real process. */
+/** Project APP linked to a git repo "app"; nobody has claimed anything. */
 const setup = Effect.gen(function* () {
   const dataDir = yield* tempDataDir
   const { port } = yield* startServer(dataDir)
@@ -58,7 +59,9 @@ const setup = Effect.gen(function* () {
   yield* human["project.create"]({ commandId: newCommandId(), workspaceId, name: "App", key: "APP", repoPath: repo })
   const tmp = path.join(dataDir, "tmp")
   fs.mkdirSync(tmp)
-  const env = { CELLO_PORT: String(port), HOME: TEST_HOME, TMPDIR: tmp }
+  // The deadline far past Vitest's, so a slow machine fails loudly instead of answering with the
+  // deadline's silence (the deadline has its own test in inbox.test.ts).
+  const env = { CELLO_PORT: String(port), HOME: TEST_HOME, TMPDIR: tmp, CELLO_HOOK_DEADLINE_MS: "60000" }
   return {
     port,
     dataDir,
@@ -66,11 +69,12 @@ const setup = Effect.gen(function* () {
     tmp,
     env,
     agent: (session: string) => cello({ port, env: claude(session), cwd: repo }),
-    hook: (stdin: string, extra: Record<string, string> = {}) => hookProcess("pre-tool-use", { ...env, ...extra }, stdin),
+    hook: (stdin: string, extra: Record<string, string> = {}) => hookInProcess("pre-tool-use", { port, env: { ...env, ...extra }, cwd: dataDir }, stdin),
   }
 })
 
 describe("cello hook claude pre-tool-use: the claim guard", () => {
+  // UNDER_LOAD: six hook runs and two commands, most of them running git (0.4 s idle, 4.1 s at load ~110).
   it.live("denies an edit in the repo until the session claims a task, then lets it through", () =>
     Effect.gen(function* () {
       const { repo, hook, agent } = yield* setup
@@ -88,8 +92,9 @@ describe("cello hook claude pre-tool-use: the claim guard", () => {
       expect(yield* hook(edit)).toEqual(SILENT)
       // Another session's claim doesn't count for this one.
       expect(yield* hook(editCall({ session: Y, cwd: repo, toolInput: { file_path: path.join(repo, "src", "a.ts") } }))).toEqual(denied("APP"))
-    }).pipe(Effect.scoped))
+    }).pipe(Effect.scoped), UNDER_LOAD)
 
+  // UNDER_LOAD: git commit and git worktree add besides the hook runs (2.7 s at load ~110).
   it.live("a subagent shares its parent's claim, also editing from a linked worktree of the repo", () =>
     Effect.gen(function* () {
       const { dataDir, repo, hook, agent } = yield* setup
@@ -102,7 +107,7 @@ describe("cello hook claude pre-tool-use: the claim guard", () => {
       yield* agent(X)("task", "create", "Builder work")
       yield* agent(X)("task", "claim", "APP-1")
       expect(yield* hook(edit)).toEqual(SILENT)
-    }).pipe(Effect.scoped))
+    }).pipe(Effect.scoped), UNDER_LOAD)
 
   it.live("a file outside the repo (a scratchpad, a temp folder) goes through without a claim", () =>
     Effect.gen(function* () {
@@ -130,6 +135,7 @@ describe("cello hook claude pre-tool-use: the claim guard", () => {
         .toEqual(SILENT)
     }).pipe(Effect.scoped))
 
+  // UNDER_LOAD: four hook runs and three commands, each running git (2.8 s at load ~110).
   it.live("remembers a claim for a minute in TMPDIR, so the next edits don't ask the server; a deny is never remembered", () =>
     Effect.gen(function* () {
       const { repo, tmp, hook, agent, env } = yield* setup
@@ -146,7 +152,7 @@ describe("cello hook claude pre-tool-use: the claim guard", () => {
       // A fresh cache asks again and sees the release.
       fs.rmSync(path.join(tmp, "cello-claims"), { recursive: true })
       expect(yield* hook(edit, { TMPDIR: env.TMPDIR })).toEqual(denied("APP"))
-    }).pipe(Effect.scoped))
+    }).pipe(Effect.scoped), UNDER_LOAD)
 
   it.live("Artifact calls still go to the artifact guard, which needs no claim and no server", () =>
     Effect.gen(function* () {
@@ -156,17 +162,12 @@ describe("cello hook claude pre-tool-use: the claim guard", () => {
         .toContain("This project uses Cello.")
     }).pipe(Effect.scoped))
 
-  it.live("in process, the same answer, so `cello hook claude` needs no real Claude Code", () =>
+  // UNDER_LOAD: a `cello` process loads the whole CLI (0.3 s idle, 4.7 s at load ~110).
+  it.live("as a real process, as Claude Code runs it: the server from its environment, the deny on stdout", () =>
     Effect.gen(function* () {
-      const { port, repo, tmp } = yield* setup
-      const out = yield* cello({ port, env: { TMPDIR: tmp }, cwd: repo, stdin: editCall({ cwd: repo, toolInput: { file_path: path.join(repo, "a.ts") } }) })(
-        "hook",
-        "claude",
-        "pre-tool-use",
-      )
-      expect(out.failure).toBeNull()
-      expect(JSON.parse(out.out).hookSpecificOutput.permissionDecisionReason).toBe(claimDenyReason("APP"))
-    }).pipe(Effect.scoped))
+      const { repo, env } = yield* setup
+      expect(yield* hookProcess("pre-tool-use", env, editCall({ cwd: repo, toolInput: { file_path: path.join(repo, "a.ts") } }))).toEqual(denied("APP"))
+    }).pipe(Effect.scoped), UNDER_LOAD)
 })
 
 describe("cello install claude: the claim guard", () => {
