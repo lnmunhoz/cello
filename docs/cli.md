@@ -354,7 +354,7 @@ cello task edit CEL-12 --milestone none   # take it out
 # CEL-12 has no milestone now  Sidebar: collapse, resize and remember the width
 ```
 
-- **Only the flags you give change.** `--title`, `--description` (or `--body-file`, a file or `-` for stdin) and `--priority` (`urgent`, `high`, `medium`, `low`, `none`), in any mix; together they're one change, one line in the history. `--milestone` is a change of its own, with its own line ("put it in M3"). With none of them it refuses and changes nothing. The same values again change nothing and say so ("Nothing to change on CEL-12  …").
+- **Only the flags you give change.** `--title`, `--description` (or `--body-file`, a file or `-` for stdin) and `--priority` (`urgent`, `high`, `medium`, `low`, `none`), in any mix; together they're one change, one line in the history. `--milestone` is a change of its own, with its own line ("put it in M3"); with `--json` the command then prints both writes as `{ "update": …, "moved": … }` (`update` is null when only `--milestone` was given). With none of them it refuses and changes nothing. The same values again change nothing and say so ("Nothing to change on CEL-12  …").
 - **The description is replaced, not added to.** To add a note, comment instead. To keep part of the old text, read it first: `cello task get CEL-12 --json | jq -r '.task.description'`.
 - **Who edits:** you, on any task, claimed or not; editing isn't guarded by a claim, and another session's claim stays. When the human edits a task you hold, your claim ends, as with any change they make to it, and your session is told (see Claim in Concepts).
 - **If someone changes the task at the same moment,** it fails with "It was changed by … in the meantime"; run it again.

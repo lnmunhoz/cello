@@ -90,6 +90,20 @@ describe("cello milestone", () => {
       expect((yield* agent("task", "list", "--milestone", "M3")).out).toBe("CEL-3  Todo  Filters")
       expect((yield* agent("task", "list", "--milestone", "none")).out).toBe("CEL-1  Todo  Sidebar")
       expect((yield* agent("task", "list", "--milestone", "M2")).out).toBe("No open tasks in milestone M2 in CEL.")
+
+      // --milestone with other flags: two writes, and --json prints both.
+      expect(yield* agent("task", "edit", "CEL-1", "--title", "Sidebar v2", "--milestone", "M2")).toEqual({
+        out: "Edited CEL-1  Sidebar v2\nCEL-1 is in M2  Sidebar v2",
+        failure: null,
+      })
+      const both = JSON.parse((yield* agent("task", "edit", "CEL-1", "--priority", "high", "--milestone", "M3", "--json")).out)
+      expect(both.update.result).toMatchObject({ key: "CEL-1", priority: 2 })
+      const m3 = JSON.parse((yield* agent("milestone", "show", "M3", "--json")).out).milestone
+      expect(both.moved.result.milestoneId).toBe(m3.id)
+      expect(both.moved.seq).not.toBeNull()
+      // --milestone alone prints its write, with no update.
+      const alone = JSON.parse((yield* agent("task", "edit", "CEL-1", "--milestone", "none", "--json")).out)
+      expect(alone).toMatchObject({ update: null, moved: { result: { key: "CEL-1", milestoneId: null } } })
     }).pipe(Effect.scoped))
 
   it.live("context lists the open milestones with done/total; only the human closes one", () =>

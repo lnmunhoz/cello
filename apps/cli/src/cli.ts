@@ -822,7 +822,8 @@ const edit = Command.make("edit", {
       })
     )
     const { update, moved, milestone } = written
-    if (input.json) return yield* printJson(moved ?? update)
+    // With --milestone it's two writes (task.update, task.setMilestone): the JSON holds both, null for one not sent.
+    if (input.json) return yield* printJson(Option.isSome(input.milestone) ? { update, moved } : update)
     const lines: string[] = []
     if (update) lines.push(update.seq === null ? `Nothing to change on ${update.result.key}  ${update.result.title}` : `Edited ${update.result.key}  ${update.result.title}`)
     if (moved) {
