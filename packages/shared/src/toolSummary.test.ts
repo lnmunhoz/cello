@@ -22,6 +22,12 @@ describe("toolTarget", () => {
     expect(toolTarget(name, input as Record<string, unknown> | null)).toBe(target)
   })
 
+  it("masks a key before cutting, so a key cut in half isn't left showing (CEL-106)", () => {
+    const key = "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+    const target = toolTarget("Bash", { command: `${"echo padding && ".repeat(3)}git push https://${key}@github.com/x/y.git` })
+    expect(target).not.toContain(key.slice(0, 12))
+  })
+
   it("cuts a long target to one short line", () => {
     const target = toolTarget("Bash", { command: `echo ${"x".repeat(300)}` })
     expect(target.length).toBeLessThanOrEqual(80)

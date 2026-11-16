@@ -3,13 +3,16 @@
 // from PostToolUse's tool_name and tool_input; the server makes the log's lines from the transcript's
 // tool_use blocks, which carry the same two.
 
+import { redact } from "./redact.ts"
+
 /** Longest target kept: a line in a list, not the whole command. */
 export const MAX_TARGET = 80
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "")
 
+/** One line, keys masked first (a key cut in half would no longer look like one), then cut. */
 const oneLine = (value: string): string => {
-  const line = value.replace(/\s+/g, " ").trim()
+  const line = redact(value.replace(/\s+/g, " ").trim()).text
   return line.length > MAX_TARGET ? `${line.slice(0, MAX_TARGET - 1)}…` : line
 }
 

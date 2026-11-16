@@ -47,7 +47,27 @@ describe("redact", () => {
       "The quick brown fox jumps over the lazy dog, again and again and again.",
       "bun run test:docker:e2e -- e2e/agents-page.spec.ts",
       "const token = getToken(session); passwordField: string",
+      "image sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "if (password === undefined) return",
     ].join("\n")
     expect(redact(plain)).toEqual({ text: plain, masked: false })
+  })
+
+  it.each([
+    ["a bearer token", "curl -H 'Authorization: Bearer abc123def456ghi789jkl'", "abc123def456ghi789jkl"],
+    ["a password in a URL", "git clone https://lucy:hunter2pass@example.com/repo.git", "hunter2pass"],
+    ["a database URL", "DATABASE_URL=postgres://app:s3cretpw@db.internal:5432/app", "s3cretpw"],
+    ["a --password flag", "mysql --password=hunter2pass -u root", "hunter2pass"],
+    ["a --token flag", "gh auth login --token tokvalue123456", "tokvalue123456"],
+    ["a lower-case password=", "login password=hunter2pass ok", "hunter2pass"],
+    ["a JSON api_key", '{ "api_key": "k-123456789abcdef" }', "k-123456789abcdef"],
+    ["an ini secret", "[default]\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLE\n", "wJalrXUtnFEMI"],
+    ["a 48-character hex key", "key 0123456789abcdef0123456789abcdef0123456789abcdef end", "0123456789abcdef0123456789abcdef0123456789abcdef"],
+  ])("masks %s", (_, text, secret) => {
+    const out = redact(text)
+    expect(out.masked).toBe(true)
+    expect(out.text).not.toContain(secret)
+    // Not even its start, unless it's a key whose start only says what kind it is.
+    if (!/^[0-9a-f]{48}$/.test(secret)) expect(out.text).not.toContain(secret.slice(0, 4))
   })
 })
