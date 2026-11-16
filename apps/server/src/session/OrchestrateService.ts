@@ -44,6 +44,11 @@ const make = Effect.gen(function* () {
             reason: "orchestrate mode is for an agent session: run it from the agent's own session (/cello:orchestrate does)",
           })
         }
+        // A subagent's calls carry its parent's session: a builder turning it off would leave the
+        // orchestrator open to a dialog nobody watches.
+        if (caller.agentId) {
+          return yield* new Invalid({ field: "session", reason: "orchestrate mode is for the main conversation, not a subagent" })
+        }
         const changed = yield* sql<{ id: string }>`
           UPDATE agent_sessions SET orchestrating = ${input.on ? 1 : 0}
           WHERE id = ${id} AND orchestrating <> ${input.on ? 1 : 0} RETURNING id`

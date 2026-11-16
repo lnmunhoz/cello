@@ -74,4 +74,18 @@ describe("OrchestrateService.set", () => {
       expect(yield* Effect.flip(agent(orchestrate.set({ commandId: cmd(), project: { key: "NOPE" }, on: true })))).toMatchObject({ _tag: "NotFound" })
       expect(yield* events).toEqual([])
     })))
+
+  // A subagent's calls carry its parent's session: a builder running `off` would leave the orchestrator
+  // open to a dialog nobody watches.
+  it.effect("a subagent can't turn its session's mode on or off; the session's own call still can", () =>
+    run(Effect.gen(function* () {
+      const { set, events, mode } = yield* setup
+      const builder = asAgent({ session: "session-orchestrator", client: "Claude Code", pid: process.pid, agent: "a13bfb89", agentType: "cello-builder" })
+      yield* agent(set(true))
+      const refused = { _tag: "Invalid", field: "session", reason: "orchestrate mode is for the main conversation, not a subagent" }
+      expect(yield* Effect.flip(builder(set(false)))).toMatchObject(refused)
+      expect(yield* Effect.flip(builder(set(true)))).toMatchObject(refused)
+      expect(yield* mode(agent)).toBe(true)
+      expect(yield* events).toHaveLength(1)
+    })))
 })

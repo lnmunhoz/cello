@@ -1060,6 +1060,7 @@ cello sessions orchestrate off   # what /cello:orchestrate off runs
 - **It stays on** across a resumed conversation, until `off`.
 - **When the human asks for the dialog back** in a chat ("/cello:orchestrate off", or in their own words), run `cello sessions orchestrate off`.
 - **The human has no session** to put in it: run as them it's refused.
+- **Only the main conversation changes it.** A subagent's commands carry its parent's session, so `cello sessions orchestrate` from a builder or reviewer is refused ("orchestrate mode is for the main conversation, not a subagent"): a builder turning it off would leave the orchestrator open to a dialog nobody watches.
 
 ## Pages, docs and specs
 
@@ -1696,7 +1697,7 @@ cello inbox [flags]
 
 ### cello sessions orchestrate
 
-Put your agent session in orchestrate mode, or take it out (CEL-124). /cello:orchestrate runs `on` first, and `/cello:orchestrate off` runs `off`. While it's on, the Claude Code hook turns your AskUserQuestion away, since nobody watches an orchestrator's window: questions go on the card with `cello task ask`. A session chatting with the human stays off and keeps the dialog. Running it again changes nothing; `cello context` shows the mode. The human has no session to put in it.
+Put your agent session in orchestrate mode, or take it out (CEL-124). /cello:orchestrate runs `on` first, and `/cello:orchestrate off` runs `off`. While it's on, the Claude Code hook turns your AskUserQuestion away, since nobody watches an orchestrator's window: questions go on the card with `cello task ask`. A session chatting with the human stays off and keeps the dialog. Running it again changes nothing; `cello context` shows the mode. The human has no session to put in it, and a subagent can't change its session's mode.
 
 ```
 cello sessions orchestrate [flags] <mode>

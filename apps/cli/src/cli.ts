@@ -2407,7 +2407,7 @@ const sessionsOrchestrate = Command.make("orchestrate", {
     "Put your agent session in orchestrate mode, or take it out (CEL-124). /cello:orchestrate runs `on` first, and `/cello:orchestrate off` runs `off`. " +
       "While it's on, the Claude Code hook turns your AskUserQuestion away, since nobody watches an orchestrator's window: questions go on the " +
       "card with `cello task ask`. A session chatting with the human stays off and keeps the dialog. Running it again changes nothing; " +
-      "`cello context` shows the mode. The human has no session to put in it.",
+      "`cello context` shows the mode. The human has no session to put in it, and a subagent can't change its session's mode.",
   ))
 
 const sessions = Command.make("sessions").pipe(
