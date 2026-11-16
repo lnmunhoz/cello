@@ -893,7 +893,7 @@ const ask = Command.make("ask", {
   question: Flag.String("question").pipe(Flag.atLeast(0), Flag.withDescription("A question; the --kind, --option, --recommend and --because after it belong to it.")),
   kind: Flag.String("kind").pipe(
     Flag.atLeast(0),
-    Flag.withDescription("one (the human picks one option; the default with options), any (any number) or text (no options; the default without)."),
+    Flag.withDescription("one (the human picks one option; the default with options), any (any number) or text (no options, optional to answer; the default without)."),
   ),
   option: Flag.String("option").pipe(Flag.atLeast(0), Flag.withDescription("An option: \"Label\" or \"Label|one-line description\"; repeat in order.")),
   recommend: Flag.String("recommend").pipe(Flag.atLeast(0), Flag.withDescription("The label of the option you recommend; --because must follow.")),

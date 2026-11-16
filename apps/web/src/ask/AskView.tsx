@@ -176,7 +176,7 @@ function QuestionCard({ number, question, ask, draft, unanswered, onPick, onNone
         label={`Comment on question ${number}`}
         placeholder={
           question.options.length === 0
-            ? "Your answer. Paste or drop screenshots to show what you mean."
+            ? "Optional. Paste or drop screenshots to show what you mean."
             : answer.none
             ? "None of these fits: say what you want instead (needed)."
             : "Why, or what you'd change (optional). Paste or drop screenshots."

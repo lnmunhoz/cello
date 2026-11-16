@@ -58,16 +58,14 @@ interface AnswerLike {
 
 /**
  * What's wrong with an answer, or null. A question with options takes one pick or several (its kind
- * only says what the agent expects), or "None of these" with a comment; a text-only one takes words.
+ * only says what the agent expects), or "None of these" with a comment; a text-only one is optional
+ * (CEL-116): words, screenshots or nothing, so "Anything else?" never holds up sending.
  */
 export const answerProblem = (question: QuestionLike, answer: AnswerLike): string | null => {
   const stranger = answer.optionIds.find((id) => !question.options.some((o) => o.id === id))
   if (stranger !== undefined) return `no option ${stranger}`
   const said = answer.comment.trim() !== ""
-  if (question.options.length === 0) {
-    if (answer.none) return "no options to refuse"
-    return said ? null : "unanswered"
-  }
+  if (question.options.length === 0) return answer.none ? "no options to refuse" : null
   if (answer.none) {
     if (answer.optionIds.length > 0) return "none of these, or picks, not both"
     return said ? null : "say why none of these"
@@ -82,7 +80,8 @@ export const unanswered = (
 ): string[] =>
   questions.filter((q) => {
     const answer = answers[q.id]
-    return answer === undefined || answerProblem(q, answer) !== null
+    if (answer === undefined) return q.options.length > 0
+    return answerProblem(q, answer) !== null
   }).map((q) => q.id)
 
 /** What a question starts with picked: the options the agent recommends. Lucas can change them. */

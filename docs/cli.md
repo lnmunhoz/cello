@@ -889,7 +889,7 @@ cello task ask CEL-43 --title "Search layout" \
 What happens:
 
 1. The task moves to **Needs input** (your claim stays). It shows in the sidebar's Needs input count, first on the human's Review page, and in In Progress with a "Needs input" badge (or its own column, when they turn that on in Display).
-2. The human answers each question (a pick, several, or None of these with a comment; words for a text-only one) and sends. The task goes back to **In Progress**, still yours. If you asked from In Review, the open packet is withdrawn then: submit a new one when the work is ready again.
+2. The human answers each question (a pick, several, or None of these with a comment; words for a text-only one, which they may leave blank) and sends. The task goes back to **In Progress**, still yours. If you asked from In Review, the open packet is withdrawn then: submit a new one when the work is ready again.
 3. The answers reach you, once:
    - **with `--wait`:** the command blocks until they send, then prints the answers and exits. Run it in the background (Claude Code: `run_in_background`), so your session wakes when they arrive.
    - **without it:** the hook delivers them like a comment (see Comments from the human reach your session), or `cello wait CEL-43` waits for them later (after a restart, say).
@@ -923,7 +923,7 @@ questions:
   - prompt: Which extras?
     kind: any
     options: [Filters, Recent searches]
-  - prompt: Anything else before I build it?             # text only: no options
+  - prompt: Which empty state should the new page keep?  # text only: no options, and optional
 attach:                                                   # screenshots, videos, text files
   - shots/peek-dark.png
   - { path: shots/flow.mp4, caption: Both layouts, side by side }
@@ -932,6 +932,8 @@ links:
 ```
 
 - **Inline flags** in order: `--question` starts a question; the `--kind`, `--option "Label|description"`, `--recommend "Label"` and `--because "why"` after it belong to it. `--attach`, `--caption` and `--link` work as for `submit`; they add to a file's evidence too.
+- **Every question with options needs an answer; a text-only one is optional:** the human can send with it blank.
+- **Don't add an "Anything else?" question.** The form always ends with its own optional note ("Anything else?"), which reaches you as `Note:`; a question of your own with the same words shows it twice.
 - **Recommend at most one option** of a pick-one question, and always say why (`because`). Recommended options come **picked** for the human; they can change them, pick several on any question, or pick **None of these** and say what instead.
 - **Up to 20 questions, 9 options each** (they pick with the 1-9 keys).
 - **Only the session holding the claim asks or withdraws.** Claim the task first; another session's ask on it is refused, naming the holder, so the answers never reach a session that didn't ask.
@@ -954,8 +956,8 @@ Ana Souza answered "Search layout" on CEL-43, just now:
 2. Which extras?
    Picked: Filters
 
-3. Anything else before I build it?
-   Comment: Keep the empty state from the old page.
+3. Which empty state should the new page keep?
+   Comment: The one from the old page.
 
 Note: Ship it after the e2e passes.
 
@@ -1485,7 +1487,7 @@ cello task ask [flags] <key>
 | `--title string` | What the decision is about, e.g. "Search layout". Overrides the file's. |
 | `--intro string` | Context in markdown, shown above the questions. |
 | `--question string` | A question; the --kind, --option, --recommend and --because after it belong to it. |
-| `--kind string` | one (the human picks one option; the default with options), any (any number) or text (no options; the default without). |
+| `--kind string` | one (the human picks one option; the default with options), any (any number) or text (no options, optional to answer; the default without). |
 | `--option string` | An option: "Label" or "Label\|one-line description"; repeat in order. |
 | `--recommend string` | The label of the option you recommend; --because must follow. |
 | `--because string` | Why you recommend it, right after --recommend. |
