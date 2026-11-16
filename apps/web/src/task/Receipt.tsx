@@ -5,9 +5,9 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Comment, Task } from "@cello/contract/entities"
 import { CheckCheckIcon, CheckIcon, CircleSlashIcon, ClockIcon } from "lucide-react"
-import { AgentMark, type AgentMood } from "../components/ui/AgentMark.tsx"
+import { AgentMark } from "../components/ui/AgentMark.tsx"
 import { useNow } from "../presence/useNow.ts"
-import { commentStatus, durationShort, type Reach, receiptOf, receiptTitle, sentWords, unsentTone } from "./receipts.ts"
+import { type CommentStatus, commentStatus, durationShort, receiptOf, receiptTitle, sentWords, unsentTone } from "./receipts.ts"
 
 /** The ticks under one of Lucas's comments; nothing under an agent's. */
 export function ReceiptTicks({ board, task, comment, comments }: { board: BoardState; task: Task; comment: Comment; comments: ReadonlyArray<Comment> }) {
@@ -51,25 +51,16 @@ export function ReceiptTicks({ board, task, comment, comments }: { board: BoardS
   }
 }
 
-/** The mark's pose (never playing here): working while it works, waiting while it waits. */
-const moodOf = (reach: Reach): AgentMood =>
-  reach.kind === "nobody" || reach.presence === "ended"
-    ? "still"
-    : reach.waiting
-    ? "waiting"
-    : reach.presence === "active" || reach.worker
-    ? "working"
-    : "still"
-
 /**
  * The mark in the colour of whoever works on it (a subagent on the task, else the session), amber when
  * idle, grey when nobody holds the task, it ended, or the row is about a session that let the task go.
+ * It thinks (CEL-69's loop) while the holder works on the comment it took, and never plays an entry here.
  */
-function StatusMark({ reach }: { reach: Reach | null }) {
-  if (reach === null || reach.kind === "nobody") return <AgentMark size={14} body="var(--faint)" eye="white" />
+function StatusMark({ status: { reach, mood } }: { status: CommentStatus }) {
+  if (reach === null || reach.kind === "nobody") return <AgentMark size={14} body="var(--faint)" eye="white" data-status-mark="" />
   const who = reach.worker ?? reach.who
   const body = reach.presence === "ended" ? "var(--faint)" : reach.presence === "idle" && !reach.worker ? "var(--idle)" : who.color
-  return <AgentMark size={14} mood={moodOf(reach)} body={body} eye="white" />
+  return <AgentMark size={14} mood={mood} body={body} eye="white" data-status-mark="" />
 }
 
 const TONE = { ok: "text-muted", idle: "text-idle", warn: "text-danger" } as const
@@ -81,7 +72,7 @@ export function CommentStatusRow({ board, task, comment, comments }: { board: Bo
   if (status === null) return null
   return (
     <li className={`flex min-w-0 items-center gap-2 px-1 text-xs leading-4 ${TONE[status.tone]}`} data-comment-status={status.tone} aria-live="polite">
-      <StatusMark reach={status.reach} />
+      <StatusMark status={status} />
       <span className="min-w-0">{status.text}</span>
     </li>
   )

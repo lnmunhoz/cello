@@ -109,6 +109,13 @@ export class SessionService extends Context.Service<SessionService, {
    * last closes, however it ends (a comment, a dropped connection, a stopping server). The human: none.
    */
   readonly waitingWhile: <A, E, R>(wait: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | Caller>
+  /**
+   * For the command in which a session's wait hands it its new items (CEL-76): the session woke and is
+   * starting on them, so it's seen now and no longer waiting, and the boards where it holds a claim hear
+   * that (`session.seen`) in the same change as the delivery, whatever PRESENCE_EVERY_MS says. Without
+   * it a board would show it waiting, last seen when the wait opened, until its next check-in.
+   */
+  readonly wokeWithin: (context: Commands.WriteContext, sessionId: string) => Effect.Effect<void, SqlError>
 }>()("cello/SessionService") {}
 
 interface SessionRow {
@@ -303,7 +310,21 @@ const make = Effect.gen(function* () {
       )
     })
 
-  return SessionService.of({ resolve, byIds, checkIn, sweep, waitingWhile })
+  const wokeWithin = (context: Commands.WriteContext, sessionId: string) =>
+    Effect.gen(function* () {
+      yield* sql`UPDATE agent_sessions SET last_seen_at = ${context.now} WHERE id = ${sessionId}`
+      const [row] = yield* sql<SessionRow>`SELECT * FROM agent_sessions WHERE id = ${sessionId}`
+      if (!row) return
+      // Not waiting from here on, though the wait's own release (and its session.waiting) comes after.
+      const session: AgentSession = { ...toSession(row), waiting: false }
+      const workspaceIds = yield* claimWorkspaces(sessionId)
+      yield* Effect.forEach(workspaceIds, (workspaceId) => context.emit({ type: "session.seen", session }, { workspaceId, projectId: null }), {
+        discard: true,
+      })
+      for (const id of workspaceIds) heard.set(`${sessionId} ${id}`, context.now)
+    }).pipe(Effect.withSpan("SessionService.wokeWithin"))
+
+  return SessionService.of({ resolve, byIds, checkIn, sweep, waitingWhile, wokeWithin })
 })
 
 export const layer = Layer.effect(SessionService, make)

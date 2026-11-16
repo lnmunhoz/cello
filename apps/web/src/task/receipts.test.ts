@@ -219,7 +219,39 @@ describe("commentStatus: what the row under Lucas's latest comment says", () => 
       .toMatchObject({ tone: "idle", text: "s1 got your comment but hasn't answered yet" })
     const released = task({ assigneeActorId: null, assigneeSessionId: null })
     expect(status(taken, board([released], [session("s1")]), released))
-      .toEqual({ tone: "idle", text: "s1 got your comment but hasn't answered yet", reach: null })
+      .toEqual({ tone: "idle", text: "s1 got your comment but hasn't answered yet", reach: null, mood: "still" })
+  })
+
+  // CEL-76 follow-up: Lucas wants the mark alive while the agent works on his comment.
+  it("the mark thinks only while the holder works on the comment it took; otherwise it keeps still", () => {
+    const taken = comment("c", now - MIN, sentTo("s1", now - MIN + 2_000, "hook"))
+    expect(status(taken, active)).toMatchObject({ text: "s1 got your comment and is working on it…", mood: "thinking" })
+    expect(status(taken, board([task()], [session("s1")], [builder()]))).toMatchObject({ mood: "thinking" })
+    // Got it, then stopped: idle, or waiting in `cello inbox --wait` (its pose, which doesn't move).
+    expect(status(taken, board([task()], [session("s1", { lastSeenAt: now - 20 * MIN })]))).toMatchObject({ mood: "still" })
+    expect(status(taken, board([task()], [session("s1", { waiting: true })]))).toMatchObject({ mood: "waiting" })
+    expect(status(taken, board([task()], [session("s1", { endedAt: now - 10 * MIN })]))).toMatchObject({ mood: "still" })
+    // Not taken yet: nothing to think about, whatever the holder is doing.
+    const sent = comment("c", now - MIN, sentTo("s1"))
+    expect(status(sent, active)).toMatchObject({ text: "s1 gets this at its next step", mood: "still" })
+    expect(status(sent, board([task()], [session("s1", { waiting: true })]))).toMatchObject({ mood: "waiting" })
+    expect(status(sent, board([task()], [session("s1", { lastSeenAt: now - 20 * MIN })]))).toMatchObject({ mood: "still" })
+  })
+
+  it("taken by its waiting `cello inbox --wait`: working on it at once (the server says it woke, in the same change)", () => {
+    // Waiting since long ago; the waiter took the comment a second after Lucas wrote it, and the board
+    // heard the session seen at that moment and no longer waiting.
+    const taken = comment("c", now - 5_000, sentTo("s1", now - 4_000, "wait"))
+    const woke = board([task()], [session("s1", { lastSeenAt: now - 4_000, waiting: false })])
+    expect(status(taken, woke)).toEqual({
+      tone: "ok",
+      text: "s1 got your comment and is working on it…",
+      reach: expect.objectContaining({ kind: "agent", presence: "active", waiting: false }),
+      mood: "thinking",
+    })
+    // It finished without answering and waits again: it hasn't answered, and the mark stops.
+    const waitsAgain = board([task()], [session("s1", { lastSeenAt: now - 4_000, waiting: true })])
+    expect(status(taken, waitsAgain)).toMatchObject({ tone: "idle", text: "s1 got your comment but hasn't answered yet", mood: "waiting" })
   })
 
   it("answered (a reply or reaction after taking it): no row", () => {
@@ -231,7 +263,7 @@ describe("commentStatus: what the row under Lucas's latest comment says", () => 
   it("went to nobody: warns while nobody holds the task and agents work on it; else no row", () => {
     const free = task({ assigneeActorId: null, assigneeSessionId: null, updatedBySessionId: "s1" })
     const c = comment("c", now - MIN, { delivery: null })
-    expect(status(c, board([free], [session("s1")]), free)).toEqual({ tone: "warn", text: "No agent holds this task: nobody will get this", reach: { kind: "nobody" } })
+    expect(status(c, board([free], [session("s1")]), free)).toEqual({ tone: "warn", text: "No agent holds this task: nobody will get this", reach: { kind: "nobody" }, mood: "still" })
     // A task no agent ever touched: a plain thread, no warning under each comment.
     const untouched = task({ assigneeActorId: null, assigneeSessionId: null })
     expect(status(c, board([untouched], []), untouched)).toBeNull()

@@ -121,6 +121,13 @@ export const statusCommentId = (comments: ReadonlyArray<Comment>): string | null
   comments.findLast((c) => c.sessionId === null && c.deletedAt === null)?.id ?? null
 
 /**
+ * The row's mark: thinking (it loops) only while the holder works on the comment it took, waiting's pose
+ * (big eyes, not moving) while it waits in `cello inbox --wait`, else still. Animations run only while
+ * an agent works (AGENTS.md).
+ */
+export type StatusMood = "thinking" | "waiting" | "still"
+
+/**
  * The status row under Lucas's latest comment, until it's answered: how soon the holder gets it, that it
  * got it and is working on it, or that nobody will. `reach` is the holder the row is about (its mark), or
  * null when it's about a session that no longer holds the task.
@@ -129,7 +136,12 @@ export interface CommentStatus {
   readonly tone: ReachTone
   readonly text: string
   readonly reach: Reach | null
+  readonly mood: StatusMood
 }
+
+/** The pose for a row that isn't about working on the comment: waiting's while it waits, else still. */
+const restingMood = (reach: Reach | null): StatusMood =>
+  reach !== null && reach.kind === "agent" && reach.presence !== "ended" && reach.waiting ? "waiting" : "still"
 
 export const commentStatus = (comment: Comment, comments: ReadonlyArray<Comment>, task: Task, board: BoardState, now: number): CommentStatus | null => {
   const r = receiptOf(comment, comments, board)
@@ -138,16 +150,20 @@ export const commentStatus = (comment: Comment, comments: ReadonlyArray<Comment>
   switch (r.state) {
     case "unsent":
       // Claimed after it was written, it still went nowhere: its tick says so, and no row says otherwise.
-      return reach.kind === "nobody" && unsentTone(comment, comments, task, board) === "warn" ? { ...reachWords(reach), reach } : null
+      return reach.kind === "nobody" && unsentTone(comment, comments, task, board) === "warn"
+        ? { ...reachWords(reach), reach, mood: "still" }
+        : null
     case "sent":
       // Waiting in a session that let the task go: its tick names that inbox.
-      return r.sessionId === task.assigneeSessionId ? { ...reachWords(reach), reach } : null
+      return r.sessionId === task.assigneeSessionId ? { ...reachWords(reach), reach, mood: restingMood(reach) } : null
     case "delivered": {
       const holder = reach.kind === "agent" && r.sessionId === task.assigneeSessionId ? reach : null
-      // A holder waiting in `cello inbox --wait` has ended its turn: it's waiting for Lucas, not working on it.
+      // A holder waiting in `cello inbox --wait` has ended its turn: it's waiting for Lucas, not working on
+      // it. The wait that hands a comment over ends it: the server tells the boards the session woke, seen
+      // at that moment, in the same change as the delivery (SessionService.wokeWithin).
       return holder && working(holder) && !holder.waiting
-        ? { tone: "ok", text: `${r.to.short} got your comment and is working on it…`, reach: holder }
-        : { tone: "idle", text: `${r.to.short} got your comment but hasn't answered yet`, reach: holder }
+        ? { tone: "ok", text: `${r.to.short} got your comment and is working on it…`, reach: holder, mood: "thinking" }
+        : { tone: "idle", text: `${r.to.short} got your comment but hasn't answered yet`, reach: holder, mood: restingMood(holder) }
     }
   }
 }
