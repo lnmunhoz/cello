@@ -23,6 +23,12 @@ const agent = (sessionId: string, agentId: string, extra: Partial<SessionAgent> 
   startedAt: now - 30 * MIN, lastSeenAt: now - MIN, endedAt: null, ...extra,
 })
 
+const STATUSES = {
+  prog: { id: "prog", workspaceId: "w1", name: "In Progress", category: "started", position: "a1", color: "#f59e0b", hidden: false, createdAt: 1, updatedAt: 1 },
+  needs: { id: "needs", workspaceId: "w1", name: "Needs input", category: "waiting", position: "a2", color: "#f97316", hidden: false, createdAt: 1, updatedAt: 1 },
+  review: { id: "review", workspaceId: "w1", name: "In Review", category: "started", position: "a3", color: "#8b5cf6", hidden: false, createdAt: 1, updatedAt: 1 },
+} as const
+
 const board = (tasks: Task[], sessions: AgentSession[], agents: SessionAgent[] = []): BoardState => ({
   seq: 1,
   actors: {
@@ -31,7 +37,7 @@ const board = (tasks: Task[], sessions: AgentSession[], agents: SessionAgent[] =
   },
   workspaces: {},
   projects: { p1: { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", color: "#000", description: "", repoPath: null, createdAt: 1, updatedAt: 1, archivedAt: null } },
-  statuses: {},
+  statuses: STATUSES,
   labels: {},
   tasks: Object.fromEntries(tasks.map((t) => [t.id, t])),
   sessions: Object.fromEntries(sessions.map((s) => [s.id, s])),
@@ -121,6 +127,15 @@ describe("stepOf: the step a card, row or panel shows (CEL-105)", () => {
     expect(stepOf(board([held], [session("8a41c9e2")]), held, now)).toMatchObject({ id: "working", label: "Working" })
     expect(stepOf(board([held], [session("8a41c9e2", { lastSeenAt: now - 20 * MIN })]), held, now)).toBeNull()
     expect(stepOf(board([held], [session("8a41c9e2", { endedAt: now - MIN })]), held, now)).toBeNull()
+  })
+
+  it("Working only in In Progress: a task waiting in Needs input (its session active, running --wait) isn't Working; a stage still shows there", () => {
+    const waiting = task("t", { assigneeActorId: "claude", assigneeSessionId: "8a41c9e2", statusId: "needs" })
+    expect(stepOf(board([waiting], [session("8a41c9e2")]), waiting, now)).toBeNull()
+    const staged = { ...waiting, stage: "building" as const }
+    expect(stepOf(board([staged], [session("8a41c9e2")]), staged, now)?.label).toBe("Building")
+    const inReview = { ...waiting, statusId: "review" }
+    expect(stepOf(board([inReview], [session("8a41c9e2")]), inReview, now)).toBeNull()
   })
 
   it("provenanceOf carries it, next to the stage itself", () => {

@@ -120,6 +120,34 @@ describe("laneDrop: a drop in a column split into lanes", () => {
     })
   })
 
+  describe("with a Working lane (CEL-105)", () => {
+    // building [c], Working [w1, w2], no stage [b]: the lane keys laneOf gives them.
+    const working = [card("b", "a1", null), card("c", "a2", "building"), card("w1", "a3", WORKING_LANE), card("w2", "a5", WORKING_LANE)]
+
+    it("a Working card dropped among the no-stage lane snaps back, and so does a no-stage card dropped among Working", () => {
+      expect(laneDrop({ key: "w1", to: "prog", index: 3 }, ["c", "w2", "b", "w1"], "prog", "manual", working)).toBeNull()
+      expect(laneDrop({ key: "b", to: "prog", index: 1 }, ["c", "b", "w1", "w2"], "prog", "manual", working)).toBeNull()
+    })
+
+    it("a Working card dropped between Working neighbours goes between them", () => {
+      expect(laneDrop({ key: "w2", to: "prog", index: 1 }, ["c", "w2", "w1", "b"], "prog", "manual", working)).toMatchObject({
+        statusId: "prog", before: null, after: "w1",
+      })
+      expect(laneDrop({ key: "w1", to: "prog", index: 2 }, ["c", "w2", "w1", "b"], "prog", "manual", working)).toMatchObject({
+        statusId: "prog", before: "w2", after: null,
+      })
+    })
+
+    it("a card from another column joins the no-stage lane: dropped among Working it goes to the end, dropped by a no-stage card it goes next to it", () => {
+      const amongWorking = laneDrop({ key: "t", to: "prog", index: 2 }, ["c", "w1", "t", "w2", "b"], "todo", "manual", working)
+      expect(amongWorking).toMatchObject({ statusId: "prog", before: null, after: null })
+      expect(amongWorking!.position > "a5").toBe(true)
+      expect(laneDrop({ key: "t", to: "prog", index: 3 }, ["c", "w1", "w2", "t", "b"], "todo", "manual", working)).toMatchObject({
+        statusId: "prog", before: null, after: "b",
+      })
+    })
+  })
+
   it("with a filter hiding some of the lane, the card goes next to its shown neighbor among the whole lane (CEL-52)", () => {
     // review lane: a, d (hidden by the filter), e.
     const withHidden = [...column, card("e", "a4", "review")]

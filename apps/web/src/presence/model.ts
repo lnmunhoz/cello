@@ -8,7 +8,7 @@ import { type StageInfo, stageInfo } from "@cello/contract/stages"
 import { isNeedsInputStatus } from "@cello/shared/ask"
 import { colorFromSeed } from "@cello/shared/color"
 import { agoShort, type Presence, presenceOf, type SessionLike } from "@cello/shared/presence"
-import { isReviewStatus } from "@cello/shared/review"
+import { isReviewStatus, stageStatus } from "@cello/shared/review"
 import type { AgentMood } from "../components/ui/AgentMark.tsx"
 import { formatDay } from "../lib/format.ts"
 
@@ -153,9 +153,22 @@ export const holderActive = (board: BoardState, task: Task, now: number): boolea
   return session !== undefined && presenceOf(session, now) === "active"
 }
 
-/** The step a task is at: its stage, else Working while an agent on it is active, else none. */
+/** Whether the task is in its workspace's In Progress (its first started status), where stages live. */
+const inStageStatus = (board: BoardState, task: Task): boolean => {
+  const status = board.statuses[task.statusId]
+  if (!status) return false
+  return stageStatus(Object.values(board.statuses).filter((s) => s.workspaceId === status.workspaceId))?.id === status.id
+}
+
+/**
+ * Whether a task with no stage counts as Working: in In Progress with an agent on it active. Elsewhere it
+ * doesn't: waiting in Needs input, its session stays active (`cello task ask --wait`), but it's waiting.
+ */
+export const workingNow = (board: BoardState, task: Task, now: number): boolean => inStageStatus(board, task) && holderActive(board, task, now)
+
+/** The step a task is at: its stage (wherever it's carried), else Working (workingNow), else none. */
 export const stepOf = (board: BoardState, task: Task, now: number): StageInfo | null =>
-  task.stage !== null ? (stageInfo(task.stage) ?? null) : holderActive(board, task, now) ? WORKING : null
+  task.stage !== null ? (stageInfo(task.stage) ?? null) : workingNow(board, task, now) ? WORKING : null
 
 /**
  * "Lucas created · 8a41c9e2 changed 4m ago", "Lucas created · 2fd0505c commented just now",

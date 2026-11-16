@@ -8,7 +8,7 @@ import { placement, placementAtEnd } from "@cello/client/sync/selectors"
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Task } from "@cello/contract/entities"
 import { STAGE_IDS, type StageInfo, stageInfo, stageRank } from "@cello/contract/stages"
-import { holderActive, WORKING, WORKING_LANE } from "../presence/model.ts"
+import { WORKING, WORKING_LANE, workingNow } from "../presence/model.ts"
 import { type Drop, indexAmong, type Move } from "./moves.ts"
 
 /** A task's lane in In Progress: its stage, else Working while an agent on it is active, else none (null). */
@@ -16,7 +16,7 @@ export const laneOf = (task: { readonly stage: string | null }, active: boolean)
   task.stage ?? (active ? WORKING_LANE : null)
 
 /** A task's lane on the board and in the list, read from its agent's presence right now. */
-export const taskLane = (board: BoardState, task: Task, now: number): string | null => laneOf(task, holderActive(board, task, now))
+export const taskLane = (board: BoardState, task: Task, now: number): string | null => laneOf(task, workingNow(board, task, now))
 
 /** A lane's place: the stages in their order, then Working, then no stage. */
 const laneRank = (lane: string | null): number => (lane === WORKING_LANE ? STAGE_IDS.length : lane === null ? STAGE_IDS.length + 1 : stageRank(lane))
