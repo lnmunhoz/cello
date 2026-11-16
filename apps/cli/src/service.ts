@@ -166,20 +166,28 @@ export const temporaryText = (program: string): string =>
 /** Why an install failed, what state it left, and how to get Cello running again. */
 export const failedInstallText = (failure: {
   readonly reason: string
-  readonly dataDir: string
-  /** A server for the data folder was stopped on the way (the old service's, or one --replace stopped). */
-  readonly stopped: boolean
+  /**
+   * The data folders whose servers were stopped on the way: the old service's (which may be another
+   * folder than the new one's) and the one --replace stopped. Empty when none was.
+   */
+  readonly stopped: ReadonlyArray<string>
   /** The old plist was put back: and launchd loaded it again, or didn't. null when there was none. */
   readonly restored: "loaded" | "not loaded" | null
-}): string => [
-  `launchctl couldn't load the service: ${failure.reason}`,
-  ...(failure.restored === "loaded" ? ["The old service's plist is back in place and running again."] : []),
-  ...(failure.restored === "not loaded" ? ["The old service's plist is back in place, but launchd didn't load it either."] : []),
-  ...(failure.restored !== "loaded" && failure.stopped
-    ? [`The server for ${failure.dataDir} was stopped. Run \`cello start\` to use Cello now; \`cello service status\` and the log say why the service didn't load.`]
-    : []),
-  ...(failure.restored === null && !failure.stopped ? ["Nothing was changed; `cello service status` shows the state."] : []),
-].join(" ")
+}): string => {
+  const folders = [...new Set(failure.stopped)]
+  const stopped = folders.length === 1
+    ? `The server for ${folders[0]} was stopped.`
+    : `The servers for ${folders.slice(0, -1).join(", ")} and ${folders.at(-1)} were stopped.`
+  return [
+    `launchctl couldn't load the service: ${failure.reason}`,
+    ...(failure.restored === "loaded" ? ["The old service's plist is back in place and running again."] : []),
+    ...(failure.restored === "not loaded" ? ["The old service's plist is back in place, but launchd didn't load it either."] : []),
+    ...(failure.restored !== "loaded" && folders.length > 0
+      ? [`${stopped} Run \`cello start\` to use Cello now; \`cello service status\` and the log say why the service didn't load.`]
+      : []),
+    ...(failure.restored === null && folders.length === 0 ? ["Nothing was changed; `cello service status` shows the state."] : []),
+  ].join(" ")
+}
 
 export const restartedText = (program: ReadonlyArray<string>, pid: number, port: number): string =>
   `Restarted the background service: launchd started \`${program.join(" ")}\` again (pid ${pid}), and it answers on ${serverUrl(port)}.`

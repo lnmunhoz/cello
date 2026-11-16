@@ -21,9 +21,12 @@ import {
   temporaryText,
 } from "../../src/service.ts"
 import { fakeJobPid, writeFakeLaunchctl } from "../fakeLaunchctl.ts"
+import { LSOF_PATHS } from "../../src/launchd.ts"
 import { cello, startProcess } from "./cli.ts"
 
 const UID = process.getuid!()
+/** lsof, which tells who listens on a port; the reused-pid test needs it (as install does to be sure). */
+const lsof = LSOF_PATHS.find((file) => fs.existsSync(file))
 const TARGET = `gui/${UID}/dev.cello.server`
 
 /** A process standing in for a server (or the service's job); killed when the test ends. */
@@ -149,6 +152,44 @@ describe("cello service install", () => {
       expect(fs.existsSync(plist)).toBe(false)
     }).pipe(Effect.scoped))
 
+  it.live.skipIf(lsof === undefined)(
+    "never stops a reused pid that looks like a server: its command ends in `start` and a Cello answers on the lock's port, but that Cello listens from another pid",
+    () =>
+      Effect.gen(function* () {
+        const dir = yield* tempDataDir
+        const { port } = yield* startServer(path.join(dir, "served")) // a live Cello on the lock's port, in this process
+        const { dataDir, install, writeLock, plist } = yield* setup()
+        // A stale lock's pid, since taken by some other `… start` command.
+        const reused = yield* Effect.acquireRelease(
+          Effect.sync(() => Bun.spawn(["sh", "-c", "sleep 300", "start"])),
+          (proc) => Effect.promise(async () => {
+            if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL")
+            await proc.exited
+          }),
+        )
+        writeLock(reused.pid, port)
+
+        expect((yield* install("--replace")).failure).toBe(staleLockText(dataDir, { pid: reused.pid, port }))
+        expect(isAlive(reused.pid)).toBe(true)
+        expect(fs.existsSync(plist)).toBe(false)
+      }).pipe(Effect.scoped),
+  )
+
+  it.live("a failed install that stopped another folder's service names that folder, not the new one", () =>
+    Effect.gen(function* () {
+      const { dir, dataDir, install, runWith, state, loadJob } = yield* setup()
+      expect((yield* install()).failure).toBeNull()
+      const job = yield* sleeper
+      loadJob(job.pid)
+      fs.writeFileSync(path.join(state, "bootstrap-fails"), "")
+      const other = path.join(dir, "other")
+
+      const failed = yield* runWith({ CELLO_DATA_DIR: other })("service", "install", "--temporary", "--replace")
+
+      expect(failed.failure).toBe(failedInstallText({ reason: "Bootstrap failed: 5: Input/output error", stopped: [dataDir], restored: "not loaded" }))
+      expect(failed.failure).not.toContain(other)
+    }).pipe(Effect.scoped))
+
   it.live("never signals a pid that can't be another server: 0, 1, -1, or this very process", () =>
     Effect.gen(function* () {
       const { dataDir, install, writeLock } = yield* setup()
@@ -208,12 +249,7 @@ describe("cello service install", () => {
     Effect.gen(function* () {
       const { dataDir, install, state, plist } = yield* setup()
       fs.writeFileSync(path.join(state, "bootstrap-fails"), "")
-      expect((yield* install()).failure).toBe(failedInstallText({
-        reason: "Bootstrap failed: 5: Input/output error",
-        dataDir,
-        stopped: false,
-        restored: null,
-      }))
+      expect((yield* install()).failure).toBe(failedInstallText({ reason: "Bootstrap failed: 5: Input/output error", stopped: [], restored: null }))
       expect(fs.existsSync(plist)).toBe(false)
     }).pipe(Effect.scoped))
 
@@ -228,7 +264,7 @@ describe("cello service install", () => {
 
       const failed = yield* install()
 
-      expect(failed.failure).toBe(failedInstallText({ reason: "Bootstrap failed: 5: Input/output error", dataDir, stopped: true, restored: "not loaded" }))
+      expect(failed.failure).toBe(failedInstallText({ reason: "Bootstrap failed: 5: Input/output error", stopped: [dataDir], restored: "not loaded" }))
       expect(failed.failure).toContain("cello start")
       expect(fs.readFileSync(plist, "utf8")).toBe(before)
       expect(fs.existsSync(`${plist}.bak`)).toBe(false)
