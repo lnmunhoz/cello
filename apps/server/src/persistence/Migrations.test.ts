@@ -394,6 +394,12 @@ const allRows = Effect.gen(function* () {
   return rows
 })
 
+/** The rows without 0014's `inbox_items.read_via` (CEL-76), for the tests of the migrations before it. */
+const withoutReadVia = (rows: Record<string, unknown>): Record<string, unknown> => ({
+  ...rows,
+  inbox_items: ((rows["inbox_items"] ?? []) as ReadonlyArray<Record<string, unknown>>).map(({ read_via: _via, ...rest }) => rest),
+})
+
 // CEL-71: a packet whose task leaves In Review by a plain move closes as `withdrawn`. SQLite can't change
 // the decision CHECK in place, so 0010 rebuilds `reviews` under the attachments that reference it, and
 // puts back its indexes and the search triggers that went with the old table.
@@ -505,7 +511,7 @@ describe("migration 0012_comment_attachments", () => {
 
       yield* Migrations.run
       // The reactions table is 0013's (CEL-77), with its own test below.
-      const { comment_reactions: _reactions, ...after } = yield* allRows
+      const { comment_reactions: _reactions, ...after } = withoutReadVia(yield* allRows)
       const attachments = (after["attachments"] as ReadonlyArray<Record<string, unknown>>).map(({ comment_id, ...rest }) => {
         expect(comment_id).toBeNull()
         return rest
@@ -545,7 +551,7 @@ describe("migration 0013_reactions", () => {
       const before = yield* allRows
 
       yield* Migrations.run
-      const { comment_reactions: added, ...after } = yield* allRows
+      const { comment_reactions: added, ...after } = withoutReadVia(yield* allRows)
       expect(added).toEqual([])
       expect(after).toEqual(before)
 
@@ -568,5 +574,39 @@ describe("migration 0013_reactions", () => {
       expect(yield* allRows).toEqual(migrated)
       expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
       expect(yield* sql`PRAGMA foreign_key_check`).toEqual([])
+    }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
+})
+
+/** Every migration before 0014 (CEL-76). */
+const beforeReadVia = SqliteMigrator.run({
+  loader: SqliteMigrator.fromRecord(Object.fromEntries(Object.entries(Migrations.records).filter(([id]) => id < "0014"))),
+  table: "migrations",
+}).pipe(Effect.orDie)
+
+// CEL-76: comment receipts. Additive: a nullable column on inbox_items saying how the session took each
+// item (its hook, `cello inbox` or `cello inbox --wait`), null on every row there is. Nothing rebuilt.
+describe("migration 0014_inbox_read_via", () => {
+  it.effect("adds read_via to inbox_items, null on every row it finds, and changes nothing else", () =>
+    Effect.gen(function* () {
+      yield* beforeReadVia
+      yield* realisticBoard
+      const sql = yield* SqlClient.SqlClient
+      const before = yield* allRows
+      expect((before["inbox_items"] as ReadonlyArray<unknown>).length).toBeGreaterThan(0)
+
+      yield* Migrations.run
+      const after = yield* allRows
+      for (const row of after["inbox_items"] as ReadonlyArray<Record<string, unknown>>) expect(row["read_via"]).toBeNull()
+      expect(withoutReadVia(after)).toEqual(before)
+
+      // Only the three ways a session takes an item.
+      expect((yield* Effect.exit(sql`UPDATE inbox_items SET read_via = 'hook' WHERE rowid = (SELECT MIN(rowid) FROM inbox_items)`))._tag)
+        .toBe("Success")
+      expect((yield* Effect.exit(sql`UPDATE inbox_items SET read_via = 'carrier pigeon'`))._tag).toBe("Failure")
+
+      const migrated = yield* allRows
+      yield* Migrations.run
+      expect(yield* allRows).toEqual(migrated)
+      expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
     }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
 })

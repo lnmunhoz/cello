@@ -15,6 +15,7 @@ import reviewWithdrawn from "./migrations/0010_review_withdrawn.ts"
 import agents from "./migrations/0011_agents.ts"
 import commentAttachments from "./migrations/0012_comment_attachments.ts"
 import reactions from "./migrations/0013_reactions.ts"
+import inboxReadVia from "./migrations/0014_inbox_read_via.ts"
 
 /** Every migration by id. Tests of one migration run the ones before it from here. */
 export const records = {
@@ -31,6 +32,7 @@ export const records = {
   "0011_agents": agents,
   "0012_comment_attachments": commentAttachments,
   "0013_reactions": reactions,
+  "0014_inbox_read_via": inboxReadVia,
 }
 
 export const migrations = SqliteMigrator.fromRecord(records)

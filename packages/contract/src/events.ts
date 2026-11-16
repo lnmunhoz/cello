@@ -5,6 +5,7 @@ import {
   AgentSession,
   Ask,
   Comment,
+  DeliveryVia,
   DocumentSummary,
   DueDate,
   Id,
@@ -95,20 +96,27 @@ export const CelloEvent = Schema.Union([
   event("task.claim_ended", { id: Id, version: Schema.Number, from: ClaimHolder, reason: Schema.Literals(["human_change"]) }),
   // `cello task stage` (CEL-35). A status change clears the stage inside its own `task.moved`.
   event("task.stage_changed", { id: Id, version: Schema.Number, before: Schema.NullOr(TaskStage), after: Schema.NullOr(TaskStage) }),
-  // An agent session holding a claim checked in (at most once every 2 minutes) or its process exited, so
+  // An agent session holding a claim checked in (at most once a minute) or its process exited, so
   // boards show who is working right now (CEL-35). Workspace-level (no projectId): one per workspace
   // the session holds claims in. Not a task change: the task's version stays.
   event("session.seen", { session: AgentSession }),
-  // A subagent of a session started, was launched on a task, checked in (at most once every 2 minutes)
+  // A subagent of a session started, was launched on a task, checked in (at most once a minute)
   // or stopped (CEL-55). Workspace-level like session.seen: one per workspace its task (else its
   // session's claims) is in. Carries the whole agent; a board keeps the latest.
   event("agent.seen", { agent: SessionAgent }),
+  // A session's `cello inbox --wait` started or stopped (CEL-76): the server sees its `inbox.wait` open
+  // and close, so boards can say a comment reaches it at once. Sent when the first opens and the last
+  // closes (at most twice a turn). Workspace-level like session.seen: one per workspace it holds claims in.
+  event("session.waiting", { session: Id, waiting: Schema.Boolean }),
   // A comment is activity on its task: the same command sets the task's last change and version (no
   // task event). Edits and deletes name their task so a board can follow; ones stored before don't. A
   // delete carries the task's new `lastCommentAt` (the latest remaining comment, or null).
   event("comment.added", { comment: Comment }),
   event("comment.edited", { id: Id, taskId: Schema.optionalKey(Id), before: CommentPatch, after: CommentPatch }),
   event("comment.deleted", { id: Id, taskId: Schema.optionalKey(Id), lastCommentAt: Schema.optionalKey(Schema.NullOr(Millis)) }),
+  // The agent session a comment (or a Send back note) went to took it (CEL-76): written by the same
+  // statement that marks the inbox item read, so Lucas sees "Delivered". Not activity on the task.
+  event("comment.delivered", { commentId: Id, taskId: Id, session: Id, via: DeliveryVia }),
   // An emoji reaction on a comment (CEL-77), added or removed (removed carries it as it was). Not
   // activity on the task: its version and last change stay, and a claim doesn't end.
   event("reaction.added", { reaction: Reaction }),

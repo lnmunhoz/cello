@@ -209,6 +209,18 @@ describe("applyEvents: stage, last change and presence (CEL-5, CEL-35)", () => {
     expect(next.tasks).toBe(state.tasks)
   })
 
+  it("a session's waiter opening and closing (CEL-76) says whether it's waiting; a session the board doesn't know is ignored", () => {
+    const session = {
+      id: "s1", actorId: "claude", externalId: "2fd0505c-1", clientName: "Claude Code", entrypoint: null, cwd: null, pid: null,
+      startedAt: 1, lastSeenAt: 5, endedAt: null,
+    }
+    const state = fromSnapshot({ ...snapshot([task("t1")]), sessions: [session] })
+    const waiting = applyEvents(state, [agent(11, { type: "session.waiting", session: "s1", waiting: true })])
+    expect(waiting.sessions["s1"]).toMatchObject({ waiting: true, lastSeenAt: 5 })
+    expect(applyEvents(waiting, [agent(12, { type: "session.waiting", session: "s1", waiting: false })]).sessions["s1"]?.waiting).toBe(false)
+    expect(applyEvents(state, [agent(11, { type: "session.waiting", session: "s9", waiting: true })]).sessions["s9"]).toBeUndefined()
+  })
+
   it("a session whose agent the board doesn't know yet brings it in, named after its client, so history can name it", () => {
     const session = {
       id: "s9", actorId: "codex", externalId: "9f9f9f9f-1", clientName: "Codex", entrypoint: null, cwd: null, pid: null,

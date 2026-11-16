@@ -146,6 +146,10 @@ const apply = (d: Draft, e: CelloEvent) => {
       return d.set("sessions", e.session.id, e.session)
     case "agent.seen":
       return d.set("agents", agentKey(e.agent.sessionId, e.agent.agentId), e.agent)
+    // A session's `cello inbox --wait` opened or closed (CEL-76): a comment reaches it at once while it waits.
+    case "session.waiting":
+      if (!(e.session in d.get("sessions"))) return
+      return d.update("sessions", e.session, (s) => ({ ...s, waiting: e.waiting }))
     // Comments load per task; the board keeps each task's count and latest comment time. A comment is
     // activity: the server set the task's last change and bumped its version in the same command.
     case "comment.added":
@@ -181,6 +185,8 @@ const apply = (d: Draft, e: CelloEvent) => {
       return d.update("documents", e.id, (doc) => ({ ...doc, archivedAt: e.ts }))
     case "build.recorded":
       return // builds load on the Builds page, not in board state
+    case "comment.delivered":
+      return // receipts load with a task's comments (sync/comments.ts); taking one is no activity on the task
     case "reaction.added":
     case "reaction.removed":
       return // reactions load with a task's comments (sync/comments.ts); they're no activity on the task

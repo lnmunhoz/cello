@@ -95,7 +95,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
   - If your session has exited, another session can claim the task and takes the claim over.
   - Lucas always wins: when he changes a task you've claimed (moves it, approves it), your claim ends, and \`cello context\` lists it under "Claims you lost".
 - **Stage:** where a claimed task is inside In Progress: **building**, **review** (Agent review), **fixing** (Fixing findings) or **merged**. In Progress holds a task from the claim to the packet, so without a stage a task being built and one waiting for review look the same. The session holding the claim sets it with \`cello task stage\`; the board shows it on the card. Asking Lucas keeps it through Needs input; any other move out of In Progress, or submitting it, clears it. See Stages.
-- **Presence:** the board shows whether the session holding a claim is working right now: **active now** (it called Cello in the last 5 minutes), **seen 2h ago** (quiet, its process still running) or **ended** (its process exited). Every \`cello\` command and every hook run counts as a check-in; with the hooks installed that's every tool call, a subagent's included. A subagent checks in as itself too, so the card names the subagent working on it ("cello-builder · a13bfb89 active now") rather than its session. The board hears about each at most every 2 minutes, which keeps "active now" steady without filling the history. You don't do anything for it.
+- **Presence:** the board shows whether the session holding a claim is working right now: **active now** (it called Cello in the last 5 minutes), **seen 2h ago** (quiet, its process still running) or **ended** (its process exited). Every \`cello\` command and every hook run counts as a check-in; with the hooks installed that's every tool call, a subagent's included. A subagent checks in as itself too, so the card names the subagent working on it ("cello-builder · a13bfb89 active now") rather than its session. The board hears about each at most once a minute, which keeps "active now" steady without filling the history; each one plays a short motion on the card, and while you're working the card has a thin edge in your colour. You don't do anything for it.
 - **Review packet:** how finished work reaches Lucas. It holds a summary, how-to-check steps and evidence (videos, screenshots, test output, links). \`cello task submit\` creates it and moves the task to In Review. Then Lucas decides:
   - **Approve:** the task moves to Done and your claim ends. A note he typed with it shows under Reviews in \`cello task get\` (\`Note: …\`).
   - **Send back:** the task returns to In Progress with his note, and your claim stays. The note comes to your session (see Comments from Lucas reach your session), and \`cello task get\` shows it under Reviews.
@@ -428,7 +428,23 @@ cello inbox --wait       # blocks until a new one arrives, then hands it over (b
 cello inbox --json
 \`\`\`
 
-**Each comment arrives once.** Whichever gets it first (the Stop hook, the PostToolUse hook, \`cello inbox\` or \`cello inbox --wait\`) marks it read, so it never comes a second time, even when parallel tool calls run the hook at the same moment. \`cello context\` only shows them. What arrives looks like this:
+**Each comment arrives once.** Whichever gets it first (the Stop hook, the PostToolUse hook, \`cello inbox\` or \`cello inbox --wait\`) marks it read, so it never comes a second time, even when parallel tool calls run the hook at the same moment. \`cello context\` only shows them.
+
+**Lucas sees each comment's receipt**, like a messenger's ticks, under his comment on the card:
+
+- **Sent** while it waits in your inbox.
+- **✓ Delivered to 2fd0505c · 12s** once your session takes it (the hook, \`cello inbox\` or \`--wait\`). Showing it with \`cello context\` doesn't count.
+- **✓✓ Answered** once your session, or one of its subagents, comments on the task after it or reacts to it. So answer on the card, even with just a 👍.
+- **Not delivered** when no session held the claim as he wrote it.
+
+A line under his comment box also tells him where his next comment goes, and how soon:
+
+- you're working: it reaches you at your next step
+- a \`cello inbox --wait\` of yours is running: it reaches you in about a second
+- you're idle with no waiter: it reaches you when you next work
+- nobody holds the claim, or your session has ended: nobody gets it
+
+That's another reason to keep \`cello inbox --wait\` running when you end a turn holding a claim. What arrives looks like this:
 
 \`\`\`
 New Cello comment on a task you claimed:

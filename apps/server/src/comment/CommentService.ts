@@ -69,12 +69,14 @@ export class CommentService extends Context.Service<CommentService, {
     Caller
   >
   /**
-   * For another service's command: adds a comment inside that command's transaction, as its caller.
-   * Delivering it to an agent's inbox is up to that command (`InboxService.deliverWithin`).
+   * For another service's command: adds a comment inside that command's transaction, as its caller,
+   * and delivers it to an agent's inbox as `deliver` says (`InboxService.deliverWithin`), before the
+   * comment is read back, so `comment.added` carries where it went (CEL-76).
    */
   readonly addWithin: (
     context: Commands.WriteContext,
     input: NewComment,
+    deliver: "comment" | "send_back",
   ) => Effect.Effect<Comment, NotFound | Invalid | SqlError>
   /** Stores a screenshot Lucas pasted or dropped into a task's comment box, as a draft (human only). */
   readonly upload: (input: CommentUpload) => Effect.Effect<Attachment, NotFound | Invalid | HumanOnly, Caller>
@@ -132,6 +134,7 @@ const make = Effect.gen(function* () {
   const addWithin = (
     context: Commands.WriteContext,
     input: NewComment,
+    deliver: "comment" | "send_back",
   ) =>
     Effect.gen(function* () {
       const { now, caller, emit } = context
@@ -161,6 +164,8 @@ const make = Effect.gen(function* () {
         }
       }).pipe(Effect.onError(() => assets.remove(copied)))
       yield* tasks.touchWithin(context, input.taskId)
+      // A human comment on a claimed task waits for the claiming agent session.
+      yield* inbox.deliverWithin(context, { id, taskId: input.taskId, createdAt: now }, deliver)
       const comment = yield* load(id)
       yield* emit({ type: "comment.added", comment }, where)
       return comment
@@ -170,10 +175,7 @@ const make = Effect.gen(function* () {
     yield* bodyOf(input)
     return yield* commands.write({ commandId: input.commandId, rpc: "comment.add" }, (context) =>
       Effect.gen(function* () {
-        const comment = yield* addWithin(context, input)
-        // A human comment on a claimed task waits for the claiming agent session.
-        yield* inbox.deliverWithin(context, comment, "comment")
-        return comment
+        return yield* addWithin(context, input, "comment")
       }))
   })
 

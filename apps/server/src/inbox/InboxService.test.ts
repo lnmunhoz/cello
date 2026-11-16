@@ -16,6 +16,7 @@ import { cmd, setupProject } from "../testing/fixtures.ts"
 import { writePng } from "../testing/media.ts"
 import { tempDataDir } from "../testing/tempDir.ts"
 import { asAgent, asHuman, services } from "../testing/TestLayers.ts"
+import { SessionService } from "../session/SessionService.ts"
 import * as InboxService from "./InboxService.ts"
 
 const run = <A, E>(effect: Effect.Effect<A, E, any>) =>
@@ -164,15 +165,144 @@ describe("InboxService.take", () => {
       expect(takes.flatMap((t) => bodies(t.items)).sort()).toEqual(["Once", "Only once"])
     })))
 
-  it.effect("delivering and taking write no events: the board doesn't change", () =>
+  it.effect("delivering writes no event of its own; taking the comment writes one comment.delivered (CEL-76)", () =>
     run(Effect.gen(function* () {
       const { inbox, one, comment } = yield* setup
       const store = yield* EventStore.EventStore
       const before = yield* store.latestSeq
-      yield* comment(one.id, "One event: the comment")
-      expect(yield* store.latestSeq).toBe(before + 1)
+      const sent = yield* comment(one.id, "One event: the comment")
+      expect((yield* eventsAfter(before)).map((e) => e.type)).toEqual(["comment.added"])
+      const taken = yield* agent(inbox.take({}))
+      const after = yield* eventsAfter(before + 1)
+      expect(after).toEqual([{ type: "comment.delivered", commentId: sent.id, taskId: one.id, session: taken.session!.id, via: "inbox" }])
+      // Nothing new: nothing written.
       yield* agent(inbox.take({}))
-      expect(yield* store.latestSeq).toBe(before + 1)
+      expect(yield* store.latestSeq).toBe(before + 2)
+    })))
+})
+
+/** The events after `seq`: each one's type and payload. */
+const eventsAfter = (seq: number) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient
+    const rows = yield* sql<{ type: string; payload: string }>`SELECT type, payload FROM events WHERE seq > ${seq} ORDER BY seq`.pipe(Effect.orDie)
+    return rows.map((r): Record<string, unknown> & { type: string } => ({ ...(JSON.parse(r.payload) as Record<string, unknown>), type: r.type }))
+  })
+
+// CEL-76: receipts. Each comment Lucas writes says where it went, and when (and how) that session took it.
+describe("InboxService: delivery receipts (CEL-76)", () => {
+  it.effect("a comment says which session it went to as it's written, then when and how the session took it", () =>
+    run(Effect.gen(function* () {
+      const { inbox, comments, one, comment } = yield* setup
+      const store = yield* EventStore.EventStore
+      const before = yield* store.latestSeq
+      const sent = yield* comment(one.id, "Did this reach you?")
+      const session = (yield* agent(inbox.take({ unreadOnly: true }))).session!
+      // comment.added carries where it went, not taken yet.
+      const [added] = yield* eventsAfter(before)
+      expect((added as unknown as { comment: { delivery: unknown } }).comment.delivery).toEqual({ sessionId: session.id, readAt: null, via: null })
+      expect(sent.delivery).toEqual({ sessionId: session.id, readAt: null, via: null })
+      // comment.list reads it back taken.
+      const [listed] = yield* comments.list(one.id)
+      expect(listed!.delivery).toEqual({ sessionId: session.id, readAt: expect.any(Number), via: "inbox" })
+    })))
+
+  it.effect("the hook, cello inbox and a waiter each say how they took it", () =>
+    run(Effect.gen(function* () {
+      const { inbox, one, comment } = yield* setup
+      const store = yield* EventStore.EventStore
+      const delivered = (seq: number) => eventsAfter(seq).pipe(Effect.map((es) => es.filter((e) => e.type === "comment.delivered").map((e) => e["via"])))
+
+      let seq = yield* store.latestSeq
+      yield* comment(one.id, "By the hook")
+      yield* agent(inbox.take({ unreadOnly: true, via: "hook" }))
+      expect(yield* delivered(seq)).toEqual(["hook"])
+
+      seq = yield* store.latestSeq
+      yield* comment(one.id, "By cello inbox")
+      yield* agent(inbox.take({ unreadOnly: true }))
+      expect(yield* delivered(seq)).toEqual(["inbox"])
+
+      seq = yield* store.latestSeq
+      const waiting = yield* Effect.forkChild(agent(inbox.wait))
+      yield* Effect.yieldNow
+      yield* comment(one.id, "By the waiter")
+      yield* Fiber.join(waiting)
+      expect(yield* delivered(seq)).toEqual(["wait"])
+    })))
+
+  it.effect("a Send back note gets its receipt too; an agent's comment and one on an unclaimed task go to nobody", () =>
+    run(Effect.gen(function* () {
+      const { inbox, comments, tasks, one, comment } = yield* setup
+      const mine = yield* agent(comment(one.id, "My own note"))
+      expect(mine.delivery).toBeNull()
+      const free = (yield* tasks.create({ commandId: cmd(), projectId: one.projectId, title: "Nobody holds this" })).result
+      const nowhere = yield* comment(free.id, "Anyone?")
+      expect(nowhere.delivery).toBeNull()
+      expect((yield* comments.list(free.id))[0]!.delivery).toBeNull()
+      expect(yield* agent(inbox.take({ unreadOnly: true }))).toMatchObject({ items: [] })
+    })))
+
+  it.effect("taking answers or a reaction writes no comment.delivered: receipts are for comments", () =>
+    run(Effect.gen(function* () {
+      const { inbox, comments, one, comment } = yield* setup
+      const written = yield* agent(comment(one.id, "Built it"))
+      yield* comments.react({ commandId: cmd(), commentId: written.id, emoji: "👍", on: true })
+      const store = yield* EventStore.EventStore
+      const before = yield* store.latestSeq
+      expect((yield* agent(inbox.take({ unreadOnly: true }))).items).toHaveLength(1)
+      expect(yield* eventsAfter(before)).toEqual([])
+    })))
+})
+
+// CEL-76: the server sees a session's `cello inbox --wait` through its open `inbox.wait`, so boards can
+// tell a waiting agent (a comment reaches it at once) from an idle one.
+describe("InboxService.wait: the session counts as waiting (CEL-76)", () => {
+  const waitingEvents = (seq: number) =>
+    eventsAfter(seq).pipe(Effect.map((es) => es.filter((e) => e.type === "session.waiting").map((e) => e["waiting"])))
+
+  it.effect("while a wait is open the session is waiting; boards hear it start and stop once, even with two waits", () =>
+    run(Effect.gen(function* () {
+      const { inbox, one, comment } = yield* setup
+      const sessions = yield* SessionService
+      const store = yield* EventStore.EventStore
+      const id = (yield* agent(inbox.take({ unreadOnly: true }))).session!.id
+      const seq = yield* store.latestSeq
+      expect((yield* sessions.byIds([id]))[0]!.waiting).toBe(false)
+      const first = yield* Effect.forkChild(agent(inbox.wait))
+      const second = yield* Effect.forkChild(agent(inbox.wait))
+      yield* Effect.yieldNow
+      expect((yield* sessions.byIds([id]))[0]!.waiting).toBe(true)
+      expect(yield* waitingEvents(seq)).toEqual([true])
+      yield* comment(one.id, "Wake up")
+      yield* Fiber.join(first)
+      yield* Fiber.interrupt(second)
+      expect((yield* sessions.byIds([id]))[0]!.waiting).toBe(false)
+      expect(yield* waitingEvents(seq)).toEqual([true, false])
+    })))
+
+  it.effect("a wait that's interrupted (the waiter killed, the connection dropped) stops it waiting", () =>
+    run(Effect.gen(function* () {
+      const { inbox } = yield* setup
+      const sessions = yield* SessionService
+      const id = (yield* agent(inbox.take({ unreadOnly: true }))).session!.id
+      const waiting = yield* Effect.forkChild(agent(inbox.wait))
+      yield* Effect.yieldNow
+      expect((yield* sessions.byIds([id]))[0]!.waiting).toBe(true)
+      yield* Fiber.interrupt(waiting)
+      expect((yield* sessions.byIds([id]))[0]!.waiting).toBe(false)
+    })))
+
+  it.effect("a session holding no claim waits quietly: no board hears it", () =>
+    run(Effect.gen(function* () {
+      const { inbox, tasks, one } = yield* setup
+      yield* agent(tasks.release({ commandId: cmd(), key: one.key }))
+      const store = yield* EventStore.EventStore
+      const seq = yield* store.latestSeq
+      const waiting = yield* Effect.forkChild(agent(inbox.wait))
+      yield* Effect.yieldNow
+      yield* Fiber.interrupt(waiting)
+      expect(yield* waitingEvents(seq)).toEqual([])
     })))
 })
 
@@ -224,35 +354,6 @@ describe("InboxService.wait (CEL-74)", () => {
     run(Effect.gen(function* () {
       const { inbox } = yield* setup
       expect(yield* inbox.wait).toEqual({ session: null, items: [], earlier: [], claimed: [], human: "Lucas" })
-    })))
-})
-
-// CEL-76 scope (a prototype read, replaced by a `comment.delivered` event in the build): which of a
-// task's comments reached a session and when, and which sessions have a waiter open right now.
-describe("InboxService.receipts (CEL-76 scope)", () => {
-  it.effect("names the session each human comment went to, and when it took it", () =>
-    run(Effect.gen(function* () {
-      const { inbox, one, comment } = yield* setup
-      const sent = yield* comment(one.id, "Did this reach you?")
-      const before = yield* inbox.receipts(one.id)
-      expect(before.items.map((r) => [r.commentId, r.readAt])).toEqual([[sent.id, null]])
-      expect(before.items[0]!.sessionId).toBe((yield* agent(inbox.take({}))).session!.id)
-      const after = yield* inbox.receipts(one.id)
-      expect(after.items[0]!.readAt).toBeTypeOf("number")
-    })))
-
-  it.effect("lists a session as waiting while its `inbox.wait` is open, and not once it returns", () =>
-    run(Effect.gen(function* () {
-      const { inbox, one, comment } = yield* setup
-      expect((yield* inbox.receipts(one.id)).waiting).toEqual([])
-      const waiting = yield* Effect.forkChild(agent(inbox.wait))
-      yield* Effect.yieldNow
-      const listed = (yield* inbox.receipts(one.id)).waiting
-      expect(listed).toHaveLength(1)
-      yield* comment(one.id, "Wake up")
-      const woken = yield* Fiber.join(waiting)
-      expect(listed).toEqual([woken.session!.id])
-      expect((yield* inbox.receipts(one.id)).waiting).toEqual([])
     })))
 })
 
@@ -408,7 +509,7 @@ describe("InboxService: reactions", () => {
       expect(yield* other(inbox.unread)).toEqual([])
     })))
 
-  it.effect("wakes a waiting session; delivering writes no event beyond the reaction's own", () =>
+  it.effect("wakes a waiting session; delivering writes no event beyond the reaction's own (and the waiter stopping)", () =>
     run(Effect.gen(function* () {
       const { inbox, react } = yield* agentComment
       const store = yield* EventStore.EventStore
@@ -417,7 +518,7 @@ describe("InboxService: reactions", () => {
       const before = yield* store.latestSeq
       yield* react("👍")
       expect(said((yield* Fiber.join(waiting)).items)).toEqual(["👍 on Built it; shall I merge?"])
-      expect(yield* store.latestSeq).toBe(before + 1)
+      expect((yield* eventsAfter(before)).map((e) => e.type)).toEqual(["reaction.added", "session.waiting"])
     })))
 
   it.effect("cello context shows it without marking it read", () =>

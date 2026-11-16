@@ -268,22 +268,19 @@ export const CelloRpcs = RpcGroup.make(
 
   // The caller's inbox (CEL-15): the human's comments on tasks its session claimed. Takes the new items
   // and marks them read in one step, so each is handed over once, even to takers running at the same
-  // time; `unreadOnly` leaves out the ones read before. Read marks are the session's own bookkeeping,
-  // not board changes: no commandId, no event. (`context` shows new items without taking them.)
-  Rpc.make("inbox.take", { payload: { unreadOnly: Schema.optionalKey(Schema.Boolean) }, success: Inbox }),
+  // time; `unreadOnly` leaves out the ones read before. No commandId (nobody retries it), but each
+  // comment it hands over writes a `comment.delivered` event, so Lucas sees the receipt (CEL-76). `via`
+  // says who is taking: the hooks send `hook`; `cello inbox` leaves it out (`inbox`). (`context` shows
+  // new items without taking them.)
+  Rpc.make("inbox.take", {
+    payload: { unreadOnly: Schema.optionalKey(Schema.Boolean), via: Schema.optionalKey(Schema.Literals(["hook", "inbox"])) },
+    success: Inbox,
+  }),
   // Blocks until the caller has at least one new item, then takes them as `inbox.take` with `unreadOnly`
   // does (CEL-74: `cello inbox --wait`, so an idle agent session wakes on a comment). Returns at once
   // when items are waiting, and for the human. Items a live `ask.wait` is handing over are left to it.
+  // While it's open the session counts as waiting (`session.waiting`, CEL-76).
   Rpc.make("inbox.wait", { payload: {}, success: Inbox }),
-  // CEL-76 scope, a prototype read (the build replaces it with a `comment.delivered` event): which
-  // session each of a task's comments went to and when it took it, and the sessions waiting right now.
-  Rpc.make("scope.receipts", {
-    payload: { taskId: Id },
-    success: Schema.Struct({
-      items: Schema.Array(Schema.Struct({ commentId: Id, sessionId: Id, readAt: Schema.NullOr(Schema.Number) })),
-      waiting: Schema.Array(Id),
-    }),
-  }),
 
   // A subagent of the caller's session (CEL-55), as Claude Code's hooks see it: `started` (SubagentStart),
   // `launched` (the parent's Agent tool returned its id, with the launch's description and prompt, which

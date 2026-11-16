@@ -83,7 +83,7 @@ describe("SessionService.checkIn", () => {
       return { workspace, task }
     })
 
-  it.effect("a session holding a claim checks in: one session.seen in its workspace, then at most one every 2 minutes", () =>
+  it.effect("a session holding a claim checks in: one session.seen in its workspace, then at most one a minute (CEL-76)", () =>
     run(Effect.gen(function* () {
       const sessions = yield* SessionService
       const { workspace } = yield* claimed()
@@ -92,12 +92,12 @@ describe("SessionService.checkIn", () => {
       const [first] = yield* seenEvents
       expect(first).toMatchObject({ workspace_id: workspace.id, project_id: null, session_id: caller.sessionId, session: { lastSeenAt: 0, endedAt: null } })
 
-      yield* TestClock.adjust("119 seconds")
+      yield* TestClock.adjust("59 seconds")
       yield* sessions.checkIn(yield* sessions.resolve(claude))
       expect(yield* seenEvents).toHaveLength(1)
       yield* TestClock.adjust("1 second")
       yield* sessions.checkIn(yield* sessions.resolve(claude))
-      expect((yield* seenEvents).map((e) => e.session.lastSeenAt)).toEqual([0, 120_000])
+      expect((yield* seenEvents).map((e) => e.session.lastSeenAt)).toEqual([0, 60_000])
     })))
 
   it.effect("a clock that jumps backwards doesn't stop check-ins", () =>

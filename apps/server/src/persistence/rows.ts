@@ -2,6 +2,8 @@
 // column maps to a field in exactly one place. Each reader takes a WHERE fragment over its aliases.
 import type {
   Actor,
+  CommentDelivery,
+  DeliveryVia,
   Ask,
   AskQuestion,
   AskState,
@@ -320,11 +322,26 @@ const commentAttachments = (sql: Sql, ids: ReadonlyArray<string>) =>
     return byComment
   })
 
-/** The comments of these rows, each with its screenshots (CEL-73) and its reactions (CEL-77). */
+/** Where these comments went (CEL-76): the inbox item holding each, by comment id. */
+const commentDeliveries = (sql: Sql, ids: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const byComment = new Map<string, CommentDelivery>()
+    if (ids.length === 0) return byComment
+    const items = yield* sql<{ comment_id: string; session_id: string; read_at: number | null; read_via: DeliveryVia | null }>`
+      SELECT comment_id, session_id, read_at, read_via FROM inbox_items WHERE ${sql.in("comment_id", ids)} ORDER BY created_at, rowid`
+    for (const i of items) {
+      if (!byComment.has(i.comment_id)) byComment.set(i.comment_id, { sessionId: i.session_id, readAt: i.read_at, via: i.read_via })
+    }
+    return byComment
+  })
+
+/** The comments of these rows, each with its screenshots (CEL-73), its reactions (CEL-77) and its delivery (CEL-76). */
 const commentsOf = (sql: Sql, rows: ReadonlyArray<CommentRow>) =>
   Effect.gen(function* () {
-    const files = yield* commentAttachments(sql, rows.map((r) => r.id))
-    return yield* withReactions(sql, rows.map((r) => toComment(r, files.get(r.id) ?? [])))
+    const ids = rows.map((r) => r.id)
+    const files = yield* commentAttachments(sql, ids)
+    const deliveries = yield* commentDeliveries(sql, ids)
+    return yield* withReactions(sql, rows.map((r) => ({ ...toComment(r, files.get(r.id) ?? []), delivery: deliveries.get(r.id) ?? null })))
   })
 
 /** Alias: `c`. Each comment comes with its screenshots and its reactions. */

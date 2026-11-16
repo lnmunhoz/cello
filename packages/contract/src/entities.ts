@@ -37,6 +37,13 @@ export const AgentSession = Schema.Struct({
   startedAt: Millis,
   lastSeenAt: Millis,
   endedAt: Schema.NullOr(Millis),
+  /**
+   * A `cello inbox --wait` of the session is open right now (CEL-74, CEL-76): the server sees its
+   * `inbox.wait` call, so a comment reaches it in about a second even while it's idle. Kept in memory,
+   * so a restart starts with none. The server always sends it; events stored before CEL-76 leave it
+   * out, which means false.
+   */
+  waiting: Schema.optionalKey(Schema.Boolean),
 })
 export type AgentSession = typeof AgentSession.Type
 
@@ -221,6 +228,21 @@ export const Attachment = Schema.Struct({
 })
 export type Attachment = typeof Attachment.Type
 
+/** How an agent session took an inbox item (CEL-76): its hook (PostToolUse or Stop), `cello inbox`, or `cello inbox --wait`. */
+export const DeliveryVia = Schema.Literals(["hook", "inbox", "wait"])
+export type DeliveryVia = typeof DeliveryVia.Type
+
+/**
+ * Where one of Lucas's comments went (CEL-76): the agent session that held the task's claim when he
+ * wrote it, and when (and how) that session took it; `readAt` null while it waits in the inbox.
+ */
+export const CommentDelivery = Schema.Struct({
+  sessionId: Id,
+  readAt: Schema.NullOr(Millis),
+  via: Schema.NullOr(DeliveryVia),
+})
+export type CommentDelivery = typeof CommentDelivery.Type
+
 export const Comment = Schema.Struct({
   id: Id,
   taskId: Id,
@@ -244,6 +266,12 @@ export const Comment = Schema.Struct({
    * event (`reaction.added`, `reaction.removed`), never a comment event.
    */
   reactions: Schema.optionalKey(Schema.Array(Reaction)),
+  /**
+   * Its delivery (CEL-76): null when it went to nobody (an agent's comment, or no session held the
+   * claim). The server always sends it; `comment.added` carries it as written (not taken yet), and
+   * `comment.delivered` fills in when the session took it. Events stored before CEL-76 leave it out.
+   */
+  delivery: Schema.optionalKey(Schema.NullOr(CommentDelivery)),
 })
 export type Comment = typeof Comment.Type
 
