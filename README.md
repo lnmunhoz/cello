@@ -10,6 +10,11 @@
 > [!WARNING]
 > **Cello is experimental and changes fast.** It's built in the open by one developer for his own daily work, mostly by the agents it coordinates. Expect rough edges and breaking changes. It runs on macOS and is tuned for [Claude Code](https://claude.com/claude-code) today. Try it, open issues, but don't trust it with anything you can't lose yet.
 
+<p align="center">
+  <a href="docs/readme/setup-video.mp4"><img src="docs/readme/setup-video-poster.png" alt="Watch: how to set up Cello for a project (2:33 video, narrated). Three agents in three terminals, each a colored drop." width="100%"></a><br>
+  <a href="docs/readme/setup-video.mp4"><b>▶ Watch: set up Cello for a project</b></a> (2:33)
+</p>
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/readme/board-dark.png">
   <img alt="The Cello board: Todo, In Progress and In Review columns. Three cards in progress each show which agent session is on them, that it's active now, and its stage: Building, Agent review, Fixing findings." src="docs/readme/board-light.png">
