@@ -1,4 +1,6 @@
 import { createRootRoute, createRoute, createRouter, Navigate, notFound, retainSearchParams, useParams } from "@tanstack/react-router"
+import { AgentsPage } from "../agents/AgentsPage.tsx"
+import { parseAgentsSearch } from "../agents/layout.ts"
 import { DocsPage } from "../docs/DocsPage.tsx"
 import { PageReader } from "../docs/PageReader.tsx"
 import { parseDocsSearch, parsePageSearch } from "../docs/search.ts"
@@ -66,7 +68,10 @@ const task = createRoute({
   },
 })
 
-const routeTree = root.addChildren([home, settings, builds, review, project.addChildren([projectIndex, overview, issues, docs, page, activity, task])])
+// The Agents page (CEL-65), a design prototype: `?agents=a|b|c` picks the layout, `?open=` the open row.
+const agents = createRoute({ getParentRoute: () => root, path: "/agents", component: AgentsPage, validateSearch: parseAgentsSearch })
+
+const routeTree = root.addChildren([home, settings, builds, review, agents, project.addChildren([projectIndex, overview, issues, docs, page, activity, task])])
 
 // An address no route matches shows a Not found screen with a way back, in the layout around it.
 export const router = createRouter({ routeTree, defaultPreload: false, defaultNotFoundComponent: RouteNotFound })

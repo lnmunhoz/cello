@@ -3,11 +3,13 @@
 // sidebar's "Agents working". A subagent (CEL-55) is named on its own, its session in the hover and in
 // the panel. The model is ./model.ts; presence is @cello/shared/presence.
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import type { Task } from "@cello/contract/entities"
+import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import type { StageInfo } from "@cello/contract/stages"
 import { agoShort, type Presence, presenceOf, presenceWords, type SessionLike } from "@cello/shared/presence"
 import { BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, type LucideIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
 import { type ReactNode, useEffect, useState } from "react"
+import { Link } from "@tanstack/react-router"
+import { agentsPrototype } from "../agents/prototype.ts"
 import { AgentMark, type AgentMood } from "../components/ui/AgentMark.tsx"
 import { formatDay } from "../lib/format.ts"
 import { drawnMarks } from "./drawnMarks.ts"
@@ -428,6 +430,31 @@ const workingTitle = (sessions: ReadonlyArray<Working>, now: number) =>
       .join("\n")
 
 /**
+ * The agent mark for a session or one of its subagents, in `look`'s mood, as the sidebar draws it: for
+ * the Agents page (CEL-65). `place` keeps its baseline apart from the sidebar's, so each plays its own
+ * burst per check-in.
+ */
+export function AgentMarkOf({ board, session, agent, who, look, size, place }: {
+  board: BoardState
+  session: AgentSession
+  agent: SessionAgent | null
+  who: Who
+  look: WorkingMark
+  size: number
+  place: string
+}) {
+  const holder: LiveHolder = agent
+    ? { holder: { who, session, agent }, subject: agentPresenceSubject(board, agent), color: who.color }
+    : { holder: { who, session, agent: null }, subject: session, color: sessionColor(session) }
+  const { mark } = useAgentMark(`${place}:${liveId(holder)}`, look.mood, look.statusId, holder, size)
+  return mark
+}
+
+/** What a session's or subagent's presence dot and words read: the agent's, ended with its session. */
+export const presenceSubjectOf = (board: BoardState, session: AgentSession, agent: SessionAgent | null): SessionLike =>
+  agent ? agentPresenceSubject(board, agent) : session
+
+/**
  * One entry of the sidebar's list: its agent mark, in the mood its card shows (workingMark), and who,
  * and under it, faint, what it's on (the task keys). Two lines, so a long agent name and a task key both
  * fit the sidebar's width.
@@ -469,17 +496,37 @@ export function AgentsWorking({ board, workspaceId, className }: { board: BoardS
   const { sessions, count, now } = useAgentsWorking(board, workspaceId)
   const listed = sessions.filter((s) => s.presence !== "ended")
   const lead = listed.find((s) => s.presence === "active")
+  const prototype = agentsPrototype()
+  const header = (
+    <>
+      <span className="flex size-3.5 items-center justify-center">
+        {lead ? <PresenceDot of={lead.session} color={sessionColor(lead.session)} size={7} /> : <i className="size-1.5 rounded-full bg-line-strong" />}
+      </span>
+      Agents working
+      <span className="ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-hover px-1.5 text-[11px] font-semibold tabular-nums text-ink">
+        {count}
+      </span>
+    </>
+  )
   return (
     <>
-      <p className={className} data-agents-working={count} title={workingTitle(sessions, now)}>
-        <span className="flex size-3.5 items-center justify-center">
-          {lead ? <PresenceDot of={lead.session} color={sessionColor(lead.session)} size={7} /> : <i className="size-1.5 rounded-full bg-line-strong" />}
-        </span>
-        Agents working
-        <span className="ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-hover px-1.5 text-[11px] font-semibold tabular-nums text-ink">
-          {count}
-        </span>
-      </p>
+      {/* The Agents page prototype (CEL-65): a link to it, on a device that opened it with ?agents=. */}
+      {prototype ? (
+        <Link
+          to="/agents"
+          search={{ agents: prototype }}
+          activeOptions={{ includeSearch: false }}
+          className={`${className} outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-selected`}
+          data-agents-working={count}
+          title={workingTitle(sessions, now)}
+        >
+          {header}
+        </Link>
+      ) : (
+        <p className={className} data-agents-working={count} title={workingTitle(sessions, now)}>
+          {header}
+        </p>
+      )}
       {listed.length > 0 ? (
         <ul aria-label="Agents working" className="flex flex-col" data-agents-list>
           {listed.flatMap((s) => [
