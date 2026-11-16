@@ -100,6 +100,19 @@ describe("SessionService.resolve", () => {
       expect(row!.current_step).toContain("Bash · export API_TOKEN=")
     })))
 
+  it.effect("keeps a key in a reported step out of every column, the raw identity included (CEL-106)", () =>
+    run(Effect.gen(function* () {
+      const sessions = yield* SessionService
+      const step = "Bash · export API_TOKEN=tok_live_998877abc && deploy"
+      yield* sessions.resolve({ ...claude, step })
+      yield* sessions.resolve({ ...claude, agent: "a13b", agentType: "cello-builder", step })
+      const everything = JSON.stringify([
+        yield* rows((sql) => sql`SELECT * FROM agent_sessions`),
+        yield* rows((sql) => sql`SELECT * FROM session_agents`),
+      ])
+      expect(everything).not.toContain("tok_live_998877abc")
+    })))
+
   it.effect("session \"me\" and no session at all both resolve to the human", () =>
     run(Effect.gen(function* () {
       const sessions = yield* SessionService

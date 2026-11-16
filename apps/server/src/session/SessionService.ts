@@ -238,7 +238,10 @@ const make = Effect.gen(function* () {
     return yield* sql.withTransaction(Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis
       const stepAt = own.step === null ? null : now
-      const raw = JSON.stringify(identity)
+      // The raw identity, without the log report (CEL-106): the step can hold a key and is kept only
+      // masked (current_step), and the transcript has its own column.
+      const { step: _step, transcript: _transcript, ...kept } = identity
+      const raw = JSON.stringify(kept)
       const existing = yield* sql<{ id: string; actor_id: string }>`
         SELECT id, actor_id FROM agent_sessions WHERE external_id = ${external}`
       let caller: { actorId: string; sessionId: string }
