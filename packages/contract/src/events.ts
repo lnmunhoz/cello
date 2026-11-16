@@ -204,6 +204,7 @@ export type CelloEvent = typeof CelloEvent.Type
  * instead of failing its stream. Only ever decoded: a server sends real events, never this.
  */
 export const UnreadableEvent = Schema.Struct({ seq: Schema.Number, type: Schema.String }).pipe(
+  // "unreadable" is reserved: no real event type may ever use that name.
   Schema.decodeTo(Schema.Struct({ type: Schema.Literal("unreadable"), seq: Schema.Number, sentType: Schema.String }), {
     decode: SchemaGetter.transform(({ seq, type }) => ({ type: "unreadable" as const, seq, sentType: type })),
     encode: SchemaGetter.transform(({ seq, sentType }) => ({ seq, type: sentType })),

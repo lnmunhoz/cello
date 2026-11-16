@@ -259,7 +259,7 @@ describe("command atoms", () => {
 
     // A newer server wrote an event of a type this build doesn't know: the board stays live, and the
     // tab asks which build the server runs, so the reload bar can offer the new one.
-    Effect.runSync(Queue.offer(events, { type: "unreadable", seq: 6, sentType: "session.orchestrating" }))
+    Effect.runSync(Queue.offer(events, { type: "unreadable", seq: 6, sentType: "test.from-a-newer-build" }))
     const next = await Effect.runPromise(
       AtomRegistry.toStreamResult(registry, atoms.serverBuildAtom).pipe(Stream.filter((b) => b.commit === "bbbbbbb"), Stream.runHead),
     )

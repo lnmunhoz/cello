@@ -226,12 +226,14 @@ describe("StreamedEvent", () => {
   })
 
   it("reads an event of a type this build doesn't know as unreadable, keeping its seq and type", () => {
-    expect(decode({ ...envelope, schemaVersion: 1, type: "session.orchestrating", session: "s-1", on: true }))
-      .toEqual({ type: "unreadable", seq: 7, sentType: "session.orchestrating" })
+    expect(decode({ ...envelope, schemaVersion: 1, type: "test.from-a-newer-build", note: "only a newer build reads this" }))
+      .toEqual({ type: "unreadable", seq: 7, sentType: "test.from-a-newer-build" })
   })
 
   it("reads a known type in a shape this build can't read, or a newer schema version, as unreadable too", () => {
     expect(decode({ ...envelope, schemaVersion: 1, type: "task.archived" })).toEqual({ type: "unreadable", seq: 7, sentType: "task.archived" })
+    expect(decode({ ...envelope, schemaVersion: 1, type: "session.orchestrating", session: "s-1", on: true }))
+      .toEqual({ type: "unreadable", seq: 7, sentType: "session.orchestrating" })
     expect(decode({ ...archived, schemaVersion: 2 })).toEqual({ type: "unreadable", seq: 7, sentType: "task.archived" })
   })
 

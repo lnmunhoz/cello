@@ -73,7 +73,7 @@ const ev = (seq: number, body: EventBody, commandId = `c${seq}`): CelloEvent =>
 
 const created = (seq: number, id: string) => ev(seq, { type: "task.created", task: task(id) })
 /** An event of a type this build doesn't know, as the stream hands it over (CEL-131). */
-const unreadable = (seq: number): StreamedEvent => ({ type: "unreadable", seq, sentType: "session.orchestrating" })
+const unreadable = (seq: number): StreamedEvent => ({ type: "unreadable", seq, sentType: "test.from-a-newer-build" })
 
 /** A source that plays scripted snapshots and streams, and records how it was called. */
 const scripted = (snapshots: Snapshot[], streams: Array<Stream.Stream<StreamedEvent, unknown>>) => {

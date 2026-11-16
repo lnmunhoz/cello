@@ -24,7 +24,10 @@ import { follow, sourceFromClient, type Synced } from "@cello/client/sync/follow
 const envelope = { ts: 1, commandId: "c", actorId: "me", sessionId: null, workspaceId: "w1", projectId: null, schemaVersion: 1 as const }
 const workspace = (id: string, position: string): Workspace => ({ id, name: id, slug: id, position, createdAt: 1, updatedAt: 1, archivedAt: null })
 
-/** An event type a later build added: this build's `CelloEvent` doesn't have it. */
+/**
+ * An event type a later build added. Its name is made up and never becomes a real type, so this build's
+ * `CelloEvent` can't know it (a real type in a newer shape is the contract test's case).
+ */
 const FutureEvent = Schema.Struct({
   seq: Schema.Number,
   ts: Schema.Number,
@@ -34,9 +37,8 @@ const FutureEvent = Schema.Struct({
   workspaceId: Schema.String,
   projectId: Schema.NullOr(Schema.String),
   schemaVersion: Schema.Literal(1),
-  type: Schema.Literal("session.orchestrating"),
-  session: Schema.String,
-  on: Schema.Boolean,
+  type: Schema.Literal("test.from-a-newer-build"),
+  note: Schema.String,
 })
 
 /** The two RPCs sync uses, as the newer server defines them: its event union has one more type. */
@@ -63,7 +65,7 @@ const newerServer = RpcServer.layer(NewerRpcs).pipe(
       Stream.concat(
         Stream.make(
           { ...envelope, seq: 11, type: "workspace.created" as const, workspace: workspace("w2", "a1") },
-          { ...envelope, seq: 12, type: "session.orchestrating" as const, session: "s1", on: true },
+          { ...envelope, seq: 12, type: "test.from-a-newer-build" as const, note: "only a newer build reads this" },
           { ...envelope, seq: 13, type: "workspace.created" as const, workspace: workspace("w3", "a2") },
         ),
         Stream.never,
