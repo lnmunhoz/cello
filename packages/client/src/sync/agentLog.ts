@@ -14,23 +14,30 @@ export interface LogView {
   /** A long transcript was read only from near its end: there are earlier steps it didn't count. */
   readonly older: boolean
   readonly steps: ReadonlyArray<LogStep>
+  /**
+   * The steps the latest update added while following (CEL-107), which the page fades in. Never the
+   * first batch or a reconnect's (they replace what's shown), nor a step sent again to update it.
+   */
+  readonly arrived: ReadonlyArray<string>
 }
 
-export const EMPTY_LOG: LogView = { status: "loading", reason: null, skipped: 0, older: false, steps: [] }
+export const EMPTY_LOG: LogView = { status: "loading", reason: null, skipped: 0, older: false, steps: [], arrived: [] }
 
 export const applyLogUpdate = (view: LogView, update: LogUpdate): LogView => {
   if (update._tag === "unavailable") return { ...EMPTY_LOG, status: "unavailable", reason: update.reason }
-  if (update.reset) return { status: "ready", reason: null, skipped: update.skipped, older: update.older === true, steps: update.steps }
+  if (update.reset) return { status: "ready", reason: null, skipped: update.skipped, older: update.older === true, steps: update.steps, arrived: [] }
   const index = new Map(view.steps.map((s, i) => [s.id, i]))
   const steps = [...view.steps]
+  const arrived: string[] = []
   for (const step of update.steps) {
     const at = index.get(step.id)
     if (at === undefined) {
       index.set(step.id, steps.length)
       steps.push(step)
+      arrived.push(step.id)
     } else steps[at] = step
   }
-  return { ...view, status: "ready", steps }
+  return { ...view, status: "ready", steps, arrived }
 }
 
 /** The log's filters: everything, what was said (prompts and messages), tool calls, or failed calls. */

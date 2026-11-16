@@ -5,7 +5,9 @@
 // prompt, messages and tool calls folded to one line with ✓ / ✗ and durations, newest at the bottom; a
 // new step arrives live; scrolling up pauses following and "Jump to live" brings it back; the filters
 // and the Thinking switch; a folded result opens, first 200 lines, then Show all; a masked key, shown on
-// request. Stills in light and dark go to e2e/videos/ (cel-106-*.png).
+// request. CEL-107: messages render as markdown, like comments, and a step that arrives live fades in
+// (one that only gets its result doesn't). Stills in light and dark go to e2e/videos/ (cel-106-*.png,
+// cel-107-*.png).
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
@@ -71,7 +73,7 @@ const builderTranscript = () => {
     result("toolu_write", "File created successfully", 0.1),
     call("toolu_test", "Bash", { command: "bun run test", description: "Run the tests" }),
     result("toolu_test", testOutput, 2.5, true),
-    said("The test fails as it should. Now the timer itself."),
+    said("The test fails as it should. **Next:** the timer itself.\n\n- flip after 90 seconds\n- keep `servings` at 4"),
     call("toolu_edit", "Edit", { file_path: `${cwd}/src/timer.ts`, old_string: "{}", new_string: "{ flipAfter: 90 }" }),
     result("toolu_edit", "The file has been updated.", 0.1),
   )
@@ -79,6 +81,10 @@ const builderTranscript = () => {
 }
 
 async function shoot(page: Page, name: string) {
+  await shootAs(page, `cel-106-${name}`)
+}
+
+async function shootAs(page: Page, name: string) {
   await page.mouse.move(1430, 890)
   const hide = (shown: boolean) =>
     page.evaluate((shown) => document.getElementById("e2e-caption")?.style.setProperty("visibility", shown ? "" : "hidden"), shown)
@@ -86,7 +92,7 @@ async function shoot(page: Page, name: string) {
   for (const theme of ["light", "dark"] as const) {
     await page.evaluate((dark) => document.documentElement.classList.toggle("dark", dark), theme === "dark")
     await animationsSettled(page)
-    await page.screenshot({ path: path.join(SHOTS, `cel-106-${name}-${theme}.png`) })
+    await page.screenshot({ path: path.join(SHOTS, `${name}-${theme}.png`) })
   }
   await page.evaluate(() => document.documentElement.classList.remove("dark"))
   await hide(true)
@@ -137,7 +143,17 @@ test("CEL-106: open an agent on the Agents page and follow its live log: steps, 
   await expect(step("toolu_test")).toContainText("Bash · bun run test")
   await expect(step("toolu_test")).toContainText("2.5 s")
   await expect(step("toolu_edit")).toHaveAttribute("data-log-status", "ok")
-  await expect(log.locator('[data-log-kind="user"]')).toContainText("PAN-1 build the pancake timer")
+  // Rendered like a comment: the task key is a live link to the task.
+  await expect(log.locator('[data-log-kind="user"]')).toContainText("build the pancake timer. Read AGENTS.md first")
+  await expect(log.locator('[data-log-kind="user"] [data-task-link="PAN-1"]')).toBeVisible()
+  // Messages are markdown, rendered like a comment (CEL-107): bold, a list, inline code.
+  const plan = log.locator('[data-log-kind="message"]').filter({ hasText: "The test fails as it should" })
+  await expect(plan.locator("strong")).toHaveText("Next:")
+  await expect(plan.locator("li")).toHaveCount(2)
+  await expect(plan.locator("code")).toHaveText("servings")
+  await expect(plan).not.toContainText("**")
+  // What was there on opening doesn't fade in.
+  await expect(log.locator("[data-log-arrived]")).toHaveCount(0)
   // Thinking stays hidden until its switch is on.
   await expect(log.locator('[data-log-kind="thinking"]')).toHaveCount(0)
   await expect(log).toHaveAttribute("data-log-follow", "on")
@@ -146,12 +162,20 @@ test("CEL-106: open an agent on the Agents page and follow its live log: steps, 
   await expect(step("toolu_edit")).toBeInViewport()
   await expect(step("toolu_agents")).not.toBeInViewport()
   await shoot(page, "log")
+  await plan.scrollIntoViewIfNeeded()
+  await shootAs(page, "cel-107-markdown")
+  await scroller.evaluate((el) => (el.scrollTop = el.scrollHeight))
 
   await caption(page, "The builder runs the tests again: the new step arrives live, and the log follows it")
   fs.appendFileSync(builderFile, call("toolu_test2", "Bash", { command: "bun run test src/timer.test.ts" }))
   await expect(step("toolu_test2")).toHaveAttribute("data-log-status", "running")
+  // It arrived live: it fades in (CEL-107).
+  await expect(step("toolu_test2")).toHaveAttribute("data-log-arrived", "")
+  await step("toolu_test2").evaluate((el) => el.setAttribute("data-e2e-mounted", ""))
   fs.appendFileSync(builderFile, result("toolu_test2", "1 passed", 1.2))
   await expect(step("toolu_test2")).toHaveAttribute("data-log-status", "ok")
+  // Its result only updates it in place: the same row, so its fade doesn't play again.
+  await expect(step("toolu_test2")).toHaveAttribute("data-e2e-mounted", "")
   await expect(step("toolu_test2")).toContainText("1.2 s")
   await expect(step("toolu_test2")).toBeInViewport()
 
@@ -164,6 +188,7 @@ test("CEL-106: open an agent on the Agents page and follow its live log: steps, 
   fs.appendFileSync(builderFile, said("Both tests pass. Committing."))
   const newest = log.locator('[data-log-kind="message"]').last()
   await expect(newest).toHaveText(/Both tests pass/)
+  await expect(newest).toHaveAttribute("data-log-arrived", "")
   // It kept its place: the new step is below, not scrolled to.
   await expect(newest).not.toBeInViewport()
   await expect(log).toHaveAttribute("data-log-follow", "off")
@@ -184,6 +209,12 @@ test("CEL-106: open an agent on the Agents page and follow its live log: steps, 
   await log.locator('[data-log-filter="errors"]').click()
   await expect(steps).toHaveCount(1)
   await expect(step("toolu_test")).toBeVisible()
+  // Back to messages: the newest message is put on screen again, and doesn't fade in a second time.
+  await log.locator('[data-log-filter="messages"]').click()
+  await expect(newest).toHaveText(/Both tests pass/)
+  await expect(log.locator("[data-log-arrived]")).toHaveCount(0)
+  await log.locator('[data-log-filter="errors"]').click()
+  await expect(steps).toHaveCount(1)
 
   await caption(page, "Open the failed run: its output, the key in it masked")
   await step("toolu_test").locator("[data-log-toggle]").click()
@@ -211,4 +242,12 @@ test("CEL-106: open an agent on the Agents page and follow its live log: steps, 
   await thinking.locator("[data-log-toggle]").click()
   await expect(thinking.locator("[data-log-output]")).toContainText("The timer needs a failing test before any code.")
   await shoot(page, "thinking")
+
+  await caption(page, "With reduced motion on, a new step appears without the fade")
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  fs.appendFileSync(builderFile, said("Committed."))
+  const committed = log.locator('[data-log-kind="message"]').filter({ hasText: "Committed." })
+  await expect(committed).toHaveAttribute("data-log-arrived", "")
+  expect(await committed.evaluate((el) => getComputedStyle(el).animationName)).toBe("none")
+  await page.emulateMedia({ reducedMotion: "no-preference" })
 })

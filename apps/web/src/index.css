@@ -503,6 +503,25 @@ body {
 }
 
 /*
+ * A step arriving in an agent's live log (CEL-107): it fades in and rises a few pixels, once, when it
+ * arrives. Only opacity and transform move, so the log's follow-to-the-bottom scroll isn't disturbed.
+ */
+.log-arrive {
+  animation: log-arrive 220ms ease-out;
+}
+@keyframes log-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .log-arrive {
+    animation: none;
+  }
+}
+
+/*
  * An agent session checking in (CEL-35): one ripple from its presence dot, played when its check-in
  * arrives (the element is keyed by the check-in, so each one plays it once). Nothing loops: an idle
  * board stays still.

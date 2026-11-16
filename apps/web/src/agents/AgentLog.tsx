@@ -7,6 +7,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { ArrowDownIcon, CheckIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, ScrollTextIcon, XIcon } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { Button } from "../components/ui/Button.tsx"
+import { Markdown } from "../components/ui/Markdown.tsx"
 import { SegmentedControl, SegmentedControlItem } from "../components/ui/SegmentedControl.tsx"
 import { Select } from "../components/ui/Select.tsx"
 import { Switch } from "../components/ui/Switch.tsx"
@@ -41,6 +42,8 @@ export function AgentLog({ board, row }: { readonly board: BoardState; readonly 
   const [runId, setRunId] = useState<string | null>(null)
   const runs = row.kind === "session" ? runsOf(board.wakes, row.session.id) : []
   const scroller = useRef<HTMLDivElement>(null)
+  // Every step this log has put on screen (CEL-107): a step shown again after a filter or the Thinking switch never fades in twice.
+  const [shown] = useState(() => new Set<string>())
   const key = logKey({ sessionId: row.session.id, agentId: row.agent?.agentId, runId: runId ?? undefined, reveal })
   const result = useAtomValue(agentLogFamily(key))
   const log = AsyncResult.isSuccess(result) ? result.value : null
@@ -130,8 +133,10 @@ export function AgentLog({ board, row }: { readonly board: BoardState; readonly 
               ) : log.skipped > 0 ? (
                 <li className="px-3 py-1 text-xs text-faint">{log.skipped} earlier steps aren't shown.</li>
               ) : null}
-              {/* A running call pulses only while the agent is working right now. */}
-              {steps.map((step) => <Step key={step.id} step={step} row={row} working={row.presence === "active"} />)}
+              {/* A running call pulses only while the agent is working right now; a step that just arrived fades in (CEL-107). */}
+              {steps.map((step) => (
+                <Step key={step.id} step={step} row={row} working={row.presence === "active"} arrived={log.arrived.includes(step.id)} shown={shown} />
+              ))}
             </ol>
           )}
         </div>
@@ -160,28 +165,58 @@ function LogNote({ children, ...data }: { readonly children: string } & Readonly
 
 const KIND_LABEL = { user: "Prompt", message: "Said", thinking: "Thinking", system: "Note" } as const
 
-/** One step: a prompt or message as text, a tool call or thinking folded to one line, a note in grey. */
-function Step({ step, row, working }: { readonly step: LogStep; readonly row: AgentRow; readonly working: boolean }) {
-  const data = { "data-log-step": step.id, "data-log-kind": step.kind, "data-log-status": step.tool?.status ?? "" }
+/**
+ * One step: a prompt or message as markdown (CEL-107: rendered like a comment, from the already masked
+ * text), a tool call or thinking folded to one line, a note in grey. `arrived`: it came in live just
+ * now, so it fades in once (`log-arrive`, index.css), decided when the row first mounts: a step updated
+ * in place, shown on opening the log, or shown again after a filter or the Thinking switch (`shown`
+ * remembers every step this log has put on screen) doesn't.
+ */
+function Step({
+  step,
+  row,
+  working,
+  arrived,
+  shown,
+}: {
+  readonly step: LogStep
+  readonly row: AgentRow
+  readonly working: boolean
+  readonly arrived: boolean
+  readonly shown: Set<string>
+}) {
+  const [fades] = useState(() => arrived && !shown.has(step.id))
+  useEffect(() => {
+    shown.add(step.id)
+  }, [shown, step.id])
+  const data = {
+    "data-log-step": step.id,
+    "data-log-kind": step.kind,
+    "data-log-status": step.tool?.status ?? "",
+    ...(fades ? { "data-log-arrived": "" } : {}),
+  }
+  const fade = fades ? "log-arrive" : ""
   const time = step.at === null ? undefined : new Date(step.at).toLocaleTimeString()
   if (step.kind === "tool" || step.kind === "agent" || step.kind === "thinking") {
     return (
-      <li {...data}>
+      <li {...data} className={fade}>
         <Folded step={step} row={row} working={working} time={time} />
       </li>
     )
   }
   if (step.kind === "system") {
     return (
-      <li {...data} title={time} className="px-3 py-1 text-xs text-faint">
+      <li {...data} title={time} className={`px-3 py-1 text-xs text-faint ${fade}`}>
         {step.text}
       </li>
     )
   }
   return (
-    <li {...data} title={time} className="grid grid-cols-[64px_1fr] gap-2 px-3 py-1.5 text-[13px]">
-      <span className="pt-px text-xs font-medium text-muted">{KIND_LABEL[step.kind]}</span>
-      <p className={`whitespace-pre-wrap break-words ${step.kind === "user" ? "text-muted" : "text-ink"}`}>{step.text}</p>
+    <li {...data} title={time} className={`grid grid-cols-[64px_1fr] gap-2 px-3 py-1.5 ${fade}`}>
+      <span className="pt-0.5 text-xs font-medium text-muted">{KIND_LABEL[step.kind]}</span>
+      <div className="min-w-0 break-words" data-log-text>
+        <Markdown source={step.text} images="text" />
+      </div>
     </li>
   )
 }
