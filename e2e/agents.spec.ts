@@ -24,7 +24,7 @@ const as = (baseURL: string, agent?: { id: string; type: string }) =>
   })
 
 /** "Agents working" in the sidebar: its count is in `data-agents-working`, its list under it. */
-const agentsWorking = (page: Page) => page.locator('aside[data-sidebar="expanded"] p[data-agents-working]')
+const agentsWorking = (page: Page) => page.locator('aside[data-sidebar="expanded"] a[data-agents-working]')
 const agentsList = (page: Page) => page.locator('aside[data-sidebar="expanded"] [data-agents-list]')
 
 async function shoot(page: Page, name: string, target: Page | ReturnType<Page["locator"]> = page) {

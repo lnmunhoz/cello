@@ -288,7 +288,7 @@ export function Sidebar({
           Review
           {reviewBadge}
         </Link>
-        {board && workspaceId ? <AgentsWorking board={board} workspaceId={workspaceId} className="flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium text-ink" /> : null}
+        {board && workspaceId ? <AgentsWorking board={board} workspaceId={workspaceId} className={row} /> : null}
       </nav>
 
       {/* A long project list scrolls here; Settings stays at the bottom. */}
