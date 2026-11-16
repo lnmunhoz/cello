@@ -86,10 +86,10 @@ test("CEL-89: the testing profile in Settings shows where each field came from; 
   await row(page, "ui.runsIn").getByRole("radio", { name: "Docker" }).click()
   await expect(row(page, "ui.runsIn")).toContainText("You")
 
-  await caption(page, "An agent tries to change the unit command Lucas set: refused, and told to ask him on the card")
+  await caption(page, "An agent tries to change the unit command Lucas set: refused, and told to ask on the card")
   const refused = celloRun(SESSION)("profile", "set", "unit", "npm test", "--project", key)
   expect(refused.status).not.toBe(0)
-  expect(refused.stderr).toContain("set unit himself (`bun run test:unit`), so an agent can't change it")
+  expect(refused.stderr).toContain("set unit (`bun run test:unit`), so an agent can't change it")
   await showTerminal(page, `cello profile set unit "npm test" --project ${key}`, refused.stderr, { narrow: true })
   await expect(row(page, "unit").getByRole("textbox")).toHaveValue("bun run test:unit")
 
