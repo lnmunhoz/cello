@@ -139,6 +139,8 @@ describe("stateTaskOf (CEL-104)", () => {
     const t = task("t1", "FE-70")
     const [orchestrator] = agentRows([working(a, { tasks: [t], agents: [sub(a, "a1", t)] })])
     expect(stateTaskOf(orchestrator!, statuses)?.key).toBe("FE-70")
+    // Its subagents gone: still its task's state.
+    expect(stateTaskOf({ ...orchestrator!, subagents: 0 }, statuses)?.key).toBe("FE-70")
   })
 
   it("the task waiting on Lucas wins over the first one; no task, none", () => {
