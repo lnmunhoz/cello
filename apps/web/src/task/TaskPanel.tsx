@@ -7,7 +7,7 @@ import { openReviewOf } from "@cello/client/sync/reviews"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { useShortcut, useShortcutHint } from "@ui-sdk/react/shortcuts"
 import { ChevronRightIcon, Maximize2Icon, Minimize2Icon, MoreHorizontalIcon, XIcon } from "lucide-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { NotFound } from "../app/NotFound.tsx"
 import { NARROW_WIDTH } from "../app/sidebarState.ts"
 import { Button } from "../components/ui/Button.tsx"
@@ -25,23 +25,31 @@ import { SAVES_ON_BLUR } from "../lib/editing.ts"
 import { useMediaQuery } from "../lib/hooks.ts"
 import { EarlierReviews, PinnedReview } from "../review/TaskReviews.tsx"
 import { AskThread, PinnedAsk } from "../ask/TaskAsks.tsx"
+import { useRestoredSideScroll } from "../viewer/panelBack.ts"
+import { withoutViewer } from "../viewer/search.ts"
 import { useViewerItem } from "../viewer/store.ts"
+import { PanelBack } from "../viewer/ViewerPanel.tsx"
 import { PanelWork, ProvenanceRows } from "../presence/Presence.tsx"
 import { WakeRow } from "./WakeRow.tsx"
 import { Comments } from "./Comments.tsx"
 import { COPY_KEY_SHORTCUT, taskForAgent } from "./copy.ts"
 import { History } from "./History.tsx"
 import { TaskPages } from "./TaskPages.tsx"
-import { searchForView, TASK_PANEL_WIDTH, TASK_VIEW_SHORTCUT, taskPlacement, taskViewOf, toggledView, type TaskSearch, type TaskView } from "./view.ts"
+import { searchForView, TASK_PANEL_WIDTH, TASK_VIEW_SHORTCUT, taskPlacement, taskViewOf, viewToggle, type TaskPlacement, type TaskSearch, type TaskView } from "./view.ts"
 
 /** How the open task shows (`?view=full`, view.ts); the board and the list hide behind a full page. */
 export const useTaskView = (): TaskView => taskViewOf(useSearch({ strict: false }) as TaskSearch)
 
+/** Where the open task sits (view.ts's `taskPlacement`): it follows the view and whether the viewer is open. */
+export const useTaskPlacement = (taskOpen: boolean): TaskPlacement => taskPlacement(taskOpen, useTaskView(), useViewerItem() !== null)
+
 /**
  * The open task: a side panel docked on the right of the main area at full height, `width` wide and
  * resized by its left edge, or, expanded, a full page under the tabs, where the open packet has room
- * for its two columns. project/ProjectLayout.tsx places it in its grid. Expand and collapse sit left
- * of the ••• menu; F toggles, and Esc on the full page goes back to the panel. A click on the key in
+ * for its two columns. While the viewer is open (a page opened from the task) it's a full page too,
+ * the viewer beside it (CEL-117). project/ProjectLayout.tsx places it in its grid. Expand and collapse
+ * sit left of the ••• menu; F toggles, and Esc on the full page goes back to the panel. Docked, its
+ * header has Back when it was opened from the side panel (a task from a page or a comment). A click on the key in
  * the header copies it, as does ⌘. while the task is open; the menu also copies it for an agent.
  */
 export function TaskPanel({
@@ -61,26 +69,34 @@ export function TaskPanel({
   const parent = task?.parentId ? board.tasks[task.parentId] : undefined
   const navigate = useNavigate()
   const view = useTaskView()
-  const full = view === "full"
-  // Beside the board, the viewer takes this panel's place while it's open; the panel stays mounted
-  // (scroll, drafts) and comes back as it was. A full page keeps its place, the viewer beside it.
-  const covered = useViewerItem() !== null
-  const placement = taskPlacement(true, view, covered)
+  // With the viewer open the task moves to the main area, the viewer beside it; closing the viewer
+  // docks it again. It's one element either way, so scroll and drafts stay.
+  const viewerOpen = useViewerItem() !== null
+  const placement = useTaskPlacement(true) === "page" ? "page" : "side"
+  const full = placement === "page"
   // Below 768 px the panel takes the board's place, so there's no edge to drag.
   const narrow = useMediaQuery(`(max-width: ${NARROW_WIDTH - 1}px)`)
   const close = () => void navigate({ to: "/$projectKey/issues", params: { projectKey: project.key } })
-  const show = (next: TaskView) =>
-    void navigate({ to: "/$projectKey/$number", params: { projectKey: project.key, number: String(number) }, search: (prev) => ({ ...prev, ...searchForView(next) }) })
+  // Expand from the panel; collapse from the main area, closing the viewer beside it.
+  const toggle = () => {
+    const next = viewToggle(placement)
+    void navigate({
+      to: "/$projectKey/$number",
+      params: { projectKey: project.key, number: String(number) },
+      search: (prev) => ({ ...(next.closeViewer ? withoutViewer(prev) : prev), ...searchForView(next.view) }),
+    })
+  }
   const toggleHint = useShortcutHint(TASK_VIEW_SHORTCUT)
-  useShortcut(task ? TASK_VIEW_SHORTCUT : null, () => show(toggledView(view)), { description: "Expand the task to a full page, or back to the panel" })
-  useShortcut(full ? "escape" : null, () => show("panel"), { when: () => !covered, description: "Back to the board with the side panel" })
+  useShortcut(task ? TASK_VIEW_SHORTCUT : null, toggle, { description: "Expand the task to a full page, or back to the panel" })
+  useShortcut(full ? "escape" : null, toggle, { when: () => !viewerOpen, description: "Back to the board with the side panel" })
   const copyHint = useShortcutHint(COPY_KEY_SHORTCUT)
   useShortcut(task ? COPY_KEY_SHORTCUT : null, () => task && copyKey(task), { description: "Copy the open task's key" })
   return (
     <aside
-      hidden={placement === "covered"}
       aria-label={task ? `${task.key} details` : "Task details"}
       data-view={view}
+      data-side-panel="task"
+      data-placement={placement}
       className={`relative col-start-1 row-start-3 flex min-h-0 min-w-0 flex-col bg-surface ${full ? "" : "border-line md:col-start-2 md:row-span-full md:border-l"}`}
       onKeyDown={(e) => {
         if (e.key === "Escape" && e.target === e.currentTarget && !full) close()
@@ -88,6 +104,7 @@ export function TaskPanel({
     >
       {placement === "side" && !narrow ? <ResizeHandle edge="left" label="Resize task panel" rule={TASK_PANEL_WIDTH} width={width} onResize={onResize} /> : null}
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line px-4">
+        {placement === "side" ? <PanelBack /> : null}
         <span className="flex min-w-0 items-center gap-1 text-[13px] font-medium text-muted">
           {parent ? (
             <>
@@ -126,7 +143,7 @@ export function TaskPanel({
               aria-label={full ? "Collapse to side panel" : "Expand to full page"}
               aria-keyshortcuts={toggleHint.ariaKeyshortcuts}
               title={`${full ? "Collapse to side panel" : "Expand to full page"} (${toggleHint.text})`}
-              onClick={() => show(toggledView(view))}
+              onClick={toggle}
             >
               {full ? <Minimize2Icon className="size-4" /> : <Maximize2Icon className="size-4" />}
             </Button>
@@ -187,6 +204,9 @@ function TaskDetails({ board, project, task, full }: { board: BoardState; projec
   const [title, setTitle] = useState<string | null>(null)
   const [description, setDescription] = useState<string | null>(null)
   const [tab, setTab] = useState<string>(task.description ? "preview" : "write")
+  // Docked, Back from a page or another task returns to where it was read (CEL-117).
+  const scroller = useRef<HTMLDivElement>(null)
+  useRestoredSideScroll(scroller)
 
   const saveTitle = () => {
     if (title !== null && title.trim() !== "" && title.trim() !== task.title) {
@@ -203,7 +223,7 @@ function TaskDetails({ board, project, task, full }: { board: BoardState; projec
 
   return (
     // A full page is a block, so the centred column below fills it up to its max width.
-    <div className={`min-h-0 flex-1 overflow-y-auto ${full ? "@container/packet block" : "flex flex-col"}`}>
+    <div ref={scroller} data-side-scroll="" className={`min-h-0 flex-1 overflow-y-auto ${full ? "@container/packet block" : "flex flex-col"}`}>
       <div className={full ? `mx-auto box-content max-w-3xl px-8 ${reviewing ? "packet-wide:max-w-[1536px]" : ""}` : "contents"}>
       <div className={`flex flex-col gap-4 pt-5 pb-6 ${full ? "" : "px-6"}`}>
         <PinnedAsk board={board} task={task} />

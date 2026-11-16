@@ -24,25 +24,34 @@ export const searchForView = (view: TaskView): TaskSearch => ({ view: view === "
 export const toggledView = (view: TaskView): TaskView => (view === "full" ? "panel" : "full")
 
 /**
- * The class for the board or list behind an open task: hidden behind a full page (still mounted, so
- * folded groups and focus survive), and behind the panel only in a narrow window, where the panel takes its place.
+ * The class for the board or list behind an open task: hidden behind a task in the main area (still
+ * mounted, so folded groups and focus survive), and behind the panel only in a narrow window, where the
+ * panel takes its place.
  */
-export const behindTask = (taskOpen: boolean, view: TaskView): "" | "hidden" | "max-md:hidden" =>
-  !taskOpen ? "" : view === "full" ? "hidden" : "max-md:hidden"
+export const behindTask = (placement: TaskPlacement): "" | "hidden" | "max-md:hidden" =>
+  placement === "none" ? "" : placement === "page" ? "hidden" : "max-md:hidden"
 
 /** Toggles the view while a task is open; a plain key, so it never fires while typing. */
 export const TASK_VIEW_SHORTCUT = "f"
 
 /**
  * Where the open task sits in the project layout (project/ProjectLayout.tsx): docked on the right of
- * the main area at full height ("side"), hidden while the viewer takes that place ("covered"), as a
- * page under the tabs in the board's place ("page", the viewer beside it), or nowhere. Below 768 px a
- * docked task takes the board's place too; that part is CSS (`md:`).
+ * the main area at full height ("side"), as a page under the tabs in the board's place ("page"), or
+ * nowhere. Expanded, or while the viewer is open: opening a page from the task moves the task to the
+ * main area with the page beside it, so neither covers the other (CEL-117); closing the viewer docks
+ * it again. Below 768 px a docked task takes the board's place too; that part is CSS (`md:`).
  */
-export type TaskPlacement = "none" | "side" | "covered" | "page"
+export type TaskPlacement = "none" | "side" | "page"
 
 export const taskPlacement = (taskOpen: boolean, view: TaskView, viewerOpen: boolean): TaskPlacement =>
-  !taskOpen ? "none" : view === "full" ? "page" : viewerOpen ? "covered" : "side"
+  !taskOpen ? "none" : view === "full" || viewerOpen ? "page" : "side"
+
+/**
+ * What Expand / Collapse (and F) do where the task is: docked, it expands to a full page; in the main
+ * area, it collapses to the panel, closing the viewer beside it (else the viewer would keep it there).
+ */
+export const viewToggle = (placement: "side" | "page"): { view: TaskView; closeViewer: boolean } =>
+  placement === "side" ? { view: "full", closeViewer: false } : { view: "panel", closeViewer: true }
 
 /** The docked panel's width, dragged by its left edge; the board or list beside it keeps 360px. */
 export const TASK_PANEL_WIDTH: WidthRule = { initial: 560, min: 360, max: 960, minRest: 360, step: 32 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { clampWidth } from "../lib/resize.ts"
-import { behindTask, parseTaskSearch, searchForView, TASK_PANEL_WIDTH, taskPlacement, taskViewOf, toggledView } from "./view.ts"
+import { behindTask, parseTaskSearch, searchForView, TASK_PANEL_WIDTH, taskPlacement, taskViewOf, toggledView, viewToggle } from "./view.ts"
 
 describe("an open task's view in the URL", () => {
   it("reads ?view=full, and anything else as the side panel", () => {
@@ -31,16 +31,20 @@ describe("an open task's view in the URL", () => {
     expect(searchForView("panel")).toEqual({ view: undefined })
   })
 
-  it("hides the board or list behind a full page, and behind the panel only in a narrow window", () => {
-    expect(behindTask(false, "panel")).toBe("")
-    expect(behindTask(false, "full")).toBe("")
-    expect(behindTask(true, "panel")).toBe("max-md:hidden")
-    expect(behindTask(true, "full")).toBe("hidden")
+  it("hides the board or list behind a task in the main area, and behind the panel only in a narrow window", () => {
+    expect(behindTask("none")).toBe("")
+    expect(behindTask("side")).toBe("max-md:hidden")
+    expect(behindTask("page")).toBe("hidden")
   })
 
   it("toggles between the two", () => {
     expect(toggledView("panel")).toBe("full")
     expect(toggledView("full")).toBe("panel")
+  })
+
+  it("expand and collapse follow where the task is: in the main area beside the viewer, collapse closes the viewer too", () => {
+    expect(viewToggle("side")).toEqual({ view: "full", closeViewer: false })
+    expect(viewToggle("page")).toEqual({ view: "panel", closeViewer: true })
   })
 })
 
@@ -52,8 +56,8 @@ describe("where the open task sits in the project layout", () => {
     expect(taskPlacement(true, "full", false)).toBe("page")
   })
 
-  it("the viewer takes the docked panel's place, but sits beside a full page", () => {
-    expect(taskPlacement(true, "panel", true)).toBe("covered")
+  it("with the viewer open, the task moves to the main area and the viewer sits beside it (CEL-117), never covering it", () => {
+    expect(taskPlacement(true, "panel", true)).toBe("page")
     expect(taskPlacement(true, "full", true)).toBe("page")
   })
 })

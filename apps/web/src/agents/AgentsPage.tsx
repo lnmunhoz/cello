@@ -15,6 +15,7 @@ import { AgentMarkOf, presenceSubjectOf, StageWord } from "../presence/Presence.
 import { useNow } from "../presence/useNow.ts"
 import { QueueRow, type QueueRowState } from "../review/QueueRow.tsx"
 import { useQueue } from "../review/useQueue.ts"
+import { keepViewer } from "../viewer/search.ts"
 import { type AgentRow, agentGroups, agentRows, directTasks, groupOf, rowKeysOf, stateTaskOf, subagentsLabel, waitingTaskOf } from "./layout.ts"
 
 /**
@@ -40,7 +41,7 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const groups = agentGroups(rows)
   const keys = rowKeysOf(groups)
   const openId = open !== undefined && keys.includes(open) ? open : null
-  const queue = useQueue({ keys, open: openId, setOpen: (id) => void navigate({ search: id === null ? {} : { open: id }, replace: true }) })
+  const queue = useQueue({ keys, open: openId, setOpen: (id) => void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(id === null ? {} : { open: id }) }), replace: true }) })
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

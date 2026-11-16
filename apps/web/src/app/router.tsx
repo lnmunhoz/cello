@@ -15,6 +15,7 @@ import { ReviewPage } from "../review/ReviewPage.tsx"
 import { BuildsPage } from "../settings/BuildsPage.tsx"
 import { parseSettingsSearch, Settings } from "../settings/Settings.tsx"
 import { parseTaskSearch } from "../task/view.ts"
+import { parseViewerSearch } from "../viewer/search.ts"
 import { isEmbedded } from "../viewer/viewer.ts"
 import { AppShell, EmbeddedShell } from "./AppShell.tsx"
 import { Home } from "./Home.tsx"
@@ -23,7 +24,12 @@ import { RouteNotFound } from "./NotFound.tsx"
 // Inside a panel (the viewer's iframe, the desktop app's native panel), pages show without the sidebar,
 // and every navigation keeps `?embed` (so their task keys still open the task in the main window).
 const embedded = isEmbedded({ self: window.self, top: window.top, search: window.location.search })
-const root = createRootRoute({ component: embedded ? EmbeddedShell : AppShell, ...embedSearch })
+// `?viewer=…` (CEL-117): what the side panel shows, on any route; navigations drop it unless they keep it.
+const root = createRootRoute({
+  component: embedded ? EmbeddedShell : AppShell,
+  validateSearch: (search: Record<string, unknown>) => ({ ...embedSearch.validateSearch(search), ...parseViewerSearch(search) }),
+  search: embedSearch.search,
+})
 
 const home = createRoute({ getParentRoute: () => root, path: "/", component: Home })
 const settings = createRoute({ getParentRoute: () => root, path: "/settings", component: Settings, validateSearch: parseSettingsSearch })

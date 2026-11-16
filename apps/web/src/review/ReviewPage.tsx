@@ -16,6 +16,7 @@ import { QueueRow, type QueueRowState } from "./QueueRow.tsx"
 import { CommentOrDecide } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
 import { useQueue } from "./useQueue.ts"
+import { keepViewer } from "../viewer/search.ts"
 
 /**
  * Everything waiting on Lucas, across the workspace's projects, one row per task: agents' questions first
@@ -41,7 +42,8 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   const rows = useQueue({
     keys,
     open: openKey,
-    setOpen: (key) => void navigate({ search: key === null ? {} : { open: key }, replace: true }),
+    // The viewer stays open beside the packet that changes.
+    setOpen: (key) => void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(key === null ? {} : { open: key }) }), replace: true }),
   })
 
   return (

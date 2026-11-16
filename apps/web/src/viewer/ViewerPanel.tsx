@@ -1,8 +1,10 @@
 import { documentBySlug } from "@cello/client/sync/documents"
 import { projectByKey } from "@cello/client/sync/selectors"
 import { embedUrl } from "@cello/shared/embed"
-import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router"
+import { useNavigate, useRouter } from "@tanstack/react-router"
+import { useShortcut, useShortcutHint } from "@ui-sdk/react/shortcuts"
 import {
+  ArrowLeftIcon,
   CopyIcon,
   DownloadIcon,
   ExternalLinkIcon,
@@ -15,7 +17,7 @@ import {
   Maximize2Icon,
   XIcon,
 } from "lucide-react"
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type SyntheticEvent } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type SyntheticEvent } from "react"
 import { Button, ButtonLink } from "../components/ui/Button.tsx"
 import { ResizeHandle, useStoredWidth } from "../components/ui/ResizeHandle.tsx"
 import { copyText } from "../lib/clipboard.ts"
@@ -24,7 +26,10 @@ import { DocumentReader } from "../docs/PageReader.tsx"
 import { openInPanel, type OpenMessage } from "../lib/desktop.ts"
 import { useBoard, useProjectKeys } from "../lib/hooks.ts"
 import { widthLimits } from "../lib/resize.ts"
-import { closeViewer, showInViewer, useViewerItem } from "./store.ts"
+import { markPanelClick, routerViewerDriver, useBackTarget } from "./panelBack.ts"
+import { sideOf, type Spot } from "./panelHistory.ts"
+import { viewerItemOf, type ViewerSearch } from "./search.ts"
+import { closeViewer, setViewerDriver, showInViewer, useViewerItem } from "./store.ts"
 import { downloadName, MAX_SHOWN_LABEL, readShown, shownText, textFormat } from "./text.ts"
 import {
   FRAME_TIMEOUT_MS,
@@ -46,21 +51,25 @@ import {
  * The side panel (the viewer), docked on the right of the main area at full height while something is
  * open in it: an image, a video, a text file, a Cello page (in the page reader), or an external site.
  * Opened with `openInPanel` (lib/desktop.ts), whose rule (`openRoute`) sends Cello's own pages and
- * files here in the desktop app too; while it's open it takes the task panel's place.
+ * files here in the desktop app too. What it shows is in the URL (`?viewer=…`, search.ts); an open
+ * task moves to the main area beside it (task/view.ts's `taskPlacement`, CEL-117).
  */
 export function ViewerPanel() {
   const item = useViewerItem()
   const navigate = useNavigate()
+  const router = useRouter()
+  useEffect(() => setViewerDriver(routerViewerDriver(router)), [router])
   useEffect(() => {
-    const openTaskHere = (task: { projectKey: string; number: number }) => {
+    // The task's address has no `?viewer`, so opening it closes the viewer.
+    const openTaskHere = (task: { projectKey: string; number: number }) =>
       void navigate({ to: "/$projectKey/$number", params: { projectKey: task.projectKey, number: String(task.number) } })
-      closeViewer()
-    }
     // A Cello page framed in the viewer opens its links here, not inside itself, and its task keys
     // open the task here, in the main window, closing the viewer (even when the task is the one
-    // already open under it). The desktop app's preload sends the same messages: a task key clicked in
+    // already open beside it). The desktop app's preload sends the same messages: a task key clicked in
     // its native panel, and a `cello://open` link or a ⌘-click to a page on the board (CEL-60).
     const onMessage = (e: MessageEvent) => {
+      // From the frame in the viewer: a click in the side panel, which Back can return from.
+      if (e.source !== window && e.origin === location.origin) markPanelClick()
       const task = openTaskFrom(e, location.origin)
       if (task) return openTaskHere(task)
       const data = e.data as Partial<OpenMessage> | null
@@ -92,33 +101,57 @@ const closesOnEscape = (e: KeyboardEvent, doc: Document) => {
 
 const KIND_ICON = { image: ImageIcon, video: FilmIcon, text: FileCodeIcon, page: FileTextIcon, external: GlobeIcon } satisfies Record<ViewerKind, unknown>
 
-/** A plain click on a task link inside the viewer opened that task: the viewer gives it the place, even when it's the task under it. */
-const closeOnTaskLink = (e: ReactMouseEvent) => {
-  if (!e.defaultPrevented || !(e.target instanceof Element)) return
-  if (taskOfHref(e.target.closest("a[href]")?.getAttribute("href") ?? undefined, location.origin)) closeViewer()
-}
-
 /** A document's own title, live from the board, for the header (a `cello://open` link names only its address). */
-const useDocumentTitle = (item: ViewerItem): string | undefined => {
+const useDocumentTitle = (item: ViewerItem | null): string | undefined => {
   const board = useBoard()
-  const page = item.kind === "page" ? pageRef(item.url, location.origin) : null
+  const page = item?.kind === "page" ? pageRef(item.url, location.origin) : null
   const project = board && page ? projectByKey(board, page.projectKey) : undefined
   return board && page && project ? documentBySlug(board, project.id, page.slug)?.title : undefined
+}
+
+/** What the side panel showed at `spot`, in a few words: the task's key, or the item's title. */
+const useSideLabel = (spot: Spot | undefined): string | undefined => {
+  const side = spot ? sideOf(spot) : null
+  const item = spot && side?.type === "viewer" ? viewerItemOf(spot.search as ViewerSearch, location.origin) : null
+  const title = useDocumentTitle(item)
+  return side?.type === "task" ? side.key : (title ?? item?.title)
+}
+
+/** The side panel's Back, shared with the docked task panel. */
+export const PANEL_BACK_SHORTCUT = "mod+["
+
+/**
+ * Back to what the side panel showed before (CEL-117), when what it shows was opened from there: a page
+ * from a task, a task from a page's TASKS chip, a linked task from a comment. It's the browser's own
+ * Back, so the entry before comes back exactly, the layout included. Nothing when there's no way back.
+ */
+export function PanelBack() {
+  const router = useRouter()
+  const target = useBackTarget()
+  const label = useSideLabel(target)
+  const hint = useShortcutHint(PANEL_BACK_SHORTCUT)
+  if (!target) return null
+  const name = label ? `Back to ${label}` : "Back"
+  return (
+    <Button variant="ghost" size="iconMd" aria-label={name} aria-keyshortcuts={hint.ariaKeyshortcuts} title={`${name} (${hint.text})`} onClick={() => router.history.back()}>
+      <ArrowLeftIcon className="size-4" />
+    </Button>
+  )
+}
+
+/** The side panel's Back from the keyboard, while it has a way back; the app shell registers it once. */
+export function usePanelBackShortcut(enabled: boolean) {
+  const router = useRouter()
+  const target = useBackTarget()
+  useShortcut(enabled && target ? PANEL_BACK_SHORTCUT : null, () => router.history.back(), { description: "Back to what the side panel showed before" })
 }
 
 function Viewer({ item }: { item: ViewerItem }) {
   const [width, resize] = useStoredWidth(WIDTH_KEY, VIEWER_WIDTH)
   const ref = useRef<HTMLElement>(null)
   const router = useRouter()
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const [openedOn] = useState(pathname)
   const Icon = KIND_ICON[item.kind]
   const title = useDocumentTitle(item) ?? item.title
-
-  // Opening a task, or going anywhere else, brings the page back in front.
-  useEffect(() => {
-    if (pathname !== openedOn) closeViewer()
-  }, [pathname, openedOn])
 
   // Focus moves into the viewer (it may cover what you clicked), and back when it closes.
   useEffect(() => {
@@ -149,28 +182,20 @@ function Viewer({ item }: { item: ViewerItem }) {
       aria-label="Viewer"
       tabIndex={-1}
       data-viewer={item.kind}
+      data-side-panel="viewer"
       style={{ width, ...widthLimits(VIEWER_WIDTH) }}
       className="relative flex shrink-0 flex-col border-l border-line bg-surface outline-none"
-      onClick={closeOnTaskLink}
     >
       <ResizeHandle edge="left" label="Resize viewer" rule={VIEWER_WIDTH} width={width} onResize={resize} />
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
+        <PanelBack />
         <Icon aria-hidden className="size-3.5 shrink-0 text-muted" />
         <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium" title={item.url}>
           {title}
         </h2>
         {item.kind === "page" ? (
-          // The page in the main area, in the board's place; going there closes the viewer.
-          <Button
-            variant="ghost"
-            size="iconMd"
-            aria-label="Expand to full page"
-            title="Expand to full page"
-            onClick={() => {
-              router.history.push(fullPageHref(item.url))
-              closeViewer()
-            }}
-          >
+          // The page in the main area, in the board's place; its address has no `?viewer`, so the viewer closes.
+          <Button variant="ghost" size="iconMd" aria-label="Expand to full page" title="Expand to full page" onClick={() => router.history.push(fullPageHref(item.url))}>
             <Maximize2Icon className="size-4" />
           </Button>
         ) : (
@@ -280,7 +305,7 @@ function PageView({ item }: { item: ViewerItem }) {
         slug={page.slug}
         pinned={page.version}
         hash={page.hash}
-        onVersion={(version) => showInViewer({ ...item, url: withVersion(item.url, version) })}
+        onVersion={(version) => showInViewer({ ...item, url: withVersion(item.url, version) }, { replace: true })}
       />
     )
   }
@@ -310,7 +335,7 @@ function TextView({ item }: { item: ViewerItem }) {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         const mime = response.headers.get("content-type")
         const media = mime?.startsWith("image/") ? "image" : mime?.startsWith("video/") ? "video" : null
-        if (media) return showInViewer({ ...item, kind: media })
+        if (media) return showInViewer({ ...item, kind: media }, { replace: true })
         const read = response.body ? await readShown(response.body) : { text: await response.text(), clipped: false }
         setFile({ state: "shown", ...read, mime })
       })
@@ -318,7 +343,8 @@ function TextView({ item }: { item: ViewerItem }) {
         if (!request.signal.aborted) setFile({ state: "failed" })
       })
     return () => request.abort()
-  }, [item])
+    // The item is read from the URL on each render; it's the same file while these are.
+  }, [item.url, item.kind, item.name, item.title])
 
   const format = file.state === "shown" ? textFormat(file.mime, item.name ?? URL.parse(item.url)?.pathname) : "plain"
   const shown = file.state !== "shown" ? "" : format === "markdown" ? file.text : shownText(file.text, format)

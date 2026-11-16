@@ -88,12 +88,12 @@ test("CEL-60: a Cello page opens in the side panel from the task's Pages list an
   const viewer = viewerOf(page)
   const pages = panel.getByRole("region", { name: "Pages" })
 
-  await captionWithUrl(page, "Click it: the page opens in the side panel, in the task panel's place, rendered by the app (no iframe)")
+  await captionWithUrl(page, "Click it: the page opens in the side panel, rendered by the app (no iframe); the task moves to the main area beside it")
   await pages.getByRole("link", { name: /Panel notes/ }).click()
   await expect(viewer.getByRole("heading", { level: 1, name: "Panel notes" })).toBeVisible()
   await expect(viewer.locator("iframe")).toHaveCount(0)
-  await expect(panel).toBeHidden()
-  await expect(page).toHaveURL(new RegExp(`/${key}/1$`))
+  await expect(panel).toHaveAttribute("data-placement", "page")
+  await expect(page).toHaveURL(new RegExp(`/${key}/1\\?viewer=`))
   // Docked on the right at full height: from the main area's top edge to its bottom, like the task panel.
   const main = (await page.locator("main").boundingBox())!
   const box = (await viewer.boundingBox())!
@@ -107,10 +107,10 @@ test("CEL-60: a Cello page opens in the side panel from the task's Pages list an
   const wider = await width(page)
   expect(wider).toBeGreaterThan(before + 100)
 
-  await caption(page, "Close it: the task is back, where it was")
+  await caption(page, "Close it: the task is back in the side panel, where it was")
   await viewer.getByRole("button", { name: "Close viewer" }).click()
   await expect(viewer).toHaveCount(0)
-  await expect(panel).toBeVisible()
+  await expect(panel).toHaveAttribute("data-placement", "side")
 
   await captionWithUrl(page, "After a reload, it opens at the width it was left at")
   await page.reload()
@@ -131,15 +131,18 @@ test("CEL-60: a Cello page opens in the side panel from the task's Pages list an
   await expect(viewer).toHaveCount(0)
   await expect(panel).toBeVisible()
 
-  await captionWithUrl(page, "Expand to full page: the page takes the board's place, and Back returns to the task")
+  await captionWithUrl(page, "Expand to full page: the page takes the board's place, and Back returns to the task with the page beside it")
   await pages.getByRole("link", { name: /Panel notes/ }).click()
   await viewer.getByRole("button", { name: "Expand to full page" }).click()
   await expect(page).toHaveURL(new RegExp(`/${key}/pages/panel-notes$`))
   await expect(viewer).toHaveCount(0)
   await expect(page.getByRole("heading", { level: 1, name: "Panel notes" })).toBeVisible()
   await page.goBack()
-  await expect(page).toHaveURL(new RegExp(`/${key}/1$`))
-  await expect(panel).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/${key}/1\\?viewer=`))
+  await expect(panel).toHaveAttribute("data-placement", "page")
+  await expect(viewer.getByRole("heading", { level: 1, name: "Panel notes" })).toBeVisible()
+  await viewer.getByRole("button", { name: "Close viewer" }).click()
+  await expect(panel).toHaveAttribute("data-placement", "side")
 
   await caption(page, "A comment with the page's address: it opens in the side panel too")
   // The board's own address for it (the e2e board is served on its own port, in front of the server).
@@ -210,7 +213,7 @@ test("CEL-60: a packet's text evidence (a terminal transcript, markdown) opens i
   expect(await text.evaluate((el) => getComputedStyle(el).whiteSpace)).toBe("pre-wrap")
   expect(await text.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/mono/i)
   await expect(viewer.getByRole("heading", { name: "Terminal transcript" })).toBeVisible()
-  await expect(panel).toBeHidden()
+  await expect(panel).toHaveAttribute("data-placement", "page")
 
   await caption(page, "Copy puts the text, without colour codes, on the clipboard; Download saves it as transcript.txt")
   await viewer.getByRole("button", { name: "Copy" }).click()
