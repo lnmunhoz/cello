@@ -83,6 +83,14 @@ export const milestoneProgress = (tasks: ReadonlyArray<TaskLike>, statuses: Read
 export const progressText = (p: MilestoneProgress): string =>
   p.total === 0 ? "0 of 0 done" : `${p.done} of ${p.total} done · ${p.percent}%`
 
+/** What's left besides Done, in words: "1 in review", "2 in progress", "1 to do", "1 in Backlog" (only the ones there are). */
+export const progressParts = (p: MilestoneProgress): string[] => [
+  ...(p.inReview ? [`${p.inReview} in review`] : []),
+  ...(p.inProgress ? [`${p.inProgress} in progress`] : []),
+  ...(p.todo ? [`${p.todo} to do`] : []),
+  ...(p.backlog ? [`${p.backlog} in Backlog`] : []),
+]
+
 /** The order milestones are listed in: their position (set by the human, M2 before M3), then name. */
 export const byPosition = (a: { readonly position: string; readonly name: string }, b: { readonly position: string; readonly name: string }): number =>
   a.position < b.position ? -1 : a.position > b.position ? 1 : compareMilestoneNames(a.name, b.name)
@@ -113,4 +121,91 @@ export const findMilestone = <M extends { readonly name: string }>(
       `Milestones: ${names.join(", ") || "none yet"}${options.allowNone && names.length ? " (or none)" : ""}. ` +
       `Nothing was changed; \`cello milestone create ${name.trim()}\` makes it`,
   }
+}
+
+// The Milestones page and the board's Group by: Milestone (CEL-132).
+
+const DAY_MS = 86_400_000
+
+/** A `YYYY-MM-DD` day as a count of days, by the calendar (UTC), so a daylight-saving change doesn't shift it. */
+const dayNumber = (day: string): number => {
+  const [y, m, d] = day.split("-").map(Number)
+  return Math.round(Date.UTC(y!, m! - 1, d!) / DAY_MS)
+}
+
+/** The local calendar day of a moment, as `YYYY-MM-DD`: what "today" is for a due date. */
+export const localDay = (ms: number): string => {
+  const d = new Date(ms)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
+/** "3 days left", "due today" or "4 days late" (`late`, shown in red), from `today` to the target date. */
+export const dueText = (targetDate: string, today: string): { readonly text: string; readonly late: boolean } => {
+  const days = dayNumber(targetDate) - dayNumber(today)
+  if (days === 0) return { text: "due today", late: false }
+  const n = Math.abs(days)
+  const unit = n === 1 ? "day" : "days"
+  return days > 0 ? { text: `${n} ${unit} left`, late: false } : { text: `${n} ${unit} late`, late: true }
+}
+
+/**
+ * "All done: close M3?": an open milestone whose every task that counts is Done (Canceled ones don't
+ * count; Backlog ones do). Closing stays the human's, so it's only a suggestion; an empty milestone gets none.
+ */
+export const closeSuggested = (milestone: { readonly state: string }, progress: MilestoneProgress): boolean =>
+  milestone.state === "open" && progress.total > 0 && progress.done === progress.total
+
+/**
+ * "reopened after M3 closed": a task of a closed milestone that isn't Done or Canceled and was changed
+ * after the close, so it most likely moved out of Done since. A closed milestone never reopens by
+ * itself: it stays closed, and the task's row says so instead.
+ */
+export const reopenedAfterClose = (
+  task: { readonly updatedAt: number },
+  milestone: { readonly state: string; readonly closedAt: number | null },
+  category: string,
+): boolean =>
+  milestone.state === "closed" && milestone.closedAt !== null && category !== "completed" && category !== "canceled" && task.updatedAt > milestone.closedAt
+
+/** The Milestones page's No milestone line: tasks without one that are still open (not Done, Canceled or archived). */
+export const openWithoutMilestone = <T extends TaskLike & { readonly milestoneId?: string | null }>(
+  tasks: ReadonlyArray<T>,
+  statuses: ReadonlyArray<StatusLike>,
+): T[] => {
+  const byId = new Map(statuses.map((s) => [s.id, s]))
+  return tasks.filter((t) => {
+    if (t.archivedAt !== null || (t.milestoneId ?? null) !== null) return false
+    const category = byId.get(t.statusId)?.category
+    return category !== undefined && category !== "completed" && category !== "canceled"
+  })
+}
+
+type InMilestone = { readonly milestoneId?: string | null }
+
+export interface MilestoneLane<M> {
+  /** The milestone's id, or `none`. */
+  readonly key: string
+  readonly milestone: M | null
+  /** Whether a task sits in this lane. */
+  readonly has: (task: InMilestone) => boolean
+}
+
+/**
+ * The board's swimlanes under Group by: Milestone (pass one project's milestones and the tasks shown):
+ * the open milestones in order, then the closed ones a shown task is still in, then No milestone, last
+ * and always there so a card can be dragged out of a milestone. A task in a milestone missing from the
+ * list counts as having none.
+ */
+export const milestoneLanes = <M extends { readonly id: string; readonly name: string; readonly position: string; readonly state: string }>(
+  milestones: ReadonlyArray<M>,
+  tasks: ReadonlyArray<InMilestone>,
+): MilestoneLane<M>[] => {
+  const known = new Set(milestones.map((m) => m.id))
+  const used = new Set(tasks.map((t) => t.milestoneId ?? null))
+  const sorted = [...milestones].sort(byPosition)
+  const ordered = [...sorted.filter((m) => m.state === "open"), ...sorted.filter((m) => m.state !== "open" && used.has(m.id))]
+  return [
+    ...ordered.map((m) => ({ key: m.id, milestone: m, has: (t: InMilestone) => t.milestoneId === m.id })),
+    { key: "none", milestone: null, has: (t: InMilestone) => t.milestoneId === undefined || t.milestoneId === null || !known.has(t.milestoneId) },
+  ]
 }

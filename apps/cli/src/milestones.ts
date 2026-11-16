@@ -3,7 +3,7 @@
 // reading `--due`, and the text. Names are matched by @cello/shared/milestone's findMilestone, as on the server.
 import type { Milestone } from "@cello/contract/entities"
 import type { MilestoneList, MilestoneProgress, MilestoneSummary } from "@cello/contract/views"
-import { progressText } from "@cello/shared/milestone"
+import { progressParts, progressText } from "@cello/shared/milestone"
 import { ago, columns } from "./format.ts"
 
 /** `--due 2026-12-01`, or `none` to clear the date. */
@@ -33,12 +33,7 @@ export const milestoneListText = (list: MilestoneList, now: number): string => {
 
 /** "6 of 11 done · 55%: 1 in review, 2 in progress, 1 to do, 1 in Backlog (2 canceled, not counted)". */
 export const progressDetail = (p: MilestoneProgress): string => {
-  const left = [
-    ...(p.inReview ? [`${p.inReview} in review`] : []),
-    ...(p.inProgress ? [`${p.inProgress} in progress`] : []),
-    ...(p.todo ? [`${p.todo} to do`] : []),
-    ...(p.backlog ? [`${p.backlog} in Backlog`] : []),
-  ]
+  const left = progressParts(p)
   const canceled = p.canceled ? ` (${p.canceled} canceled, not counted)` : ""
   return `${progressText(p)}${left.length ? `: ${left.join(", ")}` : ""}${canceled}`
 }
