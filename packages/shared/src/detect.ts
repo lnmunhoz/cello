@@ -183,19 +183,21 @@ const ENV_READ = /^process\.env(?:\.\w+|\[["']\w+["']\])$/
  * a string or number literal; `process.env.X ?? <default>` (or `||`), its default; Number(…), String(…) or
  * parseInt(…) around one; a const in the file that holds one; a template literal whose every `${…}` resolves.
  * Anything else, `process.env.X` with no default included, is null: detection never writes a value with a
- * variable left in it (CEL-96).
+ * variable left in it (CEL-96). `miss.variable` records whether a variable with no default was why.
  */
-const evaluate = (expr: string, text: string, depth = 0): string | null => {
+const evaluate = (expr: string, text: string, miss: { variable: boolean } = { variable: false }, depth = 0): string | null => {
   const e = expr.trim()
   if (depth > 5 || e === "") return null
   const call = /^(?:Number|String|parseInt|parseFloat)\(([\s\S]*?)(?:,\s*\d+)?\)$/.exec(e)
-  if (call) return evaluate(call[1]!, text, depth + 1)
+  if (call) return evaluate(call[1]!, text, miss, depth + 1)
   const options = alternatives(e)
-  if (options.length > 1) {
-    const set = options.find((option) => !ENV_READ.test(option))
-    return set === undefined ? null : evaluate(set, text, depth + 1)
+  const set = options.find((option) => !ENV_READ.test(option))
+  if (set === undefined) {
+    miss.variable = true
+    return null
   }
-  if (/^\([\s\S]*\)$/.test(e)) return evaluate(e.slice(1, -1), text, depth + 1)
+  if (options.length > 1) return evaluate(set, text, miss, depth + 1)
+  if (/^\([\s\S]*\)$/.test(e)) return evaluate(e.slice(1, -1), text, miss, depth + 1)
   const quoted = /^(["'])((?:(?!\1)[^\\]|\\.)*)\1$/.exec(e)
   if (quoted) return quoted[2]!
   if (/^\d+(?:\.\d+)?$/.test(e)) return e
@@ -203,7 +205,7 @@ const evaluate = (expr: string, text: string, depth = 0): string | null => {
   if (template) {
     let open = false
     const value = template[1]!.replace(/\$\{([^}]*)\}/g, (_, inner: string) => {
-      const resolved = evaluate(inner, text, depth + 1)
+      const resolved = evaluate(inner, text, miss, depth + 1)
       if (resolved === null) open = true
       return resolved ?? ""
     })
@@ -212,15 +214,20 @@ const evaluate = (expr: string, text: string, depth = 0): string | null => {
   if (/^[A-Za-z_$][\w$]*$/.test(e)) {
     const defined = new RegExp(`\\b(?:const|let|var)\\s+${e.replace(/\$/g, "\\$")}\\s*=\\s*([^\\n;]+)`).exec(text)
     // A comment after the value goes; "//" inside a quoted URL stays.
-    return defined ? evaluate(defined[1]!.replace(/\s+\/\/[^"'`]*$/, ""), text, depth + 1) : null
+    return defined ? evaluate(defined[1]!.replace(/\s+\/\/[^"'`]*$/, ""), text, miss, depth + 1) : null
   }
   return null
 }
 
-const NO_DEFAULT = "which names a variable with no default there"
-
 /** An expression as markdown code: a template literal already is (`http://localhost:${PORT}`). */
 const code = (expr: string) => (expr.startsWith("`") ? expr : `\`${expr}\``)
+
+/** Why `what` (`baseURL in playwright.config.ts`), whose expression is `expr`, has no value detection can write. */
+const unsettled = (what: string, expr: string, text: string) => {
+  const miss = { variable: false }
+  evaluate(expr, text, miss)
+  return `${what} is ${code(expr)}${miss.variable ? ", which names a variable with no default there" : "; couldn't work out its value from the file"}`
+}
 
 /**
  * The app's port: the one a dev script names (`--port 5199`, `-p 3000`), else vite.config's, else the
@@ -233,7 +240,7 @@ const portOf = (script: string, facts: RepoFacts, stack: ReadonlyArray<string>):
   const expr = config && exprAfter(config[1], "port")
   if (config && expr) {
     const port = evaluate(expr, config[1])
-    return port !== null && /^\d{2,5}$/.test(port) ? { port } : { why: `the port in ${config[0]} is ${code(expr)}, ${NO_DEFAULT}` }
+    return port !== null && /^\d{2,5}$/.test(port) ? { port } : { why: unsettled(`the port in ${config[0]}`, expr, config[1]) }
   }
   if (stack.includes("web (Next)")) return { port: "3000" }
   if (stack.includes("web (Vite)")) return { port: "5173" }
@@ -377,11 +384,15 @@ export const detectRepo = (facts: RepoFacts, machine: MachineFacts): Detection =
     for (const [file, config] of configs) {
       const dir = dirOf(file)
       const own = packageAt(dir)?.json
-      const electron = own?.dependencies?.["electron"] !== undefined || own?.devDependencies?.["electron"] !== undefined
-      const surface = electron || /\b_electron\b/.test(config) ? "desktop" : "web"
       const ids = idsOf(file)
       const others = configs.flatMap(([f]) => (f === file ? [] : idsOf(f)))
       const rootScript = (test: (name: string, body: string) => boolean) => Object.keys(scripts).find((n) => test(n, scripts[n]!))
+      // Desktop: a config using _electron; a workspace package depending on Electron; for the root's config, a
+      // root script running Playwright named for the desktop. Not the root's own dependencies: a monorepo often
+      // has electron-builder (and Electron) at the root whatever its root config tests.
+      const electronPackage = dir !== "" && (own?.dependencies?.["electron"] !== undefined || own?.devDependencies?.["electron"] !== undefined)
+      const desktopScript = dir === "" && rootScript((n, b) => SURFACE_WORDS.desktop!.test(n) && /playwright test/.test(b) && !others.some((id) => b.includes(id))) !== undefined
+      const surface = /\b_electron\b/.test(config) || electronPackage || desktopScript ? "desktop" : "web"
       // The run, first found wins: a root script naming this package's folder or name; a root test script
       // naming the surface (test:docker:desktop); for the root's config, the usual e2e script names, then a
       // script running `playwright test` that names no other config; for a package's, its own e2e script, run
@@ -410,9 +421,9 @@ export const detectRepo = (facts: RepoFacts, machine: MachineFacts): Detection =
         : {
           surface, run, videos: folder, screenshots: folder,
           videoProblem: out === null
-            ? `set e2e.web.videos: outputDir in ${name} is ${code(outExpr!)}, ${NO_DEFAULT}`
+            ? `set e2e.web.videos: ${unsettled(`outputDir in ${name}`, outExpr!, config)}`
             : video ? null : `turn videos on in ${name} (use: { video: "on" })`,
-          shotsProblem: out === null ? `set e2e.web.screenshots: outputDir in ${name} is ${code(outExpr!)}, ${NO_DEFAULT}` : null,
+          shotsProblem: out === null ? `set e2e.web.screenshots: ${unsettled(`outputDir in ${name}`, outExpr!, config)}` : null,
         }))
     }
   }
@@ -462,7 +473,7 @@ export const detectRepo = (facts: RepoFacts, machine: MachineFacts): Detection =
   const port = startScript ? portOf(scripts[startScript]!, facts, stack) : null
   if (baseUrl !== null && /^https?:\/\//.test(baseUrl)) fields["app.url"] = baseUrl
   else if (port && "port" in port) fields["app.url"] = `http://localhost:${port.port}`
-  else if (withBase) unresolved.push({ field: "app.url", why: `baseURL in ${withBase.file} is ${code(withBase.expr!)}, ${NO_DEFAULT}` })
+  else if (withBase) unresolved.push({ field: "app.url", why: unsettled(`baseURL in ${withBase.file}`, withBase.expr!, withBase.config) })
   else if (port) unresolved.push({ field: "app.url", why: port.why })
 
   if (ui) fields["evidence.ui"] = UI_EVIDENCE

@@ -148,6 +148,14 @@ describe("values detection can't settle are left out, never written half-resolve
     expect(found.unresolved).toEqual([{ field: "app.url", why: "baseURL in playwright.config.ts is `http://localhost:${process.env.WEB_PORT}`, which names a variable with no default there" }])
   })
 
+  it("a baseURL it can't work out, without a bare variable in it, says so in general words", () => {
+    for (const expr of ["`http://${process.env.HOST ?? `localhost`}:5199`", "baseUrlFor(\"web\")"]) {
+      const found = detectRepo(withConfig(`use: { baseURL: ${expr}, video: "on" }`), ALL_TOOLS)
+      expect(found.fields["app.url"], expr).toBeUndefined()
+      expect(found.unresolved, expr).toEqual([{ field: "app.url", why: `baseURL in playwright.config.ts is ${expr.startsWith("`") ? expr : `\`${expr}\``}; couldn't work out its value from the file` }])
+    }
+  })
+
   it("the app's port in vite.config, behind an env variable with a default, gives app.url when Playwright has no baseURL", () => {
     const found = detectRepo(repo({
       paths: ["package.json", "bun.lock", "apps/web/package.json", "apps/web/vite.config.ts"],
@@ -299,6 +307,22 @@ describe("one e2e entry per Playwright config, each with its surface (CEL-96)", 
       "e2e.web.videos": "apps/site/test-results/e2e",
       "e2e.web.screenshots": "apps/site/test-results/e2e",
     })
+  })
+
+  it("a root config isn't desktop just because the root package lists electron (electron-builder at the root); _electron or a desktop script name makes it so", () => {
+    const monorepo = (config: string, scripts: Record<string, string> = { "test:e2e": "playwright test" }) => repo({
+      paths: ["package.json", "bun.lock", "playwright.config.ts", "apps/web/package.json"],
+      packages: [
+        { path: "package.json", json: { scripts, devDependencies: { "@playwright/test": "1", electron: "44", "electron-builder": "26" } } },
+        { path: "apps/web/package.json", json: { devDependencies: { vite: "7" } } },
+      ],
+      texts: { "playwright.config.ts": config },
+    })
+    const web = detectRepo(monorepo(`use: { video: "on" }`), ALL_TOOLS)
+    expect(web.fields["e2e.web.run"]).toBe("bun run test:e2e")
+    expect(web.fields["e2e.desktop.run"]).toBeUndefined()
+    expect(detectRepo(monorepo(`import { _electron } from "@playwright/test"\nexport default {}`), ALL_TOOLS).fields["e2e.desktop.run"]).toBe("bun run test:e2e")
+    expect(detectRepo(monorepo(`use: { video: "on" }`, { "test:e2e:electron": "playwright test" }), ALL_TOOLS).fields["e2e.desktop.run"]).toBe("bun run test:e2e:electron")
   })
 
   it("a root script naming the config's package runs that surface; the web run doesn't take the desktop's script", () => {
