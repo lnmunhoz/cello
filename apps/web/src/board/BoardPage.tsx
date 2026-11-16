@@ -24,6 +24,7 @@ import { CardBody } from "./Card.tsx"
 import { animator, useCursorVisual } from "./cursors/animator.ts"
 import { withHoles, type Hole } from "./cursors/holes.ts"
 import { useAgentCursors } from "./cursors/useAgentCursors.ts"
+import { activityOf } from "../presence/Activity.tsx"
 import { LaneHeading } from "../presence/Presence.tsx"
 import { InlineCreate } from "./InlineCreate.tsx"
 import { laneDrop, laneHeadings, stageLanes } from "./lanes.ts"
@@ -39,7 +40,12 @@ const WAITING_LANE = "needs-input"
 const layoutTransition = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 } as const
 
 /** A card's look, shared by the card and the copy an agent's waiting move leaves in its old slot. */
-const CARD = "group relative flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-3 py-2.5 shadow-card"
+/**
+ * A card an agent is at work on holds its edge (presence/Activity.tsx), so it's positioned; the others
+ * aren't, since positioning all 200 slowed the agent cursors' flights (perf.spec).
+ */
+const ACTIVE_CARD = "relative"
+const CARD = "group flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-3 py-2.5 shadow-card"
 
 /** A card you just made (still optimistic) scrolls into view, wherever the ordering puts it. */
 const reveal = (el: HTMLElement | null) => el?.scrollIntoView({ block: "nearest", inline: "nearest" })
@@ -239,7 +245,7 @@ function Board({
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") open(task)
                               }}
-                              className={`${CARD} cursor-grab outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring aria-[current=true]:border-accent data-dragging:border-dashed data-dragging:bg-transparent data-dragging:shadow-none data-dragging:*:invisible data-moving:not-data-dragging:ring-2 data-moving:not-data-dragging:ring-ring data-moving:not-data-dragging:shadow-pop`}
+                              className={`${CARD} ${activityOf(board, task, Date.now()).busy ? ACTIVE_CARD : ""} cursor-grab outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring aria-[current=true]:border-accent data-dragging:border-dashed data-dragging:bg-transparent data-dragging:shadow-none data-dragging:*:invisible data-moving:not-data-dragging:ring-2 data-moving:not-data-dragging:ring-ring data-moving:not-data-dragging:shadow-pop`}
                               render={(props) => <motion.div {...(props as object)} layout="position" transition={layoutTransition} />}
                             >
                               <CardBody task={task} board={board} laned={laned && task.statusId === status.id} />

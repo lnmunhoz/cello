@@ -548,12 +548,12 @@ body {
   opacity: 0.75;
   pointer-events: none;
 }
+/* Opacity only (no blur or shadow), so the flash costs the main thread nothing while cards fly about. */
 .activity-edge-flash {
   position: absolute;
-  inset: -2px -3px;
+  inset: -3px -1px;
   border-radius: 9999px;
   opacity: 0;
-  filter: blur(3px);
   animation: activity-edge-flash 0.9s ease-out;
 }
 @keyframes activity-edge-flash {

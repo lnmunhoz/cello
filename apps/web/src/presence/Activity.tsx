@@ -7,7 +7,7 @@ import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Task } from "@cello/contract/entities"
 import { presenceOf } from "@cello/shared/presence"
 import { useState } from "react"
-import { agentMood, agentPresenceSubject, provenanceOf } from "./model.ts"
+import { agentColor, agentMood, agentOn, agentPresenceSubject, sessionColor } from "./model.ts"
 import { useNow } from "./useNow.ts"
 
 export interface CardActivity {
@@ -19,23 +19,32 @@ export interface CardActivity {
   readonly plays: number
 }
 
+/**
+ * Whether an agent is at work on the task right now, in whose colour, and what a change to compare
+ * against reads (`seen`: its mood and last check-in). Whoever the work line names (provenanceOf's
+ * holder: a subagent working on it, else the claim's session), read directly, since every card runs
+ * this on every board event. The board uses `busy` to position only the cards with an edge.
+ */
+export const activityOf = (board: BoardState, task: Task, now: number) => {
+  const agent = agentOn(board, task, now)
+  const session = task.assigneeSessionId === null ? undefined : board.sessions[task.assigneeSessionId]
+  const subject = agent ? agentPresenceSubject(board, agent) : (session ?? null)
+  const color = agent ? agentColor(agent) : session ? sessionColor(session) : "var(--faint)"
+  const mood = agentMood(task.stage, board.statuses[task.statusId], subject ? presenceOf(subject, now) : "ended")
+  return { busy: mood === "working" || mood === "thinking", color, seen: `${mood}|${subject?.lastSeenAt ?? ""}` }
+}
+
 /** What the card shows of the agent at work on its task. */
 export function useCardActivity(task: Task, board: BoardState): CardActivity {
-  const now = useNow()
-  const holder = provenanceOf(board, task, now).holder
-  const subject = holder?.agent ? agentPresenceSubject(board, holder.agent) : (holder?.session ?? null)
-  const presence = subject ? presenceOf(subject, now) : "ended"
-  const mood = agentMood(task.stage, board.statuses[task.statusId], presence)
-  const busy = mood === "working" || mood === "thinking"
+  const { busy, color, seen } = activityOf(board, task, useNow())
   // What it was first drawn with is the baseline: only a later check-in or mood plays.
-  const seen = `${mood}|${subject?.lastSeenAt ?? ""}`
   const [last, setLast] = useState(seen)
   const [plays, setPlays] = useState(0)
   if (seen !== last) {
     setLast(seen)
     if (busy) setPlays(plays + 1)
   }
-  return { busy, color: holder?.who.color ?? "var(--faint)", plays: busy ? plays : 0 }
+  return { busy, color, plays: busy ? plays : 0 }
 }
 
 /** The card's edge while an agent is at work on it; a soft flash per check-in. */
