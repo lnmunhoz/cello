@@ -2582,7 +2582,7 @@ const serviceRestart = Command.make("restart", {}, () =>
     Command.withDescription(
       "Restart the background service: launchd sends its server SIGTERM (the clean shutdown; never a kill), starts the program " +
         "again, and this waits up to 30 s for the new server to answer, then prints its pid. A stopped service is started instead. " +
-        "This is the deploy step once the service is installed: rebuild cello, back up when a migration ships, then restart.",
+        "Cello's own deploys run it from `bun run release` in the Cello repository, after a backup; deploying by hand: cello backup, replace the binary, then restart.",
     ),
     Command.withShortDescription("Restart the background service, e.g. after a rebuild."),
   )
