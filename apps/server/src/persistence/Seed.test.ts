@@ -73,6 +73,7 @@ describe("Migrations", () => {
         { migration_id: 12, name: "comment_attachments" },
         { migration_id: 13, name: "reactions" },
         { migration_id: 14, name: "inbox_read_via" },
+        { migration_id: 15, name: "project_labels" },
       ])
     }).pipe(Effect.provide(db)))
 })

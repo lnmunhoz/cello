@@ -10,6 +10,7 @@ import {
   type FilterField,
   isActive,
   labelCount,
+  labelsInScope,
   type Maker,
   matchContext,
   type MatchContext,
@@ -72,7 +73,8 @@ export function FacetPanel() {
   if (!loaded) return null
   const { board, workspaceId, project } = loaded
   const me = Object.values(board.actors).find((a) => a.kind === "human")?.name.split(" ")[0] ?? "Lucas"
-  const labels = Object.values(board.labels).filter((l) => l.workspaceId === workspaceId && l.archivedAt === null)
+  // The project's own labels (CEL-80): another project's Kinds and Areas aren't offered here.
+  const labels = labelsInScope(board, { projectId: project.id })
   const picked = pickedValues(state.filter, {
     labels: new Map(labels.map((l) => [l.name.toLowerCase(), l.name])),
     sessions: new Map(Object.values(board.sessions).map((s) => [s.id, `${s.clientName} · ${sessionWho(s).short}`])),
@@ -83,7 +85,7 @@ export function FacetPanel() {
   const summary = (field: FilterField) => picked.filter((p) => p.field === field).map((p) => p.name)
   // Real tasks only: one still being created has no number yet.
   const tasks = projectTasks(board, workspaceId, project.id).filter((t) => t.number > 0)
-  const ctx = matchContext(board, workspaceId, now)
+  const ctx = matchContext(board, { projectId: project.id }, now)
   const props: PanelProps = { state, board, tasks, ctx, folds }
   const shown = state.active ? applyFilter(tasks, state.filter, ctx).length : tasks.length
 

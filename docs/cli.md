@@ -69,8 +69,8 @@ Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
 
 **Cello** is the task board Lucas shares with his agents. Its server runs on his Mac (`cello start`, http://127.0.0.1:4747, data in `~/.cello`). The board in the browser, the desktop app and the CLI all talk to that server, and every change shows up live everywhere.
 
-- **Workspace:** a group of projects that share statuses, labels and views.
-- **Label:** a name and a colour on a task, shared by every project in the workspace. A task can carry several. `cello label list` shows them; see Labels.
+- **Workspace:** a group of projects that share statuses and views.
+- **Label:** a name and a colour on a task. Each project has its own labels: CEL's `bug` and THAI's `bug` are two labels. A task can carry several of its project's labels. `cello label list` shows them; see Labels.
 - **Project:** one product, usually one git repository, with its own key (`CEL`). The CLI works out the project from the repository you're in; `--project KEY` picks another.
 - **Task:** a card, keyed `<PROJECT>-<number>` (`CEL-12`). It has a title, a markdown description, a status, a priority, labels, an optional parent task, comments and a history.
 - **Status:** a column on the board, shared by the workspace. Names match in any case. `cello context` lists a workspace's own; the defaults are:
@@ -306,12 +306,13 @@ cello task list
 
 ## Labels
 
-Labels say what a task is about: what kind of work, which part of the product. They belong to the workspace, so every project in it shares them, and each has a name (unique, ignoring case), a colour and a group. A project may have its own convention for them; Cello's own board, for one, gives each task one kind (feature, bug, polish, chore, docs) and one or more areas (board, cli, agents…).
+Labels say what a task is about: what kind of work, which part of the product. **Each project has its own labels**: the `cello label` commands, `cello context`, `cello task label` and `cello search` see only the current project's (the repository you're in, or `--project KEY`), and a task can only carry labels of its own project. Each label has a name (unique in its project, ignoring case), a colour and a group. Two projects can each have a label of the same name, such as `bug`; they're separate labels, and changing or archiving one leaves the other alone. Each project has its own convention for them; Cello's own board, for one, gives each task one kind (feature, bug, polish, chore, docs) and one or more areas (board, cli, agents…).
 
 **Groups** say what a label means, so the board's filter can sort them: **kind** (the kind of work: feature, bug…), **area** (the part of the product: board, cli…), **milestone** (M2, M3) or **none** (the default; every screen calls it **Other**). The Issues tab's filter panel lists labels under Kind, Area, Milestone and Other, and matches any label within a group and every group picked: ticking `bug` and `agents` shows the bugs in agents.
 
 ```bash
-cello label list                                           # every label: colour, and how many tasks carry it, under its group
+cello label list                                           # the project's labels: colour, and how many of its tasks carry each, under its group
+cello label list --project THAI                            # another project's labels
 cello label create board --color "#5B9A74" --group area    # a new label; without --color, one is picked from the name; without --group, none
 cello label update server --color "#8D7B68"                # recolour; --name renames; --group regroups
 cello label update M2 --group milestone
@@ -323,7 +324,7 @@ cello task label CEL-12 +board +cli -ui                    # add and remove a ta
 ```
 $ cello label list
 Kind
-  feature  #3B82F6  34 tasks in CEL · 2 in other projects
+  feature  #3B82F6  34 tasks in CEL
 
 Area
   board    #5B9A74  9 tasks in CEL
@@ -348,11 +349,11 @@ Until some label has a group, `cello label list` is one list without headings. `
   No label named "bord" (did you mean board?). Nothing was changed. Labels: board, cli, feature, server, ui. Make a new one with `cello label create <name>`.
   ```
 
-  Labels are never made on the fly. When a label really is missing, create it first.
-- **A taken name is refused:** `cello label create Board` when `board` exists fails and creates nothing, whatever the case, and archived labels keep their names too. Run `cello label list` first when you're not sure.
+  Labels are never made on the fly. When a label really is missing, create it first. Another project's label doesn't count: if THAI has `decks` and CEL doesn't, `cello task label CEL-12 +decks` is refused the same way.
+- **A taken name is refused:** `cello label create Board` when the project has `board` fails and creates nothing, whatever the case, and archived labels keep their names too. Run `cello label list` first when you're not sure. A name another project uses is free here.
 - **Who labels:** you and Lucas, on any task. A label change is an ordinary change to the task, not one a claim guards: you may relabel a task another session holds, and its claim stays. When Lucas changes the labels of a task you hold, your claim ends, as with any change he makes to it (see Claim in Concepts).
 - **Archiving** retires a label: it disappears from the cards, the list, the pickers and `cello context`, and it can't be put on a task any more. Nothing is deleted: tasks keep the link underneath, out of sight. Its name stays taken, and there's no unarchive yet.
-  - It applies to every project in the workspace, so look at `cello label list` first: it counts the tasks carrying the label in other projects too.
+  - It applies to this project's label only: another project's label of the same name stays as it is.
   - When you replace a label (say `ui` by areas), relabel its tasks first (`cello task label CEL-12 +board -ui`), so no card is left without one, then archive it.
 - **Colours:** `--color` takes `#RRGGBB`. Quote it in the shell (`"#5B9A74"`), since an unquoted `#` can start a comment.
 
@@ -864,7 +865,7 @@ Every error is one sentence that says what to do next. The usual ones:
 | CEL-12 is claimed by Claude Code session 1a2b3c4d (active now) | Another live session is working on it. | Pick another task. |
 | No task CEL-99 · No status named … · No label named … | A typo, or something that doesn't exist. | The message lists the real names. |
 | No label named "bord" (did you mean board?). Nothing was changed. | `cello task label` named a label that doesn't exist; the task wasn't touched. | Use the right name, or make the label with `cello label create` first. |
-| There's already a label named "board" · …an archived label named "ui" | Label names are unique ignoring case, and archived labels keep theirs. | Use the label that's there; `cello label list` shows them all. |
+| There's already a label named "board" · …an archived label named "ui" | Label names are unique in a project, ignoring case, and archived labels keep theirs. | Use the label that's there; `cello label list` shows them all. |
 | It was changed by … in the meantime | Someone changed the task while you were acting. | Run the command again. |
 | CEL-12 isn't claimed: claim it first | `cello task stage` on a task nobody holds. | `cello task claim CEL-12`, then set the stage. |
 | CEL-12 is claimed by another session: only the session holding the claim sets its stage | Someone else holds it. | Leave its stage alone. |
@@ -1154,7 +1155,7 @@ cello task answers [flags] <key>
 
 ### cello label list
 
-The workspace's labels: each one's colour and how many tasks carry it (in this project, and in the workspace's other projects), then the archived ones.
+The project's labels: each one's colour and how many of its tasks carry it, under its group, then the archived ones. Other projects' labels aren't listed.
 
 ```
 cello label list [flags]
@@ -1167,7 +1168,7 @@ cello label list [flags]
 
 ### cello label create
 
-Make a label in the project's workspace (every project in it shares its labels). A name already taken, in any case and by archived labels too, is refused.
+Make a label in the project (each project has its own labels). A name already taken in the project, in any case and by archived labels too, is refused; another project may use the same name.
 
 ```
 cello label create [flags] <name>
@@ -1200,7 +1201,7 @@ cello label update [flags] <name>
 
 ### cello label archive
 
-Archive a label: it disappears from cards, pickers and `cello context`, and can't be added to tasks any more. Tasks keep the link underneath, out of sight, and its name stays taken. Applies to every project in the workspace.
+Archive a label: it disappears from cards, pickers and `cello context`, and can't be added to tasks any more. Tasks keep the link underneath, out of sight, and its name stays taken. Only this project's label: another project's label of the same name stays.
 
 ```
 cello label archive [flags] <name>

@@ -34,7 +34,7 @@ async function board200(page: Page, cello: Cello, prefix: string) {
   const key = uniqueKey(prefix)
   const project = await seedProject(cello, "Performance test", key)
   const { statuses } = await defaultWorkspace(cello)
-  const labels = await seedLabels(cello, [{ name: "Perf: backend", color: "#4ea7fc" }, { name: "Perf: ui", color: "#bb87fc" }])
+  const labels = await seedLabels(cello, project.id, [{ name: "Perf: backend", color: "#4ea7fc" }, { name: "Perf: ui", color: "#bb87fc" }])
   const ids: string[] = []
   for (let i = 0; i < 200; i++) {
     const created = await cello.run((c) =>

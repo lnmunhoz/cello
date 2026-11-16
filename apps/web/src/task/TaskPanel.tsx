@@ -273,7 +273,8 @@ function Properties({ board, project, task }: { board: BoardState; project: Proj
   const move = useAtomSet(commands.moveTask)
   const setLabels = useAtomSet(commands.setTaskLabels)
   const statuses = statusesOf(board, project.workspaceId)
-  const labels = Object.values(board.labels).filter((l) => l.workspaceId === project.workspaceId && (l.archivedAt === null || task.labelIds.includes(l.id)))
+  // The task's project's labels only (CEL-80), and any archived one it still carries.
+  const labels = Object.values(board.labels).filter((l) => l.projectId === task.projectId && (l.archivedAt === null || task.labelIds.includes(l.id)))
   const parents = Object.values(board.tasks)
     .filter((t) => t.projectId === project.id && t.id !== task.id && t.archivedAt === null && t.number > 0)
     .sort((a, b) => a.number - b.number)

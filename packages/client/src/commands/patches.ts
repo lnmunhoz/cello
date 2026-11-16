@@ -57,7 +57,11 @@ export interface StatusFields {
 
 export const updateStatus = (id: string, fields: StatusFields): Patch => change("statuses", id, (s: Status) => ({ ...s, ...fields }))
 
-export const addLabel = (label: Label): Patch => (state) => put(state, "labels", label)
+/** A new label in its project (CEL-80), in the project's workspace; nothing when the project isn't loaded. */
+export const addLabel = (label: Omit<Label, "workspaceId">): Patch => (state) => {
+  const project = state.projects[label.projectId]
+  return project === undefined ? state : put(state, "labels", { ...label, workspaceId: project.workspaceId })
+}
 
 export const updateLabel = (id: string, fields: { readonly name?: string; readonly color?: string; readonly group?: LabelGroup }): Patch =>
   change("labels", id, (l) => ({ ...l, ...fields }))

@@ -48,15 +48,11 @@ export const TASKS: ReadonlyArray<readonly [title: string, status: "Done" | "Tod
   ["Diagrams open in the zoomable image modal", "Todo", ["polish", "pages"]],
 ]
 
-/** The labels in the default workspace, in their groups: reused when another test made one (in any case). */
-async function seedGroupedLabels(cello: PromiseClient) {
-  const { workspaceId, labels: existing } = await defaultWorkspace(cello)
+/** The project's labels (each project has its own, CEL-80), in their groups. */
+async function seedGroupedLabels(cello: PromiseClient, projectId: string) {
   const ids = new Map<string, string>()
   for (const wanted of LABELS) {
-    const found = existing.find((l) => l.name.toLowerCase() === wanted.name.toLowerCase() && l.archivedAt === null)
-    if (found && found.group !== wanted.group) await cello.run((c) => c["label.update"]({ commandId: newCommandId(), id: found.id, group: wanted.group }))
-    const id = found?.id ?? (await cello.run((c) => c["label.create"]({ commandId: newCommandId(), workspaceId, ...wanted }))).result.id
-    ids.set(wanted.name, id)
+    ids.set(wanted.name, (await cello.run((c) => c["label.create"]({ commandId: newCommandId(), projectId, ...wanted }))).result.id)
   }
   return ids
 }
@@ -69,7 +65,7 @@ export async function seedFilterBoard(cello: PromiseClient, baseURL: string, pre
   const key = uniqueKey(prefix)
   const project = await seedProject(cello, name, key)
   const { statuses } = await defaultWorkspace(cello)
-  const labels = await seedGroupedLabels(cello)
+  const labels = await seedGroupedLabels(cello, project.id)
   for (const [title, status, names] of TASKS) {
     await cello.run((c) =>
       c["task.create"]({ commandId: newCommandId(), projectId: project.id, title, statusId: statuses[status]!.id, labelIds: names.map((n) => labels.get(n)!) }))

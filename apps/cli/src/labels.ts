@@ -74,7 +74,7 @@ export const closeMatches = (name: string, names: ReadonlyArray<string>): Readon
 }
 
 /**
- * The labels `changes` names, from a workspace's live labels. Unknown names are refused together,
+ * The labels `changes` names, from the project's live labels. Unknown names are refused together,
  * each with its close matches: nothing is ever created implicitly.
  */
 export const resolveChanges = (
@@ -99,10 +99,7 @@ export const resolveChanges = (
 export const labelNames = (task: { readonly labelIds: ReadonlyArray<string> }, labels: ReadonlyArray<Label>): ReadonlyArray<string> =>
   task.labelIds.flatMap((id) => labels.filter((l) => l.id === id && l.archivedAt === null).map((l) => l.name))
 
-const counts = (key: string, tasks: number, otherProjects: number) => {
-  const parts = [...(tasks ? [`${plural(tasks, "task")} in ${key}`] : []), ...(otherProjects ? [`${otherProjects} in other projects`] : [])]
-  return parts.join(" · ")
-}
+const counts = (key: string, tasks: number) => (tasks ? `${plural(tasks, "task")} in ${key}` : "")
 
 /** `--group area`, in any case, and `other` for none (what every screen calls it); a string is the reason it can't be read. */
 export const parseGroup = (value: string): LabelGroup | string => {
@@ -117,17 +114,17 @@ export const groupWord = (group: LabelGroup): string => LABEL_GROUP_NAMES[group]
 const GROUP_HEADINGS = LABEL_GROUP_NAMES
 
 /**
- * `cello label list`: live labels with colour and counts, then the archived ones on one line. Once any
+ * `cello label list`: the project's live labels with colour and counts, then the archived ones on one line. Once any
  * label has a group (CEL-52), each group gets a heading, in LABEL_GROUPS' order, the ungrouped last.
  */
 export const labelListText = (list: LabelList): string => {
   const key = list.project.key
-  if (list.labels.length === 0) return `No labels yet in ${key}'s workspace. Make one with \`cello label create <name> --color #3B82F6\`.`
+  if (list.labels.length === 0) return `No labels yet in ${key}. Make one with \`cello label create <name> --color #3B82F6\`.`
   const archived = list.labels.filter((l) => l.label.archivedAt !== null)
   const live = list.labels
     .filter((l) => l.label.archivedAt === null)
     .sort((a, b) => LABEL_GROUPS.indexOf(a.label.group) - LABEL_GROUPS.indexOf(b.label.group))
-  const rows = columns(live.map((l) => [l.label.name, l.label.color, counts(key, l.tasks, l.otherProjects) || "no tasks"]))
+  const rows = columns(live.map((l) => [l.label.name, l.label.color, counts(key, l.tasks) || "no tasks"]))
   const grouped = live.some((l) => l.label.group !== "none")
   const lines = grouped
     ? live.flatMap((l, i) => {
@@ -139,7 +136,7 @@ export const labelListText = (list: LabelList): string => {
     : rows
   if (archived.length) {
     const names = archived.map((l) => {
-      const n = counts(key, l.tasks, l.otherProjects)
+      const n = counts(key, l.tasks)
       return n ? `${l.label.name} (${n})` : l.label.name
     })
     lines.push(...(lines.length ? [""] : []), `Archived (hidden from cards and pickers; tasks keep the link): ${names.join(", ")}`)

@@ -121,9 +121,15 @@ export type LabelGroup = typeof LabelGroup.Type
 /** What every screen calls each group: the filter panel's headings, `cello label list`, Settings. */
 export const LABEL_GROUP_NAMES: Record<LabelGroup, string> = { kind: "Kind", area: "Area", milestone: "Milestone", none: "Other" }
 
+/**
+ * A label belongs to one project (CEL-80): each project has its own kinds, areas and milestones, and a
+ * name is unique within the project. Projects that use the same name ("bug") each have their own label.
+ */
 export const Label = Schema.Struct({
   id: Id,
   workspaceId: Id,
+  /** Labels inside events stored before labels belonged to a project (CEL-80) read as "" (none). */
+  projectId: Id.pipe(Schema.withDecodingDefaultKey(Effect.succeed(""))),
   name: Schema.String,
   color: Schema.String,
   /** Labels inside events stored before groups existed (CEL-52) read as `none`. */

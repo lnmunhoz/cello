@@ -252,7 +252,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
       },
     }),
     createLabel: command({
-      patch: (a: { workspaceId: string; name: string; color: string; group?: LabelGroup }, { commandId }) => {
+      patch: (a: { projectId: string; name: string; color: string; group?: LabelGroup }, { commandId }) => {
         const now = Date.now()
         return patches.addLabel({ id: `optimistic:${commandId}`, ...a, group: a.group ?? "none", createdAt: now, updatedAt: now, archivedAt: null })
       },

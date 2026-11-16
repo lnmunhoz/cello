@@ -70,7 +70,7 @@ describe("sync", () => {
 
       const { result: label } = yield* a["label.create"]({
         commandId: newCommandId(),
-        workspaceId: workspace.id,
+        projectId: project.id,
         name: "L0",
         color: "#FF0000",
       })
@@ -118,13 +118,13 @@ describe("sync", () => {
     Effect.gen(function* () {
       const { port } = yield* startServer(yield* tempDataDir)
       const a = yield* connect(port)
-      const { workspace } = yield* setup(a)
+      const { workspace, project } = yield* setup(a)
       const scope = { workspaceId: workspace.id }
       const b = yield* connect(port)
       const from = (yield* b["snapshot.get"]({ scope })).seq
       const received = yield* Effect.forkChild(next(b["events.subscribe"]({ scope, afterSeq: from }), 2))
 
-      const { result: label } = yield* a["label.create"]({ commandId: newCommandId(), workspaceId: workspace.id, name: "bug", color: "#EF4444", group: "kind" })
+      const { result: label } = yield* a["label.create"]({ commandId: newCommandId(), projectId: project.id, name: "bug", color: "#EF4444", group: "kind" })
       yield* a["label.update"]({ commandId: newCommandId(), id: label.id, group: "area" })
       const events = yield* Fiber.join(received)
       expect(events[0]).toMatchObject({ type: "label.created", label: { name: "bug", group: "kind" } })

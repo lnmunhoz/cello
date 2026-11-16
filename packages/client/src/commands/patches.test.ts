@@ -42,13 +42,13 @@ const status: Status = {
   updatedAt: 1,
 }
 
-const label: Label = { id: "bug", workspaceId: "w1", name: "Bug", color: "#f00", group: "kind", createdAt: 1, updatedAt: 1, archivedAt: null }
+const label: Label = { id: "bug", workspaceId: "w1", projectId: "p1", name: "Bug", color: "#f00", group: "kind", createdAt: 1, updatedAt: 1, archivedAt: null }
 
 const state: BoardState = {
   seq: 1,
   actors: {},
   workspaces: {},
-  projects: {},
+  projects: { p1: { id: "p1", workspaceId: "w1" } as BoardState["projects"][string] },
   statuses: { todo: status },
   labels: { bug: label },
   tasks: { t1: task("t1"), t2: task("t2") },
@@ -102,6 +102,9 @@ describe("patches", () => {
     expect(updateStatus("todo", { name: "Next", hidden: true })(state).statuses["todo"]).toMatchObject({ name: "Next", hidden: true })
     expect(updateLabel("bug", { color: "#0f0" })(state).labels["bug"]?.color).toBe("#0f0")
     expect(archiveLabel("bug")(state).labels["bug"]?.archivedAt).not.toBeNull()
-    expect(addLabel({ ...label, id: "optimistic:c2", name: "UI" })(state).labels["optimistic:c2"]?.name).toBe("UI")
+    const { workspaceId: _, ...fields } = label
+    expect(addLabel({ ...fields, id: "optimistic:c2", name: "UI" })(state).labels["optimistic:c2"]).toMatchObject({ name: "UI", projectId: "p1", workspaceId: "w1" })
+    // A project the tab hasn't loaded: nothing to show it in.
+    expect(addLabel({ ...fields, id: "optimistic:c3", projectId: "nope" })(state)).toBe(state)
   })
 })

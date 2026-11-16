@@ -234,11 +234,12 @@ const make = Effect.gen(function* () {
         if (hits.length > 0) groups.push({ kind: "project", total: hits.length, hits: hits.slice(0, limit) })
       }
       if (kinds.includes("label") && scope.length > 0) {
-        const workspaceIds = [...new Set(scope.map((p) => p.workspaceId))]
-        const labels = yield* selectLabels(sql, sql`${sql.in("l.workspace_id", workspaceIds)} AND l.archived_at IS NULL`)
+        // Labels belong to a project (CEL-80): the searched projects' own, each with its project's key.
+        const keyOf = new Map(scope.map((p) => [p.id, p.key]))
+        const labels = yield* selectLabels(sql, sql`${sql.in("l.project_id", scope.map((p) => p.id))} AND l.archived_at IS NULL`)
         const hits = labels
           .filter((l) => matchesAll([l.name], terms))
-          .map((l): SearchHit => ({ ...base, kind: "label", id: l.id, projectKey: "", title: l.name, titleRanges: wordPrefixRanges(l.name, terms), at: l.updatedAt, color: l.color }))
+          .map((l): SearchHit => ({ ...base, kind: "label", id: l.id, projectKey: keyOf.get(l.projectId) ?? "", title: l.name, titleRanges: wordPrefixRanges(l.name, terms), at: l.updatedAt, color: l.color }))
         if (hits.length > 0) groups.push({ kind: "label", total: hits.length, hits: hits.slice(0, limit) })
       }
       return groups
