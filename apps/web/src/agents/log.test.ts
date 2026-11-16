@@ -1,6 +1,7 @@
 import type { SessionRun, TaskWake } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { atBottom, durationWords, previewOf, runsOf, unavailableWords } from "./log.ts"
+import type { AgentRow } from "./layout.ts"
+import { atBottom, currentStepOf, durationWords, previewOf, runsOf, unavailableWords } from "./log.ts"
 
 describe("durationWords", () => {
   it.each([
@@ -28,6 +29,17 @@ describe("unavailableWords", () => {
     expect(unavailableWords("none", true)).toContain("cello install claude")
     expect(unavailableWords("refused", false)).toContain("outside Claude Code's projects folder")
     expect(unavailableWords("unreadable", true)).toBe("Cello couldn't read this log file.")
+  })
+})
+
+describe("currentStepOf", () => {
+  const session = { currentStep: "Agent · cello-builder: PAN-1" } as AgentRow["session"]
+  const agent = { currentStep: "Bash · bun run test" } as NonNullable<AgentRow["agent"]>
+  it("the agent's or the session's last step, only while it's working", () => {
+    expect(currentStepOf({ presence: "active", session, agent })).toBe("Bash · bun run test")
+    expect(currentStepOf({ presence: "active", session, agent: null })).toBe("Agent · cello-builder: PAN-1")
+    expect(currentStepOf({ presence: "idle", session, agent })).toBeNull()
+    expect(currentStepOf({ presence: "ended", session, agent })).toBeNull()
   })
 })
 

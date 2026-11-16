@@ -1,6 +1,16 @@
 // The Agents page's live log (CEL-106): the words and numbers it shows, kept pure so they're tested here.
 import type { LogUnavailable } from "@cello/contract/agentLog"
 import type { SessionRun, TaskWake } from "@cello/contract/entities"
+import type { AgentRow } from "./layout.ts"
+
+/**
+ * What the row says the agent is doing right now: its last tool call, only while it's working. Once it
+ * goes quiet or finishes, the last step it reported is no longer "now".
+ */
+export const currentStepOf = (row: Pick<AgentRow, "presence" | "agent" | "session">): string | null => {
+  if (row.presence !== "active") return null
+  return (row.agent ? row.agent.currentStep : row.session.currentStep) ?? null
+}
 
 /** The woken runs (CEL-92) of a session the board knows of (each task's latest), newest first. */
 export const runsOf = (wakes: Readonly<Record<string, TaskWake>>, sessionId: string): ReadonlyArray<SessionRun> => {

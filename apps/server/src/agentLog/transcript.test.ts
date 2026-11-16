@@ -32,6 +32,8 @@ describe("transcriptParser", () => {
       ["system", 'Agent "CLO-7 build the timer" completed'],
       ["user", "/review CLO-7"],
       ["tool", "Edit · timer.ts"],
+      // A slash command's output is a note; "[Request interrupted by user…]" isn't something anyone typed.
+      ["system", "Set model to Opus"],
     ])
     const [prompt, , , read, bash, launch, , , edit] = steps
     expect(prompt!.at).toBe(at("2026-11-16T09:00:00.000Z"))

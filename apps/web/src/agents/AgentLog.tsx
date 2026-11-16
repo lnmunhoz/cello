@@ -94,7 +94,7 @@ export function AgentLog({ board, row }: { readonly board: BoardState; readonly 
             ))}
           </SegmentedControl>
           <label className="flex items-center gap-1.5 text-xs text-muted">
-            <Switch checked={thinking} onCheckedChange={setThinking} data-log-thinking aria-label="Show thinking" />
+            <Switch checked={thinking} onCheckedChange={setThinking} data-log-thinking />
             Thinking
           </label>
           {masked || reveal ? (
@@ -130,7 +130,8 @@ export function AgentLog({ board, row }: { readonly board: BoardState; readonly 
               ) : log.skipped > 0 ? (
                 <li className="px-3 py-1 text-xs text-faint">{log.skipped} earlier steps aren't shown.</li>
               ) : null}
-              {steps.map((step) => <Step key={step.id} step={step} row={row} working={live} />)}
+              {/* A running call pulses only while the agent is working right now. */}
+              {steps.map((step) => <Step key={step.id} step={step} row={row} working={row.presence === "active"} />)}
             </ol>
           )}
         </div>

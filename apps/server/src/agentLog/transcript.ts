@@ -59,7 +59,12 @@ const promptStep = (raw: string): { kind: "user" | "system"; text: string } | nu
   }
   const command = tag(raw, "command-name")
   if (command !== null) return { kind: "user", text: [command, tag(raw, "command-args")].filter(Boolean).join(" ") }
+  // A slash command's output (`/model`, `/cost`): a note, not a prompt.
+  const output = tag(raw, "local-command-stdout")
+  if (output !== null) return output ? { kind: "system", text: output } : null
   const text = raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "").trim()
+  // Claude Code's own marker when the human pressed Esc, not words anyone typed.
+  if (/^\[Request interrupted by user[^\]]*\]$/.test(text)) return null
   return text ? { kind: "user", text } : null
 }
 

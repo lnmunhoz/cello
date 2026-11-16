@@ -16,6 +16,7 @@ import { useNow } from "../presence/useNow.ts"
 import { QueueRow, type QueueRowState } from "../review/QueueRow.tsx"
 import { useQueue } from "../review/useQueue.ts"
 import { AgentLog } from "./AgentLog.tsx"
+import { currentStepOf } from "./log.ts"
 import { type AgentRow, agentGroups, agentRows, directTasks, groupOf, rowKeysOf, stateTaskOf, subagentsLabel, waitingTaskOf } from "./layout.ts"
 
 /**
@@ -276,8 +277,8 @@ function Facts({ board, row }: { board: BoardState; row: AgentRow }) {
 
 /** What it's doing right now, from its last tool call ("Bash · bun run test"), while it's working (CEL-106). */
 function CurrentStep({ row }: { row: AgentRow }) {
-  const step = row.agent ? row.agent.currentStep : row.session.currentStep
-  if (!step || row.presence === "ended") return null
+  const step = currentStepOf(row)
+  if (!step) return null
   return (
     <>
       <span className="text-faint">·</span>
