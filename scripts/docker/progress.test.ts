@@ -1,7 +1,7 @@
 // The Docker runner's progress.json (CEL-134): read from the container's output as it streams, so the
 // board shows "web e2e 7 of 13 · 1 failed" while the run goes, and each failure as it happens.
 import { describe, expect, it } from "vitest"
-import { feed, finish, lineSplitter, PROGRESS_FILE, startProgress } from "./progress.ts"
+import { feed, finish, lineSplitter, MAX_LINE, PROGRESS_FILE, startProgress } from "./progress.ts"
 
 const lines = (state: ReturnType<typeof startProgress>, text: string) => text.split("\n").reduce(feed, state)
 
@@ -57,6 +57,14 @@ describe("progress from the container's output", () => {
       "   × waits for the run",
     ].join("\n"))
     expect(state).toMatchObject({ stage: "unit", passed: 72, failed: 2, total: null, current: "apps/cli/src/claudeHook.test.ts", failures: ["apps/cli/src/claudeHook.test.ts"] })
+  })
+
+  it("reads only the first MAX_LINE characters of a line: an absurdly long one is cut, not read whole", () => {
+    const long = `  ✘   1 e2e/a.spec.ts:1:1 › ${"x".repeat(1_000_000)}`
+    const state = lines(start, `== web-e2e\n${long}`)
+    // Cut, its time suffix never seen: the title is what fits.
+    expect(state.failed).toBe(1)
+    expect(state.failures[0]!.length).toBeLessThan(MAX_LINE)
   })
 
   it("keeps the newest 20 failures", () => {

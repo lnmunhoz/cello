@@ -5,7 +5,12 @@ import {
   type BackgroundWork,
   MAX_BACKGROUND,
   parseBackground,
-  parseTests,
+  MAX_RUNS,
+  parseRuns,
+  pickRun,
+  shownRun,
+  type StoredTestRun,
+  withRun,
   parseWaiting,
   publicRun,
   sameFolder,
@@ -18,14 +23,14 @@ import {
   withBackground,
 } from "./activity.ts"
 
-const e2e = { id: "blo3xolgq", label: "Bash · bun run test:e2e -- e2e/agents-page.spec.ts", toolUseId: "toolu_1" }
-const monitor = { id: "bpz2edzeb", label: "Monitor · review-mode e2e run finishing", toolUseId: "toolu_2" }
+const e2e = { id: "blo3xolgq", label: "Bash · bun run test:e2e -- e2e/agents-page.spec.ts", toolUseId: "toolu_1", waits: true }
+const monitor = { id: "bpz2edzeb", label: "Monitor · review-mode e2e run finishing", toolUseId: "toolu_2", waits: true }
 
 describe("withBackground", () => {
   it("adds background work once, by its id, newest last, keeping the latest MAX_BACKGROUND", () => {
     expect(withBackground([e2e], monitor)).toEqual([e2e, monitor])
     expect(withBackground([e2e, monitor], { ...e2e, label: "again" })).toEqual([monitor, { ...e2e, label: "again" }])
-    const many = Array.from({ length: MAX_BACKGROUND + 3 }, (_, i) => ({ id: `b${i}`, label: `Bash · ${i}`, toolUseId: null }))
+    const many = Array.from({ length: MAX_BACKGROUND + 3 }, (_, i) => ({ id: `b${i}`, label: `Bash · ${i}`, toolUseId: null, waits: true }))
     const kept = many.reduce<ReadonlyArray<BackgroundWork>>((list, work) => withBackground(list, work), [])
     expect(kept).toHaveLength(MAX_BACKGROUND)
     expect(kept.at(-1)?.id).toBe(`b${MAX_BACKGROUND + 2}`)
@@ -48,6 +53,12 @@ describe("stopOutcome: does a stop finish the agent?", () => {
 
   it("finishes it when Claude Code didn't say what runs (an older version): as before", () => {
     expect(stopOutcome([e2e], undefined)).toEqual({ finished: true, background: [], waitingOn: null })
+  })
+
+  it("only work it waits for keeps it waiting (a Monitor, a test run): a dev server it left running in the background doesn't", () => {
+    const dev = { id: "bdev0001", label: "Bash · bun run dev", toolUseId: "toolu_3", waits: false }
+    expect(stopOutcome([dev], ["bdev0001"])).toEqual({ finished: true, background: [], waitingOn: null })
+    expect(stopOutcome([dev, e2e], ["bdev0001", "blo3xolgq"])).toEqual({ finished: false, background: [e2e], waitingOn: [e2e.label] })
   })
 })
 
@@ -95,11 +106,15 @@ describe("a test run", () => {
     expect(testsTurnEnded(done, [], 9900)).toBe(done)
   })
 
-  it("parseTests reads the stored run, and anything it can't read as none", () => {
-    expect(parseTests(JSON.stringify(started))).toEqual(started)
-    expect(parseTests(null)).toBeNull()
-    expect(parseTests("[]")).toBeNull()
-    expect(parseTests(JSON.stringify({ label: "x" }))).toBeNull()
+  it("parseRuns reads the stored runs, and drops any that isn't one whole run, so a bad row can't break what boards are sent", () => {
+    expect(parseRuns(JSON.stringify([started]))).toEqual([started])
+    expect(parseRuns(null)).toEqual([])
+    expect(parseRuns("{")).toEqual([])
+    expect(parseRuns(JSON.stringify({ label: "x" }))).toEqual([])
+    // A run missing endedAt, or with a progress whose stage is a number: dropped, the good one kept.
+    const { endedAt: _endedAt, ...noEnd } = started
+    const badProgress = { ...started, runId: "t9", progress: { ...progress, stage: 42 } }
+    expect(parseRuns(JSON.stringify([noEnd, badProgress, started]))).toEqual([started])
   })
 
   it("sameFolder: the runner's folder and the call's, one inside the other", () => {
@@ -108,6 +123,45 @@ describe("a test run", () => {
     expect(sameFolder("/repo/wt", "/repo/wt/apps/web")).toBe(true)
     expect(sameFolder("/repo/wt2", "/repo/wt")).toBe(false)
     expect(sameFolder(null, "/repo/wt")).toBe(false)
+  })
+})
+
+// Review S2: an agent can run a foreground test command while its background Docker run goes on.
+describe("an agent's runs", () => {
+  const docker = testsBackgrounded(testsStarted({ runId: "toolu_d", command: "bun run test:docker:e2e", cwd: "/repo/wt", now: 1000 }), "toolu_d", "blo3xolgq")
+  const unit = testsStarted({ runId: "toolu_u", command: "bun run test -- apps/web", cwd: "/repo/wt", now: 2000 })
+  const progress = { stage: "web-e2e", passed: 13, failed: 0, skipped: 0, total: 13, current: null, failures: [], done: false, outcome: null, folder: null }
+
+  it("a new run never replaces a live one: both are kept, ended ones go, at most MAX_RUNS", () => {
+    expect(withRun([docker], unit)).toEqual([docker, unit])
+    const ended = testsToolFinished(unit, "toolu_u", false, 3000)
+    const next = testsStarted({ runId: "toolu_v", command: "bun run test", cwd: "/repo/wt", now: 4000 })
+    expect(withRun([docker, ended], next)).toEqual([docker, next])
+    const many = Array.from({ length: MAX_RUNS + 2 }, (_, i) => testsStarted({ runId: `t${i}`, command: "bun run test", cwd: null, now: i }))
+    expect(many.reduce<ReadonlyArray<StoredTestRun>>(withRun, [])).toHaveLength(MAX_RUNS)
+  })
+
+  it("shownRun: the newest running one, else the one that ended last", () => {
+    const ended = testsToolFinished(unit, "toolu_u", true, 3000)
+    expect(shownRun([docker, unit])).toBe(unit)
+    expect(shownRun([docker, ended])).toBe(docker)
+    const dockerDone = testsProgressed(docker, { ...progress, done: true, outcome: "passed" }, 9000)
+    expect(shownRun([dockerDone, ended])).toBe(dockerDone)
+    expect(shownRun([])).toBeNull()
+  })
+
+  // Review S1: the orchestrator runs tests at the repo root while a builder runs its own in a worktree inside it.
+  it("pickRun: the run started from the runner's folder exactly, else the deepest folder holding it or inside it, else the newest", () => {
+    const root = { ...testsStarted({ runId: "r", command: "bun run test", cwd: "/repo", now: 5000 }), who: "orchestrator" }
+    const builder = { ...testsStarted({ runId: "b", command: "bun run test:e2e", cwd: "/repo/.claude/worktrees/agent-a13b", now: 1000 }), who: "builder" }
+    const candidates = [{ run: root }, { run: builder }]
+    expect(pickRun(candidates, "/repo/.claude/worktrees/agent-a13b")?.run.who).toBe("builder")
+    expect(pickRun(candidates, "/repo/.claude/worktrees/agent-a13b/apps/web")?.run.who).toBe("builder")
+    expect(pickRun(candidates, "/repo")?.run.who).toBe("orchestrator")
+    expect(pickRun(candidates, "/repo/apps/web")?.run.who).toBe("orchestrator")
+    // No folder matches: the session's only running run, else none.
+    expect(pickRun([{ run: builder }], "/elsewhere")?.run.who).toBe("builder")
+    expect(pickRun(candidates, "/elsewhere")).toBeUndefined()
   })
 })
 

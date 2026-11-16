@@ -78,6 +78,7 @@ import {
   claimCheck,
   type DeliveryEvent,
   HOOK_EVENTS,
+  type HookEvent,
   hookAction,
   hookDeadline,
   hookIdentity,
@@ -1918,7 +1919,7 @@ const deliverToClaude = (event: DeliveryEvent) =>
     }
     // The call started background work (CEL-133): remembered, so a stop while it runs means waiting, not finished.
     const started = hook.startedBackground
-    if (started !== null) yield* reportActivity({ kind: "background", id: started.id, label: started.label, toolUseId: hook.toolUseId }, headers)
+    if (started !== null) yield* reportActivity({ kind: "background", id: started.id, label: started.label, toolUseId: hook.toolUseId, waits: started.waits }, headers)
     // A foreground test run ended with its call (CEL-134); the main conversation's turn ended, and with it its foreground run.
     const tests = event === "post-tool-use" ? testReport(hook, "post-tool-use") : turnEndedReport(hook)
     if (tests !== null) yield* reportActivity(tests, headers)
@@ -2053,16 +2054,20 @@ const HOOK_WORK = {
 } as const
 
 const hookClaude = Command.make("claude", {
-  event: Argument.Literals("event", HOOK_EVENTS).pipe(
+  // Any word, not a fixed list: an event this cello doesn't know (a settings file written by a newer or
+  // older `cello install claude`) must exit 0 silently, never show Claude Code a hook error.
+  event: Argument.String("event").pipe(
     Argument.withDescription(
       "The hook event Claude Code runs it for: stop (Stop), post-tool-use (PostToolUse), pre-tool-use (PreToolUse: the artifact, AskUserQuestion and claim guards, " +
-        "and a Bash test run starting), post-tool-use-failure (PostToolUseFailure: a Bash test run failed), subagent-start (SubagentStart) or subagent-stop (SubagentStop).",
+        "and a Bash test run starting), post-tool-use-failure (PostToolUseFailure: a Bash test run failed), subagent-start (SubagentStart) or subagent-stop (SubagentStop). " +
+        "Any other event does nothing and exits 0.",
     ),
   ),
 }, (input) =>
   Effect.gen(function* () {
     const { env, exit } = yield* CliEnv
-    const work = HOOK_WORK[input.event]
+    const known = (HOOK_EVENTS as ReadonlyArray<string>).includes(input.event)
+    const work = known ? HOOK_WORK[input.event as HookEvent] : Effect.void
     // It must never break or stall the session: a slow or missing server, bad input, anything, is silence and exit 0.
     yield* work.pipe(Effect.timeout(hookDeadline(env)), Effect.catchCause(() => Effect.void))
     // An explicit end: a stdin that never closes would otherwise keep the process alive.
@@ -2087,7 +2092,7 @@ const hookClaude = Command.make("claude", {
       "minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; " +
       "post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start " +
       "prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished, or " +
-      "waiting on background work while a shell it ran with run_in_background or a Monitor it started is still among Claude Code's " +
+      "waiting on background work while a test command it ran with run_in_background or a Monitor it started is still among Claude Code's " +
       "background_tasks (post-tool-use remembers the background work each call starts). " +
       "Test runs: pre-tool-use on a Bash command that runs tests (bun run test, test:e2e, test:docker*, scripts/test-in-docker.ts, " +
       "vitest, playwright test, …) marks its agent Running tests; its post-tool-use ends a foreground run passed, post-tool-use-failure " +

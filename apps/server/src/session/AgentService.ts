@@ -18,7 +18,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as Commands from "../commands/Commands.ts"
-import { parseBackground, parseTests, parseWaiting, stopOutcome, stored, testsOf, testsTurnEnded } from "./activity.ts"
+import { parseBackground, parseRuns, parseWaiting, stopOutcome, stored, testsOf, testsTurnEnded } from "./activity.ts"
 import { cleanAgentText, cleanTranscript, CONTROL_CHARACTERS, MAX_AGENT_TEXT, PRESENCE_EVERY_MS, touchAgent } from "./SessionService.ts"
 
 /** What a hook says happened to a subagent of the caller's session. */
@@ -195,8 +195,7 @@ const make = Effect.gen(function* () {
       // Background work it started is still running (CEL-133): it waits on it, and Claude Code resumes it after.
       const outcome = stopOutcome(parseBackground(row.background_json), input.running)
       // A test run its turn leaves behind is over, unless it runs on in the background (CEL-134).
-      const run = parseTests(row.tests_json)
-      const tests = run === null ? null : JSON.stringify(testsTurnEnded(run, input.running, now))
+      const tests = stored(parseRuns(row.tests_json).map((run) => testsTurnEnded(run, input.running, now)))
       yield* sql`UPDATE session_agents SET ended_at = ${outcome.finished ? now : null}, waiting_json = ${stored(outcome.waitingOn)},
           background_json = ${stored(outcome.background)}, tests_json = ${tests}, transcript_path = COALESCE(${transcript}, transcript_path)
         WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`

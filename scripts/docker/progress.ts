@@ -3,7 +3,9 @@
 // tests using 1 worker") and its list reporter's line per test ("✓   7 e2e/board.spec.ts:40:1 › title
 // (2.1s)", ✘ for a failure, - for a skip), and Vitest's line per file. The runner writes it to
 // progress.json in the run folder as it changes, and hands it to the board with `cello test progress`.
-// Its shape is the contract's TestProgress.
+// Its shape is the contract's TestProgress (`current`: the spec file the last test ended in; `failures`:
+// each one as it happened, "e2e/board.spec.ts:40 › drags a card").
+import type { TestProgress } from "../../packages/contract/src/entities.ts"
 
 /** The progress file's name in the run folder. */
 export const PROGRESS_FILE = "progress.json"
@@ -11,20 +13,10 @@ export const PROGRESS_FILE = "progress.json"
 /** How many failures are kept: the newest. */
 const MAX_FAILURES = 20
 
-export interface RunProgress {
-  readonly stage: string | null
-  readonly passed: number
-  readonly failed: number
-  readonly skipped: number
-  readonly total: number | null
-  /** The spec file the last test ended in. */
-  readonly current: string | null
-  /** Each failure as it happened: "e2e/board.spec.ts:40 › drags a card". */
-  readonly failures: ReadonlyArray<string>
-  readonly done: boolean
-  readonly outcome: "passed" | "failed" | "stopped" | null
-  readonly folder: string | null
-}
+/** Longer lines are cut before they're read: the test-line pattern backtracks, so an absurd line would take long. */
+export const MAX_LINE = 2000
+
+export type RunProgress = TestProgress
 
 export const startProgress = (folder: string): RunProgress => ({
   stage: null, passed: 0, failed: 0, skipped: 0, total: null, current: null, failures: [], done: false, outcome: null, folder,
@@ -40,7 +32,8 @@ const VITEST = /^\s*(✓|❯|×)\s+(\S+\.(?:test|spec)\.[cm]?[jt]sx?)\s+\((\d+) 
 const withFailure = (state: RunProgress, failure: string): ReadonlyArray<string> => [...state.failures, failure].slice(-MAX_FAILURES)
 
 /** The progress after one line of output. */
-export const feed = (state: RunProgress, line: string): RunProgress => {
+export const feed = (state: RunProgress, whole: string): RunProgress => {
+  const line = whole.length > MAX_LINE ? whole.slice(0, MAX_LINE) : whole
   const stage = STAGE.exec(line)
   if (stage) return { ...state, stage: stage[1]!, passed: 0, failed: 0, skipped: 0, total: null, current: null }
   const total = TOTAL.exec(line)

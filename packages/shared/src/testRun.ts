@@ -2,9 +2,44 @@
 // and a run in words ("web e2e 7 of 13 · 1 failed · 3m12s"). The hook decides with isTestCommand when a
 // tool call starts a run; the board, the task panel and `cello agents` show it with these words.
 
-/** Shell words, split at `&&`, `||`, `;` and `|`: enough to read a command line, not a shell. */
-export const commandWords = (line: string): string[][] =>
-  line.split(/&&|\|\||;|\|/).map((part) => part.trim().split(/\s+/).filter((word) => word !== "").map((word) => word.replace(/^["']|["']$/g, "")))
+/**
+ * Shell words, one list per command: split at `&&`, `||`, `;` and `|` and at spaces, except inside single
+ * or double quotes, which are taken off (`git commit -m "fix; bun run test"` is one command of four
+ * words). Enough to read a command line, not a shell: no escapes, `$(…)` or redirections.
+ */
+export const commandWords = (line: string): string[][] => {
+  const commands: string[][] = [[]]
+  let word: string | null = null
+  let quote: string | null = null
+  const endWord = () => {
+    if (word !== null) commands.at(-1)!.push(word)
+    word = null
+  }
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!
+    if (quote !== null) {
+      if (c === quote) quote = null
+      else word += c
+    } else if (c === "'" || c === '"') {
+      quote = c
+      word ??= ""
+    } else if (c === "&" && (line[i - 1] === ">" || line[i + 1] === ">")) {
+      // A redirection (`2>&1`, `&>`), not a separator.
+      word = (word ?? "") + c
+    } else if (c === ";" || c === "|" || c === "&") {
+      endWord()
+      // `&&` and `||` are one separator; a lone `&` (background) ends the command too.
+      if ((c === "|" || c === "&") && line[i + 1] === c) i++
+      commands.push([])
+    } else if (/\s/.test(c)) {
+      endWord()
+    } else {
+      word = (word ?? "") + c
+    }
+  }
+  endWord()
+  return commands.filter((words) => words.length > 0)
+}
 
 /** One command's words without the `VAR=value` assignments before its program. */
 const program = (words: ReadonlyArray<string>): ReadonlyArray<string> => {

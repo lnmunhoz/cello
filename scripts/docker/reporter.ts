@@ -3,11 +3,31 @@
 // `cello test progress --file …` when an agent session runs it (CLAUDE_CODE_SESSION_ID): at once for a
 // new failure and at the end, else at most every REPORT_EVERY_MS. Fail-safe: no `cello`, no server or a
 // slow one never touches the run; the reports are dropped, the tests run as before.
+import * as fs from "node:fs"
 import * as path from "node:path"
 import { feed, finish, PROGRESS_FILE, type RunProgress, startProgress } from "./progress.ts"
 
 /** The board hears a run's progress at most this often, unless a test failed or the run ended. */
 export const REPORT_EVERY_MS = 3000
+
+/** A `cello test progress` that runs longer than this is killed: a stuck one never holds reports up. */
+export const REPORT_TIMEOUT_MS = 10_000
+
+/**
+ * Writes `text` to `file` whole or not at all: into a new temp file next to it (created exclusively, so
+ * a link planted at that name is never followed), then renamed over it (which replaces a link at `file`
+ * rather than writing through it). A reader never sees half a file.
+ */
+export const writeAtomically = (file: string, text: string): void => {
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`
+  try {
+    fs.writeFileSync(temp, text, { flag: "wx" })
+    fs.renameSync(temp, file)
+  } catch (error) {
+    fs.rmSync(temp, { force: true })
+    throw error
+  }
+}
 
 /** How long the runner waits for its last report before it exits anyway. */
 export const LAST_REPORT_MS = 5000

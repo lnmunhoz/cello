@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { elapsedWords, isRunning, isTestCommand, STALE_RUN_MS, testRunLabel, testRunShort, testRunWords, type TestRunLike } from "./testRun.ts"
+import { commandWords, elapsedWords, isRunning, isTestCommand, STALE_RUN_MS, testRunLabel, testRunShort, testRunWords, type TestRunLike } from "./testRun.ts"
 
 describe("isTestCommand (CEL-134): does this shell command run tests?", () => {
   it.each([
@@ -35,10 +35,24 @@ describe("isTestCommand (CEL-134): does this shell command run tests?", () => {
     "grep -rn 'bun run test' docs",
     "echo bun run test",
     "git commit -m 'bun run test passes'",
+    'git commit -m "fix it; bun run test passes"',
+    "echo 'a && bun run test:e2e'",
     "bun run docs:cli",
     "",
   ])("%s → no", (command) => {
     expect(isTestCommand(command)).toBe(false)
+  })
+})
+
+describe("commandWords", () => {
+  it("splits at separators and spaces, not inside quotes; a redirection stays a word", () => {
+    expect(commandWords(`cd /repo && git commit -m "fix; bun run test" | tee out 2>&1; ls 'a b'`)).toEqual([
+      ["cd", "/repo"],
+      ["git", "commit", "-m", "fix; bun run test"],
+      ["tee", "out", "2>&1"],
+      ["ls", "a b"],
+    ])
+    expect(commandWords("")).toEqual([])
   })
 })
 

@@ -19,8 +19,8 @@ import * as SqlClient from "effect/sql/SqlClient"
 import {
   type BackgroundWork,
   parseBackground,
-  parseTests,
-  sameFolder,
+  parseRuns,
+  pickRun,
   stored,
   type StoredTestRun,
   testsBackgrounded,
@@ -29,6 +29,7 @@ import {
   testsToolFinished,
   testsTurnEnded,
   withBackground,
+  withRun,
 } from "./activity.ts"
 import { AgentService } from "./AgentService.ts"
 import { cleanAgentText, cleanStep, CONTROL_CHARACTERS, MAX_TRANSCRIPT_PATH, SessionService } from "./SessionService.ts"
@@ -38,8 +39,8 @@ export class ActivityService extends Context.Service<ActivityService, {
   readonly report: (report: ActivityReport) => Effect.Effect<void, never, Caller>
   /**
    * A test runner's progress, from the caller's session (its shell can't say which subagent): the
-   * running run started from the same folder as `cwd`, else the session's only running one, takes it.
-   * Whether one did.
+   * running run started from `cwd`, else from the deepest folder holding it or inside it, else the
+   * session's only running one, takes it (activity.ts pickRun). Whether one did.
    */
   readonly progress: (cwd: string, progress: TestProgress) => Effect.Effect<{ readonly matched: boolean }, never, Caller>
 }>()("cello/ActivityService") {}
@@ -111,14 +112,14 @@ const make = Effect.gen(function* () {
     actor.agentId ? agents.announce({ sessionId: actor.sessionId, agentId: actor.agentId }) : sessions.announce(actor.sessionId)
 
   /**
-   * The actor's background work and test run, changed by `change`, in one transaction; boards hear it
-   * when the run changed. Nothing for a row that doesn't exist.
+   * The actor's background work and test runs, changed by `change`, in one transaction; boards hear it
+   * when a run changed. Nothing for a row that doesn't exist.
    */
   const change = (
     actor: Actor,
-    change: (background: ReadonlyArray<BackgroundWork>, run: StoredTestRun | null, now: number) => {
+    change: (background: ReadonlyArray<BackgroundWork>, runs: ReadonlyArray<StoredTestRun>, now: number) => {
       readonly background: ReadonlyArray<BackgroundWork>
-      readonly run: StoredTestRun | null
+      readonly runs: ReadonlyArray<StoredTestRun>
     },
   ) =>
     Effect.gen(function* () {
@@ -126,10 +127,10 @@ const make = Effect.gen(function* () {
       const moved = yield* sql.withTransaction(Effect.gen(function* () {
         const row = yield* read(actor)
         if (row === null) return false
-        const run = parseTests(row.tests_json)
-        const next = change(parseBackground(row.background_json), run, now)
-        yield* write(actor, { background_json: stored(next.background), tests_json: next.run === null ? null : JSON.stringify(next.run) })
-        return next.run !== run
+        const runs = parseRuns(row.tests_json)
+        const next = change(parseBackground(row.background_json), runs, now)
+        yield* write(actor, { background_json: stored(next.background), tests_json: stored(next.runs) })
+        return next.runs.length !== runs.length || next.runs.some((run, i) => run !== runs[i])
       }))
       if (moved) {
         heard.delete(`${actor.sessionId} ${actor.agentId ?? ""}`)
@@ -145,32 +146,33 @@ const make = Effect.gen(function* () {
         const id = cleanAgentText(input.id)
         if (id === null) return
         const toolUseId = cleanAgentText(input.toolUseId)
-        const work: BackgroundWork = { id, label: cleanStep(input.label) ?? "Background work", toolUseId }
-        return yield* change(actor, (background, run) => ({
+        const work: BackgroundWork = { id, label: cleanStep(input.label) ?? "Background work", toolUseId, waits: input.waits }
+        return yield* change(actor, (background, runs) => ({
           background: withBackground(background, work),
-          run: run && testsBackgrounded(run, toolUseId, id),
+          runs: runs.map((run) => testsBackgrounded(run, toolUseId, id)),
         }))
       }
       case "tests-started": {
         const runId = cleanAgentText(input.toolUseId)
         const command = cleanStep(input.command)
         if (runId === null || command === null) return
-        return yield* change(actor, (background, _run, now) => ({
+        // Beside its live runs (a background Docker run goes on), never in place of them.
+        return yield* change(actor, (background, runs, now) => ({
           background,
-          run: testsStarted({ runId, command, cwd: cleanFolder(input.cwd), now }),
+          runs: withRun(runs, testsStarted({ runId, command, cwd: cleanFolder(input.cwd), now })),
         }))
       }
       case "tool-finished": {
         const toolUseId = cleanAgentText(input.toolUseId)
         if (toolUseId === null) return
-        return yield* change(actor, (background, run, now) => ({ background, run: run && testsToolFinished(run, toolUseId, input.failed, now) }))
+        return yield* change(actor, (background, runs, now) => ({ background, runs: runs.map((run) => testsToolFinished(run, toolUseId, input.failed, now)) }))
       }
       case "turn-ended": {
         const running = input.running
-        return yield* change(actor, (background, run, now) => ({
+        return yield* change(actor, (background, runs, now) => ({
           // What it started that's no longer running is done; not knowing, it's all kept.
           background: running === undefined ? background : background.filter((w) => running.includes(w.id)),
-          run: run && testsTurnEnded(run, running, now),
+          runs: runs.map((run) => testsTurnEnded(run, running, now)),
         }))
       }
     }
@@ -180,29 +182,32 @@ const make = Effect.gen(function* () {
     const caller = yield* Caller
     if (caller.sessionId === null) return { matched: false }
     const sessionId = caller.sessionId
-    const rows = yield* sql<{ agent_id: string | null; tests_json: string | null }>`
-      SELECT NULL AS agent_id, tests_json FROM agent_sessions WHERE id = ${sessionId} AND tests_json IS NOT NULL
-      UNION ALL
-      SELECT agent_id, tests_json FROM session_agents WHERE session_id = ${sessionId} AND tests_json IS NOT NULL`
-    const running = rows
-      .flatMap((r) => {
-        const run = parseTests(r.tests_json)
-        return run !== null && run.endedAt === null ? [{ actor: { sessionId, agentId: r.agent_id }, run }] : []
-      })
-      .sort((a, b) => b.run.startedAt - a.run.startedAt)
-    const found = running.find((r) => sameFolder(r.run.cwd, cwd)) ?? (running.length === 1 ? running[0] : undefined)
-    if (found === undefined) return { matched: false }
     const now = yield* Clock.currentTimeMillis
     const cleaned = cleanProgress(input)
-    const next = testsProgressed(found.run, cleaned, now)
-    // A runner reporting is its agent at work: seen now.
-    const row = yield* read(found.actor)
-    if (row === null) return { matched: false }
-    yield* write(found.actor, { background_json: row.background_json, tests_json: JSON.stringify(next) }, now)
+    // Read, pick and write in one transaction, so two reports (or a report and a hook) can't interleave.
+    const found = yield* sql.withTransaction(Effect.gen(function* () {
+      const rows = yield* sql<{ agent_id: string | null; tests_json: string | null }>`
+        SELECT NULL AS agent_id, tests_json FROM agent_sessions WHERE id = ${sessionId} AND tests_json IS NOT NULL
+        UNION ALL
+        SELECT agent_id, tests_json FROM session_agents WHERE session_id = ${sessionId} AND tests_json IS NOT NULL`
+      const running = rows.flatMap((r) =>
+        parseRuns(r.tests_json).filter((run) => run.endedAt === null).map((run) => ({ actor: { sessionId, agentId: r.agent_id }, run }))
+      )
+      const picked = pickRun(running, cwd)
+      if (picked === undefined) return undefined
+      const row = yield* read(picked.actor)
+      if (row === null) return undefined
+      const next = testsProgressed(picked.run, cleaned, now)
+      const runs = parseRuns(row.tests_json).map((run) => (run.runId === picked.run.runId ? next : run))
+      // A runner reporting is its agent at work: seen now.
+      yield* write(picked.actor, { background_json: row.background_json, tests_json: stored(runs) }, now)
+      return { actor: picked.actor, ended: next.endedAt !== null }
+    }))
+    if (found === undefined) return { matched: false }
     const key = `${sessionId} ${found.actor.agentId ?? ""}`
     const last = heard.get(key)
     const failed = cleaned.failed
-    if (last === undefined || next.endedAt !== null || failed !== last.failed || now < last.at || now - last.at >= PROGRESS_EVERY_MS) {
+    if (last === undefined || found.ended || failed !== last.failed || now < last.at || now - last.at >= PROGRESS_EVERY_MS) {
       heard.set(key, { at: now, failed })
       yield* announce(found.actor)
     }

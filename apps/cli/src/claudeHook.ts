@@ -88,10 +88,14 @@ export interface BackgroundTask {
   readonly command: string | null
 }
 
-/** Background work a tool call started: the id `background_tasks` lists it under, and the call in one line. */
+/**
+ * Background work a tool call started: the id `background_tasks` lists it under, the call in one line, and
+ * whether its agent waits for it (`waits`: a Monitor, or a test command; not a dev server left running).
+ */
 export interface StartedBackground {
   readonly id: string
   readonly label: string
+  readonly waits: boolean
 }
 
 export interface HookAgent {
@@ -136,7 +140,9 @@ const startedBackgroundOf = (toolName: string | null, toolInput: Readonly<Record
   if (toolName === null) return null
   const response = record(toolResponse)
   const id = text(response?.backgroundTaskId) ?? (toolName === "Monitor" ? text(response?.taskId) : null)
-  return id === null ? null : { id, label: stepLine(toolName, toolInput) }
+  if (id === null) return null
+  const command = typeof toolInput?.command === "string" ? toolInput.command : ""
+  return { id, label: stepLine(toolName, toolInput), waits: toolName === "Monitor" || (toolName === "Bash" && isTestCommand(command)) }
 }
 
 const backgroundTasksOf = (value: unknown): ReadonlyArray<BackgroundTask> | null =>

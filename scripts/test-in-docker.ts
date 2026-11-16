@@ -20,7 +20,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import { buildArgs, dockerArgs, imageTag, parseCommand, passedEnv, versions } from "./docker/container.ts"
 import { lineSplitter } from "./docker/progress.ts"
-import { progressReporter } from "./docker/reporter.ts"
+import { progressReporter, REPORT_TIMEOUT_MS, writeAtomically } from "./docker/reporter.ts"
 import { finishRun, startRun } from "./docker/runFolders.ts"
 import { duration, parseSteps, resultFolders, stopReason, summarize } from "./docker/summary.ts"
 
@@ -42,18 +42,25 @@ const countFiles = (dir: string, ext: string) => {
 
 /**
  * `cello test progress --file <file>` (CEL-134), as the agent session running this: the `cello` on the
- * PATH, or CELLO_BIN. Resolves however it ends; a missing `cello` turns reporting off for the run.
+ * PATH, or CELLO_BIN. Resolves however it ends, and kills it after REPORT_TIMEOUT_MS; a missing `cello`
+ * turns reporting off for the run.
  */
 let celloMissing = false
 const reportWithCello = (file: string) =>
   new Promise<void>((resolve) => {
     if (celloMissing) return resolve()
     const child = spawn(process.env.CELLO_BIN || "cello", ["test", "progress", "--file", file], { cwd: repo, stdio: "ignore" })
+    const timer = setTimeout(() => child.kill("SIGKILL"), REPORT_TIMEOUT_MS)
+    timer.unref()
     child.once("error", () => {
+      clearTimeout(timer)
       celloMissing = true
       resolve()
     })
-    child.once("exit", () => resolve())
+    child.once("exit", () => {
+      clearTimeout(timer)
+      resolve()
+    })
   })
 
 const read = (file: string) => {
@@ -109,7 +116,7 @@ process.on("SIGTERM", stop)
 // Where the run is, in progress.json, and on the board for the agent that started it (CEL-134).
 const progress = progressReporter(out, {
   now: Date.now,
-  write: (file, text) => fs.writeFileSync(file, text),
+  write: writeAtomically,
   report: process.env.CLAUDE_CODE_SESSION_ID ? reportWithCello : null,
   schedule: (run, ms) => void setTimeout(run, ms).unref(),
 })
@@ -118,6 +125,8 @@ const status = await new Promise<number | null>((resolve) => {
   // The output still goes where it always did; each line also moves the progress on.
   const follow = (from: NodeJS.ReadableStream | null, to: NodeJS.WriteStream) => {
     const split = lineSplitter()
+    // Where it goes may close (`| head`): the run goes on, and so does its progress.
+    to.on("error", () => {})
     from?.on("data", (chunk: Buffer) => {
       to.write(chunk)
       for (const line of split.push(chunk.toString("utf8"))) progress.line(line)

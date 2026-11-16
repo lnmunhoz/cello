@@ -94,6 +94,12 @@ describe("subagents through the hooks", () => {
       yield* hook("subagent-stop", { session_id: X, hook_event_name: "SubagentStop", agent_id: "prompt-suggestion", agent_type: "" })
       expect((yield* x("task", "get", "CEL-1")).out).toContain("Subagents on it (1)")
     }).pipe(Effect.scoped))
+
+  it.live("a hook event this cello doesn't know (a newer settings file, an older binary) exits 0 and prints nothing, so Claude Code shows no hook error", () =>
+    Effect.gen(function* () {
+      const { hook } = yield* setup
+      expect(yield* hook("some-future-event", { session_id: X, hook_event_name: "SomeFutureEvent" })).toEqual({ out: "", failure: null })
+    }).pipe(Effect.scoped))
 })
 
 // CEL-133: Lucas saw `cello-builder · a825620e` under Finished today while its log said "The review-mode

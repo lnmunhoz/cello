@@ -76,7 +76,8 @@ export type AgentReportState = typeof AgentReportState.Type
  * What a hook saw the caller (the session, or with `x-cello-agent` its subagent) do, for `activity.report`.
  * `background` (CEL-133): a tool call it made started background work, a shell run with run_in_background
  * (`backgroundTaskId` in Bash's response) or a Monitor (`taskId`); `id` is the one Claude Code's
- * `background_tasks` lists while it runs, `label` the call in one line ("Bash · bun run test:e2e").
+ * `background_tasks` lists while it runs, `label` the call in one line ("Bash · bun run test:e2e"), `waits`
+ * whether the agent waits for it (a Monitor, a test run): only that work keeps a stopped agent waiting.
  *
  * Test runs (CEL-134): `tests-started` (PreToolUse: a Bash call is about to run a test command, from
  * `cwd`), `tool-finished` (PostToolUse or PostToolUseFailure of that call: a foreground run ended, passed
@@ -84,7 +85,7 @@ export type AgentReportState = typeof AgentReportState.Type
  * absent when unknown): a run the turn leaves behind has ended, unless it runs in the background.
  */
 export const ActivityReport = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("background"), id: Schema.String, label: Schema.String, toolUseId: Schema.NullOr(Schema.String) }),
+  Schema.Struct({ kind: Schema.Literal("background"), id: Schema.String, label: Schema.String, toolUseId: Schema.NullOr(Schema.String), waits: Schema.Boolean }),
   Schema.Struct({ kind: Schema.Literal("tests-started"), toolUseId: Schema.String, command: Schema.String, cwd: Schema.NullOr(Schema.String) }),
   Schema.Struct({ kind: Schema.Literal("tool-finished"), toolUseId: Schema.String, failed: Schema.Boolean }),
   Schema.Struct({ kind: Schema.Literal("turn-ended"), running: Schema.optionalKey(Schema.Array(Schema.String)) }),

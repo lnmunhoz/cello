@@ -280,8 +280,8 @@ describe("AgentService.report and checkIn: the hooks", () => {
 // CEL-133: a subagent ends its turn while its own background work (a Docker e2e run, a Monitor) still
 // runs; Claude Code fires SubagentStop, then resumes it when that work ends.
 describe("a subagent waiting on its own background work", () => {
-  const e2e = { kind: "background" as const, id: "blo3xolgq", label: "Bash · bun run test:e2e -- e2e/agents-page.spec.ts", toolUseId: "toolu_1" }
-  const monitor = { kind: "background" as const, id: "bpz2edzeb", label: "Monitor · review-mode e2e run finishing", toolUseId: "toolu_2" }
+  const e2e = { kind: "background" as const, id: "blo3xolgq", label: "Bash · bun run test:e2e -- e2e/agents-page.spec.ts", toolUseId: "toolu_1", waits: true }
+  const monitor = { kind: "background" as const, id: "bpz2edzeb", label: "Monitor · review-mode e2e run finishing", toolUseId: "toolu_2", waits: true }
 
   it.effect("isn't finished at a stop while its work runs: it waits on it, by name; its next call has it working; a stop with its work gone finishes it", () =>
     run(Effect.gen(function* () {

@@ -1,16 +1,19 @@
 // CEL-134: an agent running tests. A Bash call that runs a test command starts a run on the agent that
 // made it; the test runner's reports, which carry only the session, find it by folder; boards hear it
 // start, move and end.
-import type { TestProgress } from "@cello/contract/entities"
+import { Snapshot, type TestProgress } from "@cello/contract/entities"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as TestClock from "effect/testing/TestClock"
 import * as TaskService from "../task/TaskService.ts"
 import { cmd, setupProject } from "../testing/fixtures.ts"
 import { asAgent, asHuman, services } from "../testing/TestLayers.ts"
 import { ActivityService, PROGRESS_EVERY_MS } from "./ActivityService.ts"
+import * as SnapshotService from "../snapshot/SnapshotService.ts"
 import { AgentService } from "./AgentService.ts"
+import { SessionService } from "./SessionService.ts"
 
 const run = <A, E>(effect: Effect.Effect<A, E, any>) => effect.pipe(Effect.provide(services())) as Effect.Effect<A, E>
 
@@ -70,7 +73,7 @@ describe("ActivityService: test runs (CEL-134)", () => {
       const command = "CELLO_E2E_REVIEW=1 bun run test:docker:e2e -- e2e/agents-page.spec.ts"
       // Two agents run tests in their own worktrees.
       yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_b", command, cwd: "/repo/.claude/worktrees/agent-a13b" }))
-      yield* asAgent(builder)(activity.report({ kind: "background", id: "blo3xolgq", label: `Bash · ${command}`, toolUseId: "toolu_b" }))
+      yield* asAgent(builder)(activity.report({ kind: "background", id: "blo3xolgq", label: `Bash · ${command}`, toolUseId: "toolu_b", waits: true }))
       yield* asAgent(reviewer)(activity.report({ kind: "tests-started", toolUseId: "toolu_r", command: "bun run test", cwd: "/repo/.claude/worktrees/agent-b77d" }))
       expect((yield* seen).filter((e) => e.who === builder.agent).at(-1)?.tests).toMatchObject({ label: "web e2e", background: true, endedAt: null })
 
@@ -95,7 +98,7 @@ describe("ActivityService: test runs (CEL-134)", () => {
       // The reviewer's run never took the builder's reports.
       const sql = yield* SqlClient.SqlClient
       const [reviewerRow] = yield* sql<{ tests_json: string }>`SELECT tests_json FROM session_agents WHERE agent_id = ${reviewer.agent}`
-      expect(JSON.parse(reviewerRow!.tests_json).progress).toBeNull()
+      expect(JSON.parse(reviewerRow!.tests_json)[0].progress).toBeNull()
     })))
 
   it.effect("a report no running run takes is dropped: from another folder with two runs, after the run ended, from the human", () =>
@@ -110,6 +113,53 @@ describe("ActivityService: test runs (CEL-134)", () => {
       expect(yield* runner(activity.progress("/elsewhere", progress()))).toEqual({ matched: false })
       expect(yield* runner(activity.progress("/repo/wt-b", progress()))).toEqual({ matched: true })
       expect(yield* asHuman(activity.progress("/repo/wt-b", progress()))).toEqual({ matched: false })
+    })))
+
+  it.effect("review S1: with the orchestrator running tests at the repo root and a builder in a worktree inside it, each runner's report goes to its own", () =>
+    run(Effect.gen(function* () {
+      const { activity } = yield* board
+      const worktree = "/repo/.claude/worktrees/agent-a13b"
+      yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_b", command: "bun run test:e2e", cwd: worktree }))
+      yield* TestClock.adjust("1 second")
+      // The orchestrator's run is newer and its folder holds the builder's.
+      yield* asAgent(orchestrator)(activity.report({ kind: "tests-started", toolUseId: "toolu_o", command: "bun run test", cwd: "/repo" }))
+      const runner = asAgent(orchestrator)
+      yield* runner(activity.progress(worktree, progress({ passed: 4 })))
+      yield* runner(activity.progress("/repo", progress({ stage: "unit", passed: 9 })))
+      const sql = yield* SqlClient.SqlClient
+      const [b] = yield* sql<{ tests_json: string }>`SELECT tests_json FROM session_agents WHERE agent_id = ${builder.agent}`
+      const [o] = yield* sql<{ tests_json: string }>`SELECT tests_json FROM agent_sessions WHERE external_id = ${orchestrator.session}`
+      expect(JSON.parse(b!.tests_json)[0].progress).toMatchObject({ passed: 4 })
+      expect(JSON.parse(o!.tests_json)[0].progress).toMatchObject({ stage: "unit", passed: 9 })
+    })))
+
+  it.effect("review S2: a unit run started while the agent's background Docker run goes on doesn't erase it: the Docker run still takes its reports", () =>
+    run(Effect.gen(function* () {
+      const { activity } = yield* board
+      const agents = yield* AgentService
+      yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_d", command: "bun run test:docker:e2e", cwd: "/repo/wt" }))
+      yield* asAgent(builder)(activity.report({ kind: "background", id: "blo3xolgq", label: "Bash · bun run test:docker:e2e", toolUseId: "toolu_d", waits: true }))
+      yield* TestClock.adjust("1 second")
+      yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_u", command: "bun run test -- apps/web", cwd: "/repo/wt" }))
+      // While both run, boards show the newest: the unit run.
+      expect((yield* seen).at(-1)?.tests).toMatchObject({ label: "unit tests", endedAt: null })
+      yield* asAgent(builder)(activity.report({ kind: "tool-finished", toolUseId: "toolu_u", failed: false }))
+      // The unit run ended: boards show the Docker run, still running, and it takes the runner's report.
+      expect((yield* seen).at(-1)?.tests).toMatchObject({ label: "web e2e", endedAt: null })
+      expect(yield* asAgent(orchestrator)(activity.progress("/repo/wt", progress({ passed: 5 })))).toEqual({ matched: true })
+      const [agent] = yield* agents.byRefs([{ sessionId: (yield* (yield* SessionService).resolve(orchestrator)).sessionId!, agentId: builder.agent }])
+      expect(agent?.tests).toMatchObject({ label: "web e2e", progress: { passed: 5 } })
+    })))
+
+  it.effect("data review: a stored run that isn't whole (no endedAt, a bad progress) is dropped, so the snapshot still encodes", () =>
+    run(Effect.gen(function* () {
+      yield* board
+      const sql = yield* SqlClient.SqlClient
+      const bad = [{ runId: "x", cwd: null, label: "web e2e", command: "bun run test", startedAt: 1, outcome: null, background: false, progress: null },
+        { runId: "y", cwd: null, label: "unit tests", command: "bun run test", startedAt: 1, endedAt: null, outcome: null, background: false, progress: { stage: 42 } }]
+      yield* sql`UPDATE session_agents SET tests_json = ${JSON.stringify(bad)} WHERE agent_id = ${builder.agent}`
+      const snapshot = yield* (yield* SnapshotService.SnapshotService).get()
+      expect(Schema.encodeSync(Snapshot)(snapshot).agents.find((a) => a.agentId === builder.agent)?.tests).toBeNull()
     })))
 
   it.effect("the session's own run: started by its call, heard as session.seen; the turn that leaves a foreground run behind ends it", () =>
@@ -127,7 +177,7 @@ describe("ActivityService: test runs (CEL-134)", () => {
       const { activity } = yield* board
       const agents = yield* AgentService
       yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_b", command: "bun run test:e2e", cwd: "/repo/wt" }))
-      yield* asAgent(builder)(activity.report({ kind: "background", id: "blo3xolgq", label: "Bash · bun run test:e2e", toolUseId: "toolu_b" }))
+      yield* asAgent(builder)(activity.report({ kind: "background", id: "blo3xolgq", label: "Bash · bun run test:e2e", toolUseId: "toolu_b", waits: true }))
       const waiting = yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "stopped", running: ["blo3xolgq"] }))
       expect(waiting).toMatchObject({ endedAt: null, waitingOn: ["Bash · bun run test:e2e"], tests: { endedAt: null, background: true } })
 

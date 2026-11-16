@@ -1,7 +1,10 @@
 // The runner keeps progress.json current and reports it to the board (CEL-134): at once for a new
 // failure and at the end, else at most every REPORT_EVERY_MS; with nobody to report to, only the file.
+import * as fs from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
 import { describe, expect, it } from "vitest"
-import { progressReporter, REPORT_EVERY_MS, type ReporterDeps } from "./reporter.ts"
+import { progressReporter, REPORT_EVERY_MS, type ReporterDeps, writeAtomically } from "./reporter.ts"
 
 /** A clock and a timer queue the test moves by hand, the files written, and the reports made. */
 const harness = (reporting = true) => {
@@ -44,6 +47,28 @@ const harness = (reporting = true) => {
 
 const pass = (n: number) => `  ✓   ${n} e2e/a.spec.ts:${n}:1 › test ${n} (1s)`
 const fail = (n: number) => `  ✘   ${n} e2e/a.spec.ts:${n}:1 › test ${n} (1s)`
+
+describe("writeAtomically", () => {
+  it("writes the file whole, and replaces a link at its name instead of writing through it", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cel134-write-"))
+    try {
+      const file = path.join(dir, "progress.json")
+      writeAtomically(file, "{\"a\":1}\n")
+      expect(fs.readFileSync(file, "utf8")).toBe("{\"a\":1}\n")
+      const elsewhere = path.join(dir, "elsewhere.txt")
+      fs.writeFileSync(elsewhere, "keep me")
+      fs.rmSync(file)
+      fs.symlinkSync(elsewhere, file)
+      writeAtomically(file, "{\"a\":2}\n")
+      expect(fs.lstatSync(file).isSymbolicLink()).toBe(false)
+      expect(fs.readFileSync(file, "utf8")).toBe("{\"a\":2}\n")
+      expect(fs.readFileSync(elsewhere, "utf8")).toBe("keep me")
+      expect(fs.readdirSync(dir).sort()).toEqual(["elsewhere.txt", "progress.json"])
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
 
 describe("progressReporter", () => {
   it("writes progress.json in the run folder on every change", () => {

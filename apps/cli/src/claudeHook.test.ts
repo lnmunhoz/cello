@@ -146,10 +146,13 @@ describe("background work (CEL-133)", () => {
     const bash = post("Bash", { command: "bun run test:e2e -- e2e/agents-page.spec.ts", run_in_background: true }, {
       stdout: "", stderr: "", interrupted: false, isImage: false, noOutputExpected: false, backgroundTaskId: "blo3xolgq",
     })
-    expect(bash.startedBackground).toEqual({ id: "blo3xolgq", label: "Bash · bun run test:e2e -- e2e/agents-page.spec.ts" })
+    expect(bash.startedBackground).toEqual({ id: "blo3xolgq", label: "Bash · bun run test:e2e -- e2e/agents-page.spec.ts", waits: true })
     expect(bash.toolUseId).toBe("toolu_9")
     const monitor = post("Monitor", { description: "review-mode e2e run finishing", command: "until …" }, { taskId: "bpz2edzeb", timeoutMs: 1800000, persistent: false })
-    expect(monitor.startedBackground).toEqual({ id: "bpz2edzeb", label: "Monitor · review-mode e2e run finishing" })
+    expect(monitor.startedBackground).toEqual({ id: "bpz2edzeb", label: "Monitor · review-mode e2e run finishing", waits: true })
+    // A dev server left running isn't work its agent waits for (review S3): it would never finish.
+    expect(post("Bash", { command: "bun run dev", run_in_background: true }, { backgroundTaskId: "bdev" }).startedBackground)
+      .toEqual({ id: "bdev", label: "Bash · bun run dev", waits: false })
     // A foreground call, or a taskId from a tool that isn't Monitor, started nothing.
     expect(post("Bash", { command: "ls" }, { stdout: "x" }).startedBackground).toBeNull()
     expect(post("TaskCreate", {}, { taskId: "t1" }).startedBackground).toBeNull()
