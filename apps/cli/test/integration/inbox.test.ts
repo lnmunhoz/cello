@@ -4,9 +4,10 @@
 // when there's nothing new, the server is down, or stdin never closes. `cello install claude` merges
 // the hooks into settings files in temp folders with a temp HOME (never the real ~/.claude).
 import * as fs from "node:fs"
+import * as os from "node:os"
 import * as path from "node:path"
 import { newCommandId } from "@cello/client/client"
-import { writeText } from "@cello/server/testing/media"
+import { writePng, writeText } from "@cello/server/testing/media"
 import { startServer, tempDataDir } from "@cello/server/testing/servers"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -136,6 +137,64 @@ describe("cello inbox", () => {
       expect((yield* me("inbox")).out).toBe(
         "The human has no inbox: comments reach the agent session that claimed the task. Run this from an agent session (CLAUDE_CODE_SESSION_ID or CELLO_SESSION set).",
       )
+    }).pipe(Effect.scoped))
+})
+
+// CEL-73: screenshots in comments. Lucas's pasted ones (uploaded, then named on send) reach the agent as
+// temp files in `cello inbox` and the hook; an agent attaches its own with --attach; `task get` lists them.
+describe("screenshots in comments", () => {
+  /** Lucas pastes a screenshot into CEL-1's comment box and sends it with `body`. */
+  const pasteAndSend = (port: number, human: Effect.Success<ReturnType<typeof connect>>, taskId: string, body: string, bytes: Uint8Array) =>
+    Effect.gen(function* () {
+      const uploaded = yield* Effect.promise(async () => {
+        const response = await fetch(`http://127.0.0.1:${port}/tasks/${taskId}/uploads?name=image.png`, { method: "POST", body: new Blob([bytes as Uint8Array<ArrayBuffer>]) })
+        return (await response.json()) as { id: string }
+      })
+      return yield* human["comment.add"]({ commandId: newCommandId(), taskId, body, attachmentIds: [uploaded.id] })
+    })
+
+  it.live("Lucas's screenshot reaches the agent as a file, in `cello inbox` and through the hook", () =>
+    Effect.gen(function* () {
+      const { port, human, x, hook, dataDir } = yield* setup
+      const taskId = (yield* human["task.get"]({ key: "CEL-1" })).task.id
+      const png = new Uint8Array(fs.readFileSync(writePng(dataDir)))
+      const { result } = yield* pasteAndSend(port, human, taskId, "Like this", png)
+      const out = (yield* x("inbox", "--new")).out
+      const saved = path.join(os.tmpdir(), "cello-comments", result.id, "1.png")
+      expect(out).toContain(`    Like this\n    Screenshot: ${saved}\n`)
+      expect(out).toContain("Act on it now (its screenshots are files you can open), then answer on the card")
+      expect(new Uint8Array(fs.readFileSync(saved))).toEqual(png)
+
+      // The hook prints the same, with only a screenshot and no words.
+      fs.rmSync(saved)
+      const { result: second } = yield* pasteAndSend(port, human, taskId, "", png)
+      const post = { session_id: X, hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "ls" }, tool_response: {}, tool_use_id: "t1" }
+      const context = JSON.parse((yield* hook("post-tool-use", post)).out).hookSpecificOutput.additionalContext as string
+      const savedSecond = path.join(os.tmpdir(), "cello-comments", second.id, "1.png")
+      expect(context).toContain(`  Lucas commented, just now\n    Screenshot: ${savedSecond}\n`)
+      expect(fs.existsSync(savedSecond)).toBe(true)
+    }).pipe(Effect.scoped))
+
+  it.live("an agent attaches images with --attach; `task get` lists them as files; anything but an image is refused", () =>
+    Effect.gen(function* () {
+      const { x, repo } = yield* setup
+      writePng(repo, "empty-state.png")
+      writeText(repo, "notes.txt", "hi")
+      expect(yield* x("task", "comment", "CEL-1", "The empty state, built", "--attach", "empty-state.png")).toEqual({ out: "Commented on CEL-1 with 1 image", failure: null })
+      expect(yield* x("task", "comment", "CEL-1", "--attach", "empty-state.png", "--attach", "empty-state.png")).toEqual({ out: "Commented on CEL-1 with 2 images", failure: null })
+      expect((yield* x("task", "comment", "CEL-1", "Notes", "--attach", "notes.txt")).failure).toBe("Notes.txt isn't an image (PNG, JPEG, GIF, WebP or AVIF).")
+
+      const detail = JSON.parse((yield* x("task", "get", "CEL-1", "--json")).out) as { comments: Array<{ id: string; body: string; attachments: Array<{ name: string }> }> }
+      expect(detail.comments.map((c) => [c.body, c.attachments.map((a) => a.name)])).toEqual([
+        ["The empty state, built", ["empty-state.png"]],
+        ["", ["empty-state.png", "empty-state.png"]],
+      ])
+      const [first, second] = detail.comments
+      const text = (yield* x("task", "get", "CEL-1")).out
+      const file = (id: string, n: number) => path.join(os.tmpdir(), "cello-comments", id, `${n}.png`)
+      expect(text).toContain(`    The empty state, built\n    Screenshot: ${file(first!.id, 1)}\n`)
+      expect(text).toContain(`    Screenshot: ${file(second!.id, 1)}\n    Screenshot: ${file(second!.id, 2)}`)
+      expect(fs.existsSync(file(second!.id, 2))).toBe(true)
     }).pipe(Effect.scoped))
 })
 
