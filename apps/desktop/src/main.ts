@@ -5,10 +5,12 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import { app, BaseWindow, dialog, Menu, session, webContents } from "electron"
 import { findCelloLink, parseCelloLink, routeCelloLink, SCHEME, type CelloLink } from "./links/celloLink.ts"
+import { INSTALLED_APP } from "./install/plan.ts"
 import { buildMenu } from "./menu.ts"
 import { PANEL_PARTITION } from "./panel/Panel.ts"
 import { celloCommand, serverConfig } from "./server/plan.ts"
 import { connectServer, type Server } from "./server/sidecar.ts"
+import { appNotice, boardNotice, bundleOf, relaunchOptions, stampFile, type AppNotice } from "./update/appUpdate.ts"
 import { MainWindow } from "./window/MainWindow.ts"
 
 // A closed stdout (the app started from a pipe that went away) must not crash the app.
@@ -33,6 +35,16 @@ const files = {
   chromeHtml: path.join(appPath, "dist-electron/chrome.html"),
   devIcon: path.join(appPath, "resources/icon.png"),
   repoRoot: path.resolve(appPath, "../.."),
+  stamp: stampFile({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath }),
+}
+
+/** The stamp of the build on disk now (scripts/build.ts writes it); null while it's missing. */
+const readStamp = (): string | null => {
+  try {
+    return fs.readFileSync(files.stamp, "utf8").trim() || null
+  } catch {
+    return null
+  }
 }
 
 /** Allowed for the board (our own page) and for panel pages (any site); everything else is denied. */
@@ -52,9 +64,34 @@ function run() {
   let boardLoaded = false
   /** Links that arrived before the board was up (macOS sends a launch link to open-url early). */
   const pending: CelloLink[] = []
+  /** The build this process loaded, to tell when another replaced it on disk (CEL-75). */
+  const loadedStamp = readStamp()
+  let notice: AppNotice | null = null
 
   /** The main window, unless it was closed (macOS keeps the app running without one). */
   const live = () => (main && !main.isClosed ? main : null)
+
+  /**
+   * Whether to offer a restart: another build replaced this one on disk, or this copy isn't
+   * /Applications' (src/update/appUpdate.ts). Checked when the window takes focus and when a link arrives.
+   */
+  const checkForUpdate = () => {
+    notice = appNotice({
+      execPath: process.execPath,
+      bundle: app.isPackaged ? bundleOf(process.execPath) : null,
+      loaded: loadedStamp,
+      onDisk: readStamp(),
+      installed: INSTALLED_APP,
+      installedExists: process.platform === "darwin" && fs.existsSync(INSTALLED_APP),
+    })
+    live()?.showAppNotice(notice && boardNotice(notice))
+  }
+
+  /** The notice's Restart: quits (stopping a server the app started) and starts the new build. */
+  const restart = () => {
+    app.relaunch(relaunchOptions(notice?.restartInto ?? process.execPath, process))
+    app.quit()
+  }
 
   /** Brings the main window forward, opening a new one on the board if it was closed. */
   const showWindow = (): MainWindow | null => {
@@ -72,6 +109,7 @@ function run() {
   const follow = (raw: string) => {
     const link = parseCelloLink(raw)
     if (!link) return
+    checkForUpdate()
     const window = boardLoaded ? showWindow() : null
     if (!window || !server) {
       pending.push(link)
@@ -110,7 +148,10 @@ function run() {
       chromePreload: files.chromePreload,
       chromeHtml: files.chromeHtml,
       platform: process.platform,
+      restartApp: restart,
     })
+    main.window.on("focus", checkForUpdate)
+    checkForUpdate()
     return main
   }
 

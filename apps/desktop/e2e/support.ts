@@ -63,6 +63,13 @@ export const tempDir = (prefix: string) => {
   return dir
 }
 
+/** A writer for `file` (a build output, say); what was there comes back after the test. */
+export const overwrite = (file: string): ((text: string) => void) => {
+  const before = fs.readFileSync(file)
+  onCleanup(() => fs.writeFileSync(file, before))
+  return (text) => fs.writeFileSync(file, text)
+}
+
 export const freePort = async (): Promise<number> => {
   for (;;) {
     const port = await new Promise<number>((resolve, reject) => {

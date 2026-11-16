@@ -11,10 +11,13 @@ import {
   celloAsAgent,
   cleanup,
   COMMAND_OR_CONTROL,
+  DESKTOP_DIR,
+  ELECTRON,
   entryOf,
   freePort,
   isAlive,
   launchApp,
+  overwrite,
   pressKey,
   readLock,
   SCREENSHOTS_DIR,
@@ -546,6 +549,68 @@ test("CEL-37: the board in the app notices a new Cello build when the server res
   await expect(footer).toContainText("build bbbbbbb")
   await expect(bar).toHaveCount(0)
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "reload-desktop-build-b.png"))
+})
+
+test("CEL-75: when a new build of the app lands on disk, the board says so and Restart relaunches the app; Later hides it until the next build", async ({}, testInfo) => {
+  const site = await testSite()
+  const dataDir = tempDir("cello-desktop-e2e-")
+  const server = await startCello(dataDir)
+  const env = { CELLO_PORT: String(server.port), CELLO_DATA_DIR: dataDir, CELLO_DESKTOP_USER_DATA: tempDir("cello-desktop-user-") }
+  const app = await launchApp(env)
+  const video = record(app, testInfo.title)
+  const { board, panel } = await appPages(app, server.url)
+  const bar = board.locator("[data-app-restart-bar]")
+  const writeStamp = overwrite(path.join(DESKTOP_DIR, "dist-electron/build.json"))
+  const focusWindow = () => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.emit("focus"))
+
+  await video.caption("The app runs the build it started with: no notice")
+  await expect(board.getByRole("button", { name: "New project" }).first()).toBeVisible()
+  await focusWindow()
+  await expect(bar).toHaveCount(0)
+
+  await video.caption("A new build of the app lands on disk (bun run build rewrites dist-electron/build.json) while it runs")
+  writeStamp(`${JSON.stringify({ builtAt: "2026-11-16T05:00:00.000Z", commit: "bbbbbbb" })}\n`)
+
+  await video.caption("An agent opens a cello:// link: the app follows it, and says it was updated")
+  expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(site.url)}`])).toBe(0)
+  await panel.waitForURL(site.url)
+  await expect(bar).toHaveAttribute("data-app-restart-bar", "updated")
+  await expect(bar).toContainText("The Cello app was updated")
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "app-restart-bar-light.png"))
+  await board.getByRole("button", { name: "Use dark theme" }).click()
+  await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "app-restart-bar-dark.png"))
+  await board.getByRole("button", { name: "Use light theme" }).click()
+
+  await video.caption("Later (×) hides it; switching back to the app doesn't bring it back for the same build")
+  await bar.getByRole("button", { name: "Later" }).click()
+  await expect(bar).toHaveCount(0)
+  await focusWindow()
+  await expect(bar).toHaveCount(0)
+
+  await video.caption("Another build lands: the next time the window takes focus, the notice is back")
+  writeStamp(`${JSON.stringify({ builtAt: "2026-11-16T06:00:00.000Z", commit: "ccccccc" })}\n`)
+  await focusWindow()
+  await expect(bar).toHaveAttribute("data-app-restart-bar", "updated")
+
+  await video.caption("Restart: the app asks Electron to relaunch it and quits (both recorded here instead of run)")
+  type Restart = { relaunch: Electron.RelaunchOptions | undefined }
+  await app.evaluate(({ app: electronApp }) => {
+    const original = { relaunch: electronApp.relaunch, quit: electronApp.quit }
+    let relaunched: Restart | null = null
+    // Resolves on quit, with what relaunch got, and puts Electron's own methods back.
+    const restarted = new Promise<Restart | null>((resolve) => {
+      electronApp.relaunch = (options) => void (relaunched = { relaunch: options })
+      electronApp.quit = () => {
+        Object.assign(electronApp, original)
+        resolve(relaunched)
+      }
+    })
+    Object.assign(globalThis, { restarted })
+  })
+  await bar.getByRole("button", { name: "Restart" }).click()
+  const restart = await app.evaluate(() => (globalThis as unknown as { restarted: Promise<Restart | null> }).restarted)
+  expect(restart?.relaunch?.execPath).toBe(fs.realpathSync(ELECTRON))
+  expect(restart?.relaunch?.args).toContain(DESKTOP_DIR)
 })
 
 test("starts the bundled cello when no server is running, and stops it on quit", async ({}, testInfo) => {

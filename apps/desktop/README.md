@@ -153,6 +153,26 @@ which running Cello it would warn about) and changes nothing. A later `bun run p
 The decisions are in `src/install/plan.ts` (pure, unit-tested); `scripts/install.ts` gathers the facts
 (`git worktree list`, `lsregister -dump`, `ps`) and runs them.
 
+### The app says when it should restart
+
+The board reloads into a new web build by itself (CEL-37), but the app around it keeps the code it
+started with. So the app checks its own build too, each time its window takes focus and each time a
+`cello://` link arrives, and shows a notice at the top of the board:
+
+- **"The Cello app was updated · Restart"** when the build on disk isn't the one it loaded.
+  `scripts/build.ts` writes `dist-electron/build.json` (build time and commit) on every build;
+  electron-builder copies it beside `app.asar` (`Contents/Resources/build.json`), where the app reads it
+  at launch and again on each check. (Not from inside app.asar: Electron keeps the archive it loaded open.)
+- **"Cello is running from a build folder · Restart from Applications"** when the packaged app runs
+  from a copy other than `/Applications/Cello.app` while that one exists.
+
+**Restart** quits the app (stopping a server it started, as on any quit) and starts it again: the same
+executable with its launch arguments, or `/Applications/Cello.app` when it ran from another copy. **×**
+hides the notice until the next build. Dev (`bun run dev`) gets the "updated" notice after a rebuild,
+never the build-folder one. The rules are `src/update/appUpdate.ts`; the notice is
+`apps/web/src/app/AppRestartBar.tsx`, through `window.celloDesktop.onAppNotice` and `restartApp`
+(missing in older app builds, where the web app shows nothing).
+
 ## Code
 
 - `src/main.ts`: startup, single instance, links, menu, quit
@@ -160,6 +180,7 @@ The decisions are in `src/install/plan.ts` (pure, unit-tested); `scripts/install
 - `src/panel/`: the panel (`Panel.ts`), its toolbar page (`chrome.*`) and the URL rules (`urls.ts`)
 - `src/server/`: finding or starting the server (`plan.ts` decides, `sidecar.ts` does it)
 - `src/install/plan.ts`: what `package -- --install` does after copying the app (LaunchServices, warnings)
+- `src/update/appUpdate.ts`: when the running app offers a restart, and into which copy
 - `src/preload.ts`: `window.celloDesktop`
 - `scripts/`: bundling with Bun (`dist-electron/`), dev, packaging (electron-builder)
 - `resources/Cello.icon/` (the packaged app, an Icon Composer document) and `resources/icon.png` (the

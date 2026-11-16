@@ -2,6 +2,7 @@
 // (sandboxed preloads can't load other modules), and the panel toolbar page.
 import * as fs from "node:fs"
 import * as path from "node:path"
+import { STAMP_FILE } from "../src/update/appUpdate.ts"
 import { desktopDir, electronBinary } from "./electron.ts"
 
 const src = path.join(desktopDir, "src")
@@ -29,5 +30,9 @@ await bundle("preload.ts", "preload.cjs", "node")
 await bundle("panel/chrome-preload.ts", "chrome-preload.cjs", "node")
 await bundle("panel/chrome.ts", "chrome.js", "browser")
 fs.copyFileSync(path.join(src, "panel/chrome.html"), path.join(out, "chrome.html"))
+// Tells this build from the next: a running app compares it with the one on disk and offers a restart
+// when they differ (src/update/appUpdate.ts). electron-builder also copies it beside app.asar.
+const commit = Bun.spawnSync(["git", "rev-parse", "--short", "HEAD"], { cwd: desktopDir, stderr: "ignore" }).stdout.toString().trim()
+fs.writeFileSync(path.join(out, STAMP_FILE), `${JSON.stringify({ builtAt: new Date().toISOString(), commit: commit || null })}\n`)
 electronBinary()
 console.log(`Built ${path.relative(process.cwd(), out) || out}`)
