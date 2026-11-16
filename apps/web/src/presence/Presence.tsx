@@ -5,6 +5,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import type { StageInfo } from "@cello/contract/stages"
+import { modelName } from "@cello/shared/model"
 import { agoShort, type Presence, presenceOf, presenceWords, type SessionLike } from "@cello/shared/presence"
 import { ActivityIcon, BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, ListChecksIcon, type LucideIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
 import { type ReactNode, useEffect, useState } from "react"
@@ -137,6 +138,9 @@ const live = (board: BoardState, holder: Holder | null): LiveHolder | null => {
 /** "Under Claude Code session 2fd0505c": a subagent's parent, for its hover. */
 const parentTitle = (who: Who) => (who.parent ? `${who.name}, under ${who.parent}` : undefined)
 
+/** "Claude Code session 2fd0505c (Opus 5.5)": a name with the model it's on now, when known (CEL-119). */
+const withModel = (who: Who) => (who.model ? `${who.name} (${modelName(who.model)})` : who.name)
+
 /** Which holder it is: the subagent, else the session. */
 const liveId = (h: LiveHolder | null) => (h === null ? null : h.holder.agent ? `agent:${h.holder.agent.agentId}` : `session:${h.holder.session?.id}`)
 
@@ -224,16 +228,21 @@ function useAgentMark(id: string, mood: AgentMood, statusId: string, holder: Liv
 /**
  * "8a41c9e2 active now" or "cello-builder · a13bfb89 active now" after its agent mark (CEL-69), coloured
  * by presence; a subagent's session is in the hover, and with `full` it's written after it. `boxed`: the
- * mark sits in an avatar-sized box, to line up with avatars.
+ * mark sits in an avatar-sized box, to line up with avatars. The model it's on now (CEL-119) follows the
+ * name on a card ("(Sonnet 5.5)"); `stacked` (the task panel) gives a known model a second line, the
+ * presence words then the model and effort, muted ("active now · Sonnet 5.5 · medium"), so a long name in
+ * a narrow header doesn't cut either off.
  */
 function HolderWords({
   live: { holder, subject },
   full = false,
   boxed = false,
+  stacked = false,
   mark,
-}: { live: LiveHolder; full?: boolean; boxed?: boolean; mark: ReactNode }) {
+}: { live: LiveHolder; full?: boolean; boxed?: boolean; stacked?: boolean; mark: ReactNode }) {
   const now = useNow()
   const presence = presenceOf(subject, now)
+  const model = holder.who.model ? modelName(holder.who.model) : null
   return (
     <span
       className={`flex min-w-0 items-center ${boxed ? "gap-2" : "gap-1.5"} ${PRESENCE_TEXT[presence]}`}
@@ -241,10 +250,28 @@ function HolderWords({
       data-agent={holder.agent?.agentId}
     >
       {boxed ? <span className="flex size-4 shrink-0 items-center justify-center">{mark}</span> : mark}
-      <span className="truncate">
-        <span className="font-medium">{full ? holder.who.name : holder.who.short}</span> {presenceWords(subject, now)}
-        {full && holder.who.parentShort ? <span className="text-faint"> · under {holder.who.parentShort}</span> : null}
-      </span>
+      {model && stacked ? (
+        <span className="flex min-w-0 flex-col leading-4">
+          <span className="truncate" data-holder-name>
+            <span className="font-medium">{full ? holder.who.name : holder.who.short}</span>
+            {full && holder.who.parentShort ? <span className="text-faint"> · under {holder.who.parentShort}</span> : null}
+          </span>
+          <span className="truncate text-[11px]">
+            {presenceWords(subject, now)}
+            <span className="text-faint" data-holder-model>
+              {" · "}
+              {model}
+              {holder.who.effort ? ` · ${holder.who.effort}` : ""}
+            </span>
+          </span>
+        </span>
+      ) : (
+        <span className="truncate" data-holder-name>
+          <span className="font-medium">{full ? holder.who.name : holder.who.short}</span>
+          {model ? <span className="text-faint" data-holder-model> ({model})</span> : null} {presenceWords(subject, now)}
+          {full && holder.who.parentShort ? <span className="text-faint"> · under {holder.who.parentShort}</span> : null}
+        </span>
+      )}
     </span>
   )
 }
@@ -341,7 +368,7 @@ export function PanelWork({ task, board }: { task: Task; board: BoardState }) {
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-xs" data-panel-work>
       {holder || leaving ? <span className="text-faint">·</span> : null}
-      {holder ? <HolderWords live={holder} mark={mark} /> : leaving ? mark : null}
+      {holder ? <HolderWords live={holder} stacked mark={mark} /> : leaving ? mark : null}
       {p.step ? (
         <>
           <span className="text-faint">·</span>
@@ -408,7 +435,7 @@ export function ProvenanceRows({ task, board }: { task: Task; board: BoardState 
       <dd className={row} data-working-on-it>
         {shown ? (
           <>
-            <HolderWords live={shown} full boxed mark={mark} />
+            <HolderWords live={shown} full boxed stacked mark={mark} />
             {log ? (
               <span className="ml-auto flex shrink-0" data-working-log>
                 <LinkButton variant="ghost" size="sm" to="/agents" search={{ open: log }} aria-label={`Open ${shown.holder.who.name}'s log on the Agents page`}>
@@ -444,8 +471,8 @@ const workingTitle = (sessions: ReadonlyArray<Working>, now: number) =>
     ? "No agent is working on a task"
     : sessions
       .flatMap((s) => [
-        `${s.who.name}: ${presenceWords(s.session, now)}${s.tasks.length ? ` (${keysOf(s.tasks)})` : ""}`,
-        ...s.agents.map((a) => `  ${a.who.name}: ${presenceWords(a.agent, now)}${a.task ? ` (${a.task.key})` : ""}`),
+        `${withModel(s.who)}: ${presenceWords(s.session, now)}${s.tasks.length ? ` (${keysOf(s.tasks)})` : ""}`,
+        ...s.agents.map((a) => `  ${withModel(a.who)}: ${presenceWords(a.agent, now)}${a.task ? ` (${a.task.key})` : ""}`),
       ])
       .join("\n")
 

@@ -1,7 +1,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { agentMood, agentsWorkingCount, holderActive, markEntry, stepOf, type MarkSeen, provenanceLine, provenanceOf, whoOf, workingSessions } from "./model.ts"
+import { agentMood, agentsWorkingCount, authorParts, holderActive, markEntry, stepOf, type MarkSeen, provenanceLine, provenanceOf, whoOf, whoSubject, whoText, workingSessions } from "./model.ts"
 
 const MIN = 60_000
 const now = Date.UTC(2026, 10, 15, 12)
@@ -355,5 +355,69 @@ describe("Agents working: each entry's mark", () => {
     const quiet = session("2fd0505c", { lastSeenAt: now - 20 * MIN })
     expect(marks(board([held("t1", { stage: "building" })], [quiet])).session).toEqual({ mood: "still", statusId: "prog" })
     expect(marks(board([held("t1", { statusId: "needs" })], [quiet])).session).toEqual({ mood: "waiting", statusId: "needs" })
+  })
+})
+
+// CEL-119: who wrote it (the main session, or a subagent of it) and the model and effort that wrote it.
+describe("an author's role and model", () => {
+  const orchestrator = session("2fd0505c", { model: "claude-opus-5-5", effort: "high" })
+  const builder = agent("2fd0505c", "a13bfb89c0de1234", { model: "claude-sonnet-5-5", effort: "medium" })
+  const state = board([], [orchestrator], [builder])
+
+  it("a comment from the main session: name, Main session, its model and effort, then the session id", () => {
+    const who = whoOf(state, "claude", "2fd0505c", null, { model: "claude-opus-5-5", effort: "high" })
+    expect(authorParts(who)).toEqual([
+      { kind: "name", text: "Claude Code" },
+      { kind: "role", text: "Main session" },
+      { kind: "model", text: "Opus 5.5" },
+      { kind: "effort", text: "high" },
+      { kind: "session", text: "2fd0505c", title: "Claude Code session 2fd0505c" },
+    ])
+    expect(whoText(who)).toBe("Claude Code (Opus 5.5), main session 2fd0505c")
+    expect(whoSubject(who)).toEqual({ subject: "Claude Code (Opus 5.5), main session 2fd0505c,", plain: "Claude Code session 2fd0505c" })
+  })
+
+  it("a comment from a subagent: its type, Subagent of its session, its own model and effort", () => {
+    const who = whoOf(state, "claude", "2fd0505c", "a13bfb89c0de1234", { model: "claude-sonnet-5-5", effort: "medium" })
+    expect(authorParts(who)).toEqual([
+      { kind: "name", text: "cello-builder", title: "cello-builder · a13bfb89" },
+      { kind: "role", text: "Subagent of " },
+      { kind: "session", text: "2fd0505c", title: "Claude Code session 2fd0505c" },
+      { kind: "model", text: "Sonnet 5.5" },
+      { kind: "effort", text: "medium" },
+    ])
+    expect(whoText(who)).toBe("cello-builder (Sonnet 5.5), subagent of 2fd0505c")
+    // As the subject of a history line, the aside closes with a comma; its plain name is for possessives.
+    expect(whoSubject(who)).toEqual({ subject: "cello-builder (Sonnet 5.5), subagent of 2fd0505c,", plain: "cello-builder · a13bfb89" })
+  })
+
+  it("keeps the model it was written with: never the session's current one, and none when it wasn't known", () => {
+    const old = whoOf(state, "claude", "2fd0505c", null, { model: "claude-haiku-5-5", effort: null })
+    expect(authorParts(old).filter((p) => p.kind === "model" || p.kind === "effort")).toEqual([{ kind: "model", text: "Haiku 5.5" }])
+    const unknown = whoOf(state, "claude", "2fd0505c", "a13bfb89c0de1234", {})
+    expect(authorParts(unknown).map((p) => p.kind)).toEqual(["name", "role", "session"])
+    expect(whoText(unknown)).toBe("cello-builder, subagent of 2fd0505c")
+    // Without what it was written with (the task's "Created by"), no model either.
+    expect(whoOf(state, "claude", "2fd0505c", null).model ?? null).toBeNull()
+  })
+
+  it("an id the app doesn't know shows as it is", () => {
+    const who = whoOf(state, "claude", "2fd0505c", null, { model: "claude-foo-6", effort: "max" })
+    expect(whoText(who)).toBe("Claude Code (claude-foo-6), main session 2fd0505c")
+  })
+
+  it("the human, and an agent whose session the board doesn't have, are named as before", () => {
+    const human = whoOf(state, "lucas", null, null, { model: null, effort: null })
+    expect(authorParts(human)).toEqual([{ kind: "name", text: "Lucas N. Munhoz" }])
+    expect(whoText(human)).toBe("Lucas N. Munhoz")
+    expect(whoSubject(human)).toEqual({ subject: "Lucas N. Munhoz", plain: "Lucas N. Munhoz" })
+    expect(whoText(whoOf(state, "claude", "gone", null, { model: "claude-opus-5-5" }))).toBe("Claude Code")
+  })
+
+  it("presence and the Agents page show each agent's current model", () => {
+    const holds = task("t1", { assigneeActorId: "claude", assigneeSessionId: "2fd0505c" })
+    const working = workingSessions(board([holds], [orchestrator], [{ ...builder, taskId: "t1" }]), "w1", now)[0]!
+    expect([working.who.role, working.who.model, working.who.effort]).toEqual(["main", "claude-opus-5-5", "high"])
+    expect([working.agents[0]!.who.role, working.agents[0]!.who.model]).toEqual(["subagent", "claude-sonnet-5-5"])
   })
 })

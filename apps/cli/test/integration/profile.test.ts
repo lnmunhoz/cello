@@ -125,6 +125,47 @@ describe("cello init's testing report (CEL-89)", () => {
       const fields = Object.fromEntries((again.profile.fields as Array<{ field: string; value: string; source: string }>).map((f) => [f.field, `${f.value} (${f.source})`]))
       expect(fields).toMatchObject({ "unit": "bun run test:unit (human)", "app.url": "http://127.0.0.1:5199 (agent)", "install": "bun install (detected)" })
     }).pipe(Effect.scoped))
+
+  it.live("running init again clears detected values it no longer finds, says which, and keeps what an agent set (CEL-96)", () =>
+    Effect.gen(function* () {
+      const { dataDir, agent } = yield* setup
+      const repo = gitRepo(dataDir, "shop")
+      write(repo, VITE_APP)
+      yield* agent(repo)("init")
+      yield* agent(repo)("profile", "set", "unit", "bun run test:unit")
+      // The repo changes: the dev port comes from $PORT, and the e2e now runs in Docker.
+      const pkg = JSON.parse(VITE_APP["package.json"])
+      write(repo, { "package.json": JSON.stringify({ ...pkg, scripts: { ...pkg.scripts, dev: "vite --port $PORT", "test:e2e": "bun scripts/test-in-docker.ts e2e" } }) })
+      const again = yield* agent(repo)("init")
+      expect(again.out.split("\n").slice(-2)).toEqual([
+        "Wrote ui.runsIn to the testing profile; kept unit, which an agent or the human set. See `cello profile`.",
+        "Cleared app.url, e2e.web.videos and e2e.web.screenshots: detected before, not found this time.",
+      ])
+      const json = JSON.parse((yield* agent(repo)("init", "--json")).out)
+      expect(json.testing).toMatchObject({ written: [], cleared: [], kept: ["unit"] })
+      const fields = Object.fromEntries((json.profile.fields as Array<{ field: string; value: string; source: string }>).map((f) => [f.field, `${f.value} (${f.source})`]))
+      expect(fields).toMatchObject({ "unit": "bun run test:unit (agent)", "ui.runsIn": "docker (detected)", "e2e.web.run": "bun run test:e2e (detected)" })
+      expect(fields["app.url"]).toBeUndefined()
+      expect(fields["e2e.web.videos"]).toBeUndefined()
+    }).pipe(Effect.scoped))
+
+  it.live("init from a worktree with none of the repo's files finds nothing and keeps the profile as it is (CEL-96)", () =>
+    Effect.gen(function* () {
+      const { dataDir, agent } = yield* setup
+      const repo = gitRepo(dataDir, "shop")
+      const git = (cwd: string, ...args: string[]) => Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd })
+      // A first commit without the app's files, so a worktree of it has no package.json.
+      git(repo, "commit", "-q", "--allow-empty", "-m", "init")
+      write(repo, VITE_APP)
+      yield* agent(repo)("init")
+      const before = JSON.parse((yield* agent(repo)("profile", "--json")).out).fields
+      expect(before.length).toBeGreaterThan(5)
+      const worktree = path.join(dataDir, "bare-branch")
+      git(repo, "worktree", "add", "-q", worktree)
+      const empty = yield* agent(fs.realpathSync(worktree))("init")
+      expect(empty.out.split("\n").at(-1)).toBe("Found nothing to detect here; kept the testing profile as it is.")
+      expect(JSON.parse((yield* agent(repo)("profile", "--json")).out).fields).toEqual(before)
+    }).pipe(Effect.scoped))
 })
 
 describe("cello profile (CEL-89)", () => {

@@ -38,6 +38,9 @@ const envelope = {
   sessionId: Schema.NullOr(Id),
   /** The session's subagent that caused it (CEL-55); absent (older events) or null when the session itself did. */
   agentId: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /** The model and effort the agent was on when it caused it (CEL-119); absent (older events) or null when unknown. */
+  model: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  effort: Schema.optionalKey(Schema.NullOr(Schema.String)),
   workspaceId: Id,
   projectId: Schema.NullOr(Id),
   schemaVersion: Schema.Literal(CURRENT_SCHEMA_VERSION),

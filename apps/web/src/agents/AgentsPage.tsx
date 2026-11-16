@@ -4,6 +4,7 @@ import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Task } from "@cello/contract/entities"
 import { stageInfo } from "@cello/contract/stages"
 import { isNeedsInputStatus } from "@cello/shared/ask"
+import { modelName } from "@cello/shared/model"
 import { agoShort, presenceWords } from "@cello/shared/presence"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { FolderIcon } from "lucide-react"
@@ -12,6 +13,7 @@ import { Centered } from "../app/Home.tsx"
 import { CardBody } from "../board/Card.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
+import { Author } from "../presence/Author.tsx"
 import { agentsWorkingCount, workingSessions } from "../presence/model.ts"
 import { AgentMarkOf, presenceSubjectOf, StageWord } from "../presence/Presence.tsx"
 import { useNow } from "../presence/useNow.ts"
@@ -144,12 +146,9 @@ function AgentQueueRow({ board, row, rows, ...state }: QueueRowState & { board: 
       }
       title={
         <>
-          <span className="truncate font-semibold text-ink">{row.kind === "agent" ? row.who.name : row.who.short}</span>
-          {row.kind === "session" ? (
-            <span className="shrink-0 text-muted">{row.role === "orchestrator" ? `orchestrator · ${subagentsLabel(row.subagents)}` : "session"}</span>
-          ) : row.who.parentShort ? (
-            <span className="shrink-0 text-faint">under {row.who.parentShort}</span>
-          ) : null}
+          {/* The main session or a subagent of it, and the model and effort it's on now (CEL-119). */}
+          <Author who={row.who} name={row.kind === "agent" ? row.who.name : undefined} />
+          {row.kind === "session" && row.subagents > 0 ? <span className="shrink-0 text-muted">· {subagentsLabel(row.subagents)}</span> : null}
         </>
       }
       subtitle={
@@ -270,6 +269,15 @@ function Facts({ board, row }: { board: BoardState; row: AgentRow }) {
         <dt className="text-muted">Session</dt>
         <dd className="text-ink">{row.kind === "agent" ? (row.who.parent ?? row.session.clientName) : row.who.name}</dd>
       </div>
+      {row.who.model ? (
+        <div className={fact} data-agent-model>
+          <dt className="text-muted">Model</dt>
+          <dd className="text-ink">
+            {modelName(row.who.model)}
+            {row.who.effort ? <span className="text-muted"> · {row.who.effort} effort</span> : null}
+          </dd>
+        </div>
+      ) : null}
       <div className={fact}>
         <dt className="text-muted">Started</dt>
         <dd className="text-ink">{agoShort(started, now)}</dd>

@@ -143,7 +143,8 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
 
   await caption(page, "The orchestrator, its two subagents under it, each on its task with its stage")
   await expect(orchestratorRow).toContainText("2fd0505c")
-  await expect(orchestratorRow).toContainText("orchestrator · 2 subagents")
+  await expect(orchestratorRow).toContainText("Main session")
+  await expect(orchestratorRow).toContainText("2 subagents")
   await expect(orchestratorRow).toContainText("holds CLO-1, CLO-2")
   // CEL-104: the orchestrator shows its task's state on the right, like any session, not a blank.
   await expect(orchestratorRow.locator("[data-agent-task-state]").first()).toHaveText("Building")
@@ -153,7 +154,7 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   expect(working.slice(1).sort()).toEqual([`agent:${orchestrator}/${BUILDER}`, `agent:${orchestrator}/${REVIEWER}`].sort())
   await expect(builderRow.locator("xpath=..")).toHaveClass(/pl-6/)
   await expect(builderRow).toContainText("cello-builder · a13bfb89")
-  await expect(builderRow).toContainText("under 2fd0505c")
+  await expect(builderRow).toContainText("Subagent of 2fd0505c")
   await expect(builderRow).toContainText("on CLO-1 Agents working: a page of every working agent")
   await expect(builderRow.locator("[data-agent-task-state]")).toHaveText("Building")
   await expect(reviewerRow.locator("[data-agent-task-state]")).toHaveText("Agent review")
@@ -218,13 +219,15 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   const visualRow = page.locator(`[data-agent-row="agent:${orchestrator}/${VISUAL}"]`)
   await expect(visualRow).toHaveAttribute("data-agent-group", "working")
   await expect(visualRow).toContainText("cello-visual-reviewer · c4e2f9a0")
-  await expect(orchestratorRow).toContainText("orchestrator · 3 subagents")
+  await expect(orchestratorRow).toContainText("Main session")
+  await expect(orchestratorRow).toContainText("3 subagents")
 
   await caption(page, "The code reviewer finishes (SubagentStop): its row folds into Finished today (CEL-107)")
   hook("subagent-stop", { session_id: ORCHESTRATOR, agent_id: REVIEWER, agent_type: "cello-code-reviewer", hook_event_name: "SubagentStop" })
   await expect(reviewerRow).toHaveAttribute("data-agent-group", "finished")
   await expect(group(page, "finished").locator(`[data-agent-row="agent:${orchestrator}/${REVIEWER}"]`)).toHaveCount(1)
-  await expect(orchestratorRow).toContainText("orchestrator · 2 subagents")
+  await expect(orchestratorRow).toContainText("Main session")
+  await expect(orchestratorRow).toContainText("2 subagents")
 
   await caption(page, "The orchestrator asks you about CLO-2: it moves up to Waiting on you, its working subagents still under it")
   cli(ORCHESTRATOR)("task", "ask", "CLO-2", "--file", askFile("Which drop zone", "Where can screenshots be dropped?"))
@@ -235,7 +238,7 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   await expect(group(page, "waiting").locator(`[data-agent-row="agent:${orchestrator}/${BUILDER}"]`)).toHaveCount(1)
   await expect(builderRow).toHaveAttribute("data-agent-group", "working")
   await expect(builderRow.locator("xpath=..")).toHaveClass(/pl-6/)
-  await expect(builderRow).toContainText("under 2fd0505c")
+  await expect(builderRow).toContainText("Subagent of 2fd0505c")
   // It waits on CLO-2, not its first task: that's what its row says and its link opens.
   await expect(orchestratorRow.locator("[data-agent-task-state]")).toHaveText("Needs input")
   await orchestratorRow.getByRole("button").first().click()
