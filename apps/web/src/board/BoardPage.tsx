@@ -15,6 +15,7 @@ import { useEffect, useState, type ReactNode } from "react"
 import { Centered } from "../app/Home.tsx"
 import { Button } from "../components/ui/Button.tsx"
 import { Chip } from "../components/ui/Chip.tsx"
+import { toast } from "../components/ui/Toast.tsx"
 import { groupingOf } from "../issues/layout.ts"
 import { ProgressBar, ProgressNumbers } from "../milestones/parts.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
@@ -169,7 +170,10 @@ function Board({
     // Into another milestone's swimlane (CEL-132): the card goes in that milestone, or out of every one
     // in No milestone. A closed milestone takes no tasks, so a drop there snaps back.
     const toMilestone = lane.key === "" || lane.has(task) ? undefined : (lane.milestone?.id ?? null)
-    if (toMilestone !== undefined && lane.milestone?.state === "closed") return
+    if (toMilestone !== undefined && lane.milestone?.state === "closed") {
+      toast.error(`${lane.milestone.name} is closed: reopen it on its page to put tasks in it.`)
+      return
+    }
     if (toMilestone !== undefined) setMilestone({ id: task.id, milestoneId: toMilestone })
     const at = { ...found, to: statusId }
     // A folded Needs input card moved within In Progress stays where it is: only another column moves it.
@@ -359,7 +363,7 @@ function SwimlaneSection({ lane, board, workspaceId, project, count, children }:
   const m = lane.milestone
   const progress = m ? progressOf(board, workspaceId, project.id, m.id) : null
   return (
-    <section data-lane={laneName(lane)} aria-label={`${laneName(lane)} swimlane`} className="flex flex-col gap-2">
+    <section data-lane={laneName(lane)} data-lane-key={lane.key} aria-label={`${laneName(lane)} swimlane`} className="flex flex-col gap-2">
       <header className="sticky left-0 flex h-8 w-fit max-w-[calc(100vw-4rem)] items-center gap-2 px-1 text-[13px]">
         <MilestoneIcon aria-hidden className="size-3.5 shrink-0 text-muted" />
         {m ? (

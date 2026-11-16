@@ -82,7 +82,7 @@ function RowBody({ task, board, keyChars, stageColumn, note }: { task: Task; boa
   return (
     <>
       <span className="flex w-3.5 shrink-0 justify-center">{task.priority > 0 ? <PriorityIcon priority={task.priority} /> : null}</span>
-      <span className="shrink-0 text-xs tabular-nums text-muted" style={{ width: `${keyChars + 1}ch` }}>
+      <span className="shrink-0 text-xs whitespace-nowrap tabular-nums text-muted" style={{ minWidth: `${keyChars + 1}ch` }}>
         {task.key}
       </span>
       {status ? <StatusIcon category={status.category} color={status.color} /> : null}

@@ -3,8 +3,9 @@ import type { ListGroup } from "@cello/client/sync/list"
 import { milestoneGroups, milestoneTasks, progressOf } from "@cello/client/sync/milestones"
 import { boardColumns, placementAtEnd, projectByKey, statusesOf, taskByKey } from "@cello/client/sync/selectors"
 import type { Milestone, Project, Task } from "@cello/contract/entities"
-import { closeSuggested, progressParts, reopenedAfterClose } from "@cello/shared/milestone"
-import { useAtomSet } from "@effect/atom-react"
+import { closeSuggested, mightHaveReopened, progressParts, reopenedAfterClose } from "@cello/shared/milestone"
+import { useAtomSet, useAtomValue } from "@effect/atom-react"
+import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import * as Exit from "effect/Exit"
 import { CalendarIcon, PencilIcon, TriangleAlertIcon } from "lucide-react"
@@ -16,7 +17,7 @@ import { Button } from "../components/ui/Button.tsx"
 import { Chip } from "../components/ui/Chip.tsx"
 import { Input } from "../components/ui/Input.tsx"
 import { Markdown } from "../components/ui/Markdown.tsx"
-import { commands } from "../lib/cello.ts"
+import { commands, historyFamily } from "../lib/cello.ts"
 import { formatDue } from "../lib/format.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { GroupHeading } from "../list/GroupHeading.tsx"
@@ -204,10 +205,20 @@ function NoneHeader({ count }: { count: number }) {
   )
 }
 
-/** "reopened after M3 closed": a task of a closed milestone that moved out of Done after the close. */
+/**
+ * "reopened after M3 closed": a task of a closed milestone that moved out of Done after the close. Only a
+ * task that could have (mightHaveReopened) has its history read, to see that move.
+ */
 function ReopenedNote({ task, board, milestone }: { task: Task; board: BoardState; milestone: Milestone }) {
   const category = board.statuses[task.statusId]?.category ?? ""
-  if (!reopenedAfterClose(task, milestone, category)) return null
+  if (!mightHaveReopened(task, milestone, category)) return null
+  return <ReopenedFromHistory task={task} board={board} milestone={milestone} category={category} />
+}
+
+function ReopenedFromHistory({ task, board, milestone, category }: { task: Task; board: BoardState; milestone: Milestone; category: string }) {
+  const result = useAtomValue(historyFamily(task.id))
+  const history = AsyncResult.isSuccess(result) ? result.value.flatMap((e) => (e.type === "task.moved" ? [{ type: e.type, ts: e.ts, from: e.from, to: e.to }] : [])) : []
+  if (!reopenedAfterClose(milestone, category, history, (id) => board.statuses[id]?.category)) return null
   return (
     <span data-reopened className="flex shrink-0 items-center gap-1 text-xs text-idle">
       <TriangleAlertIcon aria-hidden className="size-3" />

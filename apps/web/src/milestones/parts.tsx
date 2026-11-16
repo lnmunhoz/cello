@@ -7,7 +7,7 @@ import { dueText, localDay, progressParts, progressText, type MilestoneProgress 
 import { isReviewStatus } from "@cello/shared/review"
 import { formatDay, formatDue } from "../lib/format.ts"
 import { agentOn, workingMark, workingSessions } from "../presence/model.ts"
-import { AgentMarkOf } from "../presence/Presence.tsx"
+import { AgentMarkOf, MARK_SIZE } from "../presence/Presence.tsx"
 import { useNow } from "../presence/useNow.ts"
 
 /** The default statuses' colours, for a workspace whose statuses don't say (they always do). */
@@ -27,9 +27,9 @@ const segmentColors = (board: BoardState, workspaceId: string) => {
 }
 
 /**
- * A milestone's bar: Done, In Review, In Progress (Needs input with it) and Todo, then Backlog as a lighter
- * tail, since it isn't committed yet. Todo and Backlog are tints of their colour, so the parts being worked
- * on stand out.
+ * A milestone's bar: Done, In Review, In Progress (Needs input with it) and Todo, then Backlog as a lighter,
+ * striped tail, since it isn't committed yet. Todo is a tint of its colour, so the parts being worked on
+ * stand out; the empty track is the line colour, visible on a card in both themes.
  */
 export function ProgressBar({ progress, board, workspaceId, size = "md" }: {
   progress: MilestoneProgress
@@ -43,7 +43,7 @@ export function ProgressBar({ progress, board, workspaceId, size = "md" }: {
     { key: "in-review", count: progress.inReview, color: colors.inReview },
     { key: "in-progress", count: progress.inProgress, color: colors.inProgress },
     { key: "todo", count: progress.todo, color: `color-mix(in srgb, ${colors.todo} 45%, transparent)` },
-    { key: "backlog", count: progress.backlog, color: `color-mix(in srgb, ${colors.backlog} 22%, transparent)` },
+    { key: "backlog", count: progress.backlog, color: `repeating-linear-gradient(135deg, color-mix(in srgb, ${colors.backlog} 70%, transparent) 0 3px, transparent 3px 6px)` },
   ]
   const words = [progressText(progress), ...progressParts(progress)].join(", ")
   return (
@@ -54,7 +54,7 @@ export function ProgressBar({ progress, board, workspaceId, size = "md" }: {
       data-progress-bar
       data-done={progress.done}
       data-total={progress.total}
-      className={`flex w-full gap-px overflow-hidden rounded-full bg-sunken dark:bg-raised ${size === "sm" ? "h-1" : "h-1.5"}`}
+      className={`flex w-full gap-px overflow-hidden rounded-full bg-line dark:bg-line-strong ${size === "sm" ? "h-1" : "h-1.5"}`}
     >
       {progress.total === 0
         ? null
@@ -65,10 +65,13 @@ export function ProgressBar({ progress, board, workspaceId, size = "md" }: {
   )
 }
 
-/** "6 of 7 done · 86%", tabular so numbers don't jump as cards move. */
+/**
+ * "6 of 7 done · 86%", tabular so numbers don't jump as cards move, right-aligned in a column of its own
+ * width so the bars beside it end at the same place on every row.
+ */
 export function ProgressNumbers({ progress }: { progress: MilestoneProgress }) {
   return (
-    <span className="shrink-0 text-xs tabular-nums text-muted" data-progress-text>
+    <span className="w-34 shrink-0 text-right text-xs whitespace-nowrap tabular-nums text-muted" data-progress-text>
       {progressText(progress)}
     </span>
   )
@@ -111,12 +114,17 @@ export function MilestoneAgents({ board, workspaceId, milestoneId }: { board: Bo
   })
   if (marks.length === 0) return null
   return (
-    <span className="flex shrink-0 items-center gap-0.5" data-milestone-agents={marks.length} title={marks.map((m) => m.who.name).join(", ")}>
-      {marks.map((m) => (
-        <span key={m.key} className="flex size-4 items-center justify-center">
-          <AgentMarkOf board={board} session={m.session} agent={m.agent} who={m.who} look={m.look} size={14} place={`milestone:${milestoneId}`} />
-        </span>
-      ))}
+    <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted" data-milestone-agents={marks.length} title={marks.map((m) => m.who.name).join(", ")}>
+      <span className="flex items-center gap-0.5">
+        {marks.map((m) => (
+          <span key={m.key} className="flex size-5 items-center justify-center">
+            <AgentMarkOf board={board} session={m.session} agent={m.agent} who={m.who} look={m.look} size={MARK_SIZE} place={`milestone:${milestoneId}`} />
+          </span>
+        ))}
+      </span>
+      <span data-milestone-agents-text>
+        {marks.length} {marks.length === 1 ? "agent" : "agents"} working
+      </span>
     </span>
   )
 }

@@ -9,7 +9,7 @@ import * as path from "node:path"
 import type { Browser, Locator, Page } from "@playwright/test"
 import type { Milestone, Project, Status } from "../packages/contract/src/entities.ts"
 import { localDay } from "../packages/shared/src/milestone.ts"
-import { agentAs, caption, card, defaultWorkspace, expect, newCommandId, seedProject, taskPanel, test, uniqueKey } from "./fixtures.ts"
+import { agentAs, caption, card, defaultWorkspace, expect, hold, newCommandId, seedProject, taskPanel, test, uniqueKey } from "./fixtures.ts"
 import type { PromiseClient } from "../packages/client/test/support/promiseClient.ts"
 import { SHOTS, WEB_URL } from "./packets.ts"
 
@@ -39,9 +39,9 @@ interface Seeded {
  * A project with four milestones and tasks in each status; an agent session (its process a child of this
  * test) claims M3's In Progress task and builds, so M3's row shows its mark.
  */
-async function seed(rpc: PromiseClient, baseURL: string, prefix: string): Promise<Seeded> {
+async function seed(rpc: PromiseClient, baseURL: string, prefix: string, name: string): Promise<Seeded> {
   const key = uniqueKey(prefix)
-  const project = await seedProject(rpc, "Milestones page", key)
+  const project = await seedProject(rpc, name, key)
   const { statuses } = await defaultWorkspace(rpc)
   const milestone = async (name: string, goal: string, targetDate: string | null) =>
     (await rpc.run((c) => c["milestone.create"]({ commandId: newCommandId(), projectId: project.id, name, goal, targetDate }))).result
@@ -53,6 +53,7 @@ async function seed(rpc: PromiseClient, baseURL: string, prefix: string): Promis
   }
   const plan: ReadonlyArray<readonly [string, string, Milestone | null]> = [
     ["Kanban board", "Done", m.M1],
+    ["Retire the old board", "Backlog", m.M1],
     ["Review page", "Done", m.M2],
     ["Evidence videos", "Done", m.M2],
     ["Send back notes", "In Review", m.M2],
@@ -116,7 +117,7 @@ async function screenshots(browser: Browser, s: Seeded) {
 
 test("CEL-132: the Milestones tab: bars and numbers, due dates, an agent's mark; a card moving to Done fills the bar; All done: close M2?; drag to reorder; Closed and No milestone", async ({ page, cello: rpc, baseURL, browser }) => {
   test.setTimeout(180_000)
-  const s = await seed(rpc, baseURL!, "MSPG")
+  const s = await seed(rpc, baseURL!, "MSPG", "Milestones tab")
 
   await page.goto(`/${s.key}/issues`)
   await caption(page, "The project's tabs have Milestones next to Issues")
@@ -176,6 +177,20 @@ test("CEL-132: the Milestones tab: bars and numbers, due dates, an agent's mark;
   await page.reload()
   await expect(rowNames(page)).toHaveText(["M3", "M4"])
 
+  await caption(page, "New milestone: a name, a goal and a target date")
+  await page.getByRole("button", { name: "New milestone" }).click()
+  const dialog = page.getByRole("dialog", { name: "New milestone" })
+  await dialog.getByLabel("Name").fill("M5")
+  await dialog.getByLabel("Goal (optional)").fill("Burn-up chart and history")
+  await dialog.getByLabel("Target date (optional)").fill(inDays(30))
+  await dialog.getByRole("button", { name: "Create milestone" }).click()
+  await expect(dialog).toBeHidden()
+  await caption(page, "M5 appears last, with its goal, an empty bar and 30 days left")
+  await expect(rowNames(page)).toHaveText(["M3", "M4", "M5"])
+  await expect(row(page, "M5")).toContainText("Burn-up chart and history")
+  await expect(row(page, "M5").locator("[data-due]")).toHaveText("30 days left")
+  await expect(row(page, "M5").locator("[data-progress-text]")).toHaveText("0 of 0 done")
+
   await caption(page, "Open No milestone: its open tasks, grouped by status")
   await page.locator("[data-no-milestone]").click()
   await expect(page.getByRole("heading", { name: "No milestone", level: 1 })).toBeVisible()
@@ -188,7 +203,7 @@ test("CEL-132: the Milestones tab: bars and numbers, due dates, an agent's mark;
 
 test("CEL-132: a milestone's page: goal, date and bar; its tasks by status; Add a task opens it beside the page, already in M3; Edit; a task reopened after its milestone closed says so", async ({ page, cello: rpc, baseURL }) => {
   test.setTimeout(180_000)
-  const s = await seed(rpc, baseURL!, "MSON")
+  const s = await seed(rpc, baseURL!, "MSON", "One milestone")
 
   await page.goto(`/${s.key}/milestones`)
   await caption(page, "Open M3 from its row")
@@ -211,11 +226,11 @@ test("CEL-132: a milestone's page: goal, date and bar; its tasks by status; Add 
   await caption(page, "Add a task: type its title and press Enter")
   await page.getByRole("textbox", { name: "Add a task" }).fill("Milestone agent marks")
   await page.keyboard.press("Enter")
-  const added = `${s.key}-12`
+  const added = `${s.key}-13`
 
   await caption(page, "It opens beside the page, already in M3; its row is in Todo, and M3 counts it")
   await expect(taskPanel(page, added)).toBeVisible()
-  await expect(page).toHaveURL(new RegExp(`/${s.key}/milestones/${s.m.M3.id}/12`))
+  await expect(page).toHaveURL(new RegExp(`/${s.key}/milestones/${s.m.M3.id}/13`))
   await expect(taskPanel(page, added).getByRole("combobox", { name: "Milestone", exact: true })).toContainText("M3")
   await expect(page.locator('section[data-group="Todo"]').locator(`[data-task-key="${added}"]`)).toBeVisible()
   await expect(header.locator("[data-progress-text]")).toHaveText("1 of 5 done · 20%")
@@ -235,10 +250,29 @@ test("CEL-132: a milestone's page: goal, date and bar; its tasks by status; Add 
   await expect(header).toContainText("See every agent at work")
   await expect(header.locator("[data-due]")).toHaveText("10 days left")
 
-  await caption(page, "M1 is closed. Its Done task moves back to In Progress after the close")
+  await caption(page, "M2's last task reaches Done: its own page asks to close it")
+  await page.goto(`/${s.key}/milestones/${s.m.M2.id}`)
+  await expect(header.locator("[data-progress-text]")).toHaveText("2 of 3 done · 67%")
+  await expect(header.locator("[data-close-suggestion]")).toHaveCount(0)
+  await moveTo(rpc, s, "Send back notes", "Done")
+  await expect(header.locator("[data-progress-text]")).toHaveText("3 of 3 done · 100%")
+  await expect(header.locator("[data-close-suggestion]")).toContainText("All done: close M2?")
+  await caption(page, "Close M2 from the suggestion: the page says Closed")
+  await header.locator("[data-close-suggestion]").getByRole("button", { name: "Close M2" }).click()
+  await expect(header.locator("[data-milestone-state]")).toHaveText(/^Closed/)
+  await expect(header.locator("[data-close-suggestion]")).toHaveCount(0)
+  await expect(header.getByRole("button", { name: "Reopen" })).toBeVisible()
+
+  await caption(page, "M1 is closed. Its Backlog task, never Done, is renamed after the close: no warning")
   await page.goto(`/${s.key}/milestones/${s.m.M1.id}`)
   await expect(header.locator("[data-milestone-state]")).toHaveText(/^Closed/)
   await expect(page.getByRole("textbox", { name: "Add a task" })).toHaveCount(0)
+  const retire = (await rpc.run((c) => c["task.get"]({ key: s.tasks["Retire the old board"]! }))).task
+  await rpc.run((c) => c["task.update"]({ commandId: newCommandId(), id: retire.id, expectedVersion: retire.version, title: "Retire the old board, for good" }))
+  await expect(card(page, retire.key)).toContainText("Retire the old board, for good")
+  await expect(card(page, retire.key).locator("[data-reopened]")).toHaveCount(0)
+
+  await caption(page, "Its Done task moves back to In Progress after the close")
   await moveTo(rpc, s, "Kanban board", "In Progress")
   await expect(card(page, s.tasks["Kanban board"]!).locator("[data-reopened]")).toHaveText("reopened after M1 closed")
   await caption(page, "The row says it reopened after M1 closed; M1 stays closed until Lucas reopens it")
@@ -248,25 +282,36 @@ test("CEL-132: a milestone's page: goal, date and bar; its tasks by status; Add 
   await expect(card(page, s.tasks["Kanban board"]!).locator("[data-reopened]")).toHaveCount(0)
 })
 
-test("CEL-132: the board grouped by milestone: a swimlane each, No milestone last; a card dragged to Done fills its lane's bar; a card dragged into M4's lane goes in M4", async ({ page, cello: rpc, baseURL }) => {
-  test.setTimeout(180_000)
-  const s = await seed(rpc, baseURL!, "MSBD")
+/** Room for every column: the sidebar folded to its rail and the filter panel hidden. */
+async function roomForColumns(page: Page) {
+  await page.getByRole("button", { name: "Collapse sidebar" }).click()
+  await page.getByRole("complementary", { name: "Filters" }).getByRole("button", { name: "Hide filters" }).click()
+}
 
-  await page.goto(`/${s.key}/issues`)
-  await caption(page, "Display → Grouping → Milestone")
+async function groupBy(page: Page, grouping: "Milestone" | "Status") {
   await page.getByRole("button", { name: "Display" }).click()
   await page.getByRole("combobox", { name: "Grouping" }).click()
-  await page.getByRole("option", { name: "Milestone", exact: true }).click()
+  await page.getByRole("option", { name: grouping, exact: true }).click()
   await page.keyboard.press("Escape")
+}
+
+test("CEL-132: the board grouped by milestone: a swimlane each, No milestone last; a card dragged to Done fills its lane's bar; one dragged into M4's lane goes in M4; a closed lane refuses with a toast", async ({ page, cello: rpc, baseURL }) => {
+  test.setTimeout(180_000)
+  const s = await seed(rpc, baseURL!, "MSBD", "Milestone lanes")
+
+  await page.goto(`/${s.key}/issues`)
+  await roomForColumns(page)
+  await caption(page, "Display → Grouping → Milestone")
+  await groupBy(page, "Milestone")
   await expect(page).toHaveURL(/group=milestone/)
 
-  await caption(page, "A swimlane per open milestone in order, closed M1 (it still has a task), then No milestone")
+  await caption(page, "A swimlane per open milestone in order, closed M1 (it still has a task), then No milestone; every column fits")
   await expect(page.locator("section[data-lane]")).toHaveCount(5)
   await expect(page.locator("section[data-lane] > header")).toHaveText([/^M2/, /^M3/, /^M4/, /^M1/, /^No milestone/])
   await expect(lane(page, "M2").locator("[data-progress-text]")).toHaveText("2 of 3 done · 67%")
-  await expect(laneColumn(page, "M2", "In Review").locator(`[data-task-key="${s.tasks["Send back notes"]}"]`)).toBeVisible()
+  await expect(laneColumn(page, "M2", "Done")).toBeInViewport({ ratio: 1 })
 
-  await caption(page, `Drag ${s.tasks["Send back notes"]} to Done in M2's lane: the lane's bar fills`)
+  await caption(page, `Drag ${s.tasks["Send back notes"]} from In Review to Done in M2's lane: the lane's bar fills`)
   await dragTo(page, card(page, s.tasks["Send back notes"]!), laneColumn(page, "M2", "Done").locator('[role="list"]'), "below")
   await expect(laneColumn(page, "M2", "Done").locator(`[data-task-key="${s.tasks["Send back notes"]}"]`)).toBeVisible()
   await expect(lane(page, "M2").locator("[data-progress-text]")).toHaveText("3 of 3 done · 100%")
@@ -281,15 +326,55 @@ test("CEL-132: the board grouped by milestone: a swimlane each, No milestone las
   await expect(lane(page, "M4").locator("[data-progress-text]")).toHaveText("0 of 1 done · 0%")
   await expect(lane(page, "M3").locator("[data-progress-text]")).toHaveText("1 of 3 done · 33%")
 
+  await caption(page, `Drag ${moving} into closed M1's lane: refused, with a toast; it stays in M4`)
+  await lane(page, "M1").evaluate((el) => el.scrollIntoView({ block: "center" }))
+  await dragTo(page, card(page, moving), laneColumn(page, "M1", "Todo").locator('[role="list"]'), "below")
+  await expect(page.getByText("M1 is closed: reopen it on its page to put tasks in it.")).toBeVisible()
+  await expect(laneColumn(page, "M4", "Todo").locator(`[data-task-key="${moving}"]`)).toBeVisible()
+
+  await caption(page, "Scroll to the end: No milestone is the last lane")
+  await page.locator("[data-agent-board]").evaluate((el) => el.scrollTo({ top: el.scrollHeight }))
+  await expect(lane(page, "No milestone")).toBeInViewport({ ratio: 1 })
+  await hold(page)
+  await hold(page)
+
   await caption(page, "Reload: still grouped by milestone, every card where it was dropped")
   await page.reload()
   await expect(page.locator("section[data-lane]")).toHaveCount(5)
   await expect(laneColumn(page, "M4", "Todo").locator(`[data-task-key="${moving}"]`)).toBeVisible()
 
   await caption(page, "Grouping → Status: the board is one row of columns again")
-  await page.getByRole("button", { name: "Display" }).click()
-  await page.getByRole("combobox", { name: "Grouping" }).click()
-  await page.getByRole("option", { name: "Status", exact: true }).click()
-  await page.keyboard.press("Escape")
+  await groupBy(page, "Status")
   await expect(page.locator("section[data-lane]")).toHaveCount(0)
+})
+
+test.describe("in dark mode", () => {
+  test.use({ colorScheme: "dark" })
+
+  test("CEL-132, dark: the Milestones tab, then the board grouped by milestone with a card moved into another lane", async ({ page, cello: rpc, baseURL }) => {
+    test.setTimeout(180_000)
+    const s = await seed(rpc, baseURL!, "MSDK", "Milestones in the dark")
+
+    await page.goto(`/${s.key}/milestones`)
+    await page.getByRole("button", { name: "Collapse sidebar" }).click()
+    await caption(page, "The Milestones tab in dark mode: each bar on a visible track, the counts lined up")
+    await expect(rowNames(page)).toHaveText(["M2", "M3", "M4"])
+    await expect(row(page, "M3").locator("[data-milestone-agents-text]")).toHaveText("1 agent working")
+    await hold(page)
+
+    await caption(page, "The board, grouped by milestone")
+    await page.getByRole("link", { name: "Issues", exact: true }).click()
+    await page.getByRole("complementary", { name: "Filters" }).getByRole("button", { name: "Hide filters" }).click()
+    await groupBy(page, "Milestone")
+    await expect(page.locator("section[data-lane]")).toHaveCount(5)
+
+    const moving = s.tasks["Agents page"]!
+    await caption(page, `Drag ${moving} from M3's Todo into M4's: it goes in M4, and both lanes' bars follow`)
+    await lane(page, "M4").evaluate((el) => el.scrollIntoView({ block: "center" }))
+    await dragTo(page, card(page, moving), laneColumn(page, "M4", "Todo").locator('[role="list"]'), "below")
+    await expect(laneColumn(page, "M4", "Todo").locator(`[data-task-key="${moving}"]`)).toBeVisible()
+    await expect(lane(page, "M4").locator("[data-progress-text]")).toHaveText("0 of 1 done · 0%")
+    await expect(lane(page, "M3").locator("[data-progress-text]")).toHaveText("1 of 3 done · 33%")
+    await hold(page)
+  })
 })

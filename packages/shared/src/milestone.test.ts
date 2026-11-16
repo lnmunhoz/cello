@@ -7,6 +7,7 @@ import {
   findMilestone,
   localDay,
   milestoneLanes,
+  mightHaveReopened,
   milestoneProgress,
   openWithoutMilestone,
   progressText,
@@ -125,16 +126,31 @@ describe("closeSuggested", () => {
 
 describe("reopenedAfterClose", () => {
   const closed = { state: "closed" as const, closedAt: 100 }
-  it("a task of a closed milestone that was changed after the close and isn't Done or Canceled", () => {
-    expect(reopenedAfterClose({ updatedAt: 150 }, closed, "started")).toBe(true)
-    expect(reopenedAfterClose({ updatedAt: 150 }, closed, "unstarted")).toBe(true)
+  const categoryOf = (id: string) => statuses.find((s) => s.id === id)?.category
+  const moved = (ts: number, from: string, to: string) => ({ type: "task.moved", ts, from: { statusId: from }, to: { statusId: to } })
+  const edited = (ts: number) => ({ type: "task.updated", ts })
+
+  it("mightHaveReopened: only a task of a closed milestone, not Done or Canceled now, changed after the close, is worth reading the history of", () => {
+    expect(mightHaveReopened({ updatedAt: 150 }, closed, "started")).toBe(true)
+    expect(mightHaveReopened({ updatedAt: 150 }, closed, "completed")).toBe(false)
+    expect(mightHaveReopened({ updatedAt: 150 }, closed, "canceled")).toBe(false)
+    expect(mightHaveReopened({ updatedAt: 90 }, closed, "started")).toBe(false)
+    expect(mightHaveReopened({ updatedAt: 150 }, { state: "open", closedAt: null }, "started")).toBe(false)
   })
 
-  it("not a Done or Canceled one, not one left as it was at the close, not in an open milestone", () => {
-    expect(reopenedAfterClose({ updatedAt: 150 }, closed, "completed")).toBe(false)
-    expect(reopenedAfterClose({ updatedAt: 150 }, closed, "canceled")).toBe(false)
-    expect(reopenedAfterClose({ updatedAt: 90 }, closed, "started")).toBe(false)
-    expect(reopenedAfterClose({ updatedAt: 150 }, { state: "open", closedAt: null }, "started")).toBe(false)
+  it("a task that moved out of Done after the close, and isn't back in Done", () => {
+    expect(reopenedAfterClose(closed, "started", [moved(50, "doing", "done"), moved(150, "done", "doing")], categoryOf)).toBe(true)
+  })
+
+  it("not a task that was never Done and was only edited (or moved between open statuses) after the close", () => {
+    expect(reopenedAfterClose(closed, "backlog", [edited(150)], categoryOf)).toBe(false)
+    expect(reopenedAfterClose(closed, "doing", [moved(150, "todo", "doing")], categoryOf)).toBe(false)
+  })
+
+  it("not one that left Done before the close, one Done again, or one in an open milestone", () => {
+    expect(reopenedAfterClose(closed, "doing", [moved(80, "done", "doing")], categoryOf)).toBe(false)
+    expect(reopenedAfterClose(closed, "completed", [moved(150, "done", "doing"), moved(160, "doing", "done")], categoryOf)).toBe(false)
+    expect(reopenedAfterClose({ state: "open", closedAt: null }, "started", [moved(150, "done", "doing")], categoryOf)).toBe(false)
   })
 })
 

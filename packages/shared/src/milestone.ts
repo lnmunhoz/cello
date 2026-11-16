@@ -155,17 +155,35 @@ export const dueText = (targetDate: string, today: string): { readonly text: str
 export const closeSuggested = (milestone: { readonly state: string }, progress: MilestoneProgress): boolean =>
   milestone.state === "open" && progress.total > 0 && progress.done === progress.total
 
+type ClosedLike = { readonly state: string; readonly closedAt: number | null }
+
 /**
- * "reopened after M3 closed": a task of a closed milestone that isn't Done or Canceled and was changed
- * after the close, so it most likely moved out of Done since. A closed milestone never reopens by
- * itself: it stays closed, and the task's row says so instead.
+ * Whether a task of a closed milestone could have moved out of Done since the close: it isn't Done or
+ * Canceled now and was changed after the close. Only such a task's history is worth reading
+ * (reopenedAfterClose); for every other task the answer is already no.
+ */
+export const mightHaveReopened = (task: { readonly updatedAt: number }, milestone: ClosedLike, category: string): boolean =>
+  milestone.state === "closed" && milestone.closedAt !== null && category !== "completed" && category !== "canceled" && task.updatedAt > milestone.closedAt
+
+/**
+ * "reopened after M3 closed": a task of a closed milestone whose history has a move out of a Done status
+ * after the close, and that isn't Done or Canceled now. A task that was never Done and was only edited
+ * after the close isn't. A closed milestone never reopens by itself: it stays closed, and the task's row
+ * says so instead.
  */
 export const reopenedAfterClose = (
-  task: { readonly updatedAt: number },
-  milestone: { readonly state: string; readonly closedAt: number | null },
+  milestone: ClosedLike,
   category: string,
-): boolean =>
-  milestone.state === "closed" && milestone.closedAt !== null && category !== "completed" && category !== "canceled" && task.updatedAt > milestone.closedAt
+  history: ReadonlyArray<{ readonly type: string; readonly ts: number; readonly from?: { readonly statusId: string }; readonly to?: { readonly statusId: string } }>,
+  categoryOf: (statusId: string) => string | undefined,
+): boolean => {
+  if (milestone.state !== "closed" || milestone.closedAt === null || category === "completed" || category === "canceled") return false
+  const closedAt = milestone.closedAt
+  return history.some((e) =>
+    e.type === "task.moved" && e.ts > closedAt && e.from !== undefined && e.to !== undefined &&
+    categoryOf(e.from.statusId) === "completed" && categoryOf(e.to.statusId) !== "completed"
+  )
+}
 
 /** The Milestones page's No milestone line: tasks without one that are still open (not Done, Canceled or archived). */
 export const openWithoutMilestone = <T extends TaskLike & { readonly milestoneId?: string | null }>(
