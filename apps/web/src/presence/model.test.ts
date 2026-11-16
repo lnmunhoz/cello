@@ -118,8 +118,8 @@ describe("holderActive (CEL-105)", () => {
 
 describe("stepOf: the step a card, row or panel shows (CEL-105)", () => {
   it("the stage when it has one", () => {
-    const held = task("t", { assigneeActorId: "claude", assigneeSessionId: "8a41c9e2", stage: "designing" })
-    expect(stepOf(board([held], [session("8a41c9e2")]), held, now)?.label).toBe("Designing")
+    const held = task("t", { assigneeActorId: "claude", assigneeSessionId: "8a41c9e2", stage: "planning" })
+    expect(stepOf(board([held], [session("8a41c9e2")]), held, now)?.label).toBe("Planning")
   })
 
   it("Working with no stage while its agent is active, and nothing once the agent is quiet or ended", () => {
