@@ -335,6 +335,13 @@ describe("removeCelloPermission", () => {
     const spaced = { permissions: { allow: ["Bash(cello *)"] } }
     expect(removeCelloPermission(spaced)).toEqual({ changed: false, settings: spaced })
   })
+
+  it("finds nothing to remove in a permissions shape Cello never wrote, instead of refusing (install still refuses it)", () => {
+    for (const odd of [{ permissions: null }, { permissions: "ask" }, { permissions: ["Bash(cello:*)"] }, { permissions: { allow: "Bash(cello:*)" } }]) {
+      expect(removeCelloPermission(odd)).toEqual({ changed: false, settings: odd })
+      expect(() => addCelloPermission(odd)).toThrow("isn't")
+    }
+  })
 })
 
 describe("installCello / uninstallCello", () => {
@@ -357,6 +364,19 @@ describe("installCello / uninstallCello", () => {
       .toEqual({ changed: false, hooks: false, plugin: false, permission: false, off: false, settings: installed.settings })
     expect(uninstallCello(installed.settings, folder)).toEqual({ changed: true, hooks: true, plugin: true, permission: true, off: false, settings: {} })
     expect(uninstallCello(hooksOnly, folder)).toMatchObject({ changed: true, hooks: true, plugin: false, permission: false })
+  })
+
+  it("an unmergeable permissions block doesn't stop uninstall taking out the hooks and the plugin", () => {
+    const installed = installCello({}, { ...everything, permission: false }).settings
+    const odd = { ...installed, permissions: { allow: "Bash(cello:*)" } }
+    expect(uninstallCello(odd, folder)).toEqual({
+      changed: true,
+      hooks: true,
+      plugin: true,
+      permission: false,
+      off: false,
+      settings: { permissions: { allow: "Bash(cello:*)" } },
+    })
   })
 
   it("install, then uninstall, gives back the same bytes, with the user's own rules", () => {
@@ -397,6 +417,14 @@ describe("formatting", () => {
     expect(Object.keys(JSON.parse(installed))).toEqual(["model", "env", "hooks"])
     // No newline at the end before, none after.
     expect(uninstalled).toBe(raw)
+  })
+
+  it("a hand-formatted file comes back reformatted (one item per line), with nothing lost", () => {
+    const raw = "{\n  \"permissions\": { \"allow\": [\"Read\", \"Bash(git status)\"] },\n  \"model\": \"opus\"\n}\n"
+    const { uninstalled } = roundTrip(raw)
+    expect(uninstalled).not.toBe(raw)
+    expect(uninstalled).toBe(`${JSON.stringify(JSON.parse(raw), null, 2)}\n`)
+    expect(JSON.parse(uninstalled)).toEqual(JSON.parse(raw))
   })
 
   it("new files get two spaces and a final newline", () => {

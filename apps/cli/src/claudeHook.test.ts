@@ -225,12 +225,18 @@ describe("hookIdentity and subagentContext", () => {
     expect(hookIdentity(main, { CELLO_AGENT: "stale/x", CLAUDE_PID: "1" })).toEqual({ CLAUDE_PID: "1", CLAUDE_CODE_SESSION_ID: "2fd0505c" })
   })
 
-  it("SubagentStart: tells the subagent its CELLO_AGENT, as context, and that claims stay with the main conversation", () => {
+  it("SubagentStart: tells the subagent its --agent, as context, and that claims stay with the main conversation", () => {
     const out = subagentContext({ id: "a13bfb89", type: "cello-builder" })
     expect(out.hookSpecificOutput.hookEventName).toBe("SubagentStart")
-    expect(out.hookSpecificOutput.additionalContext).toContain("CELLO_AGENT=cello-builder/a13bfb89 cello task comment")
+    expect(out.hookSpecificOutput.additionalContext).toContain("`cello --agent cello-builder/a13bfb89 task comment CEL-1")
     expect(out.hookSpecificOutput.additionalContext).toContain("cello inbox")
-    expect(subagentContext({ id: "a2", type: null }).hookSpecificOutput.additionalContext).toContain("CELLO_AGENT=a2 cello")
+    expect(subagentContext({ id: "a2", type: null }).hookSpecificOutput.additionalContext).toContain("cello --agent a2 ")
+  })
+
+  it("SubagentStart never tells a subagent to put a variable before `cello` (CEL-90): Bash(cello:*) only allows commands that start with cello", () => {
+    const context = subagentContext({ id: "a13bfb89", type: "cello-builder" }).hookSpecificOutput.additionalContext
+    expect(context).not.toContain("CELLO_AGENT=")
+    expect(context).toContain("Keep your commands starting with `cello` (no variables in front)")
   })
 })
 

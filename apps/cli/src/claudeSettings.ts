@@ -6,7 +6,9 @@
 // Cello adds its own matcher group per event and recognises its handlers by their command
 // (`cello hook claude …`), so installing twice changes nothing and uninstalling takes out only Cello's.
 // The same goes for its Claude Code plugin's two entries (CEL-64) and its `Bash(cello:*)` rule (CEL-90), below.
-// The file keeps its key order and indentation, and is replaced atomically: a temp file in the same
+// The file keeps its key order and indentation unit, and nothing in it is lost, but it's written back with
+// JSON.stringify: a list or object someone wrote on one line comes back one item per line, and a file
+// that ends without a newline keeps doing so. It's replaced atomically: a temp file in the same
 // folder, fsynced, then renamed over it, with the old bytes kept in `<file>.bak`. A settings file that
 // is a symlink (dotfiles, chezmoi) stays one; the file it points at is the one replaced.
 import * as fs from "node:fs"
@@ -21,7 +23,7 @@ export const HOOK_TIMEOUT = 10
  * `projectOnly`: they're for Cello projects, so user settings (every project, Cello or not) don't get
  * them. The matcher has only letters and `|`, so Claude Code reads it as a list of exact tool names.
  * The subagent hooks (CEL-55) tell the board when a subagent starts and finishes; SubagentStart also
- * hands it the CELLO_AGENT its `cello` commands need, which is Cello-project talk, so it's project-only.
+ * hands it the --agent its `cello` commands need, which is Cello-project talk, so it's project-only.
  */
 export const CELLO_HOOKS = [
   { event: "Stop", matcher: undefined, command: "cello hook claude stop", projectOnly: false },
@@ -235,11 +237,17 @@ export const addCelloPermission = (settings: unknown): Merged => {
   return { settings: withKey(settings as Json, "permissions", withKey(permissions, "allow", [...allow, CELLO_PERMISSION])), changed: true }
 }
 
-/** Settings without Bash(cello:*), and without the `allow` list and `permissions` object that leaves empty. */
+/**
+ * Settings without Bash(cello:*), and without the `allow` list and `permissions` object that leaves empty.
+ * A `permissions` or `allow` Cello couldn't have written its rule into has nothing of Cello's in it, so
+ * it's left alone rather than refused: that mustn't stop uninstall taking out the hooks and the plugin.
+ */
 export const removeCelloPermission = (settings: unknown): Merged => {
+  const unchanged = { settings: settings as Json, changed: false }
+  if (!isObject(settings) || !isObject(settings.permissions) || !Array.isArray(settings.permissions.allow)) return unchanged
   const { permissions, allow } = allowOf(settings)
   const kept = allow.filter((rule) => rule !== CELLO_PERMISSION)
-  if (kept.length === allow.length) return { settings: settings as Json, changed: false }
+  if (kept.length === allow.length) return unchanged
   const next = withKey(permissions, "allow", kept.length === 0 ? undefined : kept)
   return { settings: withKey(settings as Json, "permissions", Object.keys(next).length === 0 ? undefined : next), changed: true }
 }

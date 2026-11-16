@@ -63,7 +63,7 @@ Steps 3 to 5 in one go: `cello init --hooks --agents-md`.
    <!-- agents-md:end -->
 
    `cello init --agents-md` copies this block, so changing it here changes what the command writes.
-6. **Check.** `cello context` shows the project, its statuses and labels. Tell Lucas the repo is set up: the project key, that the hooks and the plugin are installed (new sessions get `/cello:orchestrate`), and that the AGENTS.md section was added or brought up to date (uncommitted, unless he asks you to commit it).
+6. **Check.** `cello context` shows the project, its statuses and labels. Tell Lucas the repo is set up: the project key, that the hooks and the plugin are installed (new sessions get `/cello:orchestrate`), that `cello` commands are on Claude Code's allow list (`Bash(cello:*)`), and that the AGENTS.md section was added or brought up to date (uncommitted, unless he asks you to commit it).
 
 ### `cello` commands skip Claude Code's permission check
 
@@ -77,7 +77,7 @@ Agents reach the board only through `cello`. Before Claude Code runs a shell com
 }
 ```
 
-`Bash(cello:*)` means "any shell command that starts with `cello`". Install says what it did:
+`Bash(cello:*)` means "any shell command that starts with `cello`", and only those: Claude Code doesn't look past a `VAR=value` in front of a command (unless the variable is on its own short list of safe ones), so `CELLO_AGENT=… cello task comment …` still goes through the check. That's why subagents name themselves with `cello --agent <type>/<id> …` rather than a `CELLO_AGENT=` prefix (see Subagents): keep every `cello` command starting with `cello`. Install says what it did:
 
 ```
 $ cello install claude
@@ -89,8 +89,9 @@ Allowed `cello` commands in /Users/lnmunhoz/projects/app/.claude/settings.local.
 - **Once.** Running install again changes nothing (it says `` `cello` commands are already allowed in … ``). If the file already allows `Bash(cello *)` (the same rule in Claude Code's newer spelling), install leaves it and adds nothing.
 - **Where:** this project's `.claude/settings.local.json` by default, `~/.claude/settings.json` with `--user` (every project, which is where Lucas's own fix went), the committed `.claude/settings.json` with `--shared` (everyone who clones the repo gets it, along with the hooks).
 - **A project set up before this** gets the rule the next time you run `cello install claude` there; nothing else in the file changes.
-- **Uninstalling:** `cello uninstall claude` takes out exactly the `Bash(cello:*)` entry, and the empty `allow` list and `permissions` object it leaves, if any. Cello can't tell that entry from one you added by hand with the same text, so uninstall takes out a hand-added `Bash(cello:*)` too; your `Bash(cello *)` stays.
-- **A `permissions` block Cello can't merge into** (`permissions` isn't an object, or `allow` isn't a list) is never overwritten: install and uninstall refuse with a sentence and change nothing.
+- **Uninstalling:** `cello uninstall claude` takes out exactly the `Bash(cello:*)` entry, and the empty `allow` list and `permissions` object it leaves, if any. Cello can't tell that entry from one you added by hand with the same text, so uninstall takes out a hand-added `Bash(cello:*)` too, and says "If you added the Bash(cello:*) rule yourself, put it back." Your `Bash(cello *)` stays.
+- **A `permissions` block Cello can't merge into** (`permissions` isn't an object, or `allow` isn't a list) is never overwritten. Install refuses with a sentence and changes nothing; uninstall leaves that block as it is (Cello's rule can't be in it) and still takes out the hooks and the plugin.
+- **The file comes back reformatted, with nothing lost.** Cello writes settings back with the file's own indentation and key order, but one item per line: a list or object you wrote on one line (`"allow": ["Read", "Bash(git status)"]`) comes back spread over several. Every key and value stays; the old bytes are in the `.bak`. This goes for the hooks and the plugin too.
 
 ## Concepts
 
@@ -560,15 +561,17 @@ When you run builders and reviewers with Claude Code's Agent tool, they all carr
 
 - **The launch names the task.** When the Agent tool returns, the PostToolUse hook in your conversation tells Cello the subagent's id and type, and the task the launch's **description** (else its prompt) names: of the keys there that are real tasks, the one your session has claimed, else the first. A foreground subagent's launch arrives after it finished; it links the task and leaves the subagent finished. So put the task key first in the description: `"CEL-55 which agent is on each card"`. A launch that names no task leaves the subagent under your session with no task.
 - **Its tool calls check it in.** Every tool call inside the subagent runs the PostToolUse hook, which checks it in as itself, under your session.
-- **SubagentStart hands it its name.** A subagent's shell can't see its own id, so `cello hook claude subagent-start` tells it, as context: "put `CELLO_AGENT=cello-builder/a13bfb89` before every `cello` command you run".
+- **SubagentStart hands it its name.** A subagent's shell can't see its own id, so `cello hook claude subagent-start` tells it, as context: "give every `cello` command you run `--agent cello-builder/a13bfb89`".
 - **SubagentStop marks it finished,** so it leaves "Agents working". A resumed subagent comes back.
 
-**Inside a subagent,** put the `CELLO_AGENT` you were given before each `cello` command, so the board credits it to you rather than to the main conversation:
+**Inside a subagent,** give each `cello` command the `--agent` you were given, right after `cello`, so the board credits it to you rather than to the main conversation:
 
 ```bash
-CELLO_AGENT=cello-code-reviewer/b77d0e11aa22bb33 cello task comment CEL-55 "Review: two findings, see below"
-CELLO_AGENT=cello-code-reviewer/b77d0e11aa22bb33 cello whoami     # "x-cello-agent" and the server's "agent" say who you are
+cello --agent cello-code-reviewer/b77d0e11aa22bb33 task comment CEL-55 "Review: two findings, see below"
+cello --agent cello-code-reviewer/b77d0e11aa22bb33 whoami     # "x-cello-agent" and the server's "agent" say who you are
 ```
+
+**Why a flag and not `CELLO_AGENT=… cello …`:** the `CELLO_AGENT` variable does the same thing and still works, but a command with a variable in front doesn't start with `cello`, so Claude Code's allow rule `Bash(cello:*)` doesn't match it and the command goes through the permission check (see "`cello` commands skip Claude Code's permission check"). Given both, `--agent` wins.
 
 A command without it is credited to the session, as before. So a subagent's comments and changes are credited to it **only where `subagent-start` is installed** (a project's settings: `cello install claude` or `--shared`, not `--user`) **and only when the subagent follows that instruction**: it's context the model reads, not something Cello enforces. Its presence and the task it was launched on don't depend on either: the PostToolUse hook reports them. Nothing else changes: **claims and Lucas's comments stay with the session.** A subagent's claim is the session's claim, the main conversation keeps holding it, and comments are delivered there (never `cello inbox` from a subagent).
 
@@ -891,7 +894,7 @@ cello builds
 | Variable | What it does |
 | --- | --- |
 | `CLAUDE_CODE_SESSION_ID` | Set by Claude Code. Your agent session: your changes are credited to it, your claims belong to it, and Lucas's comments on them come to it. Subagents get their parent's. |
-| `CELLO_AGENT` | Which subagent of the session is calling, as `<type>/<id>` (`cello-builder/a13bfb89`) or just the id. The SubagentStart hook tells each subagent its value; put it before your `cello` commands. Your changes and comments are then credited to that subagent, under the session; claims stay with the session. See Subagents. |
+| `CELLO_AGENT` | Which subagent of the session is calling, as `<type>/<id>` (`cello-builder/a13bfb89`) or just the id. The SubagentStart hook tells each subagent its value. Subagents pass it as `cello --agent <value> …` instead, which does the same and wins over the variable, so the command still starts with `cello` (see Subagents). Your changes and comments are then credited to that subagent, under the session; claims stay with the session. See Subagents. |
 | `CLAUDE_PID` | Set by Claude Code. Lets Cello tell whether your session is still alive, so a dead session's claim can be taken over. |
 | `CELLO_SESSION` | Overrides the session. An agent that isn't Claude Code sets a stable id for its conversation here. `CELLO_SESSION=me` acts as Lucas: only when he asks you to. |
 | `CELLO_PORT` | The server's port, 4747 by default. Dev servers and tests use other ports. |
@@ -1426,7 +1429,7 @@ cello uninstall claude [flags]
 
 ### cello hook claude
 
-Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that holds a claim going once to start `cello inbox --wait` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) or Claude is already continuing because of a Stop hook (stop_hook_active). pre-tool-use turns a Claude artifact publish away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start prints context telling the new subagent to put CELLO_AGENT=<type>/<id> before its cello commands, and subagent-stop marks it finished. Always exits 0.
+Run by the hooks `cello install claude` adds, not by hand: reads Claude Code's hook JSON on stdin. stop and post-tool-use hand new comments for its session back to the agent as context (on Stop it keeps the agent going); every run checks the session in, so the board shows it working; they print nothing when there are none, inside a subagent (which only checks in), or when the server doesn't answer within 2 seconds. With nothing new, stop keeps a session that holds a claim going once to start `cello inbox --wait` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) or Claude is already continuing because of a Stop hook (stop_hook_active). pre-tool-use turns a Claude artifact publish away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); this artifact guard needs no server. For Edit, Write and NotebookEdit on a file inside this repo, pre-tool-use asks the server and denies the edit while the session holds no open task in the repo's project, saying to create or claim one; this claim guard lets the edit through when the server doesn't answer, the repo isn't a Cello project, or CELLO_ALLOW_UNTRACKED=1, and remembers a claim for a minute. Subagents (they share the session): inside one, every run checks that agent in under the session, so the board names it; post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished. Always exits 0.
 
 ```
 cello hook claude [flags] <event>
@@ -1504,4 +1507,5 @@ cello builds [flags]
 | `--wizard` | Start wizard mode for a command |
 | `--completions <bash\|zsh\|fish\|powershell\|sh\|pwsh>` | Print shell completion script (choices: bash, zsh, fish, powershell, sh, pwsh) |
 | `--log-level <all\|trace\|debug\|info\|warn\|warning\|error\|fatal\|none>` | Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none) |
+| `--agent string` | Which subagent of this session is calling, as <type>/<id> (cello-builder/a13bfb89) or just the id: the name the SubagentStart hook gives a subagent. Does what CELLO_AGENT does, and wins over it; a flag keeps the command starting with `cello`, which Claude Code's allow rule Bash(cello:*) needs. |
 <!-- cli-reference:end -->

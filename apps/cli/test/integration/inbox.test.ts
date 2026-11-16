@@ -324,6 +324,8 @@ const allowedIn = (file: string) =>
   `Allowed \`cello\` commands in ${file} ("Bash(cello:*)" in permissions.allow), so Claude Code runs them without a permission check: ` +
   "agents reach the board only through `cello`, and a check that fails can't cut them off it."
 const alreadyAllowedIn = (file: string) => `\`cello\` commands are already allowed in ${file}.`
+/** Uninstall can't tell Cello's Bash(cello:*) from one someone added by hand, so it says so once. */
+const PUT_IT_BACK = "If you added the Bash(cello:*) rule yourself, put it back."
 
 describe("cello install claude", () => {
   it.live("writes the project's .claude/settings.local.json by default, git-ignores it, and does nothing the second time", () =>
@@ -409,6 +411,24 @@ describe("cello install claude", () => {
       expect(fs.readFileSync(file, "utf8")).toBe(broken)
     }).pipe(Effect.scoped))
 
+  it.live("uninstall still takes the hooks and plugin out of a file whose permissions Cello couldn't have written to, and leaves them", () =>
+    Effect.gen(function* () {
+      const { repo, home, run } = yield* installSetup
+      const file = path.join(repo, ".claude", "settings.local.json")
+      yield* run(repo)("install", "claude")
+      // Someone (not Cello) later breaks the permissions block.
+      const settings = JSON.parse(fs.readFileSync(file, "utf8"))
+      fs.writeFileSync(file, `${JSON.stringify({ ...settings, permissions: null }, null, 2)}\n`)
+      expect(yield* run(repo)("uninstall", "claude")).toEqual({
+        out: [
+          `Removed Cello's Claude Code hooks and plugin from ${file}.`,
+          `The plugin's files stay in ${pluginAt(home)}, for other projects that still enable it; delete that folder when none do.`,
+        ].join("\n"),
+        failure: null,
+      })
+      expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ permissions: null })
+    }).pipe(Effect.scoped))
+
   it.live("leaves a .gitignore that already covers the file alone", () =>
     Effect.gen(function* () {
       const { repo, run } = yield* installSetup
@@ -463,6 +483,7 @@ describe("cello install claude", () => {
         out: [
           `Removed Cello's Claude Code plugin from ${local}.`,
           `Removed Cello's Claude Code hooks, plugin and Bash(cello:*) rule from ${file}.`,
+          PUT_IT_BACK,
           `The plugin's files stay in ${pluginAt(home)}, for other projects that still enable it; delete that folder when none do.`,
         ].join("\n"),
         failure: null,
@@ -524,6 +545,7 @@ describe("cello install claude", () => {
           `Removed Cello's Claude Code hooks, plugin and Bash(cello:*) rule from ${local}.`,
           `Removed Cello's Claude Code hooks, plugin and Bash(cello:*) rule from ${shared}.`,
           `Removed Cello's Claude Code hooks, plugin and Bash(cello:*) rule from ${user}.`,
+          PUT_IT_BACK,
           `The plugin's files stay in ${pluginAt(home)}, for other projects that still enable it; delete that folder when none do.`,
         ].join("\n"),
         failure: null,
