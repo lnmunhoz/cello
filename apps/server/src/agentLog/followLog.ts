@@ -1,6 +1,8 @@
 // Following one log file as a stream of updates (CEL-106): what's there first, then each batch of new
-// steps as lines are appended, read when the watcher says the file changed (no timers). Before every
-// read the path is checked again, so a transcript swapped for a symlink later is refused then too.
+// steps as lines are appended, read when the watcher says the file changed, and at a coarse re-check
+// for the changes it never reports (CEL-126, below). Each pass reads up to the file's current size, so
+// how many events arrived doesn't matter. Before every read the path is checked again, so a transcript
+// swapped for a symlink later is refused then too.
 // Reads are bounded (FileTail): a long transcript is read from near its end, a big append in chunks with
 // a yield between them, so one huge file never stalls the server. Nothing is kept once the stream ends:
 // the parser and tail live only as long as someone has the log open.
@@ -8,12 +10,24 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import type { LogStep, LogUpdate } from "@cello/contract/agentLog"
 import { MAX_FIRST_STEPS } from "@cello/contract/agentLog"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
 import { type FileTail, fileTail } from "./FileTail.ts"
 import { redactStep, transcriptParser } from "./transcript.ts"
 import type { Guarded } from "./transcriptPath.ts"
+
+/**
+ * How often the file is looked at although the watcher said nothing (CEL-126). fs.watch can't be
+ * trusted to report every write: on macOS under load, Bun's watcher is armed some time after
+ * `fs.watch` returns, and a write in that gap raises no event (a probe at load ~160 missed 41 of 100
+ * writes made right after the watch started, 3 of 100 made 50 ms after). There's no signal for "armed",
+ * so reading once after setting it up can't close the gap. Without this, the last step stayed unshown
+ * until the agent wrote again; with it, a write the watcher misses shows up within about a second. A quiet re-check is one guard check and one stat, and sends nothing; it
+ * runs only while someone has the log open.
+ */
+export const FOLLOW_RECHECK = Duration.seconds(1)
 
 /** Calls `onChange` when `file` may have changed (written, created, removed); returns how to stop. */
 export type Watch = (file: string, onChange: () => void) => () => void
@@ -139,10 +153,10 @@ export const followLog = (options: FollowOptions): Stream.Stream<LogUpdate> =>
         }
       })
 
-      // The watcher only marks the file as changed: one read loop runs at a time, and changes during it
-      // fold into one more pass.
+      // The watcher and the re-check only mark the file as changed: one read loop runs at a time, and
+      // changes during it fold into one more pass.
       const changed = yield* Queue.sliding<void>(1)
-      // Watching starts before the first read, so nothing written in between is missed.
+      // Watching starts before the first read, though the watcher may not be armed yet (FOLLOW_RECHECK).
       const stop = options.watch(options.file, () => void Queue.offerUnsafe(changed, undefined))
       yield* Effect.addFinalizer(() => Effect.sync(stop))
       yield* catchUp
@@ -152,4 +166,5 @@ export const followLog = (options: FollowOptions): Stream.Stream<LogUpdate> =>
           yield* catchUp
         }
       }))
+      yield* Effect.forkScoped(Effect.forever(Effect.sleep(FOLLOW_RECHECK).pipe(Effect.andThen(Queue.offer(changed, undefined)))))
     }))
