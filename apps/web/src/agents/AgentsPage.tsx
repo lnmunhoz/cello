@@ -180,6 +180,7 @@ function AgentQueueRow({ board, row, rows, ...state }: QueueRowState & { board: 
 /**
  * A task as its board card shows it, a click away from the task. Its work line is hidden: the row above
  * it already names the agent and its presence. (By CSS, so the card itself stays as the board has it.)
+ * Positioned, so the edge of an agent at work on it (CEL-76) sits on this card.
  */
 function TaskCard({ board, task }: { board: BoardState; task: Task }) {
   const project = board.projects[task.projectId]
@@ -189,7 +190,7 @@ function TaskCard({ board, task }: { board: BoardState; task: Task }) {
       to="/$projectKey/$number"
       params={{ projectKey: project.key, number: String(task.number) }}
       data-agents-card={task.key}
-      className="flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-3 py-2.5 text-left shadow-card outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring [&_[data-card-work]]:hidden"
+      className="relative flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-3 py-2.5 text-left shadow-card outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring [&_[data-card-work]]:hidden"
     >
       <CardBody task={task} board={board} />
     </Link>
