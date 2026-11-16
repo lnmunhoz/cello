@@ -125,6 +125,7 @@ const make = Effect.gen(function* () {
           written.push(field)
         }
         if (changes.length > 0) {
+          changes.sort((a, b) => compareFields(a.field, b.field))
           yield* emit({ type: "profile.changed", project: project.id, changes }, { workspaceId: project.workspaceId, projectId: project.id })
         }
         const ordered = (fields: string[]) => fields.sort(compareFields)

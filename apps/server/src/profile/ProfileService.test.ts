@@ -40,7 +40,7 @@ describe("ProfileService", () => {
       expect(agentSet.result.profile.fields.find((f) => f.field === "typecheck")!.sessionId).not.toBeNull()
     })))
 
-  it.effect("every change is one profile.changed event with before and after; unchanged fields aren't in it", () =>
+  it.effect("every change is one profile.changed event with before and after, in display order; unchanged fields aren't in it", () =>
     run(Effect.gen(function* () {
       const { set, events } = yield* setup
       const first = yield* set({ unit: "bun run test", install: "bun install" })
@@ -49,8 +49,8 @@ describe("ProfileService", () => {
       expect(changed).toHaveLength(2)
       expect(changed[0]!.seq).toBe(first.seq)
       expect(changed[1]!.changes.map((c) => [c.field, c.before?.value ?? null, c.after?.value ?? null])).toEqual([
-        ["unit", "bun run test", "bun run test:unit"],
         ["install", "bun install", null],
+        ["unit", "bun run test", "bun run test:unit"],
       ])
       // Nothing to change: no event, no seq.
       expect((yield* set({}, { unset: ["typecheck"] })).seq).toBeNull()
