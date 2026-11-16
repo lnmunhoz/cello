@@ -13,8 +13,9 @@
 // the same change (SessionService.wokeWithin). Lucas's emoji reaction to an agent's comment (CEL-77) reaches
 // the session that wrote it, else the claim holder; the reaction row itself is the item
 // (`comment_reactions.notify_session_id`, `read_at`), so the inbox reads both tables. A change of
-// Lucas's that ends a session's claim (a move, an approval, an edit, a label, archiving, his claim or
-// release) tells that session once, so it stops working on the task (`claim_ended`, CEL-46).
+// Lucas's that ends a session's claim (a move to another status, an edit, a label, archiving, his claim
+// or release) tells that session once, so it stops working on the task (`claim_ended`, CEL-46). His
+// approval ends the claim too but tells no one: the work is done.
 import type { Ask, ClaimEndCause, Comment, DeliveryVia, InboxItem, Reaction } from "@cello/contract/entities"
 import { Caller } from "@cello/contract/rpcs"
 import type { Inbox } from "@cello/contract/views"

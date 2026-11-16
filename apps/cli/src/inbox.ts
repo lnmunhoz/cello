@@ -50,8 +50,6 @@ const claimEnd = (item: InboxClaimEnded): string => {
   switch (item.cause) {
     case "moved":
       return `moved ${task} to ${item.status}`
-    case "approved":
-      return `approved ${task} (it's in ${item.status} now)`
     case "edited":
       return `edited ${task}`
     case "labels":

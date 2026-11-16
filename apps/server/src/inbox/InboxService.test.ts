@@ -665,9 +665,6 @@ describe("InboxService: Lucas ending a claim (CEL-46)", () => {
       yield* tasks.claim({ commandId: cmd(), key: takenOver.key })
       const released = yield* claimedByX("Released")
       yield* tasks.release({ commandId: cmd(), key: released.key })
-      const approved = yield* claimedByX("Approved")
-      yield* agent(reviews.submit({ commandId: cmd(), key: approved.key, summary: "Done", steps: ["Look"], files: [{ path: png }], links: [] }))
-      yield* reviews.approve({ commandId: cmd(), key: approved.key })
 
       expect(said(yield* agent(inbox.unread))).toEqual([
         `${backlog.key} claim ended: moved, Backlog`,
@@ -677,9 +674,34 @@ describe("InboxService: Lucas ending a claim (CEL-46)", () => {
         `${archived.key} claim ended: archived, In Progress`,
         `${takenOver.key} claim ended: claimed, In Progress`,
         `${released.key} claim ended: released, In Progress`,
-        `${approved.key} claim ended: approved, Done`,
       ])
       expect(yield* other(inbox.unread)).toEqual([])
+    })))
+
+  it.effect("approving ends the finished session's claim without a notice; reordering a card within its column keeps the claim", () =>
+    run(Effect.gen(function* () {
+      const ctx = yield* setup
+      const claimedByX = claimer(ctx)
+      const { inbox, tasks, status } = ctx
+      const reviews = yield* ReviewService.ReviewService
+      const png = writePng(yield* tempDataDir, "board.png")
+
+      // Approve: the work is done, so the claim ends quietly.
+      const approved = yield* claimedByX("Approved")
+      yield* agent(reviews.submit({ commandId: cmd(), key: approved.key, summary: "Done", steps: ["Look"], files: [{ path: png }], links: [] }))
+      yield* reviews.approve({ commandId: cmd(), key: approved.key })
+      const done = yield* tasks.byKey(approved.key)
+      expect([done.statusId, done.assigneeSessionId]).toEqual([status["Done"]!.id, null])
+
+      // Lucas dragging X's card to another place in In Progress: still X's, nothing to hear.
+      const first = yield* claimedByX("First in the column")
+      const second = yield* claimedByX("Second in the column")
+      const { result: reordered } = yield* tasks.move({ commandId: cmd(), id: first.id, statusId: status["In Progress"]!.id, before: second.id })
+      expect(reordered.position).not.toBe(first.position)
+      expect(reordered.assigneeSessionId).toBe(first.assigneeSessionId)
+      expect(reordered.assigneeSessionId).not.toBeNull()
+
+      expect(yield* agent(inbox.unread)).toEqual([])
     })))
 
   it.effect("the session's own changes, its subagents', and other agents' tell it nothing", () =>

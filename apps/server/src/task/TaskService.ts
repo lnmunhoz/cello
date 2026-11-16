@@ -82,8 +82,11 @@ interface MoveWithin {
   readonly statusId: string
   readonly keepClaim?: boolean
   readonly keepPacket?: boolean
-  /** What the session whose claim a human's move ends hears he did (CEL-46): `moved` unless given. */
-  readonly cause?: ClaimEndCause
+  /**
+   * `false`: a human's move that ends the claim tells the session nothing (an approval: its work is
+   * done). Otherwise the session hears the move ended its claim (CEL-46).
+   */
+  readonly tell?: boolean
 }
 
 export class TaskService extends Context.Service<TaskService, {
@@ -92,7 +95,9 @@ export class TaskService extends Context.Service<TaskService, {
   /**
    * An agent can't move a task into In Review unless it has an open review (`ReviewRequired`); no one moves
    * one into Needs input (`AskRequired`). Moving a task out of Needs input withdraws its open ask, and
-   * moving it anywhere but In Review or Needs input withdraws its open review packet (CEL-71).
+   * moving it anywhere but In Review or Needs input withdraws its open review packet (CEL-71). A human
+   * move to another status ends an agent's claim and tells its session (CEL-46); reordering within the
+   * column keeps the claim.
    */
   readonly move: (input: MoveTask) => Write<NotFound | Invalid | VersionConflict | ReviewRequired | AskRequired>
   readonly setLabels: (input: SetTaskLabels) => Write<NotFound | Invalid>
@@ -381,7 +386,7 @@ const make = Effect.gen(function* () {
   const moveIn = (
     context: Commands.WriteContext,
     current: Task,
-    to: Neighbors & { readonly statusId: string; readonly keepClaim?: boolean; readonly keepPacket?: boolean; readonly cause?: ClaimEndCause },
+    to: Neighbors & { readonly statusId: string; readonly keepClaim?: boolean; readonly keepPacket?: boolean; readonly tell?: boolean },
   ) =>
     Effect.gen(function* () {
       const workspaceId = yield* workspaceOf(current.projectId)
@@ -414,10 +419,12 @@ const make = Effect.gen(function* () {
           yield* withdrawOpenReview(sql, context, current, { workspaceId, projectId: current.projectId }, to.statusId)
         }
       }
-      // The session whose ask that withdrew hears the claim ended from it, not a second time (CEL-46).
-      const claim = to.keepClaim
+      // Reordering within the column isn't taking the task over: the claim stays. The session whose ask
+      // the move withdrew hears the claim ended from it, not a second time; an approval tells no one
+      // (the work is done) (CEL-46).
+      const claim = to.keepClaim || sameColumn
         ? { columns: {}, after: (_version: number) => Effect.void }
-        : humanEndsClaim(current, workspaceId, context, to.cause ?? "moved", withdrawn?.sessionId !== current.assigneeSessionId)
+        : humanEndsClaim(current, workspaceId, context, "moved", to.tell !== false && withdrawn?.sessionId !== current.assigneeSessionId)
       // A stage says where the task is inside In Progress (CEL-35): leaving the column ends it, except a
       // round trip through Needs input, where asking Lucas pauses the work without changing its step.
       const stage = sameColumn || current.stage === null || (yield* stageCarries(workspaceId, current.statusId, to.statusId))
@@ -484,7 +491,7 @@ const make = Effect.gen(function* () {
         after: top?.id ?? null,
         keepClaim: input.keepClaim ?? false,
         keepPacket: input.keepPacket ?? false,
-        ...(input.cause === undefined ? {} : { cause: input.cause }),
+        ...(input.tell === undefined ? {} : { tell: input.tell }),
       })
     })
 

@@ -455,11 +455,12 @@ export const InboxReaction = Schema.Struct({ ...inboxFields, kind: Schema.Litera
 export type InboxReaction = typeof InboxReaction.Type
 
 /**
- * What Lucas did that ended a session's claim (CEL-46): moved the card (`moved`), approved its packet
- * (`approved`, to Done), edited its fields (`edited`), changed its labels (`labels`), archived it
- * (`archived`), claimed it himself (`claimed`) or released the session's claim (`released`).
+ * What Lucas did that ended a session's claim (CEL-46): moved the card to another status (`moved`),
+ * edited its fields (`edited`), changed its labels (`labels`), archived it (`archived`), claimed it
+ * himself (`claimed`) or released the session's claim (`released`). Approving its packet ends the
+ * claim too, but tells no one: the work is done.
  */
-export const ClaimEndCause = Schema.Literals(["moved", "approved", "edited", "labels", "archived", "claimed", "released"])
+export const ClaimEndCause = Schema.Literals(["moved", "edited", "labels", "archived", "claimed", "released"])
 export type ClaimEndCause = typeof ClaimEndCause.Type
 
 /**

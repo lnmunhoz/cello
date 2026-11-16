@@ -161,7 +161,6 @@ describe("a claim Lucas ended", () => {
     const said = (overrides: Partial<InboxClaimEnded>) => inboxEntries([ended(overrides)], NOW)[2]!.trim()
     expect(said({ status: "Canceled" })).toBe("Lucas moved CEL-40 to Canceled: your claim ended. Stop working on it.")
     expect(said({ status: "Backlog" })).toBe("Lucas moved CEL-40 to Backlog: your claim ended. Stop working on it.")
-    expect(said({ cause: "approved", status: "Done" })).toBe("Lucas approved CEL-40 (it's in Done now): your claim ended. Stop working on it.")
     expect(said({ cause: "edited", status: "In Progress" })).toBe("Lucas edited CEL-40: your claim ended. Stop working on it.")
     expect(said({ cause: "labels", status: "In Progress" })).toBe("Lucas changed the labels of CEL-40: your claim ended. Stop working on it.")
     expect(said({ cause: "archived", status: "In Progress" })).toBe("Lucas archived CEL-40: your claim ended. Stop working on it.")
