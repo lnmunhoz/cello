@@ -337,6 +337,7 @@ test("CEL-69: each card's agent shows what its agent is doing: spinning while it
   await expect(markOf(page, planning)).toHaveAttribute("data-agent-mood", "still")
   await expect(markOf(page, building)).toHaveAttribute("data-agent-mood", "still")
   for (const taskKey of [building, planning, asking]) expect(await playing(markOf(page, taskKey))).toEqual([])
+  await caption(page, "The agent has ended: its marks are grey and still, and the board runs no animation")
 
   // Cleanup (its next call resumes the session, out of the picture now).
   await agent.run((c) => c["ask.withdraw"]({ commandId: newCommandId(), key: asking }))
