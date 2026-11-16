@@ -776,7 +776,7 @@ Comments (2)
 
 ### Which model wrote it
 
-Every comment, history line and Agents page row an agent writes says whether it came from the **main session** (your conversation, which may run subagents) or a **subagent** of it, and the **model and effort** that wrote it: on the board "Claude Code · Main session · Opus 5.5 · high", "cello-builder · Subagent of 2fd0505c · Sonnet 5.5 · medium"; in the CLI "Claude Code session 2fd0505c (Opus 5.5, high)", "cello-builder · a13bfb89 (Sonnet 5.5, medium; under Claude Code session 2fd0505c)".
+Every comment, history line and Agents page row an agent writes says whether it came from the **main session** (your conversation, which may run subagents) or a **subagent** of it, and the **model and effort** that wrote it: on the board "Claude Code · Main session · Opus 5.5 · high · 2fd0505c", "cello-builder · Subagent of 2fd0505c · Sonnet 5.5 · medium"; in the CLI "Claude Code session 2fd0505c (Opus 5.5, high)", "cello-builder · a13bfb89 (Sonnet 5.5, medium; under Claude Code session 2fd0505c)".
 
 - **Nothing to report.** Claude Code writes the model and effort of each reply to its transcript. As each `cello` command reaches the server, it reads the end of *your* transcript, the one the hooks reported (the session's, or with `--agent` the subagent's own), and takes the newest reply's. So a subagent is credited with its own model, not its parent's, as long as it gives `--agent`.
 - **Kept with what you wrote.** A comment and a history line keep the model they were written with. After `/model`, your next comments show the new one; older ones keep theirs.

@@ -5,6 +5,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import type { StageInfo } from "@cello/contract/stages"
+import { modelName } from "@cello/shared/model"
 import { agoShort, type Presence, presenceOf, presenceWords, type SessionLike } from "@cello/shared/presence"
 import { ActivityIcon, BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, ListChecksIcon, type LucideIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
 import { type ReactNode, useEffect, useState } from "react"
@@ -137,6 +138,9 @@ const live = (board: BoardState, holder: Holder | null): LiveHolder | null => {
 /** "Under Claude Code session 2fd0505c": a subagent's parent, for its hover. */
 const parentTitle = (who: Who) => (who.parent ? `${who.name}, under ${who.parent}` : undefined)
 
+/** "Claude Code session 2fd0505c (Opus 5.5)": a name with the model it's on now, when known (CEL-119). */
+const withModel = (who: Who) => (who.model ? `${who.name} (${modelName(who.model)})` : who.name)
+
 /** Which holder it is: the subagent, else the session. */
 const liveId = (h: LiveHolder | null) => (h === null ? null : h.holder.agent ? `agent:${h.holder.agent.agentId}` : `session:${h.holder.session?.id}`)
 
@@ -242,7 +246,9 @@ function HolderWords({
     >
       {boxed ? <span className="flex size-4 shrink-0 items-center justify-center">{mark}</span> : mark}
       <span className="truncate">
-        <span className="font-medium">{full ? holder.who.name : holder.who.short}</span> {presenceWords(subject, now)}
+        <span className="font-medium">{full ? holder.who.name : holder.who.short}</span>
+        {/* The model it's on now, after its name (CEL-119). */}
+        {holder.who.model ? <span className="text-faint" data-holder-model> ({modelName(holder.who.model)})</span> : null} {presenceWords(subject, now)}
         {full && holder.who.parentShort ? <span className="text-faint"> · under {holder.who.parentShort}</span> : null}
       </span>
     </span>
@@ -444,8 +450,8 @@ const workingTitle = (sessions: ReadonlyArray<Working>, now: number) =>
     ? "No agent is working on a task"
     : sessions
       .flatMap((s) => [
-        `${s.who.name}: ${presenceWords(s.session, now)}${s.tasks.length ? ` (${keysOf(s.tasks)})` : ""}`,
-        ...s.agents.map((a) => `  ${a.who.name}: ${presenceWords(a.agent, now)}${a.task ? ` (${a.task.key})` : ""}`),
+        `${withModel(s.who)}: ${presenceWords(s.session, now)}${s.tasks.length ? ` (${keysOf(s.tasks)})` : ""}`,
+        ...s.agents.map((a) => `  ${withModel(a.who)}: ${presenceWords(a.agent, now)}${a.task ? ` (${a.task.key})` : ""}`),
       ])
       .join("\n")
 

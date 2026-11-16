@@ -8,6 +8,7 @@ import { type AgentSession, agentKey, type SessionAgent, type Task } from "@cell
 import { type StageInfo, stageInfo } from "@cello/contract/stages"
 import { isNeedsInputStatus } from "@cello/shared/ask"
 import { colorFromSeed } from "@cello/shared/color"
+import { modelName } from "@cello/shared/model"
 import { agoShort, type Presence, presenceOf } from "@cello/shared/presence"
 import { isReviewStatus, stageStatus } from "@cello/shared/review"
 import type { AgentMood } from "../components/ui/AgentMark.tsx"
@@ -25,6 +26,25 @@ export interface Who {
   readonly parent?: string
   /** The same, short ("2fd0505c"): what a line has room for after the agent's name. */
   readonly parentShort?: string
+  /**
+   * CEL-119: "main" for an agent session itself (the thread Lucas talks to), "subagent" for one it
+   * started; absent for the human, and for an agent whose session the board doesn't have.
+   */
+  readonly role?: "main" | "subagent"
+  /** What an author line leads with: the client for a session ("Claude Code"), the type for a subagent ("cello-builder"). */
+  readonly label?: string
+  /**
+   * The model and effort as Claude Code names them ("claude-opus-5-5", "high"): what wrote a comment or
+   * an event (whoOf), or what a session or subagent is on now (sessionWho, agentWho). Null when unknown.
+   */
+  readonly model?: string | null
+  readonly effort?: string | null
+}
+
+/** What a comment or an event was written with (CEL-119); its keys are absent on ones stored before. */
+export interface WrittenWith {
+  readonly model?: string | null | undefined
+  readonly effort?: string | null | undefined
 }
 
 /**
@@ -56,18 +76,26 @@ const shortId = (s: AgentSession) => (s.externalId ?? s.id).slice(0, 8)
 /** A session's colour: the same on every screen and after a reload. */
 export const sessionColor = (s: AgentSession): string => colorFromSeed(s.externalId ?? s.id)
 
+/** "Claude Code session 2fd0505c", the main session, on the model it's on now. */
 export const sessionWho = (s: AgentSession): Who => ({
   kind: "agent",
   name: `${s.clientName} session ${shortId(s)}`,
   short: shortId(s),
   color: sessionColor(s),
+  role: "main",
+  label: s.clientName,
+  model: s.model ?? null,
+  effort: s.effort ?? null,
 })
 
 /** A subagent's colour: its own, so two builders of one session tell apart. */
 export const agentColor = (a: Pick<SessionAgent, "agentId">): string => colorFromSeed(a.agentId)
 
-/** "cello-builder · a13bfb89", under its session. */
-export const agentWho = (a: Pick<SessionAgent, "agentId" | "agentType">, session: AgentSession | undefined): Who => {
+/** "cello-builder · a13bfb89", under its session, on the model it's on now. */
+export const agentWho = (
+  a: Pick<SessionAgent, "agentId" | "agentType"> & Partial<Pick<SessionAgent, "model" | "effort">>,
+  session: AgentSession | undefined,
+): Who => {
   const name = `${a.agentType ?? "agent"} · ${a.agentId.slice(0, 8)}`
   return {
     kind: "agent",
@@ -75,6 +103,10 @@ export const agentWho = (a: Pick<SessionAgent, "agentId" | "agentType">, session
     short: name,
     color: agentColor(a),
     ...(session ? { parent: sessionWho(session).name, parentShort: sessionWho(session).short } : {}),
+    role: "subagent",
+    label: a.agentType ?? "agent",
+    model: a.model ?? null,
+    effort: a.effort ?? null,
   }
 }
 
@@ -82,18 +114,62 @@ export { agentPresence, agentPresenceSubject }
 
 /**
  * The subagent when there is one (known to the board, or not yet: "agent · ffee0011"), else the session
- * when the board has it, else the actor ("Claude Code" for an agent, "Lucas" for the human).
+ * when the board has it, else the actor ("Claude Code" for an agent, "Lucas" for the human). Its model is
+ * what `written` says (a comment's or an event's, CEL-119), never the agent's current one: a comment keeps
+ * the model it was written with, and something that doesn't say (a task's creator) shows none.
  */
-export const whoOf = (board: BoardState, actorId: string, sessionId: string | null, agentId?: string | null): Who => {
+export const whoOf = (board: BoardState, actorId: string, sessionId: string | null, agentId?: string | null, written?: WrittenWith): Who => {
   const session = sessionId === null ? undefined : board.sessions[sessionId]
+  const model = { model: written?.model ?? null, effort: written?.effort ?? null }
   if (sessionId !== null && agentId) {
-    return agentWho(board.agents[agentKey(sessionId, agentId)] ?? { agentId, agentType: null }, session)
+    return { ...agentWho(board.agents[agentKey(sessionId, agentId)] ?? { agentId, agentType: null }, session), ...model }
   }
-  if (session) return sessionWho(session)
+  if (session) return { ...sessionWho(session), ...model }
   const actor = board.actors[actorId]
   const name = actor?.name ?? "Someone"
   const kind = actor?.kind ?? "human"
   return { kind, name, short: kind === "human" ? (name.split(" ")[0] ?? name) : name, color: actor?.color ?? "var(--faint)" }
+}
+
+/** One piece of an author line (CEL-119): the name, the role, the session, the model, the effort. */
+export interface AuthorPart {
+  readonly kind: "name" | "role" | "session" | "model" | "effort"
+  readonly text: string
+  /** The full name, for the hover. */
+  readonly title?: string
+}
+
+/**
+ * An author line, as the comments, the presence line and the Agents page show it (CEL-119):
+ * "Claude Code · Main session · Opus 5.5 · high · 2fd0505c", "cello-builder · Subagent of 2fd0505c ·
+ * Sonnet 5.5 · medium". No model, no model part: only the role. The human: the name alone.
+ */
+export const authorParts = (who: Who): ReadonlyArray<AuthorPart> => {
+  const model: AuthorPart[] = who.model
+    ? [{ kind: "model", text: modelName(who.model) }, ...(who.effort ? [{ kind: "effort" as const, text: who.effort }] : [])]
+    : []
+  if (who.role === "main") {
+    return [{ kind: "name", text: who.label ?? who.name }, { kind: "role", text: "Main session" }, ...model, { kind: "session", text: who.short, title: who.name }]
+  }
+  if (who.role === "subagent") {
+    return [
+      { kind: "name", text: who.label ?? who.name, title: who.name },
+      ...(who.parentShort ? [{ kind: "role" as const, text: "Subagent of " }, { kind: "session" as const, text: who.parentShort, title: who.parent ?? who.parentShort }] : [{ kind: "role" as const, text: "Subagent" }]),
+      ...model,
+    ]
+  }
+  return [{ kind: "name", text: who.name }]
+}
+
+/**
+ * An author in one line of text, for the history and hovers (CEL-119): "Claude Code (Opus 5.5), main
+ * session 2fd0505c", "cello-builder (Sonnet 5.5), subagent of 2fd0505c"; the human by name.
+ */
+export const whoText = (who: Who): string => {
+  const model = who.model ? ` (${modelName(who.model)})` : ""
+  if (who.role === "main") return `${who.label ?? who.name}${model}, main session ${who.short}`
+  if (who.role === "subagent") return `${who.label ?? who.name}${model}, ${who.parentShort ? `subagent of ${who.parentShort}` : "subagent"}`
+  return who.name
 }
 
 /** The subagent working on a task right now: the freshest active one on it, of any session. */

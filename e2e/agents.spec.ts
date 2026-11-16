@@ -100,8 +100,8 @@ test("CEL-55: two subagents of one session on two cards: each card names its age
   await caption(page, "The panel: the subagent working on it with its session, the comment and the history name it")
   await expect(panel.locator("[data-working-on-it]")).toContainText("cello-builder · a13bfb89 active now · under 7d3a9e51")
   await expect(panel.locator("[data-last-changed]")).toContainText("cello-builder · a13bfb89 · under 7d3a9e51")
-  await expect(panel.locator("[data-comment-author]")).toContainText("cello-builder · a13bfb89 · under 7d3a9e51")
-  await expect(panel.locator('section[aria-labelledby="history-heading"]')).toContainText("cello-builder · a13bfb89 set the stage to Building")
+  await expect(panel.locator("[data-comment-author]")).toHaveText("cello-builder · Subagent of 7d3a9e51")
+  await expect(panel.locator('section[aria-labelledby="history-heading"]')).toContainText("cello-builder, subagent of 7d3a9e51 set the stage to Building")
   // Working on it and the top bar show the card's mark too, in the builder's colour and mood.
   for (const where of ["[data-working-on-it]", "[data-panel-work]"]) {
     await expect(panel.locator(`${where} .agent-mark`)).toHaveAttribute("data-agent-mood", "working")

@@ -6,13 +6,20 @@ import { historyFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
 import { describeEvent } from "@cello/client/history"
 import type { CelloEvent } from "@cello/contract/events"
-import { sessionWho, whoOf } from "../presence/model.ts"
+import { sessionWho, whoOf, whoText } from "../presence/model.ts"
 
-/** "cello-builder · a13bfb89, under Claude Code session 2fd0505c". */
+/** "cello-builder · a13bfb89, under Claude Code session 2fd0505c": for the hover. */
 const named = (board: BoardState, e: CelloEvent) => {
   const who = whoOf(board, e.actorId, e.sessionId, e.agentId)
   return who.parent ? `${who.name}, under ${who.parent}` : who.name
 }
+
+/**
+ * Who did it, in the line (CEL-119): "cello-builder (Sonnet 5.5), subagent of 2fd0505c", "Claude Code
+ * (Opus 5.5), main session 2fd0505c", with the model the change was made with; the human by the actor's name.
+ */
+const doer = (board: BoardState, e: CelloEvent) =>
+  e.sessionId === null ? undefined : whoText(whoOf(board, e.actorId, e.sessionId, e.agentId, e))
 
 /** A plain list of what happened to the task, from task.history. */
 export function History({ board, task }: { board: BoardState; task: Task }) {
@@ -29,9 +36,9 @@ export function History({ board, task }: { board: BoardState; task: Task }) {
         {events.map((e) => (
           <li key={e.seq} className="flex items-baseline gap-2 text-xs text-muted">
             <i aria-hidden className="size-1.5 shrink-0 translate-y-[-1px] rounded-full bg-line-strong" />
-            {/* A subagent's change names it (CEL-55); its session is in the hover. A wake names the session (CEL-92). */}
-            <span title={e.agentId ? named(board, e) : undefined}>
-              {describeEvent(e, names, e.agentId || e.type.startsWith("session.") ? whoOf(board, e.actorId, e.sessionId, e.agentId).name : undefined)}
+            {/* An agent's change names it as the main session or a subagent, with its model (CEL-55, CEL-119); the hover has its full name. */}
+            <span title={e.agentId ? named(board, e) : undefined} data-history-event={e.type}>
+              {describeEvent(e, names, doer(board, e))}
             </span>
             <span className="text-faint">· {relativeTime(e.ts)}</span>
           </li>
