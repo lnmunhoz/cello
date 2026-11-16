@@ -20,6 +20,7 @@ import { AgentService } from "../session/AgentService.ts"
 import * as SnapshotService from "../snapshot/SnapshotService.ts"
 import * as StatusService from "../status/StatusService.ts"
 import * as TaskService from "../task/TaskService.ts"
+import { WakeService } from "../wake/WakeService.ts"
 import * as WorkspaceService from "../workspace/WorkspaceService.ts"
 
 export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
@@ -42,6 +43,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
   const builds = yield* BuildHistory.BuildHistory
   const search = yield* SearchService.SearchService
   const agents = yield* AgentService
+  const wake = yield* WakeService
 
   return CelloRpcs.of({
     "snapshot.get": ({ scope }) => snapshots.get(scope),
@@ -95,6 +97,12 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "server.build": () => build.get(),
     "builds.list": (page) => builds.list(page),
     "search.query": (input) => search.query(input),
+    "wake.settings": ({ project }) => wake.settings(project),
+    "wake.setSettings": (input) => wake.setSettings(input),
+    "session.wake": (input) => wake.wakeNow(input),
+    "session.cancelWake": (input) => wake.cancel(input),
+    "session.stopRun": (input) => wake.stopRun(input),
+    "session.runs": ({ session }) => wake.runs(session),
     "comment.list": ({ taskId }) => comments.list(taskId),
     "comment.add": (input) => comments.add(input),
     "comment.edit": (input) => comments.edit(input),

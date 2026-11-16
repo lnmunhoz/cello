@@ -68,6 +68,97 @@ export const SessionAgent = Schema.Struct({
 })
 export type SessionAgent = typeof SessionAgent.Type
 
+// ── Waking sessions (CEL-92) ────────────────────────────────────────────────────────────────────
+// When Lucas acts on a task an agent session claimed and nothing of that session is running, Cello
+// continues the same conversation itself, headless: a woken run.
+
+/** What started a wake: one of Lucas's actions on the task, or `cello sessions wake` (`manual`). */
+export const WakeWhy = Schema.Literals(["comment", "answers", "send_back", "reaction", "manual"])
+export type WakeWhy = typeof WakeWhy.Type
+
+/**
+ * Why Cello didn't wake a session. `taken`: it took the comment itself before the wake was due;
+ * `cancelled`: Lucas pressed "Don't wake". The rest are the checks (WakeService has them in order).
+ */
+export const NotWokenReason = Schema.Literals([
+  "listening",
+  "process_alive",
+  "recent_check_in",
+  "no_pid",
+  "disabled",
+  "cap",
+  "bypass_mode",
+  "no_conversation",
+  "no_folder",
+  "not_installed",
+  "running",
+  "taken",
+  "cancelled",
+])
+export type NotWokenReason = typeof NotWokenReason.Type
+
+/** Cello's own permission modes, which each agent CLI maps to its own (`bypass` is never used for a woken run). */
+export const CelloMode = Schema.Literals(["ask", "edits", "auto", "plan", "bypass"])
+export type CelloMode = typeof CelloMode.Type
+
+/** How a woken run ended: its turn finished, it failed (or couldn't start), or it was stopped (Stop, or the server stopping). */
+export const RunOutcome = Schema.Literals(["running", "completed", "failed", "stopped"])
+export type RunOutcome = typeof RunOutcome.Type
+
+/** One woken run of an agent session: what started it, the mode it ran in, and its log. */
+export const SessionRun = Schema.Struct({
+  id: Id,
+  sessionId: Id,
+  /** The task whose action woke it (the latest, when several were batched); null for none. */
+  taskId: Schema.NullOr(Id),
+  why: WakeWhy,
+  /** Which adapter ran it (`claude-code`). */
+  agentKind: Schema.String,
+  /** The CLI's own permission mode it ran with (`auto`, `acceptEdits`…), and that mode in Cello's words. */
+  mode: Schema.String,
+  celloMode: CelloMode,
+  pid: Schema.NullOr(Schema.Number),
+  startedAt: Millis,
+  endedAt: Schema.NullOr(Millis),
+  exitCode: Schema.NullOr(Schema.Number),
+  outcome: RunOutcome,
+  /** What went wrong, when it failed or couldn't start: one line. */
+  error: Schema.NullOr(Schema.String),
+})
+export type SessionRun = typeof SessionRun.Type
+
+/**
+ * Where a task's wake stands, for its card: due (`scheduled`, at `at`), not done and why (`not_woken`),
+ * or a run going or ended. Only the latest wake of a task counts.
+ */
+export const TaskWake = Schema.Struct({
+  taskId: Id,
+  sessionId: Id,
+  state: Schema.Literals(["scheduled", "not_woken", "running", "ended"]),
+  why: WakeWhy,
+  /** When it happened (the event's time). */
+  ts: Millis,
+  /** scheduled: when the wake is due. */
+  at: Schema.NullOr(Millis),
+  /** not_woken: why. */
+  reason: Schema.NullOr(NotWokenReason),
+  /** running and ended: the run. */
+  run: Schema.NullOr(SessionRun),
+})
+export type TaskWake = typeof TaskWake.Type
+
+/** A project's wake settings (CEL-92): off until Lucas turns it on; at most `capPerHour` wakes per task per hour. */
+export const WakeSettings = Schema.Struct({
+  projectId: Id,
+  enabled: Schema.Boolean,
+  capPerHour: Schema.Number,
+  /** Woken runs bill ANTHROPIC_API_KEY when it's in the server's environment, not the subscription. */
+  apiKeySet: Schema.Boolean,
+  /** The agent CLIs Cello can wake sessions of, and whether each is installed here. */
+  agents: Schema.Array(Schema.Struct({ kind: Schema.String, name: Schema.String, installed: Schema.Boolean })),
+})
+export type WakeSettings = typeof WakeSettings.Type
+
 /** One agent's key in maps and lookups: its session and its id. */
 export const agentKey = (sessionId: string, agentId: string): string => `${sessionId}/${agentId}`
 
@@ -601,5 +692,10 @@ export const Snapshot = Schema.Struct({
   asks: Schema.Array(Ask),
   /** Documents of the projects in scope, archived ones included, without their bodies. */
   documents: Schema.Array(DocumentSummary),
+  /**
+   * The latest wake of each task in scope that has one (CEL-92), for the Working on it row; the
+   * `session.*` wake events keep them current. The server always sends it; left out means none.
+   */
+  wakes: Schema.optionalKey(Schema.Array(TaskWake)),
 })
 export type Snapshot = typeof Snapshot.Type

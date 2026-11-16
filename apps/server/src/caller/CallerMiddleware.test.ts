@@ -101,6 +101,8 @@ describe("CallerMiddleware", () => {
       entrypoint: "cli",
     })
     expect(CallerLayer.identityFromHeaders(Headers.fromInput({ [IDENTITY_HEADERS.pid]: "abc" }))).toEqual({})
+    // The hooks send the session's permission mode (CEL-92).
+    expect(CallerLayer.identityFromHeaders(Headers.fromInput({ [IDENTITY_HEADERS.permissionMode]: "auto" }))).toEqual({ permissionMode: "auto" })
   })
 
   it.effect("a subagent's headers (CEL-55) resolve to its session, with the agent named on the caller", () =>

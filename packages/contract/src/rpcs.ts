@@ -24,10 +24,12 @@ import {
   Review,
   Scope,
   SessionAgent,
+  SessionRun,
   Snapshot,
   Status,
   Task,
   TestingProfile,
+  WakeSettings,
   Workspace,
 } from "./entities.ts"
 import {
@@ -38,6 +40,7 @@ import {
   NotFound,
   ProfileFieldLocked,
   ReviewRequired,
+  SessionNotWoken,
   SnapshotRequired,
   TaskClaimed,
   VersionConflict,
@@ -75,6 +78,8 @@ export const IDENTITY_HEADERS = {
   /** The session's subagent making the call (CEL-55): its host id, and what it was launched as. */
   agent: "x-cello-agent",
   agentType: "x-cello-agent-type",
+  /** The session's permission mode as its host reports it (Claude Code's hooks get `permission_mode`, CEL-92). */
+  permissionMode: "x-cello-permission-mode",
 } as const
 
 /** The `x-cello-session` value that records the human, whatever agent variables are set. */
@@ -490,6 +495,32 @@ export const CelloRpcs = RpcGroup.make(
       limit: Schema.optionalKey(Schema.Number),
     },
     success: SearchResults,
+    error: Schema.Union([NotFound, Invalid]),
+  }),
+
+  // Waking sessions (CEL-92). A project's settings: waking on or off (off by default) and the cap of
+  // wakes per task per hour; only the human changes them.
+  Rpc.make("wake.settings", { payload: { project: ProjectRef }, success: WakeSettings, error: Schema.Union([NotFound, Invalid]) }),
+  Rpc.make("wake.setSettings", {
+    payload: { commandId, project: ProjectRef, enabled: Schema.optionalKey(Schema.Boolean), capPerHour: Schema.optionalKey(Schema.Number) },
+    success: write(WakeSettings),
+    error: Schema.Union([NotFound, Invalid, HumanOnly]),
+  }),
+  // `cello sessions wake <session|KEY-n>`: wakes the session now (for a key, the task's claim holder) with
+  // the same checks as a wake one of Lucas's actions starts, minus the 30 s wait. SessionNotWoken says why not.
+  Rpc.make("session.wake", {
+    payload: { commandId, session: Schema.optionalKey(Schema.String), key: Schema.optionalKey(Schema.String) },
+    success: write(SessionRun),
+    error: Schema.Union([NotFound, Invalid, SessionNotWoken]),
+  }),
+  // Lucas's "Don't wake" on a wake that's due: it's called off (`session.not_woken`, cancelled). False when none was due.
+  Rpc.make("session.cancelWake", { payload: { commandId, taskId: Id }, success: write(Schema.Boolean), error: NotFound }),
+  // The card's Stop: ends a woken run (SIGTERM to its process group). False when it had already ended.
+  Rpc.make("session.stopRun", { payload: { commandId, runId: Id }, success: write(Schema.Boolean), error: NotFound }),
+  // A session's woken runs, newest first, each with its log file (`cello sessions runs`).
+  Rpc.make("session.runs", {
+    payload: { session: Schema.String },
+    success: Schema.Struct({ session: Schema.String, runs: Schema.Array(Schema.Struct({ run: SessionRun, log: Schema.String })) }),
     error: Schema.Union([NotFound, Invalid]),
   }),
 

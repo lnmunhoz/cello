@@ -54,6 +54,22 @@ describe("SessionService.resolve", () => {
       expect(two.sessionId).not.toBe(one.sessionId)
     })))
 
+  it.effect("keeps the permission mode its hooks last reported (CEL-92), and Claude Code sessions are of kind claude-code", () =>
+    run(Effect.gen(function* () {
+      const sessions = yield* SessionService
+      yield* sessions.resolve(claude)
+      yield* sessions.resolve({ ...claude, permissionMode: "auto" })
+      // A plain `cello` call (no hook) says nothing about the mode: the last one stays.
+      yield* sessions.resolve(claude)
+      yield* sessions.resolve({ ...claude, session: "codex-1", client: "Agent", permissionMode: "acceptEdits" })
+      const stored = yield* rows((sql) => sql<{ external_id: string; permission_mode: string | null; agent_kind: string | null }>`
+        SELECT external_id, permission_mode, agent_kind FROM agent_sessions ORDER BY external_id`)
+      expect(stored).toEqual([
+        { external_id: "2fd0505c-417a", permission_mode: "auto", agent_kind: "claude-code" },
+        { external_id: "codex-1", permission_mode: "acceptEdits", agent_kind: null },
+      ])
+    })))
+
   it.effect("session \"me\" and no session at all both resolve to the human", () =>
     run(Effect.gen(function* () {
       const sessions = yield* SessionService

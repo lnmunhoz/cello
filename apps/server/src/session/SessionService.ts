@@ -29,7 +29,12 @@ export interface Identity {
   /** The session's subagent making the call (CEL-55): its host id, and what it was launched as. */
   readonly agent?: string | undefined
   readonly agentType?: string | undefined
+  /** The session's permission mode as its host reports it (Claude Code's hooks, CEL-92); kept until it reports another. */
+  readonly permissionMode?: string | undefined
 }
+
+/** Which agent CLI a client is (CEL-92), so the session host knows which adapter can continue its sessions. */
+export const AGENT_KINDS: Readonly<Record<string, string>> = { "Claude Code": "claude-code" }
 
 /** Longest agent id, type or description kept: hosts use short ids; anything longer is cut, never refused. */
 export const MAX_AGENT_TEXT = 200
@@ -172,6 +177,8 @@ const make = Effect.gen(function* () {
     if (!external || external === HUMAN_SESSION) return { actorId: human.id, sessionId: null }
     const client = identity.client?.trim() || UNKNOWN_CLIENT
     const agentId = cleanAgentText(identity.agent)
+    const mode = cleanAgentText(identity.permissionMode)
+    const kind = AGENT_KINDS[client] ?? null
     return yield* sql.withTransaction(Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis
       const raw = JSON.stringify(identity)
@@ -181,6 +188,7 @@ const make = Effect.gen(function* () {
       if (existing[0]) {
         yield* sql`UPDATE agent_sessions SET last_seen_at = ${now}, ended_at = NULL, pid = COALESCE(${identity.pid ?? null}, pid),
             cwd = COALESCE(${identity.cwd ?? null}, cwd), entrypoint = COALESCE(${identity.entrypoint ?? null}, entrypoint),
+            permission_mode = COALESCE(${mode}, permission_mode), agent_kind = COALESCE(agent_kind, ${kind}),
             identity_json = ${raw}
           WHERE id = ${existing[0].id}`
         caller = { actorId: existing[0].actor_id, sessionId: existing[0].id }
@@ -188,9 +196,9 @@ const make = Effect.gen(function* () {
         const actorId = yield* actorFor(client, external, now)
         const id = newId(now)
         yield* sql`INSERT INTO agent_sessions (id, actor_id, external_id, client_name, entrypoint, cwd, project_id, pid,
-                                               identity_json, started_at, last_seen_at, created_at)
+                                               permission_mode, agent_kind, identity_json, started_at, last_seen_at, created_at)
           VALUES (${id}, ${actorId}, ${external}, ${client}, ${identity.entrypoint ?? null}, ${identity.cwd ?? null}, NULL,
-                  ${identity.pid ?? null}, ${raw}, ${now}, ${now}, ${now})`
+                  ${identity.pid ?? null}, ${mode}, ${kind}, ${raw}, ${now}, ${now}, ${now})`
         caller = { actorId, sessionId: id }
       }
       // A subagent's call (CEL-55): recorded under the session, and the caller says which agent it is.
