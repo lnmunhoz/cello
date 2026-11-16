@@ -12,7 +12,7 @@ Decisions from CEL-76 (Nov 16), so Lucas can see whether a comment reached the a
   - `inbox`: `cello inbox`, the default
   - `wait`: `inbox.wait`
 - **Where a comment went is known from the start.** `InboxService.deliverWithin` now runs inside `CommentService.addWithin`, before the comment is read back. So `comment.added` already carries `delivery: { sessionId, readAt: null, via: null }`, or `null` when nobody held the claim. `comment.list` reads the delivery back from `inbox_items`.
-- **The receipt names the session, not a subagent.** Subagents never take comments: the hooks skip them, and they don't run `cello inbox`. When a subagent is working on the task, the line under the comment box names it (CEL-55).
+- **The receipt names the session, not a subagent.** Subagents never take comments: the hooks skip them, and they don't run `cello inbox`. The status row under Lucas's latest comment names the session too; while a subagent works on the task, the row's mark takes the subagent's colour (CEL-55).
 - **"Answered" is worked out on the client.** A comment is answered once its session, or a subagent of it, comments after it or reacts to it (CEL-77). Nothing is stored for it.
 
 ## Waiting is seen by the server, not read from a lock
