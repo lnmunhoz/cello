@@ -90,12 +90,14 @@ const iconComposer = (() => {
     ],
     "supported-platforms": { squares: "shared" },
   }
-  return { json: `${JSON.stringify(iconJson, null, 2)}\n`, layer, iconJson, ink }
+  return { json: `${JSON.stringify(iconJson, null, 2)}\n`, layer, iconJson, ink, srgb }
 })()
 
 // Cello Dev's icon (CEL-149): the same document with a "DEV" badge layer on top, an ink pill below the agent with
-// the letters cut out so the orange fill shows through, like the agent's eyes. Letters are paths (cap height 100,
+// the letters cut out so the fill shows through, like the agent's eyes. Letters are paths (cap height 100,
 // strokes 24), so actool needs no font.
+// Cello Dev is indigo instead of orange (Lucas, CEL-149), so the two apps tell apart in the Dock at a glance.
+const DEV_FILL = "#5E5CE6"
 const devIcon = (() => {
   const D = "M0 0 H38 A50 50 0 0 1 88 50 A50 50 0 0 1 38 100 H0 Z M24 24 V76 H38 A26 26 0 0 0 64 50 A26 26 0 0 0 38 24 Z"
   const E = "M0 0 H72 V22 H24 V39 H62 V61 H24 V78 H72 V100 H0 Z"
@@ -118,13 +120,15 @@ const devIcon = (() => {
     at += width + GAP
     return g
   })
-  // The ink pill, then the letters on it in the icon's orange: on a flat layer with no glass that reads the same as
+  // The ink pill, then the letters on it in the fill's indigo: on a flat layer with no glass that reads the same as
   // holes cut through to the fill.
   const badge = canvas(
-    `<path fill="${iconComposer.ink}" d="${roundedRect(x, y, w, h, h / 2)}"/>` + `<g fill="${icon.background}">${placed.join("")}</g>`,
+    `<path fill="${iconComposer.ink}" d="${roundedRect(x, y, w, h, h / 2)}"/>` + `<g fill="${DEV_FILL}">${placed.join("")}</g>`,
   )
+  const fill = { solid: iconComposer.srgb(DEV_FILL) }
   const json = {
     ...iconComposer.iconJson,
+    "fill-specializations": [{ value: fill }, { appearance: "dark", value: fill }],
     groups: [
       { ...iconComposer.iconJson.groups[0], layers: [{ glass: false, "image-name": "dev-badge.svg", name: "dev-badge" }] },
       ...iconComposer.iconJson.groups,
