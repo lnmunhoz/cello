@@ -20,7 +20,7 @@ flowchart TD
     C --> BU["⑤ Build<br/>builder agent, own worktree, test first"]
     BU --> RV["⑥ Review<br/>a fresh reviewer agent"]
     RV -->|findings| BU
-    RV -->|clean| M["⑦ Merge and release<br/>related tests, bun run release: tag, GitHub release, live server updated"]
+    RV -->|clean| M["⑦ Merge and release<br/>related tests, bun run release: tag, live server updated;<br/>GitHub Actions builds the downloads and the GitHub release"]
     M --> P["⑧ Submit<br/>review packet with videos: In Review"]
     P --> L{"⑨ Lucas on the Review page"}
     L -->|Approve| D(["Done"])
@@ -133,9 +133,8 @@ The orchestrator merges the branch into main (`cello task stage CEL-n merged`) w
    - runs the typecheck and the unit and integration tests (the CLI-docs check is one of them)
    - bumps the version (patch; `-- minor` or `-- major` when Lucas says) and writes the CHANGELOG.md section from main's merges and commits since the last tag
    - commits `chore(release): vX.Y.Z` and tags it
-   - builds the `cello` binary (into `release/stage`, not over the live one) and packages Cello.app, zipped
-   - pushes main and the tag to GitHub
-   - creates the GitHub release with the changelog as notes and both zips attached
+   - builds this Mac's own `cello` binary (into `release/stage`, not over the live one), for the deploy
+   - pushes main and the tag to GitHub, which starts the **Release workflow on GitHub Actions**: it builds the `cello` zip and Cello.app (DMG and zip) for Apple silicon and Intel, then creates the GitHub release with the changelog as notes and every file attached. The release prints the run's link
    - **deploys to Lucas's board:** `cello backup`, then the new `cello` goes live, then `cello service restart`. A database migration runs at that restart, which is why the backup comes first.
 
 `bun run release -- --dry-run` previews all of it without changing anything. The steps, the flags, what to do when a step fails and how to roll back: [Releases](releases.md).

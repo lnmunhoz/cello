@@ -1,4 +1,5 @@
-// What a release builds and attaches: the `cello` binary and Cello.app, each zipped into release/.
+// What a release builds: this Mac's own cello for the deploy (every release), and the downloads (the cello
+// zip, Cello.app's DMG and zip) on GitHub Actions per architecture, or on this Mac with --local-artifacts.
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
@@ -8,28 +9,55 @@ import { artifactNames, artifactSteps, buildArtifacts, PACKAGING_FAILED, STAGED_
 const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cello-release-artifacts-")))
 afterAll(() => fs.rmSync(base, { recursive: true, force: true }))
 const root = "/repo"
-const mac = { root, version: "0.3.0", platform: "darwin", arch: "arm64", desktop: true } as const
+const mac = { root, version: "0.3.0", platform: "darwin", arch: "arm64", downloads: true, desktop: true, sign: false } as const
+const shown = (options: Parameters<typeof artifactSteps>[0]) =>
+  artifactSteps(options).map((s) => [s.cwd.replace(root, "."), s.cmd.join(" ").replaceAll(root, ".")])
 
 describe("artifactNames", () => {
-  it("names each zip for its version and machine", () => {
+  it("names each download for its version and machine", () => {
     expect(artifactNames("0.3.0", "darwin", "arm64")).toEqual({
       cli: "cello-v0.3.0-darwin-arm64.zip",
+      dmg: "Cello-v0.3.0-mac-arm64.dmg",
       app: "Cello-v0.3.0-mac-arm64.zip",
     })
+    expect(artifactNames("0.3.0", "darwin", "x64").dmg).toBe("Cello-v0.3.0-mac-x64.dmg")
+  })
+
+  it("matches the names electron-builder gives the DMG and app zip (electron-builder.json's artifactName)", () => {
+    const config = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "../../apps/desktop/electron-builder.json"), "utf8"))
+    const named = (ext: string) =>
+      String(config.mac.artifactName).replace("${version}", "0.3.0").replace("${arch}", "x64").replace("${ext}", ext)
+    expect([named("dmg"), named("zip")]).toEqual([artifactNames("0.3.0", "darwin", "x64").dmg, artifactNames("0.3.0", "darwin", "x64").app])
   })
 })
 
 describe("artifactSteps", () => {
-  it("on a Mac: builds the CLI into release/stage (never over the live apps/cli/dist/cello), zips it, packages Cello.app with that build and zips it with ditto (as Apple does)", () => {
-    expect(artifactSteps(mac).map((s) => [s.cwd.replace(root, "."), s.cmd.join(" ")])).toEqual([
-      ["./apps/cli", "bun run build --outfile /repo/release/stage/cello"],
-      ["./release/stage", "zip -j /repo/release/cello-v0.3.0-darwin-arm64.zip cello"],
-      ["./apps/desktop", "bun run package --cli /repo/release/stage/cello"],
-      [
-        "./apps/desktop/dist/mac-arm64",
-        "ditto -c -k --sequesterRsrc --keepParent Cello.app /repo/release/Cello-v0.3.0-mac-arm64.zip",
-      ],
+  it("a release's own cello: builds it for this machine into release/stage (never over the live apps/cli/dist/cello), and nothing else", () => {
+    expect(shown({ ...mac, downloads: false })).toEqual([["./apps/cli", "bun run build --outfile ./release/stage/cello --target bun-darwin-arm64"]])
+  })
+
+  it("the downloads: the cello zip, then Cello.app packaged with that same build as a DMG and a zip, moved into release/", () => {
+    expect(shown(mac)).toEqual([
+      ["./apps/cli", "bun run build --outfile ./release/stage/cello --target bun-darwin-arm64"],
+      ["./release/stage", "zip -j ./release/cello-v0.3.0-darwin-arm64.zip cello"],
+      ["./apps/desktop", "bun run package --cli ./release/stage/cello --arch arm64 --artifacts"],
+      ["./apps/desktop", "mv dist/Cello-v0.3.0-mac-arm64.dmg ./release/Cello-v0.3.0-mac-arm64.dmg"],
+      ["./apps/desktop", "mv dist/Cello-v0.3.0-mac-arm64.zip ./release/Cello-v0.3.0-mac-arm64.zip"],
     ])
+  })
+
+  it("on Intel: the x64 cello and Cello.app", () => {
+    expect(shown({ ...mac, arch: "x64" }).map(([, cmd]) => cmd)).toEqual([
+      "bun run build --outfile ./release/stage/cello --target bun-darwin-x64",
+      "zip -j ./release/cello-v0.3.0-darwin-x64.zip cello",
+      "bun run package --cli ./release/stage/cello --arch x64 --artifacts",
+      "mv dist/Cello-v0.3.0-mac-x64.dmg ./release/Cello-v0.3.0-mac-x64.dmg",
+      "mv dist/Cello-v0.3.0-mac-x64.zip ./release/Cello-v0.3.0-mac-x64.zip",
+    ])
+  })
+
+  it("signs Cello.app only when asked (the workflow, when its signing secrets exist)", () => {
+    expect(shown({ ...mac, sign: true })[2]![1]).toBe("bun run package --cli ./release/stage/cello --arch arm64 --artifacts --sign")
   })
 
   it("--skip-desktop leaves Cello.app out", () => {
@@ -38,7 +66,7 @@ describe("artifactSteps", () => {
 
   it("elsewhere: refuses to package Cello.app with a way out, and still zips the CLI when it's skipped", () => {
     expect(() => artifactSteps({ ...mac, platform: "linux", arch: "x64" })).toThrow(
-      /Packaging Cello\.app needs macOS on Apple silicon \(this is linux-x64\)\. Release without it: bun run release -- --skip-desktop/,
+      /Packaging Cello\.app needs macOS \(this is linux-x64\)\. Release without it: bun run release -- --local-artifacts --skip-desktop/,
     )
     expect(artifactSteps({ ...mac, platform: "linux", arch: "x64", desktop: false })[1]!.cmd).toEqual([
       "zip",
@@ -57,20 +85,26 @@ describe("buildArtifacts", () => {
     return dir
   }
 
-  it("empties release/ first, so only this release's zips get attached, and runs each step in order", () => {
+  it("empties release/ first, so only this release's files get attached, runs each step in order and returns the downloads", () => {
     const dir = repo("ok")
     const ran: string[] = []
-    const zips = buildArtifacts({ ...mac, root: dir }, (cmd) => {
+    const files = buildArtifacts({ ...mac, root: dir }, (cmd) => {
       ran.push(cmd[0]!)
       return 0
     })
     expect(fs.readdirSync(path.join(dir, "release"))).toEqual(["stage"])
     expect(STAGED_CLI).toBe("release/stage/cello")
-    expect(ran).toEqual(["bun", "zip", "bun", "ditto"])
-    expect(zips).toEqual([
+    expect(ran).toEqual(["bun", "zip", "bun", "mv", "mv"])
+    expect(files).toEqual([
       path.join(dir, "release/cello-v0.3.0-darwin-arm64.zip"),
+      path.join(dir, "release/Cello-v0.3.0-mac-arm64.dmg"),
       path.join(dir, "release/Cello-v0.3.0-mac-arm64.zip"),
     ])
+  })
+
+  it("a release's own cello returns no downloads", () => {
+    const dir = repo("stage-only")
+    expect(buildArtifacts({ ...mac, root: dir, downloads: false }, () => 0)).toEqual([])
   })
 
   // A step that writes the staged binary, as the real build does, then exits with `code` at `failAt`.
@@ -82,7 +116,7 @@ describe("buildArtifacts", () => {
   it("a failed Cello.app package names the way out, deletes the staged build and marks that packaging failed", () => {
     const dir = repo("fail-app")
     expect(() => buildArtifacts({ ...mac, root: dir }, building(dir, "package", 1))).toThrow(
-      /Packaging Cello\.app failed \(bun run package --cli \S+ exited 1\)\. Fix it, or release without it: bun run release -- --skip-desktop/,
+      /Packaging Cello\.app failed \(bun run package --cli \S+ --arch arm64 --artifacts exited 1\)\. Fix it, or release without it: bun run release -- --local-artifacts --skip-desktop/,
     )
     expect(fs.existsSync(path.join(dir, "release/stage"))).toBe(false)
     expect(fs.existsSync(path.join(dir, PACKAGING_FAILED))).toBe(true)
@@ -91,7 +125,7 @@ describe("buildArtifacts", () => {
   it("a failed CLI build (a full disk leaves a truncated outfile) deletes the staged build", () => {
     const dir = repo("fail-cli")
     expect(() => buildArtifacts({ ...mac, root: dir }, building(dir, "build", 2))).toThrow(
-      /Building the cello binary failed \(bun run build --outfile \S+ exited 2\)/,
+      /Building the cello binary failed \(bun run build --outfile \S+ --target bun-darwin-arm64 exited 2\)/,
     )
     expect(fs.existsSync(path.join(dir, "release/stage"))).toBe(false)
     expect(fs.existsSync(path.join(dir, PACKAGING_FAILED))).toBe(false)

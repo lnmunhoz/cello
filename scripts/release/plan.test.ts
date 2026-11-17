@@ -1,27 +1,42 @@
 // What `bun run release` takes and does, before anything runs: its arguments, the checks that refuse a
 // release, the steps a dry run prints, and the release-it arguments it passes on.
 import { describe, expect, it } from "vitest"
-import { parseReleaseArgs, preflightProblems, recoveryAdvice, releaseItArgs, releaseSteps } from "./plan.ts"
+import { actionsReport, parseReleaseArgs, preflightProblems, recoveryAdvice, releaseItArgs, releaseSteps } from "./plan.ts"
 
 describe("parseReleaseArgs", () => {
-  it("defaults to a patch release that deploys, with Cello.app", () => {
-    expect(parseReleaseArgs([])).toEqual({ increment: "patch", dryRun: false, deploy: true, desktop: true, help: false })
+  it("defaults to a patch release that deploys, with the downloads left to GitHub Actions", () => {
+    expect(parseReleaseArgs([])).toEqual({
+      increment: "patch",
+      dryRun: false,
+      deploy: true,
+      localArtifacts: false,
+      desktop: true,
+      help: false,
+    })
   })
 
-  it("takes minor, major or a version, and the dry run, no-deploy and skip-desktop flags", () => {
+  it("takes minor, major or a version, and the dry run, no-deploy, local-artifacts and skip-desktop flags", () => {
     expect(parseReleaseArgs(["minor", "--dry-run"])).toMatchObject({ increment: "minor", dryRun: true })
     expect(parseReleaseArgs(["-d", "major"])).toMatchObject({ increment: "major", dryRun: true })
-    expect(parseReleaseArgs(["0.4.0", "--no-deploy", "--skip-desktop"])).toMatchObject({
+    expect(parseReleaseArgs(["0.4.0", "--no-deploy", "--local-artifacts", "--skip-desktop"])).toMatchObject({
       increment: "0.4.0",
       deploy: false,
+      localArtifacts: true,
       desktop: false,
     })
+    expect(parseReleaseArgs(["--local-artifacts"])).toMatchObject({ localArtifacts: true, desktop: true })
     expect(parseReleaseArgs(["--help"]).help).toBe(true)
   })
 
   it("refuses flags it doesn't know, and a second increment", () => {
     expect(() => parseReleaseArgs(["--minor"])).toThrow(/Unknown option --minor/)
     expect(() => parseReleaseArgs(["minor", "major"])).toThrow(/one increment/)
+  })
+
+  it("refuses --skip-desktop without --local-artifacts: the Mac builds no Cello.app then", () => {
+    expect(() => parseReleaseArgs(["--skip-desktop"])).toThrow(
+      "--skip-desktop only applies with --local-artifacts: without it this Mac builds no Cello.app (GitHub Actions does).",
+    )
   })
 })
 
@@ -106,9 +121,10 @@ describe("preflightProblems", () => {
 describe("releaseSteps", () => {
   const files = ["package.json", "packages/shared/src/version.ts", "apps/desktop/package.json"]
   const titles = (steps: ReturnType<typeof releaseSteps>) => steps.map((s) => `${s.title} [${s.dryRun}]`)
+  const options = { increment: "patch", dryRun: false, deploy: true, localArtifacts: false, desktop: true, help: false }
 
   it("lists every step in order; a dry run runs only the checks and prints the rest", () => {
-    expect(titles(releaseSteps({ increment: "minor", dryRun: true, deploy: true, desktop: true, help: false }, "0.3.0", files))).toEqual([
+    expect(titles(releaseSteps({ ...options, increment: "minor", dryRun: true }, "0.3.0", files))).toEqual([
       "refuse unless on a clean main, up to date with origin, after a fully pushed release [runs]",
       "bun run typecheck [runs]",
       "bun run test [runs]",
@@ -116,19 +132,48 @@ describe("releaseSteps", () => {
       "write the 0.3.0 section of CHANGELOG.md [skipped]",
       "commit chore(release): v0.3.0 [skipped]",
       "tag v0.3.0 [skipped]",
-      "build the cello binary into release/stage (not live yet) and package Cello.app with it, zipped into release/ [skipped]",
+      "build this Mac's cello into release/stage (not live yet), for the deploy [skipped]",
       "push main and v0.3.0 [skipped]",
-      "GitHub release v0.3.0 with the changelog section and both zips [skipped]",
+      "GitHub Actions (.github/workflows/release.yml) builds cello and Cello.app for Apple silicon and Intel, then publishes the GitHub release v0.3.0 with the changelog section [skipped]",
       "deploy: cello backup, then the staged cello goes live, then cello service restart [skipped]",
     ])
   })
 
-  it("a real release runs every step; --no-deploy and --skip-desktop say what they leave out", () => {
-    const steps = releaseSteps({ increment: "patch", dryRun: false, deploy: false, desktop: false, help: false }, "0.3.1", files)
+  it("a real release runs every step; --no-deploy leaves the deploy out", () => {
+    const steps = releaseSteps({ ...options, deploy: false }, "0.3.1", files)
     expect(steps.every((s) => s.title.startsWith("deploy") || s.dryRun === "runs")).toBe(true)
-    expect(titles(steps)).toContain("build the cello binary into release/stage (not live yet), zipped into release/ (Cello.app skipped: --skip-desktop) [runs]")
-    expect(titles(steps)).toContain("GitHub release v0.3.1 with the changelog section and the cello zip [runs]")
     expect(titles(steps).at(-1)).toBe("deploy: cello backup, then the staged cello goes live, then cello service restart [skipped]")
+  })
+
+  it("--local-artifacts builds the downloads on this Mac and creates the GitHub release from here", () => {
+    const steps = titles(releaseSteps({ ...options, localArtifacts: true }, "0.3.1", files))
+    expect(steps).toContain(
+      "build the cello binary into release/stage (not live yet) and package Cello.app with it: the cello zip, the DMG and the app zip into release/ [runs]",
+    )
+    expect(steps).toContain("GitHub release v0.3.1 from this Mac with the changelog section, the cello zip, the DMG and the app zip [runs]")
+  })
+
+  it("--local-artifacts --skip-desktop says what it leaves out", () => {
+    const steps = titles(releaseSteps({ ...options, localArtifacts: true, desktop: false }, "0.3.1", files))
+    expect(steps).toContain("build the cello binary into release/stage (not live yet), zipped into release/ (Cello.app skipped: --skip-desktop) [runs]")
+    expect(steps).toContain("GitHub release v0.3.1 from this Mac with the changelog section and the cello zip [runs]")
+  })
+})
+
+describe("actionsReport", () => {
+  const repo = "https://github.com/lnmunhoz/cello"
+
+  it("links the workflow run that builds the release, and the release page it fills", () => {
+    expect(actionsReport(repo, "v0.5.0", "https://github.com/lnmunhoz/cello/actions/runs/42")).toEqual([
+      "GitHub Actions is building v0.5.0's downloads: https://github.com/lnmunhoz/cello/actions/runs/42",
+      "When it's done, they're on https://github.com/lnmunhoz/cello/releases/tag/v0.5.0",
+    ])
+  })
+
+  it("links the workflow's page when the run isn't listed yet", () => {
+    expect(actionsReport(repo, "v0.5.0", null)[0]).toBe(
+      "GitHub Actions builds v0.5.0's downloads in the Release workflow (its run shows here within a minute): https://github.com/lnmunhoz/cello/actions/workflows/release.yml",
+    )
   })
 })
 
@@ -150,7 +195,15 @@ describe("releaseItArgs", () => {
 })
 
 describe("recoveryAdvice", () => {
-  const none = { version: "0.3.1", localTag: false, remoteTag: false, headIsRelease: false, changedFiles: [], packagingFailed: false }
+  const none = {
+    version: "0.3.1",
+    localTag: false,
+    remoteTag: false,
+    headIsRelease: false,
+    changedFiles: [],
+    packagingFailed: false,
+    localArtifacts: false,
+  }
 
   it("nothing changed: fix it and release again", () => {
     expect(recoveryAdvice(none)).toEqual(["Nothing was changed. Fix the problem above and release again."])
@@ -180,8 +233,7 @@ describe("recoveryAdvice", () => {
 
   it("never says nothing was pushed when it can't tell", () => {
     expect(recoveryAdvice({ ...none, localTag: true, headIsRelease: true, remoteTag: null })).toEqual([
-      "Can't tell whether v0.3.1 was pushed (git ls-remote --tags origin failed). Don't reset or delete anything until `git ls-remote --tags origin refs/tags/v0.3.1` works. If it lists the tag, finish by hand:",
-      '  gh release create v0.3.1 release/*.zip --title "Cello v0.3.1" --notes "$(bun scripts/release/changelog.ts notes-of 0.3.1)"',
+      "Can't tell whether v0.3.1 was pushed (git ls-remote --tags origin failed). Don't reset or delete anything until `git ls-remote --tags origin refs/tags/v0.3.1` works. If it lists the tag, GitHub Actions builds and publishes its release; deploy by hand:",
       "  bun scripts/release/deploy.ts",
       "If it doesn't, undo the release here and release again:",
       "  git tag -d v0.3.1",
@@ -193,10 +245,17 @@ describe("recoveryAdvice", () => {
     ])
   })
 
-  it("stopped after the push: finish the GitHub release and the deploy by hand", () => {
+  it("stopped after the push: GitHub Actions publishes the release, so only the deploy is left", () => {
     expect(recoveryAdvice({ ...none, localTag: true, remoteTag: true, headIsRelease: true })).toEqual([
+      "v0.3.1 is pushed: the release commit and tag are on GitHub, so don't undo them. GitHub Actions builds and publishes its release; deploy by hand:",
+      "  bun scripts/release/deploy.ts",
+    ])
+  })
+
+  it("stopped after the push with --local-artifacts: publish the GitHub release from here, then deploy", () => {
+    expect(recoveryAdvice({ ...none, localTag: true, remoteTag: true, headIsRelease: true, localArtifacts: true })).toEqual([
       "v0.3.1 is pushed: the release commit and tag are on GitHub, so don't undo them. Finish by hand:",
-      '  gh release create v0.3.1 release/*.zip --title "Cello v0.3.1" --notes "$(bun scripts/release/changelog.ts notes-of 0.3.1)"',
+      "  bun scripts/release/publish.ts 0.3.1",
       "  bun scripts/release/deploy.ts",
     ])
   })

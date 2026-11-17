@@ -1,6 +1,6 @@
 ---
 title: Releases
-summary: Every deploy of Cello is a release. One command, bun run release, checks, bumps the version, writes the changelog, tags, builds the cello binary and Cello.app, pushes, creates the GitHub release and deploys to the live board. How to preview it, pick minor or major, and roll back.
+summary: Every deploy of Cello is a release. One command, bun run release, checks, bumps the version, writes the changelog, tags, pushes and deploys this Mac's own cello to the live board; the pushed tag starts GitHub Actions, which builds the downloads for Apple silicon and Intel and publishes the GitHub release. How to preview it, pick minor or major, build locally when GitHub is down, turn on signing, and roll back.
 ---
 
 ## Every deploy is a release
@@ -16,22 +16,34 @@ bun run release -- --dry-run    # preview everything; writes, pushes and deploys
 
 It uses [release-it](https://github.com/release-it/release-it) (pinned in the root package.json, configured in `.release-it.json`); the steps that are ours are small TypeScript modules with tests in `scripts/release/`.
 
-## What one release does, in order
+## What runs where
+
+The release is split between two machines (CEL-139):
+
+- **This Mac** cuts the release and updates the board: checks, version, changelog, commit, tag, push, and its **own** `cello` (one `bun build`, about 20 s), deployed right away. The board never waits for GitHub.
+- **GitHub Actions** builds what other people download, once the tag arrives: the `cello` zip and Cello.app (a DMG and a zip) for **Apple silicon and Intel**, each on a Mac runner of its own kind, then the GitHub release. The workflow is `.github/workflows/release.yml`.
 
 ```mermaid
 flowchart TD
-    A["bun run release"] --> B{"On main, clean, up to date with origin,<br/>the last release fully pushed?"}
+    A["Mac: bun run release"] --> B{"On main, clean, up to date with origin,<br/>the last release fully pushed?"}
     B -->|no| X(["refuses: nothing changed"])
     B -->|yes| C["bun run typecheck<br/>bun run test"]
     C -->|a failure| X
     C --> D["bump the version everywhere<br/>write the CHANGELOG.md section"]
     D --> E["commit chore(release): vX.Y.Z<br/>tag vX.Y.Z"]
-    E --> F["build cello into release/stage (not live)<br/>package Cello.app with it<br/>zip both into release/"]
+    E --> F["build this Mac's cello into release/stage (not live)"]
     F --> G["push main and the tag"]
-    G --> H["GitHub release vX.Y.Z<br/>notes = the changelog section<br/>both zips attached"]
+    G --> H["print the GitHub Actions run's link"]
     H --> I["deploy: cello backup<br/>then the staged cello goes live (one rename)<br/>then cello service restart"]
     I --> J(["live on the board"])
+    G --> K["GitHub Actions: the tag starts the Release workflow"]
+    K --> L["build on macos-15 (Apple silicon)<br/>and macos-15-intel (Intel), in parallel"]
+    L --> M["each: cello zip, Cello.app DMG and zip"]
+    M --> N["publish: GitHub release Cello vX.Y.Z<br/>notes = the changelog section, all 6 files"]
+    N --> O(["github.com/lnmunhoz/cello/releases/tag/vX.Y.Z"])
 ```
+
+## What one release does on the Mac, in order
 
 1. **Refuses** unless all of these hold (a dry run lists the ones that fail as "a real release would refuse"):
    - it's on `main`, with no uncommitted changes to tracked files (untracked files never reach the release commit)
@@ -44,10 +56,56 @@ flowchart TD
 3. **Bumps** the version everywhere it lives (`scripts/release/version.ts`). The root `package.json` is the one source of truth; the release writes the same version to `APP_VERSION` in `packages/shared/src/version.ts` (what `cello --version`, the sidebar footer and backup manifests report) and to every workspace `package.json` that has a `version` (today `apps/desktop`, which electron-builder stamps into Cello.app), to the Claude Code plugin's `apps/cli/claude-plugin/cello/.claude-plugin/plugin.json` (then it regenerates the copy the binary embeds with `bun run docs:cli`), and to `bun.lock`'s record of the workspace versions. A unit test fails if they ever disagree.
 4. **Writes the changelog** section at the top of `CHANGELOG.md` (below).
 5. **Commits** `chore(release): vX.Y.Z` and **tags** `vX.Y.Z` (annotated).
-6. **Builds** `cello` into `release/stage/cello` (`bun run build --outfile …` in `apps/cli`) and **packages** Cello.app with that binary (`bun run package --cli release/stage/cello` in `apps/desktop`, unsigned, Apple silicon), then zips them into `release/` as `cello-vX.Y.Z-darwin-arm64.zip` and `Cello-vX.Y.Z-mac-arm64.zip`. It builds after the tag, so the binary embeds the release commit and the new version. If a build step fails, it deletes `release/stage`, so a half-built binary can't be deployed. **It never builds over `apps/cli/dist/cello`**: that's the live cello (`~/.local/bin/cello` and the background service run it), and only the deploy replaces it, after its backup. It never installs or opens the app.
+6. **Builds its own `cello`** into `release/stage/cello` (`bun run build --outfile … --target bun-darwin-arm64` in `apps/cli`). It builds after the tag, so the binary embeds the release commit and the new version. If the build fails, it deletes `release/stage`, so a half-built binary can't be deployed. **It never builds over `apps/cli/dist/cello`**: that's the live cello (`~/.local/bin/cello` and the background service run it), and only the deploy replaces it, after its backup.
 7. **Pushes** `main` and the tag together (`git push --atomic`), only once the build worked: a failed build leaves the commit and tag local, easy to undo.
-8. **Creates the GitHub release** `Cello vX.Y.Z` on lnmunhoz/cello with the changelog section as its notes and both zips attached. The token comes from `gh auth token` (or `GITHUB_TOKEN`).
+8. **Prints the GitHub Actions run** the tag started (`gh run list --workflow release.yml --branch vX.Y.Z`), or the workflow's page when GitHub doesn't list the run yet, and the release page the downloads will be on.
 9. **Deploys**, in this order. First it checks, before touching anything, that the staged build is this release's: `release/stage/cello` exists and is executable, its `--version` says package.json's version and HEAD's commit, and `vX.Y.Z` is on origin. A leftover from an undone release, or a build cut short by a full disk, is refused. Then `cello backup` (the old cello, against the running server), then the staged build goes live with one rename of `release/stage/cello` onto `apps/cli/dist/cello` (same filesystem, so that path holds the old build or the new one, never a half-written file), then `cello service restart`. The service runs the new build, and a migration runs at that restart, after the backup. If the backup fails, nothing goes live and nothing restarts.
+
+## What GitHub Actions does
+
+The Release workflow (`.github/workflows/release.yml`) starts when a `vX.Y.Z` tag is pushed:
+
+1. **Build**, two jobs in parallel, one per Mac architecture, each on a runner of that kind: `macos-15` (Apple silicon) and `macos-15-intel` (Intel; GitHub's last Intel Mac image, supported until August 2027). Each checks out the tag, refuses when the tag and package.json's version disagree, installs Bun 1.4.4 and the dependencies (`bun install --frozen-lockfile`, with Bun's and Electron's downloads cached), then runs **`bun scripts/release/hooks.ts artifacts <version>`**, the same code `--local-artifacts` runs on the Mac:
+   - `cello`, built for the runner's architecture (`--target bun-darwin-arm64` or `bun-darwin-x64`), zipped as `cello-vX.Y.Z-darwin-<arch>.zip`
+   - Cello.app packaged with that same binary (`bun run package --cli … --arch <arch> --artifacts`) as `Cello-vX.Y.Z-mac-<arch>.dmg` (drag it to Applications) and `Cello-vX.Y.Z-mac-<arch>.zip` (what the app's own updates will use, CEL-140)
+
+   The three files are kept on the run's page for 14 days.
+2. **Publish**, once both builds passed: creates the GitHub release `Cello vX.Y.Z` on the tag, its notes the version's CHANGELOG.md section (`bun scripts/release/publish.ts`), with all six files. If the release already exists (say `--local-artifacts` made it first), it updates it instead: same-named files are replaced, the others added.
+
+A release takes about 10 to 15 minutes on GitHub; the Mac doesn't wait for it.
+
+### Checking a release's run
+
+- the link `bun run release` printed, or `gh run list --workflow release.yml --limit 3`, then `gh run watch <id>`
+- once it's green, `gh release view vX.Y.Z --json assets --jq '.assets[].name'` lists six files: the `cello` zip, the DMG and the app zip, for `arm64` and for `x64`
+- a red build job: open its log. "Re-run failed jobs" redoes only the one that failed, and publishing waits for it
+
+### Running it by hand: build only, or publish again
+
+Actions → **Release** → **Run workflow**, or with gh:
+
+```bash
+gh workflow run release.yml -f tag=v0.5.0                 # build only: nothing is published
+gh workflow run release.yml -f tag=v0.5.0 -f publish=true # build, then create or update the v0.5.0 release
+```
+
+The tag must exist. **Build only** is how to test a change to the workflow or the build scripts without releasing anything: the files land on the run's page. Pull requests that change the build scripts (the workflow, `scripts/release/artifacts.ts`, `hooks.ts`, `publish.ts`, `apps/cli/scripts/build.ts`, `apps/desktop/scripts/`, `electron-builder.json`) run the build jobs too, on the pull request's own commit, and never publish.
+
+### Signing and notarizing Cello.app
+
+Today Cello.app is **unsigned**. A downloaded copy carries macOS's quarantine flag, and macOS refuses to open it: it says the app "is damaged" or "can't be checked for malicious software". To open it anyway, once: `xattr -dr com.apple.quarantine /Applications/Cello.app`. Apps built on this Mac and never downloaded aren't affected.
+
+Signing turns on by itself once the repository has these **five secrets** (Settings → Secrets and variables → Actions), which need an Apple Developer account:
+
+| Secret | What it is |
+| --- | --- |
+| `CSC_LINK` | the "Developer ID Application" certificate with its private key, exported as a `.p12` and base64-encoded |
+| `CSC_KEY_PASSWORD` | the password of that `.p12` |
+| `APPLE_API_KEY` | the contents of an App Store Connect API key (`AuthKey_XXXX.p8`), for notarizing |
+| `APPLE_API_KEY_ID` | that key's ID |
+| `APPLE_API_ISSUER` | its issuer ID |
+
+With all five, each build job signs Cello.app with the hardened runtime (`apps/desktop/resources/entitlements.mac.plist` gives Electron and the bundled Bun binary the JIT they need) and notarizes it through electron-builder, so it opens with no warning. With none, it's unsigned, as today. With only some, the build fails instead of quietly shipping unsigned. Pull requests never get them. The standalone `cello` zip stays unsigned either way (Terminal downloads with curl aren't quarantined; a browser download needs the `xattr` line above, on `cello`).
 
 ## The changelog
 
@@ -58,7 +116,7 @@ flowchart TD
 - Release commits and merges of main into a branch are left out. Subjects keep their own words and CEL keys; each line links its commit on GitHub, and the heading links the compare view from the previous tag.
 - The first release, v0.3.0 (`bun run release -- minor`, from 0.2.0), covers the whole history since the first commit (Nov 14): it's only days old, so there's nothing to cut off. Builds before it said 0.1.0 (the desktop app) or 0.2.0 (the CLI) and weren't tagged.
 
-Write subjects for the reader of the changelog: the merge subject is the line Lucas reads.
+Write subjects for the reader of the changelog: the merge subject is the line Lucas reads. The GitHub release's notes are the same section, read back from CHANGELOG.md at the tag.
 
 ## Previewing: the dry run
 
@@ -67,9 +125,9 @@ Write subjects for the reader of the changelog: the merge subject is the line Lu
 - prints the version change and every step, marking the ones it skips
 - runs `git fetch --tags origin`: the one thing it changes, your remote-tracking refs and any tags origin has, so it can tell whether main is up to date. Then it says what a real release would refuse (another branch, uncommitted changes, behind origin, a live cello that isn't this checkout's), but carries on so you can see the rest
 - **runs** the typecheck and the tests
-- prints the CHANGELOG.md section the release would add, and release-it's own preview: the commands it would run, the GitHub release it would create
+- prints the CHANGELOG.md section the release would add, and release-it's own preview: the commands and hooks it would run
 
-Apart from that fetch, it writes, commits, tags, pushes, releases and deploys nothing, and doesn't build.
+Apart from that fetch, it writes, commits, tags, pushes, releases and deploys nothing, and doesn't build. To try the GitHub side without releasing, run the workflow by hand in build-only mode (above).
 
 ## Flags
 
@@ -77,8 +135,9 @@ Apart from that fetch, it writes, commits, tags, pushes, releases and deploys no
 | --- | --- |
 | `patch` / `minor` / `major` / `1.2.3` | The new version. Patch is the default; minor and major only when Lucas asks. |
 | `--dry-run`, `-d` | The preview above. |
-| `--no-deploy` | Release (tag, GitHub release) but leave the live board alone: no backup, `apps/cli/dist/cello` untouched, no restart. The build waits in `release/stage/cello`; `bun scripts/release/deploy.ts` deploys it later (backup, rename, restart). Tests and builder agents never deploy. |
-| `--skip-desktop` | Release without Cello.app, when packaging it can't work on this machine (it needs macOS on Apple silicon; electron-builder's error is printed). The cello zip is still attached. |
+| `--no-deploy` | Release (tag, push; GitHub Actions still builds and publishes) but leave the live board alone: no backup, `apps/cli/dist/cello` untouched, no restart. The build waits in `release/stage/cello`; `bun scripts/release/deploy.ts` deploys it later (backup, rename, restart). Tests and builder agents never deploy. |
+| `--local-artifacts` | For when GitHub Actions is down or broken: this Mac builds the downloads itself (the `cello` zip, Cello.app's DMG and zip, Apple silicon only) into `release/` and creates the GitHub release with them (`bun scripts/release/publish.ts`, with gh, which must be logged in). The tag still starts the workflow; if it runs later, it adds the Intel files and replaces the Apple silicon ones with its own. |
+| `--skip-desktop` | Only with `--local-artifacts`: leave Cello.app out, when packaging it can't work on this machine (electron-builder's error is printed). The `cello` zip is still attached. |
 
 ## When a release fails
 
@@ -86,8 +145,9 @@ When release-it fails, `bun run release` looks at how far it got (the release co
 
 - **Refused, or the typecheck or tests failed:** nothing changed. Fix it and run it again.
 - **Stopped after the bump, before the commit:** `git checkout -- <the files it names>` drops the version and changelog edits.
-- **Stopped after the commit and tag, before the push** (the build or Cello.app failed, or the push was rejected): nothing reached GitHub. `git tag -d vX.Y.Z && git reset --hard HEAD~1 && rm -rf release`, then fix it and release again (with `--skip-desktop` when packaging Cello.app was what failed; the advice says so then). The next release refuses until this is undone, and the deploy refuses a staged build that isn't a pushed release's.
-- **Stopped after the push** (the GitHub release failed): the tag is on GitHub, so don't undo it. Finish by hand: `gh release create vX.Y.Z release/*.zip --title "Cello vX.Y.Z" --notes "$(bun scripts/release/changelog.ts notes-of X.Y.Z)"`, then `bun scripts/release/deploy.ts`.
+- **Stopped after the commit and tag, before the push** (the build failed, or the push was rejected): nothing reached GitHub. `git tag -d vX.Y.Z && git reset --hard HEAD~1 && rm -rf release`, then fix it and release again. The next release refuses until this is undone, and the deploy refuses a staged build that isn't a pushed release's. With `--local-artifacts`, when packaging Cello.app was what failed, the advice also offers `--skip-desktop`.
+- **Stopped after the push:** the tag is on GitHub, so don't undo it. GitHub Actions builds and publishes the release by itself; finish the deploy with `bun scripts/release/deploy.ts`. With `--local-artifacts` (the GitHub release from the Mac failed), first `bun scripts/release/publish.ts X.Y.Z`, which attaches every zip and DMG in `release/`.
+- **The GitHub Actions run failed:** the release is cut and the board runs it; only the downloads are missing. Read the failed job's log, fix the cause on main, then rebuild that tag's files: `gh workflow run release.yml -f tag=vX.Y.Z -f publish=true` (a fix to the workflow itself ships in the next release's tag; this reruns the tag's own copy). If GitHub is down, `bun scripts/release/hooks.ts artifacts X.Y.Z` on the Mac at that tag, then `bun scripts/release/publish.ts X.Y.Z`.
 - **The deploy failed:** the release is out. If the backup failed, nothing went live: fix it and run `bun scripts/release/deploy.ts`. If the restart failed, the new cello is in place: `cello service status` says why, then `cello service restart`.
 
 ## Rolling back
@@ -99,8 +159,8 @@ To go back to an earlier release, say v0.3.0 after v0.3.1 misbehaved:
 3. **Restart** (if you didn't reinstall the service in step 2): `cello service restart`, and check `cello --version` says 0.3.0.
 4. Fix forward: the next `bun run release` ships the fix as a new patch. Tags and GitHub releases are never deleted or reused.
 
-Cello.app is rolled back the same way: unzip `Cello-v0.3.0-mac-arm64.zip` and copy the app over `/Applications/Cello.app`.
+Cello.app is rolled back the same way: open `Cello-v0.3.0-mac-arm64.dmg` (or `-x64` on Intel) and drag the app over `/Applications/Cello.app`.
 
 ## Later
 
-Code signing and notarization for Cello.app, and auto-update from the GitHub releases.
+Linux builds in the same workflow (CEL-139 phase 2), signing once the secrets exist, and Cello.app updating itself from the GitHub releases (CEL-140).
