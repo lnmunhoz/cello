@@ -119,8 +119,15 @@ test("CEL-20: a page's task table links its keys with their live status; moving 
   expect(await page.evaluate(() => (window as { stillTheSamePage?: boolean }).stillTheSamePage)).toBe(true)
   for (const colorScheme of ["light", "dark"] as const) await screenshotPage(browser, pagePath, key, colorScheme)
 
-  await captionWithUrl(page, `Click ${key}-1: its task opens`)
+  await captionWithUrl(page, `Click ${key}-1: its task opens in the side panel, beside the page (CEL-141)`)
   await first.click()
+  await expect(page).toHaveURL((url) => url.pathname === pagePath && url.searchParams.get("viewer") === `/${key}/1`)
+  const viewer = page.getByRole("complementary", { name: "Viewer" })
+  await expect(viewer.getByLabel("Title")).toHaveValue("Link task keys")
+  expect(await page.evaluate(() => (window as { stillTheSamePage?: boolean }).stillTheSamePage)).toBe(true)
+
+  await captionWithUrl(page, "Open in board: the task on its board")
+  await viewer.getByRole("button", { name: "Open in board" }).click()
   await expect(page).toHaveURL(new RegExp(`/${key}/1$`))
   const panel = taskPanel(page, `${key}-1`)
   await expect(panel.getByLabel("Title")).toHaveValue("Link task keys")

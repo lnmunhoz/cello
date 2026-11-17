@@ -68,16 +68,16 @@ export const openInPanel = (target: OpenTarget): boolean => {
 }
 
 /**
- * Opens task `key` in the main window, where the board is (see `taskRoute`): with `navigate` on the
- * board, by asking the board's window from a page framed in the viewer. False from a page alone in a
- * panel: the click should follow the task's link, which the desktop app opens on the board.
+ * Opens task `key` in the main window (see `taskRoute`): with `openHere` (task/openTaskHere.ts) in the
+ * main window itself, by asking the main window from a page framed in the viewer. False from a page
+ * alone in a panel: the click should follow the task's link, which the desktop app opens on the board.
  */
-export const openTask = (key: string, navigate: (task: { projectKey: string; number: number }) => void): boolean => {
+export const openTask = (key: string, openHere: (task: { projectKey: string; number: number }) => void): boolean => {
   const task = parseTaskKey(key)
   if (!task) return false
   switch (taskRoute({ self: window.self, top: window.top, search: window.location.search })) {
     case "router":
-      navigate(task)
+      openHere(task)
       return true
     case "parent":
       window.parent.postMessage({ type: "cello:task", key } satisfies OpenTaskMessage, window.location.origin)

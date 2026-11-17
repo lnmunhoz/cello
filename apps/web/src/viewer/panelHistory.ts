@@ -13,14 +13,27 @@ export interface Spot {
   readonly search: Readonly<Record<string, unknown>>
 }
 
-/** What the side panel shows at a spot: the viewer's item, the open task docked beside the board, or nothing. */
+/**
+ * What the side panel shows at a spot: the viewer's item, a task (docked beside its board, or in the
+ * viewer of another page, CEL-141), or nothing.
+ */
 export type SideContent = { readonly type: "viewer"; readonly url: string } | { readonly type: "task"; readonly key: string } | null
+
+const BOARD = "http://board.invalid"
+
+const taskContent = (pathname: string): SideContent => {
+  const task = parseTaskPath(pathname)
+  return task ? { type: "task", key: `${task.projectKey}-${task.number}` } : null
+}
 
 export const sideOf = (spot: Spot): SideContent => {
   const viewer = spot.search["viewer"]
-  if (typeof viewer === "string" && viewer !== "") return { type: "viewer", url: viewer }
-  const task = parseTaskPath(spot.pathname)
-  return task && spot.search["view"] !== "full" ? { type: "task", key: `${task.projectKey}-${task.number}` } : null
+  if (typeof viewer === "string" && viewer !== "") {
+    // The viewer's address is a path on the board, or another site's absolute URL (search.ts).
+    const onBoard = URL.parse(viewer, BOARD)
+    return (onBoard?.origin === BOARD ? taskContent(onBoard.pathname) : null) ?? { type: "viewer", url: viewer }
+  }
+  return spot.search["view"] !== "full" ? taskContent(spot.pathname) : null
 }
 
 const sameContent = (a: NonNullable<SideContent>, b: NonNullable<SideContent>): boolean =>

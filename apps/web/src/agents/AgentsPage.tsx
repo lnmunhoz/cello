@@ -23,6 +23,7 @@ import { TestRunFacts, TestRunLine, testRunOf } from "../presence/TestRun.tsx"
 import { useNow } from "../presence/useNow.ts"
 import { QueueRow, type QueueRowState } from "../review/QueueRow.tsx"
 import { useQueue } from "../review/useQueue.ts"
+import { TaskLink } from "../task/TaskKey.tsx"
 import { keepViewer } from "../viewer/search.ts"
 import { AgentLog } from "./AgentLog.tsx"
 import {
@@ -225,13 +226,10 @@ function TaskCard({ board, task }: { board: BoardState; task: Task }) {
         board={board}
         work={false}
         titleLink={(title) => (
-          <Link
-            to="/$projectKey/$number"
-            params={{ projectKey: project.key, number: String(task.number) }}
-            className="outline-none after:absolute after:inset-0 after:rounded-lg after:content-['']"
-          >
+          // In this page's side panel (CEL-141); ⌘-click opens it on its board in a new tab.
+          <TaskLink taskKey={task.key} className="outline-none after:absolute after:inset-0 after:rounded-lg after:content-['']">
             {title}
-          </Link>
+          </TaskLink>
         )}
       />
     </div>
