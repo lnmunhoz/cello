@@ -63,11 +63,83 @@ describe("redact", () => {
     ["a JSON api_key", '{ "api_key": "k-123456789abcdef" }', "k-123456789abcdef"],
     ["an ini secret", "[default]\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLE\n", "wJalrXUtnFEMI"],
     ["a 48-character hex key", "key 0123456789abcdef0123456789abcdef0123456789abcdef end", "0123456789abcdef0123456789abcdef0123456789abcdef"],
+    // CEL-108: lower-case names with an unquoted value, as in YAML or a config dump.
+    ["a YAML password", "db:\n  password: hunter2hunter2\n", "hunter2hunter2"],
+    ["a YAML secret", "secret: s3cr3tvalue99", "s3cr3tvalue99"],
+    ["a YAML token", "  token: abcd1234efgh5678", "abcd1234efgh5678"],
+    ["an access_token", "access_token: ya29.a0Af8kLm2nOp", "ya29.a0Af8kLm2nOp"],
+    ["a spaced name = value", "password = hunter2hunter2", "hunter2hunter2"],
+    ["a name, then its value after a space", "apikey abc123def456ghi", "abc123def456ghi"],
+    // Headers.
+    ["an X-Api-Key header", "curl -H 'X-Api-Key: k3yv4lue99' https://api.example.com", "k3yv4lue99"],
+    ["a lower-case x-api-key header", "x-api-key: zz88yy77xx66", "zz88yy77xx66"],
+    ["a Basic authorization header", "Authorization: Basic dXNlcjpodW50ZXIy", "dXNlcjpodW50ZXIy"],
+    ["a token authorization header", '-H "Authorization: token 0a1b2c3d4e5f"', "0a1b2c3d4e5f"],
+    ["a Cookie header", "Cookie: session=abc123sessionvalue; theme=dark", "abc123sessionvalue"],
+    ["a Set-Cookie header", "Set-Cookie: sid=s3ss10nvalue; Path=/; HttpOnly", "s3ss10nvalue"],
+    // Passwords on a command line.
+    ["curl -u", "curl -s -u lucy:hunter2pass https://example.com", "hunter2pass"],
+    ["curl --user", "curl --user lucy:hunter2pass https://example.com", "hunter2pass"],
+    ["curl --user=", "curl --user=lucy:hunter2pass https://example.com", "hunter2pass"],
+    ["mysql -p with the password attached", "mysql -uroot -phunter2pass app", "hunter2pass"],
+    ["mysqldump -p", "mysqldump -u root -phunter2pass app > dump.sql", "hunter2pass"],
   ])("masks %s", (_, text, secret) => {
     const out = redact(text)
     expect(out.masked).toBe(true)
     expect(out.text).not.toContain(secret)
     // Not even its start, unless it's a key whose start only says what kind it is.
     if (!/^[0-9a-f]{48}$/.test(secret)) expect(out.text).not.toContain(secret.slice(0, 4))
+  })
+
+  it("keeps the name and the rest of the line readable around what it masks", () => {
+    expect(redact("db:\n  password: hunter2hunter2\n  host: db.internal").text).toBe("db:\n  password: ••••••••\n  host: db.internal")
+    expect(redact("curl -u lucy:hunter2pass https://example.com").text).toBe("curl -u lucy:•••••••• https://example.com")
+    expect(redact("mysql -uroot -phunter2pass app").text).toBe("mysql -uroot -p•••••••• app")
+    expect(redact("Cookie: session=abc123sessionvalue").text).toBe("Cookie: ••••••••")
+  })
+
+  it("leaves code and commands that only look like those shapes alone", () => {
+    const plain = [
+      // a call, a type, a property: the value isn't a literal, or has no digit
+      "const token = getToken()",
+      "const token = getToken2(session)",
+      "token: string",
+      "password: z.string().min(8)",
+      "secret: process.env.SECRET",
+      "  access_token: ${{ secrets.ACCESS_TOKEN }}",
+      // counts, not secrets: no letter
+      '"input_tokens": 12345678, "cache_read_input_tokens": 98765432',
+      // too short to be a password
+      "password: hunter2",
+      // -u and -p that aren't curl's or mysql's
+      "docker run -u 1000:1000 node:22",
+      "git push -u origin main",
+      "ssh -p2222 lucy@example.com",
+      "tar -pxvf archive.tar",
+      "mkdir -p apps/server/src",
+      // a header that only names the cookie, a TypeScript type
+      "cookie: string",
+      "x-api-key header is required",
+    ].join("\n")
+    expect(redact(plain)).toEqual({ text: plain, masked: false })
+  })
+
+  // A ReDoS guard, not a speed target: all of these take well under a second, while one pattern that
+  // backtracks quadratically (say /\bcurl\b[^\n]*?[ \t]-u/) takes about five on a single one of them.
+  it("stays fast on long lines built to make a pattern backtrack", () => {
+    const pumps = [
+      "token=".repeat(50_000),
+      "token: ".repeat(50_000),
+      "-u a:".repeat(50_000),
+      "curl -u ".repeat(50_000),
+      "mysql -p".repeat(50_000),
+      "Cookie: a".repeat(50_000),
+      "x-api-key:".repeat(50_000),
+      "Authorization: Basic ".repeat(50_000),
+      "password ".repeat(50_000),
+    ]
+    const started = performance.now()
+    for (const text of pumps) redact(text)
+    expect(performance.now() - started).toBeLessThan(2_000)
   })
 })
