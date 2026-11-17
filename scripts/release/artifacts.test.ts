@@ -36,11 +36,13 @@ describe("artifactSteps", () => {
     expect(shown({ ...mac, downloads: false })).toEqual([["./apps/cli", "bun run build --outfile ./release/stage/cello --target bun-darwin-arm64"]])
   })
 
-  it("the downloads: the cello zip, then Cello.app packaged with that same build as a DMG and a zip, moved into release/", () => {
+  it("the downloads: the cello zip, then Cello.app packaged with that same build, its seal checked, as a DMG and a zip moved into release/", () => {
     expect(shown(mac)).toEqual([
       ["./apps/cli", "bun run build --outfile ./release/stage/cello --target bun-darwin-arm64"],
       ["./release/stage", "zip -j ./release/cello-v0.3.0-darwin-arm64.zip cello"],
       ["./apps/desktop", "bun run package --cli ./release/stage/cello --arch arm64 --artifacts"],
+      // Signed ad hoc or with a Developer ID, a broken seal (a file changed after signing) fails the build.
+      ["./apps/desktop", "codesign --verify --deep --strict --verbose=2 dist/mac-arm64/Cello.app"],
       ["./apps/desktop", "mv dist/Cello-v0.3.0-mac-arm64.dmg ./release/Cello-v0.3.0-mac-arm64.dmg"],
       ["./apps/desktop", "mv dist/Cello-v0.3.0-mac-arm64.zip ./release/Cello-v0.3.0-mac-arm64.zip"],
     ])
@@ -51,6 +53,7 @@ describe("artifactSteps", () => {
       "bun run build --outfile ./release/stage/cello --target bun-darwin-x64",
       "zip -j ./release/cello-v0.3.0-darwin-x64.zip cello",
       "bun run package --cli ./release/stage/cello --arch x64 --artifacts",
+      "codesign --verify --deep --strict --verbose=2 dist/mac/Cello.app",
       "mv dist/Cello-v0.3.0-mac-x64.dmg ./release/Cello-v0.3.0-mac-x64.dmg",
       "mv dist/Cello-v0.3.0-mac-x64.zip ./release/Cello-v0.3.0-mac-x64.zip",
     ])
@@ -94,7 +97,7 @@ describe("buildArtifacts", () => {
     })
     expect(fs.readdirSync(path.join(dir, "release"))).toEqual(["stage"])
     expect(STAGED_CLI).toBe("release/stage/cello")
-    expect(ran).toEqual(["bun", "zip", "bun", "mv", "mv"])
+    expect(ran).toEqual(["bun", "zip", "bun", "codesign", "mv", "mv"])
     expect(files).toEqual([
       path.join(dir, "release/cello-v0.3.0-darwin-arm64.zip"),
       path.join(dir, "release/Cello-v0.3.0-mac-arm64.dmg"),

@@ -23,7 +23,7 @@
     "artifactName": "Cello-v${version}-mac-${arch}.${ext}",
     "category": "public.app-category.developer-tools",
     "icon": "resources/Cello.icon",
-    "identity": null,
+    "identity": "-",
     "hardenedRuntime": false
   }
 }

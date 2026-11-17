@@ -1,4 +1,4 @@
-// `bun run package`: an unsigned Cello.app for Apple silicon in dist/mac-arm64/, with the compiled
+// `bun run package`: a Cello.app signed ad hoc, for Apple silicon, in dist/mac-arm64/, with the compiled
 // `cello` binary (and the web app it embeds) at Contents/Resources/cello. Builds the CLI first;
 // `--skip-cli` reuses apps/cli/dist/cello as it is; `--cli <binary>` bundles that binary instead. `--install` also copies the app to /Applications, where
 // Launchpad, Spotlight and Raycast list it (they don't look in dist/), then unregisters the build folders'
@@ -37,13 +37,14 @@ const builderConfig = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cello-pac
 fs.writeFileSync(builderConfig, JSON.stringify(config, null, 2))
 
 run([process.execPath, path.join(desktopDir, "scripts/build.ts")], desktopDir)
-// Unsigned unless --sign: no identity, and no looking for one in the keychain (macOS asks to confirm the first
-// launch). Signed, electron-builder takes the certificate from CSC_LINK / CSC_KEY_PASSWORD.
-run(
-  [path.join(desktopDir, "node_modules/.bin/electron-builder"), "--mac", "--config", builderConfig],
-  desktopDir,
-  packaging.sign ? {} : { CSC_IDENTITY_AUTO_DISCOVERY: "false" },
-)
+// Signed ad hoc unless --sign, never with a Developer ID it finds in the keychain (macOS asks to confirm the
+// first launch). Signed, electron-builder takes the certificate from CSC_LINK / CSC_KEY_PASSWORD.
+// CSC_FOR_PULL_REQUEST: electron-builder skips all signing when GITHUB_BASE_REF is set (a pull request's
+// workflow run), which would leave the bundle's seal broken; those runs never get the signing secrets anyway.
+run([path.join(desktopDir, "node_modules/.bin/electron-builder"), "--mac", "--config", builderConfig], desktopDir, {
+  CSC_FOR_PULL_REQUEST: "true",
+  ...(packaging.sign ? {} : { CSC_IDENTITY_AUTO_DISCOVERY: "false" }),
+})
 
 // Electron's demo app is already gone: scripts/after-pack.cjs removes it before signing and the DMG.
 const app = path.join(desktopDir, packagedApp(packaging.arch))

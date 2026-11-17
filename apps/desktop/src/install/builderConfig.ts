@@ -5,7 +5,11 @@
 //     (electronDist), so each architecture is packaged on a Mac of its own kind (the release workflow's runners).
 //   - `--artifacts`: also the DMG and zip a release attaches (Cello-v<version>-mac-<arch>.dmg and .zip in dist/).
 //   - `--sign`: signed with the Developer ID certificate in CSC_LINK, with the hardened runtime, and notarized
-//     when APPLE_API_KEY, APPLE_API_KEY_ID and APPLE_API_ISSUER are set; without it the app is unsigned.
+//     when APPLE_API_KEY, APPLE_API_KEY_ID and APPLE_API_ISSUER are set. Without it, signed ad hoc
+//     (electron-builder.json's identity "-"): no developer named, but the whole bundle, helpers and
+//     Resources/cello included, is sealed again after electron-builder rewrote it, so a downloaded copy gets
+//     macOS's "can't verify the developer" prompt (Open Anyway) instead of "is damaged". electron-builder
+//     only falls back to ad hoc after finding no keychain identity whose name contains "-".
 
 type Resource = { readonly from: string; readonly to: string }
 type BuilderConfig = { readonly extraResources?: ReadonlyArray<Resource>; readonly mac?: Record<string, unknown> } & Record<string, unknown>
@@ -23,10 +27,11 @@ const ENTITLEMENTS = "resources/entitlements.mac.plist"
 
 export const packagingConfig = <C extends BuilderConfig>(config: C, packaging: Packaging): C => {
   const targets = packaging.artifacts ? ["dmg", "zip"] : ["dir"]
-  const { identity: _unsigned, ...mac } = config.mac ?? {}
+  // Signed: no identity at all, so electron-builder takes the certificate CSC_LINK imports.
+  const { identity: _adHoc, ...developerId } = config.mac ?? {}
   const signing = packaging.sign
-    ? { ...mac, hardenedRuntime: true, entitlements: ENTITLEMENTS, entitlementsInherit: ENTITLEMENTS }
-    : { ...mac, identity: config.mac?.identity ?? null }
+    ? { ...developerId, hardenedRuntime: true, entitlements: ENTITLEMENTS, entitlementsInherit: ENTITLEMENTS }
+    : { ...config.mac }
   return { ...config, mac: { ...signing, target: targets.map((target) => ({ target, arch: [packaging.arch] })) } }
 }
 

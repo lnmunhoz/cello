@@ -9,10 +9,11 @@
 # on to (re)publish that release. Pull requests that change the build scripts run the build jobs too, never
 # publish, so a broken build shows before a tag does.
 #
-# Cello.app is unsigned until the repository has all five signing secrets: CSC_LINK (the Developer ID
-# Application certificate as a base64 .p12) and CSC_KEY_PASSWORD, plus APPLE_API_KEY (the App Store Connect
-# API key's .p8 contents), APPLE_API_KEY_ID and APPLE_API_ISSUER for notarization. With all five, it's signed
-# and notarized; with only some, the build fails rather than ship unsigned by mistake. docs/releases.md.
+# Cello.app is signed ad hoc (sealed, no developer named: macOS offers Open Anyway on the first launch) until
+# the repository has all five signing secrets: CSC_LINK (the Developer ID Application certificate as a base64
+# .p12) and CSC_KEY_PASSWORD, plus APPLE_API_KEY (the App Store Connect API key's .p8 contents),
+# APPLE_API_KEY_ID and APPLE_API_ISSUER for notarization. With all five, it's signed with the Developer ID
+# and notarized; with only some, the build fails rather than ship ad hoc by mistake. docs/releases.md.
 name: Release
 
 on:
@@ -44,9 +45,11 @@ on:
 permissions:
   contents: read
 
-# One run per tag at a time, never cancelled midway; a pull request's newer push replaces its older run.
+# One run per tag at a time, never cancelled midway: a tag push (ref_name v0.5.0) and a run by hand for the same
+# tag share a group, so they can't publish at once. A pull request (ref_name 123/merge) gets its own, and its
+# newer push replaces its older run.
 concurrency:
-  group: release-${{ inputs.tag || github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -136,13 +139,25 @@ jobs:
             echo "Signing Cello.app with the certificate in CSC_LINK, and notarizing it."
           elif (( ${#missing[@]} == ${#names[@]} )); then
             unset "${names[@]}"
-            echo "Cello.app is unsigned: no signing secrets (docs/releases.md says how to add them)."
+            echo "Cello.app is signed ad hoc: no signing secrets (docs/releases.md says how to add them)."
           else
-            echo "::error::Signing is half set up: missing ${missing[*]}. Add them, or remove the others to build unsigned."
+            echo "::error::Signing is half set up: missing ${missing[*]}. Add them, or remove the others to sign ad hoc."
             exit 1
           fi
           bun scripts/release/hooks.ts artifacts "$VERSION"
           ls -l release
+
+      # The build already checked the packaged app's seal (scripts/release/artifacts.ts). This checks the copy
+      # people download, inside the DMG: a broken seal is what macOS calls "damaged". Mounted read-only and hidden.
+      - name: Check the seal of the app in the DMG
+        run: |
+          set -euo pipefail
+          mount="$RUNNER_TEMP/cello-dmg"
+          mkdir -p "$mount"
+          hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mount" release/Cello-v"$VERSION"-mac-${{ matrix.arch }}.dmg
+          trap 'hdiutil detach "$mount"' EXIT
+          codesign --verify --deep --strict --verbose=2 "$mount/Cello.app"
+          codesign --display --verbose=2 "$mount/Cello.app" 2>&1 | grep -E '^(Identifier|Signature|Authority|TeamIdentifier)='
 
       - name: Upload the downloads
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

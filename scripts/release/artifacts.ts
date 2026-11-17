@@ -11,6 +11,7 @@
 import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
+import { packagedApp } from "../../apps/desktop/src/install/builderConfig.ts"
 
 export type ArtifactOptions = {
   readonly root: string
@@ -63,6 +64,13 @@ export const artifactSteps = (options: ArtifactOptions): BuildStep[] => {
         kind: "app",
         cwd: desktopDir,
         cmd: ["bun", "run", "package", "--cli", staged, "--arch", arch, "--artifacts", ...(options.sign ? ["--sign"] : [])],
+      },
+      // Signed ad hoc or with a Developer ID, every file must match the seal: a broken one is what macOS calls
+      // "damaged" on a downloaded copy, so it fails the build here instead.
+      {
+        kind: "app",
+        cwd: desktopDir,
+        cmd: ["codesign", "--verify", "--deep", "--strict", "--verbose=2", packagedApp(arch === "x64" ? "x64" : "arm64")],
       },
       { kind: "app", cwd: desktopDir, cmd: ["mv", `dist/${names.dmg}`, out(names.dmg)] },
       { kind: "app", cwd: desktopDir, cmd: ["mv", `dist/${names.app}`, out(names.app)] },

@@ -25,9 +25,11 @@ describe("bundlingCli", () => {
 })
 
 describe("packagingConfig", () => {
-  it("by default: an unsigned Cello.app folder for Apple silicon, as electron-builder.json has it", () => {
+  it("by default: an ad-hoc signed Cello.app folder for Apple silicon, as electron-builder.json has it", () => {
     expect(packagingConfig(config, { arch: "arm64", artifacts: false, sign: false })).toEqual(config)
-    expect(config.mac).toMatchObject({ target: [{ target: "dir", arch: ["arm64"] }], identity: null, hardenedRuntime: false })
+    // "-": signed ad hoc, so the whole bundle (helpers, Resources/cello) is sealed again after electron-builder
+    // rewrote it, and a downloaded copy gets macOS's "can't verify the developer" prompt instead of "is damaged".
+    expect(config.mac).toMatchObject({ target: [{ target: "dir", arch: ["arm64"] }], identity: "-", hardenedRuntime: false })
   })
 
   it("for a release: the DMG and zip for the given architecture, named as the release attaches them", () => {
@@ -43,7 +45,7 @@ describe("packagingConfig", () => {
     expect(packagingConfig(config, { arch: "x64", artifacts: false, sign: false }).mac.target).toEqual([{ target: "dir", arch: ["x64"] }])
   })
 
-  it("signed: no identity: null, so electron-builder signs with CSC_LINK's certificate, with the hardened runtime and the entitlements Electron and Bun need", () => {
+  it("signed: no ad-hoc identity, so electron-builder signs with CSC_LINK's certificate, with the hardened runtime and the entitlements Electron and Bun need", () => {
     const signed = packagingConfig(config, { arch: "arm64", artifacts: true, sign: true })
     expect(signed.mac).not.toHaveProperty("identity")
     expect(signed.mac).toMatchObject({
@@ -52,7 +54,7 @@ describe("packagingConfig", () => {
       entitlementsInherit: "resources/entitlements.mac.plist",
     })
     expect(fs.existsSync(path.join(import.meta.dirname, "../..", String(signed.mac.entitlements)))).toBe(true)
-    expect(config.mac.identity).toBeNull() // not mutated
+    expect(config.mac.identity).toBe("-") // not mutated
   })
 
   it("strips Electron's demo app before signing and the DMG: the afterPack hook exists", () => {

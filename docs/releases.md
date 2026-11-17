@@ -68,6 +68,7 @@ The Release workflow (`.github/workflows/release.yml`) starts when a `vX.Y.Z` ta
 1. **Build**, two jobs in parallel, one per Mac architecture, each on a runner of that kind: `macos-15` (Apple silicon) and `macos-15-intel` (Intel; GitHub's last Intel Mac image, supported until August 2027). Each checks out the tag, refuses when the tag and package.json's version disagree, installs Bun 1.4.4 and the dependencies (`bun install --frozen-lockfile`, with Bun's and Electron's downloads cached), then runs **`bun scripts/release/hooks.ts artifacts <version>`**, the same code `--local-artifacts` runs on the Mac:
    - `cello`, built for the runner's architecture (`--target bun-darwin-arm64` or `bun-darwin-x64`), zipped as `cello-vX.Y.Z-darwin-<arch>.zip`
    - Cello.app packaged with that same binary (`bun run package --cli … --arch <arch> --artifacts`) as `Cello-vX.Y.Z-mac-<arch>.dmg` (drag it to Applications) and `Cello-vX.Y.Z-mac-<arch>.zip` (what the app's own updates will use, CEL-140)
+   - `codesign --verify --deep --strict` on the packaged app, then again on the copy inside the DMG: a broken seal (a file changed after signing) is what macOS calls "damaged" on a downloaded copy, so it fails the build instead
 
    The three files are kept on the run's page for 14 days.
 2. **Publish**, once both builds passed: creates the GitHub release `Cello vX.Y.Z` on the tag, its notes the version's CHANGELOG.md section (`bun scripts/release/publish.ts`), with all six files. If the release already exists (say `--local-artifacts` made it first), it updates it instead: same-named files are replaced, the others added.
@@ -93,9 +94,17 @@ The tag must exist. **Build only** is how to test a change to the workflow or th
 
 ### Signing and notarizing Cello.app
 
-Today Cello.app is **unsigned**. A downloaded copy carries macOS's quarantine flag, and macOS refuses to open it: it says the app "is damaged" or "can't be checked for malicious software". To open it anyway, once: `xattr -dr com.apple.quarantine /Applications/Cello.app`. Apps built on this Mac and never downloaded aren't affected.
+Today Cello.app is **signed ad hoc** (`"identity": "-"` in `apps/desktop/electron-builder.json`): sealed, every helper and `Resources/cello` included, but with no developer named and not notarized. What someone who downloads it sees, on the **first launch only**:
 
-Signing turns on by itself once the repository has these **five secrets** (Settings → Secrets and variables → Actions), which need an Apple Developer account:
+1. Opening it, macOS says it "can't verify the developer" (or that Apple "could not verify Cello is free of malware") and offers only Done or Move to Trash. Click Done.
+2. **System Settings → Privacy & Security**, scroll to Security: "Cello was blocked…" → **Open Anyway**, then confirm with Touch ID or the password.
+3. From then on it opens normally.
+
+If macOS says the app "is damaged" instead (it shouldn't, since the build checks the seal), the fallback is to clear the quarantine flag once: `xattr -dr com.apple.quarantine /Applications/Cello.app`. Apps built on this Mac and never downloaded aren't affected by any of this.
+
+The downside of ad hoc: its identity is the build's own hash, so it changes with every release. macOS ties permissions it asked about (folders, notifications, automation) to that identity, so after installing an update those prompts may come back once. One-click updates (CEL-140) need a real Developer ID: macOS only installs an update over an app signed by the same developer.
+
+Developer ID signing turns on by itself once the repository has these **five secrets** (Settings → Secrets and variables → Actions), which need an Apple Developer account:
 
 | Secret | What it is |
 | --- | --- |
@@ -105,7 +114,9 @@ Signing turns on by itself once the repository has these **five secrets** (Setti
 | `APPLE_API_KEY_ID` | that key's ID |
 | `APPLE_API_ISSUER` | its issuer ID |
 
-With all five, each build job signs Cello.app with the hardened runtime (`apps/desktop/resources/entitlements.mac.plist` gives Electron and the bundled Bun binary the JIT they need) and notarizes it through electron-builder, so it opens with no warning. With none, it's unsigned, as today. With only some, the build fails instead of quietly shipping unsigned. Pull requests never get them. The standalone `cello` zip stays unsigned either way (Terminal downloads with curl aren't quarantined; a browser download needs the `xattr` line above, on `cello`).
+With all five, each build job signs Cello.app with the Developer ID and the hardened runtime (`apps/desktop/resources/entitlements.mac.plist` gives Electron and the bundled Bun binary the JIT they need) and notarizes it through electron-builder, so it opens with no warning. With none, it's signed ad hoc, as above. With only some, the build fails instead of quietly shipping the wrong thing. Pull requests never get them. The standalone `cello` zip isn't signed either way (Terminal downloads with curl aren't quarantined; a browser download needs the `xattr` line above, on `cello`).
+
+**Before the first signed release is trusted**, prove it with a build-only run once the secrets are set: `gh workflow run release.yml -f tag=<the latest tag>` (publish off). Check that both build jobs log "Signing Cello.app with the certificate in CSC_LINK, and notarizing it", that notarization succeeded, and that the DMG check shows `Authority=Developer ID Application: …` and a `TeamIdentifier`. Then download a DMG from the run's page on a Mac and open it: no prompt at all. Only after that does the next `bun run release` ship signed builds. Signing and notarization have never run in this workflow until then, and the entitlements may need adjusting.
 
 ## The changelog
 
@@ -136,7 +147,7 @@ Apart from that fetch, it writes, commits, tags, pushes, releases and deploys no
 | `patch` / `minor` / `major` / `1.2.3` | The new version. Patch is the default; minor and major only when Lucas asks. |
 | `--dry-run`, `-d` | The preview above. |
 | `--no-deploy` | Release (tag, push; GitHub Actions still builds and publishes) but leave the live board alone: no backup, `apps/cli/dist/cello` untouched, no restart. The build waits in `release/stage/cello`; `bun scripts/release/deploy.ts` deploys it later (backup, rename, restart). Tests and builder agents never deploy. |
-| `--local-artifacts` | For when GitHub Actions is down or broken: this Mac builds the downloads itself (the `cello` zip, Cello.app's DMG and zip, Apple silicon only) into `release/` and creates the GitHub release with them (`bun scripts/release/publish.ts`, with gh, which must be logged in). The tag still starts the workflow; if it runs later, it adds the Intel files and replaces the Apple silicon ones with its own. |
+| `--local-artifacts` | For when GitHub Actions is down or broken: this Mac builds the downloads itself (the `cello` zip, Cello.app's DMG and zip, Apple silicon only) into `release/` and creates the GitHub release with them (`bun scripts/release/publish.ts`, with gh, which must be logged in; gh uses a `GH_TOKEN` or `GITHUB_TOKEN` in the environment first, when one is set, before its own login, so unset a stale one). The tag still starts the workflow; if it runs later, it adds the Intel files and replaces the Apple silicon ones with its own. |
 | `--skip-desktop` | Only with `--local-artifacts`: leave Cello.app out, when packaging it can't work on this machine (electron-builder's error is printed). The `cello` zip is still attached. |
 
 ## When a release fails
