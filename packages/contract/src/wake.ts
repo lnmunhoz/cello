@@ -75,7 +75,7 @@ export const WAKE_WHY_TEXT: Record<WakeWhy, string> = {
   answers: "answers to its questions",
   send_back: "a Send back",
   reaction: "a reaction",
-  approved: "your approval, to merge",
+  approved: "an approval to merge",
   manual: "cello sessions wake",
 }
 
