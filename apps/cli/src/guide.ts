@@ -662,7 +662,7 @@ cello inbox --json
 **The human sees each comment's receipt**, like a messenger's ticks, under their comment on the card:
 
 - **Sent** while it waits in your inbox.
-- **✓ Delivered to 2fd0505c · 12s** once your session takes it (the hook, \`cello inbox\` or \`--wait\`). Showing it with \`cello context\` doesn't count.
+- **✓ Delivered to 2fd0505c · Claude desktop · 12s** once your session takes it (the hook, \`cello inbox\` or \`--wait\`), with where your session runs ("Woken by Cello" when a run Cello woke took it). Showing it with \`cello context\` doesn't count.
 - **✓✓ Answered** once your session, or one of its subagents, comments on the task after it or reacts to it. So answer on the card, even with just a 👍.
 - **Not delivered** when no session held the claim as they wrote it, and no agent had ever held it either (otherwise the comment reopened the task for the last one, above).
 
@@ -671,7 +671,9 @@ Under their latest comment, until you answer it, a status row in the thread (wit
 - you're working and haven't taken it yet: "2fd0505c gets this at its next step"
 - a \`cello inbox --wait\` of yours is running: "2fd0505c is waiting for you: it gets this in about a second"
 - you're idle with no waiter: "2fd0505c is idle: it gets this when it next works"
-- your session has ended: "2fd0505c ended: it gets this if the session is resumed"
+- your session has ended: "2fd0505c ended: it gets this if the session is resumed", with "(waking is off for this project)" when that's why Cello won't wake you
+- your session has ended and Cello will wake you (see "When your process is gone, Cello can wake you"): "Waking 2fd0505c in 30 s · more comments join this wake", counting down, with a **Wake now** button that skips the wait; then "Waking 2fd0505c… starting Claude Code", with your mark already thinking, until you take the comment
+- Cello can't wake you: "Not waking 2fd0505c:" and why ("the limit of wakes for this task in the last hour is reached…"), as soon as the human comments
 - you took it and are working: "2fd0505c got your comment and is working on it…", with your mark thinking (it sways). Taking it through \`cello inbox --wait\` counts as waking up: the row says this from that moment, not from your next check-in
 - nobody holds the claim and no agent ever did: "No agent holds this task: nobody will get this"
 
@@ -781,7 +783,7 @@ How a woken run differs from a normal turn:
 - **One turn, at most 40 agentic steps.** Do what the comment asks, answer, and stop. Big follow-up work waits for the human.
 - **Your output is logged** to \`<data folder>/runs/<session>/<time>.jsonl\` (the newest 20 per session; backups leave them out). The card links it, with a Stop button while the run goes.
 
-Cello doesn't wake a session when its \`cello inbox --wait\` is running (it hears the comment by itself), when its process is still open (two processes on one conversation would corrupt it; the comment arrives with its next hook), when it checked in less than 2 minutes ago, when waking is off for the project, past the cap (3 wakes per task per hour unless the human changes it), when it ran with \`bypassPermissions\` (or a mode Claude Code doesn't have), when its folder isn't a folder on this machine, or when its conversation isn't there. A batched wake for several of your tasks counts toward each one's cap. The card then says why, and the comment waits in the inbox as before.
+Cello doesn't wake a session when its \`cello inbox --wait\` is running (it hears the comment by itself), when its process is still open (two processes on one conversation would corrupt it; the comment arrives with its next hook), when it checked in less than 2 minutes ago, when waking is off for the project, past the cap (3 wakes per task per hour unless the human changes it), when it ran with \`bypassPermissions\` (or a mode Claude Code doesn't have), when its folder isn't a folder on this machine, or when its conversation isn't there. A batched wake for several of your tasks counts toward each one's cap. The card then says why, and the comment waits in the inbox as before. When your process is gone, the reasons that won't change by themselves (waking off, the cap, the mode, the folder, the conversation, the CLI) show as soon as the human comments; the others when the 30 seconds are up. Before they send, the comment box says when a comment will wake you: "Commenting wakes 2fd0505c (30 s after your last comment)".
 
 An orchestrator (or the human) can wake a session now, with the same checks, and list its runs:
 

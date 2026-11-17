@@ -3,15 +3,16 @@ import type { Comment, Task } from "@cello/contract/entities"
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { useSearch } from "@tanstack/react-router"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
-import { MoreHorizontalIcon, RotateCcwIcon } from "lucide-react"
+import { AlarmClockIcon, MoreHorizontalIcon, RotateCcwIcon } from "lucide-react"
 import { Fragment, type ReactNode, useId, useState } from "react"
 import { Button } from "../components/ui/Button.tsx"
 import { Textarea } from "../components/ui/Input.tsx"
 import { Markdown } from "../components/ui/Markdown.tsx"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.tsx"
-import { commands, commentsFamily } from "../lib/cello.ts"
+import { commands, commentsFamily, wakeSettingsFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
 import { Author } from "../presence/Author.tsx"
+import { useNow } from "../presence/useNow.ts"
 import { type Who, whoOf } from "../presence/model.ts"
 import { ScreenshotBox, ScreenshotThumbs } from "../screenshots/Screenshots.tsx"
 import { uploadUrl } from "../screenshots/screenshots.ts"
@@ -19,7 +20,7 @@ import { useScreenshotUpload } from "../screenshots/useScreenshotUpload.ts"
 import { addScreenshot, removeScreenshot, toComment, useCommentDraft } from "./commentDraft.ts"
 import { Reactions } from "./Reactions.tsx"
 import { CommentStatusRow, ReceiptTicks } from "./Receipt.tsx"
-import { reopenOf, reopenWords, statusCommentId } from "./receipts.ts"
+import { reopenOf, reopenWords, statusCommentId, wakeHintOf, wakeHintWords } from "./receipts.ts"
 import type { TaskSearch } from "./view.ts"
 
 interface CommentsProps {
@@ -51,6 +52,10 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
   const statusAfter = statusCommentId(comments)
   // On a task nobody holds, a comment goes to the agent that last worked on it and reopens it (CEL-110).
   const reopen = reopenOf(board, task)
+  // A comment that will wake that session, or the holder's, says so beforehand (CEL-136).
+  const wakeSettings = useWakeSettings(board.projects[task.projectId]?.key)
+  const now = useNow()
+  const wakeHint = wakeHintOf(board, task, wakeSettings, now)
 
   const submit = async () => {
     if (toSend === null) return
@@ -96,11 +101,21 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
           }}
         />
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {reopen ? (
-            <p className="mr-auto flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted" data-reopen-hint={reopen.reopens ? "reopens" : "gives-back"}>
-              <RotateCcwIcon aria-hidden className="size-3 shrink-0" />
-              <span className="min-w-0">{reopenWords(task, reopen)}</span>
-            </p>
+          {reopen || wakeHint ? (
+            <div className="mr-auto flex min-w-0 flex-col gap-1 text-xs leading-4 text-muted">
+              {reopen ? (
+                <p className="flex min-w-0 items-center gap-1.5" data-reopen-hint={reopen.reopens ? "reopens" : "gives-back"}>
+                  <RotateCcwIcon aria-hidden className="size-3 shrink-0" />
+                  <span className="min-w-0">{reopenWords(task, reopen)}</span>
+                </p>
+              ) : null}
+              {wakeHint ? (
+                <p className="flex min-w-0 items-center gap-1.5" data-wake-hint>
+                  <AlarmClockIcon aria-hidden className="size-3 shrink-0" />
+                  <span className="min-w-0">{wakeHintWords(wakeHint)}</span>
+                </p>
+              ) : null}
+            </div>
           ) : null}
           {uploading > 0 ? <span className="text-xs text-muted">Uploading…</span> : null}
           <Button variant="secondary" size={actions ? "md" : "sm"} onClick={submit} disabled={toSend === null}>
@@ -111,6 +126,12 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
       </div>
     </section>
   )
+}
+
+/** The project's wake settings (CEL-92), once they've loaded; null before, or without a project. */
+function useWakeSettings(projectKey: string | undefined) {
+  const result = useAtomValue(wakeSettingsFamily(projectKey ?? ""))
+  return projectKey !== undefined && AsyncResult.isSuccess(result) ? result.value : null
 }
 
 /** `target`: the comment the task was opened at; it's scrolled to on arrival and flashes once. `comments`: the thread, for its receipt. */

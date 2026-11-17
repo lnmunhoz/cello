@@ -63,7 +63,8 @@ export const hostOf = (session: OriginSession): Origin | null => {
 /** A woken run of it is going right now. */
 export const wokenRunning = (session: Pick<OriginSession, "lastRun">): boolean => session.lastRun != null && session.lastRun.endedAt === null
 
-const WOKEN: Origin = { kind: "woken", label: "Woken by Cello" }
+/** A session Cello is running right now (CEL-92). */
+export const WOKEN: Origin = { kind: "woken", label: "Woken by Cello" }
 
 /** Where it runs now: Woken by Cello while a woken run goes, else its host; null when unknown. */
 export const originOf = (session: OriginSession): Origin | null => (wokenRunning(session) ? WOKEN : hostOf(session))

@@ -1,12 +1,17 @@
 // Delivery receipts on comments (CEL-76): ticks under each of Lucas's comments (Sent, ✓ Delivered to
-// 2fd0505c · 12s, ✓✓ Answered), and, under his latest until it's answered, a status row with the agent's
-// mark, like a chat's typing indicator ("2fd0505c got your comment and is working on it…"). The model is
-// ./receipts.ts; both follow the board live (comment.delivered, session.waiting, presence).
+// 2fd0505c · Claude desktop · 12s, ✓✓ Answered), and, under his latest until it's answered, a status row
+// with the agent's mark, like a chat's typing indicator ("2fd0505c got your comment and is working on
+// it…"). While Cello wakes the session (CEL-136) the row says so: "Waking 0ee027f0 in 30 s", counting
+// down, with Wake now; then "starting Claude Code", the mark at work. The model is ./receipts.ts; both
+// follow the board live (comment.delivered, session.waiting, presence, the task's wake).
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Comment, Task } from "@cello/contract/entities"
+import { useAtomSet } from "@effect/atom-react"
 import { CheckCheckIcon, CheckIcon, CircleSlashIcon, ClockIcon } from "lucide-react"
 import { AgentMark } from "../components/ui/AgentMark.tsx"
-import { useNow } from "../presence/useNow.ts"
+import { Button } from "../components/ui/Button.tsx"
+import { commands } from "../lib/cello.ts"
+import { useCountdownNow, useNow } from "../presence/useNow.ts"
 import { type CommentStatus, commentStatus, durationShort, receiptOf, receiptTitle, sentWords, unsentTone } from "./receipts.ts"
 
 /** The ticks under one of Lucas's comments; nothing under an agent's. */
@@ -38,7 +43,8 @@ export function ReceiptTicks({ board, task, comment, comments }: { board: BoardS
       return (
         <p className={`${base} text-muted`} data-receipt="delivered" title={title}>
           <CheckIcon aria-hidden className="size-3.5" />
-          Delivered to <span className="font-medium text-ink">{r.to.short}</span> · {durationShort(r.after)}
+          Delivered to <span className="font-medium text-ink">{r.to.short}</span>
+          {r.origin ? <span data-receipt-origin> · {r.origin}</span> : null} · {durationShort(r.after)}
         </p>
       )
     case "answered":
@@ -54,7 +60,8 @@ export function ReceiptTicks({ board, task, comment, comments }: { board: BoardS
 /**
  * The mark in the colour of whoever works on it (a subagent on the task, else the session), amber when
  * idle, grey when nobody holds the task, it ended, or the row is about a session that let the task go.
- * It thinks (CEL-69's loop) while the holder works on the comment it took, and never plays an entry here.
+ * It thinks (CEL-69's loop) while the holder works on the comment it took, or while Cello starts it
+ * (CEL-136), and never plays an entry here.
  */
 function StatusMark({ status: { reach, mood } }: { status: CommentStatus }) {
   if (reach === null || reach.kind === "nobody") return <AgentMark size={14} body="var(--faint)" eye="white" data-status-mark="" />
@@ -65,15 +72,34 @@ function StatusMark({ status: { reach, mood } }: { status: CommentStatus }) {
 
 const TONE = { ok: "text-muted", idle: "text-idle", warn: "text-danger" } as const
 
-/** In the thread, under Lucas's latest comment until it's answered: where it stands, with the agent's mark. */
+/**
+ * In the thread, under Lucas's latest comment until it's answered: where it stands, with the agent's
+ * mark. A wake that's due counts down each second until it runs, with Wake now beside it.
+ */
 export function CommentStatusRow({ board, task, comment, comments }: { board: BoardState; task: Task; comment: Comment; comments: ReadonlyArray<Comment> }) {
-  const now = useNow()
+  // A wake that's due ticks each second until it runs; anything else moves with the board's clock.
+  const slow = useNow()
+  const due = commentStatus(comment, comments, task, board, slow)?.due ?? null
+  const now = useCountdownNow(due)
   const status = commentStatus(comment, comments, task, board, now)
+  const wakeNow = useAtomSet(commands.wakeNow)
   if (status === null) return null
   return (
-    <li className={`flex min-w-0 items-center gap-2 px-1 text-xs leading-4 ${TONE[status.tone]}`} data-comment-status={status.tone} aria-live="polite">
+    <li
+      className={`flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-1 text-xs leading-4 ${TONE[status.tone]}`}
+      data-comment-status={status.tone}
+      data-wake-status={status.wake}
+      aria-live="polite"
+    >
       <StatusMark status={status} />
-      <span className="min-w-0">{status.text}</span>
+      <span className="min-w-0 tabular-nums" data-status-text>
+        {status.text}
+      </span>
+      {status.due !== undefined ? (
+        <Button variant="secondary" size="sm" onClick={() => wakeNow({ key: task.key })}>
+          Wake now
+        </Button>
+      ) : null}
     </li>
   )
 }

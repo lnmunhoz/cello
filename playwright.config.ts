@@ -50,7 +50,9 @@ export default defineConfig({
         PATH: `${path.resolve("e2e/stub-bin")}:${process.env.PATH}`,
         CLAUDE_CONFIG_DIR: path.join(process.env.CELLO_E2E_DATA!, "claude"),
         CELLO_E2E: "1",
-        CELLO_WAKE_BATCH_MS: "3000",
+        // 6 s, not 3 (CEL-136): long enough to click Wake now in a review-mode video before the wake runs by
+        // itself. Only e2e/wake.spec.ts turns waking on, so no other spec waits on it.
+        CELLO_WAKE_BATCH_MS: "6000",
         CELLO_WAKE_QUIET_MS: "0",
       },
       url: `http://127.0.0.1:${SERVER_PORT}/rpc`,

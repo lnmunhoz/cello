@@ -3,7 +3,9 @@
 # server has this folder first on its PATH, so a woken run starts this. It does what a woken session
 # does: takes its inbox with `cello inbox` and answers on the card, as the session it resumes. The test
 # says which task and what answer in $CLAUDE_CONFIG_DIR (key-<session>, answer-<session>); with a
-# hold-<session> file there it then keeps running until it's stopped.
+# hold-<session> file there it then keeps running until it's stopped. A start-<session> file holds the
+# seconds Claude Code takes to start before its first command, and a think-<session> file the seconds
+# it works between taking the comment and answering (CEL-136: so the video shows each state).
 here=$(cd "$(dirname "$0")" && pwd)
 session=""
 prev=""
@@ -13,7 +15,9 @@ for a in "$@"; do
 done
 export CLAUDE_CODE_SESSION_ID="$session"
 echo '{"type":"system","subtype":"init"}'
+if [ -f "$CLAUDE_CONFIG_DIR/start-$session" ]; then sleep "$(cat "$CLAUDE_CONFIG_DIR/start-$session")"; fi
 bun "$here/../../apps/cli/src/bin.ts" inbox --new
+if [ -f "$CLAUDE_CONFIG_DIR/think-$session" ]; then sleep "$(cat "$CLAUDE_CONFIG_DIR/think-$session")"; fi
 bun "$here/../../apps/cli/src/bin.ts" task comment "$(cat "$CLAUDE_CONFIG_DIR/key-$session")" "$(cat "$CLAUDE_CONFIG_DIR/answer-$session")"
 if [ -f "$CLAUDE_CONFIG_DIR/hold-$session" ]; then exec sleep 600; fi
 echo '{"type":"result","subtype":"success","is_error":false}'

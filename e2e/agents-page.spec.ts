@@ -12,6 +12,7 @@ import type { Locator, Page } from "@playwright/test"
 import { animationsSettled, caption, captionWithUrl, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, test } from "./fixtures.ts"
 import { celloIn, claudeHooks } from "./claudeHooks.ts"
 import { SHOTS } from "./packets.ts"
+import { openClient } from "../packages/client/test/support/promiseClient.ts"
 
 const ORCHESTRATOR = "2fd0505c-417a-4167-acfe-2d66080fcae0"
 const ASKER = "8a41c9e2-5b1d-4c7e-9a0f-3e2b1c4d5e6f"
@@ -295,6 +296,50 @@ test("CEL-65: an open row's card is not one big link: its evidence badge opens t
   await expect(page).toHaveURL(/\/PKT\/1/)
 
   cli(SUBMITTER)("task", "release", "PKT-1")
+})
+
+test("CEL-137: each session's row says where it runs: Terminal · WezTerm, Claude desktop, Agent SDK app; open, Runs in", async ({ page, cello, baseURL }) => {
+  const project = await seedProject(cello, "Origins", "ORG")
+  const { statuses } = await defaultWorkspace(cello)
+  // Three sessions, as each one's `cello` calls report it: Claude Code's entrypoint, and the terminal app.
+  const sessions: ReadonlyArray<{ id: string; headers: Record<string, string>; label: string; title: string }> = [
+    { id: "c137e2e1-term-session", headers: { "x-cello-entrypoint": "cli", "x-cello-terminal": "WezTerm" }, label: "Terminal · WezTerm", title: "Make the timer louder" },
+    { id: "c137e2e2-desk-session", headers: { "x-cello-entrypoint": "claude-desktop" }, label: "Claude desktop", title: "Add a dark icon" },
+    { id: "c137e2e3-sdk0-session", headers: { "x-cello-entrypoint": "sdk-ts" }, label: "Agent SDK app", title: "Sync the presets" },
+  ]
+  const agents = []
+  for (const [i, s] of sessions.entries()) {
+    await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title: s.title, statusId: statuses.Todo!.id }))
+    const agent = await openClient(`${baseURL!.replace(/^http/, "ws")}/rpc`, {
+      "x-cello-session": s.id,
+      "x-cello-client": "Claude Code",
+      // This test's own process: alive, so the session stays working.
+      "x-cello-pid": String(process.pid),
+      "x-cello-cwd": cwd,
+      ...s.headers,
+    })
+    await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: `ORG-${i + 1}` }))
+    agents.push(agent)
+  }
+
+  await page.goto("/agents")
+  await caption(page, "Each session's row says where it runs: a terminal (and which app), the Claude desktop app, an app built on the Agent SDK")
+  for (const s of sessions) {
+    await expect(page.locator("[data-agent-row]", { hasText: s.id.slice(0, 8) }).locator("[data-origin]")).toHaveText(s.label)
+  }
+  const term = page.locator("[data-agent-row]", { hasText: "c137e2e1" })
+  await shoot(page, "origin-rows", page.locator("section[data-agents-group='working']"))
+
+  await caption(page, "Open one: its details say where it runs too")
+  await term.getByRole("button").first().click()
+  await expect(term.locator("[data-agent-origin]")).toHaveText("Runs inTerminal · WezTerm")
+  await shoot(page, "origin-open", term)
+
+  await caption(page, "The task panel's Working on it line says it as well")
+  await page.goto("/ORG/2")
+  await expect(page.locator("[data-working-on-it] [data-origin]")).toHaveText("Claude desktop")
+
+  for (const [i, agent] of agents.entries()) await agent.run((c) => c["task.release"]({ commandId: newCommandId(), key: `ORG-${i + 1}` }))
 })
 
 test("CEL-65: on the rail, the bot opens the Agents page too", async ({ page }) => {

@@ -15,6 +15,7 @@ import { AgentMark, type AgentMood } from "../components/ui/AgentMark.tsx"
 import { LinkButton } from "../components/ui/Button.tsx"
 import { formatDay } from "../lib/format.ts"
 import { drawnMarks } from "./drawnMarks.ts"
+import { OriginBadge } from "./OriginBadge.tsx"
 import { testRunOf, TestRunWord } from "./TestRun.tsx"
 import {
   agentMood,
@@ -443,6 +444,8 @@ export function ProvenanceRows({ task, board }: { task: Task; board: BoardState 
         {shown ? (
           <>
             <HolderWords live={shown} full boxed stacked mark={mark} />
+            {/* Where its session runs (CEL-137): Terminal, Claude desktop, Woken by Cello. */}
+            {shown.holder.session ? <OriginBadge session={shown.holder.session} /> : null}
             {log ? (
               <span className="ml-auto flex shrink-0" data-working-log>
                 <LinkButton variant="ghost" size="sm" to="/agents" search={{ open: log }} aria-label={`Open ${shown.holder.who.name}'s log on the Agents page`}>

@@ -343,6 +343,27 @@ describe("WakeService: reasons not to wake", () => {
         expect((yield* wakeEvents(task.id)).map(([type]) => type)).toEqual(["session.not_woken"])
       })))
 
+  it.effect("a reason that won't change by itself (off, the cap, its folder…) is on the card at once, when Lucas acts, and once per batch (CEL-136)", () =>
+    run((fake) =>
+      Effect.gen(function* () {
+        const { task, comment } = yield* setup({ enable: false })
+        yield* comment()
+        expect(yield* wakeEvents(task.id)).toEqual([["session.not_woken", "disabled"]])
+        yield* comment("and another")
+        yield* TestClock.adjust("2 minutes")
+        expect(yield* wakeEvents(task.id)).toEqual([["session.not_woken", "disabled"]])
+        expect(yield* Queue.size(fake.turns)).toBe(0)
+      })))
+
+  it.effect("its process still open isn't said at once: the comment reaches it with its next hook (CEL-136)", () =>
+    run((_fake, world) =>
+      Effect.gen(function* () {
+        world.alive.add(PID)
+        const { task, comment } = yield* setup()
+        yield* comment()
+        expect(yield* wakeEvents(task.id)).toEqual([])
+      })))
+
   it.effect("its process is still open", () =>
     run((fake, world) =>
       Effect.gen(function* () {

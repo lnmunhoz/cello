@@ -5,6 +5,7 @@ import type { Task } from "@cello/contract/entities"
 import { stageInfo } from "@cello/contract/stages"
 import { isNeedsInputStatus } from "@cello/shared/ask"
 import { modelName } from "@cello/shared/model"
+import { originText } from "@cello/shared/origin"
 import { agoShort, presenceWords } from "@cello/shared/presence"
 import { isRunning } from "@cello/shared/testRun"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
@@ -15,6 +16,7 @@ import { CardBody } from "../board/Card.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { Author } from "../presence/Author.tsx"
+import { OriginBadge } from "../presence/OriginBadge.tsx"
 import { agentsWorkingCount, workingSessions } from "../presence/model.ts"
 import { AgentMarkOf, presenceSubjectOf, StageWord } from "../presence/Presence.tsx"
 import { TestRunFacts, TestRunLine, testRunOf } from "../presence/TestRun.tsx"
@@ -152,6 +154,8 @@ function AgentQueueRow({ board, row, rows, ...state }: QueueRowState & { board: 
           {/* The main session or a subagent of it, and the model and effort it's on now (CEL-119). */}
           <Author who={row.who} name={row.kind === "agent" ? row.who.name : undefined} />
           {row.kind === "session" && row.subagents > 0 ? <span className="shrink-0 text-muted">· {subagentsLabel(row.subagents)}</span> : null}
+          {/* Where the session runs (CEL-137): Terminal, Claude desktop, Woken by Cello. */}
+          {row.kind === "session" ? <OriginBadge session={row.session} /> : null}
         </>
       }
       subtitle={
@@ -254,12 +258,14 @@ function TaskState({ board, task }: { board: BoardState; task: Task | undefined 
   )
 }
 
-/** What the agent was asked (a subagent's launch description), its session, when it started, its last check-in, its folder. */
+/** What the agent was asked (a subagent's launch description), its session, where it runs, when it started, its last check-in, its folder. */
 function Facts({ board, row }: { board: BoardState; row: AgentRow }) {
   const now = useNow()
   const started = row.agent?.startedAt ?? row.session.startedAt
   const folder = row.session.cwd?.split("/").filter(Boolean).at(-1)
   const run = testRunOf(row.session, row.agent)
+  // Where its session runs, and when Cello last woke it (CEL-137).
+  const origin = originText(row.session, now)
   const fact = "grid grid-cols-[96px_1fr] gap-2 text-[13px]"
   return (
     <dl className="flex flex-col gap-1.5" data-agent-facts>
@@ -280,6 +286,12 @@ function Facts({ board, row }: { board: BoardState; row: AgentRow }) {
             {modelName(row.who.model)}
             {row.who.effort ? <span className="text-muted"> · {row.who.effort} effort</span> : null}
           </dd>
+        </div>
+      ) : null}
+      {origin ? (
+        <div className={fact} data-agent-origin>
+          <dt className="text-muted">Runs in</dt>
+          <dd className="text-ink">{origin}</dd>
         </div>
       ) : null}
       <div className={fact}>

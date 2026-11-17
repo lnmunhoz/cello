@@ -25,7 +25,9 @@
 //     CLI doesn't have, or bypass (never used for a woken run)
 // 11. its folder isn't an absolute folder that exists here; 12. its conversation isn't kept for that
 //     folder or one above it (where the run then starts)
-// A wake that doesn't happen is a `session.not_woken` with the reason, on the card and in the history.
+// A wake that doesn't happen is a `session.not_woken` with the reason, on the card and in the history:
+// when Lucas acts, for a reason that won't change by itself during the wait (SAID_AT_ONCE, CEL-136),
+// else when the wait ends. `cello sessions wake` on a wake that's due runs that wake now.
 import * as fs from "node:fs"
 import * as path from "node:path"
 import type { NotWokenReason, ProjectRef, SessionRun, WakeSettings, WakeWhy } from "@cello/contract/entities"
@@ -123,11 +125,23 @@ interface TaskRow {
   assignee_session_id: string | null
 }
 
-/** The wakes due for one session: its tasks (oldest action first) and the ones the card was told about. */
+/**
+ * The wakes due for one session: its tasks (oldest action first), the ones the card was told would
+ * wake, and the ones it was told wouldn't, and why (so the wait's end doesn't say it twice).
+ */
 interface Pending {
   readonly tasks: Map<string, WakeWhy>
   readonly announced: Set<string>
+  readonly told: Map<string, NotWokenReason>
 }
+
+/**
+ * Reasons not to wake that the card says as soon as Lucas acts (CEL-136): the session's process is gone,
+ * and nothing will change them by itself during the wait. The others wait for it to end: a session whose
+ * process is open, or that has no pid, usually takes the comment itself, and saying "not woken" for each
+ * comment would only fill the history.
+ */
+const SAID_AT_ONCE: ReadonlySet<NotWokenReason> = new Set(["disabled", "cap", "bypass_mode", "unknown_mode", "no_folder", "no_conversation", "not_installed"])
 
 type Verdict = { readonly kind: "wake" } | { readonly kind: "skip" } | { readonly kind: "not"; readonly reason: NotWokenReason }
 
@@ -298,7 +312,8 @@ const make = Effect.gen(function* () {
         if (v.kind === "wake") woken.push({ task, why, runnable: runnable! })
         else if (v.kind === "not") {
           reasons.set(taskId, v.reason)
-          yield* tell(row, task, { type: "not", why, reason: v.reason })
+          // Said already when Lucas acted: once is enough.
+          if (due.told.get(taskId) !== v.reason) yield* tell(row, task, { type: "not", why, reason: v.reason })
         } else if (due.announced.has(taskId)) {
           reasons.set(taskId, "taken")
           yield* tell(row, task, { type: "not", why, reason: "taken" })
@@ -318,7 +333,7 @@ const make = Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis
       const { verdict: v } = yield* verdict(row, task, "action", now)
       if (v.kind === "skip") return
-      const due: Pending = pending.get(row.id) ?? { tasks: new Map(), announced: new Set() }
+      const due: Pending = pending.get(row.id) ?? { tasks: new Map(), announced: new Set(), told: new Map() }
       const before = due.tasks.get(taskId)
       // Latest last, so the run's task is the one Lucas acted on most recently.
       due.tasks.delete(taskId)
@@ -328,7 +343,12 @@ const make = Effect.gen(function* () {
       const at = Math.max(now + Duration.toMillis(config.batch), row.last_seen_at + Duration.toMillis(config.quiet))
       if (v.kind === "wake") {
         due.announced.add(taskId)
+        due.told.delete(taskId)
         yield* tell(row, task, { type: "scheduled", why: due.tasks.get(taskId)!, at })
+      } else if (SAID_AT_ONCE.has(v.reason) && due.told.get(taskId) !== v.reason) {
+        // Why not, right away (CEL-136); the wait still runs, so a change in the meantime (waking turned on) counts.
+        due.told.set(taskId, v.reason)
+        yield* tell(row, task, { type: "not", why: due.tasks.get(taskId)!, reason: v.reason })
       }
       yield* FiberMap.run(timers, row.id, Effect.sleep(Duration.millis(at - now)).pipe(Effect.andThen(decide(fire(row.id)))))
     }).pipe(decide, Effect.withSpan("WakeService.noteAction"))
