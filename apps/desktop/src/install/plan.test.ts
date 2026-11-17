@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
+import { appIdentity } from "../flavor.ts"
 import {
   checkoutRoots,
   findBuildCopies,
-  INSTALLED_APP,
   LSREGISTER,
   lsregisterCommands,
   outdatedWarnings,
@@ -15,6 +15,9 @@ import {
 
 const repo = "/Users/me/projects/cello"
 const worktree = `${repo}/.claude/worktrees/agent-a1`
+const release = appIdentity("release")
+const dev = appIdentity("dev")
+const INSTALLED_APP = release.installedApp
 
 /** A folder tree for `readDir`: each key is a folder, each value its entries (`/` at the end marks a folder). */
 const tree =
@@ -164,7 +167,7 @@ describe("parseCelloProcesses", () => {
       "61442 Mon Nov 16 12:40:58 2026     /Users/me/Cello.app/Contents/MacOS/Cello Launcher",
       "  1 Mon Nov 16 12:40:58 2026     /sbin/launchd",
     ].join("\n")
-    expect(parseCelloProcesses(ps)).toEqual([
+    expect(parseCelloProcesses(ps, release)).toEqual([
       { pid: 95951, app: "/Users/me/projects/cello/apps/desktop/dist/mac-arm64/Cello.app", startedAt: new Date(2026, 10, 15, 17, 54, 22) },
       { pid: 812, app: "/Applications/Cello.app", startedAt: new Date(2026, 10, 2, 9, 5, 1) },
       { pid: 900, app: "/Users/me/My Apps/Cello.app", startedAt: new Date(2026, 10, 2, 9, 5, 1) },
@@ -176,22 +179,71 @@ describe("outdatedWarnings", () => {
   const installedAt = new Date(2026, 10, 16, 12, 0, 0)
 
   it("says nothing when no Cello runs, or the one running started from /Applications after the install", () => {
-    expect(outdatedWarnings({ processes: [], installed: INSTALLED_APP, installedAt })).toEqual([])
+    expect(outdatedWarnings({ processes: [], identity: release, installedAt })).toEqual([])
     const fresh = { pid: 7, app: INSTALLED_APP, startedAt: new Date(2026, 10, 16, 12, 0, 5) }
-    expect(outdatedWarnings({ processes: [fresh], installed: INSTALLED_APP, installedAt })).toEqual([])
+    expect(outdatedWarnings({ processes: [fresh], identity: release, installedAt })).toEqual([])
   })
 
   it("tells Lucas to quit and reopen from /Applications when Cello runs from a build folder", () => {
     const stray = { pid: 95951, app: `${repo}/apps/desktop/dist/mac-arm64/Cello.app`, startedAt: new Date(2026, 10, 15, 17, 54, 22) }
-    expect(outdatedWarnings({ processes: [stray], installed: INSTALLED_APP, installedAt })).toEqual([
+    expect(outdatedWarnings({ processes: [stray], identity: release, installedAt })).toEqual([
       `Cello (pid 95951) is running from ${repo}/apps/desktop/dist/mac-arm64/Cello.app, not /Applications/Cello.app. Quit it (⌘Q) and open /Applications/Cello.app, so cello:// links reach the new build.`,
     ])
   })
 
   it("tells Lucas to restart a /Applications Cello that started before the install: it still runs the old build", () => {
     const old = { pid: 812, app: INSTALLED_APP, startedAt: new Date(2026, 10, 2, 9, 5, 1) }
-    expect(outdatedWarnings({ processes: [old], installed: INSTALLED_APP, installedAt })).toEqual([
+    expect(outdatedWarnings({ processes: [old], identity: release, installedAt })).toEqual([
       "Cello (pid 812) started at 2026-11-02 09:05, before this install, so it still runs the old build. Quit it (⌘Q) and reopen /Applications/Cello.app.",
+    ])
+  })
+})
+
+// CEL-149: the build made on the Mac is Cello Dev, installed as /Applications/Cello Dev.app beside the downloaded
+// Cello.app. Its install cleans up build folders' copies of either app, and leaves every app in /Applications alone.
+describe("installing Cello Dev", () => {
+  it("finds both apps in the build folders", () => {
+    const readDir = tree({
+      [`${repo}/apps/desktop`]: ["dist/"],
+      [`${repo}/apps/desktop/dist`]: ["mac-arm64/"],
+      [`${repo}/apps/desktop/dist/mac-arm64`]: ["Cello Dev.app/", "Cello.app/"],
+    })
+    expect(findBuildCopies([repo], readDir)).toEqual([
+      `${repo}/apps/desktop/dist/mac-arm64/Cello Dev.app`,
+      `${repo}/apps/desktop/dist/mac-arm64/Cello.app`,
+    ])
+  })
+
+  it("unregisters build folders' copies of both, never an app in /Applications (the downloaded Cello.app stays)", () => {
+    const strays = strayCopies({
+      mainRoot: repo,
+      roots: [repo],
+      registered: [
+        "/Applications/Cello.app",
+        "/Applications/Cello Dev.app",
+        `${repo}/apps/desktop/dist/mac-arm64/Cello.app`,
+        `${repo}/apps/desktop/dist/mac-arm64/Cello Dev.app`,
+      ],
+      onDisk: [],
+      installed: dev.installedApp,
+    })
+    expect(strays).toEqual([`${repo}/apps/desktop/dist/mac-arm64/Cello Dev.app`, `${repo}/apps/desktop/dist/mac-arm64/Cello.app`])
+  })
+
+  it("watches only Cello Dev's processes: a downloaded Cello running beside it isn't an old build of it", () => {
+    const ps = [
+      "  812 Mon Nov  2 09:05:01 2026     /Applications/Cello.app/Contents/MacOS/Cello",
+      "  813 Mon Nov  2 09:05:01 2026     /Applications/Cello Dev.app/Contents/MacOS/Cello Dev",
+      "  814 Mon Nov  2 09:05:01 2026     /Applications/Cello Dev.app/Contents/Frameworks/Cello Dev Helper.app/Contents/MacOS/Cello Dev Helper",
+    ].join("\n")
+    expect(parseCelloProcesses(ps, dev)).toEqual([{ pid: 813, app: "/Applications/Cello Dev.app", startedAt: new Date(2026, 10, 2, 9, 5, 1) }])
+    expect(parseCelloProcesses(ps, release)).toEqual([{ pid: 812, app: "/Applications/Cello.app", startedAt: new Date(2026, 10, 2, 9, 5, 1) }])
+  })
+
+  it("names Cello Dev and its cello-dev:// links in the warnings", () => {
+    const stray = { pid: 95951, app: `${repo}/apps/desktop/dist/mac-arm64/Cello Dev.app`, startedAt: new Date(2026, 10, 15, 17, 54, 22) }
+    expect(outdatedWarnings({ processes: [stray], identity: dev, installedAt: new Date(2026, 10, 16, 12, 0, 0) })).toEqual([
+      `Cello Dev (pid 95951) is running from ${repo}/apps/desktop/dist/mac-arm64/Cello Dev.app, not /Applications/Cello Dev.app. Quit it (⌘Q) and open /Applications/Cello Dev.app, so cello-dev:// links reach the new build.`,
     ])
   })
 })

@@ -1240,6 +1240,15 @@ Link in replies (opens in Cello): cello://open?url=http%3A%2F%2F127.0.0.1%3A4747
 ```
 
 - **In replies, link pages with the `cello://` link, never the http one.** The human reads your replies in Claude's desktop app, where clicking an http link opens Claude's own built-in browser, outside Cello. A `cello://` link opens the page in Cello's side panel, next to the board. `cello doc publish` and `cello open` both print it, so never build or URL-encode one by hand. Write it as a markdown link with a readable name: `[Billing audit](cello://open?url=http%3A%2F%2F127.0.0.1%3A4747%2FCEL%2Fpages%2Fbilling-audit)`. A task is `cello://CEL-12`.
+- **A dev build of Cello prints `cello-dev://` links.** There are two Cellos: the one people download (Cello.app, `cello://`) and Cello Dev, built from the Cello repo on the owner's Mac (Cello Dev.app, and the `cello` that `bun run release` deploys). Each `cello` prints its own app's scheme, so its links open its own app even with both installed. Put in your reply exactly what the command printed:
+
+  ```
+  $ cello open CEL-12          # the dev cello
+  Opened CEL-12 in Cello.
+  Link in replies (opens in Cello): cello-dev://CEL-12
+  ```
+
+  `cello open` takes either scheme as input and prints its own.
 - **Slugs are lower case,** so `cello open cel-12` looks for a page called cel-12; write a task's key in capitals (`CEL-12`).
 - **A slug that isn't a page** fails before anything opens (`No document CEL/evidnce`); `cello doc list` lists them.
 - **When nothing can open it** (the desktop app isn't installed), the command fails and still prints the link.
@@ -1381,6 +1390,7 @@ Every error is one sentence that says what to do next. The usual ones:
 | The message says | What it means | What to do |
 | --- | --- | --- |
 | Cello isn't running on 127.0.0.1:4747 | The human's server is down. | Run `cello service status`: it says whether the background service is installed and shows its log's last lines. Tell the human what it says. Don't start one against `~/.cello` yourself unless they ask. |
+| This board (…) was opened by a newer Cello (migration …); this cello is v…. Update Cello, or use another board. Nothing was changed. | `cello start` (or the desktop app's server) refused a data folder whose database a newer Cello already migrated. It wrote nothing. | Tell the human: they update this Cello, or point it at another board (the desktop app's Settings → Board). Never delete or edit the database to get past it. |
 | Cello is already running for … (pid …), outside the service | `cello service install` found a server started another way holding the data folder. | Stop that server first, or `cello service install --replace` to stop that pid and install. Only when the human asked for the install. |
 | The background service isn't installed | `cello service restart` with no service set up. | `cello service install` sets it up (when the human asks); without it, restart `cello start` by hand. |
 | The service's program … doesn't exist any more | The plist points at a `cello` binary that was moved or deleted. | Build it again (`bun run build` in `apps/cli`), or run `cello service install` with the cello it should run. |

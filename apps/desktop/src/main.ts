@@ -5,14 +5,17 @@ import { execFile } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
+import { parseDesktopBoardCommand } from "@cello/shared/desktopBoard"
+import { parseFlavor } from "@cello/shared/flavor"
 import { parsePrint, plistPath, serviceLogPath, serviceTarget } from "@cello/shared/launchAgent"
 import { parseUpdateCommand } from "@cello/shared/updates"
 import { app, BaseWindow, dialog, Menu, session, shell, webContents } from "electron"
-import { findCelloLink, parseCelloLink, routeCelloLink, SCHEME, type CelloLink } from "./links/celloLink.ts"
-import { INSTALLED_APP } from "./install/plan.ts"
+import { appIdentity, executableOf, userDataName } from "./flavor.ts"
+import { findCelloLink, parseCelloLink, routeCelloLink, type CelloLink } from "./links/celloLink.ts"
 import { buildMenu, type MenuActions } from "./menu.ts"
 import { PANEL_PARTITION } from "./panel/Panel.ts"
-import { celloCommand, serverConfig, serviceFor, serviceInstaller } from "./server/plan.ts"
+import { type Board, BOARD_FILE, boardFileText, boardState, checkBoard, launchBoard, otherFolder, parseBoardFile } from "./server/board.ts"
+import { celloCommand, isBoardTooNew, serviceFor, serviceInstaller } from "./server/plan.ts"
 import { answerOf, parseQuitChoice, planQuit, QUIT_CHOICE_FILE, QUIT_QUESTION, type QuitAnswer, type QuitChoice, serverStatusLabel } from "./server/quit.ts"
 import { connectServer, installService, lockHolder, type Server, startDetached } from "./server/sidecar.ts"
 import { appNotice, boardNotice, bundleOf, relaunchOptions, restartTarget, stampFile, type AppNotice } from "./update/appUpdate.ts"
@@ -28,11 +31,16 @@ for (const stream of [process.stdout, process.stderr]) {
   })
 }
 
-app.setName("Cello")
-// Dev and the packaged app keep separate state; tests point CELLO_DESKTOP_USER_DATA at a temp folder.
+/** scripts/build.ts bakes the flavor in (`--flavor`, CEL-149): Cello, or Cello Dev. */
+declare const __CELLO_FLAVOR__: string | undefined
+const identity = appIdentity(parseFlavor(typeof __CELLO_FLAVOR__ === "string" ? __CELLO_FLAVOR__ : null) ?? "dev")
+
+app.setName(identity.name)
+// Each app (Cello, Cello Dev) and a run from the repo keep separate state, so they run side by side; tests point
+// CELLO_DESKTOP_USER_DATA at a temp folder.
 app.setPath(
   "userData",
-  process.env.CELLO_DESKTOP_USER_DATA || path.join(app.getPath("appData"), app.isPackaged ? "Cello" : "Cello Dev"),
+  process.env.CELLO_DESKTOP_USER_DATA || path.join(app.getPath("appData"), userDataName(identity, app.isPackaged)),
 )
 
 /** The app folder (apps/desktop, or app.asar when packaged); scripts/build.ts bundles into its dist-electron/. */
@@ -87,7 +95,7 @@ function run() {
   let updater: Updater | null = null
   const updatesFile = () => path.join(app.getPath("userData"), "updates.json")
   const startUpdates = () => {
-    const feed = feedFor(process.env, app.isPackaged)
+    const feed = feedFor(process.env, app.isPackaged, identity.checksUpdates)
     if (!feed) return
     const test = !app.isPackaged
     const started = new Updater({
@@ -127,7 +135,24 @@ function run() {
   /** The main window, unless it was closed (macOS keeps the app running without one). */
   const live = () => (main && !main.isClosed ? main : null)
 
-  const config = serverConfig(process.env)
+  /**
+   * Which board the app's server uses (Settings → Board, CEL-149): the one saved in board.json, else ~/.cello on
+   * 4747; CELLO_DATA_DIR and CELLO_PORT win for a launch. Read at each use: a switch changes it.
+   */
+  const home = process.env.HOME || os.homedir()
+  const boardFile = path.join(app.getPath("userData"), BOARD_FILE)
+  const readSavedBoard = () => {
+    try {
+      return parseBoardFile(fs.readFileSync(boardFile, "utf8"))
+    } catch {
+      return null
+    }
+  }
+  const launched = launchBoard({ env: process.env, saved: readSavedBoard(), home })
+  let config: Board = launched.board
+  let boardSwitching = false
+  let boardError: string | null = null
+  const showBoard = () => live()?.showBoardState(boardState({ board: config, setBy: launched.setBy, home, switching: boardSwitching, error: boardError }))
   /** The `cello` the app starts servers with. */
   const appCommand = () =>
     celloCommand({ env: process.env, isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, repoRoot: files.repoRoot, exists: fs.existsSync })
@@ -193,8 +218,9 @@ function run() {
       bundle: app.isPackaged ? bundleOf(process.execPath) : null,
       loaded: loadedStamp,
       onDisk: readStamp(),
-      installed: INSTALLED_APP,
-      installedExists: process.platform === "darwin" && fs.existsSync(INSTALLED_APP),
+      installed: identity.installedApp,
+      installedExec: executableOf(identity.installedApp, identity),
+      installedExists: process.platform === "darwin" && fs.existsSync(identity.installedApp),
     })
     live()?.showAppNotice(notice && boardNotice(notice))
   }
@@ -230,7 +256,7 @@ function run() {
   }
 
   const follow = (raw: string) => {
-    const link = parseCelloLink(raw)
+    const link = parseCelloLink(raw, identity.flavor)
     if (!link) return
     checkForUpdate()
     const window = boardLoaded ? showWindow() : null
@@ -254,15 +280,15 @@ function run() {
     follow(url)
   })
   app.on("second-instance", (_event, argv) => {
-    const link = findCelloLink(argv)
+    const link = findCelloLink(argv, identity.flavor)
     if (link) follow(link)
     else showWindow()
   })
-  const launchLink = findCelloLink(process.argv)
+  const launchLink = findCelloLink(process.argv, identity.flavor)
   if (launchLink) follow(launchLink)
-  // In dev, registering would point cello:// at the bare Electron binary; the packaged app also
-  // declares the scheme in its Info.plist (electron-builder.json).
-  if (app.isPackaged) app.setAsDefaultProtocolClient(SCHEME)
+  // In dev, registering would point the scheme at the bare Electron binary; the packaged app also
+  // declares it in its Info.plist (electron-builder.json, or the dev flavor's config).
+  if (app.isPackaged) app.setAsDefaultProtocolClient(identity.scheme)
 
   const openWindow = () => {
     main = new MainWindow({
@@ -273,8 +299,11 @@ function run() {
       platform: process.platform,
       restartApp: restart,
       updateCommand,
+      boardCommand,
+      title: identity.name,
     })
     if (updater) main.showUpdateState(updater.state)
+    showBoard()
     main.window.on("focus", () => {
       checkForUpdate()
       void refreshMenu()
@@ -283,10 +312,31 @@ function run() {
     return main
   }
 
+  /** Saves the board in board.json and uses it from now on; false (and why, in Settings) when it can't be saved. */
+  const saveBoard = (next: Board): boolean => {
+    try {
+      fs.mkdirSync(path.dirname(boardFile), { recursive: true })
+      fs.writeFileSync(boardFile, boardFileText(next))
+    } catch (error) {
+      boardError = `Couldn't save the board in ${boardFile}: ${error instanceof Error ? error.message : String(error)}`
+      showBoard()
+      return false
+    }
+    config = next
+    boardError = null
+    showBoard()
+    return true
+  }
+
+  /**
+   * Finds or starts the server for the board, asking what to do when it can't: try again, use another board (a
+   * folder picked in Finder, when the environment didn't set the board), or quit. A board a newer Cello
+   * migrated (CEL-149) shows the server's own sentence, in the window and the dialog.
+   */
   const connect = async (window: MainWindow): Promise<Server | null> => {
-    const { port, dataDir } = config
     const command = appCommand()
     for (;;) {
+      const { port, dataDir } = config
       try {
         return await connectServer({
           port,
@@ -299,17 +349,74 @@ function run() {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         window.showMessage(message)
+        const canSwitch = launched.setBy.length === 0
+        const buttons = canSwitch ? ["Try Again", "Use Another Board…", "Quit"] : ["Try Again", "Quit"]
         const { response } = await dialog.showMessageBox({
           type: "error",
-          message: "Cello couldn't reach its server",
+          message: isBoardTooNew(message) ? `${identity.name} can't open this board` : `${identity.name} couldn't reach its server`,
           detail: message,
-          buttons: ["Try Again", "Quit"],
+          buttons,
           defaultId: 0,
-          cancelId: 1,
+          cancelId: buttons.length - 1,
         })
-        if (response === 1) return null
+        if (response === buttons.length - 1) return null
+        if (canSwitch && response === 1) {
+          const picked = await dialog.showOpenDialog({
+            title: "Choose a folder for the board",
+            buttonLabel: "Use This Folder",
+            defaultPath: home,
+            properties: ["openDirectory", "createDirectory"],
+          })
+          const folder = picked.canceled ? undefined : picked.filePaths[0]
+          if (folder) saveBoard(otherFolder(folder, config))
+        }
       }
     }
+  }
+
+  /**
+   * Settings → Board's switch (CEL-149): saves the board, stops a server the app started for the old one (one it
+   * joined keeps running), and finds or starts the new one's, then shows its Settings. Nothing in the old data
+   * folder or the new one is touched by the app itself.
+   */
+  const switchBoard = async (next: Board) => {
+    const window = live()
+    if (!window || boardSwitching) return
+    boardSwitching = true
+    if (!saveBoard(next)) {
+      boardSwitching = false
+      return showBoard()
+    }
+    const previous = server
+    server = null
+    boardLoaded = false
+    window.showMessage(`Opening the board in ${next.dataDir}…`)
+    if (previous?.startedByUs) await previous.stop()
+    server = await connect(window)
+    boardSwitching = false
+    if (!server) return app.quit()
+    showBoard()
+    await refreshMenu()
+    if (!window.isClosed) await window.loadBoard(server.url, "/settings")
+    boardLoaded = true
+  }
+
+  /** A command from Settings → Board, checked field by field, then for what the folder and port may be. */
+  function boardCommand(message: unknown) {
+    const command = parseDesktopBoardCommand(message)
+    if (!command || boardSwitching) return
+    if (launched.setBy.length > 0) {
+      boardError = `${launched.setBy.join(" and ")} set the board for this launch. Start the app without them to change it here.`
+      return showBoard()
+    }
+    const checked = checkBoard(command, home)
+    if (typeof checked === "string") {
+      boardError = checked
+      return showBoard()
+    }
+    boardError = null
+    if (checked.dataDir === config.dataDir && checked.port === config.port) return showBoard()
+    void switchBoard(checked)
   }
 
   app.whenReady().then(async () => {

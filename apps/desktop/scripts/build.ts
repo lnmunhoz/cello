@@ -1,12 +1,15 @@
 // Bundles the app into dist-electron/: the main process and both preloads as single CommonJS files
 // (sandboxed preloads can't load other modules), and the panel toolbar page.
+// `--flavor release|dev` (CEL-149, default dev) is baked into main.cjs as __CELLO_FLAVOR__: which app it is (src/flavor.ts).
 import * as fs from "node:fs"
 import * as path from "node:path"
+import { flavorArg } from "@cello/shared/flavor"
 import { STAMP_FILE } from "../src/update/appUpdate.ts"
 import { desktopDir, electronBinary } from "./electron.ts"
 
 const src = path.join(desktopDir, "src")
 const out = path.join(desktopDir, "dist-electron")
+const flavor = flavorArg(process.argv, "dev")
 fs.rmSync(out, { recursive: true, force: true })
 
 const bundle = async (entry: string, name: string, target: "node" | "browser") => {
@@ -18,6 +21,7 @@ const bundle = async (entry: string, name: string, target: "node" | "browser") =
     format: target === "node" ? "cjs" : "iife",
     external: ["electron"],
     sourcemap: "linked",
+    define: { __CELLO_FLAVOR__: JSON.stringify(flavor) },
   })
   if (!result.success) {
     for (const log of result.logs) console.error(log)
@@ -35,4 +39,4 @@ fs.copyFileSync(path.join(src, "panel/chrome.html"), path.join(out, "chrome.html
 const commit = Bun.spawnSync(["git", "rev-parse", "--short", "HEAD"], { cwd: desktopDir, stderr: "ignore" }).stdout.toString().trim()
 fs.writeFileSync(path.join(out, STAMP_FILE), `${JSON.stringify({ builtAt: new Date().toISOString(), commit: commit || null })}\n`)
 electronBinary()
-console.log(`Built ${path.relative(process.cwd(), out) || out}`)
+console.log(`Built ${path.relative(process.cwd(), out) || out} (${flavor})`)

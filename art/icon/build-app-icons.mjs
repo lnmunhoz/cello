@@ -14,6 +14,8 @@
 //               → apps/desktop/resources/Cello.icon/       an Icon Composer document (icon.json and the agent
 //                                                          layer): the packaged Cello.app, compiled by
 //                                                          electron-builder with Xcode's actool
+//               → apps/desktop/resources/CelloDev.icon/    the same with a "DEV" badge layer: Cello Dev.app, the
+//                                                          build made on the Mac (CEL-149)
 import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
@@ -88,7 +90,47 @@ const iconComposer = (() => {
     ],
     "supported-platforms": { squares: "shared" },
   }
-  return { json: `${JSON.stringify(iconJson, null, 2)}\n`, layer }
+  return { json: `${JSON.stringify(iconJson, null, 2)}\n`, layer, iconJson, ink }
+})()
+
+// Cello Dev's icon (CEL-149): the same document with a "DEV" badge layer on top, an ink pill below the agent with
+// the letters cut out so the orange fill shows through, like the agent's eyes. Letters are paths (cap height 100,
+// strokes 24), so actool needs no font.
+const devIcon = (() => {
+  const D = "M0 0 H38 A50 50 0 0 1 88 50 A50 50 0 0 1 38 100 H0 Z M24 24 V76 H38 A26 26 0 0 0 64 50 A26 26 0 0 0 38 24 Z"
+  const E = "M0 0 H72 V22 H24 V39 H62 V61 H24 V78 H72 V100 H0 Z"
+  const V = "M0 0 H26 L48 70 L70 0 H96 L62 100 H34 Z"
+  const letters = [
+    { d: D, width: 88 },
+    { d: E, width: 72 },
+    { d: V, width: 96 },
+  ]
+  const GAP = 18
+  const CAP = 84
+  const scale = CAP / 100
+  const lettersWidth = (letters.reduce((sum, l) => sum + l.width, 0) + GAP * (letters.length - 1)) * scale
+  const [padX, padY] = [52, 34]
+  const [w, h] = [lettersWidth + 2 * padX, CAP + 2 * padY]
+  const [x, y] = [512 - w / 2, 952 - h]
+  let at = 0
+  const placed = letters.map(({ d, width }) => {
+    const g = `<path transform="translate(${(x + padX + at * scale).toFixed(2)} ${y + padY}) scale(${scale})" d="${d}"/>`
+    at += width + GAP
+    return g
+  })
+  // The ink pill, then the letters on it in the icon's orange: on a flat layer with no glass that reads the same as
+  // holes cut through to the fill.
+  const badge = canvas(
+    `<path fill="${iconComposer.ink}" d="${roundedRect(x, y, w, h, h / 2)}"/>` + `<g fill="${icon.background}">${placed.join("")}</g>`,
+  )
+  const json = {
+    ...iconComposer.iconJson,
+    groups: [
+      { ...iconComposer.iconJson.groups[0], layers: [{ glass: false, "image-name": "dev-badge.svg", name: "dev-badge" }] },
+      ...iconComposer.iconJson.groups,
+    ],
+  }
+  return { json: `${JSON.stringify(json, null, 2)}\n`, badge }
 })()
 
 const run = (cmd, args) => {
@@ -138,6 +180,9 @@ const outputs = {
   "apps/desktop/resources/icon.png": png(macos, 1024),
   "apps/desktop/resources/Cello.icon/icon.json": Buffer.from(iconComposer.json),
   "apps/desktop/resources/Cello.icon/Assets/agent.svg": Buffer.from(iconComposer.layer),
+  "apps/desktop/resources/CelloDev.icon/icon.json": Buffer.from(devIcon.json),
+  "apps/desktop/resources/CelloDev.icon/Assets/agent.svg": Buffer.from(iconComposer.layer),
+  "apps/desktop/resources/CelloDev.icon/Assets/dev-badge.svg": Buffer.from(devIcon.badge),
 }
 fs.rmSync(temp, { recursive: true, force: true })
 

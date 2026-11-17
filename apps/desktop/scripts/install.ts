@@ -1,12 +1,14 @@
-// What `bun run package -- --install` does once /Applications/Cello.app is in place (CEL-75): gathers the
-// facts (git checkouts, LaunchServices' registrations, running processes) and runs src/install/plan.ts's
-// plan. Only unregisters copies from LaunchServices; it never deletes an app or quits a running Cello.
+// What `bun run package -- --install` does once the app is in /Applications (CEL-75): gathers the facts (git
+// checkouts, LaunchServices' registrations, running processes) and runs src/install/plan.ts's plan. Only
+// unregisters copies from LaunchServices; it never deletes an app or quits a running Cello. The app is a flavor's
+// (CEL-149): Cello Dev, /Applications/Cello Dev.app, unless the package said --flavor release.
 import * as fs from "node:fs"
 import * as path from "node:path"
+import { flavorArg } from "@cello/shared/flavor"
+import { appIdentity, type AppIdentity } from "../src/flavor.ts"
 import {
   checkoutRoots,
   findBuildCopies,
-  INSTALLED_APP,
   LSREGISTER,
   lsregisterCommands,
   outdatedWarnings,
@@ -39,7 +41,8 @@ export interface AfterInstallPlan {
 }
 
 /** Reads the machine and returns what to do; changes nothing. */
-export const planAfterInstall = (installed: string, installedAt: Date): AfterInstallPlan => {
+export const planAfterInstall = (identity: AppIdentity, installedAt: Date): AfterInstallPlan => {
+  const installed = identity.installedApp
   // The main checkout, also from inside a worktree: its .git is the common dir.
   const commonDir = output(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"]).trim()
   const mainRoot = commonDir ? path.dirname(commonDir) : path.resolve(desktopDir, "../..")
@@ -51,28 +54,29 @@ export const planAfterInstall = (installed: string, installedAt: Date): AfterIns
     onDisk: findBuildCopies(roots, readDir),
     installed,
   })
-  const processes = parseCelloProcesses(output(["ps", "-axo", "pid=,lstart=,comm="]))
-  return { strays, commands: lsregisterCommands(strays, installed), warnings: outdatedWarnings({ processes, installed, installedAt }) }
+  const processes = parseCelloProcesses(output(["ps", "-axo", "pid=,lstart=,comm="]), identity)
+  return { strays, commands: lsregisterCommands(strays, installed), warnings: outdatedWarnings({ processes, identity, installedAt }) }
 }
 
 /** Runs the plan: the lsregister commands (a failure is reported, not fatal), then the warnings. */
-export const afterInstall = (installed: string, installedAt: Date): void => {
-  const plan = planAfterInstall(installed, installedAt)
+export const afterInstall = (identity: AppIdentity, installedAt: Date): void => {
+  const plan = planAfterInstall(identity, installedAt)
   for (const command of plan.commands) {
     const result = Bun.spawnSync(command, { stdout: "ignore", stderr: "pipe" })
     const [, flag, target] = command
     if (result.exitCode !== 0) console.warn(`! lsregister ${flag} ${target} failed: ${result.stderr.toString().trim()}`)
     else if (flag === "-u") console.log(`Unregistered ${target} from LaunchServices (the folder stays)`)
   }
-  console.log(`cello:// links now open ${installed}`)
+  console.log(`${identity.scheme}:// links now open ${identity.installedApp}`)
   for (const warning of plan.warnings) console.warn(`! ${warning}`)
 }
 
-// `bun scripts/install.ts`: prints what an install would do now, without doing it.
+// `bun scripts/install.ts [--flavor release|dev]`: prints what an install would do now, without doing it.
 if (import.meta.main) {
-  const plan = planAfterInstall(INSTALLED_APP, new Date())
+  const identity = appIdentity(flavorArg(process.argv, "dev"))
+  const plan = planAfterInstall(identity, new Date())
   console.log(plan.strays.length ? "Would unregister from LaunchServices:" : "No build-folder copies of Cello to unregister.")
   for (const app of plan.strays) console.log(`  ${app}`)
-  console.log(`Would register ${INSTALLED_APP}`)
+  console.log(`Would register ${identity.installedApp}`)
   for (const warning of plan.warnings) console.log(`! ${warning}`)
 }

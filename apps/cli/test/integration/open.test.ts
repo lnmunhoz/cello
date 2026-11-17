@@ -66,6 +66,19 @@ describe("cello open", () => {
       expect(opened).toEqual(["cello://CEL-12"])
     }))
 
+  it.live("a dev build of cello (the one bun run release deploys, CEL-149) opens and prints cello-dev:// links, for Cello Dev", () =>
+    Effect.gen(function* () {
+      const { port, repo, opened } = yield* setup
+      const open = (l: string) => Promise.resolve(void opened.push(l))
+      const dev = cello({ port, env: claude, cwd: repo, open, build: { commit: null, flavor: "dev" } })
+      const page = `http://127.0.0.1:${port}/CEL/pages/billing-audit`
+      const devLink = `cello-dev://open?url=${encodeURIComponent(page)}`
+
+      expect(yield* dev("open", "billing-audit")).toEqual({ out: `Opened ${page} in Cello.\nLink in replies (opens in Cello): ${devLink}`, failure: null })
+      expect(yield* dev("open", "--print", "CEL-12")).toEqual({ out: "cello-dev://CEL-12", failure: null })
+      expect(opened).toEqual([devLink])
+    }).pipe(Effect.scoped))
+
   it.live("errors say what to do: an unknown page, something that isn't a page or a task, no app to open it", () =>
     Effect.gen(function* () {
       const { agent, port, repo } = yield* setup

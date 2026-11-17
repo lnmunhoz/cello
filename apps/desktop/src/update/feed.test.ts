@@ -25,18 +25,23 @@ describe("feedFor", () => {
 
   it("the packaged app reads GitHub's release list and trusts only the repository's addresses, whatever CELLO_UPDATE_FEED says", () => {
     expect(RELEASES_URL).toBe("https://api.github.com/repos/lnmunhoz/cello/releases")
-    expect(feedFor({}, true)).toEqual({ url: RELEASES_URL, trusted: [RELEASE_URL_PREFIX] })
-    expect(feedFor(fake, true)).toEqual({ url: RELEASES_URL, trusted: [RELEASE_URL_PREFIX] })
+    expect(feedFor({}, true, true)).toEqual({ url: RELEASES_URL, trusted: [RELEASE_URL_PREFIX] })
+    expect(feedFor(fake, true, true)).toEqual({ url: RELEASES_URL, trusted: [RELEASE_URL_PREFIX] })
   })
 
   it("a dev build checks only a test feed (CELLO_UPDATE_FEED), whose own origin it also trusts for downloads", () => {
-    expect(feedFor({}, false)).toBeNull()
-    expect(feedFor(fake, false)).toEqual({ url: fake.CELLO_UPDATE_FEED, trusted: [RELEASE_URL_PREFIX, "http://127.0.0.1:9999/"] })
+    expect(feedFor({}, false, true)).toBeNull()
+    expect(feedFor(fake, false, true)).toEqual({ url: fake.CELLO_UPDATE_FEED, trusted: [RELEASE_URL_PREFIX, "http://127.0.0.1:9999/"] })
+  })
+
+  it("packaged Cello Dev (CEL-149) checks nothing: bun run release and package --install update it", () => {
+    expect(feedFor({}, true, false)).toBeNull()
+    expect(feedFor(fake, true, false)).toBeNull()
   })
 
   it("a test feed that isn't an http(s) address is ignored", () => {
-    expect(feedFor({ CELLO_UPDATE_FEED: "file:///tmp/releases.json" }, false)).toBeNull()
-    expect(feedFor({ CELLO_UPDATE_FEED: "not a url" }, false)).toBeNull()
+    expect(feedFor({ CELLO_UPDATE_FEED: "file:///tmp/releases.json" }, false, true)).toBeNull()
+    expect(feedFor({ CELLO_UPDATE_FEED: "not a url" }, false, true)).toBeNull()
   })
 })
 

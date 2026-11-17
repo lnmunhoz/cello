@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { INSTALLED_APP } from "../install/plan.ts"
 import { appNotice, boardNotice, bundleOf, relaunchOptions, restartTarget, stampFile, type UpdateFacts } from "./appUpdate.ts"
 
+const INSTALLED_APP = "/Applications/Cello.app"
 const INSTALLED_EXEC = "/Applications/Cello.app/Contents/MacOS/Cello"
 const DIST = "/Users/me/projects/cello/apps/desktop/dist/mac-arm64/Cello.app"
 
@@ -11,6 +11,7 @@ const facts = (overrides: Partial<UpdateFacts> = {}): UpdateFacts => ({
   loaded: '{"builtAt":"2026-11-15T10:54:00.000Z"}',
   onDisk: '{"builtAt":"2026-11-15T10:54:00.000Z"}',
   installed: INSTALLED_APP,
+  installedExec: INSTALLED_EXEC,
   installedExists: true,
   ...overrides,
 })
@@ -110,5 +111,28 @@ describe("relaunchOptions", () => {
   it("starts /Applications' copy bare, without the arguments another copy was started with", () => {
     const execPath = `${DIST}/Contents/MacOS/Cello`
     expect(relaunchOptions(INSTALLED_EXEC, { execPath, argv: [execPath, "cello://CEL-3"] })).toEqual({ execPath: INSTALLED_EXEC, args: [] })
+  })
+
+  it("drops a cello-dev:// link too (CEL-149)", () => {
+    const execPath = "/repo/electron"
+    expect(relaunchOptions(execPath, { execPath, argv: [execPath, "/repo/apps/desktop", "cello-dev://CEL-3"] })).toEqual({ execPath, args: ["/repo/apps/desktop"] })
+  })
+})
+
+describe("Cello Dev (CEL-149)", () => {
+  it("restarts a build-folder Cello Dev into /Applications/Cello Dev.app, whose executable is named after it", () => {
+    const devDist = "/Users/me/projects/cello/apps/desktop/dist/mac-arm64/Cello Dev.app"
+    const running = facts({
+      execPath: `${devDist}/Contents/MacOS/Cello Dev`,
+      bundle: devDist,
+      installed: "/Applications/Cello Dev.app",
+      installedExec: "/Applications/Cello Dev.app/Contents/MacOS/Cello Dev",
+    })
+    expect(appNotice(running)).toEqual({
+      kind: "elsewhere",
+      key: `elsewhere:${devDist}`,
+      running: devDist,
+      restartInto: "/Applications/Cello Dev.app/Contents/MacOS/Cello Dev",
+    })
   })
 })

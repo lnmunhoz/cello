@@ -4,30 +4,59 @@ The board in its own window, with a browser panel docked on the right. The panel
 top-level (an Electron `WebContentsView`), so it shows pages a browser iframe can't, like Claude
 artifact pages (claude.ai sends `frame-ancestors 'self'`), plus any website and local dev servers.
 
+## Two apps: Cello and Cello Dev
+
+The app comes in two flavors (CEL-149), set when it's built, so the Cello people download and the one built
+from this repo live side by side on the same Mac, like Chrome and Chrome Canary:
+
+| | **Cello** (release) | **Cello Dev** (dev) |
+| --- | --- | --- |
+| Built by | GitHub Actions (`--artifacts`, the downloads) | this Mac: `bun run package`, `bun run dev` |
+| Name, bundle id | Cello, `app.cello.desktop` | Cello Dev, `app.cello.desktop.dev` |
+| Installed as | `/Applications/Cello.app` (dragged from the DMG) | `/Applications/Cello Dev.app` (`package -- --install`) |
+| Icon | the agent | the agent with a "DEV" badge (`resources/CelloDev.icon`) |
+| Links | `cello://` | `cello-dev://` |
+| Its state | `~/Library/Application Support/Cello` | `~/Library/Application Support/Cello Dev` |
+| Updates | from GitHub (Settings → Updates) | none: `bun run release` and `package -- --install` update it |
+| Board | Settings → Board, ~/.cello on 4747 until you change it | Settings → Board, ~/.cello on 4747 |
+
+- **Which flavor a build is:** `--flavor release|dev` on `bun run package` (and on `scripts/build.ts`, which
+  bakes it into `main.cjs`). Without it, `package` makes Cello Dev, and `--artifacts` makes Cello. The release
+  workflow passes `--flavor release` (`scripts/release/artifacts.ts`) and checks the DMG's bundle id and scheme.
+  `src/flavor.ts` has each flavor's name, id, scheme and icon; `src/install/builderConfig.ts` hands them to
+  electron-builder (electron-builder.json is the release's).
+- **The `cello` inside is the same flavor,** built with `--flavor` too: Cello Dev's makes `cello-dev://` links,
+  so `cello open` and `cello doc publish` in a terminal on this Mac open Cello Dev. Each app follows only its own
+  scheme.
+- **An older `/Applications/Cello.app`** from an earlier `--install` (before CEL-149) stays where it is: nothing
+  deletes an app. Drag it to the Trash yourself when you no longer want it; the downloaded Cello.app takes its place.
+
 ## Commands
 
 Run them in `apps/desktop`:
 
 ```bash
-bun run dev        # build the app and run it with Electron
-bun run package    # build apps/cli/dist/cello, then an unsigned Cello.app in dist/mac-arm64/
-bun run package -- --install   # same, then copy it to /Applications (Launchpad, Spotlight, Raycast)
+bun run dev        # build the app (Cello Dev) and run it with Electron
+bun run package    # build apps/cli/dist/cello, then an unsigned Cello Dev.app in dist/mac-arm64/
+bun run package -- --install   # same, then copy it to /Applications/Cello Dev.app (Launchpad, Spotlight, Raycast)
+bun run package -- --flavor release   # Cello.app instead, as the downloads are (without the DMG and zip)
 bun run test:e2e   # Playwright's Electron tests, in Docker (same as test:docker:desktop at the root)
 ```
 
 - **`bun run dev`** joins the server already running on `CELLO_PORT` (4747 by default, e.g.
   `cello start` in a terminal, which is your real board). With none running it starts
-  `apps/cli/dist/cello` (run `bun run build` in `apps/cli` first). Dev keeps its window state
-  in `~/Library/Application Support/Cello Dev`, apart from the packaged app's `Cello`.
-- **`bun run package`** makes `dist/mac-arm64/Cello.app` (Apple silicon, about 355 MB), with the
+  `apps/cli/dist/cello` (run `bun run build` in `apps/cli` first). It runs as Cello Dev, and keeps its window
+  state in `~/Library/Application Support/Cello Dev (unpackaged)`, apart from the installed apps.
+- **`bun run package`** makes `dist/mac-arm64/Cello Dev.app` (Apple silicon, about 355 MB), with the
   compiled `cello` binary, web app included, at `Contents/Resources/cello`. `--skip-cli` reuses
-  the binary as it is. The app isn't signed: the first time, open it with right-click → Open.
+  the binary as it is (check it was built with the same `--flavor`). The app isn't signed: the first time, open
+  it with right-click → Open.
   - The Mac that packages needs **Xcode 26** (`xcrun --find actool`). electron-builder compiles the
     icon (`resources/Cello.icon`) with actool into `Assets.car`, so macOS 26 draws it flat instead of
     redrawing it as glass, and it adds an `icon.icns` for older macOS. Without Xcode 26 the package
     step fails.
-- **`bun run package -- --install`** also makes `/Applications/Cello.app` the copy `cello://` links
-  open; see "Which copy opens `cello://` links" below.
+- **`bun run package -- --install`** also makes `/Applications/Cello Dev.app` the copy `cello-dev://` links
+  open; see "Which copy opens `cello://` links" below. It never touches `/Applications/Cello.app`.
 - **`bun run test:e2e`** runs the tests in a throwaway Linux container (`scripts/test-in-docker.ts`,
   OrbStack must be running), with the app under Xvfb, so no window opens on the Mac. Arguments
   after `--` go to `playwright test`. Videos and screenshots land in
@@ -70,10 +99,43 @@ Electron's Node can't run the Bun server, so the app uses the `cello` binary as 
 
 | Variable | Default | |
 | --- | --- | --- |
-| `CELLO_PORT` | `4747` | the server's port |
-| `CELLO_DATA_DIR` | `~/.cello` | the data folder, as for `cello start` |
+| `CELLO_PORT` | Settings → Board's, else `4747` | the server's port, for this launch |
+| `CELLO_DATA_DIR` | Settings → Board's, else `~/.cello` | the data folder, as for `cello start`, for this launch |
 | `CELLO_BIN` | bundled / `apps/cli/dist/cello` | the `cello` binary to start |
-| `CELLO_DESKTOP_USER_DATA` | `~/Library/Application Support/Cello` | the app's own state (tests use a temp folder) |
+| `CELLO_DESKTOP_USER_DATA` | `~/Library/Application Support/Cello` (or `Cello Dev`) | the app's own state (tests use a temp folder) |
+
+### Settings → Board: which board the app opens
+
+The board's Settings page has a **Board** section in the app (not in a browser): the data folder and port the
+app's server uses, `~/.cello` on 4747 until you change it. Point the downloaded Cello at a test board once
+(`~/.cello-release` on 4757, say) and it runs its own server there with the `cello` inside it, starting empty like
+a new user's board, while Cello Dev keeps your real board on 4747.
+
+- **Switch board** saves the choice in `board.json` in the app's own state folder (never in a board's data
+  folder) and switches in place: a server the app started for the board you leave stops (one it joined, like the
+  background service, keeps running), then it finds or starts the new board's server as at launch, and shows
+  its Settings. Nothing in either folder is deleted. "Back to ~/.cello on 4747" returns to the default.
+- The folder needs a full path or one under `~`; the port is a whole number from 1024 to 65535. Anything else is
+  refused in the section, and nothing changes.
+- `CELLO_DATA_DIR` and `CELLO_PORT` win for a launch (`bun run dev` and the e2e tests set them); the section then
+  says so and can't change it.
+- The rules are `src/server/board.ts`; the section is `apps/web/src/settings/BoardSettings.tsx`, through
+  `window.celloDesktop.board`.
+
+### A board a newer Cello migrated
+
+A server refuses a database that has a migration it doesn't know, before it writes anything (CEL-149), so an
+older download can't open a board a newer Cello Dev already migrated. The window shows the server's sentence
+instead of the board, and the dialog says the app can't open this board:
+
+```text
+This board (/Users/me/.cello) was opened by a newer Cello (migration 0028_inbox_rules); this cello is v0.4.2.
+Update Cello, or use another board. Nothing was changed.
+```
+
+Its buttons are **Try Again**, **Use Another Board…** (pick a folder in Finder; a folder other than `~/.cello`
+moves off 4747 to 4757, so it never takes the port your real board's server uses) and **Quit**. Without
+`CELLO_DATA_DIR` or `CELLO_PORT` set, every failure to reach the server offers the same three.
 
 ## The panel
 
@@ -133,6 +195,10 @@ running app.
 
 ### Which copy opens `cello://` links
 
+What follows is written for Cello.app and `cello://`; the build from this Mac is Cello Dev, so read
+`Cello Dev.app` and `cello-dev://` for it. The two apps never claim each other's scheme. An install unregisters
+build folders' copies of either app, and never touches an app in /Applications.
+
 Every `Cello.app` on disk claims `cello://`, and macOS (LaunchServices) can hand a link to any copy it
 has seen: `/Applications/Cello.app`, but also `dist/mac-arm64/Cello.app` in the repo and in each agent's
 worktree. A copy started before a fix was merged keeps running the old code even after its files are
@@ -188,7 +254,9 @@ never the build-folder one. The rules are `src/update/appUpdate.ts`; the notice 
 
 ## Code
 
-- `src/main.ts`: startup, single instance, links, menu, quit
+- `src/main.ts`: startup, single instance, links, menu, quit, switching boards
+- `src/flavor.ts`: Cello and Cello Dev, each one's name, bundle id, scheme, icon and state folder (CEL-149)
+- `src/server/board.ts`: Settings → Board's rules: the board at launch, what a typed one may be, board.json
 - `src/window/`: the main window, its layout (board view, panel views) and its back and forward
 - `src/panel/`: the panel (`Panel.ts`), its toolbar page (`chrome.*`) and the URL rules (`urls.ts`)
 - `src/server/`: finding or starting the server (`plan.ts` decides, `sidecar.ts` does it)
@@ -196,6 +264,7 @@ never the build-folder one. The rules are `src/update/appUpdate.ts`; the notice 
 - `src/update/appUpdate.ts`: when the running app offers a restart, and into which copy
 - `src/preload.ts`: `window.celloDesktop`
 - `scripts/`: bundling with Bun (`dist-electron/`), dev, packaging (electron-builder)
-- `resources/Cello.icon/` (the packaged app, an Icon Composer document) and `resources/icon.png` (the
-  Dock in dev): built by `bun art/icon/build-app-icons.mjs` from `art/icon/icon.svg`; don't edit them by hand
+- `resources/Cello.icon/` (the packaged app, an Icon Composer document), `resources/CelloDev.icon/` (the same
+  with a "DEV" badge layer, for Cello Dev) and `resources/icon.png` (the Dock in dev): built by
+  `bun art/icon/build-app-icons.mjs` from `art/icon/icon.svg`; don't edit them by hand
 - `e2e/`: Playwright Electron tests (run in Docker); `recorder.ts` composes the whole window into videos and screenshots

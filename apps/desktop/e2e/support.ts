@@ -9,6 +9,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { _electron, chromium, type ElectronApplication, type Page } from "@playwright/test"
 import { assertDesktopE2eAllowed, IN_CONTAINER } from "../../../scripts/docker/guard.ts"
+import { celloScheme } from "@cello/shared/celloLink"
 import { plistPath, renderPlist, serviceLogPath } from "@cello/shared/launchAgent"
 import { isAlive } from "../../server/src/process/isAlive.ts"
 import { LOCK_FILE, parseBanner, parseLock, type LockInfo } from "../src/server/plan.ts"
@@ -22,6 +23,11 @@ export const CLI_DIR = path.resolve(DESKTOP_DIR, "../cli")
 export const CELLO_BIN = path.join(CLI_DIR, "dist/cello")
 export const VIDEOS_DIR = path.join(DESKTOP_DIR, "test-results/videos")
 export const SCREENSHOTS_DIR = path.join(DESKTOP_DIR, "test-results/screenshots")
+/**
+ * The scheme of the links these tests open: the app and the `cello` the tests build are the dev flavor
+ * (scripts/build.ts and apps/cli/scripts/build.ts default to it, CEL-149), so `cello-dev://`.
+ */
+export const LINK_SCHEME = celloScheme("dev")
 /** Electron's package exports the path of its binary. */
 export const ELECTRON = createRequire(path.join(DESKTOP_DIR, "package.json"))("electron") as string
 
@@ -268,6 +274,51 @@ export const answerQuitThenShowNext = (app: ElectronApplication, response: numbe
       return result
     }) as typeof dialog.showMessageBox
   }, { response, record })
+
+/**
+ * Shows the next message box for real (for a screenshot) and records its options to `record`; once the test
+ * calls `closeNextDialog`, it closes and the app gets button `response`, as if it had been clicked (CEL-149).
+ */
+export const showNextDialogAnswering = (app: ElectronApplication, response: number, record: string) =>
+  app.evaluate(({ dialog }, { response, record }) => {
+    const fs = process.getBuiltinModule("node:fs")
+    const original = dialog.showMessageBox.bind(dialog) as (...args: unknown[]) => Promise<Electron.MessageBoxReturnValue>
+    const controller = new AbortController()
+    let shown: () => void = () => {}
+    const scope = globalThis as { nextDialogShown?: Promise<void>; closeNextDialog?: () => void }
+    scope.nextDialogShown = new Promise<void>((resolve) => (shown = resolve))
+    scope.closeNextDialog = () => controller.abort()
+    dialog.showMessageBox = (async (...args: unknown[]) => {
+      const options = args.at(-1) as Electron.MessageBoxOptions
+      fs.appendFileSync(record, `${JSON.stringify(options)}\n`)
+      dialog.showMessageBox = original as typeof dialog.showMessageBox
+      const closed = original(...args.slice(0, -1), { ...options, signal: controller.signal })
+      shown()
+      await closed
+      return { response, checkboxChecked: false }
+    }) as typeof dialog.showMessageBox
+  }, { response, record })
+
+/** Answers the next folder picker with `folder`, as if it had been chosen in it (CEL-149). */
+export const pickFolderNext = (app: ElectronApplication, folder: string) =>
+  app.evaluate(({ dialog }, folder) => {
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [folder] })) as typeof dialog.showOpenDialog
+  }, folder)
+
+/** A board in `dataDir` made by this build's `cello start`, then stopped cleanly (its lock released). */
+export const makeBoard = async (dataDir: string): Promise<void> => {
+  const child = spawn(CELLO_BIN, ["start"], { env: { ...baseEnv(), CELLO_PORT: "0", CELLO_DATA_DIR: dataDir }, stdio: ["ignore", "pipe", "pipe"] })
+  onCleanup(() => stopChild(child))
+  await new Promise<void>((resolve, reject) => {
+    let output = ""
+    child.stdout!.setEncoding("utf8").on("data", (chunk: string) => {
+      output += chunk
+      if (parseBanner(output)) resolve()
+    })
+    child.once("exit", (code) => reject(new Error(`cello start exited (${code}): ${output}`)))
+  })
+  await stopChild(child)
+}
 
 export const nextDialogShown = (app: ElectronApplication) =>
   app.evaluate(() => (globalThis as { nextDialogShown?: Promise<void> }).nextDialogShown)

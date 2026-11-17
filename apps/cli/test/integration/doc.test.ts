@@ -154,6 +154,17 @@ describe("cello doc", () => {
       expect((yield* fetchBytes(port, clipUrl!)).type).toBe("video/webm")
     }).pipe(Effect.scoped))
 
+  it.live("a dev build of cello (CEL-149) prints the cello-dev:// link, which opens Cello Dev", () =>
+    Effect.gen(function* () {
+      const { port, repo } = yield* setup
+      const dev = cello({ port, env: claude, cwd: repo, stdin: "# Notes\n\nHi.", build: { commit: null, flavor: "dev" } })
+      const url = `http://127.0.0.1:${port}/CEL/pages/notes`
+      expect((yield* dev("doc", "publish", "-", "--slug", "notes")).out).toBe(
+        `Published page "Notes" (version 1)\n${url}\nLink in replies (opens in Cello): cello-dev://open?url=${encodeURIComponent(url)}`,
+      )
+      expect(JSON.parse((yield* dev("doc", "publish", "-", "--slug", "notes", "--json")).out).link).toBe(`cello-dev://open?url=${encodeURIComponent(url)}`)
+    }).pipe(Effect.scoped))
+
   it.live("stdin needs --slug to update a page; kinds stay; archive; errors say what to do", () =>
     Effect.gen(function* () {
       const { agent, piped, repo, port } = yield* setup

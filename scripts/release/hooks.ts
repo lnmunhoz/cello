@@ -25,12 +25,13 @@ const root = path.join(import.meta.dirname, "../..")
 const [command, version] = process.argv.slice(2)
 const localArtifacts = process.env.CELLO_RELEASE_LOCAL_ARTIFACTS === "1"
 
-const build = (downloads: boolean) => {
+const build = (deploy: boolean, downloads: boolean) => {
   const files = buildArtifacts({
     root,
     version: version!,
     platform: process.platform,
     arch: process.arch,
+    deploy,
     downloads,
     desktop: process.env.CELLO_RELEASE_SKIP_DESKTOP !== "1",
     sign: process.env.CELLO_RELEASE_SIGN === "1",
@@ -50,9 +51,10 @@ try {
     writeChangelog(root, version)
     console.log(`CHANGELOG.md: added the ${version} section`)
   } else if (command === "build") {
-    build(localArtifacts)
+    build(true, localArtifacts)
   } else if (command === "artifacts") {
-    build(true)
+    // GitHub Actions: the downloads only, the release flavor; nothing to deploy there.
+    build(false, true)
   } else if (command === "publish") {
     if (localArtifacts) publishRelease({ root, version, files: releaseFilesIn(path.join(root, RELEASE_DIR)) })
     else console.log(`v${version} is pushed: GitHub Actions builds its downloads and publishes the GitHub release.`)

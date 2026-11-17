@@ -61,13 +61,10 @@ export const parseBanner = (output: string): string | null =>
 /** `cello start` refuses a data folder another live server holds (ServerAlreadyRunning). */
 export const isAlreadyRunning = (stderr: string): boolean => stderr.includes("Cello is already running for")
 
-type Env = Readonly<Record<string, string | undefined>>
+/** `cello start` refuses a board a newer Cello migrated (BoardTooNew, CEL-149): the app says it can't open it. */
+export const isBoardTooNew = (stderr: string): boolean => stderr.includes("was opened by a newer Cello")
 
-/** The port and data folder `cello start` would use: CELLO_PORT or 4747, CELLO_DATA_DIR or ~/.cello. */
-export const serverConfig = (env: Env): { port: number; dataDir: string } => ({
-  port: Number(env.CELLO_PORT || DEFAULT_PORT),
-  dataDir: path.resolve(env.CELLO_DATA_DIR || path.join(env.HOME ?? "", ".cello")),
-})
+type Env = Readonly<Record<string, string | undefined>>
 
 /** The `cello` binary to start: CELLO_BIN, else the one bundled in the app, else the repo's build. */
 export const celloCommand = (options: {

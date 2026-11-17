@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { renderPlist } from "@cello/shared/launchAgent"
-import { celloCommand, isAlreadyRunning, parseBanner, parseLock, planServer, serverConfig, serviceFor, serviceInstaller } from "./plan.ts"
+import { celloCommand, isAlreadyRunning, isBoardTooNew, parseBanner, parseLock, planServer, serviceFor, serviceInstaller } from "./plan.ts"
 
 describe("planServer", () => {
   it("starts the bundled server when nothing answers and no live server holds the data folder", () => {
@@ -89,21 +89,17 @@ describe("server output and lock", () => {
     expect(isAlreadyRunning("Couldn't listen on that port")).toBe(false)
   })
 
+  it("recognises the refusal of a board a newer Cello migrated (CEL-149)", () => {
+    const refusal = "This board (/Users/x/.cello) was opened by a newer Cello (migration 0028_x); this cello is v0.4.2. Update Cello, or use another board. Nothing was changed."
+    expect(isBoardTooNew(refusal)).toBe(true)
+    expect(isBoardTooNew("Cello is already running for /Users/x/.cello (pid 9, http://127.0.0.1:4747).")).toBe(false)
+  })
+
   it("parses the server lock, and ignores a broken one", () => {
     expect(parseLock(JSON.stringify({ pid: 42, port: 4747 }))).toEqual({ pid: 42, port: 4747 })
     expect(parseLock(JSON.stringify({ pid: 42 }))).toEqual({ pid: 42, port: 0 })
     expect(parseLock("{not json")).toBeNull()
     expect(parseLock(JSON.stringify({ port: 4747 }))).toBeNull()
-  })
-})
-
-describe("serverConfig", () => {
-  it("uses 4747 and ~/.cello unless CELLO_PORT and CELLO_DATA_DIR say otherwise", () => {
-    expect(serverConfig({ HOME: "/Users/me" })).toEqual({ port: 4747, dataDir: "/Users/me/.cello" })
-    expect(serverConfig({ HOME: "/Users/me", CELLO_PORT: "4791", CELLO_DATA_DIR: "/tmp/cello-e2e" })).toEqual({
-      port: 4791,
-      dataDir: "/tmp/cello-e2e",
-    })
   })
 })
 

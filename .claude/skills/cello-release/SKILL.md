@@ -59,6 +59,8 @@ bun run release -- minor   # or patch / major, as he picked
 
 Run it in the background (the Bash tool with `run_in_background: true`; the tests take most of it, the rest about a minute). It runs typecheck and the full unit and integration suite first, then bumps, tags, builds this Mac's own `cello` into `release/stage`, pushes, prints the **GitHub Actions run** link, and deploys. It no longer builds Cello.app or creates the GitHub release: the pushed tag starts the Release workflow, which does both for Apple silicon and Intel in about 10 to 15 minutes.
 
+Two apps (CEL-149): what GitHub builds is **Cello** (the download, `cello://` links, updates from GitHub); what Lucas runs from this repo is **Cello Dev** (`/Applications/Cello Dev.app`, `cello-dev://` links, a DEV badge on its icon, no update checks). The `cello` this release deploys is Cello Dev's, so its links open Cello Dev. Cello Dev's board updates with the deploy (reload it); its app shell only when Lucas runs `bun run package -- --install` in apps/desktop, which never touches `/Applications/Cello.app`.
+
 - **A test fails before anything is written:** nothing changed. Run the failing test file alone. If it passes alone and the machine was busy, it's load: run the release again. If it fails alone, it's a real bug. Fix it as a task, then release.
 - **It stops after tagging but before pushing** (a build failed): the commit and tag are local only. docs/releases.md has the `git tag -d` / `git reset --hard HEAD~1` that undo it.
 - **GitHub Actions is down** (or the workflow is broken and Lucas wants the release out anyway): `bun run release -- --local-artifacts` builds the Apple silicon downloads on the Mac and creates the GitHub release from here, as releases used to.
@@ -95,7 +97,7 @@ Follow "Talking to Lucas" in the global instructions:
 - The GitHub release link, and that its downloads (Apple silicon and Intel) were built by GitHub Actions; or, if the run isn't done or failed, say so and give the run's link.
 - What shipped: the changelog's Features and Fixes, as short bullets.
 - The backup the deploy took (`~/.cello/backups/<id>`), and that `cello restore <id>` with no server running undoes the deploy.
-- **Test it:** reload Cello (⌘R); the sidebar footer shows the new version. Cello.app (from a DMG) on the release's channel shows "Update available: X.Y.Z" in its footer and a toast within its next check (at launch, every 4 hours, or Settings → Updates → Check now).
+- **Test it:** reload Cello Dev (⌘R); the sidebar footer shows the new version. Cello.app (from a DMG) on the release's channel shows "Update available: X.Y.Z" in its footer and a toast within its next check (at launch, every 4 hours, or Settings → Updates → Check now).
 
 ## Never
 

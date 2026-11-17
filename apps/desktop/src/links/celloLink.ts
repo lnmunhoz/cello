@@ -2,18 +2,19 @@
 // a page: one on the board in the board's side panel, another site in the browser panel. macOS hands
 // them to `open-url`; a second launch passes them in argv. The link format is shared with the CLI,
 // which makes them (@cello/shared/celloLink, CEL-88); this file decides what the app lets them open.
-import { CELLO_SCHEME, parseCelloLink as parseLinkTarget } from "@cello/shared/celloLink"
+// Each app follows only its own flavor's scheme (CEL-149): Cello Dev `cello-dev://`, Cello `cello://`.
+import { linkFlavor, parseCelloLink as parseLinkTarget } from "@cello/shared/celloLink"
+import type { Flavor } from "@cello/shared/flavor"
 import { taskPath } from "@cello/shared/taskKey"
 import { panelUrl } from "../panel/urls.ts"
-
-export const SCHEME = CELLO_SCHEME
 
 export type CelloLink =
   | { readonly kind: "task"; readonly path: string }
   | { readonly kind: "panel"; readonly url: string }
 
-/** A link the app follows: a task, or a web page (http or https) for a panel. Anything else is null. */
-export const parseCelloLink = (raw: string): CelloLink | null => {
+/** A link of this app's flavor the app follows: a task, or a web page (http or https) for a panel. Anything else is null. */
+export const parseCelloLink = (raw: string, flavor: Flavor): CelloLink | null => {
+  if (linkFlavor(raw) !== flavor) return null
   const target = parseLinkTarget(raw)
   if (target === null) return null
   if (target.kind === "task") return { kind: "task", path: taskPath(target.projectKey, target.number) }
@@ -37,6 +38,6 @@ export const routeCelloLink = (link: CelloLink, boardOrigin: string): LinkRoute 
   return url.origin === new URL(boardOrigin).origin ? { kind: "board", url: url.href } : { kind: "panel", url: url.href }
 }
 
-/** The `cello://` link among a launch's arguments, if any. */
-export const findCelloLink = (argv: ReadonlyArray<string>): string | undefined =>
-  argv.find((arg) => arg.toLowerCase().startsWith(`${SCHEME}:`))
+/** The link of this app's flavor among a launch's arguments, if any. */
+export const findCelloLink = (argv: ReadonlyArray<string>, flavor: Flavor): string | undefined =>
+  argv.find((arg) => linkFlavor(arg) === flavor)

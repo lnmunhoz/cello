@@ -1,10 +1,22 @@
 // The board's preload (sandboxed, context-isolated): exposes `window.celloDesktop` so the web app
 // can open pages in the side panel. The main process accepts only http(s) URLs from it.
 import { contextBridge, ipcRenderer } from "electron"
+import type { DesktopBoardState } from "@cello/shared/desktopBoard"
 import type { UpdateState } from "@cello/shared/updates"
 import type { CelloDesktop, DesktopAppNotice, OpenMessage } from "../../web/src/lib/desktop.ts"
 import type { OpenTaskMessage } from "../../web/src/viewer/viewer.ts"
-import { APP_NOTICE, APP_RESTART, BOARD_OPEN, BOARD_OPEN_TASK, PANEL_CLOSE, PANEL_OPEN, UPDATE_COMMAND, UPDATE_STATE } from "./ipc.ts"
+import {
+  APP_NOTICE,
+  APP_RESTART,
+  BOARD_COMMAND,
+  BOARD_OPEN,
+  BOARD_OPEN_TASK,
+  BOARD_STATE,
+  PANEL_CLOSE,
+  PANEL_OPEN,
+  UPDATE_COMMAND,
+  UPDATE_STATE,
+} from "./ipc.ts"
 import { mouseButtonDirection } from "./window/history.ts"
 
 // The app's restart notice (CEL-75). Main sends it after each board load, maybe before the web app
@@ -22,6 +34,14 @@ const updateListeners: Array<(state: UpdateState) => void> = []
 ipcRenderer.on(UPDATE_STATE, (_event, next: UpdateState) => {
   updateState = next
   for (const listener of updateListeners) listener(next)
+})
+
+// Settings → Board (CEL-149), kept and handed to each new listener the same way.
+let boardState: DesktopBoardState | null = null
+const boardListeners: Array<(state: DesktopBoardState) => void> = []
+ipcRenderer.on(BOARD_STATE, (_event, next: DesktopBoardState) => {
+  boardState = next
+  for (const listener of boardListeners) listener(next)
 })
 
 const bridge: CelloDesktop = {
@@ -53,6 +73,19 @@ const bridge: CelloDesktop = {
     },
     // Main checks every field (parseUpdateCommand); only plain data crosses.
     command: (command) => ipcRenderer.send(UPDATE_COMMAND, JSON.parse(JSON.stringify(command ?? null))),
+  },
+  board: {
+    onState: (listener) => {
+      if (typeof listener !== "function") return () => {}
+      boardListeners.push(listener)
+      if (boardState) listener(boardState)
+      return () => {
+        const index = boardListeners.indexOf(listener)
+        if (index >= 0) boardListeners.splice(index, 1)
+      }
+    },
+    // Main checks every field (parseDesktopBoardCommand, then the folder and port); only plain data crosses.
+    command: (command) => ipcRenderer.send(BOARD_COMMAND, JSON.parse(JSON.stringify(command ?? null))),
   },
 }
 
