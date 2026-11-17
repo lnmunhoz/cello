@@ -3,6 +3,12 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.4.3](https://github.com/lnmunhoz/cello/compare/v0.4.2...v0.4.3) (2026-11-17)
+
+### Features
+
+- the Cello you download and Cello Dev (built on your Mac) now live side by side, the downloaded one can use its own test board, and an older Cello refuses a board a newer one changed (CEL-149) ([3ac698d](https://github.com/lnmunhoz/cello/commit/3ac698d9f4cb6a8c53afd2eda551807cffca7ae9))
+
 ## [0.4.2](https://github.com/lnmunhoz/cello/compare/v0.4.1...v0.4.2) (2026-11-17)
 
 ### Features
