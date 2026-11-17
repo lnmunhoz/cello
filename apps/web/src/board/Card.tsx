@@ -34,11 +34,7 @@ export function CardBody({ task, board, laned = false, work = true, titleLink }:
   // An agent at work on it right now (CEL-76): the edge, and the status icon's turn per check-in.
   const activity = useCardActivity(task, board)
   const parent = task.parentId ? board.tasks[task.parentId] : undefined
-  const labels = task.labelIds.map((id) => board.labels[id]).filter((l) => l !== undefined && l.archivedAt === null)
   const milestoneShown = useCardMilestone()
-  const milestone = milestoneShown && task.milestoneId ? board.milestones[task.milestoneId] : undefined
-  const chips = task.priority !== 0 || task.dueDate !== null || labels.length > 0 || milestone !== undefined || openReviewOf(board, task.id) !== undefined ||
-    openAskOf(board, task.id) !== undefined
   return (
     <>
       <ActivityEdge activity={activity} />
@@ -65,33 +61,55 @@ export function CardBody({ task, board, laned = false, work = true, titleLink }:
           {titleLink ? titleLink(task.title) : task.title}
         </span>
       </span>
-      {chips ? (
-        <span className="flex flex-wrap items-center gap-1.5" data-card-chips>
-          {task.priority !== 0 ? (
-            <span className="flex h-5.5 items-center rounded-md border border-line px-1">
-              <PriorityIcon priority={task.priority} />
-            </span>
-          ) : null}
-          {task.dueDate ? <Chip icon={<CalendarIcon aria-hidden className="size-3" />}>{formatDue(task.dueDate)}</Chip> : null}
-          {labels.map((l) => (
-            <Chip key={l!.id} color={l!.color}>
-              {l!.name}
-            </Chip>
-          ))}
-          {milestone ? (
-            <span data-card-milestone title={`Milestone ${milestone.name}${milestone.state === "closed" ? " (closed)" : ""}`}>
-              <Chip icon={<MilestoneIcon aria-hidden className="size-3" />}>{milestone.name}</Chip>
-            </span>
-          ) : null}
-          <QuestionsBadge task={task} board={board} />
-          <EvidenceBadge task={task} board={board} opens />
-        </span>
-      ) : null}
+      <CardChips task={task} board={board} milestone={milestoneShown} />
       {work ? <CardWork task={task} board={board} stage={!laned} /> : null}
       <span className="flex min-w-0 items-center justify-between gap-2">
         <ProvenanceLine task={task} board={board} />
         <CommentCount task={task} />
       </span>
     </>
+  )
+}
+
+/**
+ * The card's chips, a row only when there is one: priority, due date, labels, its milestone (unless
+ * `milestone` is false: Display hides it on cards), and what waits on Lucas (its ask, its packet) unless
+ * `waiting` is false, where the page around them says it in words (a task link's hover card, CEL-142).
+ */
+export function CardChips({ task, board, milestone: showMilestone = true, waiting = true }: {
+  task: Task
+  board: BoardState
+  milestone?: boolean
+  waiting?: boolean
+}) {
+  const labels = task.labelIds.map((id) => board.labels[id]).filter((l) => l !== undefined && l.archivedAt === null)
+  const milestone = showMilestone && task.milestoneId ? board.milestones[task.milestoneId] : undefined
+  const waits = waiting && (openReviewOf(board, task.id) !== undefined || openAskOf(board, task.id) !== undefined)
+  if (task.priority === 0 && task.dueDate === null && labels.length === 0 && milestone === undefined && !waits) return null
+  return (
+    <span className="flex flex-wrap items-center gap-1.5" data-card-chips>
+      {task.priority !== 0 ? (
+        <span className="flex h-5.5 items-center rounded-md border border-line px-1">
+          <PriorityIcon priority={task.priority} />
+        </span>
+      ) : null}
+      {task.dueDate ? <Chip icon={<CalendarIcon aria-hidden className="size-3" />}>{formatDue(task.dueDate)}</Chip> : null}
+      {labels.map((l) => (
+        <Chip key={l!.id} color={l!.color}>
+          {l!.name}
+        </Chip>
+      ))}
+      {milestone ? (
+        <span data-card-milestone title={`Milestone ${milestone.name}${milestone.state === "closed" ? " (closed)" : ""}`}>
+          <Chip icon={<MilestoneIcon aria-hidden className="size-3" />}>{milestone.name}</Chip>
+        </span>
+      ) : null}
+      {waiting ? (
+        <>
+          <QuestionsBadge task={task} board={board} />
+          <EvidenceBadge task={task} board={board} opens />
+        </>
+      ) : null}
+    </span>
   )
 }

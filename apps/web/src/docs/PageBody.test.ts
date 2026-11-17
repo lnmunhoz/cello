@@ -111,7 +111,8 @@ describe("PageBody", () => {
     const html = render(content, null, "CEL")
     const link = html.match(/<a [^>]*data-task-link="CEL-8"[^>]*>.*?<\/a>/)?.[0] ?? ""
     expect(link).toContain('href="/CEL/8"')
-    expect(link).toContain('title="CEL-8 · Review packets"')
+    // Its title is in the card hovering it shows (CEL-142), not a browser tooltip.
+    expect(link).toContain('data-slot="hover-card-trigger"')
     expect(link).toMatch(/>CEL-8<span [^>]*data-task-status=""[^>]*><svg [^>]*>.*<\/svg>In Progress<\/span><\/a>$/)
     expect(html.match(/data-task-link/g)).toHaveLength(1)
     // A known project but no such task, a key in code, an unknown project: text.

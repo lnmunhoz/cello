@@ -226,8 +226,9 @@ function TaskCard({ board, task }: { board: BoardState; task: Task }) {
         board={board}
         work={false}
         titleLink={(title) => (
-          // In this page's side panel (CEL-141); ⌘-click opens it on its board in a new tab.
-          <TaskLink taskKey={task.key} className="outline-none after:absolute after:inset-0 after:rounded-lg after:content-['']">
+          // In this page's side panel (CEL-141); ⌘-click opens it on its board in a new tab. The card is
+          // the task in view, so no hover card about it (CEL-142).
+          <TaskLink taskKey={task.key} preview={false} className="outline-none after:absolute after:inset-0 after:rounded-lg after:content-['']">
             {title}
           </TaskLink>
         )}

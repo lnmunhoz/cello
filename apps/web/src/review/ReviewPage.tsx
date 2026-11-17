@@ -159,9 +159,11 @@ function TaskQueueRow({
             {status.name}
           </span>
         ) : null}
-        {/* In this page's side panel, beside the queue (CEL-141); ⌘-click opens it on its board in a new tab. */}
+        {/* In this page's side panel, beside the queue (CEL-141); ⌘-click opens it on its board in a new tab.
+            The row is the task in view, so no hover card about it (CEL-142). */}
         <TaskLink
           taskKey={task.key}
+          preview={false}
           className="ml-auto rounded-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
         >
           Open {task.key}

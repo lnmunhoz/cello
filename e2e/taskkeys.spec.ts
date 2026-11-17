@@ -99,7 +99,8 @@ test("CEL-20: a page's task table links its keys with their live status; moving 
   const first = article.locator("tbody tr").nth(0).locator(`[data-task-link="${key}-1"]`)
   const second = article.locator("tbody tr").nth(1).locator(`[data-task-link="${key}-2"]`)
   await expect(first).toHaveAttribute("href", `/${key}/1`)
-  await expect(first).toHaveAttribute("title", `${key}-1 · Link task keys`)
+  // Its title shows in the card hovering it opens (CEL-142, e2e/taskpreview.spec.ts), not a browser tooltip.
+  await expect(first).not.toHaveAttribute("title")
   await expect(first.locator("[data-task-status]")).toHaveText("Todo")
   await expect(second.locator("[data-task-status]")).toHaveText("Todo")
   // In running text too, and in the "after KEY-1" cell.

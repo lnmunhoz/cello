@@ -26,6 +26,7 @@ import { copyText } from "../lib/clipboard.ts"
 import { PageBody } from "../docs/PageBody.tsx"
 import { DocumentReader } from "../docs/PageReader.tsx"
 import { openInPanel, type OpenMessage } from "../lib/desktop.ts"
+import { popupTakesEscape } from "../lib/escape.ts"
 import { useBoard, useKeyedTask, useProjectKeys } from "../lib/hooks.ts"
 import { widthLimits } from "../lib/resize.ts"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
@@ -100,12 +101,12 @@ export function ViewerPanel() {
   return item ? <Viewer item={item} /> : null
 }
 
-/** Esc closes the viewer, unless you're typing or a dialog or menu is open (Esc closes that first). */
+/** Esc closes the viewer, unless you're typing or a dialog, menu or hover card is open (Esc closes that first). */
 const closesOnEscape = (e: KeyboardEvent, doc: Document) => {
   if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return false
   const target = e.target as HTMLElement | null
   if (target?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName ?? "")) return false
-  return doc.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]') === null
+  return !popupTakesEscape(doc)
 }
 
 const KIND_ICON = { image: ImageIcon, video: FilmIcon, text: FileCodeIcon, page: FileTextIcon, external: GlobeIcon } satisfies Record<ViewerKind, unknown>
