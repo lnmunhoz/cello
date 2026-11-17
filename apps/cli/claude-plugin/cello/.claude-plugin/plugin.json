@@ -1,7 +1,7 @@
 {
   "name": "cello",
   "displayName": "Cello",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "description": "Work with a Cello board through the cello CLI: /cello:orchestrate makes this thread the orchestrator for a set of tasks, /cello:work does one task here, the cello skill keeps the board true, and builder and reviewer agents do the work.",
   "author": {
     "name": "Cello"
