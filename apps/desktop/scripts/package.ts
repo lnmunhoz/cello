@@ -4,10 +4,13 @@
 // Launchpad, Spotlight and Raycast list it (they don't look in dist/), then unregisters the build folders'
 // copies from LaunchServices so cello:// links open /Applications' copy, and warns about a Cello still
 // running an old build (install.ts).
+// For a release (CEL-139; src/install/builderConfig.ts): `--arch x64` packages for Intel (in dist/mac/; run it on
+// an Intel Mac, since it bundles this machine's Electron), `--artifacts` also makes Cello-v<version>-mac-<arch>.dmg
+// and .zip in dist/, and `--sign` signs with CSC_LINK's certificate (and notarizes when APPLE_API_* are set).
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { bundlingCli } from "../src/install/builderConfig.ts"
+import { bundlingCli, packagedApp, packagingConfig, parsePackaging } from "../src/install/builderConfig.ts"
 import { INSTALLED_APP } from "../src/install/plan.ts"
 import { desktopDir } from "./electron.ts"
 import { afterInstall } from "./install.ts"
@@ -26,22 +29,24 @@ const bundled = cliBinary ?? path.join(cliDir, "dist/cello")
 if (!fs.existsSync(bundled)) {
   throw new Error(cliBinary ? `No cello binary at ${cliBinary}.` : "No apps/cli/dist/cello: run bun run build in apps/cli.")
 }
-let builderConfig = "electron-builder.json"
-if (cliBinary) {
-  const config = JSON.parse(fs.readFileSync(path.join(desktopDir, builderConfig), "utf8"))
-  builderConfig = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cello-package-")), "electron-builder.json")
-  fs.writeFileSync(builderConfig, JSON.stringify(bundlingCli(config, cliBinary), null, 2))
-}
+const packaging = parsePackaging(process.argv)
+const source = JSON.parse(fs.readFileSync(path.join(desktopDir, "electron-builder.json"), "utf8"))
+const config = packagingConfig(cliBinary ? bundlingCli(source, cliBinary) : source, packaging)
+// Relative paths in it (dist, resources, the afterPack hook) resolve against apps/desktop, electron-builder's cwd.
+const builderConfig = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cello-package-")), "electron-builder.json")
+fs.writeFileSync(builderConfig, JSON.stringify(config, null, 2))
 
 run([process.execPath, path.join(desktopDir, "scripts/build.ts")], desktopDir)
-// No signing identity: the app is unsigned (macOS asks to confirm the first launch).
-run([path.join(desktopDir, "node_modules/.bin/electron-builder"), "--mac", "--config", builderConfig], desktopDir, {
-  CSC_IDENTITY_AUTO_DISCOVERY: "false",
-})
+// Unsigned unless --sign: no identity, and no looking for one in the keychain (macOS asks to confirm the first
+// launch). Signed, electron-builder takes the certificate from CSC_LINK / CSC_KEY_PASSWORD.
+run(
+  [path.join(desktopDir, "node_modules/.bin/electron-builder"), "--mac", "--config", builderConfig],
+  desktopDir,
+  packaging.sign ? {} : { CSC_IDENTITY_AUTO_DISCOVERY: "false" },
+)
 
-const app = path.join(desktopDir, "dist/mac-arm64/Cello.app")
-// Copied along with the Electron distribution; the app never falls back to Electron's demo app.
-fs.rmSync(path.join(app, "Contents/Resources/default_app.asar"), { force: true })
+// Electron's demo app is already gone: scripts/after-pack.cjs removes it before signing and the DMG.
+const app = path.join(desktopDir, packagedApp(packaging.arch))
 const size = Bun.spawnSync(["du", "-sh", app]).stdout.toString().split("\t")[0]
 console.log(`Packaged ${app} (${size})`)
 

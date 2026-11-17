@@ -2,7 +2,7 @@
 // apps/web/dist embedded (Bun's `with { type: "file" }` imports), so `cello start` serves the board
 // with nothing next to the binary, and the commit it's built from (CELLO_BUILD_COMMIT, else HEAD)
 // embedded as its build (CEL-37), with the checkout it was built in, for the build history to read the
-// commits between builds from (CEL-50). Output: apps/cli/dist/cello, or `--outfile <path>`.
+// commits between builds from (CEL-50). Output: apps/cli/dist/cello, or `--outfile <path>`; `--target` below.
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { buildCommit } from "../../server/src/build/git.ts"
@@ -46,5 +46,9 @@ fs.writeFileSync(path.join(buildDir, "entry.ts"), entry)
 // dist/cello, the live binary.
 const outfileFlag = process.argv.indexOf("--outfile")
 const outfile = outfileFlag === -1 ? path.join(cli, "dist", "cello") : path.resolve(process.argv[outfileFlag + 1] ?? "")
-run(["bun", "build", "--compile", path.join(buildDir, "entry.ts"), "--outfile", outfile], cli)
+// `--target <bun target>` (bun-darwin-arm64, bun-darwin-x64, …) names the machine the binary is for; without
+// it, this one. The release names it for each runner's architecture (CEL-139).
+const targetFlag = process.argv.indexOf("--target")
+const target = targetFlag === -1 ? [] : ["--target", process.argv[targetFlag + 1] ?? ""]
+run(["bun", "build", "--compile", ...target, path.join(buildDir, "entry.ts"), "--outfile", outfile], cli)
 console.log(`Built ${outfile} (${(fs.statSync(outfile).size / 1024 / 1024).toFixed(1)} MB, ${files.length} web files embedded)`)

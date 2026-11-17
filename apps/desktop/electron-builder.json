@@ -14,11 +14,13 @@
     { "from": "../cli/dist/cello", "to": "cello" },
     { "from": "dist-electron/build.json", "to": "build.json" }
   ],
+  "afterPack": "./scripts/after-pack.cjs",
   "npmRebuild": false,
   "publish": null,
   "protocols": [{ "name": "Cello", "schemes": ["cello"] }],
   "mac": {
     "target": [{ "target": "dir", "arch": ["arm64"] }],
+    "artifactName": "Cello-v${version}-mac-${arch}.${ext}",
     "category": "public.app-category.developer-tools",
     "icon": "resources/Cello.icon",
     "identity": null,
