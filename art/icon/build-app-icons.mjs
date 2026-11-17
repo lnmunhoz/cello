@@ -93,7 +93,7 @@ const iconComposer = (() => {
   return { json: `${JSON.stringify(iconJson, null, 2)}\n`, layer, iconJson, ink, srgb }
 })()
 
-// Cello Dev's icon (CEL-149): the same document with a "DEV" badge layer on top, an ink pill below the agent with
+// Cello Dev's icon (CEL-149): the same document with a "DEV" badge layer on top, an ink pill in the top right corner with
 // the letters cut out so the fill shows through, like the agent's eyes. Letters are paths (cap height 100,
 // strokes 24), so actool needs no font.
 // Cello Dev is indigo instead of orange (Lucas, CEL-149), so the two apps tell apart in the Dock at a glance.
@@ -113,7 +113,9 @@ const devIcon = (() => {
   const lettersWidth = (letters.reduce((sum, l) => sum + l.width, 0) + GAP * (letters.length - 1)) * scale
   const [padX, padY] = [52, 34]
   const [w, h] = [lettersWidth + 2 * padX, CAP + 2 * padY]
-  const [x, y] = [512 - w / 2, 952 - h]
+  // Top right (Lucas, CEL-149), clear of the rounded corner and of the agent.
+  const MARGIN = 120
+  const [x, y] = [1024 - MARGIN - w, MARGIN - 24]
   let at = 0
   const placed = letters.map(({ d, width }) => {
     const g = `<path transform="translate(${(x + padX + at * scale).toFixed(2)} ${y + padY}) scale(${scale})" d="${d}"/>`
