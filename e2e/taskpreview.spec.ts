@@ -8,7 +8,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import type { Browser, Page } from "@playwright/test"
-import { animationsSettled, caption, captionWithUrl, createProject, expect, newCommandId, test, uniqueKey } from "./fixtures.ts"
+import { animationsSettled, caption, captionWithUrl, createProject, expect, hold, newCommandId, test, uniqueKey } from "./fixtures.ts"
 import { cello, SHOTS, WEB_URL } from "./packets.ts"
 import { isReview } from "./recording.ts"
 
@@ -95,6 +95,7 @@ test("CEL-142: hovering a task key shows a card about the task; it stays while t
   await caption(page, `Rest the pointer on ${key}-2: a card about it, without opening it`)
   await inAsk.hover()
   await expect(card).toBeVisible()
+  await hold(page)
   await expect(card.locator("[data-preview-title]")).toHaveText("Import the bookmarks")
   await expect(card.locator("[data-preview-status]")).toHaveText("In Progress")
   await expect(card.getByRole("img", { name: "High" })).toBeVisible()
@@ -115,6 +116,7 @@ test("CEL-142: hovering a task key shows a card about the task; it stays while t
   await caption(page, `Move into the card: it stays, and ${key}-3 in its description is a link`)
   await card.locator("[data-preview-title]").hover()
   await expect(card).toBeVisible()
+  await hold(page)
   const inCard = description.locator(`[data-task-link="${key}-3"]`)
   await expect(inCard).toHaveAttribute("href", `/${key}/3`)
 
@@ -128,20 +130,29 @@ test("CEL-142: hovering a task key shows a card about the task; it stays while t
   await caption(page, `Hover ${key}-2 again, then move the pointer away: the card closes on its own`)
   await inAsk.hover()
   await expect(card).toBeVisible()
+  await hold(page)
   await page.mouse.move(5, 5)
   await expect(card).toHaveCount(0)
 
   await caption(page, `Hover it once more, then press Esc: the card closes, and only the card`)
   await inAsk.hover()
   await expect(card).toBeVisible()
+  await hold(page)
   await page.keyboard.press("Escape")
   await expect(card).toHaveCount(0)
   // The Review page's own Esc (closing the open row) waits while a card is open.
   await expect(inAsk).toBeVisible()
 
-  await caption(page, `With the keyboard: focus ${key}-2 and the card shows too`)
+  await caption(page, `With the keyboard: Tab to ${key}-2 and the card shows too`)
+  await page.mouse.move(5, 5)
+  // Onto the link with a real Tab: from it, back one stop, then forward again.
   await inAsk.focus()
+  await page.keyboard.press("Shift+Tab")
+  await expect(inAsk).not.toBeFocused()
+  await page.keyboard.press("Tab")
+  await expect(inAsk).toBeFocused()
   await expect(card).toBeVisible()
+  await hold(page)
   await page.keyboard.press("Escape")
   await expect(card).toHaveCount(0)
   await expect(inAsk).toBeFocused()

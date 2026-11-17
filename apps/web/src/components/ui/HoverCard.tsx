@@ -17,7 +17,21 @@ export function HoverCardTrigger(props: Omit<ComponentProps<typeof BaseTrigger>,
   return <BaseTrigger {...props} />
 }
 
-/** The card, below the link and lined up with its start, flipping above when there's no room. */
+/**
+ * The card, below the link and lined up with its start, flipping above when there's no room. It renders
+ * in the page's body, not beside the link, so the text around the link (a page's 17 px prose, its link
+ * and paragraph styles) doesn't restyle it.
+ */
 export function HoverCardContent(props: Omit<ComponentProps<typeof BaseContent>, "className">) {
-  return <BaseContent side="bottom" align="start" sideOffset={6} collisionPadding={12} {...props} className={`${popupLook} p-3`} />
+  return (
+    <BaseContent
+      side="bottom"
+      align="start"
+      sideOffset={6}
+      collisionPadding={12}
+      container={typeof document === "undefined" ? undefined : document.body}
+      {...props}
+      className={`${popupLook} p-3`}
+    />
+  )
 }
