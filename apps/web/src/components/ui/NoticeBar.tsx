@@ -3,14 +3,24 @@ import type { ComponentProps, ReactNode } from "react"
 /**
  * A pill that says something changed and offers what to do about it: "Cello was updated · Reload"
  * (CEL-37), "The Cello app was updated · Restart" (CEL-75). Its `NoticeStack` places it.
+ *
+ * `details` opens more under the line (what's in a new build, CEL-148): the pill becomes a card, the
+ * line stays where it was, and the same elements stay mounted, so a toggle in the line keeps its focus.
  */
-export function NoticeBar(props: Omit<ComponentProps<"div">, "className" | "style">) {
+export function NoticeBar({ children, details, ...props }: Omit<ComponentProps<"div">, "className" | "style"> & { details?: ReactNode }) {
+  const open = details !== undefined && details !== null && details !== false
   return (
     <div
-      role="status"
       {...props}
-      className="pointer-events-auto flex items-center gap-2 rounded-full border border-line bg-raised py-1 pr-1 pl-3 text-[13px] whitespace-nowrap text-ink shadow-pop"
-    />
+      className={`pointer-events-auto flex flex-col border border-line bg-raised text-[13px] text-ink shadow-pop ${
+        open ? "w-[28rem] max-w-[calc(100vw-2rem)] rounded-xl" : "rounded-full"
+      }`}
+    >
+      <div role="status" className="flex items-center gap-2 py-1 pr-1 pl-3 whitespace-nowrap">
+        {children}
+      </div>
+      {open ? <div className="border-t border-line">{details}</div> : null}
+    </div>
   )
 }
 

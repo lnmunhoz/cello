@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildDay, buildKey, buildLine, buildParts, byDay, liveFor, liveSince, reloadAction, sameBuild, shortCommit, type BuildStamp } from "./build.ts"
+import { buildDay, buildKey, buildLine, buildParts, buildsSinceLoaded, byDay, liveFor, liveSince, reloadAction, sameBuild, shortCommit, type BuildStamp } from "./build.ts"
 
 const A: BuildStamp = { version: "0.2.0", commit: "c602f25", builtAt: 1_000 }
 const B: BuildStamp = { version: "0.2.0", commit: "9afd602", builtAt: 2_000 }
@@ -103,5 +103,51 @@ describe("the build history's words (CEL-50)", () => {
       ["Friday, Nov 13", [2, 1]],
     ])
     expect(byDay([], now)).toEqual([])
+  })
+})
+
+describe("what reloading brings in: the builds since the one a tab runs (CEL-148)", () => {
+  const C: BuildStamp = { version: "0.2.1", commit: "ed0e266", builtAt: 3_000 }
+  const record = (number: number, stamp: BuildStamp, changes: ReadonlyArray<string>) => ({
+    number,
+    commit: stamp.commit,
+    webBuiltAt: stamp.builtAt,
+    changes,
+  })
+  // Newest first, as `builds.list` returns them.
+  const history = [
+    record(3, C, ["merge: the update notice lists what's new (CEL-148)"]),
+    record(2, B, ["merge: build history (CEL-50)", "docs: what a build is"]),
+    record(1, A, []),
+  ]
+  const served = (stamp: BuildStamp, changes: ReadonlyArray<string> = []) => ({ ...stamp, changes })
+
+  it("one build behind: the served build and its changes", () => {
+    expect(buildsSinceLoaded({ loaded: B, served: served(C), history })).toEqual({ builds: [history[0]], missed: false })
+  })
+
+  it("several builds behind: every build after the loaded one, newest first", () => {
+    expect(buildsSinceLoaded({ loaded: A, served: served(C), history })).toEqual({ builds: [history[0], history[1]], missed: false })
+  })
+
+  it("finds builds by when their web app was built: a record's commit can be the server's own", () => {
+    const serverCommits = [record(2, { ...B, commit: "1234567" }, ["x"]), record(1, { ...A, commit: "abcdef0" }, [])]
+    expect(buildsSinceLoaded({ loaded: A, served: served(B), history: serverCommits })).toEqual({ builds: [serverCommits[0]], missed: false })
+  })
+
+  it("starts at the served build, leaving out any recorded after it", () => {
+    expect(buildsSinceLoaded({ loaded: A, served: served(B), history })).toEqual({ builds: [history[1]], missed: false })
+  })
+
+  it("the loaded build isn't in the history (never recorded, or older than the page): only the served one, marked as maybe missing some", () => {
+    const unrecorded: BuildStamp = { version: "0.1.0", commit: "0000000", builtAt: 500 }
+    expect(buildsSinceLoaded({ loaded: unrecorded, served: served(C), history })).toEqual({ builds: [history[0]], missed: true })
+  })
+
+  it("the served build isn't recorded, or the history hasn't loaded yet: the served web build's own list stands in", () => {
+    const changes = ["merge: from build.json (CEL-148)"]
+    const stand = { number: null, commit: C.commit, webBuiltAt: C.builtAt, changes }
+    expect(buildsSinceLoaded({ loaded: B, served: served(C, changes), history: null })).toEqual({ builds: [stand], missed: false })
+    expect(buildsSinceLoaded({ loaded: B, served: served(C, changes), history: history.slice(1) })).toEqual({ builds: [stand], missed: false })
   })
 })

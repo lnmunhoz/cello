@@ -11,11 +11,12 @@ import { Breadcrumb } from "../app/Breadcrumb.tsx"
 import { Centered } from "../app/Home.tsx"
 import { Button } from "../components/ui/Button.tsx"
 import { Chip } from "../components/ui/Chip.tsx"
+import { BUILDS_PAGE } from "../lib/build.ts"
 import { buildsFamily } from "../lib/cello.ts"
 import { Linkified } from "../viewer/ViewerLink.tsx"
 
 /** How many builds a page shows at first, and how many more "Show older builds" adds. */
-const PAGE = 50
+const PAGE = BUILDS_PAGE
 const RUNNING = "#22C55E"
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`
