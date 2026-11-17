@@ -3,6 +3,12 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.4.5](https://github.com/lnmunhoz/cello/compare/v0.4.4...v0.4.5) (2026-11-17)
+
+### Features
+
+- **desktop:** Cello Dev's DEV badge sits in the top right corner (CEL-149) ([1a8bd51](https://github.com/lnmunhoz/cello/commit/1a8bd519e18dc76a05d56f1e8deb962d51564b1d))
+
 ## [0.4.4](https://github.com/lnmunhoz/cello/compare/v0.4.3...v0.4.4) (2026-11-17)
 
 ### Features
