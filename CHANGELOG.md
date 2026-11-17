@@ -3,6 +3,12 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.4.11](https://github.com/lnmunhoz/cello/compare/v0.4.10...v0.4.11) (2026-11-17)
+
+### Fixes
+
+- agent logs mask more secret shapes: lower-case password/token lines, X-Api-Key, curl -u, mysql -p, Basic auth, cookies (CEL-108) ([54bf216](https://github.com/lnmunhoz/cello/commit/54bf216a82574cb72c07e7d3f72ff5733526a49b))
+
 ## [0.4.10](https://github.com/lnmunhoz/cello/compare/v0.4.9...v0.4.10) (2026-11-17)
 
 ### Features
