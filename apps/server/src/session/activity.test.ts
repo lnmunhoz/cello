@@ -1,5 +1,6 @@
 // What an agent is doing besides its last tool call (CEL-133): the background work it started, and
 // whether a stop finishes it or leaves it waiting on that work.
+import type { TestProgress } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import {
   type BackgroundWork,
@@ -22,6 +23,11 @@ import {
   testsTurnEnded,
   withBackground,
 } from "./activity.ts"
+
+/** A runner's report: where it is, which stage, its run folder. */
+const report = (extra: Partial<TestProgress> = {}): TestProgress => ({
+  stage: "web-e2e", passed: 0, failed: 0, skipped: 0, total: null, current: null, failures: [], done: false, outcome: null, folder: null, ...extra,
+})
 
 const e2e = { id: "blo3xolgq", label: "Bash · bun run test:e2e -- e2e/agents-page.spec.ts", toolUseId: "toolu_1", waits: true }
 const monitor = { id: "bpz2edzeb", label: "Monitor · review-mode e2e run finishing", toolUseId: "toolu_2", waits: true }
@@ -151,17 +157,70 @@ describe("an agent's runs", () => {
   })
 
   // Review S1: the orchestrator runs tests at the repo root while a builder runs its own in a worktree inside it.
-  it("pickRun: the run started from the runner's folder exactly, else the deepest folder holding it or inside it, else the newest", () => {
+  it("pickRun: the run started from the runner's folder exactly, else the deepest folder holding it or inside it", () => {
     const root = { ...testsStarted({ runId: "r", command: "bun run test", cwd: "/repo", now: 5000 }), who: "orchestrator" }
     const builder = { ...testsStarted({ runId: "b", command: "bun run test:e2e", cwd: "/repo/.claude/worktrees/agent-a13b", now: 1000 }), who: "builder" }
     const candidates = [{ run: root }, { run: builder }]
-    expect(pickRun(candidates, "/repo/.claude/worktrees/agent-a13b")?.run.who).toBe("builder")
-    expect(pickRun(candidates, "/repo/.claude/worktrees/agent-a13b/apps/web")?.run.who).toBe("builder")
-    expect(pickRun(candidates, "/repo")?.run.who).toBe("orchestrator")
-    expect(pickRun(candidates, "/repo/apps/web")?.run.who).toBe("orchestrator")
+    expect(pickRun(candidates, "/repo/.claude/worktrees/agent-a13b", report())?.run.who).toBe("builder")
+    expect(pickRun(candidates, "/repo/.claude/worktrees/agent-a13b/apps/web", report())?.run.who).toBe("builder")
+    expect(pickRun(candidates, "/repo", report())?.run.who).toBe("orchestrator")
+    expect(pickRun(candidates, "/repo/apps/web", report())?.run.who).toBe("orchestrator")
     // No folder matches: the session's only running run, else none.
-    expect(pickRun([{ run: builder }], "/elsewhere")?.run.who).toBe("builder")
-    expect(pickRun(candidates, "/elsewhere")).toBeUndefined()
+    expect(pickRun([{ run: builder }], "/elsewhere", report())?.run.who).toBe("builder")
+    expect(pickRun(candidates, "/elsewhere", report())).toBeUndefined()
+  })
+})
+
+// CEL-147: two runs started from one folder tied on it, so every report went to the newest and they swapped.
+describe("pickRun: two runs from one folder", () => {
+  const wt = "/repo/wt"
+  const desktopFolder = `${wt}/test-results/docker/2026-11-17_125519-desktop-1`
+  const webFolder = `${wt}/test-results/docker/2026-11-17_125522-e2e-2`
+  const desktop = { run: testsStarted({ runId: "d", command: "bun run test:docker:desktop", cwd: wt, now: 1000 }), who: "desktop" }
+  const web = { run: testsStarted({ runId: "w", command: "bun run test:docker:e2e", cwd: wt, now: 4000 }), who: "web" }
+  /** The candidate after its run took `progress`. */
+  const took = <C extends { readonly run: StoredTestRun }>(c: C, progress: TestProgress): C => ({ ...c, run: testsProgressed(c.run, progress, 9000) })
+
+  it("goes by the stage the runner is on: each Docker run's own stage fits only it", () => {
+    expect(pickRun([desktop, web], wt, report({ stage: "web-e2e", folder: webFolder }))?.who).toBe("web")
+    expect(pickRun([desktop, web], wt, report({ stage: "desktop-e2e", folder: desktopFolder }))?.who).toBe("desktop")
+    // A unit run (no reporter of its own) never takes a Docker runner's report while a Docker run is there.
+    const unit = { run: testsStarted({ runId: "u", command: "bun run test", cwd: wt, now: 500 }), who: "unit" }
+    expect(pickRun([unit, web], wt, report({ stage: "install", folder: webFolder }))?.who).toBe("web")
+  })
+
+  it("while the stage fits both (installing), waits for one that tells them apart; the last report goes to the oldest", () => {
+    expect(pickRun([desktop, web], wt, report({ stage: "install", folder: webFolder }))).toBeUndefined()
+    expect(pickRun([desktop, web], wt, report({ stage: "install", folder: webFolder, done: true, outcome: "failed" }))?.who).toBe("desktop")
+  })
+
+  it("runs nothing tells apart (the same command twice, a runner that names no stage) go oldest first", () => {
+    const again = { run: testsStarted({ runId: "w2", command: "bun run test:docker:e2e", cwd: wt, now: 6000 }), who: "web again" }
+    expect(pickRun([again, web], wt, report({ stage: "install", folder: webFolder }))?.who).toBe("web")
+    expect(pickRun([again, web], wt, report({ stage: "web-e2e", folder: webFolder }))?.who).toBe("web")
+    expect(pickRun([desktop, web], wt, report({ stage: null, folder: null }))?.who).toBe("desktop")
+  })
+
+  it("a run takes only reports from the run folder it first took one from, and that folder's reports go only to it", () => {
+    const bound = took(desktop, report({ stage: "desktop-e2e", folder: desktopFolder }))
+    // Installing, the web runner's report now has one run left that it could be.
+    expect(pickRun([bound, web], wt, report({ stage: "install", folder: webFolder }))?.who).toBe("web")
+    // Its folder's reports stay with it, even from another folder or with a stage that fits the other run.
+    expect(pickRun([bound, web], "/elsewhere", report({ stage: "desktop-e2e", folder: desktopFolder }))?.who).toBe("desktop")
+    expect(pickRun([bound, web], wt, report({ stage: "web-e2e", folder: desktopFolder }))?.who).toBe("desktop")
+    // A report without a folder, or from another one, never goes to it.
+    expect(pickRun([bound, web], wt, report({ stage: "desktop-e2e", folder: null }))?.who).toBe("web")
+    expect(pickRun([bound], wt, report({ stage: "desktop-e2e", folder: webFolder }))).toBeUndefined()
+    expect(pickRun([bound], "/elsewhere", report({ folder: null }))).toBeUndefined()
+  })
+
+  it("an ended run keeps its folder's reports: they never reopen it or go to another run", () => {
+    const ended = took(desktop, report({ stage: "desktop-e2e", folder: desktopFolder, done: true, outcome: "passed" }))
+    expect(ended.run.endedAt).toBe(9000)
+    expect(pickRun([ended, web], wt, report({ stage: "desktop-e2e", folder: desktopFolder }))?.who).toBe("desktop")
+    // An ended run that never took a report takes none: it's nobody's to bind any more.
+    const turnEnded = { ...desktop, run: testsTurnEnded(desktop.run, [], 9000) }
+    expect(pickRun([turnEnded], wt, report({ stage: "desktop-e2e", folder: desktopFolder }))).toBeUndefined()
   })
 })
 
