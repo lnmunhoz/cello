@@ -25,10 +25,13 @@ describe("the packaged app's icon", () => {
     }
   })
 
-  it("Cello Dev's (CEL-149) is the same document with a DEV badge on top, just as flat", () => {
+  it("Cello Dev's (CEL-149) is the same document in indigo with a DEV badge on top, just as flat", () => {
     const read = (name: string) => JSON.parse(fs.readFileSync(path.join(desktop, "resources", name, "icon.json"), "utf8"))
     const [release, dev] = [read("Cello.icon"), read("CelloDev.icon")]
-    expect(dev["fill-specializations"]).toEqual(release["fill-specializations"])
+    // Indigo #5E5CE6 in light and dark, so the two apps tell apart in the Dock.
+    const indigo = { solid: "srgb:0.36863,0.36078,0.90196,1.00000" }
+    expect(dev["fill-specializations"]).toEqual([{ value: indigo }, { appearance: "dark", value: indigo }])
+    expect(dev["fill-specializations"]).not.toEqual(release["fill-specializations"])
     expect(dev.groups.map((g: { layers: Array<{ name: string }> }) => g.layers.map((l) => l.name))).toEqual([["dev-badge"], ["agent"]])
     expect(dev.groups.slice(1)).toEqual(release.groups)
     for (const group of dev.groups) {
