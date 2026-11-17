@@ -4,9 +4,10 @@ import { reviewQueue } from "@cello/client/sync/reviews"
 import { placementAtEnd, projectsOf, statusesOf } from "@cello/client/sync/selectors"
 import type { Project } from "@cello/contract/entities"
 import { useAtomSet } from "@effect/atom-react"
-import { useNavigate, useParams } from "@tanstack/react-router"
+import { useNavigate, useParams, useRouter } from "@tanstack/react-router"
 import { commands } from "../lib/cello.ts"
 import { writeStored } from "../lib/storage.ts"
+import { openTaskHere } from "../task/openTaskHere.ts"
 import { toggleTheme, useDark } from "../lib/theme.ts"
 import { actionSpecs, type ActionId, type ActionSpec } from "./actions.ts"
 import { BAR_LAYOUT_KEY, type BarLayout } from "./layout.ts"
@@ -33,6 +34,7 @@ export const useCurrentProject = (board: BoardState | null, workspaceId: string 
 
 export function useActions({ board, workspaceId, layout, typed, onToggleSidebar }: UseActions) {
   const navigate = useNavigate()
+  const router = useRouter()
   const dark = useDark()
   const create = useAtomSet(commands.createTask, { mode: "promiseExit" })
   const project = useCurrentProject(board, workspaceId)
@@ -40,7 +42,7 @@ export function useActions({ board, workspaceId, layout, typed, onToggleSidebar 
   const workspaces = board ? Object.values(board.workspaces).filter((w) => w.archivedAt === null).length : 0
   const specs: ActionSpec[] = actionSpecs({ project, waiting, workspaces, dark, layout, typed })
 
-  /** Creates a task titled `title` in the current project's first open status, and opens it. */
+  /** Creates a task titled `title` in the current project's first open status, and opens it where task links open (CEL-144). */
   const createTask = async (title: string) => {
     if (!board || !workspaceId || !project || title.trim() === "") return
     const statuses = statusesOf(board, workspaceId)
@@ -48,10 +50,7 @@ export function useActions({ board, workspaceId, layout, typed, onToggleSidebar 
     if (!status) return
     const column = Object.values(board.tasks).filter((t) => t.projectId === project.id && t.statusId === status.id && t.archivedAt === null)
     const exit = await create({ projectId: project.id, title: title.trim(), statusId: status.id, ...placementAtEnd(column) })
-    if (exit._tag === "Success") {
-      const [, number] = exit.value.key.split("-")
-      void navigate({ to: "/$projectKey/$number", params: { projectKey: project.key, number: number! } })
-    }
+    if (exit._tag === "Success") openTaskHere(router, { projectKey: project.key, number: exit.value.number })
   }
 
   const run = (id: ActionId): ActionOutcome => {

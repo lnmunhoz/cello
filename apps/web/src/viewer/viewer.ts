@@ -4,7 +4,7 @@
 // Pure, so the rules are tested once here; the components only map a decision to the DOM.
 import { attachmentIdOf } from "@cello/shared/attachment"
 import { shortUrl } from "@cello/shared/linkify"
-import { parseTaskKey, parseTaskPath } from "@cello/shared/taskKey"
+import { parseTaskKey, parseTaskPath, taskPath } from "@cello/shared/taskKey"
 import { parseVersion } from "@cello/shared/updates"
 import type { CelloDesktop } from "../lib/desktop.ts"
 import type { WidthRule } from "../lib/resize.ts"
@@ -128,6 +128,21 @@ export const releaseRef = (url: string, origin: string): string | null => {
 export const taskOfHref = (href: string | undefined, origin: string): { projectKey: string; number: number } | null => {
   const target = href && !href.startsWith("#") ? URL.parse(href, origin) : null
   return target?.origin === new URL(origin).origin ? parseTaskPath(target.pathname) : null
+}
+
+/**
+ * The side panel's address for a task opened off its board (CEL-141): its path, with `?comment=<id>`
+ * when ⌘K opened it at a comment (CEL-144), as the task's own route takes it, so Open in board keeps it.
+ */
+export const taskViewerPath = (task: { readonly projectKey: string; readonly number: number }, comment?: string): string =>
+  comment ? `${taskPath(task.projectKey, task.number)}?${new URLSearchParams({ comment })}` : taskPath(task.projectKey, task.number)
+
+/** The task the side panel shows (`?viewer=/THAI/96`) and the comment it opens at, or null when it shows something else. */
+export const viewerTaskOf = (item: ViewerItem, origin: string): { projectKey: string; number: number; comment?: string } | null => {
+  const task = item.kind === "page" ? taskOfHref(item.url, origin) : null
+  if (!task) return null
+  const comment = new URL(item.url).searchParams.get("comment")
+  return comment ? { ...task, comment } : task
 }
 
 /** Where Expand to full page goes: the board's own address for `url`, without `?embed`. */
