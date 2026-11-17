@@ -12,6 +12,7 @@ import { Caller, type AnswerInput, type AskQuestionInput, type EvidenceFile, typ
 import type { AskWaited } from "@cello/contract/views"
 import { answerProblem, isNeedsInputStatus, needsInputTarget } from "@cello/shared/ask"
 import { sendBackTarget } from "@cello/shared/review"
+import { awaitsMerge } from "@cello/shared/review"
 import { isClosedCategory } from "@cello/shared/status"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -133,6 +134,14 @@ const make = Effect.gen(function* () {
         return yield* new Invalid({
           field: "key",
           reason: `${task.key} is ${status.name}: create a follow-up task for this decision (cello task create "<the decision>" --status Todo), claim it, and ask there`,
+        })
+      }
+      // Approved and waiting for its merge (CEL-143): going through Needs input would clear its stage, and
+      // with it the approval. What's left to say goes in a comment.
+      if (awaitsMerge(task, status)) {
+        return yield* new Invalid({
+          field: "key",
+          reason: `${task.key} is approved and waiting for your merge: comment on the card (\`cello task comment ${task.key} "…"\`), or set \`cello task stage ${task.key} fixing\` if the merge failed`,
         })
       }
       if (task.assigneeActorId === caller.actorId && task.assigneeSessionId === caller.sessionId) return

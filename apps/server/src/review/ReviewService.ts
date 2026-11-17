@@ -254,7 +254,12 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const task = yield* tasks.byKey(input.key)
         const statuses = yield* statusesOf(task)
-        if (!awaitsMerge(task, statuses.find((s) => s.id === task.statusId))) {
+        const status = statuses.find((s) => s.id === task.statusId)
+        // Finished already, by this session (its last holder): say so rather than "isn't approved".
+        if (status?.category === "completed" && task.lastHolderSessionId === context.caller.sessionId && context.caller.sessionId !== null) {
+          return yield* new Invalid({ field: "key", reason: `${task.key} is ${status.name} already: there's nothing left to finish` })
+        }
+        if (!awaitsMerge(task, status)) {
           return yield* new Invalid({
             field: "key",
             reason: `${task.key} isn't approved: \`cello task done\` finishes a task the human approved in a project that merges after approval (Approved · merging). Hand work in with \`cello task submit ${task.key}\``,

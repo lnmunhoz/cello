@@ -1031,6 +1031,7 @@ cello task done APP-7
 - **If the merge fails** (a conflict, a red build), the task stays Approved · merging: set \`cello task stage APP-7 fixing\`, and say what broke on the card. Fix it and try again, or leave it to the human: they can send it back from the card, which brings it back to In Progress, still yours.
 - **Their note**, if they typed one with the approval, comes under the line ("Ship it" above) and shows under Reviews in \`cello task get\`.
 - **Approving twice** is refused while it waits for your merge; a task the human holds themselves, or one no agent ever held, goes straight to Done.
+- **No asks while it waits for your merge.** \`cello task ask\` is refused there: its trip through Needs input would clear the stage, and with it the approval. Say what you need in a comment (\`cello task comment APP-7 "…"\`).
 
 ## Questions for the human (Needs input)
 
@@ -1405,6 +1406,8 @@ Every error is one sentence that says what to do next. The usual ones:
 | CEL-12 is approved and waits for its merge: it keeps a stage until \`cello task done CEL-12\` | \`cello task stage --clear\` on a task waiting for its merge. | Set \`fixing\` or \`merged\` instead, or finish it with \`cello task done\`. |
 | CEL-12 isn't approved: \`cello task done\` finishes a task the human approved in a project that merges after approval | \`cello task done\` before their Approve, in a project with the setting off, or on a task that isn't In Review as Approved · merging. | Submit it and wait for the approval (\`cello inbox --wait\`). In a project with the setting off, their Approve finishes it. |
 | CEL-12 is claimed by another session: only the session holding its claim finishes it, once merged | Someone else holds it. | Leave it to the session that holds it. |
+| CEL-12 is Done already: there's nothing left to finish | You ran \`cello task done\` twice. | Nothing to do. |
+| CEL-12 is approved and waiting for your merge: comment on the card … | \`cello task ask\` on a task that's Approved · merging. Its trip through Needs input would lose the approval. | Say it in a comment (\`cello task comment\`), or \`cello task stage CEL-12 fixing\` if the merge failed. |
 | A reaction must be one emoji, like 👍 | \`cello task react\` got text, or several emoji. | Pass one emoji. |
 | No comment 01JD… on CEL-12 · Ana Souza hasn't commented on CEL-12 yet | The comment id isn't on that task, or \`last\` found no comment from the human. | \`cello task get CEL-12\` shows each comment with its id. |
 | CEL-12 needs a review packet before it goes to In Review | You used \`move\` to hand work over. | Use \`cello task submit\`. |

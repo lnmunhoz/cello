@@ -91,7 +91,7 @@ export function Settings() {
             </Section>
           ) : null}
           {project ? (
-            <Section title="Merging" description={`When ${project.name}'s agents merge their work: before you review it, or after you approve it.`}>
+            <Section title="Merging" description="When this project's agents merge their work: before you review it, or after you approve it.">
               <ProjectPicker label="Merging of project" projectId={project.id} projects={projects} />
               <MergeSettings project={project} />
             </Section>

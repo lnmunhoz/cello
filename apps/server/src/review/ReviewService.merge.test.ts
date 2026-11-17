@@ -171,6 +171,30 @@ describe("task done", () => {
       expect(yield* typesOf(commandId)).toEqual(["task.moved", "task.released"])
       // A retry gets the same answer, and nothing happens twice.
       expect((yield* agent(reviews.done({ commandId, key }))).result).toEqual(result)
+      // Running it again (a new command) says it's done, not that it isn't approved.
+      expect(yield* Effect.flip(agent(reviews.done({ commandId: cmd(), key })))).toMatchObject({
+        _tag: "Invalid",
+        field: "key",
+        reason: `${key} is Done already: there's nothing left to finish`,
+      })
+    })))
+
+  // Asking from In Review would carry the task through Needs input, which clears its stage: the approval
+  // would be lost, and `cello task done` would refuse it after the answer.
+  it.effect("an approved task waiting for its merge takes no ask: comment on the card instead", () =>
+    run(Effect.gen(function* () {
+      const { tasks, reviews, status, key } = yield* submitted(true)
+      yield* reviews.approve({ commandId: cmd(), key })
+      const asks = yield* AskService.AskService
+      expect(yield* Effect.flip(agent(asks.create({
+        commandId: cmd(), key, title: "Rebase first?", intro: "", questions: [{ prompt: "Rebase first?", options: [{ label: "Yes" }, { label: "No" }] }],
+        files: [], links: [],
+      })))).toMatchObject({
+        _tag: "Invalid",
+        field: "key",
+        reason: `${key} is approved and waiting for your merge: comment on the card (\`cello task comment ${key} "…"\`), or set \`cello task stage ${key} fixing\` if the merge failed`,
+      })
+      expect(yield* tasks.byKey(key)).toMatchObject({ statusId: status["In Review"]!.id, stage: "merging" })
     })))
 
   it.effect("is refused for a task that isn't approved: in In Progress, or in In Review waiting on the human", () =>
