@@ -34,6 +34,7 @@ import type { NotWokenReason, ProjectRef, SessionRun, WakeSettings, WakeWhy } fr
 import { HumanOnly, Invalid, NotFound, SessionNotWoken } from "@cello/contract/errors"
 import type { CelloEvent } from "@cello/contract/events"
 import { Caller } from "@cello/contract/rpcs"
+import { WAKE_CAP_WINDOW_MS } from "@cello/contract/wake"
 import { formatTaskKey } from "@cello/shared/taskKey"
 import { andList } from "@cello/shared/words"
 import * as Cause from "effect/Cause"
@@ -58,9 +59,6 @@ import { WakeConfig } from "./WakeConfig.ts"
 /** A project's settings until Lucas changes them: off, 3 wakes per task per hour. */
 export const DEFAULT_CAP = 3
 export const MAX_CAP = 20
-
-/** How far back the cap counts. */
-const CAP_WINDOW_MS = 60 * 60_000
 
 /** Which of Lucas's actions wins when several on one task are batched (a Send back also adds its note as a comment). */
 const STRENGTH: Record<WakeWhy, number> = { reaction: 0, comment: 1, answers: 2, send_back: 3, manual: 4 }
@@ -216,7 +214,7 @@ const make = Effect.gen(function* () {
   const recentRuns = (taskId: string, now: number) =>
     sql<{ n: number }>`
       SELECT COUNT(*) AS n FROM session_runs
-      WHERE started_at > ${now - CAP_WINDOW_MS}
+      WHERE started_at > ${now - WAKE_CAP_WINDOW_MS}
         AND (task_id = ${taskId} OR EXISTS (SELECT 1 FROM json_each(task_ids) WHERE value = ${taskId}))`.pipe(
       Effect.map((rows) => rows[0]?.n ?? 0),
     )

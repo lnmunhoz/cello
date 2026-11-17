@@ -77,4 +77,8 @@ describe("terminalName", () => {
   ])("%s reads %s", (value, name) => {
     expect(terminalName(value)).toBe(name)
   })
+
+  it("shows a value that's an object's own key by inheritance as it is", () => {
+    for (const value of ["constructor", "__proto__", "toString", "hasOwnProperty"]) expect(terminalName(value)).toBe(value)
+  })
 })

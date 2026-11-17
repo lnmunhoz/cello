@@ -269,15 +269,20 @@ const make = Effect.gen(function* () {
       const stepAt = own.step === null ? null : now
       // The raw identity, without the log report (CEL-106): the step can hold a key and is kept only
       // masked (current_step), and the transcript has its own column.
-      const { step: _step, transcript: _transcript, ...kept } = identity
-      const raw = JSON.stringify(kept)
+      // The terminal app as it's kept (CEL-137): cleaned and capped, here too.
+      const { step: _step, transcript: _transcript, terminal: _terminal, ...kept } = identity
+      const raw = JSON.stringify(terminal === null ? kept : { ...kept, terminal })
       const existing = yield* sql<{ id: string; actor_id: string }>`
         SELECT id, actor_id FROM agent_sessions WHERE external_id = ${external}`
       let caller: { actorId: string; sessionId: string }
       if (existing[0]) {
+        // While Cello runs it (a woken run), its calls don't say where it runs: it keeps where it was
+        // started (CEL-137). The CLI leaves both out under CELLO_WOKEN=1; this is the server's own guard.
+        const woken = sql`EXISTS (SELECT 1 FROM session_runs WHERE session_id = ${existing[0].id} AND ended_at IS NULL)`
         yield* sql`UPDATE agent_sessions SET last_seen_at = ${now}, ended_at = NULL, pid = COALESCE(${identity.pid ?? null}, pid),
-            cwd = COALESCE(${identity.cwd ?? null}, cwd), entrypoint = COALESCE(${identity.entrypoint ?? null}, entrypoint),
-            terminal = COALESCE(${terminal}, terminal),
+            cwd = COALESCE(${identity.cwd ?? null}, cwd),
+            entrypoint = CASE WHEN ${woken} THEN entrypoint ELSE COALESCE(${identity.entrypoint ?? null}, entrypoint) END,
+            terminal = CASE WHEN ${woken} THEN terminal ELSE COALESCE(${terminal}, terminal) END,
             permission_mode = COALESCE(${mode}, permission_mode), agent_kind = COALESCE(agent_kind, ${kind}),
             transcript_path = COALESCE(${own.transcript}, transcript_path), current_step = COALESCE(${own.step}, current_step),
             current_step_at = COALESCE(${stepAt}, current_step_at),

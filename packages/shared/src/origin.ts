@@ -34,7 +34,7 @@ const TERMINALS: Readonly<Record<string, string>> = {
 }
 
 /** "WezTerm", "iTerm", "VS Code": a terminal app from its TERM_PROGRAM. */
-export const terminalName = (value: string): string => TERMINALS[value] ?? value
+export const terminalName = (value: string): string => (Object.hasOwn(TERMINALS, value) ? TERMINALS[value]! : value)
 
 const IDES: ReadonlyArray<readonly [RegExp, string]> = [
   [/vscode/i, "VS Code"],

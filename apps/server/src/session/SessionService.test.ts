@@ -45,6 +45,26 @@ describe("SessionService.resolve", () => {
       expect(agents).toEqual([{ id: first.actorId, name: "Claude Code", client: "Claude Code" }])
     })))
 
+  it.effect("the terminal app is kept cleaned and capped, in its column and in the identity it came with (CEL-137)", () =>
+    run(Effect.gen(function* () {
+      const sessions = yield* SessionService
+      const { sessionId } = yield* sessions.resolve({ ...claude, terminal: `Wez\u0007Term${"x".repeat(200)}` })
+      const [row] = yield* rows((sql) => sql<{ terminal: string; identity_json: string }>`SELECT terminal, identity_json FROM agent_sessions WHERE id = ${sessionId}`)
+      expect(row!.terminal).toBe(`WezTerm${"x".repeat(57)}`)
+      expect(JSON.parse(row!.identity_json).terminal).toBe(row!.terminal)
+    })))
+
+  it.effect("while a woken run of it goes, its calls don't change where it runs (CEL-137): the session keeps the app it was started in", () =>
+    run(Effect.gen(function* () {
+      const sessions = yield* SessionService
+      const { sessionId } = yield* sessions.resolve({ ...claude, terminal: "WezTerm" })
+      const sql = yield* SqlClient.SqlClient
+      yield* sql`INSERT INTO session_runs (id, session_id, task_id, task_ids, why, agent_kind, mode, cello_mode, pid, started_at, ended_at, outcome, log_path)
+        VALUES ('r1', ${sessionId}, NULL, '[]', 'comment', 'claude-code', 'auto', 'auto', NULL, 10, NULL, 'running', '/runs/x.jsonl')`.pipe(Effect.orDie)
+      yield* sessions.resolve({ ...claude, entrypoint: "sdk-cli", terminal: "tmux" })
+      expect((yield* sessions.byIds([sessionId!]))[0]).toMatchObject({ entrypoint: "cli", terminal: "WezTerm" })
+    })))
+
   it.effect("keeps where it runs (CEL-137): the terminal app it reported, until it reports another; a call that says none keeps it", () =>
     run(Effect.gen(function* () {
       const sessions = yield* SessionService

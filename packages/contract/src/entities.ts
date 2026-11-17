@@ -256,7 +256,7 @@ export const WakeSettings = Schema.Struct({
    * How long Cello waits after Lucas's last action before it wakes (30 s), so the comment box can say it
    * beforehand (CEL-136). A server's own, the same for every project.
    */
-  batchMs: Schema.Number,
+  batchMs: Schema.optionalKey(Schema.Number),
   /** Woken runs bill ANTHROPIC_API_KEY when it's in the server's environment, not the subscription. */
   apiKeySet: Schema.Boolean,
   /** The agent CLIs Cello can wake sessions of, and whether each is installed here. */

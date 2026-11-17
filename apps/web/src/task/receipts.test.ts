@@ -396,6 +396,19 @@ describe("wakeHintOf: the comment box says beforehand that a comment wakes the s
     expect(wakeHintOf(board([free], [ended]), free, on, now)).toBeNull()
   })
 
+  it("an older server's settings without the wait: 30 s", () => {
+    expect(wakeHintWords(wakeHintOf(board([held], [ended]), held, { enabled: true }, now)!)).toBe("Commenting wakes 0ee027f0 (30 s after your last comment)")
+  })
+
+  it("nothing while the task's last wake hit the cap within the hour: the next comment wouldn't wake it either", () => {
+    const capped = (ts: number): BoardState => ({
+      ...board([held], [ended]),
+      wakes: { t1: { taskId: "t1", sessionId: "0ee027f0-aaaa", state: "not_woken", why: "comment", ts, at: null, reason: "cap", run: null } },
+    })
+    expect(wakeHintOf(capped(now - 10 * MIN), held, on, now)).toBeNull()
+    expect(wakeHintOf(capped(now - 61 * MIN), held, on, now)).not.toBeNull()
+  })
+
   it("on a task nobody holds, the session the comment goes back to (CEL-110)", () => {
     const free = task({ assigneeActorId: null, assigneeSessionId: null, lastHolderSessionId: "0ee027f0-aaaa" })
     expect(wakeHintOf(board([free], [ended]), free, on, now)).toMatchObject({ who: { short: "0ee027f0" } })

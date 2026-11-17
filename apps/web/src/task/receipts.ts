@@ -11,7 +11,7 @@
 // or why it won't wake. The comment box says beforehand when a comment will wake it (wakeHintOf).
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, Comment, DeliveryVia, Task, TaskWake } from "@cello/contract/entities"
-import { NOT_WOKEN_TEXT, RUN_END_TEXT, runLength } from "@cello/contract/wake"
+import { NOT_WOKEN_TEXT, RUN_END_TEXT, runLength, WAKE_BATCH_MS, WAKE_CAP_WINDOW_MS } from "@cello/contract/wake"
 import { claimKeepsStatus } from "@cello/shared/claim"
 import { hostOf, WOKEN } from "@cello/shared/origin"
 import { type Presence, presenceOf } from "@cello/shared/presence"
@@ -153,14 +153,18 @@ export interface WakeHint {
 export const wakeHintOf = (
   board: BoardState,
   task: Task,
-  settings: { readonly enabled: boolean; readonly batchMs: number } | null,
+  settings: { readonly enabled: boolean; readonly batchMs?: number | undefined } | null,
   now: number,
 ): WakeHint | null => {
   if (!settings?.enabled) return null
   const id = task.assigneeSessionId ?? (reopenOf(board, task) ? (task.lastHolderSessionId ?? null) : null)
   const session = id === null ? undefined : board.sessions[id]
   if (!session || session.pid === null || session.waiting === true || presenceOf(session, now) !== "ended") return null
-  return { who: sessionWho(session), batchMs: settings.batchMs }
+  // The cap, as far as the board knows: the task's last wake hit it within the hour, so this one would too.
+  const last = board.wakes[task.id]
+  if (last?.state === "not_woken" && last.reason === "cap" && now - last.ts < WAKE_CAP_WINDOW_MS) return null
+  // A server from before CEL-136 doesn't say its wait: it's the default, 30 s.
+  return { who: sessionWho(session), batchMs: settings.batchMs ?? WAKE_BATCH_MS }
 }
 
 /** "Commenting wakes 0ee027f0 (30 s after your last comment)". */
