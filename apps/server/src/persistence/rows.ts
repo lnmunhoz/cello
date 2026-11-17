@@ -93,6 +93,7 @@ interface ProjectRow {
   color: string
   description: string
   repo_path: string | null
+  merge_after_approval: number
   created_at: number
   updated_at: number
   archived_at: number | null
@@ -101,7 +102,7 @@ interface ProjectRow {
 /** Alias: `p`. */
 export const selectProjects = (sql: Sql, where: Where) =>
   sql<ProjectRow>`
-    SELECT p.id, p.workspace_id, p.name, p.key, p.color, p.description, r.path AS repo_path,
+    SELECT p.id, p.workspace_id, p.name, p.key, p.color, p.description, r.path AS repo_path, p.merge_after_approval,
            p.created_at, p.updated_at, p.archived_at
     FROM projects p LEFT JOIN project_repos r ON r.project_id = p.id AND r.is_main = 1
     WHERE ${where} ORDER BY p.created_at, p.id`.pipe(
@@ -114,6 +115,7 @@ export const selectProjects = (sql: Sql, where: Where) =>
         color: r.color,
         description: r.description,
         repoPath: r.repo_path,
+        mergeAfterApproval: r.merge_after_approval === 1,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
         archivedAt: r.archived_at,
@@ -450,6 +452,7 @@ export const selectInboxItems = (sql: Sql, where: Where) =>
         if (!ask) return []
         return [r.kind === "answers" ? { ...common, kind: "answers", ask } : { ...common, kind: "withdrawn", ask, status: r.detail ?? "another status" }]
       }
+      if (r.kind === "approved") return [{ ...common, kind: "approved", note: r.detail }]
       if (r.kind === "claim_ended") {
         return r.cause === null ? [] : [{ ...common, kind: "claim_ended", cause: r.cause, status: r.detail ?? "another status" }]
       }

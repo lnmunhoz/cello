@@ -171,8 +171,11 @@ export type SessionAgent = typeof SessionAgent.Type
 // When Lucas acts on a task an agent session claimed and nothing of that session is running, Cello
 // continues the same conversation itself, headless: a woken run.
 
-/** What started a wake: one of Lucas's actions on the task, or `cello sessions wake` (`manual`). */
-export const WakeWhy = Schema.Literals(["comment", "answers", "send_back", "reaction", "manual"])
+/**
+ * What started a wake: one of Lucas's actions on the task (`approved`: his Approve in a project that merges
+ * after approval, CEL-143), or `cello sessions wake` (`manual`).
+ */
+export const WakeWhy = Schema.Literals(["comment", "answers", "send_back", "reaction", "approved", "manual"])
 export type WakeWhy = typeof WakeWhy.Type
 
 /**
@@ -286,6 +289,13 @@ export const Project = Schema.Struct({
   color: Schema.String,
   description: Schema.String,
   repoPath: Schema.NullOr(Schema.String),
+  /**
+   * Merge after I approve (CEL-143): agents submit before they merge, and Lucas's Approve tells the claim
+   * holder to merge (the task waits in In Review as Approved · merging) until it runs `cello task done`.
+   * Off: agents merge before they submit, and Approve moves the task to Done. Projects stored inside
+   * events from before it existed read as off.
+   */
+  mergeAfterApproval: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
   createdAt: Millis,
   updatedAt: Millis,
   archivedAt: Schema.NullOr(Millis),
@@ -645,9 +655,10 @@ export type Ask = typeof Ask.Type
  * Why something reached an agent's inbox: a comment on its task, the note of a review Lucas sent back,
  * his answers to the questions it asked on the card (CEL-47), his moving that card himself, which
  * withdrew the ask (`withdrawn`), his emoji reaction to one of its comments (`reaction`, CEL-77), or a
- * change of his to its task that ended its claim (`claim_ended`, CEL-46).
+ * change of his to its task that ended its claim (`claim_ended`, CEL-46), or his approval in a project
+ * that merges after approval (`approved`, CEL-143).
  */
-export const InboxKind = Schema.Literals(["comment", "send_back", "answers", "withdrawn", "reaction", "claim_ended"])
+export const InboxKind = Schema.Literals(["comment", "send_back", "answers", "withdrawn", "reaction", "claim_ended", "approved"])
 export type InboxKind = typeof InboxKind.Type
 
 const inboxFields = {
@@ -717,10 +728,18 @@ export const InboxClaimEnded = Schema.Struct({ ...inboxFields, kind: Schema.Lite
 export type InboxClaimEnded = typeof InboxClaimEnded.Type
 
 /**
- * Something delivered to an agent session's inbox: a comment (CEL-15), Lucas's answers or a withdrawn
- * ask (CEL-47), his reaction (CEL-77), word that he ended its claim (CEL-46).
+ * Lucas approved the task in a project that merges after approval (CEL-143): the session keeps its claim
+ * and should merge and deploy now, then finish with `cello task done`. `note` is his approval note, if he
+ * wrote one. Delivered once, to the session holding the claim.
  */
-export const InboxItem = Schema.Union([InboxComment, InboxAnswers, InboxWithdrawn, InboxReaction, InboxClaimEnded])
+export const InboxApproved = Schema.Struct({ ...inboxFields, kind: Schema.Literal("approved"), note: Schema.NullOr(Schema.String) })
+export type InboxApproved = typeof InboxApproved.Type
+
+/**
+ * Something delivered to an agent session's inbox: a comment (CEL-15), Lucas's answers or a withdrawn
+ * ask (CEL-47), his reaction (CEL-77), word that he ended its claim (CEL-46), his approval to merge (CEL-143).
+ */
+export const InboxItem = Schema.Union([InboxComment, InboxAnswers, InboxWithdrawn, InboxReaction, InboxClaimEnded, InboxApproved])
 export type InboxItem = typeof InboxItem.Type
 
 /** Docs, specs and pages share one table and one reader; `kind` says what a document is for. */

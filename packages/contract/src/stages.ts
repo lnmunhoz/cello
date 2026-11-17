@@ -2,6 +2,9 @@
 // `cello task stage`. A session working by itself goes planning (when the task needs a decision before
 // code) → building → merged; an orchestrator
 // marks each step of a feature's lifecycle, building → review → fixing → merged (docs/feature-lifecycle.md).
+// In a project that merges after approval (CEL-143), Lucas's Approve sets `merging` on the task in In
+// Review instead of moving it to Done; only Approve sets it, and a stage on an In Review task means
+// exactly that: approved, waiting for its agent to merge (packages/shared/review.ts, `awaitsMerge`).
 // A task with no stage whose agent is active shows as Working on the board: not a stage, nobody sets it,
 // the web app works it out (apps/web/src/presence/model.ts). The one list every part reads:
 // the server validates against it, the CLI names it in help and errors, the web app draws a word, an
@@ -28,11 +31,21 @@ export const TASK_STAGES = [
   { id: "review", label: "Agent review", icon: "scan-eye", color: "#6366F1", when: "a reviewer agent is reading the branch" },
   { id: "fixing", label: "Fixing findings", icon: "wrench", color: "#F59E0B", when: "the builder is fixing what the review found" },
   { id: "merged", label: "Merged", icon: "git-merge", color: "#10B981", when: "merged into main; the packet comes next" },
+  {
+    id: "merging",
+    label: "Approved · merging",
+    icon: "git-pull-request-arrow",
+    color: "#22C55E",
+    when: "set by the human's Approve in a project that merges after approval (the task stays in In Review); merge and deploy, then `cello task done`",
+  },
 ] as const satisfies ReadonlyArray<StageInfo>
 
 export type TaskStage = (typeof TASK_STAGES)[number]["id"]
 
 export const STAGE_IDS: ReadonlyArray<TaskStage> = TASK_STAGES.map((s) => s.id)
+
+/** The stages an agent sets with `cello task stage`: all but `merging`, which only the human's Approve sets (CEL-143). */
+export const AGENT_STAGE_IDS: ReadonlyArray<TaskStage> = STAGE_IDS.filter((id) => id !== "merging")
 
 /**
  * Stage names stored before a rename, read as the stage they became: `designing` ran on the live board

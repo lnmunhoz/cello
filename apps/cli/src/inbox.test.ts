@@ -1,7 +1,7 @@
 // What an agent reads when comments reach it: `cello inbox`, `cello context` and the Claude Code hook
 // all print items the same way.
 import * as path from "node:path"
-import type { Attachment, InboxClaimEnded, InboxComment, InboxReaction } from "@cello/contract/entities"
+import type { Attachment, InboxApproved, InboxClaimEnded, InboxComment, InboxReaction } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import { deliveryText, inboxEntries, inboxScreenshots, MAX_DELIVERY } from "./inbox.ts"
 
@@ -216,5 +216,52 @@ describe("a comment that reopened its task", () => {
     expect(text.split("\n")[0]).toBe("3 new Cello comments on tasks you claimed or worked on before:")
     expect(text).toContain("CEL-94 was Done: Lucas's comment reopened it")
     expect(text).toContain("CEL-95 was Canceled: Lucas's comment reopened it")
+  })
+})
+
+// CEL-143: in a project that merges after approval, Lucas's Approve reaches the session holding the claim
+// and tells it to merge now, then finish with `cello task done`.
+describe("an approval to merge", () => {
+  const approved = (overrides: Partial<InboxApproved> = {}): InboxApproved => ({
+    id: "item-30",
+    kind: "approved",
+    taskId: "task-143",
+    taskKey: "CEL-143",
+    taskTitle: "Merge after I approve",
+    author: "Lucas",
+    note: null,
+    createdAt: NOW - 60_000,
+    readAt: null,
+    ...overrides,
+  })
+
+  it("says he approved it and to merge it now, then `cello task done`", () => {
+    expect(deliveryText([approved()], NOW)).toBe([
+      "Lucas approved a task in Cello: merge it now.",
+      "",
+      "CEL-143  Merge after I approve",
+      "  Lucas approved it, 1m ago",
+      "    Lucas approved CEL-143: merge it now, then `cello task done CEL-143`.",
+      "",
+      "Merge and deploy CEL-143 the way this project does (its AGENTS.md says how), then finish it with `cello task done CEL-143`: that moves it to Done and ends your claim. " +
+        "If the merge fails, say so on the card (`cello task stage CEL-143 fixing`, then `cello task comment CEL-143 \"…\"`) and leave it to Lucas, who can send it back.",
+    ].join("\n"))
+    expect(inboxScreenshots([approved()])).toEqual([])
+  })
+
+  it("carries his approval note under it", () => {
+    expect(inboxEntries([approved({ note: "Ship it, and watch the migration" })], NOW).slice(2)).toEqual([
+      "    Lucas approved CEL-143: merge it now, then `cello task done CEL-143`.",
+      "    Ship it, and watch the migration",
+    ])
+  })
+
+  it("with other items: counted in the first line; two approvals name both tasks", () => {
+    const text = deliveryText([item(), approved()], NOW)
+    expect(text.split("\n")[0]).toBe("New in Cello for you: a comment and an approval to merge:")
+    expect(text).toContain("then finish it with `cello task done CEL-143`")
+    const two = deliveryText([approved(), approved({ id: "item-31", taskKey: "CEL-144" })], NOW)
+    expect(two.split("\n")[0]).toBe("Lucas approved 2 tasks in Cello: merge them now.")
+    expect(two).toContain("Merge and deploy CEL-143 and CEL-144 the way this project does (its AGENTS.md says how), then finish each with `cello task done CEL-143` (CEL-144 the same way)")
   })
 })

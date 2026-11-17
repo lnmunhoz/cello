@@ -12,7 +12,7 @@ const task = (id: string, statusId: string, position: string, extra: Partial<Tas
   createdBySessionId: null, updatedByActorId: null, updatedBySessionId: null, stage: null, commentCount: 0, lastCommentAt: null, version: 1, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
 })
 const project = (id: string, key: string, name: string, extra: Partial<Project> = {}): Project => ({
-  id, workspaceId: "w1", name, key, color: "#000", description: "", repoPath: null, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
+  id, workspaceId: "w1", name, key, color: "#000", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: null, ...extra,
 })
 
 const state: BoardState = {

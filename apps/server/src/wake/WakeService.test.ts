@@ -16,6 +16,7 @@ import * as EventLog from "../events/EventLog.ts"
 import * as EventStore from "../events/EventStore.ts"
 import * as InboxService from "../inbox/InboxService.ts"
 import * as Seed from "../persistence/Seed.ts"
+import * as ProjectService from "../project/ProjectService.ts"
 import * as ReviewService from "../review/ReviewService.ts"
 import * as SnapshotService from "../snapshot/SnapshotService.ts"
 import { SessionService } from "../session/SessionService.ts"
@@ -244,6 +245,29 @@ describe("WakeService: a comment wakes the session", () => {
         yield* TestClock.adjust("30 seconds")
         const turn = yield* Queue.take(fake.turns)
         expect(turn.prompt).toBe(wakePrompt({ human: "Lucas", keys: ["CEL-1"], manual: false }))
+      })))
+
+  // CEL-143: in a project that merges after approval, Approve keeps the claim and leaves the session an
+  // `approved` item; a session whose process is gone is woken to merge, like for a comment.
+  it.effect("Lucas's approval in a project that merges after approval wakes the session to merge it", () =>
+    run((fake) =>
+      Effect.gen(function* () {
+        const { task, project, sessionId, identity } = yield* setup()
+        const reviews = yield* ReviewService.ReviewService
+        const wake = yield* WakeService
+        yield* (yield* ProjectService.ProjectService).update({ commandId: cmd(), id: project.id, mergeAfterApproval: true })
+        const png = writePng(yield* tempDataDir, "board.png")
+        yield* asAgent(identity)(reviews.submit({ commandId: cmd(), key: task.key, summary: "Done", steps: ["Look"], files: [{ path: png }], links: [] }))
+        yield* TestClock.adjust("5 minutes")
+
+        yield* reviews.approve({ commandId: cmd(), key: task.key })
+        yield* wake.noteAction(task.id, "approved")
+        expect((yield* wakeEvents(task.id)).map(([type]) => type)).toEqual(["session.wake_scheduled"])
+        yield* TestClock.adjust("30 seconds")
+        const turn = yield* Queue.take(fake.turns)
+        expect(turn.prompt).toBe(wakePrompt({ human: "Lucas", keys: ["CEL-1"], manual: false }))
+        const started = yield* (yield* SqlClient.SqlClient)<{ why: string; session_id: string }>`SELECT why, session_id FROM session_runs`
+        expect(started).toEqual([{ why: "approved", session_id: sessionId }])
       })))
 })
 
@@ -601,12 +625,16 @@ describe("WakeService settings", () => {
 
 describe("actionOf", () => {
   const base = { seq: 1, ts: 1, commandId: "c", actorId: "human", sessionId: null, workspaceId: "w", projectId: "p", schemaVersion: 1 as const }
-  it("Lucas's comment, answers, Send back and reaction wake; an agent's action, an approval or another change don't", () => {
+  // An approval wakes only where it left the claim (a project that merges after approval, CEL-143): with
+  // the setting off the claim ends with it, and there's no holder to wake.
+  it("Lucas's comment, answers, Send back, approval and reaction wake; an agent's action or another change don't", () => {
     const comment = { id: "c1", taskId: "t1", body: "x", actorId: "human", sessionId: null, createdAt: 1, updatedAt: 1, deletedAt: null }
     expect(actionOf({ ...base, type: "comment.added", comment } as CelloEvent, "human")).toEqual({ taskId: "t1", why: "comment" })
     expect(actionOf({ ...base, type: "review.decided", id: "r", taskId: "t1", decision: "sent_back", note: null } as CelloEvent, "human"))
       .toEqual({ taskId: "t1", why: "send_back" })
-    expect(actionOf({ ...base, type: "review.decided", id: "r", taskId: "t1", decision: "approved", note: null } as CelloEvent, "human")).toBeNull()
+    expect(actionOf({ ...base, type: "review.decided", id: "r", taskId: "t1", decision: "approved", note: null } as CelloEvent, "human"))
+      .toEqual({ taskId: "t1", why: "approved" })
+    expect(actionOf({ ...base, type: "review.decided", id: "r", taskId: "t1", decision: "superseded", note: null } as CelloEvent, "human")).toBeNull()
     expect(actionOf({ ...base, type: "reaction.added", reaction: { id: "x", commentId: "c1", taskId: "t1", emoji: "👍", actorId: "human", sessionId: null, createdAt: 1 } } as CelloEvent, "human"))
       .toEqual({ taskId: "t1", why: "reaction" })
     expect(actionOf({ ...base, sessionId: "s1", actorId: "agent", type: "comment.added", comment } as CelloEvent, "human")).toBeNull()

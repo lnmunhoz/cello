@@ -11,7 +11,7 @@ import { unavailableWords } from "@cello/client/sync/agentLog"
 import { finishedAgents, startOfDay, workingAgents } from "@cello/client/sync/agents"
 import { type BoardState, fromSnapshot } from "@cello/client/sync/applyEvents"
 import type { LogUnavailable } from "@cello/contract/agentLog"
-import { STAGE_IDS, stageInfo, TASK_STAGES } from "@cello/contract/stages"
+import { AGENT_STAGE_IDS, STAGE_IDS, stageInfo, TASK_STAGES } from "@cello/contract/stages"
 import type { Backup } from "@cello/contract/backups"
 import type { TaskDetail } from "@cello/contract/views"
 import {
@@ -418,16 +418,21 @@ const context = Command.make("context", { project, json }, (input) =>
       `Statuses  ${visible.join(" · ")}${hidden.length ? ` (hidden: ${hidden.join(", ")})` : ""}`,
       `Labels    ${ctx.labels.map((l) => l.name).join(" · ") || "none yet"}`,
       `Milestones  ${contextMilestones(ctx.openMilestones ?? [], ctx.milestones.length)}`,
+      // Whether the agent merges before it submits, or after the human approves (CEL-143).
+      ctx.project.mergeAfterApproval
+        ? "Merge after approval  on: submit before you merge (attach the PR with --link when this project uses PRs); the human's Approve tells you to merge, then `cello task done KEY`"
+        : "Merge after approval  off: merge before you submit; the human's Approve moves the task to Done",
       ...(ctx.profile ? contextProfileLines(ctx.profile) : []),
     ]
     if (ctx.inbox.length) {
       const sentBack = ctx.inbox.find((i) => i.kind === "send_back")
       const answered = ctx.inbox.find((i) => i.kind === "answers")
       const ended = ctx.inbox.find((i) => i.kind === "claim_ended")
+      const approved = ctx.inbox.find((i) => i.kind === "approved")
       const reopened = ctx.inbox.find((i) => i.kind === "comment" && i.reopened)
       const onlyComments = ctx.inbox.every((i) => i.kind === "comment" || i.kind === "send_back")
-      // An ended claim is nothing to answer.
-      const toAnswer = ctx.inbox.find((i) => i.kind !== "claim_ended")
+      // An ended claim or an approval is nothing to answer.
+      const toAnswer = ctx.inbox.find((i) => i.kind !== "claim_ended" && i.kind !== "approved")
       lines.push(
         "",
         `${onlyComments ? "New comments for you" : "New for you"} (${ctx.inbox.length})`,
@@ -436,6 +441,7 @@ const context = Command.make("context", { project, json }, (input) =>
         ...(sentBack ? [`  Sent back: fix it, then hand it in again with \`cello task submit ${sentBack.taskKey}\`.`] : []),
         ...(answered ? [`  Answered: ${answered.taskKey} is back in progress; carry on with the answers.`] : []),
         ...(ended ? [`  Claim ended: stop working on ${ended.taskKey}; see where it stands with \`cello task get ${ended.taskKey}\`.`] : []),
+        ...(approved ? [`  Approved: merge ${approved.taskKey} now, then \`cello task done ${approved.taskKey}\`.`] : []),
         ...(reopened ? [`  Reopened: the comment gave ${reopened.taskKey} back to you; it's claimed by you again.`] : []),
       )
     }
@@ -673,7 +679,28 @@ const release = Command.make("release", { key, json }, (input) =>
     yield* print(`Released ${taskLine(written.names, written.response.result)}`)
   })).pipe(Command.withDescription("Give up your claim without finishing the task; its status stays."))
 
-const STAGE_NAMES = andList(STAGE_IDS.map(String)).replace(" and ", " or ")
+const done = Command.make("done", { key, json }, (input) =>
+  Effect.gen(function* () {
+    const written = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const before = yield* client["task.get"]({ key: input.key })
+        const response = yield* client["task.done"]({ commandId: newCommandId(), key: input.key })
+        return { response, before }
+      })
+    )
+    if (input.json) return yield* printJson(written.response)
+    const { before, response } = written
+    const task = response.result
+    yield* print([
+      `Done ${task.key}  ${statusName(before, before.task.statusId)} → ${statusName(before, task.statusId)}  ${task.title}`,
+      "  Your claim on it ended.",
+    ].join("\n"))
+  })).pipe(Command.withDescription(
+    "Finish a task the human approved in a project that merges after approval (Approved · merging), once you've merged and deployed it: " +
+      "it moves to Done and your claim ends. Only the session holding the claim, only after the approval (`cello inbox` hands it to you).",
+  ))
+
+const STAGE_NAMES = andList(AGENT_STAGE_IDS.map(String)).replace(" and ", " or ")
 
 const stage = Command.make("stage", {
   key,
@@ -707,7 +734,8 @@ const stage = Command.make("stage", {
   })).pipe(Command.withDescription(
     `Say where your claimed task is inside In Progress, so the board shows it: ${TASK_STAGES.map((s) => s.label.toLowerCase()).join(", ")}. ` +
       "Every session holding a claim sets it: on your own, planning (only when the task needs a decision before code), then building, then merged; an orchestrator, building, review, fixing, merged. " +
-      "Only the session holding the claim (or the human), only in In Progress. Asking the human (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.",
+      "Only the session holding the claim (or the human), only in In Progress. Asking the human (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it. " +
+      "In a project that merges after approval, the human's Approve sets approved · merging on the task in In Review; there you may set fixing (the merge failed) or merged until `cello task done`.",
   ))
 
 const move = Command.make("move", {
@@ -2847,8 +2875,8 @@ const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(
 )
 
 const task = Command.make("task").pipe(
-  Command.withDescription("Tasks: list, get, create, claim, release, stage, move, label, comment, react, submit, ask, answers."),
-  Command.withSubcommands([list, get, create, edit, claim, release, stage, move, taskLabel, comment, react, submit, ask, answers]),
+  Command.withDescription("Tasks: list, get, create, claim, release, stage, move, label, comment, react, submit, done, ask, answers."),
+  Command.withSubcommands([list, get, create, edit, claim, release, stage, move, taskLabel, comment, react, submit, done, ask, answers]),
 )
 
 const startCommand = Command.make("start", {}, () => start).pipe(

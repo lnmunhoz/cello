@@ -17,7 +17,8 @@
 // (`comment_reactions.notify_session_id`, `read_at`), so the inbox reads both tables. A change of
 // Lucas's that ends a session's claim (a move to another status, an edit, a label, archiving, his claim
 // or release) tells that session once, so it stops working on the task (`claim_ended`, CEL-46). His
-// approval ends the claim too but tells no one: the work is done.
+// approval ends the claim too but tells no one: the work is done. In a project that merges after approval
+// (CEL-143) his approval keeps the claim instead and tells the holder to merge (`approved`).
 import type { Ask, ClaimEndCause, Comment, DeliveryVia, InboxItem, Reaction } from "@cello/contract/entities"
 import { Caller } from "@cello/contract/rpcs"
 import type { AnswersDelivered, Inbox } from "@cello/contract/views"
@@ -46,6 +47,13 @@ export type NewlyAdded = Pick<Comment, "id" | "taskId" | "createdAt">
 export interface Reopened {
   readonly from: string
   readonly to: string
+}
+
+/** An approval in a project that merges after approval (CEL-143): the task, the session to merge it, his note. */
+export interface Approved {
+  readonly taskId: string
+  readonly sessionId: string
+  readonly note: string | null
 }
 
 /** A claim the human just ended: the task, the session that held it, and what he did. */
@@ -111,6 +119,11 @@ export class InboxService extends Context.Service<InboxService, {
    * stops working on the task. Runs after the change is written. An agent's change tells no one.
    */
   readonly deliverClaimEndedWithin: (context: Commands.WriteContext, ended: ClaimEnded) => Effect.Effect<void, SqlError>
+  /**
+   * For the command in which the human approved a task in a project that merges after approval
+   * (CEL-143): tells the session holding its claim, once, to merge it now and then run `cello task done`.
+   */
+  readonly deliverApprovalWithin: (context: Commands.WriteContext, approved: Approved) => Effect.Effect<void, SqlError>
   /**
    * For the command in which the human reacted to a comment (CEL-77): when an agent session wrote it,
    * the reaction becomes that session's inbox item, or the claim holder's once that session ended.
@@ -187,6 +200,13 @@ const make = Effect.gen(function* () {
       yield* sql`INSERT INTO inbox_items (id, session_id, task_id, kind, detail, cause, created_at)
         VALUES (${newId(context.now)}, ${ended.sessionId}, ${ended.taskId}, 'claim_ended', ${status?.name ?? null}, ${ended.cause}, ${context.now})`
     }).pipe(Effect.withSpan("InboxService.deliverClaimEndedWithin"))
+
+  const deliverApprovalWithin = (context: Commands.WriteContext, approved: Approved) =>
+    Effect.gen(function* () {
+      if (context.caller.sessionId !== null) return
+      yield* sql`INSERT INTO inbox_items (id, session_id, task_id, kind, detail, created_at)
+        VALUES (${newId(context.now)}, ${approved.sessionId}, ${approved.taskId}, 'approved', ${approved.note}, ${context.now})`
+    }).pipe(Effect.withSpan("InboxService.deliverApprovalWithin"))
 
   const deliverReactionWithin = (context: Commands.WriteContext, comment: Comment, reaction: Reaction) =>
     Effect.gen(function* () {
@@ -335,6 +355,7 @@ const make = Effect.gen(function* () {
     deliverAnswersWithin,
     deliverWithdrawalWithin,
     deliverClaimEndedWithin,
+    deliverApprovalWithin,
     deliverReactionWithin,
     handOverAnswers,
   })

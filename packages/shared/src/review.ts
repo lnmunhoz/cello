@@ -21,6 +21,15 @@ export const isReviewStatus = (name: string): boolean => name.trim().toLowerCase
 export const holdsPacket = (status: { readonly name: string; readonly category: string }): boolean =>
   isReviewStatus(status.name) || isNeedsInputStatus(status)
 
+/**
+ * Whether a task was approved and waits for its agent to merge it (CEL-143): in a project that merges
+ * after approval, Approve leaves the task in In Review and sets its stage (Approved · merging), and only
+ * Approve puts a stage there (submitting clears it). The agent's `cello task done` then moves it to Done.
+ * Not on the Review page: it waits on the agent, not on Lucas.
+ */
+export const awaitsMerge = (task: { readonly stage: string | null }, status: { readonly name: string } | undefined): boolean =>
+  status !== undefined && isReviewStatus(status.name) && task.stage !== null
+
 const sorted = <S extends StatusLike>(statuses: ReadonlyArray<S>): S[] =>
   [...statuses].sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
 

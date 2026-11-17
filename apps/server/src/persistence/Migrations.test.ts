@@ -405,7 +405,8 @@ const allRows = Effect.gen(function* () {
  * 0023's `agent_sessions.orchestrating` (CEL-124, 0 on every row it finds),
  * 0025's activity columns on sessions and subagents (CEL-133, CEL-134, null on every row it finds),
  * 0024's `milestones` table and `tasks.milestone_id` (CEL-113, empty and null where no Milestone label was),
- * and 0026's `agent_sessions.terminal` (CEL-137, null on every row it finds).
+ * 0026's `agent_sessions.terminal` (CEL-137, null on every row it finds),
+ * and 0027's `projects.merge_after_approval` (CEL-143, 0 on every row it finds).
  */
 const withoutLaterAdditions = (rows: Record<string, unknown>): Record<string, unknown> => {
   const { profile_fields: _profiles, session_runs: _runs, wake_settings: _wake, milestones: _milestones, ...rest } = rows
@@ -427,6 +428,9 @@ const withoutLaterAdditions = (rows: Record<string, unknown>): Record<string, un
           ({ transcript_path: _path, current_step: _step, current_step_at: _at, model: _m, effort: _e, orchestrating: _o, background_json: _bg, tests_json: _t, waiting_json: _w, ...row }) => row,
         ),
       }
+      : {}),
+    ...("projects" in rows
+      ? { projects: (rows["projects"] as ReadonlyArray<Record<string, unknown>>).map(({ merge_after_approval: _merge, ...row }) => row) }
       : {}),
     ...Object.fromEntries((["comments", "events"] as const).filter((t) => t in rows).map((t) => [
       t,

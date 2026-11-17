@@ -19,14 +19,17 @@ const X = "2fd0505c-417a-4167-acfe-2d66080fcae0"
 const Y = "9f2c1a7b-other-session"
 const claude = (session: string) => ({ CLAUDE_CODE_SESSION_ID: session, CLAUDE_PID: String(process.pid) })
 
-/** Project CEL linked to a git repo; session X created CEL-1 and claimed it. */
+/**
+ * Project CEL linked to a git repo; session X created CEL-1 and claimed it. CEL merges before review
+ * (Approve moves a task to Done): approving to merge is approve.test.ts's (CEL-143).
+ */
 const setup = Effect.gen(function* () {
   const dataDir = yield* tempDataDir
   const { port } = yield* startServer(dataDir)
   const repo = gitRepo(dataDir, "cello")
   const human = yield* connect(port)
   const workspaceId = (yield* human["snapshot.get"]({})).workspaces[0]!.id
-  yield* human["project.create"]({ commandId: newCommandId(), workspaceId, name: "Cello", key: "CEL", repoPath: repo })
+  yield* human["project.create"]({ commandId: newCommandId(), workspaceId, name: "Cello", key: "CEL", repoPath: repo, mergeAfterApproval: false })
   const x = cello({ port, env: claude(X), cwd: repo })
   yield* x("task", "create", "Comments reach agents")
   yield* x("task", "claim", "CEL-1")

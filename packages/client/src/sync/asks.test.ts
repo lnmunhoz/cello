@@ -5,7 +5,7 @@ import type { BoardState } from "./applyEvents.ts"
 import { applyAskEvents, needsInputFold, needsInputQueue, openAskOf, questionCount } from "./asks.ts"
 
 const project = (id: string, workspaceId = "w1", archivedAt: number | null = null): Project => ({
-  id, workspaceId, name: id, key: id.toUpperCase(), color: "#000", description: "", repoPath: null, createdAt: 1, updatedAt: 1, archivedAt,
+  id, workspaceId, name: id, key: id.toUpperCase(), color: "#000", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt,
 })
 const task = (id: string, projectId = "p1", archivedAt: number | null = null): Task => ({
   id, projectId, number: 1, key: `CEL-${id}`, title: id, description: "", statusId: "input", priority: 0, position: "a0",

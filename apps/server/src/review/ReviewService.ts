@@ -3,11 +3,17 @@
 // first completed status) or sends back (to the first started status, with the note as a comment that
 // lands in the agent session's inbox). Any other way out of In Review withdraws the packet: TaskService
 // does that inside the move (openReview.ts, CEL-71).
+//
+// Merge after I approve (CEL-143): in a project with the setting on, agents submit before they merge, and
+// Approve doesn't finish the task. It stays in In Review with the stage `merging` (Approved · merging),
+// the agent keeps its claim, and its session gets an `approved` inbox item: merge it now. Once merged, the
+// agent's `cello task done` (`done`) moves it to Done and ends the claim. A merge that fails stays on the
+// card (the agent's stage and comment), and Lucas can Send back as usual.
 import * as path from "node:path"
 import type { Review, Task } from "@cello/contract/entities"
 import { HumanOnly, Invalid, NotFound } from "@cello/contract/errors"
 import type { Caller, EvidenceFile, EvidenceLink } from "@cello/contract/rpcs"
-import { approveTarget, holdsPacket, isReviewStatus, reviewTarget, sendBackTarget } from "@cello/shared/review"
+import { approveTarget, awaitsMerge, holdsPacket, isReviewStatus, reviewTarget, sendBackTarget } from "@cello/shared/review"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -45,6 +51,12 @@ export interface DecideReview {
   readonly attachmentIds?: ReadonlyArray<string> | undefined
 }
 
+/** `cello task done` (CEL-143). */
+export interface FinishTask {
+  readonly commandId: string
+  readonly key: string
+}
+
 export interface SendBack extends DecideReview {
   readonly note: string
 }
@@ -62,9 +74,18 @@ export class ReviewService extends Context.Service<ReviewService, {
   readonly submit: (input: SubmitReview) => Write<{ readonly review: Review; readonly task: Task }, NotFound | Invalid>
   /**
    * With `attachmentIds`, the screenshots and the note go in a comment first (delivered like any comment),
-   * and the approval carries no note; otherwise the note is the approval's own.
+   * and the approval carries no note; otherwise the note is the approval's own. In a project that merges
+   * after approval, the task stays in In Review as Approved · merging and the claim holder is told to
+   * merge (on a task nobody holds, its last agent session gets the claim back first); a task the human
+   * holds, or no agent ever held, goes to Done. Approving one that's waiting for its merge is Invalid.
    */
   readonly approve: (input: DecideReview) => Write<Task, NotFound | Invalid | HumanOnly>
+  /**
+   * `cello task done` (CEL-143): the session holding the claim of a task approved and waiting for its merge
+   * moves it to the first completed status (Done), and its claim ends. Invalid for a task that isn't
+   * waiting for its merge, and for anyone but that session.
+   */
+  readonly done: (input: FinishTask) => Write<Task, NotFound | Invalid>
   /** `attachmentIds`: screenshots pasted with the note (the Review page's comment box, CEL-73); they go with its comment. */
   readonly sendBack: (input: SendBack) => Write<Task, NotFound | Invalid | HumanOnly>
   /** Every review of a task, oldest first. */
@@ -179,18 +200,76 @@ const make = Effect.gen(function* () {
         return yield* then(context, task)
       }))
 
+  /** Whether the task's project has agents merge after Lucas approves (CEL-143). */
+  const mergesAfterApproval = (task: Task) =>
+    sql<{ merge_after_approval: number }>`SELECT merge_after_approval FROM projects WHERE id = ${task.projectId}`.pipe(
+      Effect.map((rows) => rows[0]?.merge_after_approval === 1),
+    )
+
+  /**
+   * Approve in a project that merges after approval: the agent session that should merge it (the claim
+   * holder, else the last agent session to hold it, which gets the claim back), or null when there's none
+   * (the human holds it, or no agent ever did), and the task as it is now.
+   */
+  const merger = (context: Commands.WriteContext, task: Task) =>
+    Effect.gen(function* () {
+      if (task.assigneeActorId !== null) return task.assigneeSessionId
+      const reopened = yield* tasks.reopenWithin(context, task.id)
+      return reopened?.sessionId ?? null
+    })
+
   const approve = Effect.fn("ReviewService.approve")(function* (input: DecideReview) {
     const shots = input.attachmentIds ?? []
     return yield* decide(shots.length > 0 ? { ...input, note: undefined } : input, "approved", (context, task) =>
       Effect.gen(function* () {
-        const done = approveTarget(yield* statusesOf(task))
+        const statuses = yield* statusesOf(task)
+        if (awaitsMerge(task, statuses.find((s) => s.id === task.statusId))) {
+          return yield* new Invalid({ field: "key", reason: `${task.key} is approved already and waits for its agent to merge it; send it back to stop that` })
+        }
+        const done = approveTarget(statuses)
         if (done === null) return yield* new Invalid({ field: "key", reason: "this workspace has no completed status" })
+        const sessionId = (yield* mergesAfterApproval(task)) ? yield* merger(context, task) : null
+        if (sessionId !== null) {
+          // The agent keeps its claim and merges: the task waits in In Review as Approved · merging.
+          if (shots.length > 0) {
+            yield* comments.addWithin(context, { taskId: task.id, body: input.note ?? "", attachmentIds: shots }, "comment")
+          }
+          const review = reviewTarget(statuses, task.statusId)
+          if (review !== null && review.id !== task.statusId) {
+            yield* tasks.moveWithin(context, { id: task.id, statusId: review.id, keepClaim: true })
+          }
+          const merging = yield* tasks.setStageWithin(context, task.id, "merging")
+          const note = shots.length > 0 ? null : input.note?.trim() || null
+          yield* inbox.deliverApprovalWithin(context, { taskId: task.id, sessionId, note })
+          return merging
+        }
         // Before the move, while the agent still holds the task: the comment reaches it.
         if (shots.length > 0) {
           yield* comments.addWithin(context, { taskId: task.id, body: input.note ?? "", attachmentIds: shots }, "comment")
         }
         // The claim ends with the move, but the agent isn't told: its work is done, not cut short (CEL-46).
         return yield* tasks.moveWithin(context, { id: task.id, statusId: done.id, tell: false })
+      }))
+  })
+
+  const done = Effect.fn("ReviewService.done")(function* (input: FinishTask) {
+    return yield* commands.write({ commandId: input.commandId, rpc: "task.done" }, (context) =>
+      Effect.gen(function* () {
+        const task = yield* tasks.byKey(input.key)
+        const statuses = yield* statusesOf(task)
+        if (!awaitsMerge(task, statuses.find((s) => s.id === task.statusId))) {
+          return yield* new Invalid({
+            field: "key",
+            reason: `${task.key} isn't approved: \`cello task done\` finishes a task the human approved in a project that merges after approval (Approved · merging). Hand work in with \`cello task submit ${task.key}\``,
+          })
+        }
+        if (context.caller.sessionId === null || task.assigneeSessionId !== context.caller.sessionId) {
+          return yield* new Invalid({ field: "key", reason: `${task.key} is claimed by another session: only the session holding its claim finishes it, once merged` })
+        }
+        const completed = approveTarget(statuses)
+        if (completed === null) return yield* new Invalid({ field: "key", reason: "this workspace has no completed status" })
+        yield* tasks.moveWithin(context, { id: task.id, statusId: completed.id, keepClaim: true })
+        return yield* tasks.releaseWithin(context, task.id)
       }))
   })
 
@@ -223,7 +302,7 @@ const make = Effect.gen(function* () {
     return { path: stored, mime: variant === "poster" ? "image/jpeg" : row.mime ?? "application/octet-stream", bytes }
   }, Effect.catchTag("SqlError", Effect.die))
 
-  return ReviewService.of({ submit, approve, sendBack, list, file })
+  return ReviewService.of({ submit, approve, done, sendBack, list, file })
 })
 
 export const layer = Layer.effect(ReviewService, make)

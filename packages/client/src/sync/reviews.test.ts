@@ -8,7 +8,7 @@ const status = (id: string, name: string, category: Status["category"], position
   id, workspaceId: "w1", name, category, position, color: "#999", hidden: false, createdAt: 1, updatedAt: 1,
 })
 const project = (id: string, key: string, workspaceId = "w1"): Project => ({
-  id, workspaceId, name: key, key, color: "#000", description: "", repoPath: null, createdAt: 1, updatedAt: 1, archivedAt: null,
+  id, workspaceId, name: key, key, color: "#000", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: null,
 })
 const task = (id: string, statusId: string, extra: Partial<Task> = {}): Task => ({
   id, projectId: "p1", number: 1, key: `CEL-${id}`, title: id, description: "", statusId, priority: 0, position: "a0",

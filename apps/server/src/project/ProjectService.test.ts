@@ -7,7 +7,7 @@ import * as SqlClient from "effect/sql/SqlClient"
 import * as SnapshotService from "../snapshot/SnapshotService.ts"
 import * as WorkspaceService from "../workspace/WorkspaceService.ts"
 import { cmd } from "../testing/fixtures.ts"
-import { asHuman, services } from "../testing/TestLayers.ts"
+import { asAgent, asHuman, services } from "../testing/TestLayers.ts"
 import * as ProjectService from "./ProjectService.ts"
 import * as RepoPaths from "./repoPath.ts"
 
@@ -119,6 +119,51 @@ describe("ProjectService", () => {
       const archived = yield* projects.archive({ commandId: cmd(), id: project.id })
       expect(archived.result.archivedAt).not.toBeNull()
       expect((yield* projects.archive({ commandId: cmd(), id: project.id })).seq).toBeNull()
+    })))
+})
+
+// CEL-143: "Merge after I approve". New projects with a repository (an agent has somewhere to merge, the
+// way `cello init` makes them) start with it on; projects without one, and every project on the board
+// before the setting (the migration), start off. Only the human changes it.
+describe("ProjectService: merge after I approve", () => {
+  it.effect("is on for a new project with a repository folder, off for one without, unless the creator says", () =>
+    run(Effect.gen(function* () {
+      const { create } = yield* setup
+      const { repo } = tempRepo()
+      expect((yield* create({ key: "THAI", repoPath: repo })).result.mergeAfterApproval).toBe(true)
+      expect((yield* create({ key: "NOREPO" })).result.mergeAfterApproval).toBe(false)
+      expect((yield* create({ key: "OFF", repoPath: tempRepo().repo, mergeAfterApproval: false })).result.mergeAfterApproval).toBe(false)
+      expect((yield* create({ key: "ON", mergeAfterApproval: true })).result.mergeAfterApproval).toBe(true)
+      // The snapshot carries it, so the board and the Review page know it.
+      const snapshot = yield* (yield* SnapshotService.SnapshotService).get()
+      expect(Object.fromEntries(snapshot.projects.map((p) => [p.key, p.mergeAfterApproval]))).toMatchObject({ THAI: true, NOREPO: false, OFF: false, ON: true })
+    })))
+
+  it.effect("the human switches it on and off; an agent can't, and an unchanged value records nothing", () =>
+    run(Effect.gen(function* () {
+      const { projects, create } = yield* setup
+      const { result: project } = yield* create({})
+      const on = yield* projects.update({ commandId: cmd(), id: project.id, mergeAfterApproval: true })
+      expect(on.result.mergeAfterApproval).toBe(true)
+      expect(on.seq).not.toBeNull()
+      expect((yield* projects.update({ commandId: cmd(), id: project.id, mergeAfterApproval: true })).seq).toBeNull()
+
+      const agent = asAgent({ session: "session-project", client: "Claude Code", pid: process.pid })
+      expect(yield* Effect.flip(agent(projects.update({ commandId: cmd(), id: project.id, mergeAfterApproval: false })))).toMatchObject({
+        _tag: "HumanOnly",
+        action: "change whether agents merge after you approve",
+      })
+      // The rest of a project an agent may still change, as before.
+      expect((yield* agent(projects.update({ commandId: cmd(), id: project.id, description: "Thai" }))).result.description).toBe("Thai")
+
+      const off = yield* projects.update({ commandId: cmd(), id: project.id, mergeAfterApproval: false })
+      expect(off.result.mergeAfterApproval).toBe(false)
+      const sql = yield* SqlClient.SqlClient
+      const events = yield* sql<{ payload: string }>`SELECT payload FROM events WHERE type = 'project.updated' ORDER BY seq`
+      expect(events.map((e) => JSON.parse(e.payload)).filter((p) => "mergeAfterApproval" in p.after).map((p) => [p.before, p.after])).toEqual([
+        [{ mergeAfterApproval: false }, { mergeAfterApproval: true }],
+        [{ mergeAfterApproval: true }, { mergeAfterApproval: false }],
+      ])
     })))
 })
 

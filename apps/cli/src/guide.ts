@@ -146,6 +146,7 @@ Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.loca
 - **Label:** a name and a colour on a task. Each project has its own labels: CEL's \`bug\` and THAI's \`bug\` are two labels. A task can carry several of its project's labels. \`cello label list\` shows them; see Labels.
 - **Milestone:** a goal for a project ("M3 · Watching agents"), with an optional target date, in the order the human sets. Each task is in at most one. How far along it is (done of total) is counted from its tasks' statuses, never typed in. Each project has its own milestones. Agents create, edit and assign them; only the human closes one, like approving a review. See Milestones.
 - **Project:** one product, usually one git repository, with its own key (\`CEL\`). The CLI works out the project from the repository you're in; \`--project KEY\` picks another.
+  - **Merge after approval** is a project setting (Settings → the project → "Merge after I approve"), which \`cello context\` shows. **Off:** you merge before you submit, and the human's Approve moves the task to Done. **On:** you submit before you merge (with the PR link when the project uses PRs), and their Approve tells you to merge; you finish with \`cello task done\`. New projects with a repository start with it on; projects made before it existed stay off until the human turns it on. See Merge after I approve.
 - **Task:** a card, keyed \`<PROJECT>-<number>\` (\`CEL-12\`). It has a title, a markdown description, a status, a priority, labels, an optional milestone, an optional parent task, comments and a history.
 - **Status:** a column on the board, shared by the workspace. Names match in any case. \`cello context\` lists a workspace's own; the defaults are:
 
@@ -156,7 +157,7 @@ Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.loca
   | In Progress | Someone is working on it. | \`cello task claim\` |
   | Needs input | Waiting for the human to decide something an agent asked on the card. On the board it shows in In Progress with a "Needs input" badge, unless Display turns its column on. | Only \`cello task ask\` |
   | In Review | Waiting for the human, with a review packet. | Only \`cello task submit\` |
-  | Done | The human approved it. | The human, on the Review page |
+  | Done | The human approved it. | The human, on the Review page; in a project that merges after approval, your \`cello task done\` once merged |
   | Canceled (hidden) | It won't be done. | The human |
 
   Hidden statuses are folded on the board and left out of \`cello task list\` unless you ask for them.
@@ -166,12 +167,13 @@ Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.loca
   - While your session is alive, other agents can't claim it.
   - If your session has exited, another session can claim the task and takes the claim over.
   - The human always wins: when they change a task you've claimed (moves it to another status, edits it, changes its labels, archives it, claim it themselves or releases your claim), your claim ends. Your session hears it once, like a comment ("Ana Souza moved CEL-40 to Todo: your claim ended. Stop working on it."; see Comments from the human reach your session), and \`cello context\` lists it under "Claims you lost" (until you hold the task again: claimed back, or reopened for you by their comment). Stop working on the task when you hear it.
-  - Not every touch ends it: the human dragging your card to another place in the same column keeps your claim, and so does their comment. Their approval ends it without a notice, since your work is done. Your own changes (a move, \`cello task release\`, \`cello task submit\`) and your subagents' never tell you anything.
+  - Not every touch ends it: the human dragging your card to another place in the same column keeps your claim, and so does their comment. Their approval ends it without a notice, since your work is done, except in a project that merges after approval: there it keeps your claim and tells you to merge, and \`cello task done\` ends it once you have. Your own changes (a move, \`cello task release\`, \`cello task submit\`) and your subagents' never tell you anything.
   - **A task remembers the last session that held it.** When the human comments on a task nobody holds (Done after their approval, Canceled, moved back to Todo, released, or any other whose claim a change of theirs ended), the comment goes to that session, and the task is yours again: it moves back to In Progress (a task still In Progress, In Review or Needs input stays where it is) and your session holds the claim. Your session hears it like any comment, saying the comment reopened the task (see Comments from the human reach your session). A task no agent ever claimed, an archived one, and a task someone holds aren't touched; neither are agents' comments or Send back notes.
-- **Stage:** where a claimed task is inside In Progress: **planning**, **building**, **review** (Agent review), **fixing** (Fixing findings) or **merged**. In Progress holds a task from the claim to the packet, so without a stage a task being planned, one being built and one waiting for review look the same. **Every session holding a claim sets it** with \`cello task stage\`, not only orchestrators; the board shows it on the card. Pick it by the task: **planning** only when the task needs a decision before code (a spec, a scope with options, a question to the human); a clear task goes straight to **building**. A task with no stage whose agent is active shows as **Working**, so the board stays truthful if you forget, but it can't say which step you're on. Asking the human keeps it through Needs input; any other move out of In Progress, or submitting it, clears it. See Stages.
+- **Stage:** where a claimed task is inside In Progress: **planning**, **building**, **review** (Agent review), **fixing** (Fixing findings) or **merged**. One more, **Approved · merging**, only the human's Approve sets, on a task in In Review in a project that merges after approval. In Progress holds a task from the claim to the packet, so without a stage a task being planned, one being built and one waiting for review look the same. **Every session holding a claim sets it** with \`cello task stage\`, not only orchestrators; the board shows it on the card. Pick it by the task: **planning** only when the task needs a decision before code (a spec, a scope with options, a question to the human); a clear task goes straight to **building**. A task with no stage whose agent is active shows as **Working**, so the board stays truthful if you forget, but it can't say which step you're on. Asking the human keeps it through Needs input; any other move out of In Progress, or submitting it, clears it. See Stages.
 - **Presence:** the board shows whether the session holding a claim is working right now: **active now** (it called Cello in the last 5 minutes), **seen 2h ago** (quiet, its process still running) or **ended** (its process exited). Every \`cello\` command and every hook run counts as a check-in; with the hooks installed that's every tool call, a subagent's included. A subagent checks in as itself too, so the card names the subagent working on it ("cello-builder · a13bfb89 active now") rather than its session. The board hears about each at most once a minute, which keeps "active now" steady without filling the history; each one plays a short motion on the card, and while you're working the card has a thin edge in your colour. You don't do anything for it.
 - **Review packet:** how finished work reaches the human. It holds a summary, how-to-check steps and evidence (videos, screenshots, test output, links). \`cello task submit\` creates it and moves the task to In Review. Then the human decides:
   - **Approve:** the task moves to Done and your claim ends. Nothing reaches your session for it: the work is done. A note they typed with it shows under Reviews in \`cello task get\` (\`Note: …\`). If they comment on the task later, it comes back to your session, reopened (see Claim above).
+  - **Approve, in a project that merges after approval** (their button reads "Approve and merge"): the task stays in In Review as **Approved · merging**, your claim stays, and your session is told at once to merge it ("Ana Souza approved CEL-12: merge it now, then \`cello task done CEL-12\`"). Merge and deploy it the way the project says, then run \`cello task done CEL-12\`: it moves to Done and your claim ends. See Merge after I approve.
   - **Send back:** the task returns to In Progress with their note, and your claim stays. The note comes to your session (see Comments from the human reach your session), and \`cello task get\` shows it under Reviews.
   - **Comment, without deciding yet:** the Review page shows the task's comments under the packet, with a comment box. A comment there leaves the task In Review and your claim in place, and comes to your session like any comment. Answer it on the card; if it asks for a change, move the task back to In Progress before you make it (that withdraws the packet), then submit again.
   - **Moved out without a decision** (\`cello task move\`, or the human dragging the card): the packet is **withdrawn** and leaves the Review page. \`cello task get\` shows it as withdrawn, with who moved the task and where. To hand the work over again, submit a new packet.
@@ -280,7 +282,9 @@ The fields:
 3. **Work, test first, and put the key in every commit:** \`feat(web): collapsed review rows (CEL-22)\`.
 4. **Comment** progress and decisions on the card (\`cello task comment\`). The human reads them there.
    - **When a decision is theirs** (which design, which scope, what wording), ask on the card with \`cello task ask\` and wait for their answers (see Questions for the human). Never ask them in the terminal.
-5. **Hand it over** with \`cello task submit\` and evidence they can look at (see Review packets). The task moves to In Review.
+5. **Hand it over** with \`cello task submit\` and evidence they can look at (see Review packets). The task moves to In Review. When you merge depends on the project (\`cello context\` says "Merge after approval  on" or "off"):
+   - **off:** merge (and deploy) first, then submit. Their Approve moves the task to Done.
+   - **on:** submit first, with the PR link (\`--link\`) when the project's rules use PRs, and keep your claim. Their Approve reaches your session like a comment; then merge and deploy, and finish with \`cello task done CEL-12\` (see Merge after I approve). Start \`cello inbox --wait\` in the background when you end your turn, so the approval wakes you.
 6. **If it's sent back,** their note comes to your session (by the hook, or \`cello inbox\`), and \`cello task get CEL-12\` shows it under Reviews. Fix it, then submit again.
    **The human's feedback in chat counts as a Send back.** When they review a task in your conversation instead of on the card (a screenshot, "this should be…", "I don't like…"), do both of these before you start fixing:
    - put their words on the card as a comment, quoted as they said them and marked as theirs (\`**<their name>, in chat (review):** "…"\`), so the review lives with the task;
@@ -438,6 +442,7 @@ A stage says where a claimed task is inside In Progress, so the human can tell f
 | \`review\` | Agent review | a reviewer agent starts reading the branch |
 | \`fixing\` | Fixing findings | the findings go back to the builder |
 | \`merged\` | Merged | the branch is merged into main, before the packet |
+| \`merging\` | Approved · merging | never by you: the human's Approve sets it, in a project that merges after approval |
 
 \`\`\`bash
 cello task stage CEL-12 planning
@@ -451,7 +456,7 @@ cello task list
 \`\`\`
 
 - **Only the session holding the claim** sets it (or the human, with \`CELLO_SESSION=me\`, which keeps your claim). Claim the task first.
-- **Only in In Progress.** In any other status it's refused.
+- **Only in In Progress.** In any other status it's refused, with one exception: a task approved and waiting for its merge (In Review, **Approved · merging**). There you may say where the merge is (\`fixing\` when it failed, \`merged\` once it's in), but not clear the stage: it marks the task approved until \`cello task done\`.
 - **It clears itself:** \`cello task submit\`, or a move to any other status, removes it. Reordering inside In Progress keeps it, and so does \`cello task ask\`: the stage waits in Needs input and is still there when the human's answers bring the task back.
 - **Forgot it?** A task with no stage whose agent is active shows as **Working** on the board: on its card, its list row and its task panel, and in a Working lane when In Progress is grouped by stage. So it doesn't look stuck while you work, and it goes back to no stage once your session is quiet for 5 minutes or ends. Set the stage anyway: Working can't tell the human whether you're planning or building.
 - **Subagents don't run it.** Builders and reviewers work for the claim of the session that started them; that session marks the steps.
@@ -600,7 +605,7 @@ cello task react CEL-12 last 👍 --remove     # take it back
 
 ## Comments from the human reach your session
 
-The human's comments on a task you've claimed, their Send back notes, their answers to your asks (see Questions for the human) and their reactions to your comments are addressed to your session: the one holding the claim (for a reaction, the one that wrote the comment). Your own comments and other agents' never come back to you, and nothing does once another session or the human holds the claim. Two exceptions: a Send back note still reaches the session that handed in the packet, and a comment on a task nobody holds reaches the session that held it last, which holds it again (below).
+The human's comments on a task you've claimed, their Send back notes, their answers to your asks (see Questions for the human), their reactions to your comments and, in a project that merges after approval, their approval (see Merge after I approve) are addressed to your session: the one holding the claim (for a reaction, the one that wrote the comment). Your own comments and other agents' never come back to you, and nothing does once another session or the human holds the claim. Two exceptions: a Send back note still reaches the session that handed in the packet, and a comment on a task nobody holds reaches the session that held it last, which holds it again (below).
 
 **A comment on a task you worked on, after your claim ended, reopens it for you.** Once the human approves your packet the task is Done and nobody holds it; the same goes after you release it, or after a change of theirs ended your claim (a move to Canceled or Todo, say). The comment reopens it from any of these: Done, Canceled, Todo, or released. If they then comment on it ("Let's add the video to the readme"), the comment's own change gives the task back to you: it moves to In Progress (unless it's still In Progress, In Review or Needs input, where it stays), your session holds its claim again, and the history says "Ana Souza's comment reopened it for Claude Code session 2fd0505c". Before they send it, the comment box tells them so ("Commenting reopens CEL-94 and sends it to Claude Code session 2fd0505c"), and the receipt then shows it delivered as usual. The comment reaches you the same ways as any other (the hooks, \`cello inbox\`, \`cello inbox --wait\`, a woken run when your process is gone and waking is on), and says the task was reopened:
 
@@ -724,7 +729,7 @@ cello inbox --wait          # in Claude Code: the Bash tool with run_in_backgrou
 cello inbox --wait --json   # the same as JSON: items, claimed
 \`\`\`
 
-- **It blocks until something new arrives for your session** (a comment, a Send back note, answers to your ask, an ask withdrawn, a reaction, word that the human ended your claim), then takes it the way \`cello inbox --new\` does (marked read, each item once) and prints it. Run in the background, its end wakes you with the text, as if the hook had delivered it. It returns at once when something is already waiting.
+- **It blocks until something new arrives for your session** (a comment, a Send back note, answers to your ask, an ask withdrawn, a reaction, word that the human ended your claim, their approval to merge), then takes it the way \`cello inbox --new\` does (marked read, each item once) and prints it. Run in the background, its end wakes you with the text, as if the hook had delivered it. It returns at once when something is already waiting.
 - **It doesn't poll the board:** it listens on the server's event stream. When the server restarts (every deploy does), it says so on stderr, "The Cello server on port 4747 went away; reconnecting for up to 2 minutes…", reconnects and carries on; nothing is taken twice. If the server stays away for 2 minutes, it exits 1 with "The Cello server on port 4747 went away and didn't come back within 2 minutes, so this stopped waiting." Start it (\`cello start\`) and run \`--wait\` again. \`cello wait\` and \`cello task ask --wait\` ride out a restart the same way (Questions for the human).
 - **One per session.** While it waits it holds a lock file (\`$TMPDIR/cello-inbox-wait/<hash of port and session>\`, holding its pid and when it started) and says so on stderr: \`Waiting for new comments, Send back notes, answers and ended claims for this session (pid 4242)…\`. A second \`cello inbox --wait\` for the same session leaves at once, saying on stderr \`\`Already waiting: a \`cello inbox --wait\` (pid 4242) is running for this session, and it wakes you when something new arrives.\`\` (with \`--json\`: \`{"waiting": true, "pid": 4242}\`). The lock goes when it ends, however it ends.
 - **It never outlives your session.** It stops, taking nothing, once the Claude Code that started it is gone (it checks \`CLAUDE_PID\` every second), and after a day with nothing new it stops and says so: "Nothing new for this session in 24 hours, so \`cello inbox --wait\` stopped. If you still hold a claim, start it again in the background." A lock whose pid is dead, or that's older than a day (its pid may belong to another process by then), is ignored.
@@ -994,6 +999,38 @@ What to bring, by kind of work (the project's testing profile says how to make i
 - **UI:** MP4 videos of the flow (the Playwright e2e videos) plus screenshots, in light and dark when it matters. How they're made: \`docs/evidence-videos.md\` in the Cello repository, also in Cello's Docs tab.
 - **CLI or server:** a terminal transcript or a test-output file (\`… > vitest.log\`), plus steps the human can run themselves.
 - **A report you published:** \`--link <page url> --caption "The report"\`.
+
+### Merge after I approve
+
+Each project says when its agents merge (\`cello context\` prints it: "Merge after approval  on" or "off"; the human changes it in Settings → the project).
+
+- **Off** (merge before review): build, merge and deploy, then \`cello task submit\`. Approve moves the task to Done and ends your claim.
+- **On** (merge after approval): the human reviews before anything lands. Build, then \`cello task submit\` with the evidence, plus the PR link when the project's rules use PRs (\`--link https://github.com/acme/app/pull/7 --caption "The PR"\`). You keep your claim while they review. When they press **Approve and merge**:
+  1. the task stays in In Review as **Approved · merging**, still yours;
+  2. your session gets the approval at once, the same ways as a comment (the hooks, \`cello inbox\`, \`cello inbox --wait\`, and a woken run when your process is gone and waking is on);
+  3. you merge and deploy the way the project says (its AGENTS.md), then run \`cello task done\`: the task moves to Done and your claim ends.
+
+\`\`\`
+Ana Souza approved a task in Cello: merge it now.
+
+APP-7  The checkout button
+  Ana Souza approved it, 1m ago
+    Ana Souza approved APP-7: merge it now, then \`cello task done APP-7\`.
+    Ship it
+
+Merge and deploy APP-7 the way this project does (its AGENTS.md says how), then finish it with \`cello task done APP-7\`: that moves it to Done and ends your claim. If the merge fails, say so on the card (\`cello task stage APP-7 fixing\`, then \`cello task comment APP-7 "…"\`) and leave it to Ana Souza, who can send it back.
+\`\`\`
+
+\`\`\`bash
+cello task done APP-7
+# Done APP-7  In Review → Done  The checkout button
+#   Your claim on it ended.
+\`\`\`
+
+- **Only the session holding the claim** runs \`cello task done\`, and only on a task that's Approved · merging. Anywhere else it's refused and says why.
+- **If the merge fails** (a conflict, a red build), the task stays Approved · merging: set \`cello task stage APP-7 fixing\`, and say what broke on the card. Fix it and try again, or leave it to the human: they can send it back from the card, which brings it back to In Progress, still yours.
+- **Their note**, if they typed one with the approval, comes under the line ("Ship it" above) and shows under Reviews in \`cello task get\`.
+- **Approving twice** is refused while it waits for your merge; a task the human holds themselves, or one no agent ever held, goes straight to Done.
 
 ## Questions for the human (Needs input)
 
@@ -1364,6 +1401,10 @@ Every error is one sentence that says what to do next. The usual ones:
 | CEL-12 is claimed by another session: only the session holding the claim sets its stage | Someone else holds it. | Leave its stage alone. |
 | CEL-12 is in Todo; a stage is only for tasks in In Progress | Stages live inside In Progress. | Claim it (which moves it to In Progress), or leave it. |
 | No stage "deploying" | Not one of the stages (\`designing\` was renamed \`planning\`). | Use planning, building, review, fixing or merged. |
+| merging is set by the human's Approve in a project that merges after approval | You tried to set Approved · merging yourself. | Leave it: Approve sets it. |
+| CEL-12 is approved and waits for its merge: it keeps a stage until \`cello task done CEL-12\` | \`cello task stage --clear\` on a task waiting for its merge. | Set \`fixing\` or \`merged\` instead, or finish it with \`cello task done\`. |
+| CEL-12 isn't approved: \`cello task done\` finishes a task the human approved in a project that merges after approval | \`cello task done\` before their Approve, in a project with the setting off, or on a task that isn't In Review as Approved · merging. | Submit it and wait for the approval (\`cello inbox --wait\`). In a project with the setting off, their Approve finishes it. |
+| CEL-12 is claimed by another session: only the session holding its claim finishes it, once merged | Someone else holds it. | Leave it to the session that holds it. |
 | A reaction must be one emoji, like 👍 | \`cello task react\` got text, or several emoji. | Pass one emoji. |
 | No comment 01JD… on CEL-12 · Ana Souza hasn't commented on CEL-12 yet | The comment id isn't on that task, or \`last\` found no comment from the human. | \`cello task get CEL-12\` shows each comment with its id. |
 | CEL-12 needs a review packet before it goes to In Review | You used \`move\` to hand work over. | Use \`cello task submit\`. |
@@ -1564,7 +1605,7 @@ cello task release [flags] <key>
 
 ### cello task stage
 
-Say where your claimed task is inside In Progress, so the board shows it: planning, building, agent review, fixing findings, merged. Every session holding a claim sets it: on your own, planning (only when the task needs a decision before code), then building, then merged; an orchestrator, building, review, fixing, merged. Only the session holding the claim (or the human), only in In Progress. Asking the human (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it.
+Say where your claimed task is inside In Progress, so the board shows it: planning, building, agent review, fixing findings, merged, approved · merging. Every session holding a claim sets it: on your own, planning (only when the task needs a decision before code), then building, then merged; an orchestrator, building, review, fixing, merged. Only the session holding the claim (or the human), only in In Progress. Asking the human (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it. In a project that merges after approval, the human's Approve sets approved · merging on the task in In Review; there you may set fixing (the merge failed) or merged until \`cello task done\`.
 
 \`\`\`
 cello task stage [flags] <key> [<stage>]
@@ -1573,7 +1614,7 @@ cello task stage [flags] <key> [<stage>]
 | | |
 | --- | --- |
 | \`key string\` | A task key, e.g. CEL-3. |
-| \`stage string\` | Where the work is: planning (the task needs a decision before code: a spec, a scope with options, or a question to the human), building (the code is being written, by you or a builder agent), review (a reviewer agent is reading the branch), fixing (the builder is fixing what the review found), merged (merged into main; the packet comes next). (optional) |
+| \`stage string\` | Where the work is: planning (the task needs a decision before code: a spec, a scope with options, or a question to the human), building (the code is being written, by you or a builder agent), review (a reviewer agent is reading the branch), fixing (the builder is fixing what the review found), merged (merged into main; the packet comes next), merging (set by the human's Approve in a project that merges after approval (the task stays in In Review); merge and deploy, then \`cello task done\`). (optional) |
 | \`--clear\` | Remove the stage instead. |
 | \`--json\` | Print JSON for scripts. |
 
@@ -1655,6 +1696,19 @@ cello task submit [flags] <key>
 | \`--attach string\` | A video (MP4), a screenshot, or a text file such as test output or a terminal recording; repeatable. |
 | \`--caption string\` | Describes the --attach or --link right before it. |
 | \`--link string\` | A link, e.g. the PR; repeatable. |
+
+### cello task done
+
+Finish a task the human approved in a project that merges after approval (Approved · merging), once you've merged and deployed it: it moves to Done and your claim ends. Only the session holding the claim, only after the approval (\`cello inbox\` hands it to you).
+
+\`\`\`
+cello task done [flags] <key>
+\`\`\`
+
+| | |
+| --- | --- |
+| \`key string\` | A task key, e.g. CEL-3. |
+| \`--json\` | Print JSON for scripts. |
 
 ### cello task ask
 
