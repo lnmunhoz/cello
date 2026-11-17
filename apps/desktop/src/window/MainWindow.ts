@@ -9,6 +9,7 @@ import { APP_NOTICE, APP_RESTART, BOARD_COMMAND, BOARD_OPEN, BOARD_OPEN_TASK, BO
 import { Panel } from "../panel/Panel.ts"
 import { boardNavigationAction, boardWindowOpenAction } from "../panel/urls.ts"
 import type { BoardNotice } from "../update/appUpdate.ts"
+import { isBoardPage } from "./sender.ts"
 import { appCommandDirection, goInHistory, type HistoryDirection, historyShortcut, swipeDirection } from "./history.ts"
 import {
   clampPanelWidth,
@@ -215,8 +216,17 @@ export class MainWindow {
       if (this.#updates) board.send(UPDATE_STATE, this.#updates)
       if (this.#board) board.send(BOARD_STATE, this.#board)
     })
-    board.ipc.on(UPDATE_COMMAND, (_event, message: unknown) => this.options.updateCommand(message))
-    board.ipc.on(BOARD_COMMAND, (_event, message: unknown) => this.options.boardCommand(message))
+    // Commands that change the app come only from the board's own page (window/sender.ts).
+    const fromBoard = (event: Electron.IpcMainEvent) => {
+      const frame = event.senderFrame
+      return isBoardPage(frame ? { url: frame.url, top: frame.parent === null } : null, this.#origin)
+    }
+    board.ipc.on(UPDATE_COMMAND, (event, message: unknown) => {
+      if (fromBoard(event)) this.options.updateCommand(message)
+    })
+    board.ipc.on(BOARD_COMMAND, (event, message: unknown) => {
+      if (fromBoard(event)) this.options.boardCommand(message)
+    })
     // Links that want a new window, and links off the board's origin, open in the panel.
     board.setWindowOpenHandler(({ url }) => {
       this.#route(url, boardWindowOpenAction(url, this.#origin))

@@ -68,7 +68,7 @@ people download and the one built from this repo live side by side on Lucas's Ma
   it writes anything: "This board (…) was opened by a newer Cello (migration 0028_x); this cello is v0.4.2. Update
   Cello, or use another board. Nothing was changed." The app shows it in its window with Try Again, Use Another
   Board… and Quit.
-- **Once, on Lucas's Mac:** `bun run package -- --install` in apps/desktop installs `/Applications/Cello Dev.app`.
+- **Once, on Lucas's Mac:** `bun run package -- --install` in apps/desktop installs `/Applications/Cello Dev.app` (it refuses `--install` for the release flavor, so it can never replace the downloaded Cello.app).
   The `/Applications/Cello.app` an earlier local install left (v0.1.0) stays; nothing deletes an app. Drag it to
   the Trash, then install the downloaded Cello.app from a release's DMG if you want it.
 

@@ -6,7 +6,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import { isAlive } from "@cello/server/process/isAlive"
 import { rotateLog } from "@cello/shared/logRotation"
-import { isAlreadyRunning, LOCK_FILE, parseBanner, parseLock, planServer, serverUrl, type ServerSurvey } from "./plan.ts"
+import { isAlreadyRunning, LOCK_FILE, parseBanner, parseLock, planServer, serverUrl, type ServerSurvey, takenPortMessage } from "./plan.ts"
 
 export interface Server {
   readonly url: string
@@ -34,6 +34,11 @@ export interface ConnectOptions {
    * its own then, it asks launchd to start the service (`startService`) and waits for it.
    */
   readonly service?: { readonly installed: boolean; readonly start: () => Promise<void> }
+  /**
+   * The board is the default one, ~/.cello on 4747 (CEL-149): only it joins a server on its port without the
+   * folder's own lock pointing there. Any other board refuses such a port (`takenPortMessage`).
+   */
+  readonly defaultBoard: boolean
 }
 
 const PROBE_TIMEOUT_MS = 1_000
@@ -52,7 +57,7 @@ export const probe = async (url: string): Promise<boolean> => {
 }
 
 /** Looks at CELLO_PORT and the data folder's server lock. */
-export const survey = async (port: number, dataDir: string, service = false): Promise<ServerSurvey> => {
+export const survey = async (port: number, dataDir: string, facts: { readonly service: boolean; readonly defaultBoard: boolean }): Promise<ServerSurvey> => {
   const lockPath = path.join(dataDir, LOCK_FILE)
   const lock = fs.existsSync(lockPath) ? parseLock(fs.readFileSync(lockPath, "utf8")) : null
   const [portAnswers, lockAnswers] = await Promise.all([
@@ -63,7 +68,8 @@ export const survey = async (port: number, dataDir: string, service = false): Pr
     port,
     portAnswers,
     lock: lock && { ...lock, alive: isAlive(lock.pid), answers: lockAnswers ?? (lock.port === port && portAnswers) },
-    service,
+    service: facts.service,
+    defaultBoard: facts.defaultBoard,
   }
 }
 
@@ -84,8 +90,9 @@ export const connectServer = async (options: ConnectOptions): Promise<Server> =>
   // A second pass covers a race: another `cello start` took the folder between the survey and ours; a
   // third, the start after a background service that didn't come up.
   for (let pass = 0; pass < 3; pass++) {
-    const plan = planServer(await survey(options.port, options.dataDir, service))
+    const plan = planServer(await survey(options.port, options.dataDir, { service, defaultBoard: options.defaultBoard }))
     if (plan.kind === "join") return joined(plan.url)
+    if (plan.kind === "taken") throw new ServerStartError(takenPortMessage(plan.port))
     if (plan.kind === "service") {
       const failed = await options.service!.start().then(
         () => null,

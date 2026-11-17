@@ -56,7 +56,8 @@ bun run test:e2e   # Playwright's Electron tests, in Docker (same as test:docker
     redrawing it as glass, and it adds an `icon.icns` for older macOS. Without Xcode 26 the package
     step fails.
 - **`bun run package -- --install`** also makes `/Applications/Cello Dev.app` the copy `cello-dev://` links
-  open; see "Which copy opens `cello://` links" below. It never touches `/Applications/Cello.app`.
+  open; see "Which copy opens `cello://` links" below. It never touches `/Applications/Cello.app`: `--install` with
+  `--flavor release` or `--artifacts` is refused, since Cello.app comes from a release's DMG.
 - **`bun run test:e2e`** runs the tests in a throwaway Linux container (`scripts/test-in-docker.ts`,
   OrbStack must be running), with the app under Xvfb, so no window opens on the Mac. Arguments
   after `--` go to `playwright test`. Videos and screenshots land in
@@ -109,16 +110,29 @@ Electron's Node can't run the Bun server, so the app uses the `cello` binary as 
 The board's Settings page starts with a **Board** section in the app (not in a browser): the data folder and port the
 app's server uses, `~/.cello` on 4747 until you change it. Point the downloaded Cello at a test board once
 (`~/.cello-release` on 4757, say) and it runs its own server there with the `cello` inside it, starting empty like
-a new user's board, while Cello Dev keeps your real board on 4747.
+a new user's board, while Cello Dev keeps your real board on 4747. Cello Dev has the same section; leave it on
+`~/.cello` and 4747 unless you want Cello Dev on a test board too.
 
 - **Switch board** saves the choice in `board.json` in the app's own state folder (never in a board's data
-  folder) and switches in place: a server the app started for the board you leave stops (one it joined, like the
-  background service, keeps running), then it finds or starts the new board's server as at launch, and shows
-  its Settings. Nothing in either folder is deleted. "Back to ~/.cello on 4747" returns to the default.
-- The folder needs a full path or one under `~`; the port is a whole number from 1024 to 65535. Anything else is
-  refused in the section, and nothing changes.
+  folder), written beside it and renamed over it so it's never half written, and switches in place: a server the
+  app started for the board you leave stops (one it joined, like the background service, keeps running), then it
+  finds or starts the new board's server as at launch, and shows its Settings. Nothing in either folder is
+  deleted. "Back to ~/.cello on 4747" returns to the default. A quit while it switches waits for the new server,
+  then settles it as any quit does.
+- **A board only ever opens its own server.** The app joins a server when the folder's live `server.lock` names
+  its port; only the default board, `~/.cello` on 4747, also joins whatever answers on 4747, as it always did. A
+  port that answers without the folder's lock on it is another board's (or another program's), and is refused,
+  before anything switches: "Port 4747 is already used by another Cello board or another program; pick another
+  port for this board." At launch the same sentence is in the dialog. Typing a folder other than `~/.cello`
+  while the port says 4747 fills in 4757.
+- The folder needs a full path or one under `~`, and can't be `/`, your home folder itself, or a folder of other
+  files that isn't a board (no `cello.db`): a new or empty folder, or another board's. The port is a whole number
+  from 1024 to 65535. Anything else is refused in the section, and nothing changes.
+- **When `board.json` can't be read** (cut off, edited by hand), the app opens no board: it says so in its dialog
+  with Try Again (read it again), Use Default Board, Use Another Board… and Quit. It never falls back to
+  `~/.cello` silently.
 - `CELLO_DATA_DIR` and `CELLO_PORT` win for a launch (`bun run dev` and the e2e tests set them); the section then
-  says so and can't change it.
+  says so and can't change it. A `CELLO_PORT` that isn't a port is refused at launch with what it says.
 - The rules are `src/server/board.ts`; the section is `apps/web/src/settings/BoardSettings.tsx`, through
   `window.celloDesktop.board`.
 
@@ -133,9 +147,11 @@ This board (/Users/me/.cello) was opened by a newer Cello (migration 0028_inbox_
 Update Cello, or use another board. Nothing was changed.
 ```
 
-Its buttons are **Try Again**, **Use Another Board…** (pick a folder in Finder; a folder other than `~/.cello`
-moves off 4747 to 4757, so it never takes the port your real board's server uses) and **Quit**. Without
-`CELLO_DATA_DIR` or `CELLO_PORT` set, every failure to reach the server offers the same three.
+Its buttons are **Try Again**, **Use Default Board** (`~/.cello` on 4747; shown when the board isn't already
+that), **Use Another Board…** (pick a folder in Finder, checked as Settings checks one; a folder other than
+`~/.cello` moves off 4747 to 4757, so it never takes the port your real board's server uses) and **Quit**. Without
+`CELLO_DATA_DIR` or `CELLO_PORT` set, every failure to reach the server offers the same choices; with them, only
+Try Again and Quit.
 
 ## The panel
 

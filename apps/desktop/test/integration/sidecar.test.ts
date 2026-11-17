@@ -23,7 +23,7 @@ describe("connectServer", () => {
     Effect.gen(function* () {
       const dataDir = yield* tempDataDir
       // Port 0: nothing answers there, and the started server picks a free port and reports it.
-      const server = yield* Effect.promise(() => connectServer({ port: 0, dataDir, command, env }))
+      const server = yield* Effect.promise(() => connectServer({ port: 0, dataDir, command, env, defaultBoard: false }))
       expect(server.startedByUs).toBe(true)
       expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
       expect(yield* Effect.promise(() => probe(server.url))).toBe(true)
@@ -39,17 +39,41 @@ describe("connectServer", () => {
     Effect.gen(function* () {
       const dataDir = yield* tempDataDir
       const { port } = yield* startServer(dataDir)
-      const server = yield* Effect.promise(() => connectServer({ port: 0, dataDir, command, env }))
+      const server = yield* Effect.promise(() => connectServer({ port: 0, dataDir, command, env, defaultBoard: false }))
       expect(server).toMatchObject({ url: `http://127.0.0.1:${port}`, startedByUs: false })
 
       yield* Effect.promise(() => server.stop())
       expect(yield* Effect.promise(() => probe(server.url))).toBe(true)
     }).pipe(Effect.scoped))
 
+  it.live("CEL-149: a new board's folder on a port another board's server answers is refused, not joined, and the folder stays untouched", () =>
+    Effect.gen(function* () {
+      const other = yield* tempDataDir
+      const { port } = yield* startServer(other)
+      const fresh = yield* tempDataDir
+      const error = yield* Effect.promise(() =>
+        connectServer({ port, dataDir: fresh, command, env, defaultBoard: false }).then(
+          () => null,
+          (e: Error) => e,
+        ))
+      expect(error?.message).toBe(`Port ${port} is already used by another Cello board or another program; pick another port for this board.`)
+      expect(fs.readdirSync(fresh)).toEqual([])
+      expect(yield* Effect.promise(() => probe(`http://127.0.0.1:${port}`))).toBe(true)
+    }).pipe(Effect.scoped))
+
+  it.live("the default board joins what answers on its port, as before", () =>
+    Effect.gen(function* () {
+      const other = yield* tempDataDir
+      const { port } = yield* startServer(other)
+      const fresh = yield* tempDataDir
+      const server = yield* Effect.promise(() => connectServer({ port, dataDir: fresh, command, env, defaultBoard: true }))
+      expect(server).toMatchObject({ url: `http://127.0.0.1:${port}`, startedByUs: false })
+    }).pipe(Effect.scoped))
+
   it.live("says why when there's no cello binary to start", () =>
     Effect.gen(function* () {
       const dataDir = yield* tempDataDir
-      const error = yield* Effect.promise(() => connectServer({ port: 0, dataDir, command: null, env }).catch((e: Error) => e))
+      const error = yield* Effect.promise(() => connectServer({ port: 0, dataDir, command: null, env, defaultBoard: false }).catch((e: Error) => e))
       expect(String(error)).toContain("No Cello server is running")
     }).pipe(Effect.scoped))
 })

@@ -10,6 +10,8 @@ import { parsePlist } from "@cello/shared/launchAgent"
 export const DEFAULT_PORT = 4747
 /** The lock file `cello start` keeps in its data folder (apps/server/src/server/ServerLock.ts). */
 export const LOCK_FILE = "server.lock"
+/** The database `cello start` keeps in its data folder (ServerLock.ts' DB_FILE): a folder with it is a board. */
+export const DB_FILE = "cello.db"
 
 export interface LockInfo {
   readonly pid: number
@@ -24,6 +26,11 @@ export interface ServerSurvey {
   readonly lock: (LockInfo & { readonly alive: boolean; readonly answers: boolean }) | null
   /** A background service is installed for this data folder (CEL-81, `cello service install`). */
   readonly service: boolean
+  /**
+   * The board is the default one, ~/.cello on 4747 (CEL-149): only then does a server on the port count as this
+   * board's without the folder's lock pointing at it, as it always has (a terminal's `cello start`).
+   */
+  readonly defaultBoard: boolean
 }
 
 export type ServerPlan =
@@ -31,14 +38,27 @@ export type ServerPlan =
   | { readonly kind: "wait"; readonly url: string; readonly pid: number }
   | { readonly kind: "service"; readonly url: string }
   | { readonly kind: "start" }
+  /** Something answers on the port, but this folder holds no live lock for it: another board's server, or another program. */
+  | { readonly kind: "taken"; readonly port: number }
 
 export const serverUrl = (port: number): string => `http://127.0.0.1:${port}`
 
+/** Why the app won't use a port: what Settings → Board and the launch dialog say. */
+export const takenPortMessage = (port: number): string =>
+  `Port ${port} is already used by another Cello board or another program; pick another port for this board.`
+
+/**
+ * Joins only this folder's own server: the live lock's, on its port. A port that answers without that lock
+ * belongs to another board (Settings → Board pointed a new folder at 4747) or another program, so the app
+ * never shows that board under this folder's name (CEL-149); the default board keeps joining it.
+ */
 export const planServer = (survey: ServerSurvey): ServerPlan => {
   const holder = survey.lock?.alive ? survey.lock : null
   if (holder && holder.port > 0 && holder.answers) return { kind: "join", url: serverUrl(holder.port) }
-  if (survey.portAnswers) return { kind: "join", url: serverUrl(survey.port) }
+  // The holder hasn't recorded its port yet: what answers on the port is it.
+  if (holder && holder.port === 0 && survey.portAnswers) return { kind: "join", url: serverUrl(survey.port) }
   if (holder) return { kind: "wait", url: serverUrl(holder.port > 0 ? holder.port : survey.port), pid: holder.pid }
+  if (survey.portAnswers) return survey.defaultBoard ? { kind: "join", url: serverUrl(survey.port) } : { kind: "taken", port: survey.port }
   // With the service installed, a server of the app's own would hold the folder and keep the service out.
   if (survey.service) return { kind: "service", url: serverUrl(survey.port) }
   return { kind: "start" }

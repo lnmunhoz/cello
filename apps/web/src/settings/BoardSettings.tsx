@@ -36,7 +36,18 @@ export function BoardSettings({ state }: { state: DesktopBoardState }) {
       <div className="flex items-end gap-2">
         <label className="flex min-w-0 flex-1 flex-col gap-1 text-[13px]">
           <span className="font-medium">Folder</span>
-          <Input aria-label="Board folder" value={dataDir} disabled={busy} spellCheck={false} onChange={(e) => setDataDir(e.currentTarget.value)} />
+          <Input
+            aria-label="Board folder"
+            value={dataDir}
+            disabled={busy}
+            spellCheck={false}
+            onChange={(e) => {
+              const next = e.currentTarget.value
+              setDataDir(next)
+              // Another folder on the default board's port would meet that board's server: suggest its own port.
+              if (next.trim() !== state.defaultDataDir && port.trim() === String(state.defaultPort)) setPort(String(state.suggestedPort))
+            }}
+          />
         </label>
         <label className="flex w-24 shrink-0 flex-col gap-1 text-[13px]">
           <span className="font-medium">Port</span>
@@ -46,7 +57,8 @@ export function BoardSettings({ state }: { state: DesktopBoardState }) {
       <p className="text-[13px] text-muted">
         {locked
           ? `${state.setBy.join(" and ")} set the board for this launch, so it can't be changed here.`
-          : "Another folder gets a server of its own, started with the cello inside this app, and starts empty like a new board. " +
+          : "Another folder gets a server of its own on its own port, started with the cello inside this app, and starts empty like a " +
+            `new board (a new or empty folder, or another board's). ${state.defaultPort} is ${state.defaultDataDir}'s port. ` +
             "A server this app started for the board you leave stops; nothing in either folder is deleted."}
       </p>
       {state.error ? (

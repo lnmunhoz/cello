@@ -11,6 +11,8 @@ export interface DesktopBoardState {
   /** ~/.cello and 4747, as `cello start` uses. */
   readonly defaultDataDir: string
   readonly defaultPort: number
+  /** The port Settings fills in for a folder other than the default one (4757), so it never takes 4747. */
+  readonly suggestedPort: number
   /** The environment variables that set the board for this launch (CELLO_DATA_DIR, CELLO_PORT): Settings can't change it then. */
   readonly setBy: ReadonlyArray<string>
   /** The app is stopping its old server and starting or joining the new one. */

@@ -114,8 +114,30 @@ test("CEL-149: Settings → Board switches the app to a test board: its own serv
   await expect(section.getByRole("alert")).toHaveText("The folder needs a full path, like ~/.cello-release or /Users/you/boards/test.")
   expect(readLock(first)?.pid).toBe(firstServer)
 
-  await video.caption(`Point it at a test board, ${second} on ${portB}, and switch`)
+  await video.caption("A folder of other files, which isn't a board (no cello.db), is refused too")
+  const documents = tempDir("cello-documents-")
+  fs.writeFileSync(path.join(documents, "notes.txt"), "mine")
+  await section.getByLabel("Board folder").fill(documents)
+  await section.getByRole("button", { name: "Switch board" }).click()
+  await expect(section.getByRole("alert")).toHaveText(
+    `${documents} already holds other files and isn't a Cello board (no cello.db). Pick a new or empty folder, or another board's.`,
+  )
+  expect(fs.readdirSync(documents)).toEqual(["notes.txt"])
+
+  await video.caption(`Another folder on the default board's port: the form suggests 4757 instead (nothing is started on 4747)`)
+  await section.getByLabel("Board port").fill("4747")
   await section.getByLabel("Board folder").fill(second)
+  await expect(section.getByLabel("Board port")).toHaveValue("4757")
+
+  await video.caption(`A port another board's server answers on (${portA}, the first board's) is refused: the app never shows that board under this folder`)
+  await section.getByLabel("Board port").fill(String(portA))
+  await section.getByRole("button", { name: "Switch board" }).click()
+  await expect(section.getByRole("alert")).toHaveText(`Port ${portA} is already used by another Cello board or another program; pick another port for this board.`)
+  await themes(app, board, "board-setting-port-taken")
+  expect(fs.readdirSync(second)).toEqual([])
+  expect(readLock(first)?.pid).toBe(firstServer)
+
+  await video.caption(`Point it at a test board, ${second} on ${portB}, and switch`)
   await section.getByLabel("Board port").fill(String(portB))
   await section.getByRole("button", { name: "Switch board" }).click()
   await board.waitForURL(`http://127.0.0.1:${portB}/settings`)
@@ -176,7 +198,7 @@ test("CEL-149: a board a newer Cello migrated is refused: the window and the dia
   const section = boardSection(board)
   await section.getByLabel("Board folder").fill(newer)
   await section.getByLabel("Board port").fill(String(portB))
-  await showNextDialogAnswering(app, 1, asked)
+  await showNextDialogAnswering(app, 2, asked)
   await pickFolderNext(app, other)
   await section.getByRole("button", { name: "Switch board" }).click()
 
@@ -188,7 +210,7 @@ test("CEL-149: a board a newer Cello migrated is refused: the window and the dia
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "board-too-new-window.png"))
   await screenshotScreen(app, path.join(SCREENSHOTS_DIR, "board-too-new-dialog.png"))
   const [dialog] = quitQuestions(asked) as Array<{ message: string; detail: string; buttons: string[] }>
-  expect(dialog).toMatchObject({ message: "Cello Dev can't open this board", buttons: ["Try Again", "Use Another Board…", "Quit"] })
+  expect(dialog).toMatchObject({ message: "Cello Dev can't open this board", buttons: ["Try Again", "Use Default Board", "Use Another Board…", "Quit"] })
   expect(dialog!.detail).toContain(refusal)
 
   await video.caption("Nothing in that board changed: the same database, the same files, no lock left")

@@ -21,7 +21,7 @@ type Resource = { readonly from: string; readonly to: string }
 type BuilderConfig = { readonly extraResources?: ReadonlyArray<Resource>; readonly mac?: Record<string, unknown> } & Record<string, unknown>
 
 export type Arch = "arm64" | "x64"
-export type Packaging = { readonly arch: Arch; readonly artifacts: boolean; readonly sign: boolean; readonly flavor: Flavor }
+export type Packaging = { readonly arch: Arch; readonly artifacts: boolean; readonly sign: boolean; readonly flavor: Flavor; readonly install: boolean }
 
 export const bundlingCli = <C extends BuilderConfig>(config: C, binary: string): C => {
   const resources = config.extraResources ?? []
@@ -54,11 +54,17 @@ export const packagingConfig = <C extends BuilderConfig>(config: C, packaging: P
 export const packagedApp = (arch: Arch, flavor: Flavor): string =>
   `dist/${arch === "x64" ? "mac" : "mac-arm64"}/${appIdentity(flavor).name}.app`
 
-/** package.ts's --arch, --artifacts, --sign and --flavor; its other flags are its own. */
+/** package.ts's --arch, --artifacts, --sign, --flavor and --install (Cello Dev only); its other flags are its own. */
 export const parsePackaging = (argv: ReadonlyArray<string>): Packaging => {
   const flag = argv.indexOf("--arch")
   const arch = flag === -1 ? "arm64" : argv[flag + 1]
   if (arch !== "arm64" && arch !== "x64") throw new Error(`--arch takes arm64 or x64, not ${arch ?? "nothing"}.`)
   const artifacts = argv.includes("--artifacts")
-  return { arch, artifacts, sign: argv.includes("--sign"), flavor: flavorArg(argv, artifacts ? "release" : "dev") }
+  const flavor = flavorArg(argv, artifacts ? "release" : "dev")
+  const install = argv.includes("--install")
+  // Installing replaces /Applications' copy: only ever Cello Dev's, never the Cello.app a release DMG put there.
+  if (install && flavor !== "dev") {
+    throw new Error("--install installs Cello Dev (/Applications/Cello Dev.app) only. Cello.app comes from a release's DMG; package it without --install.")
+  }
+  return { arch, artifacts, sign: argv.includes("--sign"), flavor, install }
 }

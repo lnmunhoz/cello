@@ -104,5 +104,17 @@ describe("startup", () => {
       const after = new Database(dbPath, { readonly: true })
       expect((after.query("SELECT COUNT(*) AS n FROM builds").get() as { n: number }).n).toBe(builds)
       after.close()
+
+      // The server's own entry (src/main.ts) prints the sentence, exits 1, and leaves no -wal, -shm or lock behind.
+      const entry = Bun.spawn([process.execPath, path.join(import.meta.dirname, "../../src/main.ts")], {
+        env: { PATH: process.env.PATH ?? "", HOME: yield* tempDataDir, CELLO_DATA_DIR: dataDir, CELLO_PORT: "0" },
+        stdout: "ignore",
+        stderr: "pipe",
+      })
+      const [code, stderr] = yield* Effect.promise(() => Promise.all([entry.exited, new Response(entry.stderr).text()]))
+      expect(code).toBe(1)
+      expect(stderr.trim()).toBe(error.message)
+      expect(files()).toEqual(filesBefore)
+      expect(hash()).toBe(hashBefore)
     }).pipe(Effect.scoped))
 })

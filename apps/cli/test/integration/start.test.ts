@@ -130,6 +130,8 @@ describe("cello start", () => {
       const { newest } = db.query("SELECT MAX(migration_id) AS newest FROM migrations").get() as { newest: number }
       db.run("INSERT INTO migrations (migration_id, name) VALUES (?, 'from_a_newer_cello')", [newest + 1])
       db.close()
+      const files = () => fs.readdirSync(dataDir).sort()
+      const before = files()
       const proc = yield* spawnStart({ CELLO_DATA_DIR: dataDir, CELLO_PORT: "0" })
       const code = yield* Effect.promise(() => proc.exited)
       const stderr = yield* Effect.promise(() => new Response(proc.stderr).text())
@@ -138,6 +140,8 @@ describe("cello start", () => {
         `This board (${dataDir}) was opened by a newer Cello (migration ${String(newest + 1).padStart(4, "0")}_from_a_newer_cello); ` +
           `this cello is v${APP_VERSION}. Update Cello, or use another board. Nothing was changed.`,
       )
+      // The database was closed before the process exited: no -wal or -shm left, no lock, nothing new.
+      expect(files()).toEqual(before)
       expect(fs.existsSync(path.join(dataDir, LOCK_FILE))).toBe(false)
     }).pipe(Effect.scoped))
 

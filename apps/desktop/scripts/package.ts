@@ -55,7 +55,7 @@ const app = path.join(desktopDir, packagedApp(packaging.arch, packaging.flavor))
 const size = Bun.spawnSync(["du", "-sh", app]).stdout.toString().split("\t")[0]
 console.log(`Packaged ${app} (${size})`)
 
-if (process.argv.includes("--install")) {
+if (packaging.install) {
   const installed = identity.installedApp
   // A Cello started before this moment runs the build being replaced.
   const installedAt = new Date()
