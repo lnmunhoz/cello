@@ -78,7 +78,7 @@ const main = () => {
     return
   }
   const current = currentVersion(root)
-  const next = nextVersion(current, options.increment)
+  const next = nextVersion(current, options.increment, options.preid)
   console.log(
     `Cello release: ${current} -> ${next}${options.dryRun ? " (dry run: it fetches origin; nothing is written, committed, tagged, pushed, released or deployed)" : ""}`,
   )

@@ -31,6 +31,7 @@ import { widthLimits } from "../lib/resize.ts"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { openTaskHere } from "../task/openTaskHere.ts"
 import { TaskInViewer } from "../task/TaskPanel.tsx"
+import { ReleaseNotes } from "../updates/ReleasesPage.tsx"
 import { markPanelClick, routerViewerDriver, useBackTarget } from "./panelBack.ts"
 import { sideOf, type Spot } from "./panelHistory.ts"
 import { viewerItemOf, type ViewerSearch } from "./search.ts"
@@ -43,6 +44,7 @@ import {
   openTaskFrom,
   pageRef,
   refusesFraming,
+  releaseRef,
   taskOfHref,
   VIEWER_WIDTH,
   WIDTH_KEY,
@@ -343,6 +345,16 @@ function PageView({ item }: { item: ViewerItem }) {
         hash={page.hash}
         onVersion={(version) => showInViewer({ ...item, url: withVersion(item.url, version) }, { replace: true })}
       />
+    )
+  }
+  // What's new (CEL-140): natively too, since the release notes come from the desktop app's bridge, which
+  // only the board's own window has.
+  const release = releaseRef(item.url, location.origin)
+  if (release) {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <ReleaseNotes version={release} />
+      </div>
     )
   }
   return <iframe title={item.title} src={embedUrl(item.url, location.origin)} onLoad={closeOnEscapeIn} className="min-h-0 w-full flex-1 border-0 bg-surface" />

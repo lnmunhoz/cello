@@ -1,9 +1,10 @@
 // The board's preload (sandboxed, context-isolated): exposes `window.celloDesktop` so the web app
 // can open pages in the side panel. The main process accepts only http(s) URLs from it.
 import { contextBridge, ipcRenderer } from "electron"
+import type { UpdateState } from "@cello/shared/updates"
 import type { CelloDesktop, DesktopAppNotice, OpenMessage } from "../../web/src/lib/desktop.ts"
 import type { OpenTaskMessage } from "../../web/src/viewer/viewer.ts"
-import { APP_NOTICE, APP_RESTART, BOARD_OPEN, BOARD_OPEN_TASK, PANEL_CLOSE, PANEL_OPEN } from "./ipc.ts"
+import { APP_NOTICE, APP_RESTART, BOARD_OPEN, BOARD_OPEN_TASK, PANEL_CLOSE, PANEL_OPEN, UPDATE_COMMAND, UPDATE_STATE } from "./ipc.ts"
 import { mouseButtonDirection } from "./window/history.ts"
 
 // The app's restart notice (CEL-75). Main sends it after each board load, maybe before the web app
@@ -13,6 +14,14 @@ const noticeListeners: Array<(notice: DesktopAppNotice | null) => void> = []
 ipcRenderer.on(APP_NOTICE, (_event, next: DesktopAppNotice | null) => {
   notice = next
   for (const listener of noticeListeners) listener(notice)
+})
+
+// The update state (CEL-140), kept and handed to each new listener the same way.
+let updateState: UpdateState | null = null
+const updateListeners: Array<(state: UpdateState) => void> = []
+ipcRenderer.on(UPDATE_STATE, (_event, next: UpdateState) => {
+  updateState = next
+  for (const listener of updateListeners) listener(next)
 })
 
 const bridge: CelloDesktop = {
@@ -32,6 +41,19 @@ const bridge: CelloDesktop = {
     }
   },
   restartApp: () => ipcRenderer.send(APP_RESTART),
+  updates: {
+    onState: (listener) => {
+      if (typeof listener !== "function") return () => {}
+      updateListeners.push(listener)
+      if (updateState) listener(updateState)
+      return () => {
+        const index = updateListeners.indexOf(listener)
+        if (index >= 0) updateListeners.splice(index, 1)
+      }
+    },
+    // Main checks every field (parseUpdateCommand); only plain data crosses.
+    command: (command) => ipcRenderer.send(UPDATE_COMMAND, JSON.parse(JSON.stringify(command ?? null))),
+  },
 }
 
 contextBridge.exposeInMainWorld("celloDesktop", bridge)

@@ -10,6 +10,7 @@ import {
   openTarget,
   openTaskFrom,
   pageRef,
+  releaseRef,
   refusesFraming,
   taskOfHref,
   taskOpenFrom,
@@ -209,6 +210,24 @@ describe("pageRef: which document a Cello page URL shows, for the side panel's r
     expect(pageRef("http://localhost:4747/CEL/pages/a/b", ORIGIN)).toBeNull()
     expect(pageRef("https://example.com/CEL/pages/notes", ORIGIN)).toBeNull()
     expect(pageRef("http://localhost:4747/CEL/pages/notes?version=0", ORIGIN)?.version).toBeUndefined()
+  })
+})
+
+describe("releaseRef: the release a What's new link shows, natively in the side panel (CEL-140)", () => {
+  it("the version of /releases/<version> on the board", () => {
+    expect(releaseRef("http://localhost:4747/releases/0.5.1", ORIGIN)).toBe("0.5.1")
+    expect(releaseRef("http://localhost:4747/releases/0.6.0-beta.1?embed=1", ORIGIN)).toBe("0.6.0-beta.1")
+  })
+
+  it("null for the Releases page itself, other routes, other sites, and what isn't a version", () => {
+    expect(releaseRef("http://localhost:4747/releases", ORIGIN)).toBeNull()
+    expect(releaseRef("http://localhost:4747/CEL/releases/0.5.1", ORIGIN)).toBeNull()
+    expect(releaseRef("https://example.com/releases/0.5.1", ORIGIN)).toBeNull()
+    expect(releaseRef("http://localhost:4747/releases/latest", ORIGIN)).toBeNull()
+  })
+
+  it("a What's new link opens in the side panel, as a page of the board", () => {
+    expect(toViewerItem({ url: "/releases/0.6.0-beta.1", title: "What's new in Cello 0.6.0-beta.1" }, ORIGIN)?.kind).toBe("page")
   })
 })
 

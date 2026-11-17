@@ -1,6 +1,6 @@
 ---
 title: Releases
-summary: Every deploy of Cello is a release. One command, bun run release, checks, bumps the version, writes the changelog, tags, pushes and deploys this Mac's own cello to the live board; the pushed tag starts GitHub Actions, which builds the downloads for Apple silicon and Intel and publishes the GitHub release. How to preview it, pick minor or major, build locally when GitHub is down, turn on signing, and roll back.
+summary: Every deploy of Cello is a release. One command, bun run release, checks, bumps the version, writes the changelog, tags, pushes and deploys this Mac's own cello to the live board; the pushed tag starts GitHub Actions, which builds the downloads for Apple silicon and Intel and publishes the GitHub release. How to preview it, pick minor or major, build locally when GitHub is down, turn on signing, and roll back. Preview releases (v0.6.0-beta.1) for the Preview channel, and how Cello.app finds and offers updates.
 ---
 
 ## Every deploy is a release
@@ -155,6 +155,7 @@ Apart from that fetch, it writes, commits, tags, pushes, releases and deploys no
 | Flag | What it does |
 | --- | --- |
 | `patch` / `minor` / `major` / `1.2.3` | The new version. Patch is the default; minor and major only when Lucas asks. |
+| `prepatch` / `preminor` / `premajor` / `prerelease`, `--preid <id>` | A preview release (`0.6.0-beta.1`), published as a GitHub prerelease for the app's Preview channel; see [Preview releases](#preview-releases). Only when Lucas asks. |
 | `--dry-run`, `-d` | The preview above. |
 | `--no-deploy` | Release (tag, push; GitHub Actions still builds and publishes) but leave the live board alone: no backup, `apps/cli/dist/cello` untouched, no restart. The build waits in `release/stage/cello`; `bun scripts/release/deploy.ts` deploys it later (backup, rename, restart). Tests and builder agents never deploy. |
 | `--local-artifacts` | For when GitHub Actions is down or broken: this Mac builds the downloads itself (the `cello` zip, Cello.app's DMG and zip, Apple silicon only) into `release/` and creates the GitHub release with them (`bun scripts/release/publish.ts`, with gh, which must be logged in; gh uses a `GH_TOKEN` or `GITHUB_TOKEN` in the environment first, when one is set, before its own login, so unset a stale one). The tag still starts the workflow; if it runs later, it adds the Intel files and replaces the Apple silicon ones with its own. |
@@ -182,6 +183,65 @@ To go back to an earlier release, say v0.3.0 after v0.3.1 misbehaved:
 
 Cello.app is rolled back the same way: open `Cello-v0.3.0-mac-arm64.dmg` (or `-x64` on Intel) and drag the app over `/Applications/Cello.app`.
 
+## Preview releases
+
+A **preview** is a version like `v0.6.0-beta.1`, for trying the next version before it's a release. Cut one only when Lucas asks for a preview (or beta):
+
+```bash
+bun run release -- preminor --preid beta   # 0.5.1 -> 0.6.0-beta.1   (prepatch: 0.5.2-beta.1, premajor: 1.0.0-beta.1)
+bun run release -- prerelease              # the next preview: 0.6.0-beta.1 -> 0.6.0-beta.2
+bun run release -- minor                   # from a preview, release what it previewed: 0.6.0-beta.2 -> 0.6.0
+```
+
+- `--preid` names the preview (`beta` by default; `rc`, `alpha`…). A preview starts at `.1`.
+- It's a release like any other: the same checks, version bump, tag, push, deploy to the board, and GitHub Actions build. The workflow still refuses a tag that doesn't match package.json's version.
+- `scripts/release/publish.ts` publishes it as a GitHub **prerelease** (`gh release create --prerelease`), so GitHub never marks it the latest release, and only Cello.app's **Preview** channel offers it.
+- Its CHANGELOG.md section covers what came since the last tag, preview or not. The stable release after a run of previews covers everything since the last **stable** tag, so Stable users read every change they get, the previews' included.
+
+## How the app updates
+
+Cello.app checks GitHub for newer releases and tells you in the app (CEL-140). It works unsigned: it reads GitHub's release list (`api.github.com/repos/lnmunhoz/cello/releases`, no token), not electron-updater's update files. Code: `apps/desktop/src/update/` (the check, the downloads) and `packages/shared/src/updates.ts` (the rules); the board's side is `apps/web/src/updates/`.
+
+```mermaid
+flowchart TD
+    A["Cello.app starts, then every 4 hours, or Check now"] --> B["asks GitHub for the release list<br/>(with the ETag it got: a 304 doesn't count against the rate limit)"]
+    B -->|offline or rate limited| Q(["nothing shown: it says why in Settings → Updates, and tries again later"])
+    B --> C{"the newest release on my channel<br/>newer than the version I run?"}
+    C -->|no| D(["footer: Cello 0.5.0 · Stable · up to date"])
+    C -->|yes| E["footer: Update available: 0.5.1<br/>toast, once: Cello 0.5.1 is available · Download · What's new"]
+    E --> F["Download updates automatically (on by default):<br/>Cello-v0.5.1-mac-arm64.dmg (or -x64) into ~/Downloads"]
+    F --> G["Download opens the DMG: drag Cello onto Applications"]
+    G --> H(["next launch: Updated to Cello 0.5.1 · What's new, once"])
+```
+
+**The channels**, picked in Settings → Updates:
+
+- **Stable** (the default): releases only (`v0.5.1`).
+- **Preview**: previews too (`v0.6.0-beta.1`), and every stable release that's newer than them.
+- Moving from Preview back to Stable while running a preview offers the newest stable release even though it's older: a downgrade on purpose, so you can leave the previews.
+
+**What you see**, only in Cello.app (the board in a browser shows none of it, and a dev build of the app checks nothing):
+
+- **The sidebar's footer**, above the server's build line: "Cello 0.5.0 · Stable · up to date", or "Update available: 0.5.1". Before a check has worked, or while offline, it just says "Cello 0.5.0 · Stable". It opens the Releases page.
+- **A toast, once per new version**: "Cello 0.5.1 is available", with **Download** and **What's new**. However it closes, it doesn't come back for that version.
+- **What's new**: the release's notes (its CHANGELOG.md section, as the GitHub release has them) in the side panel.
+- **Settings → Releases** (`/releases`), next to Builds: every release on GitHub with its notes, newest first; the one running is marked Running, newer ones on the channel Available, with Download.
+- **Settings → Updates**: the channel, Check now, "Download updates automatically", and when it last checked (or why it couldn't).
+- **After an update**: "Updated to Cello 0.5.1", with What's new, once, on the first launch of the newer version.
+
+**Download** opens the downloaded DMG in Finder (downloading it first when automatic downloads are off); you drag Cello onto Applications, over the old one. A release without a DMG for this Mac opens its GitHub page instead. The app keeps its choices in `~/Library/Application Support/Cello/updates.json` (the channel, automatic downloads, which version's toast was shown, the version that ran last).
+
+**The one-click install waits.** Installing in place (quit, swap the app, reopen) needs one of two routes, Lucas's pick:
+
+- **A Developer ID** (the five signing secrets above): then electron-updater's `quitAndInstall` can install an update, since macOS only installs an update signed by the same developer. The release workflow would also publish the app zip's update files (`latest-mac.yml`).
+- **Cello's own swap**: unzip the release's app zip beside `/Applications/Cello.app`, quit, move it over, relaunch. Works with ad hoc signing.
+
+Either is one `Installer` in `apps/desktop/src/update/Updater.ts`: its `install` takes the downloaded file, and Download's label comes from it ("Restart to update"). Nothing else changes.
+
+**What it trusts:** a release's page and its downloads must be under `https://github.com/lnmunhoz/cello/`; a release or file anywhere else in GitHub's answer is dropped, so Download never fetches from, or opens, another host or scheme. A download is written to `<name>.part` and renamed only once its size matches what the server or GitHub said, so a failure never touches a file of yours with the same name, and a file that's already there counts as the DMG only when GitHub gave a size and it matches.
+
+**Testing it:** a dev build of the app (what the e2e tests run, never the packaged app) reads `CELLO_UPDATE_FEED` (a fake release list, whose own origin it then also trusts for downloads; the desktop e2e tests serve one, `apps/desktop/test/fakeReleaseFeed.ts`), `CELLO_APP_VERSION` (the version it says it runs) and `CELLO_UPDATE_DOWNLOADS` (in place of ~/Downloads). The packaged app ignores all three. `bun run test:docker:desktop -- e2e/updates.spec.ts` runs those tests in Docker.
+
 ## Later
 
-Linux builds in the same workflow (CEL-139 phase 2), signing once the secrets exist, and Cello.app updating itself from the GitHub releases (CEL-140).
+Linux builds in the same workflow (CEL-139 phase 2), signing once the secrets exist, and the one-click install above.

@@ -14,6 +14,7 @@ import {
   parseSubject,
   prependSection,
   readCommits,
+  releaseOf,
   renderNotes,
   renderSection,
   repoUrlOf,
@@ -254,5 +255,38 @@ describe("reading main's history from git", () => {
 
   it("reads the whole history when there's no tag yet", () => {
     expect(readCommits(base, null).map((c) => c.subject).at(-1)).toBe("feat: M1 foundation")
+  })
+})
+
+// CEL-140: preview releases. A preview's notes cover what came since the last tag of any kind; a stable
+// release's cover everything since the last stable one, so Stable users read every change they get.
+describe("previews in main's history", () => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cello-release-preview-")))
+  afterAll(() => fs.rmSync(base, { recursive: true, force: true }))
+  const git = (...args: string[]) => {
+    const result = spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: base, encoding: "utf8" })
+    if (result.status !== 0) throw new Error(result.stderr)
+    return result.stdout.trim()
+  }
+  const empty = (message: string) => git("commit", "-q", "--allow-empty", "-m", message)
+  git("init", "-q", "-b", "main")
+  git("remote", "add", "origin", "git@github.com:lnmunhoz/cello.git")
+  empty("feat: M1 foundation")
+  git("tag", "-a", "v0.5.1", "-m", "Cello v0.5.1")
+  empty("feat(desktop): updates (CEL-140)")
+  git("tag", "-a", "v0.6.0-beta.1", "-m", "Cello v0.6.0-beta.1")
+  empty("fix(desktop): the toast (CEL-140)")
+
+  it("the latest tag is the preview; the latest stable one skips it", () => {
+    expect(latestTag(base)).toBe("v0.6.0-beta.1")
+    expect(latestTag(base, { stable: true })).toBe("v0.5.1")
+  })
+
+  it("the next preview's section starts at the last preview; the stable release's at the last stable one", () => {
+    expect(releaseOf(base, "0.6.0-beta.2", "2026-11-17")).toMatchObject({ previousTag: "v0.6.0-beta.1" })
+    expect(releaseOf(base, "0.6.0-beta.2", "2026-11-17").entries.map((e) => e.text)).toEqual(["**desktop:** the toast (CEL-140)"])
+    const stable = releaseOf(base, "0.6.0", "2026-11-17")
+    expect(stable.previousTag).toBe("v0.5.1")
+    expect(stable.entries.map((e) => e.text)).toEqual(["**desktop:** the toast (CEL-140)", "**desktop:** updates (CEL-140)"])
   })
 })

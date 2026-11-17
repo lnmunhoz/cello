@@ -2,8 +2,10 @@
 // steps it prints (and which a dry run skips), the arguments it hands to release-it, and where it says GitHub
 // Actions builds the downloads (CEL-139).
 
+import { DEFAULT_PREID, PRE_INCREMENTS } from "./version.ts"
+
 export type ReleaseOptions = {
-  /** patch (the default), minor, major, or an exact version. */
+  /** patch (the default), minor, major, an exact version, or a preview: prepatch, preminor, premajor, prerelease (CEL-140). */
   readonly increment: string
   readonly dryRun: boolean
   readonly deploy: boolean
@@ -11,13 +13,21 @@ export type ReleaseOptions = {
   readonly localArtifacts: boolean
   /** With --local-artifacts: Cello.app too (false with --skip-desktop). */
   readonly desktop: boolean
+  /** A preview's id (`beta` in v0.6.0-beta.1), for the pre- increments (CEL-140). */
+  readonly preid: string
   readonly help: boolean
 }
 
-export const USAGE = `Usage: bun run release [-- [patch|minor|major|<x.y.z>] [--dry-run] [--no-deploy] [--local-artifacts [--skip-desktop]]]
+export const USAGE = `Usage: bun run release [-- [patch|minor|major|<x.y.z>|prepatch|preminor|premajor|prerelease [--preid <id>]] [--dry-run] [--no-deploy] [--local-artifacts [--skip-desktop]]]
 
   patch              the default: 0.3.0 -> 0.3.1 (the first release is minor or an exact version)
   minor | major      when Lucas asks: 0.3.1 -> 0.4.0 | 1.0.0
+  preminor | prepatch | premajor
+                     a preview for the app's Preview channel, when Lucas asks: 0.5.1 -> 0.6.0-beta.1 |
+                     0.5.2-beta.1 | 1.0.0-beta.1; GitHub publishes it as a prerelease
+  prerelease         the next preview: 0.6.0-beta.1 -> 0.6.0-beta.2 (from a preview, patch or minor
+                     releases it: 0.6.0-beta.2 -> 0.6.0)
+  --preid <id>       the preview's id: beta (the default), rc, alpha…
   --dry-run, -d      run the checks, typecheck and tests, print the plan, the changelog section and
                      release-it's commands; write, commit, tag, push, release and deploy nothing
   --no-deploy        release, but leave the live cello and server alone; the build waits in
@@ -35,9 +45,15 @@ export const parseReleaseArgs = (argv: ReadonlyArray<string>): ReleaseOptions =>
   let deploy = true
   let localArtifacts = false
   let desktop = true
+  let preid: string | null = null
   let help = false
-  for (const arg of argv) {
-    if (arg === "--dry-run" || arg === "-d") dryRun = true
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!
+    if (arg === "--preid" || arg.startsWith("--preid=")) {
+      const value = arg === "--preid" ? argv[++i] : arg.slice("--preid=".length)
+      if (!value || value.startsWith("-")) throw new Error("--preid needs an id, like --preid beta.")
+      preid = value
+    } else if (arg === "--dry-run" || arg === "-d") dryRun = true
     else if (arg === "--no-deploy") deploy = false
     else if (arg === "--local-artifacts") localArtifacts = true
     else if (arg === "--skip-desktop") desktop = false
@@ -49,7 +65,10 @@ export const parseReleaseArgs = (argv: ReadonlyArray<string>): ReleaseOptions =>
   if (!desktop && !localArtifacts) {
     throw new Error("--skip-desktop only applies with --local-artifacts: without it this Mac builds no Cello.app (GitHub Actions does).")
   }
-  return { increment: increment ?? "patch", dryRun, deploy, localArtifacts, desktop, help }
+  if (preid !== null && !PRE_INCREMENTS.includes(increment ?? "patch")) {
+    throw new Error("--preid names a preview: use it with prepatch, preminor, premajor or prerelease.")
+  }
+  return { increment: increment ?? "patch", dryRun, deploy, localArtifacts, desktop, preid: preid ?? DEFAULT_PREID, help }
 }
 
 export type RepoState = {

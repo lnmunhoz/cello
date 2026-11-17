@@ -11,6 +11,7 @@
 import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
+import { isPrerelease } from "../../packages/shared/src/updates.ts"
 
 export type Commit = {
   readonly sha: string
@@ -149,9 +150,15 @@ const git = (cwd: string, args: string[]): string => {
   return result.stdout
 }
 
-/** The newest release tag (`v1.2.3`) reachable from HEAD, or null before the first release. */
-export const latestTag = (cwd: string): string | null => {
-  const result = spawnSync("git", ["describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"], { cwd, encoding: "utf8" })
+/**
+ * The newest release tag (`v1.2.3`, or a preview's `v0.6.0-beta.1`) reachable from HEAD, or null before the
+ * first release. `stable` skips previews (CEL-140).
+ */
+export const latestTag = (cwd: string, options: { readonly stable?: boolean } = {}): string | null => {
+  const result = spawnSync("git", ["describe", "--tags", "--abbrev=0", "--match", "v[0-9]*", ...(options.stable ? ["--exclude", "v*-*"] : [])], {
+    cwd,
+    encoding: "utf8",
+  })
   return result.status === 0 ? result.stdout.trim() || null : null
 }
 
@@ -183,9 +190,13 @@ export const originUrl = (cwd: string): string => repoUrlOf(git(cwd, ["remote", 
 
 const today = () => new Date().toISOString().slice(0, 10)
 
-/** The release `version` would make from `cwd`'s history right now. */
+/**
+ * The release `version` would make from `cwd`'s history right now. A preview follows the last tag of any
+ * kind; a stable release follows the last stable one, so its notes hold every change since, the
+ * previews' included (CEL-140).
+ */
 export const releaseOf = (cwd: string, version: string, date = today()): Release => {
-  const previousTag = latestTag(cwd)
+  const previousTag = latestTag(cwd, { stable: !isPrerelease(version) })
   return {
     version,
     date,

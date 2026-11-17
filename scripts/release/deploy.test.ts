@@ -62,6 +62,13 @@ describe("stagedProblem", () => {
     expect(stagedProblem(facts, probe)).toBeNull()
   })
 
+  it("accepts a preview release's build (CEL-140), and tells it from the release it previews", () => {
+    const beta = { ...facts, version: "0.6.0-beta.1" }
+    expect(stagedProblem(beta, () => "cello v0.6.0-beta.1 (build c28d394)")).toBeNull()
+    expect(stagedProblem(beta, () => "cello v0.6.0 (build c28d394)")).toMatch(/not 0\.6\.0-beta\.1 built from c28d394/)
+    expect(stagedProblem({ ...facts, version: "0.6.0" }, () => "cello v0.6.0-beta.1 (build c28d394)")).toMatch(/not 0\.6\.0 built from/)
+  })
+
   it("refuses a missing or non-executable (truncated) staged file", () => {
     expect(stagedProblem({ ...facts, staged: path.join(dir, "nope") }, probe)).toMatch(/No staged build at .*nope: the release's build didn't run or was moved/)
     expect(stagedProblem({ ...facts, staged: truncated }, probe)).toMatch(/isn't executable: a build that didn't finish \(a full disk\?\)/)

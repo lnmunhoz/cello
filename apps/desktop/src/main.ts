@@ -6,7 +6,8 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { parsePrint, plistPath, serviceLogPath, serviceTarget } from "@cello/shared/launchAgent"
-import { app, BaseWindow, dialog, Menu, session, webContents } from "electron"
+import { parseUpdateCommand } from "@cello/shared/updates"
+import { app, BaseWindow, dialog, Menu, session, shell, webContents } from "electron"
 import { findCelloLink, parseCelloLink, routeCelloLink, SCHEME, type CelloLink } from "./links/celloLink.ts"
 import { INSTALLED_APP } from "./install/plan.ts"
 import { buildMenu, type MenuActions } from "./menu.ts"
@@ -15,6 +16,9 @@ import { celloCommand, serverConfig, serviceFor, serviceInstaller } from "./serv
 import { answerOf, parseQuitChoice, planQuit, QUIT_CHOICE_FILE, QUIT_QUESTION, type QuitAnswer, type QuitChoice, serverStatusLabel } from "./server/quit.ts"
 import { connectServer, installService, lockHolder, type Server, startDetached } from "./server/sidecar.ts"
 import { appNotice, boardNotice, bundleOf, relaunchOptions, restartTarget, stampFile, type AppNotice } from "./update/appUpdate.ts"
+import { downloadFile } from "./update/download.ts"
+import { feedFor, githubFeed } from "./update/feed.ts"
+import { CHECK_EVERY_MS, openDmg, Updater } from "./update/Updater.ts"
 import { MainWindow } from "./window/MainWindow.ts"
 
 // A closed stdout (the app started from a pipe that went away) must not crash the app.
@@ -73,6 +77,52 @@ function run() {
   let notice: AppNotice | null = null
   /** A Restart into a new build: quitting doesn't ask about the server then; the new app starts its own. */
   let restarting = false
+
+  /**
+   * The update check (CEL-140). The packaged app reads GitHub's release list, and only that (`feedFor`).
+   * A dev build checks nothing, so its board shows no update UI, unless CELLO_UPDATE_FEED names a test
+   * feed (the e2e tests' fake one); only then do CELLO_APP_VERSION and CELLO_UPDATE_DOWNLOADS stand in for
+   * the version and ~/Downloads. The packaged app ignores all three.
+   */
+  let updater: Updater | null = null
+  const updatesFile = () => path.join(app.getPath("userData"), "updates.json")
+  const startUpdates = () => {
+    const feed = feedFor(process.env, app.isPackaged)
+    if (!feed) return
+    const test = !app.isPackaged
+    const started = new Updater({
+      current: (test && process.env.CELLO_APP_VERSION) || app.getVersion(),
+      arch: process.arch,
+      feed: githubFeed(feed.url),
+      trusted: feed.trusted,
+      settings: {
+        read: () => {
+          try {
+            return fs.readFileSync(updatesFile(), "utf8")
+          } catch {
+            return null
+          }
+        },
+        write: (text) => fs.writeFileSync(updatesFile(), text),
+      },
+      downloadsDir: (test && process.env.CELLO_UPDATE_DOWNLOADS) || app.getPath("downloads"),
+      fetchFile: downloadFile,
+      // shell is read at each call, so a test can stand in for Finder.
+      installer: openDmg((file) => shell.openPath(file)),
+      openExternal: (url) => void shell.openExternal(url),
+      now: Date.now,
+    })
+    updater = started
+    started.onChange((state) => live()?.showUpdateState(state))
+    live()?.showUpdateState(started.state)
+    void started.check()
+    setInterval(() => void started.check(), CHECK_EVERY_MS)
+  }
+  /** A command from the board's update UI, checked field by field. */
+  const updateCommand = (message: unknown) => {
+    const command = parseUpdateCommand(message)
+    if (command && updater) void updater.command(command).catch(() => {})
+  }
 
   /** The main window, unless it was closed (macOS keeps the app running without one). */
   const live = () => (main && !main.isClosed ? main : null)
@@ -222,7 +272,9 @@ function run() {
       chromeHtml: files.chromeHtml,
       platform: process.platform,
       restartApp: restart,
+      updateCommand,
     })
+    if (updater) main.showUpdateState(updater.state)
     main.window.on("focus", () => {
       checkForUpdate()
       void refreshMenu()
@@ -285,6 +337,7 @@ function run() {
     if (!app.isPackaged && fs.existsSync(files.devIcon)) app.dock?.setIcon(files.devIcon)
 
     const window = openWindow()
+    startUpdates()
     window.showMessage("Starting Cello…")
     server = await connect(window)
     if (!server) return app.quit()

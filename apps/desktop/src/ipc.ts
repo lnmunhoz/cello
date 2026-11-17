@@ -25,6 +25,11 @@ export const APP_NOTICE = "cello:app-notice"
 /** Board → main: restart the app (into /Applications' copy when it runs from another). */
 export const APP_RESTART = "cello:app-restart"
 
+/** Main → board: the app's `UpdateState` (packages/shared/src/updates.ts), on each change and after each board load (CEL-140). */
+export const UPDATE_STATE = "cello:update-state"
+/** Board → main: an `UpdateCommand` (check, download, channel, auto-download, acknowledge); main checks it with `parseUpdateCommand`. */
+export const UPDATE_COMMAND = "cello:update-command"
+
 /** Toolbar → main: a button or the address field. */
 export const CHROME_COMMAND = "cello:chrome-command"
 /** Toolbar → main: dragging the panel's left edge, with the pointer's screen x. */

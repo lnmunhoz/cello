@@ -19,8 +19,10 @@ import { SAVES_ON_BLUR } from "../lib/editing.ts"
 import { writeStored } from "../lib/storage.ts"
 import { SegmentedControl, SegmentedControlItem } from "../components/ui/SegmentedControl.tsx"
 import { BAR_LAYOUT_KEY, LAYOUT_NAMES, useBarLayout } from "../search/layout.ts"
+import { useUpdateState } from "../updates/updates.ts"
 import { MergeSettings } from "./MergeSettings.tsx"
 import { TestingProfile } from "./TestingProfile.tsx"
+import { UpdateSettings } from "./UpdateSettings.tsx"
 import { WakeSettings } from "./WakeSettings.tsx"
 
 /** `/settings?project=THAI`: whose labels the Labels section shows (CEL-80). */
@@ -37,6 +39,8 @@ export function Settings() {
   const board = useBoard()
   const workspaceId = useWorkspaceId()
   const search = useSearch({ from: "/settings" })
+  // Cello.app's updates (CEL-140); null in a browser.
+  const updates = useUpdateState()
   if (!board || !workspaceId) return <Centered>Loading…</Centered>
   const statuses = statusesOf(board, workspaceId)
   // Labels belong to a project (CEL-80): the one in the URL, else the first.
@@ -102,6 +106,11 @@ export function Settings() {
           <Section title="Search" description="How the ⌘K bar shows results on this device. Peek previews the highlighted result beside the list; in a narrow window it shows as Palette.">
             <SearchLayout />
           </Section>
+          {updates ? (
+            <Section title="Updates" description="How the Cello app finds new versions on GitHub, and which ones it offers.">
+              <UpdateSettings state={updates} />
+            </Section>
+          ) : null}
           <Section title="Builds" description="Which build of Cello is running, and every build before it with what changed.">
             <RunningBuild />
           </Section>

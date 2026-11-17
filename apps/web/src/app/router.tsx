@@ -17,6 +17,7 @@ import { ReviewPage } from "../review/ReviewPage.tsx"
 import { BuildsPage } from "../settings/BuildsPage.tsx"
 import { parseSettingsSearch, Settings } from "../settings/Settings.tsx"
 import { parseTaskSearch } from "../task/view.ts"
+import { ReleaseNotesPage, ReleasesPage } from "../updates/ReleasesPage.tsx"
 import { parseViewerSearch } from "../viewer/search.ts"
 import { isEmbedded } from "../viewer/viewer.ts"
 import { AppShell, EmbeddedShell } from "./AppShell.tsx"
@@ -38,6 +39,9 @@ const settings = createRoute({ getParentRoute: () => root, path: "/settings", co
 // Settings → Builds (CEL-50). Static routes win over `$projectKey`; each top-level word is reserved as a
 // project key (reservedKeyProblem in packages/shared/src/taskKey.ts).
 const builds = createRoute({ getParentRoute: () => root, path: "/builds", component: BuildsPage })
+// Settings → Releases (CEL-140): Cello.app's releases on GitHub, and one release's notes (What's new).
+const releases = createRoute({ getParentRoute: () => root, path: "/releases", component: ReleasesPage })
+const release = createRoute({ getParentRoute: () => root, path: "/releases/$version", component: ReleaseNotesPage })
 // `?open=CEL-12`: the packet open on the Review page, so a reload or a link keeps it.
 const review = createRoute({ getParentRoute: () => root, path: "/review", component: ReviewPage, validateSearch: parseReviewSearch })
 
@@ -93,7 +97,7 @@ const milestoneTask = createRoute({
 // The Agents page (CEL-65): `?open=session:…` or `?open=agent:…/…`, the open row, so a reload or a link keeps it.
 const agents = createRoute({ getParentRoute: () => root, path: "/agents", component: AgentsPage, validateSearch: parseAgentsSearch })
 
-const routeTree = root.addChildren([home, settings, builds, review, agents, project.addChildren([projectIndex, overview, issues, milestones, milestone, milestoneTask, docs, page, activity, task])])
+const routeTree = root.addChildren([home, settings, builds, releases, release, review, agents, project.addChildren([projectIndex, overview, issues, milestones, milestone, milestoneTask, docs, page, activity, task])])
 
 // An address no route matches shows a Not found screen with a way back, in the layout around it.
 export const router = createRouter({ routeTree, defaultPreload: false, defaultNotFoundComponent: RouteNotFound })

@@ -78,8 +78,42 @@ describe("nextVersion", () => {
   it("refuses a version that isn't newer, or isn't a version", () => {
     expect(() => nextVersion("0.3.0", "0.3.0")).toThrow(/not newer than 0.3.0/)
     expect(() => nextVersion("0.3.0", "0.2.9")).toThrow(/not newer than 0.3.0/)
-    expect(() => nextVersion("0.3.0", "huge")).toThrow(/patch, minor, major or a version like 1.2.3/)
+    expect(() => nextVersion("0.3.0", "huge")).toThrow(/patch, minor, major, a pre- increment or a version like 1.2.3/)
     expect(() => nextVersion("banana", "patch")).toThrow(/isn't a version/)
+  })
+
+  // CEL-140: preview releases, for the app's Preview channel.
+  it("starts a preview of the next patch, minor or major: vX.Y.Z-beta.1", () => {
+    expect(nextVersion("0.5.1", "prepatch")).toBe("0.5.2-beta.1")
+    expect(nextVersion("0.5.1", "preminor")).toBe("0.6.0-beta.1")
+    expect(nextVersion("0.5.1", "premajor")).toBe("1.0.0-beta.1")
+    expect(nextVersion("0.5.1", "preminor", "rc")).toBe("0.6.0-rc.1")
+  })
+
+  it("prerelease counts up the preview, or starts one after a release", () => {
+    expect(nextVersion("0.6.0-beta.1", "prerelease")).toBe("0.6.0-beta.2")
+    expect(nextVersion("0.6.0-beta.9", "prerelease")).toBe("0.6.0-beta.10")
+    expect(nextVersion("0.6.0-beta.2", "prerelease", "rc")).toBe("0.6.0-rc.1")
+    expect(nextVersion("0.5.1", "prerelease")).toBe("0.5.2-beta.1")
+  })
+
+  it("from a preview, patch, minor or major releases the version it previews", () => {
+    expect(nextVersion("0.6.0-beta.2", "patch")).toBe("0.6.0")
+    expect(nextVersion("0.6.0-beta.2", "minor")).toBe("0.6.0")
+    expect(nextVersion("0.6.1-beta.1", "minor")).toBe("0.7.0")
+    expect(nextVersion("1.0.0-beta.1", "major")).toBe("1.0.0")
+    expect(nextVersion("0.6.0-beta.2", "major")).toBe("1.0.0")
+  })
+
+  it("takes an exact preview version that is newer", () => {
+    expect(nextVersion("0.5.1", "0.6.0-beta.1")).toBe("0.6.0-beta.1")
+    expect(nextVersion("0.6.0-beta.1", "0.6.0")).toBe("0.6.0")
+    expect(() => nextVersion("0.6.0", "0.6.0-beta.1")).toThrow(/not newer than 0.6.0/)
+  })
+
+  it("refuses a preview id that a tag can't carry", () => {
+    expect(() => nextVersion("0.5.1", "preminor", "beta 1")).toThrow(/preview id/)
+    expect(() => nextVersion("0.5.1", "preminor", "")).toThrow(/preview id/)
   })
 })
 
