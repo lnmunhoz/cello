@@ -1,0 +1,81 @@
+import { describe, expect, it } from "vitest"
+import { feedUrl, githubFeed, RELEASES_URL } from "./feed.ts"
+
+type Call = { url: string; headers: Record<string, string> }
+
+/** A fetch that answers with the next response in line and records each request. */
+const fakeFetch = (responses: Array<Response | Error>) => {
+  const calls: Call[] = []
+  const fetch = (async (url: string, init?: RequestInit) => {
+    calls.push({ url, headers: { ...(init?.headers as Record<string, string>) } })
+    const next = responses.shift()
+    if (!next) throw new Error("no more responses")
+    if (next instanceof Error) throw next
+    return next
+  }) as typeof globalThis.fetch
+  return { fetch, calls }
+}
+
+const json = (body: unknown, headers: Record<string, string> = {}, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } })
+
+describe("feedUrl", () => {
+  it("is GitHub's release list, unless CELLO_UPDATE_FEED points elsewhere (the e2e tests' fake feed)", () => {
+    expect(feedUrl({})).toBe(RELEASES_URL)
+    expect(RELEASES_URL).toBe("https://api.github.com/repos/lnmunhoz/cello/releases")
+    expect(feedUrl({ CELLO_UPDATE_FEED: "http://127.0.0.1:9999/releases" })).toBe("http://127.0.0.1:9999/releases")
+  })
+})
+
+describe("githubFeed", () => {
+  it("asks GitHub's REST API without a token, and hands back the list", async () => {
+    const { fetch, calls } = fakeFetch([json([{ tag_name: "v0.5.1" }])])
+    expect(await githubFeed(RELEASES_URL, { fetch, now: () => 0 }).read()).toEqual([{ tag_name: "v0.5.1" }])
+    expect(calls[0]!.url).toBe(`${RELEASES_URL}?per_page=50`)
+    expect(calls[0]!.headers).toMatchObject({ accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" })
+    expect(calls[0]!.headers["authorization"]).toBeUndefined()
+  })
+
+  it("asks again with the ETag it got; GitHub's 304 (which doesn't count against the rate limit) gives the list it had", async () => {
+    const { fetch, calls } = fakeFetch([json([{ tag_name: "v0.5.1" }], { etag: '"abc"' }), new Response(null, { status: 304 })])
+    const feed = githubFeed(RELEASES_URL, { fetch, now: () => 0 })
+    await feed.read()
+    expect(await feed.read()).toEqual([{ tag_name: "v0.5.1" }])
+    expect(calls[1]!.headers["if-none-match"]).toBe('"abc"')
+  })
+
+  it("rate limited: says until when, and doesn't ask again before then", async () => {
+    let now = Date.parse("2026-11-17T10:00:00Z")
+    const reset = Math.floor(Date.parse("2026-11-17T10:30:00Z") / 1000)
+    const { fetch, calls } = fakeFetch([
+      json({ message: "API rate limit exceeded" }, { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(reset) }, 403),
+      json([]),
+    ])
+    const feed = githubFeed(RELEASES_URL, { fetch, now: () => now })
+    await expect(feed.read()).rejects.toThrow(/rate limit/)
+    await expect(feed.read()).rejects.toThrow(/rate limit/)
+    expect(calls).toHaveLength(1)
+    now = reset * 1000 + 1
+    expect(await feed.read()).toEqual([])
+    expect(calls).toHaveLength(2)
+  })
+
+  it("a 429 with Retry-After waits that long", async () => {
+    let now = 0
+    const { fetch, calls } = fakeFetch([json({}, { "retry-after": "60" }, 429), json([])])
+    const feed = githubFeed(RELEASES_URL, { fetch, now: () => now })
+    await expect(feed.read()).rejects.toThrow(/rate limit/)
+    now = 59_000
+    await expect(feed.read()).rejects.toThrow(/rate limit/)
+    now = 60_000
+    await feed.read()
+    expect(calls).toHaveLength(2)
+  })
+
+  it("offline, or another answer: an error saying so", async () => {
+    await expect(githubFeed(RELEASES_URL, { fetch: fakeFetch([new TypeError("fetch failed")]).fetch, now: () => 0 }).read()).rejects.toThrow(
+      "Couldn't reach GitHub (fetch failed)",
+    )
+    await expect(githubFeed(RELEASES_URL, { fetch: fakeFetch([json({}, {}, 500)]).fetch, now: () => 0 }).read()).rejects.toThrow("GitHub answered 500")
+  })
+})

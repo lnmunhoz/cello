@@ -3,7 +3,8 @@
 // window-state.json; the panel's URL lives only as long as the app runs.
 import * as fs from "node:fs"
 import { BaseWindow, nativeTheme, screen, shell, webContents, WebContentsView, type WebContents } from "electron"
-import { APP_NOTICE, APP_RESTART, BOARD_OPEN, BOARD_OPEN_TASK, PANEL_CLOSE, PANEL_OPEN } from "../ipc.ts"
+import type { UpdateState } from "@cello/shared/updates"
+import { APP_NOTICE, APP_RESTART, BOARD_OPEN, BOARD_OPEN_TASK, PANEL_CLOSE, PANEL_OPEN, UPDATE_COMMAND, UPDATE_STATE } from "../ipc.ts"
 import { Panel } from "../panel/Panel.ts"
 import { boardNavigationAction, boardWindowOpenAction } from "../panel/urls.ts"
 import type { BoardNotice } from "../update/appUpdate.ts"
@@ -27,6 +28,8 @@ export interface MainWindowOptions {
   readonly platform: NodeJS.Platform
   /** The board's Restart button on the app's restart notice (CEL-75). */
   readonly restartApp: () => void
+  /** A command from the board's update UI (CEL-140), unchecked: main.ts checks it. */
+  readonly updateCommand: (message: unknown) => void
 }
 
 const SAVE_DELAY_MS = 400
@@ -57,6 +60,7 @@ export class MainWindow {
   #state: WindowState
   #origin: string | null = null
   #notice: BoardNotice | null = null
+  #updates: UpdateState | null = null
   #saveTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(private readonly options: MainWindowOptions) {
@@ -200,7 +204,11 @@ export class MainWindow {
     board.ipc.on(PANEL_CLOSE, () => this.panel.close())
     board.ipc.on(APP_RESTART, () => this.options.restartApp())
     // A reload starts the preload afresh: tell it the app's notice again.
-    board.on("did-finish-load", () => board.send(APP_NOTICE, this.#notice))
+    board.on("did-finish-load", () => {
+      board.send(APP_NOTICE, this.#notice)
+      if (this.#updates) board.send(UPDATE_STATE, this.#updates)
+    })
+    board.ipc.on(UPDATE_COMMAND, (_event, message: unknown) => this.options.updateCommand(message))
     // Links that want a new window, and links off the board's origin, open in the panel.
     board.setWindowOpenHandler(({ url }) => {
       this.#route(url, boardWindowOpenAction(url, this.#origin))
@@ -220,6 +228,12 @@ export class MainWindow {
     if (this.#notice?.key === notice?.key) return
     this.#notice = notice
     if (!this.board.webContents.isDestroyed()) this.board.webContents.send(APP_NOTICE, notice)
+  }
+
+  /** The app's update state (CEL-140): the board shows it, and gets it again after each load. */
+  showUpdateState(state: UpdateState): void {
+    this.#updates = state
+    if (!this.board.webContents.isDestroyed()) this.board.webContents.send(UPDATE_STATE, state)
   }
 
   /** A task clicked in the panel: the board opens it (its router, no reload) and takes the focus; the panel stays. */

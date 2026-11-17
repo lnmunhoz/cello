@@ -4,6 +4,7 @@
 // text files, images and videos open in the board's own side panel (apps/web/src/viewer) either way;
 // in a plain browser the bridge is missing and outside sites open there too.
 import { parseTaskKey } from "@cello/shared/taskKey"
+import type { UpdateCommand, UpdateState } from "@cello/shared/updates"
 import { openImageModal } from "../viewer/imageModal.ts"
 import { showInViewer } from "../viewer/store.ts"
 import { openTarget, taskRoute, type OpenTarget, type OpenTaskMessage, type ViewerItem } from "../viewer/viewer.ts"
@@ -30,6 +31,18 @@ export interface CelloDesktop {
   onAppNotice?(listener: (notice: DesktopAppNotice | null) => void): () => void
   /** Quits and starts the app again, from /Applications when it ran from another copy. */
   restartApp?(): void
+  /** The app's update check (CEL-140); missing in desktop builds before it. */
+  readonly updates?: DesktopUpdates
+}
+
+/**
+ * Cello.app's updates (CEL-140): the main process checks GitHub's releases and keeps the state; the board
+ * shows it and sends commands back. A dev build of the app checks nothing, so `onState` never calls.
+ */
+export interface DesktopUpdates {
+  /** Calls `listener` with the current state (when there is one) and on each change, until the returned function is called. */
+  onState(listener: (state: UpdateState) => void): () => void
+  command(command: UpdateCommand): void
 }
 
 declare global {
