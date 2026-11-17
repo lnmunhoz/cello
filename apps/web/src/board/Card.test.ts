@@ -185,7 +185,8 @@ describe("CardBody", () => {
         const waiting = markOf(renderIn(withStatuses, { ...held, statusId: "needs" }))
         expect(waiting).toContain('data-agent-mood="waiting"')
         expect(waiting).not.toContain("data-play")
-        const done = markOf(renderIn(withStatuses, { ...held, statusId: "review" }))
+        // Submitting clears the stage; a stage in In Review means approved and merging (CEL-143, agentMood's test).
+        const done = markOf(renderIn(withStatuses, { ...held, statusId: "review", stage: null }))
         expect(done).toContain('data-agent-mood="done"')
         expect(done).not.toContain("data-play")
       })

@@ -6,6 +6,7 @@
 import * as fs from "node:fs"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as AskService from "../ask/AskService.ts"
 import * as CommentService from "../comment/CommentService.ts"
 import * as EventStore from "../events/EventStore.ts"
 import * as InboxService from "../inbox/InboxService.ts"
@@ -95,6 +96,19 @@ describe("Approve in a project that merges after approval", () => {
       const { result: approved } = yield* reviews.approve({ commandId: cmd(), key })
       expect(approved).toMatchObject({ statusId: status["In Review"]!.id, stage: "merging", assigneeSessionId: sessionId })
       expect((yield* inboxOf(agent)).items.map((i) => i.kind)).toEqual(["approved"])
+    })))
+
+  it.effect("approved while its agent's question waits in Needs input: back to In Review as Approved · merging, the ask withdrawn", () =>
+    run(Effect.gen(function* () {
+      const { reviews, status, key, sessionId } = yield* submitted(true)
+      const asks = yield* AskService.AskService
+      yield* agent(asks.create({
+        commandId: cmd(), key, title: "Merge now?", intro: "", questions: [{ prompt: "Merge it now?", options: [{ label: "Yes" }, { label: "No" }] }],
+        files: [], links: [],
+      }))
+      const { result } = yield* reviews.approve({ commandId: cmd(), key })
+      expect(result).toMatchObject({ statusId: status["In Review"]!.id, stage: "merging", assigneeSessionId: sessionId })
+      expect((yield* inboxOf(agent)).items.map((i) => i.kind)).toEqual(["withdrawn", "approved"])
     })))
 
   it.effect("a task the human holds goes to Done as before: nobody else is there to merge it", () =>
