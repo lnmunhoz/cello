@@ -1,6 +1,7 @@
 import { documentBySlug } from "@cello/client/sync/documents"
 import { projectByKey } from "@cello/client/sync/selectors"
 import { embedUrl } from "@cello/shared/embed"
+import { formatTaskKey } from "@cello/shared/taskKey"
 import { useNavigate, useRouter } from "@tanstack/react-router"
 import { useShortcut, useShortcutHint } from "@ui-sdk/react/shortcuts"
 import {
@@ -15,6 +16,7 @@ import {
   GlobeLockIcon,
   ImageIcon,
   Maximize2Icon,
+  SquareArrowOutUpRightIcon,
   XIcon,
 } from "lucide-react"
 import { useEffect, useLayoutEffect, useRef, useState, type SyntheticEvent } from "react"
@@ -24,8 +26,11 @@ import { copyText } from "../lib/clipboard.ts"
 import { PageBody } from "../docs/PageBody.tsx"
 import { DocumentReader } from "../docs/PageReader.tsx"
 import { openInPanel, type OpenMessage } from "../lib/desktop.ts"
-import { useBoard, useProjectKeys } from "../lib/hooks.ts"
+import { useBoard, useKeyedTask, useProjectKeys } from "../lib/hooks.ts"
 import { widthLimits } from "../lib/resize.ts"
+import { StatusIcon } from "../components/ui/StatusIcon.tsx"
+import { openTaskHere } from "../task/openTaskHere.ts"
+import { TaskInViewer } from "../task/TaskPanel.tsx"
 import { markPanelClick, routerViewerDriver, useBackTarget } from "./panelBack.ts"
 import { sideOf, type Spot } from "./panelHistory.ts"
 import { viewerItemOf, type ViewerSearch } from "./search.ts"
@@ -60,24 +65,25 @@ export function ViewerPanel() {
   const router = useRouter()
   useEffect(() => setViewerDriver(routerViewerDriver(router)), [router])
   useEffect(() => {
-    // The task's address has no `?viewer`, so opening it closes the viewer.
-    const openTaskHere = (task: { projectKey: string; number: number }) =>
+    // The task on its board: its address has no `?viewer`, so opening it closes the viewer.
+    const openOnBoard = (task: { projectKey: string; number: number }) =>
       void navigate({ to: "/$projectKey/$number", params: { projectKey: task.projectKey, number: String(task.number) } })
     // A Cello page framed in the viewer opens its links here, not inside itself, and its task keys
-    // open the task here, in the main window, closing the viewer (even when the task is the one
-    // already open beside it). The desktop app's preload sends the same messages: a task key clicked in
-    // its native panel, and a `cello://open` link or a ⌘-click to a page on the board (CEL-60).
+    // open the task here, in the main window, as a key clicked here would (openTaskHere.ts: beside its
+    // board, or in this side panel, CEL-141). The desktop app's preload sends the same messages: a task
+    // key clicked in its native panel, and a `cello://open` link or a ⌘-click to a page on the board
+    // (CEL-60), which opens a task on its board.
     const onMessage = (e: MessageEvent) => {
       // From the frame in the viewer (not the desktop app's preload): a click in the side panel, which Back can return from.
       const frames = document.querySelectorAll<HTMLIFrameElement>('[data-side-panel="viewer"] iframe')
       if (e.source !== null && [...frames].some((frame) => frame.contentWindow === e.source)) markPanelClick()
       const task = openTaskFrom(e, location.origin)
-      if (task) return openTaskHere(task)
+      if (task) return openTaskHere(router, task)
       const data = e.data as Partial<OpenMessage> | null
       if (e.origin !== location.origin || data?.type !== "cello:open" || typeof data.item?.url !== "string") return
       const { url, title, kind, name, place } = data.item
       const linked = taskOfHref(url, location.origin)
-      if (linked) return openTaskHere(linked)
+      if (linked) return openOnBoard(linked)
       openInPanel({
         url,
         title: typeof title === "string" ? title : undefined,
@@ -88,7 +94,7 @@ export function ViewerPanel() {
     }
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
-  }, [navigate])
+  }, [navigate, router])
   return item ? <Viewer item={item} /> : null
 }
 
@@ -109,6 +115,9 @@ const useDocumentTitle = (item: ViewerItem | null): string | undefined => {
   const project = board && page ? projectByKey(board, page.projectKey) : undefined
   return board && page && project ? documentBySlug(board, project.id, page.slug)?.title : undefined
 }
+
+/** The task the viewer shows (`?viewer=/THAI/96`, a task opened off its board, CEL-141), or null. */
+const viewerTaskOf = (item: ViewerItem): { projectKey: string; number: number } | null => (item.kind === "page" ? taskOfHref(item.url, location.origin) : null)
 
 /** What the side panel showed at `spot`, in a few words: the task's key, or the item's title. */
 const useSideLabel = (spot: Spot | undefined): string | undefined => {
@@ -153,6 +162,7 @@ function Viewer({ item }: { item: ViewerItem }) {
   const router = useRouter()
   const Icon = KIND_ICON[item.kind]
   const title = useDocumentTitle(item) ?? item.title
+  const task = viewerTaskOf(item)
 
   // Focus moves into the viewer (it may cover what you clicked), and back when it closes.
   useEffect(() => {
@@ -190,11 +200,22 @@ function Viewer({ item }: { item: ViewerItem }) {
       <ResizeHandle edge="left" label="Resize viewer" rule={VIEWER_WIDTH} width={width} onResize={resize} />
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
         <PanelBack />
-        <Icon aria-hidden className="size-3.5 shrink-0 text-muted" />
-        <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium" title={item.url}>
-          {title}
-        </h2>
-        {item.kind === "page" ? (
+        {task ? (
+          <TaskViewerHeading taskKey={formatTaskKey(task.projectKey, task.number)} />
+        ) : (
+          <>
+            <Icon aria-hidden className="size-3.5 shrink-0 text-muted" />
+            <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium" title={item.url}>
+              {title}
+            </h2>
+          </>
+        )}
+        {task ? (
+          // The task on its own project's board, docked there; ⌘-click on its key does the same in a new tab.
+          <Button variant="ghost" size="iconMd" aria-label="Open in board" title="Open in board" onClick={() => router.history.push(fullPageHref(item.url))}>
+            <SquareArrowOutUpRightIcon className="size-4" />
+          </Button>
+        ) : item.kind === "page" ? (
           // The page in the main area, in the board's place; its address has no `?viewer`, so the viewer closes.
           <Button variant="ghost" size="iconMd" aria-label="Expand to full page" title="Expand to full page" onClick={() => router.history.push(fullPageHref(item.url))}>
             <Maximize2Icon className="size-4" />
@@ -215,7 +236,21 @@ function Viewer({ item }: { item: ViewerItem }) {
   )
 }
 
+/** A task's header in the viewer: its status, its key and its title, live from the board. */
+function TaskViewerHeading({ taskKey }: { taskKey: string }) {
+  const found = useKeyedTask(taskKey)
+  return (
+    <h2 className="flex min-w-0 flex-1 items-center gap-2 text-[13px] font-medium" title={found ? `${taskKey} · ${found.task.title}` : taskKey}>
+      {found?.status ? <StatusIcon category={found.status.category} color={found.status.color} /> : null}
+      <span className="shrink-0 text-muted">{taskKey}</span>{" "}
+      {found ? <span className="truncate">{found.task.title}</span> : null}
+    </h2>
+  )
+}
+
 function Body({ item }: { item: ViewerItem }) {
+  const task = viewerTaskOf(item)
+  if (task) return <TaskInViewer projectKey={task.projectKey} number={task.number} />
   switch (item.kind) {
     case "image":
       return <ImageView item={item} />

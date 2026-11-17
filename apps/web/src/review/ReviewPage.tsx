@@ -2,7 +2,7 @@ import type { BoardState } from "@cello/client/sync/applyEvents"
 import { needsInputQueue, type AskItem } from "@cello/client/sync/asks"
 import { reviewQueue, type ReviewItem } from "@cello/client/sync/reviews"
 import type { Project, Task } from "@cello/contract/entities"
-import { Link, useNavigate, useSearch } from "@tanstack/react-router"
+import { useNavigate, useSearch } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
 import { AskForm } from "../ask/AskView.tsx"
@@ -16,6 +16,7 @@ import { QueueRow, type QueueRowState } from "./QueueRow.tsx"
 import { CommentOrDecide } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
 import { useQueue } from "./useQueue.ts"
+import { TaskLink } from "../task/TaskKey.tsx"
 import { keepViewer } from "../viewer/search.ts"
 
 /**
@@ -158,13 +159,13 @@ function TaskQueueRow({
             {status.name}
           </span>
         ) : null}
-        <Link
-          to="/$projectKey/$number"
-          params={{ projectKey: project.key, number: String(task.number) }}
+        {/* In this page's side panel, beside the queue (CEL-141); ⌘-click opens it on its board in a new tab. */}
+        <TaskLink
+          taskKey={task.key}
           className="ml-auto rounded-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
         >
           Open {task.key}
-        </Link>
+        </TaskLink>
       </div>
       {children}
     </QueueRow>

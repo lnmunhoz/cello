@@ -12,6 +12,7 @@ import {
   pageRef,
   refusesFraming,
   taskOfHref,
+  taskOpenFrom,
   taskRoute,
   toViewerItem,
   VIEWER_WIDTH,
@@ -222,6 +223,25 @@ describe("taskOfHref: a link to a task on the board opens the task, the way a ta
     expect(taskOfHref("https://example.com/CEL/3", ORIGIN)).toBeNull()
     expect(taskOfHref(undefined, ORIGIN)).toBeNull()
     expect(taskOfHref("#CEL-3", ORIGIN)).toBeNull()
+  })
+})
+
+describe("taskOpenFrom: where a plain click on a task's link opens it, from the page you're on (CEL-141)", () => {
+  const thai96 = { projectKey: "THAI", number: 96 }
+
+  it("on the task's own project's board or list, it docks there, as it always did", () => {
+    for (const pathname of ["/THAI/issues", "/THAI/12", "/thai/12", "/THAI", "/THAI/"]) expect(taskOpenFrom(pathname, thai96)).toEqual({ type: "board" })
+  })
+
+  it("on a milestone's page of its project, it opens beside that page, in its task panel", () => {
+    expect(taskOpenFrom("/THAI/milestones/m1", thai96)).toEqual({ type: "milestone", milestoneId: "m1" })
+    expect(taskOpenFrom("/THAI/milestones/none/7", thai96)).toEqual({ type: "milestone", milestoneId: "none" })
+  })
+
+  it("anywhere else, the page you're on keeps you and shows the task in its side panel", () => {
+    for (const pathname of ["/review", "/agents", "/", "/settings", "/THAI/docs", "/THAI/pages/plan", "/THAI/overview", "/THAI/milestones", "/CEL/issues", "/CEL/3", "/CEL/milestones/m1"]) {
+      expect(taskOpenFrom(pathname, thai96)).toEqual({ type: "panel" })
+    }
   })
 })
 

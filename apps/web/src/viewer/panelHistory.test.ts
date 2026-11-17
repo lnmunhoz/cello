@@ -13,6 +13,13 @@ describe("what the side panel shows", () => {
     expect(sideOf({ pathname: "/FE/docs", search: { viewer: PAGE } })).toEqual({ type: "viewer", url: PAGE })
   })
 
+  it("a task in the viewer, on a page that isn't its board (CEL-141), is that task", () => {
+    expect(sideOf({ pathname: "/review", search: { viewer: "/THAI/96" } })).toEqual({ type: "task", key: "THAI-96" })
+    expect(sideOf(task(73, { viewer: "/THAI/96" }))).toEqual({ type: "task", key: "THAI-96" })
+    // Another site's address that looks like one is still that site.
+    expect(sideOf({ pathname: "/review", search: { viewer: "https://example.com/THAI/96" } })).toEqual({ type: "viewer", url: "https://example.com/THAI/96" })
+  })
+
   it("else the open task docked beside the board; nothing for a full page or no task", () => {
     expect(sideOf(task(73))).toEqual({ type: "task", key: "FE-73" })
     expect(sideOf(task(73, { view: "full" }))).toBeNull()
@@ -27,6 +34,13 @@ describe("a hop: the side panel goes from one thing to another, from a click ins
     expect(isHop(taskWithPage, task(73), true)).toBe(true)
     expect(isHop(task(73), task(70), true)).toBe(true)
     expect(isHop(taskWithPage, task(73, { viewer: "/FE/pages/other" }), true)).toBe(true)
+  })
+
+  it("on the Review page: a task in the side panel to another task linked in its comment, or to its page (CEL-141)", () => {
+    const review = (viewer: string): Spot => ({ pathname: "/review", search: { viewer } })
+    expect(isHop(review("/THAI/96"), review("/THAI/102"), true)).toBe(true)
+    expect(isHop(review("/THAI/96"), review("/THAI/pages/plan"), true)).toBe(true)
+    expect(isHop({ pathname: "/review", search: {} }, review("/THAI/96"), false)).toBe(false)
   })
 
   it("not from the board, the Docs tab or a `cello open` link: nothing was in the panel, or the click wasn't in it", () => {

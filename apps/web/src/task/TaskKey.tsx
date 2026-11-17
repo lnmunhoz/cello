@@ -2,7 +2,7 @@
 // its live status beside it. remarkLinkify (markdown) and Linkified (plain text) find the keys of known
 // projects; each key then reads its own task from the board, so a board change re-renders the keys it
 // touches, never the markdown around them. A click opens the task in the main window wherever the key
-// is shown (lib/desktop.ts).
+// is shown (lib/desktop.ts): beside its own board, or in the side panel of the page you're on (CEL-141).
 import type { KeyedTask } from "@cello/client/sync/selectors"
 import type { LinkifyOptions } from "@cello/shared/linkify"
 import { parseTaskKey, taskPath } from "@cello/shared/taskKey"
@@ -13,6 +13,7 @@ import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { openTask } from "../lib/desktop.ts"
 import { useKeyedTask } from "../lib/hooks.ts"
 import { isPlainClick } from "../viewer/viewer.ts"
+import { openTaskHere } from "./openTaskHere.ts"
 
 /** remarkLinkify's options: link the keys of these projects ("CEL THAI", from `useProjectKeys`). */
 export const linkifyTasks = (projectKeys: string | undefined): LinkifyOptions => {
@@ -29,7 +30,9 @@ export const markdownTaskKey = (node: ExtraProps["node"]): string | undefined =>
 
 /**
  * A link that opens task `taskKey` in the main window, from the board, the viewer's iframe or the
- * desktop app's panel. A real link, so ⌘-click, a middle click and "Copy link" still work.
+ * desktop app's panel: beside its own project's board or list there, else in the side panel of the
+ * page you're on (openTaskHere.ts). A real link to the task on its board, so ⌘-click, a middle click
+ * and "Copy link" still work.
  */
 export function TaskLink({ taskKey, onClick, ...props }: { taskKey: string } & Omit<ComponentProps<"a">, "href">) {
   // Absent only when rendered outside the app (tests): there's nothing to navigate then.
@@ -43,8 +46,8 @@ export function TaskLink({ taskKey, onClick, ...props }: { taskKey: string } & O
       onClick={(e) => {
         onClick?.(e)
         if (!isPlainClick(e)) return
-        const opened = openTask(taskKey, ({ projectKey, number }) => {
-          void router?.navigate({ to: "/$projectKey/$number", params: { projectKey, number: String(number) } })
+        const opened = openTask(taskKey, (found) => {
+          if (router) openTaskHere(router, found)
         })
         if (opened) e.preventDefault()
       }}

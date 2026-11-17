@@ -1,10 +1,10 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import { boardColumns, placement, statusesOf, taskByKey } from "@cello/client/sync/selectors"
+import { boardColumns, placement, projectByKey, statusesOf, taskByKey } from "@cello/client/sync/selectors"
 import type { Priority, Project, Task } from "@cello/contract/entities"
 import { useAtomSet } from "@effect/atom-react"
 import { openAskOf } from "@cello/client/sync/asks"
 import { openReviewOf } from "@cello/client/sync/reviews"
-import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useShortcut, useShortcutHint } from "@ui-sdk/react/shortcuts"
 import { ChevronRightIcon, Maximize2Icon, Minimize2Icon, MoreHorizontalIcon, XIcon } from "lucide-react"
 import { useRef, useState } from "react"
@@ -22,7 +22,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from "../components/ui/Tabs.tsx"
 import { commands } from "../lib/cello.ts"
 import { copyText } from "../lib/clipboard.ts"
 import { SAVES_ON_BLUR } from "../lib/editing.ts"
-import { useMediaQuery } from "../lib/hooks.ts"
+import { useBoard, useMediaQuery } from "../lib/hooks.ts"
 import { EarlierReviews, PinnedReview } from "../review/TaskReviews.tsx"
 import { AskThread, PinnedAsk } from "../ask/TaskAsks.tsx"
 import { useRestoredSideScroll } from "../viewer/panelBack.ts"
@@ -31,6 +31,7 @@ import { useViewerItem } from "../viewer/store.ts"
 import { PanelBack } from "../viewer/ViewerPanel.tsx"
 import { PanelWork, ProvenanceRows } from "../presence/Presence.tsx"
 import { WakeRow } from "./WakeRow.tsx"
+import { TaskLink } from "./TaskKey.tsx"
 import { Comments } from "./Comments.tsx"
 import { COPY_KEY_SHORTCUT, taskForAgent } from "./copy.ts"
 import { History } from "./History.tsx"
@@ -114,14 +115,13 @@ export function TaskPanel({
         <span className="flex min-w-0 items-center gap-1 text-[13px] font-medium text-muted">
           {parent ? (
             <>
-              <Link
-                to="/$projectKey/$number"
-                params={{ projectKey: project.key, number: String(parent.number) }}
+              <TaskLink
+                taskKey={parent.key}
                 aria-label={`Parent: ${parent.key} ${parent.title}`}
                 className="min-w-0 truncate rounded-sm outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {parent.key} {parent.title}
-              </Link>
+              </TaskLink>
               <ChevronRightIcon aria-hidden className="size-3.5 shrink-0 text-faint" />
             </>
           ) : null}
@@ -162,6 +162,38 @@ export function TaskPanel({
       </div>
       {task ? <TaskDetails key={task.id} board={board} project={project} task={task} full={full} /> : <NotFound title={`No task ${project.key}-${number}`} projectKey={project.key} />}
     </aside>
+  )
+}
+
+/**
+ * A task in the side panel of a page that isn't its board (the Review page, a doc…; CEL-141): its
+ * fields, packet, pages, comments and history, as docked; the viewer's header (viewer/ViewerPanel.tsx)
+ * has its key, Back, Open in board and close.
+ */
+export function TaskInViewer({ projectKey, number }: { projectKey: string; number: number }) {
+  const board = useBoard()
+  if (!board) return null
+  const project = projectByKey(board, projectKey)
+  const task = project ? taskByKey(board, project.key, number) : undefined
+  if (!project || !task) return <NotFound title={`No task ${projectKey}-${number}`} projectKey={project?.key} />
+  const parent = task.parentId ? board.tasks[task.parentId] : undefined
+  return (
+    <>
+      {parent ? (
+        <p className="flex shrink-0 items-center gap-1 border-b border-line px-6 py-1.5 text-xs text-muted">
+          <span className="shrink-0">Parent</span>
+          <ChevronRightIcon aria-hidden className="size-3 shrink-0 text-faint" />
+          <TaskLink
+            taskKey={parent.key}
+            aria-label={`Parent: ${parent.key} ${parent.title}`}
+            className="min-w-0 truncate rounded-sm outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {parent.key} {parent.title}
+          </TaskLink>
+        </p>
+      ) : null}
+      <TaskDetails key={task.id} board={board} project={project} task={task} full={false} />
+    </>
   )
 }
 

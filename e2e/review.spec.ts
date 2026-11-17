@@ -365,9 +365,10 @@ test("CEL-38: a wide Review page opens the packet in two columns, evidence on th
   expect(at.steps.width).toBeLessThan(720)
   await wide.close()
 
-  await caption(page, "The task panel's pinned packet stays in one column")
+  await caption(page, "The task's pinned packet, in the side panel beside Review (CEL-141), stays in one column")
   await item.getByRole("link", { name: `Open ${key}-1` }).click()
-  const pinned = page.getByRole("complementary", { name: `${key}-1 details` }).getByRole("region", { name: "Review packet" })
+  await expect(page).toHaveURL(/\/review\?/)
+  const pinned = page.getByRole("complementary", { name: "Viewer" }).getByRole("region", { name: "Review packet" })
   await packetDrawn(pinned)
   await expectOneColumn(pinned)
 

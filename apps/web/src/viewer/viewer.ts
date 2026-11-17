@@ -161,6 +161,29 @@ export type TaskRoute = "router" | "parent" | "link"
 export const taskRoute = (win: { readonly self: unknown; readonly top: unknown; readonly search: string }): TaskRoute =>
   win.self !== win.top ? "parent" : new URLSearchParams(win.search).has("embed") ? "link" : "router"
 
+/**
+ * board: the task docks beside its project's board or list (its address, `/THAI/96`). milestone: beside
+ * the milestone's page you're on, in its task panel. panel: in the side panel of the page you're on
+ * (`?viewer=/THAI/96`), which stays where it was.
+ */
+export type TaskOpen = { readonly type: "board" } | { readonly type: "milestone"; readonly milestoneId: string } | { readonly type: "panel" }
+
+/**
+ * Where a plain click on a task's link opens it, from the page at `pathname` (CEL-141): on the task's
+ * own project's board or list, there, as it always did; on one of its project's milestone pages, beside
+ * that page; anywhere else (the Review and Agents pages, a doc, another project) in that page's side
+ * panel, so a click never takes you away from where you were. The router matches without case.
+ */
+export const taskOpenFrom = (pathname: string, task: { readonly projectKey: string; readonly number: number }): TaskOpen => {
+  const [projectKey, ...rest] = pathname.split("/").filter((part) => part !== "")
+  if (projectKey?.toUpperCase() !== task.projectKey.toUpperCase()) return { type: "panel" }
+  if (rest.length === 0 || (rest.length === 1 && (rest[0] === "issues" || /^\d+$/.test(rest[0]!)))) return { type: "board" }
+  if (rest[0] === "milestones" && rest[1] !== undefined && (rest.length === 2 || (rest.length === 3 && /^\d+$/.test(rest[2]!)))) {
+    return { type: "milestone", milestoneId: decodeURIComponent(rest[1]) }
+  }
+  return { type: "panel" }
+}
+
 /** The task a message asks the board's window to open: only a well-formed key, only from the board's own origin. */
 export const openTaskFrom = (message: { readonly origin: string; readonly data: unknown }, origin: string): { projectKey: string; number: number } | null => {
   const data = message.data as Partial<OpenTaskMessage> | null

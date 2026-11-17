@@ -181,10 +181,14 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   await expect(builderRow.locator("[data-agent-log] [data-log-unavailable]")).toHaveAttribute("data-log-unavailable", "none")
   await shoot(page, "open")
 
-  await caption(page, "Click its card: the task opens")
+  await caption(page, "Click its card: the task opens in the side panel, and the Agents page stays (CEL-141)")
   await builderCard.click()
-  await expect(page).toHaveURL(/\/CLO\/1/)
-  await page.goBack()
+  await expect(page).toHaveURL((url) => url.pathname === "/agents" && url.searchParams.get("viewer") === "/CLO/1")
+  await expect(page.getByRole("complementary", { name: "Viewer" }).getByRole("heading", { name: /CLO-1/ })).toBeVisible()
+  await page.getByRole("complementary", { name: "Viewer" }).getByRole("button", { name: "Close viewer" }).click()
+  await expect(builderRow.locator("[data-agent-facts]")).toBeVisible()
+  // A fresh page, as a reload or a link to it: the keys start from the open row, not the card last clicked.
+  await page.reload()
   await expect(builderRow.locator("[data-agent-facts]")).toBeVisible()
 
   await caption(page, "The keys: Esc closes, ↓ and j move between rows, Enter opens")
@@ -290,10 +294,10 @@ test("CEL-65: an open row's card is not one big link: its evidence badge opens t
   await expect(modal).toHaveCount(0)
   await expect(page).toHaveURL(/\/agents/)
 
-  await caption(page, "Click elsewhere on the card: the task opens")
+  await caption(page, "Click elsewhere on the card: the task opens, in the side panel")
   const box = (await card.boundingBox())!
   await page.mouse.click(box.x + box.width - 12, box.y + box.height - 8)
-  await expect(page).toHaveURL(/\/PKT\/1/)
+  await expect(page).toHaveURL((url) => url.pathname === "/agents" && url.searchParams.get("viewer") === "/PKT/1")
 
   cli(SUBMITTER)("task", "release", "PKT-1")
 })
