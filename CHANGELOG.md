@@ -3,6 +3,12 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.4.12](https://github.com/lnmunhoz/cello/compare/v0.4.11...v0.4.12) (2026-11-17)
+
+### Features
+
+- hovering a task link shows the task's details: status, who's on it, open ask, description (CEL-142) ([b70711c](https://github.com/lnmunhoz/cello/commit/b70711c271bccea1dabf82f8964c94d96ed352ea))
+
 ## [0.4.11](https://github.com/lnmunhoz/cello/compare/v0.4.10...v0.4.11) (2026-11-17)
 
 ### Fixes
