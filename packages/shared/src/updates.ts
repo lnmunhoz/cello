@@ -88,18 +88,33 @@ const record = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 const text = (value: unknown): string => (typeof value === "string" ? value : "")
 
-const releaseOf = (value: unknown): Release | null => {
+/**
+ * Where a release's page and downloads may be (CEL-140): only under the repository on GitHub. Download
+ * fetches an asset's address and the release's page opens in the browser, so the feed's answer never
+ * picks the host or the scheme.
+ */
+export const RELEASE_URL_PREFIX = "https://github.com/lnmunhoz/cello/"
+
+/** `url`, normalized (`..` resolved), when it's under one of `trusted`; null otherwise. */
+const trustedUrl = (url: string, trusted: ReadonlyArray<string>): string | null => {
+  const href = URL.parse(url)?.href
+  return href && trusted.some((prefix) => href.startsWith(prefix)) ? href : null
+}
+
+const releaseOf = (value: unknown, trusted: ReadonlyArray<string>): Release | null => {
   const raw = record(value)
   if (!raw || raw["draft"] === true) return null
   const tag = text(raw["tag_name"])
   const parsed = parseVersion(tag)
   if (!parsed) return null
+  const page = trustedUrl(text(raw["html_url"]), trusted)
+  if (!page) return null
   const version = tag.replace(/^v/, "").replace(/\+.*$/, "")
   const published = Date.parse(text(raw["published_at"]))
   const assets = (Array.isArray(raw["assets"]) ? raw["assets"] : []).flatMap((asset) => {
     const a = record(asset)
     const name = text(a?.["name"])
-    const url = text(a?.["browser_download_url"])
+    const url = trustedUrl(text(a?.["browser_download_url"]), trusted)
     return name && url ? [{ name, url, size: typeof a?.["size"] === "number" ? a["size"] : 0 }] : []
   })
   return {
@@ -110,15 +125,19 @@ const releaseOf = (value: unknown): Release | null => {
     // A tag like a prerelease is one even when GitHub's flag says otherwise.
     prerelease: raw["prerelease"] === true || parsed.pre.length > 0,
     publishedAt: Number.isNaN(published) ? null : published,
-    url: text(raw["html_url"]),
+    url: page,
     assets,
   }
 }
 
-/** GitHub's release list, read leniently: drafts and tags that aren't versions are left out; newest version first. */
-export const parseReleases = (json: unknown): Release[] =>
+/**
+ * GitHub's release list, read leniently: drafts, tags that aren't versions, and releases whose page isn't
+ * under `trusted` are left out, as are assets that don't download from under it; newest version first.
+ * `trusted` is the repository on GitHub, plus the e2e tests' local feed in a dev build.
+ */
+export const parseReleases = (json: unknown, trusted: ReadonlyArray<string> = [RELEASE_URL_PREFIX]): Release[] =>
   (Array.isArray(json) ? json : [])
-    .flatMap((value) => releaseOf(value) ?? [])
+    .flatMap((value) => releaseOf(value, trusted) ?? [])
     .sort((a, b) => compareVersions(b.version, a.version))
 
 const onChannel = (release: Release, channel: Channel) => channel === "preview" || (!release.prerelease && !isPrerelease(release.version))

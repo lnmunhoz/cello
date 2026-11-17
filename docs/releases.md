@@ -234,7 +234,9 @@ flowchart TD
 
 Either is one `Installer` in `apps/desktop/src/update/Updater.ts`: its `install` takes the downloaded file, and Download's label comes from it ("Restart to update"). Nothing else changes.
 
-**Testing it:** the app reads `CELLO_UPDATE_FEED` (a fake release list; the desktop e2e tests serve one, `apps/desktop/test/fakeReleaseFeed.ts`), `CELLO_APP_VERSION` (the version it says it runs) and `CELLO_UPDATE_DOWNLOADS` (in place of ~/Downloads). `bun run test:docker:desktop -- e2e/updates.spec.ts` runs those tests in Docker.
+**What it trusts:** a release's page and its downloads must be under `https://github.com/lnmunhoz/cello/`; a release or file anywhere else in GitHub's answer is dropped, so Download never fetches from, or opens, another host or scheme. A download is written to `<name>.part` and renamed only once its size matches what the server or GitHub said, so a failure never touches a file of yours with the same name, and a file that's already there counts as the DMG only when GitHub gave a size and it matches.
+
+**Testing it:** a dev build of the app (what the e2e tests run, never the packaged app) reads `CELLO_UPDATE_FEED` (a fake release list, whose own origin it then also trusts for downloads; the desktop e2e tests serve one, `apps/desktop/test/fakeReleaseFeed.ts`), `CELLO_APP_VERSION` (the version it says it runs) and `CELLO_UPDATE_DOWNLOADS` (in place of ~/Downloads). The packaged app ignores all three. `bun run test:docker:desktop -- e2e/updates.spec.ts` runs those tests in Docker.
 
 ## Later
 

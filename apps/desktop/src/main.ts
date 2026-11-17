@@ -17,7 +17,7 @@ import { answerOf, parseQuitChoice, planQuit, QUIT_CHOICE_FILE, QUIT_QUESTION, t
 import { connectServer, installService, lockHolder, type Server, startDetached } from "./server/sidecar.ts"
 import { appNotice, boardNotice, bundleOf, relaunchOptions, restartTarget, stampFile, type AppNotice } from "./update/appUpdate.ts"
 import { downloadFile } from "./update/download.ts"
-import { feedUrl, githubFeed } from "./update/feed.ts"
+import { feedFor, githubFeed } from "./update/feed.ts"
 import { CHECK_EVERY_MS, openDmg, Updater } from "./update/Updater.ts"
 import { MainWindow } from "./window/MainWindow.ts"
 
@@ -79,18 +79,22 @@ function run() {
   let restarting = false
 
   /**
-   * The update check (CEL-140): in the packaged app, or wherever CELLO_UPDATE_FEED names a feed (the e2e
-   * tests' fake one). A dev build checks nothing, so its board shows no update UI. CELLO_APP_VERSION and
-   * CELLO_UPDATE_DOWNLOADS stand in for the version and ~/Downloads in tests.
+   * The update check (CEL-140). The packaged app reads GitHub's release list, and only that (`feedFor`).
+   * A dev build checks nothing, so its board shows no update UI, unless CELLO_UPDATE_FEED names a test
+   * feed (the e2e tests' fake one); only then do CELLO_APP_VERSION and CELLO_UPDATE_DOWNLOADS stand in for
+   * the version and ~/Downloads. The packaged app ignores all three.
    */
   let updater: Updater | null = null
   const updatesFile = () => path.join(app.getPath("userData"), "updates.json")
   const startUpdates = () => {
-    if (!app.isPackaged && !process.env.CELLO_UPDATE_FEED) return
+    const feed = feedFor(process.env, app.isPackaged)
+    if (!feed) return
+    const test = !app.isPackaged
     const started = new Updater({
-      current: process.env.CELLO_APP_VERSION || app.getVersion(),
+      current: (test && process.env.CELLO_APP_VERSION) || app.getVersion(),
       arch: process.arch,
-      feed: githubFeed(feedUrl(process.env)),
+      feed: githubFeed(feed.url),
+      trusted: feed.trusted,
       settings: {
         read: () => {
           try {
@@ -101,7 +105,7 @@ function run() {
         },
         write: (text) => fs.writeFileSync(updatesFile(), text),
       },
-      downloadsDir: process.env.CELLO_UPDATE_DOWNLOADS || app.getPath("downloads"),
+      downloadsDir: (test && process.env.CELLO_UPDATE_DOWNLOADS) || app.getPath("downloads"),
       fetchFile: downloadFile,
       // shell is read at each call, so a test can stand in for Finder.
       installer: openDmg((file) => shell.openPath(file)),

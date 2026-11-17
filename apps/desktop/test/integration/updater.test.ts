@@ -5,7 +5,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { downloadFile } from "../../src/update/download.ts"
-import { githubFeed } from "../../src/update/feed.ts"
+import { feedFor, githubFeed } from "../../src/update/feed.ts"
 import { Updater } from "../../src/update/Updater.ts"
 import { startFakeReleaseFeed, type FakeReleaseFeed } from "../fakeReleaseFeed.ts"
 
@@ -30,7 +30,9 @@ const setup = (feed: FakeReleaseFeed, options: { current: string; settings?: str
   const updater = new Updater({
     current: options.current,
     arch: "arm64",
+    // As main.ts wires a dev build pointed at a test feed: the feed's own origin is trusted for its DMGs.
     feed: githubFeed(feed.url),
+    trusted: feedFor({ CELLO_UPDATE_FEED: feed.url }, false)!.trusted,
     settings: { read: () => (fs.existsSync(settingsFile) ? fs.readFileSync(settingsFile, "utf8") : null), write: (text) => fs.writeFileSync(settingsFile, text) },
     downloadsDir: downloads,
     fetchFile: downloadFile,

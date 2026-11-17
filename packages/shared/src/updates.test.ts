@@ -12,6 +12,7 @@ import {
   parseUpdateCommand,
   parseUpdateSettings,
   parseVersion,
+  RELEASE_URL_PREFIX,
   releaseMark,
   shouldNotify,
   updateLine,
@@ -44,7 +45,7 @@ const github = (tag: string, overrides: Record<string, unknown> = {}) => ({
   prerelease: tag.includes("-"),
   published_at: "2026-11-17T10:00:00Z",
   html_url: `https://github.com/lnmunhoz/cello/releases/tag/${tag}`,
-  assets: [{ name: `Cello-${tag}-mac-arm64.dmg`, browser_download_url: `https://example.test/${tag}.dmg`, size: 1234 }],
+  assets: [{ name: `Cello-${tag}-mac-arm64.dmg`, browser_download_url: `https://github.com/lnmunhoz/cello/releases/download/${tag}/Cello-${tag}-mac-arm64.dmg`, size: 1234 }],
   ...overrides,
 })
 
@@ -83,7 +84,35 @@ describe("parseReleases", () => {
     expect(releases.map((r) => r.version)).toEqual(["0.6.0-beta.1", "0.5.1", "0.5.0"])
     expect(releases[0]).toMatchObject({ tag: "v0.6.0-beta.1", prerelease: true, name: "Cello v0.6.0-beta.1", notes: "Notes for v0.6.0-beta.1" })
     expect(releases[1]).toMatchObject({ notes: "", publishedAt: null })
-    expect(releases[2]!.assets).toEqual([{ name: "Cello-v0.5.0-mac-arm64.dmg", url: "https://example.test/v0.5.0.dmg", size: 1234 }])
+    expect(releases[2]!.assets).toEqual([{ name: "Cello-v0.5.0-mac-arm64.dmg", url: "https://github.com/lnmunhoz/cello/releases/download/v0.5.0/Cello-v0.5.0-mac-arm64.dmg", size: 1234 }])
+  })
+
+  it("trusts only addresses under the repository on GitHub: a release elsewhere is dropped, and so is an asset", () => {
+    const releases = parseReleases([
+      github("v0.5.4", { html_url: "https://evil.example/lnmunhoz/cello/releases/tag/v0.5.4" }),
+      github("v0.5.3", { html_url: "file:///etc/passwd" }),
+      github("v0.5.2", { html_url: "x-cello-evil://open" }),
+      github("v0.5.1", {
+        assets: [
+          { name: "Cello-v0.5.1-mac-arm64.dmg", browser_download_url: "https://evil.example/Cello-v0.5.1-mac-arm64.dmg", size: 1 },
+          { name: "Cello-v0.5.1-mac-x64.dmg", browser_download_url: "file:///Users/me/Cello.dmg", size: 1 },
+          { name: "Cello-v0.5.1-mac-arm64.zip", browser_download_url: "x-cello-evil://Cello.zip", size: 1 },
+          { name: "cello.zip", browser_download_url: "https://github.com/lnmunhoz/cello-fork/releases/download/v0.5.1/cello.zip", size: 1 },
+          { name: "spoof.dmg", browser_download_url: "https://github.com/lnmunhoz/cello/../../evil/x.dmg", size: 1 },
+          { name: "ok.dmg", browser_download_url: "https://github.com/lnmunhoz/cello/releases/download/v0.5.1/ok.dmg", size: 1 },
+        ],
+      }),
+    ])
+    expect(releases.map((r) => r.version)).toEqual(["0.5.1"])
+    expect(releases[0]!.assets.map((a) => a.name)).toEqual(["ok.dmg"])
+  })
+
+  it("trusts another address only when told to (the e2e tests' local feed)", () => {
+    const local = github("v0.5.1", {
+      assets: [{ name: "Cello-v0.5.1-mac-arm64.dmg", browser_download_url: "http://127.0.0.1:9/download/Cello-v0.5.1-mac-arm64.dmg", size: 1 }],
+    })
+    expect(parseReleases([local])[0]!.assets).toEqual([])
+    expect(parseReleases([local], [RELEASE_URL_PREFIX, "http://127.0.0.1:9/"])[0]!.assets).toHaveLength(1)
   })
 
   it("is empty for anything that isn't a list (an error body, a rate-limit message)", () => {

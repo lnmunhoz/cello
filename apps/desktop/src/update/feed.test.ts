@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { feedUrl, githubFeed, RELEASES_URL } from "./feed.ts"
+import { RELEASE_URL_PREFIX } from "@cello/shared/updates"
+import { feedFor, githubFeed, RELEASES_URL } from "./feed.ts"
 
 type Call = { url: string; headers: Record<string, string> }
 
@@ -19,11 +20,23 @@ const fakeFetch = (responses: Array<Response | Error>) => {
 const json = (body: unknown, headers: Record<string, string> = {}, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } })
 
-describe("feedUrl", () => {
-  it("is GitHub's release list, unless CELLO_UPDATE_FEED points elsewhere (the e2e tests' fake feed)", () => {
-    expect(feedUrl({})).toBe(RELEASES_URL)
+describe("feedFor", () => {
+  const fake = { CELLO_UPDATE_FEED: "http://127.0.0.1:9999/releases" }
+
+  it("the packaged app reads GitHub's release list and trusts only the repository's addresses, whatever CELLO_UPDATE_FEED says", () => {
     expect(RELEASES_URL).toBe("https://api.github.com/repos/lnmunhoz/cello/releases")
-    expect(feedUrl({ CELLO_UPDATE_FEED: "http://127.0.0.1:9999/releases" })).toBe("http://127.0.0.1:9999/releases")
+    expect(feedFor({}, true)).toEqual({ url: RELEASES_URL, trusted: [RELEASE_URL_PREFIX] })
+    expect(feedFor(fake, true)).toEqual({ url: RELEASES_URL, trusted: [RELEASE_URL_PREFIX] })
+  })
+
+  it("a dev build checks only a test feed (CELLO_UPDATE_FEED), whose own origin it also trusts for downloads", () => {
+    expect(feedFor({}, false)).toBeNull()
+    expect(feedFor(fake, false)).toEqual({ url: fake.CELLO_UPDATE_FEED, trusted: [RELEASE_URL_PREFIX, "http://127.0.0.1:9999/"] })
+  })
+
+  it("a test feed that isn't an http(s) address is ignored", () => {
+    expect(feedFor({ CELLO_UPDATE_FEED: "file:///tmp/releases.json" }, false)).toBeNull()
+    expect(feedFor({ CELLO_UPDATE_FEED: "not a url" }, false)).toBeNull()
   })
 })
 

@@ -17,6 +17,7 @@ import {
   dmgName,
   initialUpdateState,
   parseReleases,
+  RELEASE_URL_PREFIX,
   parseUpdateSettings,
   settingsOf,
   type UpdateCommand,
@@ -29,8 +30,11 @@ import type { ReleaseFeed } from "./feed.ts"
 /** How often the app asks for releases, besides at launch and on Check now. */
 export const CHECK_EVERY_MS = 4 * 60 * 60 * 1000
 
-/** Downloads `url` into `file` (complete or not at all), reporting progress from 0 to 1. */
-export type FetchFile = (url: string, file: string, onProgress: (fraction: number) => void) => Promise<void>
+/**
+ * Downloads `url` into `file`, complete or not at all: a failure leaves `file` as it was. `size` is what
+ * GitHub says the file has (0 when it didn't say), checked before `file` is written. Progress is 0 to 1.
+ */
+export type FetchFile = (url: string, file: string, size: number, onProgress: (fraction: number) => void) => Promise<void>
 
 /** What Download does with the downloaded release: open the DMG today; install it in one click later. */
 export interface Installer {
@@ -57,6 +61,11 @@ export interface UpdaterOptions {
   /** `process.arch`: picks the DMG (arm64 or x64). */
   readonly arch: string
   readonly feed: ReleaseFeed
+  /**
+   * Where a release's page and DMGs may be (`feedFor`): the repository on GitHub by default; the e2e
+   * tests' feed adds its own origin. Anything else in the feed's answer is dropped.
+   */
+  readonly trusted?: ReadonlyArray<string>
   /** userData/updates.json: the channel, automatic downloads, and what was already shown. */
   readonly settings: { read(): string | null; write(text: string): void }
   /** Where DMGs are saved: ~/Downloads. */
@@ -105,7 +114,7 @@ export class Updater {
   async #check(): Promise<void> {
     this.#dispatch({ type: "check-started" })
     try {
-      const releases = parseReleases(await this.#options.feed.read())
+      const releases = parseReleases(await this.#options.feed.read(), this.#options.trusted ?? [RELEASE_URL_PREFIX])
       this.#dispatch({ type: "checked", releases, at: this.#options.now() })
     } catch (error) {
       this.#dispatch({ type: "check-failed", message: error instanceof Error ? error.message : String(error), at: this.#options.now() })
@@ -155,11 +164,14 @@ export class Updater {
     return path.join(this.#options.downloadsDir, dmgName(version, this.#options.arch))
   }
 
-  /** The DMG is in Downloads with the size GitHub gave (any size when it gave none). */
-  #complete(version: string, size: number): boolean {
+  /**
+   * A file in Downloads with the DMG's name and the size GitHub gave. Without a size (or `known`: this
+   * app downloaded it) it can't be told from a file of the user's own with the same name, so it doesn't count.
+   */
+  #complete(version: string, size: number, known = false): boolean {
     try {
       const stat = fs.statSync(this.#fileOf(version))
-      return stat.isFile() && (size <= 0 || stat.size === size)
+      return stat.isFile() && (size > 0 ? stat.size === size : known)
     } catch {
       return false
     }
@@ -167,7 +179,7 @@ export class Updater {
 
   /** The DMG for `version` in Downloads: true once it's there, false when the download failed. */
   #fetch(version: string, url: string, size: number): Promise<boolean> {
-    if (this.#state.downloaded === version && this.#complete(version, size)) return Promise.resolve(true)
+    if (this.#state.downloaded === version && this.#complete(version, size, true)) return Promise.resolve(true)
     const running = this.#downloads.get(version)
     if (running) return running
     const file = this.#fileOf(version)
@@ -175,11 +187,12 @@ export class Updater {
       this.#dispatch({ type: "download-started", version })
       try {
         fs.mkdirSync(this.#options.downloadsDir, { recursive: true })
-        await this.#options.fetchFile(url, file, (progress) => this.#dispatch({ type: "download-progress", version, progress }))
+        await this.#options.fetchFile(url, file, size, (progress) => this.#dispatch({ type: "download-progress", version, progress }))
         this.#dispatch({ type: "downloaded", version })
         return true
       } catch (error) {
-        fs.rmSync(file, { force: true })
+        // Nothing to clean up: fetchFile writes `<file>.part` and removes it itself, so a file of the
+        // user's own with the DMG's name stays as it was.
         this.#dispatch({ type: "download-failed", version, message: error instanceof Error ? error.message : String(error) })
         return false
       } finally {

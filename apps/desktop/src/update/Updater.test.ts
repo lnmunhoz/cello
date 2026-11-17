@@ -24,7 +24,7 @@ const github = (tag: string, size = 5) => ({
   prerelease: tag.includes("-"),
   published_at: "2026-11-17T10:00:00Z",
   html_url: `https://github.com/lnmunhoz/cello/releases/tag/${tag}`,
-  assets: ["arm64", "x64"].map((arch) => ({ name: `Cello-${tag}-mac-${arch}.dmg`, browser_download_url: `https://example.test/Cello-${tag}-mac-${arch}.dmg`, size })),
+  assets: ["arm64", "x64"].map((arch) => ({ name: `Cello-${tag}-mac-${arch}.dmg`, browser_download_url: `https://github.com/lnmunhoz/cello/releases/download/${tag}/Cello-${tag}-mac-${arch}.dmg`, size })),
 })
 
 /** A feed answering with `list`, or failing with `error`, changeable between checks. */
@@ -43,7 +43,7 @@ const fakeFeed = (list: unknown[]) => {
 /** A download that writes `size` bytes when `finish` is called, so a test can look at it halfway. */
 const fakeFetchFile = () => {
   const pending: Array<{ url: string; file: string; finish: (error?: Error) => void; progress: (fraction: number) => void }> = []
-  const fetchFile: FetchFile = (url, file, onProgress) =>
+  const fetchFile: FetchFile = (url, file, _size, onProgress) =>
     new Promise<void>((resolve, reject) => {
       pending.push({
         url,
@@ -121,7 +121,7 @@ describe("Updater", () => {
     await t.updater.check()
     expect(t.updater.state).toMatchObject({ status: "downloading", latest: { version: "0.5.1" }, checkedAt: 1_000 })
     expect(t.pending).toHaveLength(1)
-    expect(t.pending[0]!.url).toBe("https://example.test/Cello-v0.5.1-mac-arm64.dmg")
+    expect(t.pending[0]!.url).toBe("https://github.com/lnmunhoz/cello/releases/download/v0.5.1/Cello-v0.5.1-mac-arm64.dmg")
     expect(t.pending[0]!.file).toBe(path.join(t.downloads, "Cello-v0.5.1-mac-arm64.dmg"))
     t.pending[0]!.progress(0.4)
     expect(t.updater.state.progress).toBe(0.4)
@@ -188,6 +188,34 @@ describe("Updater", () => {
     await settled()
     expect(t.updater.state).toMatchObject({ status: "available", error: "Couldn't download 0.5.1: connection reset" })
     expect(fs.readdirSync(t.downloads)).toEqual([])
+  })
+
+  it("a file of the user's own with the DMG's name isn't taken for it, and a failed download leaves it alone", async () => {
+    const t = make()
+    const mine = path.join(t.downloads, "Cello-v0.5.1-mac-arm64.dmg")
+    fs.writeFileSync(mine, "my own file, another size")
+    await t.updater.check()
+    expect(t.updater.state.status).toBe("downloading")
+    t.pending[0]!.finish(new Error("connection reset"))
+    await settled()
+    expect(t.updater.state.status).toBe("available")
+    expect(fs.readFileSync(mine, "utf8")).toBe("my own file, another size")
+  })
+
+  it("when GitHub gives no size, a file already in Downloads isn't taken for the DMG: it downloads", async () => {
+    const t = make({ list: [github("v0.5.1", 0)] })
+    fs.writeFileSync(path.join(t.downloads, "Cello-v0.5.1-mac-arm64.dmg"), "anything")
+    await t.updater.check()
+    expect(t.updater.state.status).toBe("downloading")
+    expect(t.pending).toHaveLength(1)
+  })
+
+  it("a release whose download isn't under the repository on GitHub has no DMG to fetch", async () => {
+    const foreign = { ...github("v0.5.1"), assets: [{ name: "Cello-v0.5.1-mac-arm64.dmg", browser_download_url: "https://evil.example/x.dmg", size: 5 }] }
+    const t = make({ list: [foreign] })
+    await t.updater.check()
+    expect(t.updater.state).toMatchObject({ status: "available", latest: { asset: null } })
+    expect(t.pending).toHaveLength(0)
   })
 
   it("offline: the check fails quietly, and the next one works", async () => {

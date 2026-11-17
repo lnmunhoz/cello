@@ -3,6 +3,8 @@
 // it got (a 304 doesn't count against the limit), and after a rate-limit answer doesn't ask again until
 // GitHub says it may.
 
+import { RELEASE_URL_PREFIX } from "@cello/shared/updates"
+
 /** What the updater reads releases from; the e2e tests serve a fake one (CELLO_UPDATE_FEED). */
 export interface ReleaseFeed {
   /** GitHub's release list as JSON (parsed by `parseReleases`); throws an Error that says why it couldn't. */
@@ -11,8 +13,21 @@ export interface ReleaseFeed {
 
 export const RELEASES_URL = "https://api.github.com/repos/lnmunhoz/cello/releases"
 
-/** The feed's address: GitHub's, or the one CELLO_UPDATE_FEED names (a test server). */
-export const feedUrl = (env: Record<string, string | undefined>): string => env.CELLO_UPDATE_FEED || RELEASES_URL
+/**
+ * Where the app reads releases from, and which addresses it trusts in them (`parseReleases`); null when
+ * it doesn't check. The packaged app always reads GitHub's list and trusts only the repository's
+ * addresses: CELLO_UPDATE_FEED can't point it elsewhere. A dev build (the e2e tests run one) checks only
+ * the test feed CELLO_UPDATE_FEED names, and trusts that feed's own origin for its downloads too.
+ */
+export const feedFor = (
+  env: Record<string, string | undefined>,
+  isPackaged: boolean,
+): { readonly url: string; readonly trusted: ReadonlyArray<string> } | null => {
+  if (isPackaged) return { url: RELEASES_URL, trusted: [RELEASE_URL_PREFIX] }
+  const test = URL.parse(env.CELLO_UPDATE_FEED ?? "")
+  if (!test || (test.protocol !== "http:" && test.protocol !== "https:")) return null
+  return { url: test.href, trusted: [RELEASE_URL_PREFIX, `${test.origin}/`] }
+}
 
 const clock = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 
