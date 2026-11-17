@@ -48,6 +48,40 @@ export const reloadAction = ({ loaded, served, editing, reloadedFor }: ReloadInp
   return "reload"
 }
 
+/** A build as the update notice lists it: what a recorded build (BuildRecord) has, or a web build stands in for one. */
+export interface ListedBuild {
+  /** Its number in the build history; null for a web build that isn't recorded. */
+  readonly number: number | null
+  readonly commit: string | null
+  readonly webBuiltAt: number
+  /** Commit subjects merged since the build before it, newest first. */
+  readonly changes: ReadonlyArray<string>
+}
+
+/**
+ * What reloading brings into a tab that runs `loaded` (CEL-148): every recorded build after it up to
+ * the one the server serves, newest first. Builds are found by when their web app was built, since a
+ * record's commit can be the server's own. `missed` when the loaded build isn't in `history` (never
+ * recorded, or older than the page): then only the served build is listed. Without a record of the
+ * served build (the history not loaded yet, or a server that couldn't record it), its web build's own
+ * list of changes stands in.
+ */
+export const buildsSinceLoaded = <B extends ListedBuild>(input: {
+  readonly loaded: BuildStamp
+  readonly served: BuildStamp & { readonly changes: ReadonlyArray<string> }
+  /** `builds.list`, newest first; null while it loads. */
+  readonly history: ReadonlyArray<B> | null
+}): { readonly builds: ReadonlyArray<B | ListedBuild>; readonly missed: boolean } => {
+  const { loaded, served } = input
+  const history = input.history ?? []
+  const top = history.findIndex((b) => b.webBuiltAt === served.builtAt)
+  if (top === -1) {
+    return { builds: [{ number: null, commit: served.commit, webBuiltAt: served.builtAt, changes: served.changes }], missed: false }
+  }
+  const bottom = history.findIndex((b, i) => i > top && b.webBuiltAt === loaded.builtAt)
+  return bottom === -1 ? { builds: [history[top]!], missed: true } : { builds: history.slice(top, bottom), missed: false }
+}
+
 /** The first 7 characters of a commit, or "dev" for a build made outside a git checkout. */
 export const shortCommit = (commit: string | null): string => (commit ? commit.slice(0, 7) : "dev")
 
