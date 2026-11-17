@@ -124,3 +124,15 @@ test("CEL-50: a server that serves no web app (dev) has no builds: the page says
   await expect(page.locator("[data-builds-empty]")).toContainText("No builds recorded yet")
   await still(page, "builds-page-empty")
 })
+
+test("CEL-140: in a browser the board shows none of Cello.app's update UI: no footer line, no Settings → Updates; /releases points to GitHub", async ({ page }) => {
+  await page.goto("/settings")
+  await caption(page, "Settings in a browser: Builds, but no Updates section (that's the Mac app's)")
+  await expect(page.getByRole("region", { name: "Builds" })).toBeVisible()
+  await expect(page.getByRole("region", { name: "Updates" })).toHaveCount(0)
+  await expect(page.locator("[data-update-footer]")).toHaveCount(0)
+  await page.goto("/releases")
+  await caption(page, "The Releases page in a browser says where releases are")
+  await expect(page.getByText("Releases and updates show in the Cello app for Mac.")).toBeVisible()
+  await expect(page.getByRole("link", { name: "See Cello's releases on GitHub →" })).toHaveAttribute("href", "https://github.com/lnmunhoz/cello/releases")
+})

@@ -134,7 +134,7 @@ describe("preflightProblems", () => {
 describe("releaseSteps", () => {
   const files = ["package.json", "packages/shared/src/version.ts", "apps/desktop/package.json"]
   const titles = (steps: ReturnType<typeof releaseSteps>) => steps.map((s) => `${s.title} [${s.dryRun}]`)
-  const options = { increment: "patch", dryRun: false, deploy: true, localArtifacts: false, desktop: true, help: false }
+  const options = { increment: "patch", dryRun: false, deploy: true, localArtifacts: false, desktop: true, preid: "beta", help: false }
 
   it("lists every step in order; a dry run runs only the checks and prints the rest", () => {
     expect(titles(releaseSteps({ ...options, increment: "minor", dryRun: true }, "0.3.0", files))).toEqual([

@@ -68,9 +68,14 @@ const firstOpened = (app: ElectronApplication) =>
 
 const toastOf = (board: Page, title: string) => board.locator("li", { hasText: title })
 
+/** Waits for the page's CSS transitions to end (a toast fading in, a segmented control's indicator sliding). */
+const settled = (board: Page) => board.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))).then(() => {}))
+
 const themes = async (app: ElectronApplication, board: Page, name: string) => {
+  await settled(board)
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, `${name}-light.png`))
   await board.getByRole("button", { name: "Use dark theme" }).click()
+  await settled(board)
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, `${name}-dark.png`))
   await board.getByRole("button", { name: "Use light theme" }).click()
 }
