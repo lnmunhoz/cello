@@ -63,6 +63,12 @@ export const NOT_WOKEN_TEXT: Record<NotWokenReason, string> = {
   cancelled: "you said don't wake it",
 }
 
+/** How long Cello waits after the human's last action before it wakes a session (WakeConfig, CEL-92). */
+export const WAKE_BATCH_MS = 30_000
+
+/** How far back the cap counts wakes of a task (CEL-92). */
+export const WAKE_CAP_WINDOW_MS = 60 * 60_000
+
 /** What woke it, after "Cello woke …": "(a comment)". */
 export const WAKE_WHY_TEXT: Record<WakeWhy, string> = {
   comment: "a comment",

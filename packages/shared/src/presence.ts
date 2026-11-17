@@ -14,10 +14,18 @@ export const ACTIVE_MS = 5 * 60_000
 export interface SessionLike {
   readonly lastSeenAt: number
   readonly endedAt: number | null
+  /**
+   * A session's latest woken run (CEL-92): while it goes (`endedAt` null) Cello is running the session,
+   * so it's active, even before the run's first check-in (CEL-136).
+   */
+  readonly lastRun?: { readonly endedAt: number | null } | null | undefined
 }
 
-export const presenceOf = (session: SessionLike, now: number): Presence =>
-  session.endedAt !== null ? "ended" : now - session.lastSeenAt <= ACTIVE_MS ? "active" : "idle"
+export const presenceOf = (session: SessionLike, now: number): Presence => {
+  if (session.lastRun != null && session.lastRun.endedAt === null) return "active"
+  if (session.endedAt !== null) return "ended"
+  return now - session.lastSeenAt <= ACTIVE_MS ? "active" : "idle"
+}
 
 /** "just now", "4m ago", "3h ago", "2d ago". */
 export const agoShort = (ts: number, now: number): string => {

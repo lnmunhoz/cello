@@ -5,21 +5,37 @@
 // whether a `cello inbox --wait` of it is open (`waiting`); on a task nobody holds, from the session that
 // last held it, which the comment reopens the task for (reopenOf, CEL-110). Under Lucas's latest comment,
 // until it's answered, a status row says where it stands, like a chat's typing indicator (commentStatus).
+//
+// While Cello wakes the holder's session (CEL-92, CEL-136), the row says so from the board's latest wake
+// of the task: a wake due ("Waking 0ee027f0 in 30 s", counting down, with Wake now), the run starting,
+// or why it won't wake. The comment box says beforehand when a comment will wake it (wakeHintOf).
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import type { Comment, DeliveryVia, Task } from "@cello/contract/entities"
+import type { AgentSession, Comment, DeliveryVia, Task, TaskWake } from "@cello/contract/entities"
+import { NOT_WOKEN_TEXT, RUN_END_TEXT, runLength, WAKE_BATCH_MS, WAKE_CAP_WINDOW_MS } from "@cello/contract/wake"
 import { claimKeepsStatus } from "@cello/shared/claim"
+import { hostOf, WOKEN } from "@cello/shared/origin"
 import { type Presence, presenceOf } from "@cello/shared/presence"
 import { agentOn, agentPresence, agentWho, sessionWho, type Who, whoOf } from "../presence/model.ts"
+import { STALE_WAKE_MS } from "./wakeLine.ts"
 
 /**
  * One of Lucas's comments, as it travels: unsent (no agent held the task, so it went nowhere), sent (in
  * the session's inbox, not taken yet), delivered (the session took it, `after` ms later), answered (the
  * session or a subagent of it commented or reacted after taking it, `after` ms after it was written).
+ * Delivered says where the session took it (CEL-137): "Claude desktop", "Woken by Cello".
  */
 export type Receipt =
   | { readonly state: "unsent" }
   | { readonly state: "sent"; readonly to: Who; readonly sessionId: string }
-  | { readonly state: "delivered"; readonly to: Who; readonly sessionId: string; readonly at: number; readonly after: number; readonly via: DeliveryVia | null }
+  | {
+    readonly state: "delivered"
+    readonly to: Who
+    readonly sessionId: string
+    readonly at: number
+    readonly after: number
+    readonly via: DeliveryVia | null
+    readonly origin: string | null
+  }
   | { readonly state: "answered"; readonly to: Who; readonly by: Who; readonly at: number; readonly after: number; readonly emoji: string | null }
 
 /** "<1s", "12s", "3m", "2h": how long something took. */
@@ -57,7 +73,16 @@ export const receiptOf = (comment: Comment, comments: ReadonlyArray<Comment>, bo
     : null
   if (answer) return { state: "answered", to, ...answer, after: answer.at - comment.createdAt }
   if (readAt === null) return { state: "sent", to, sessionId: delivery.sessionId }
-  return { state: "delivered", to, sessionId: delivery.sessionId, at: readAt, after: readAt - comment.createdAt, via: delivery.via }
+  const origin = takenWhere(board.sessions[delivery.sessionId], readAt)
+  return { state: "delivered", to, sessionId: delivery.sessionId, at: readAt, after: readAt - comment.createdAt, via: delivery.via, origin }
+}
+
+/** Where the session was when it took a comment at `at`: Woken by Cello inside its latest woken run, else where it runs. */
+const takenWhere = (session: AgentSession | undefined, at: number): string | null => {
+  if (!session) return null
+  const run = session.lastRun
+  if (run != null && run.startedAt <= at && (run.endedAt === null || at <= run.endedAt)) return WOKEN.label
+  return hostOf(session)?.label ?? null
 }
 
 /**
@@ -113,6 +138,38 @@ export const reopenOf = (board: BoardState, task: Task): Reopen | null => {
 export const reopenWords = (task: Task, r: Reopen): string =>
   r.reopens ? `Commenting reopens ${task.key} and sends it to ${r.who.name}` : `Commenting gives ${task.key} back to ${r.who.name} and sends it your comment`
 
+/**
+ * A comment that will wake a session (CEL-136): waking is on for the project, and the session it goes to
+ * (the holder, or on a task nobody holds the one it goes back to) has a process Cello knows and that
+ * exited, isn't listening, and isn't being run already. The server makes the same checks, and more
+ * (the cap, its folder), when the comment arrives; this only says it beforehand.
+ */
+export interface WakeHint {
+  readonly who: Who
+  /** How long after the last comment the wake is due. */
+  readonly batchMs: number
+}
+
+export const wakeHintOf = (
+  board: BoardState,
+  task: Task,
+  settings: { readonly enabled: boolean; readonly batchMs?: number | undefined } | null,
+  now: number,
+): WakeHint | null => {
+  if (!settings?.enabled) return null
+  const id = task.assigneeSessionId ?? (reopenOf(board, task) ? (task.lastHolderSessionId ?? null) : null)
+  const session = id === null ? undefined : board.sessions[id]
+  if (!session || session.pid === null || session.waiting === true || presenceOf(session, now) !== "ended") return null
+  // The cap, as far as the board knows: the task's last wake hit it within the hour, so this one would too.
+  const last = board.wakes[task.id]
+  if (last?.state === "not_woken" && last.reason === "cap" && now - last.ts < WAKE_CAP_WINDOW_MS) return null
+  // A server from before CEL-136 doesn't say its wait: it's the default, 30 s.
+  return { who: sessionWho(session), batchMs: settings.batchMs ?? WAKE_BATCH_MS }
+}
+
+/** "Commenting wakes 0ee027f0 (30 s after your last comment)". */
+export const wakeHintWords = (hint: WakeHint): string => `Commenting wakes ${hint.who.short} (${runLength(hint.batchMs)} after your last comment)`
+
 /** ok: it arrives soon, or is being worked on. idle: it waits until the agent works again. warn: nobody will get it. */
 export type ReachTone = "ok" | "idle" | "warn"
 
@@ -160,11 +217,53 @@ export interface CommentStatus {
   readonly text: string
   readonly reach: Reach | null
   readonly mood: StatusMood
+  /** Where Cello's wake of the holder stands, when the row is about it (CEL-136). */
+  readonly wake?: "scheduled" | "starting" | "not_woken" | "ended"
+  /** A wake is due then (CEL-136): the row counts down to it, every second, and offers Wake now. */
+  readonly due?: number
 }
 
 /** The pose for a row that isn't about working on the comment: waiting's while it waits, else still. */
 const restingMood = (reach: Reach | null): StatusMood =>
   reach !== null && reach.kind === "agent" && reach.presence !== "ended" && reach.waiting ? "waiting" : "still"
+
+/**
+ * What Cello is doing about the holder for a comment it hasn't taken (CEL-136), from the task's latest
+ * wake, when that wake is about this comment (its holder, at or after it) and still news; else null.
+ */
+const wakeStatus = (comment: Comment, task: Task, board: BoardState, reach: Reach, now: number): CommentStatus | null => {
+  const wake: TaskWake | undefined = board.wakes[task.id]
+  if (!wake || wake.sessionId !== task.assigneeSessionId || wake.ts < comment.createdAt || reach.kind !== "agent") return null
+  const name = reach.who.short
+  switch (wake.state) {
+    case "scheduled": {
+      if (wake.at === null || now - wake.at > STALE_WAKE_MS) return null
+      const seconds = Math.ceil((wake.at - now) / 1000)
+      const text = seconds > 0 ? `Waking ${name} in ${seconds} s · more comments join this wake` : `Waking ${name}…`
+      return { tone: "ok", text, reach, mood: "still", wake: "scheduled", due: wake.at }
+    }
+    case "running": {
+      // Until it takes the comment: then the usual "got your comment and is working on it".
+      const agent = board.sessions[wake.sessionId]?.clientName ?? "its agent"
+      return { tone: "ok", text: `Waking ${name}… starting ${agent}`, reach, mood: "thinking", wake: "starting" }
+    }
+    case "not_woken": {
+      if (wake.reason === null || wake.reason === "taken") return null
+      // Off is the default: the session ended, as it says without waking, and waking is why nothing comes.
+      if (wake.reason === "disabled") {
+        const plain = reachWords(reach)
+        return { tone: plain.tone, text: `${plain.text} (${NOT_WOKEN_TEXT.disabled})`, reach, mood: "still", wake: "not_woken" }
+      }
+      return { tone: "idle", text: `Not waking ${name}: ${NOT_WOKEN_TEXT[wake.reason]}`, reach, mood: "still", wake: "not_woken" }
+    }
+    case "ended": {
+      const run = wake.run
+      if (!run || run.endedAt === null || run.outcome === "completed") return null
+      const how = `${RUN_END_TEXT[run.outcome]} ${runLength(run.endedAt - run.startedAt)}${run.error ? `: ${run.error}` : ""}`
+      return { tone: run.outcome === "failed" ? "warn" : "idle", text: `${name}'s woken run ${how}`, reach, mood: "still", wake: "ended" }
+    }
+  }
+}
 
 export const commentStatus = (comment: Comment, comments: ReadonlyArray<Comment>, task: Task, board: BoardState, now: number): CommentStatus | null => {
   const r = receiptOf(comment, comments, board)
@@ -178,7 +277,8 @@ export const commentStatus = (comment: Comment, comments: ReadonlyArray<Comment>
         : null
     case "sent":
       // Waiting in a session that let the task go: its tick names that inbox.
-      return r.sessionId === task.assigneeSessionId ? { ...reachWords(reach), reach, mood: restingMood(reach) } : null
+      if (r.sessionId !== task.assigneeSessionId) return null
+      return wakeStatus(comment, task, board, reach, now) ?? { ...reachWords(reach), reach, mood: restingMood(reach) }
     case "delivered": {
       const holder = reach.kind === "agent" && r.sessionId === task.assigneeSessionId ? reach : null
       // A holder waiting in `cello inbox --wait` has ended its turn: it's waiting for Lucas, not working on

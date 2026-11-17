@@ -59,6 +59,8 @@ export class SessionHost extends Context.Service<SessionHost, {
   readonly stop: (runId: string) => Effect.Effect<boolean>
   /** Whether a run of this session is going right now. */
   readonly isRunning: (sessionId: string) => Effect.Effect<boolean>
+  /** The run of this session going right now, as it was recorded when it started; null when none is. */
+  readonly current: (sessionId: string) => Effect.Effect<SessionRun | null>
   /** A session's runs, newest first, with their log files. */
   readonly runs: (sessionId: string) => Effect.Effect<ReadonlyArray<{ readonly run: SessionRun; readonly log: string }>>
   /** A run's log file, when the run exists. */
@@ -296,6 +298,8 @@ const make = Effect.gen(function* () {
 
   const isRunning = (sessionId: string) => Effect.sync(() => active.has(sessionId))
 
+  const current = (sessionId: string) => Effect.sync(() => active.get(sessionId)?.run ?? null)
+
   const runs = Effect.fn("SessionHost.runs")(function* (sessionId: string) {
     const rows = yield* sql<RunRow>`SELECT * FROM session_runs WHERE session_id = ${sessionId} ORDER BY started_at DESC, id DESC`
     return rows.map((r) => ({ run: toRun(r), log: r.log_path }))
@@ -328,7 +332,7 @@ const make = Effect.gen(function* () {
       discard: true,
     }))
 
-  return SessionHost.of({ start, stop, isRunning, runs, logOf })
+  return SessionHost.of({ start, stop, isRunning, current, runs, logOf })
 })
 
 export const layer = Layer.effect(SessionHost, make)

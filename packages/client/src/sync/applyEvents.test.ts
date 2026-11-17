@@ -349,4 +349,22 @@ describe("wakes (CEL-92)", () => {
     // A snapshot from before wakes existed has none.
     expect(fromSnapshot(snapshot([task("t1")])).wakes).toEqual({})
   })
+
+  it("a woken run starting and ending is the session's latest run (CEL-137); a check-in that doesn't say keeps it", () => {
+    const session = {
+      id: "s1", actorId: "claude", externalId: "2fd0505c-1", clientName: "Claude Code", entrypoint: "claude-desktop", cwd: null, pid: 1,
+      startedAt: 1, lastSeenAt: 5, endedAt: 6, lastRun: null,
+    }
+    const state = fromSnapshot({ ...snapshot([task("t1")]), sessions: [session] })
+    const running = applyEvents(state, [at(12, { type: "session.run_started", run })])
+    expect(running.sessions["s1"]?.lastRun).toEqual({ id: "r1", startedAt: 1_000, endedAt: null })
+    // A presence event from the sweep doesn't look at runs: what the board knows stays.
+    const { lastRun: _run, ...unsaid } = session
+    const seen = applyEvents(running, [at(13, { type: "session.seen", session: { ...unsaid, lastSeenAt: 13_000, endedAt: null } })])
+    expect(seen.sessions["s1"]).toMatchObject({ lastSeenAt: 13_000, lastRun: { id: "r1", endedAt: null } })
+    const ended = applyEvents(seen, [at(14, { type: "session.run_ended", run: { ...run, outcome: "completed", endedAt: 14_000 } })])
+    expect(ended.sessions["s1"]?.lastRun).toEqual({ id: "r1", startedAt: 1_000, endedAt: 14_000 })
+    // A run of a session the board doesn't know changes no session.
+    expect(applyEvents(state, [at(12, { type: "session.run_started", run: { ...run, sessionId: "s9" } })]).sessions["s9"]).toBeUndefined()
+  })
 })

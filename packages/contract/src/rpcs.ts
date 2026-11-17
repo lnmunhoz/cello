@@ -103,6 +103,8 @@ export const IDENTITY_HEADERS = {
   cwd: "x-cello-cwd",
   pid: "x-cello-pid",
   entrypoint: "x-cello-entrypoint",
+  /** The terminal app it runs in, from TERM_PROGRAM (CEL-137): `WezTerm`, `iTerm.app`, `vscode`. */
+  terminal: "x-cello-terminal",
   /** The session's subagent making the call (CEL-55): its host id, and what it was launched as. */
   agent: "x-cello-agent",
   agentType: "x-cello-agent-type",
@@ -632,6 +634,7 @@ export const CelloRpcs = RpcGroup.make(
   }),
   // `cello sessions wake <session|KEY-n>`: wakes the session now (for a key, the task's claim holder) with
   // the same checks as a wake one of Lucas's actions starts, minus the 30 s wait. SessionNotWoken says why not.
+  // A wake already due for the task runs now instead, for what Lucas did (the board's Wake now, CEL-136).
   Rpc.make("session.wake", {
     payload: { commandId, session: Schema.optionalKey(Schema.String), key: Schema.optionalKey(Schema.String) },
     success: write(SessionRun),

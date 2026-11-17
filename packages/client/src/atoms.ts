@@ -373,6 +373,12 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     stopRun: command({
       call: (c, a: { runId: string }, commandId) => c["session.stopRun"]({ commandId, ...a }),
     }),
+    // Wake now (CEL-136): the due wake of the task's holder runs at once, through `cello sessions wake`'s
+    // path. When it can't, the card says why (`session.not_woken`), so there's no toast for that.
+    wakeNow: command({
+      call: (c, a: { key: string }, commandId) => c["session.wake"]({ commandId, key: a.key }),
+      quiet: (e) => (e as { _tag?: string })._tag === "SessionNotWoken",
+    }),
     addComment: command({
       call: (c, a: { taskId: string; body: string; attachmentIds?: ReadonlyArray<string> }, commandId) => c["comment.add"]({ commandId, ...a }),
     }),

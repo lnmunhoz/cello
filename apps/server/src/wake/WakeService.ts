@@ -25,13 +25,16 @@
 //     CLI doesn't have, or bypass (never used for a woken run)
 // 11. its folder isn't an absolute folder that exists here; 12. its conversation isn't kept for that
 //     folder or one above it (where the run then starts)
-// A wake that doesn't happen is a `session.not_woken` with the reason, on the card and in the history.
+// A wake that doesn't happen is a `session.not_woken` with the reason, on the card and in the history:
+// when Lucas acts, for a reason that won't change by itself during the wait (SAID_AT_ONCE, CEL-136),
+// else when the wait ends. `cello sessions wake` on a wake that's due runs that wake now.
 import * as fs from "node:fs"
 import * as path from "node:path"
 import type { NotWokenReason, ProjectRef, SessionRun, WakeSettings, WakeWhy } from "@cello/contract/entities"
 import { HumanOnly, Invalid, NotFound, SessionNotWoken } from "@cello/contract/errors"
 import type { CelloEvent } from "@cello/contract/events"
 import { Caller } from "@cello/contract/rpcs"
+import { WAKE_CAP_WINDOW_MS } from "@cello/contract/wake"
 import { formatTaskKey } from "@cello/shared/taskKey"
 import { andList } from "@cello/shared/words"
 import * as Cause from "effect/Cause"
@@ -56,9 +59,6 @@ import { WakeConfig } from "./WakeConfig.ts"
 /** A project's settings until Lucas changes them: off, 3 wakes per task per hour. */
 export const DEFAULT_CAP = 3
 export const MAX_CAP = 20
-
-/** How far back the cap counts. */
-const CAP_WINDOW_MS = 60 * 60_000
 
 /** Which of Lucas's actions wins when several on one task are batched (a Send back also adds its note as a comment). */
 const STRENGTH: Record<WakeWhy, number> = { reaction: 0, comment: 1, answers: 2, send_back: 3, manual: 4 }
@@ -123,11 +123,23 @@ interface TaskRow {
   assignee_session_id: string | null
 }
 
-/** The wakes due for one session: its tasks (oldest action first) and the ones the card was told about. */
+/**
+ * The wakes due for one session: its tasks (oldest action first), the ones the card was told would
+ * wake, and the ones it was told wouldn't, and why (so the wait's end doesn't say it twice).
+ */
 interface Pending {
   readonly tasks: Map<string, WakeWhy>
   readonly announced: Set<string>
+  readonly told: Map<string, NotWokenReason>
 }
+
+/**
+ * Reasons not to wake that the card says as soon as Lucas acts (CEL-136): the session's process is gone,
+ * and nothing will change them by itself during the wait. The others wait for it to end: a session whose
+ * process is open, or that has no pid, usually takes the comment itself, and saying "not woken" for each
+ * comment would only fill the history.
+ */
+const SAID_AT_ONCE: ReadonlySet<NotWokenReason> = new Set(["disabled", "cap", "bypass_mode", "unknown_mode", "no_folder", "no_conversation", "not_installed"])
 
 type Verdict = { readonly kind: "wake" } | { readonly kind: "skip" } | { readonly kind: "not"; readonly reason: NotWokenReason }
 
@@ -202,7 +214,7 @@ const make = Effect.gen(function* () {
   const recentRuns = (taskId: string, now: number) =>
     sql<{ n: number }>`
       SELECT COUNT(*) AS n FROM session_runs
-      WHERE started_at > ${now - CAP_WINDOW_MS}
+      WHERE started_at > ${now - WAKE_CAP_WINDOW_MS}
         AND (task_id = ${taskId} OR EXISTS (SELECT 1 FROM json_each(task_ids) WHERE value = ${taskId}))`.pipe(
       Effect.map((rows) => rows[0]?.n ?? 0),
     )
@@ -275,14 +287,19 @@ const make = Effect.gen(function* () {
       place: placeOf(task),
     })
 
-  /** A session's due wake: the checks again for each task, then one run for the ones that pass. */
-  const fire = (sessionId: string) =>
+  /**
+   * A session's due wake: the checks again for each task, then one run for the ones that pass. Says
+   * the run it started, if any, and why each task that didn't pass wasn't woken (for Wake now).
+   */
+  const fire = (sessionId: string, commandId: string = crypto.randomUUID()) =>
     Effect.gen(function* () {
+      const reasons = new Map<string, NotWokenReason>()
+      const fired = (woken: Commands.Written<SessionRun> | null) => ({ woken, reasons })
       const due = pending.get(sessionId)
       pending.delete(sessionId)
-      if (!due) return
+      if (!due) return fired(null)
       const row = yield* sessionRow(sessionId)
-      if (!row) return
+      if (!row) return fired(null)
       const now = yield* Clock.currentTimeMillis
       const woken: Array<{ task: TaskRow; why: WakeWhy; runnable: Runnable }> = []
       for (const [taskId, why] of due.tasks) {
@@ -291,12 +308,18 @@ const make = Effect.gen(function* () {
         if (!task || task.assignee_session_id !== sessionId) continue
         const { verdict: v, runnable } = yield* verdict(row, task, "fire", now)
         if (v.kind === "wake") woken.push({ task, why, runnable: runnable! })
-        else if (v.kind === "not") yield* tell(row, task, { type: "not", why, reason: v.reason })
-        else if (due.announced.has(taskId)) yield* tell(row, task, { type: "not", why, reason: "taken" })
+        else if (v.kind === "not") {
+          reasons.set(taskId, v.reason)
+          // Said already when Lucas acted: once is enough.
+          if (due.told.get(taskId) !== v.reason) yield* tell(row, task, { type: "not", why, reason: v.reason })
+        } else if (due.announced.has(taskId)) {
+          reasons.set(taskId, "taken")
+          yield* tell(row, task, { type: "not", why, reason: "taken" })
+        }
       }
       const last = woken.at(-1)
-      if (!last) return
-      yield* startRun(crypto.randomUUID(), last.runnable, last.task, woken.map((w) => w.task), last.why)
+      if (!last) return fired(null)
+      return fired(yield* startRun(commandId, last.runnable, last.task, woken.map((w) => w.task), last.why))
     })
 
   const noteAction = (taskId: string, why: WakeWhy) =>
@@ -308,7 +331,7 @@ const make = Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis
       const { verdict: v } = yield* verdict(row, task, "action", now)
       if (v.kind === "skip") return
-      const due: Pending = pending.get(row.id) ?? { tasks: new Map(), announced: new Set() }
+      const due: Pending = pending.get(row.id) ?? { tasks: new Map(), announced: new Set(), told: new Map() }
       const before = due.tasks.get(taskId)
       // Latest last, so the run's task is the one Lucas acted on most recently.
       due.tasks.delete(taskId)
@@ -318,7 +341,12 @@ const make = Effect.gen(function* () {
       const at = Math.max(now + Duration.toMillis(config.batch), row.last_seen_at + Duration.toMillis(config.quiet))
       if (v.kind === "wake") {
         due.announced.add(taskId)
+        due.told.delete(taskId)
         yield* tell(row, task, { type: "scheduled", why: due.tasks.get(taskId)!, at })
+      } else if (SAID_AT_ONCE.has(v.reason) && due.told.get(taskId) !== v.reason) {
+        // Why not, right away (CEL-136); the wait still runs, so a change in the meantime (waking turned on) counts.
+        due.told.set(taskId, v.reason)
+        yield* tell(row, task, { type: "not", why: due.tasks.get(taskId)!, reason: v.reason })
       }
       yield* FiberMap.run(timers, row.id, Effect.sleep(Duration.millis(at - now)).pipe(Effect.andThen(decide(fire(row.id)))))
     }).pipe(decide, Effect.withSpan("WakeService.noteAction"))
@@ -368,6 +396,20 @@ const make = Effect.gen(function* () {
       return yield* new Invalid({ field: "session", reason: "name a session or a task key" })
     }
     const outcome = yield* decide(Effect.gen(function* () {
+      // Cello is running it already: Wake now came a moment after the wait ran it (CEL-136). That run is
+      // the answer, and the card, which shows it, isn't told otherwise.
+      const going = yield* host.current(row.id)
+      if (going !== null) return { kind: "woken" as const, written: { result: going, seq: null } }
+      // A wake that's due for it (the board's Wake now, CEL-136) runs now, as it would when its wait is
+      // up: for what Lucas did, with every task batched in it. When it doesn't run, that's the answer,
+      // never a manual wake instead: a session that took the comment itself has nothing to wake for.
+      const due = pending.get(row.id)
+      if (due !== undefined && (input.key === undefined || due.tasks.has(task.id))) {
+        yield* FiberMap.remove(timers, row.id)
+        const fired = yield* fire(row.id, input.commandId)
+        if (fired.woken !== null) return { kind: "woken" as const, written: fired.woken }
+        return { kind: "not" as const, reason: fired.reasons.get(task.id) ?? fired.reasons.values().next().value ?? ("taken" as const) }
+      }
       const now = yield* Clock.currentTimeMillis
       const { verdict: v, runnable } = yield* verdict(row, task, "manual", now)
       if (v.kind !== "wake") {
@@ -415,7 +457,14 @@ const make = Effect.gen(function* () {
       const row = yield* settingsRow(projectId)
       const env = yield* config.env
       const agents = yield* Effect.forEach(registry.drivers, (d) => Effect.map(d.installed(env), (installed) => ({ kind: d.kind, name: d.name, installed })))
-      return { projectId, enabled: row.enabled, capPerHour: row.capPerHour, apiKeySet: Boolean(env.ANTHROPIC_API_KEY), agents }
+      return {
+        projectId,
+        enabled: row.enabled,
+        capPerHour: row.capPerHour,
+        batchMs: Duration.toMillis(config.batch),
+        apiKeySet: Boolean(env.ANTHROPIC_API_KEY),
+        agents,
+      }
     })
 
   const settings = Effect.fn("WakeService.settings")(function* (ref: ProjectRef) {

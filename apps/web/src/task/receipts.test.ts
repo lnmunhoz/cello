@@ -1,8 +1,22 @@
 // CEL-76: delivery receipts on Lucas's comments, and who gets the next one.
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import type { AgentSession, Comment, Reaction, SessionAgent, Task } from "@cello/contract/entities"
+import type { AgentSession, Comment, Reaction, SessionAgent, Task, TaskWake } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { commentStatus, durationShort, reachOf, reachWords, receiptOf, receiptTitle, reopenOf, reopenWords, sentWords, statusCommentId, unsentTone } from "./receipts.ts"
+import {
+  commentStatus,
+  durationShort,
+  reachOf,
+  reachWords,
+  receiptOf,
+  receiptTitle,
+  reopenOf,
+  reopenWords,
+  sentWords,
+  statusCommentId,
+  unsentTone,
+  wakeHintOf,
+  wakeHintWords,
+} from "./receipts.ts"
 
 const MIN = 60_000
 const now = Date.UTC(2026, 10, 16, 12)
@@ -79,6 +93,17 @@ describe("receiptOf", () => {
     const delivered = receiptOf(taken, [taken], state)!
     expect(delivered).toMatchObject({ state: "delivered", to: { short: "s1" }, after: 12_000, via: "hook" })
     expect(receiptTitle(delivered)).toBe("Claude Code session s1 took it 12s after you sent it, through its hook")
+  })
+
+  it("delivered says where the session took it (CEL-137): where it runs, or Woken by Cello when a woken run took it", () => {
+    const taken = comment("c", now - MIN, sentTo("s1", now - MIN + 12_000, "inbox"))
+    expect(receiptOf(taken, [taken], board([task()], [session("s1", { entrypoint: "claude-desktop" })]))).toMatchObject({ origin: "Claude desktop" })
+    const run = { id: "r1", startedAt: now - MIN + 5_000, endedAt: now - MIN + 40_000 }
+    expect(receiptOf(taken, [taken], board([task()], [session("s1", { entrypoint: "claude-desktop", lastRun: run })]))).toMatchObject({ origin: "Woken by Cello" })
+    // A run before it took the comment, or after, doesn't count.
+    const later = { id: "r2", startedAt: now - MIN + 20_000, endedAt: null }
+    expect(receiptOf(taken, [taken], board([task()], [session("s1", { entrypoint: "cli", terminal: "WezTerm", lastRun: later })]))).toMatchObject({ origin: "Terminal · WezTerm" })
+    expect(receiptOf(taken, [taken], board([task()], [session("s1", { entrypoint: null })]))).toMatchObject({ origin: null })
   })
 
   it("answered once the session or one of its subagents comments after taking it", () => {
@@ -279,6 +304,114 @@ describe("commentStatus: what the row under Lucas's latest comment says", () => 
   it("an agent's comment has no row", () => {
     const own = comment("c", now - MIN, { actorId: "claude", sessionId: "s1" })
     expect(status(own, active)).toBeNull()
+  })
+})
+
+// CEL-136: when Cello wakes the session, the row says so right away: a wake due (with a countdown and
+// Wake now), the run starting, then the usual delivered and working; or why it won't wake.
+describe("commentStatus while Cello wakes the session (CEL-136)", () => {
+  const ended = session("0ee027f0-aaaa", { endedAt: now - 10 * MIN, lastSeenAt: now - 20 * MIN })
+  const held = task({ assigneeSessionId: "0ee027f0-aaaa" })
+  const sent = comment("c", now - 2_000, sentTo("0ee027f0-aaaa"))
+  const wake = (extra: Partial<TaskWake>): TaskWake => ({
+    taskId: "t1", sessionId: "0ee027f0-aaaa", state: "scheduled", why: "comment", ts: now - 1_000, at: now + 29_000, reason: null, run: null, ...extra,
+  })
+  const run = { id: "r1", sessionId: "0ee027f0-aaaa", taskId: "t1", why: "comment" as const, agentKind: "claude-code", mode: "auto", celloMode: "auto" as const, pid: 7, startedAt: now - 1_000, endedAt: null, exitCode: null, outcome: "running" as const, error: null }
+  const state = (w: TaskWake | null, s: AgentSession = ended): BoardState => ({ ...board([held], [s]), wakes: w ? { t1: w } : {} })
+  const status = (c: Comment, b: BoardState, at = now) => commentStatus(c, [c], held, b, at)
+
+  it("a wake due: waking it in so many seconds, counting down to when it's due, with Wake now", () => {
+    expect(status(sent, state(wake({})))).toEqual({
+      tone: "ok",
+      text: "Waking 0ee027f0 in 29 s · more comments join this wake",
+      reach: expect.objectContaining({ kind: "agent", presence: "ended" }),
+      mood: "still",
+      wake: "scheduled",
+      due: now + 29_000,
+    })
+    expect(status(sent, state(wake({})), now + 20_500)?.text).toBe("Waking 0ee027f0 in 9 s · more comments join this wake")
+    // Due, and the run about to start.
+    expect(status(sent, state(wake({})), now + 29_000)).toMatchObject({ text: "Waking 0ee027f0…", due: now + 29_000 })
+    // Long past due and nothing happened (another task's run took it): back to the plain words.
+    expect(status(sent, state(wake({})), now + 5 * MIN)).toMatchObject({ text: "0ee027f0 ended: it gets this if the session is resumed" })
+  })
+
+  it("the run started: waking it, starting its agent, the mark at work; then the usual words once it took the comment", () => {
+    const running = { ...ended, lastRun: { id: "r1", startedAt: now - 1_000, endedAt: null } }
+    const start = wake({ state: "running", run, at: null })
+    expect(status(sent, state(start, running))).toEqual({
+      tone: "ok",
+      text: "Waking 0ee027f0… starting Claude Code",
+      reach: expect.objectContaining({ kind: "agent", presence: "active" }),
+      mood: "thinking",
+      wake: "starting",
+    })
+    const taken = comment("c", now - 2_000, sentTo("0ee027f0-aaaa", now - 500, "inbox"))
+    expect(status(taken, state(start, running))).toMatchObject({ text: "0ee027f0 got your comment and is working on it…", mood: "thinking" })
+  })
+
+  it("not woken: why, right away", () => {
+    expect(status(sent, state(wake({ state: "not_woken", at: null, reason: "cap" })))).toMatchObject({
+      tone: "idle",
+      text: "Not waking 0ee027f0: the limit of wakes for this task in the last hour is reached: open the chat to continue",
+      mood: "still",
+    })
+    expect(status(sent, state(wake({ state: "not_woken", at: null, reason: "cancelled" })))?.text).toBe("Not waking 0ee027f0: you said don't wake it")
+    // Off (the default): it ended, and says waking is off.
+    expect(status(sent, state(wake({ state: "not_woken", at: null, reason: "disabled" })))?.text).toBe(
+      "0ee027f0 ended: it gets this if the session is resumed (waking is off for this project)",
+    )
+  })
+
+  it("a woken run that ended before taking it says how it ended; a failure warns", () => {
+    const failed = wake({ state: "ended", at: null, run: { ...run, endedAt: now, outcome: "failed", error: "claude exited 1" } })
+    expect(status(sent, state(failed))).toMatchObject({ tone: "warn", text: "0ee027f0's woken run failed after 1 s: claude exited 1" })
+  })
+
+  it("only a wake about this comment counts: one from before it, or of another session, leaves the usual words", () => {
+    expect(status(sent, state(wake({ ts: now - 5_000, state: "not_woken", at: null, reason: "cap" })))?.text).toBe("0ee027f0 ended: it gets this if the session is resumed")
+    expect(status(sent, state(wake({ sessionId: "other" })))?.text).toBe("0ee027f0 ended: it gets this if the session is resumed")
+  })
+})
+
+describe("wakeHintOf: the comment box says beforehand that a comment wakes the session (CEL-136)", () => {
+  const ended = session("0ee027f0-aaaa", { endedAt: now - 10 * MIN })
+  const held = task({ assigneeSessionId: "0ee027f0-aaaa" })
+  const on = { enabled: true, batchMs: 30_000 }
+
+  it("waking on, the holder's process gone: who it wakes and how long after the last comment", () => {
+    const hint = wakeHintOf(board([held], [ended]), held, on, now)
+    expect(hint).toMatchObject({ who: { short: "0ee027f0" }, batchMs: 30_000 })
+    expect(wakeHintWords(hint!)).toBe("Commenting wakes 0ee027f0 (30 s after your last comment)")
+  })
+
+  it("nothing when waking is off or unknown, the holder is running or listening, Cello is running it, it has no pid, or nobody holds it", () => {
+    expect(wakeHintOf(board([held], [ended]), held, { ...on, enabled: false }, now)).toBeNull()
+    expect(wakeHintOf(board([held], [ended]), held, null, now)).toBeNull()
+    expect(wakeHintOf(board([held], [session("0ee027f0-aaaa")]), held, on, now)).toBeNull()
+    expect(wakeHintOf(board([held], [{ ...ended, waiting: true }]), held, on, now)).toBeNull()
+    expect(wakeHintOf(board([held], [{ ...ended, lastRun: { id: "r", startedAt: now - MIN, endedAt: null } }]), held, on, now)).toBeNull()
+    expect(wakeHintOf(board([held], [{ ...ended, pid: null }]), held, on, now)).toBeNull()
+    const free = task({ assigneeActorId: null, assigneeSessionId: null })
+    expect(wakeHintOf(board([free], [ended]), free, on, now)).toBeNull()
+  })
+
+  it("an older server's settings without the wait: 30 s", () => {
+    expect(wakeHintWords(wakeHintOf(board([held], [ended]), held, { enabled: true }, now)!)).toBe("Commenting wakes 0ee027f0 (30 s after your last comment)")
+  })
+
+  it("nothing while the task's last wake hit the cap within the hour: the next comment wouldn't wake it either", () => {
+    const capped = (ts: number): BoardState => ({
+      ...board([held], [ended]),
+      wakes: { t1: { taskId: "t1", sessionId: "0ee027f0-aaaa", state: "not_woken", why: "comment", ts, at: null, reason: "cap", run: null } },
+    })
+    expect(wakeHintOf(capped(now - 10 * MIN), held, on, now)).toBeNull()
+    expect(wakeHintOf(capped(now - 61 * MIN), held, on, now)).not.toBeNull()
+  })
+
+  it("on a task nobody holds, the session the comment goes back to (CEL-110)", () => {
+    const free = task({ assigneeActorId: null, assigneeSessionId: null, lastHolderSessionId: "0ee027f0-aaaa" })
+    expect(wakeHintOf(board([free], [ended]), free, on, now)).toMatchObject({ who: { short: "0ee027f0" } })
   })
 })
 

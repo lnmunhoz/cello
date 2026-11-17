@@ -26,7 +26,8 @@ describe("migration 0025_agent_activity", () => {
       const agents = yield* sql`SELECT * FROM session_agents ORDER BY agent_id`
 
       yield* Migrations.run
-      const strip = ({ background_json, tests_json, waiting_json, ...rest }: Record<string, unknown>) => rest
+      // 0026 (CEL-137) adds the session's terminal app after it.
+      const strip = ({ background_json, tests_json, waiting_json, terminal, ...rest }: Record<string, unknown>) => rest
       const sessionsAfter = yield* sql<Record<string, unknown>>`SELECT * FROM agent_sessions ORDER BY id`
       const agentsAfter = yield* sql<Record<string, unknown>>`SELECT * FROM session_agents ORDER BY agent_id`
       expect(sessionsAfter.map(strip)).toEqual(sessions)

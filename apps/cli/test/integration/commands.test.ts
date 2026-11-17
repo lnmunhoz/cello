@@ -150,7 +150,7 @@ describe("cello commands against a real server", () => {
       yield* agent("task", "claim", `${key}-1`)
       const text = (yield* agent("context")).out
       expect(text).toContain(`Project   ${key} · Cello · ${repo}`)
-      expect(text).toContain(`You       Claude Code session ${short}`)
+      expect(text).toContain(`You       Claude Code session ${short} (Terminal)`)
       expect(text).toContain("Statuses  Todo · In Progress · Needs input · In Review · Done")
       expect(text).toContain("Labels    cli")
       expect(text).toContain(`Claimed by you\n  ${key}-1  In Progress  Write the CLI`)

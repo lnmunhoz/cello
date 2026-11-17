@@ -343,6 +343,27 @@ describe("WakeService: reasons not to wake", () => {
         expect((yield* wakeEvents(task.id)).map(([type]) => type)).toEqual(["session.not_woken"])
       })))
 
+  it.effect("a reason that won't change by itself (off, the cap, its folder…) is on the card at once, when Lucas acts, and once per batch (CEL-136)", () =>
+    run((fake) =>
+      Effect.gen(function* () {
+        const { task, comment } = yield* setup({ enable: false })
+        yield* comment()
+        expect(yield* wakeEvents(task.id)).toEqual([["session.not_woken", "disabled"]])
+        yield* comment("and another")
+        yield* TestClock.adjust("2 minutes")
+        expect(yield* wakeEvents(task.id)).toEqual([["session.not_woken", "disabled"]])
+        expect(yield* Queue.size(fake.turns)).toBe(0)
+      })))
+
+  it.effect("its process still open isn't said at once: the comment reaches it with its next hook (CEL-136)", () =>
+    run((_fake, world) =>
+      Effect.gen(function* () {
+        world.alive.add(PID)
+        const { task, comment } = yield* setup()
+        yield* comment()
+        expect(yield* wakeEvents(task.id)).toEqual([])
+      })))
+
   it.effect("its process is still open", () =>
     run((fake, world) =>
       Effect.gen(function* () {
@@ -474,6 +495,66 @@ describe("WakeService.wakeNow (`cello sessions wake`)", () => {
         expect((yield* Effect.flip(wake.wakeNow({ commandId: cmd(), session: "zzzzzz" })))._tag).toBe("NotFound")
       })))
 
+  it.effect("on a wake that's due (the board's Wake now, CEL-136): it runs that wake at once, for what Lucas did, and nothing runs again when the wait is up", () =>
+    run((fake) =>
+      Effect.gen(function* () {
+        const { wake, task, comment } = yield* setup()
+        yield* comment()
+        yield* TestClock.adjust("5 seconds")
+        const { result } = yield* wake.wakeNow({ commandId: cmd(), key: "CEL-1" })
+        expect(result).toMatchObject({ taskId: task.id, why: "comment", outcome: "running" })
+        const turn = yield* Queue.take(fake.turns)
+        expect(turn.prompt).toBe(wakePrompt({ human: "Lucas", keys: ["CEL-1"], manual: false }))
+        yield* TestClock.adjust("2 minutes")
+        expect(yield* Queue.size(fake.turns)).toBe(0)
+        expect((yield* wakeEvents(task.id)).map(([type]) => type)).toEqual(["session.wake_scheduled", "session.run_started"])
+      })))
+
+  it.effect("Wake now just after the wait ran it (it lost the race to the timer): the run that's going, and nothing on the card says otherwise", () =>
+    run((fake) =>
+      Effect.gen(function* () {
+        const { wake, task, comment } = yield* setup()
+        yield* comment()
+        yield* TestClock.adjust("30 seconds")
+        yield* Queue.take(fake.turns)
+        const before = yield* wakeEvents(task.id)
+        expect(before.map(([type]) => type)).toEqual(["session.wake_scheduled", "session.run_started"])
+        const { result } = yield* wake.wakeNow({ commandId: cmd(), key: "CEL-1" })
+        expect(result).toMatchObject({ taskId: task.id, why: "comment", outcome: "running" })
+        expect(yield* wakeEvents(task.id)).toEqual(before)
+        expect(yield* Queue.size(fake.turns)).toBe(0)
+      })))
+
+  it.effect("Wake now on a due wake the session made moot (it took the comment itself): SessionNotWoken, taken, and no manual run instead", () =>
+    run((fake, world) =>
+      Effect.gen(function* () {
+        // Its process is open when Lucas comments, so nothing is announced; it takes the comment, then exits.
+        world.alive.add(PID)
+        const { wake, task, comment } = yield* setup()
+        yield* comment()
+        yield* Effect.asVoid((yield* InboxService.InboxService).take({ via: "hook" })).pipe(asAgent(agent))
+        world.alive.delete(PID)
+        const failed = yield* Effect.flip(wake.wakeNow({ commandId: cmd(), key: "CEL-1" }))
+        expect(failed).toMatchObject({ _tag: "SessionNotWoken", reason: "taken" })
+        expect(yield* wakeEvents(task.id)).toEqual([])
+        yield* TestClock.adjust("2 minutes")
+        expect(yield* Queue.size(fake.turns)).toBe(0)
+      })))
+
+  it.effect("on a wake that's due but can't happen now: SessionNotWoken with the reason, on the card too, and the wake is off", () =>
+    run((fake, world) =>
+      Effect.gen(function* () {
+        const { wake, task, comment } = yield* setup()
+        yield* comment()
+        world.alive.add(PID)
+        const failed = yield* Effect.flip(wake.wakeNow({ commandId: cmd(), key: "CEL-1" }))
+        expect(failed).toMatchObject({ _tag: "SessionNotWoken", reason: "process_alive" })
+        expect((yield* wakeEvents(task.id)).at(-1)).toEqual(["session.not_woken", "process_alive"])
+        world.alive.delete(PID)
+        yield* TestClock.adjust("2 minutes")
+        expect(yield* Queue.size(fake.turns)).toBe(0)
+      })))
+
   it.effect("a retried command hands back its run and starts nothing again", () =>
     run((fake) =>
       Effect.gen(function* () {
@@ -500,6 +581,7 @@ describe("WakeService settings", () => {
           projectId: project.id,
           enabled: false,
           capPerHour: 3,
+          batchMs: 30_000,
           apiKeySet: true,
           agents: [{ kind: "claude-code", name: "Fake agent", installed: true }],
         })

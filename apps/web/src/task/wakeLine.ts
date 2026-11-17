@@ -1,6 +1,6 @@
 // The task panel's wake line (CEL-92), under Working on it: what Cello is doing about the claim
-// holder's session when Lucas acts on the task while nothing of it runs. Before (a wake is due, with
-// Don't wake), during (a woken run, with Stop and Log), after (how it ended, with Log), or not woken and
+// holder's session when Lucas acts on the task while nothing of it runs. Before (a wake is due, counting
+// down, with Wake now and Don't wake), during (a woken run, with Stop and Log), after (how it ended, with Log), or not woken and
 // why. It reads the board's latest wake of the task (`wakes`), and goes once the session comes back by
 // itself, or another session holds the claim.
 import type { BoardState } from "@cello/client/sync/applyEvents"
@@ -18,7 +18,7 @@ export type WakeLine =
 const CAME_BACK_MS = 5_000
 
 /** A due wake this far past its time and still not run or called off is stale (another task's run took it). */
-const STALE_MS = 60_000
+export const STALE_WAKE_MS = 60_000
 
 export const wakeLine = (task: Pick<Task, "id" | "assigneeSessionId">, board: Pick<BoardState, "sessions" | "wakes">, now: number): WakeLine | null => {
   const wake = board.wakes[task.id]
@@ -28,8 +28,11 @@ export const wakeLine = (task: Pick<Task, "id" | "assigneeSessionId">, board: Pi
   const cameBack = (since: number) => session !== undefined && session.lastSeenAt > since + CAME_BACK_MS
   switch (wake.state) {
     case "scheduled": {
-      if (wake.at === null || now - wake.at > STALE_MS) return null
-      return { kind: "scheduled", text: `Session ${short} isn't running. Cello will wake it in ${Math.round((wake.at - wake.ts) / 1000)} s`, at: wake.at }
+      if (wake.at === null || now - wake.at > STALE_WAKE_MS) return null
+      // Counting down to when it's due (CEL-136): the row ticks each second while it's pending.
+      const seconds = Math.ceil((wake.at - now) / 1000)
+      const when = seconds > 0 ? `Cello will wake it in ${seconds} s` : "Cello is waking it…"
+      return { kind: "scheduled", text: `Session ${short} isn't running. ${when}`, at: wake.at }
     }
     case "running":
       return wake.run ? { kind: "running", text: "Woken by Cello · running", runId: wake.run.id } : null

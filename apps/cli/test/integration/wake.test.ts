@@ -3,7 +3,8 @@
 // Session X claimed CEL-1 (its permission mode reported by the hook) and its process is gone; Lucas
 // comments; the server runs the stub once, in the repo folder, in X's mode, with CELLO_WOKEN=1; the
 // stub takes the comment and answers on the card as X. `cello sessions runs` lists the run and its log,
-// and `cello sessions wake` refuses with the reason once waking is off. The real `claude` never runs.
+// and `cello sessions wake` refuses with the reason once waking is off. While the run goes, `cello agents`
+// says it was woken by Cello; after, where it was started (CEL-137). The real `claude` never runs.
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { newCommandId } from "@cello/client/client"
@@ -28,8 +29,11 @@ for a in "$@"; do printf 'arg=%s\\n' "$a" >> "$rec"; done
 session=""; prev=""
 for a in "$@"; do [ "$prev" = "--resume" ] && session="$a"; prev="$a"; done
 export CLAUDE_CODE_SESSION_ID="$session"
+# What a headless claude -p sets: the woken run mustn't make the session look started here (CEL-137).
+export CLAUDE_CODE_ENTRYPOINT=sdk-cli TERM_PROGRAM=tmux
 echo '{"type":"system","subtype":"init"}'
 bun "$CELLO_BIN" inbox --new >> "$rec" 2>&1
+bun "$CELLO_BIN" agents >> "$rec" 2>&1
 bun "$CELLO_BIN" task comment CEL-1 "Done: switched the icon" >> "$rec" 2>&1
 echo '{"type":"result","subtype":"success","is_error":false}'
 `
@@ -65,7 +69,8 @@ const setup = Effect.gen(function* () {
   const workspaceId = (yield* human["snapshot.get"]({})).workspaces[0]!.id
   yield* human["project.create"]({ commandId: newCommandId(), workspaceId, name: "App", key: "CEL", repoPath: repo })
   const pid = String(yield* deadPid)
-  const x = cello({ port, env: { CLAUDE_CODE_SESSION_ID: X, CLAUDE_PID: pid, TMPDIR: tmp }, cwd: repo })
+  // X was started in a terminal, WezTerm (CEL-137).
+  const x = cello({ port, env: { CLAUDE_CODE_SESSION_ID: X, CLAUDE_PID: pid, CLAUDE_CODE_ENTRYPOINT: "cli", TERM_PROGRAM: "WezTerm", TMPDIR: tmp }, cwd: repo })
   yield* x("task", "create", "Use the other icon")
   yield* x("task", "claim", "CEL-1")
   // X's hook reports its permission mode, as Claude Code's hooks do on every event.
@@ -82,7 +87,7 @@ const setup = Effect.gen(function* () {
 describe("waking a session (CEL-92)", () => {
   it.live("Lucas's comment on a task whose session is gone runs the session's CLI once, which takes the comment and answers on the card", () =>
     Effect.gen(function* () {
-      const { human, workspaceId, record, repo, me, dataDir } = yield* setup
+      const { human, workspaceId, record, repo, me, dataDir, x } = yield* setup
       yield* human["wake.setSettings"]({ commandId: newCommandId(), project: { key: "CEL" }, enabled: true })
       const scope = { workspaceId }
       const from = (yield* human["snapshot.get"]({ scope })).seq
@@ -106,6 +111,11 @@ describe("waking a session (CEL-92)", () => {
       expect(lines).toContain("woken=1")
       // The stub took Lucas's comment through `cello inbox`, like a session.
       expect(lines.join("\n")).toContain("Please use the other icon")
+      // While its run went, `cello agents` said Cello woke it, and it counted as working (CEL-136, CEL-137).
+      expect(lines).toContainEqual(expect.stringMatching(/^ {2}Claude Code session c14ca1fa +session +active now +Woken by Cello +holds CEL-1$/))
+      // Once it ended, the session is where it was started again, and says when Cello last woke it.
+      expect((yield* me("agents")).out).toMatch(/Claude Code session c14ca1fa +session +active now +Terminal · WezTerm · last woken by Cello just now +holds CEL-1/)
+      expect((yield* x("context")).out).toContain("You       Claude Code session c14ca1fa (Terminal · WezTerm · last woken by Cello just now)")
 
       // Its answer is on the card, from X.
       const card = yield* me("task", "get", "CEL-1")

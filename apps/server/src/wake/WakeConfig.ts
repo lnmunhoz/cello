@@ -1,6 +1,7 @@
 // What waking sessions (CEL-92) needs from outside: where run logs go, the environment woken runs get,
 // and the waits. server.ts makes it from its options (the data folder, its port once bound); tests
 // shorten the waits or use the test clock, and replace the process check.
+import { WAKE_BATCH_MS } from "@cello/contract/wake"
 import * as Context from "effect/Context"
 import * as Duration from "effect/Duration"
 import type * as Effect from "effect/Effect"
@@ -8,7 +9,7 @@ import * as Layer from "effect/Layer"
 import { isAlive } from "../process/isAlive.ts"
 
 /** Cello waits this long after Lucas's last action before waking, so quick comments make one wake. */
-export const BATCH = Duration.seconds(30)
+export const BATCH = Duration.millis(WAKE_BATCH_MS)
 
 /** A session that checked in this recently isn't woken: its process may only now be going away. */
 export const QUIET = Duration.minutes(2)

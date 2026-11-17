@@ -28,6 +28,8 @@ export interface Identity {
   readonly pid?: number | undefined
   readonly cwd?: string | undefined
   readonly entrypoint?: string | undefined
+  /** The terminal app it runs in, from TERM_PROGRAM (CEL-137); kept until it reports another. */
+  readonly terminal?: string | undefined
   /** The session's subagent making the call (CEL-55): its host id, and what it was launched as. */
   readonly agent?: string | undefined
   readonly agentType?: string | undefined
@@ -197,7 +199,15 @@ interface SessionRow {
   orchestrating?: number
   /** CEL-134; left out by selects that don't need it. */
   tests_json?: string | null
+  /** CEL-137. */
+  terminal?: string | null
 }
+
+/** A session's latest woken run (CEL-137), as boards get it. */
+type LastRun = NonNullable<AgentSession["lastRun"]>
+
+/** Longest terminal app name kept: TERM_PROGRAM values are short; anything longer is cut, never refused. */
+const MAX_TERMINAL = 64
 
 export const toSession = (r: SessionRow): AgentSession => ({
   id: r.id,
@@ -217,6 +227,7 @@ export const toSession = (r: SessionRow): AgentSession => ({
   effort: r.effort ?? null,
   orchestrating: r.orchestrating === 1,
   tests: testsOf(r.tests_json),
+  terminal: r.terminal ?? null,
 })
 
 /** Client name for sessions that don't say which client they are. */
@@ -248,6 +259,7 @@ const make = Effect.gen(function* () {
     const client = identity.client?.trim() || UNKNOWN_CLIENT
     const agentId = cleanAgentText(identity.agent)
     const mode = cleanAgentText(identity.permissionMode)
+    const terminal = cleanAgentText(identity.terminal)?.slice(0, MAX_TERMINAL) ?? null
     const kind = AGENT_KINDS[client] ?? null
     const log: LogReport = { transcript: cleanTranscript(identity.transcript), step: cleanStep(identity.step) }
     // A subagent's call reports the subagent's log (CEL-106), never the session's.
@@ -257,14 +269,20 @@ const make = Effect.gen(function* () {
       const stepAt = own.step === null ? null : now
       // The raw identity, without the log report (CEL-106): the step can hold a key and is kept only
       // masked (current_step), and the transcript has its own column.
-      const { step: _step, transcript: _transcript, ...kept } = identity
-      const raw = JSON.stringify(kept)
+      // The terminal app as it's kept (CEL-137): cleaned and capped, here too.
+      const { step: _step, transcript: _transcript, terminal: _terminal, ...kept } = identity
+      const raw = JSON.stringify(terminal === null ? kept : { ...kept, terminal })
       const existing = yield* sql<{ id: string; actor_id: string }>`
         SELECT id, actor_id FROM agent_sessions WHERE external_id = ${external}`
       let caller: { actorId: string; sessionId: string }
       if (existing[0]) {
+        // While Cello runs it (a woken run), its calls don't say where it runs: it keeps where it was
+        // started (CEL-137). The CLI leaves both out under CELLO_WOKEN=1; this is the server's own guard.
+        const woken = sql`EXISTS (SELECT 1 FROM session_runs WHERE session_id = ${existing[0].id} AND ended_at IS NULL)`
         yield* sql`UPDATE agent_sessions SET last_seen_at = ${now}, ended_at = NULL, pid = COALESCE(${identity.pid ?? null}, pid),
-            cwd = COALESCE(${identity.cwd ?? null}, cwd), entrypoint = COALESCE(${identity.entrypoint ?? null}, entrypoint),
+            cwd = COALESCE(${identity.cwd ?? null}, cwd),
+            entrypoint = CASE WHEN ${woken} THEN entrypoint ELSE COALESCE(${identity.entrypoint ?? null}, entrypoint) END,
+            terminal = CASE WHEN ${woken} THEN terminal ELSE COALESCE(${terminal}, terminal) END,
             permission_mode = COALESCE(${mode}, permission_mode), agent_kind = COALESCE(agent_kind, ${kind}),
             transcript_path = COALESCE(${own.transcript}, transcript_path), current_step = COALESCE(${own.step}, current_step),
             current_step_at = COALESCE(${stepAt}, current_step_at),
@@ -274,10 +292,10 @@ const make = Effect.gen(function* () {
       } else {
         const actorId = yield* actorFor(client, external, now)
         const id = newId(now)
-        yield* sql`INSERT INTO agent_sessions (id, actor_id, external_id, client_name, entrypoint, cwd, project_id, pid,
+        yield* sql`INSERT INTO agent_sessions (id, actor_id, external_id, client_name, entrypoint, terminal, cwd, project_id, pid,
                                                permission_mode, agent_kind, transcript_path, current_step, current_step_at,
                                                identity_json, started_at, last_seen_at, created_at)
-          VALUES (${id}, ${actorId}, ${external}, ${client}, ${identity.entrypoint ?? null}, ${identity.cwd ?? null}, NULL,
+          VALUES (${id}, ${actorId}, ${external}, ${client}, ${identity.entrypoint ?? null}, ${terminal}, ${identity.cwd ?? null}, NULL,
                   ${identity.pid ?? null}, ${mode}, ${kind}, ${own.transcript}, ${own.step}, ${stepAt},
                   ${raw}, ${now}, ${now}, ${now})`
         caller = { actorId, sessionId: id }
@@ -291,8 +309,14 @@ const make = Effect.gen(function* () {
 
   const byIds = Effect.fn("SessionService.byIds")(function* (ids: ReadonlyArray<string>) {
     if (ids.length === 0) return []
-    const rows = yield* sql<SessionRow>`SELECT * FROM agent_sessions WHERE ${sql.in("id", [...new Set(ids)])} ORDER BY started_at, id`
-    return rows.map((r) => ({ ...toSession(r), waiting: waiters.has(r.id) }))
+    const unique = [...new Set(ids)]
+    const rows = yield* sql<SessionRow>`SELECT * FROM agent_sessions WHERE ${sql.in("id", unique)} ORDER BY started_at, id`
+    // Each one's latest woken run (CEL-137): newest first, so the first seen per session is it.
+    const runs = yield* sql<{ id: string; session_id: string; started_at: number; ended_at: number | null }>`
+      SELECT id, session_id, started_at, ended_at FROM session_runs WHERE ${sql.in("session_id", unique)} ORDER BY started_at DESC, id DESC`
+    const lastRuns = new Map<string, LastRun>()
+    for (const r of runs) if (!lastRuns.has(r.session_id)) lastRuns.set(r.session_id, { id: r.id, startedAt: r.started_at, endedAt: r.ended_at })
+    return rows.map((r) => ({ ...toSession(r), waiting: waiters.has(r.id), lastRun: lastRuns.get(r.id) ?? null }))
   }, Effect.orDie)
 
   /** The workspaces where a session holds a claim on a task that isn't archived. */

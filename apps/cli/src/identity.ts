@@ -35,7 +35,12 @@ export const identityHeaders = (env: Env, cwd: string): Record<string, string> =
   if (session && session !== HUMAN_SESSION) {
     headers[IDENTITY_HEADERS.client] = env.CLAUDE_CODE_SESSION_ID ? "Claude Code" : "Agent"
     if (env.CLAUDE_PID) headers[IDENTITY_HEADERS.pid] = env.CLAUDE_PID
-    if (env.CLAUDE_CODE_ENTRYPOINT) headers[IDENTITY_HEADERS.entrypoint] = env.CLAUDE_CODE_ENTRYPOINT
+    // Where it runs (CEL-137): Claude Code's entrypoint and the terminal app. A run Cello woke (CEL-92)
+    // is headless wherever the session was started, so it leaves both out and the session keeps its own.
+    if (env.CELLO_WOKEN !== "1") {
+      if (env.CLAUDE_CODE_ENTRYPOINT) headers[IDENTITY_HEADERS.entrypoint] = env.CLAUDE_CODE_ENTRYPOINT
+      if (env.TERM_PROGRAM) headers[IDENTITY_HEADERS.terminal] = env.TERM_PROGRAM
+    }
     const agent = parseAgent(env.CELLO_AGENT)
     if (agent) headers[IDENTITY_HEADERS.agent] = agent.id
     if (agent?.type) headers[IDENTITY_HEADERS.agentType] = agent.type

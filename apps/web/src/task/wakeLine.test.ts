@@ -18,8 +18,10 @@ const board = (w: TaskWake | null, s: AgentSession = session): BoardState =>
   ({ sessions: { s1: s }, wakes: w ? { t1: w } : {} }) as unknown as BoardState
 
 describe("wakeLine (CEL-92)", () => {
-  it("before: the session isn't running and Cello will wake it, with Don't wake", () => {
-    expect(wakeLine(task, board(wake({})), now)).toEqual({ kind: "scheduled", text: "Session c14ca1fa isn't running. Cello will wake it in 30 s", at: now + 20_000 })
+  it("before: the session isn't running and Cello will wake it, counting down to when it's due (CEL-136), with Wake now and Don't wake", () => {
+    expect(wakeLine(task, board(wake({})), now)).toEqual({ kind: "scheduled", text: "Session c14ca1fa isn't running. Cello will wake it in 20 s", at: now + 20_000 })
+    expect(wakeLine(task, board(wake({})), now + 15_200)?.text).toBe("Session c14ca1fa isn't running. Cello will wake it in 5 s")
+    expect(wakeLine(task, board(wake({})), now + 20_000)?.text).toBe("Session c14ca1fa isn't running. Cello is waking it…")
   })
   it("during: woken by Cello, running, with Stop and its log", () => {
     expect(wakeLine(task, board(wake({ state: "running", run, at: null })), now)).toEqual({ kind: "running", text: "Woken by Cello · running", runId: "r1" })
