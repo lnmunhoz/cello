@@ -6,28 +6,61 @@
 // `bun run docs:cli`), and bun.lock's record of those workspace versions. version.test.ts checks they agree.
 import * as fs from "node:fs"
 import * as path from "node:path"
+import { compareVersions, parseVersion } from "../../packages/shared/src/updates.ts"
 
-export type Increment = "patch" | "minor" | "major"
+export type Increment = "patch" | "minor" | "major" | "prepatch" | "preminor" | "premajor" | "prerelease"
 
-const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)$/
+/** The increments that make a preview release (`v0.6.0-beta.1`), which GitHub publishes as a prerelease (CEL-140). */
+export const PRE_INCREMENTS: ReadonlyArray<string> = ["prepatch", "preminor", "premajor", "prerelease"]
+
+/** A preview's default id: `v0.6.0-beta.1`. */
+export const DEFAULT_PREID = "beta"
+
 const parse = (version: string) => {
-  const match = SEMVER.exec(version)
-  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null
+  const parsed = parseVersion(version)
+  return parsed && !/\+/.test(version) ? parsed : null
 }
+const format = (major: number, minor: number, patch: number, pre: ReadonlyArray<string | number> = []) =>
+  `${major}.${minor}.${patch}${pre.length > 0 ? `-${pre.join(".")}` : ""}`
 
-/** The version after `current`: `patch` (the default for a release), `minor`, `major`, or an exact newer version. */
-export const nextVersion = (current: string, increment: string): string => {
+/**
+ * The version after `current`: `patch` (the default for a release), `minor`, `major`, an exact newer
+ * version, or a preview (CEL-140): `prepatch`, `preminor` or `premajor` start one at `<next>-<preid>.1`,
+ * and `prerelease` counts the current preview up (`beta.1` → `beta.2`). From a preview, patch, minor or
+ * major release the version it previews where they can, as semver does: 0.6.0-beta.2 → 0.6.0.
+ */
+export const nextVersion = (current: string, increment: string, preid: string = DEFAULT_PREID): string => {
   const now = parse(current)
   if (!now) throw new Error(`The current version "${current}" isn't a version like 1.2.3.`)
-  const [major, minor, patch] = now as [number, number, number]
-  if (increment === "patch") return `${major}.${minor}.${patch + 1}`
-  if (increment === "minor") return `${major}.${minor + 1}.0`
-  if (increment === "major") return `${major + 1}.0.0`
+  const { major, minor, patch } = now
+  const previewing = now.pre.length > 0
+  if (PRE_INCREMENTS.includes(increment) && !/^[0-9A-Za-z-]+$/.test(preid)) {
+    throw new Error(`"${preid}" can't be a preview id: use letters, digits and hyphens, like beta or rc.`)
+  }
+  const preview = (major: number, minor: number, patch: number) => format(major, minor, patch, [preid, 1])
+  switch (increment) {
+    case "patch":
+      return previewing ? format(major, minor, patch) : format(major, minor, patch + 1)
+    case "minor":
+      return previewing && patch === 0 ? format(major, minor, 0) : format(major, minor + 1, 0)
+    case "major":
+      return previewing && minor === 0 && patch === 0 ? format(major, 0, 0) : format(major + 1, 0, 0)
+    case "prepatch":
+      return preview(major, minor, patch + 1)
+    case "preminor":
+      return preview(major, minor + 1, 0)
+    case "premajor":
+      return preview(major + 1, 0, 0)
+    case "prerelease": {
+      if (!previewing) return preview(major, minor, patch + 1)
+      const [id, count] = now.pre
+      return id === preid && typeof count === "number" && now.pre.length === 2 ? format(major, minor, patch, [preid, count + 1]) : preview(major, minor, patch)
+    }
+  }
   const exact = parse(increment)
-  if (!exact) throw new Error(`"${increment}" isn't an increment: use patch, minor, major or a version like 1.2.3.`)
-  const isNewer = exact[0]! - major || exact[1]! - minor || exact[2]! - patch
-  if (isNewer <= 0) throw new Error(`${increment} is not newer than ${current}.`)
-  return exact.join(".")
+  if (!exact) throw new Error(`"${increment}" isn't an increment: use patch, minor, major, a pre- increment or a version like 1.2.3.`)
+  if (compareVersions(increment, current) <= 0) throw new Error(`${increment} is not newer than ${current}.`)
+  return increment.replace(/^v/, "")
 }
 
 const SHARED_VERSION = "packages/shared/src/version.ts"

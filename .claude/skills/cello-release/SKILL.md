@@ -1,6 +1,6 @@
 ---
 name: cello-release
-description: Release a new version of Cello from this repo. Previews it, asks Lucas which version, runs `bun run release` (checks, version bump, changelog, tag, push, deploy; GitHub Actions then builds the downloads and the GitHub release), then makes sure the live board at 127.0.0.1:4747 runs the new build and the Actions run published the release, and reports. Use when Lucas asks to release, ship or cut a version of Cello, or to publish the latest updates.
+description: Release a new version of Cello from this repo (or a preview for the app's Preview channel, v0.6.0-beta.1). Previews it, asks Lucas which version, runs `bun run release` (checks, version bump, changelog, tag, push, deploy; GitHub Actions then builds the downloads and the GitHub release), then makes sure the live board at 127.0.0.1:4747 runs the new build and the Actions run published the release, and reports. Use when Lucas asks to release, ship or cut a version of Cello, or to publish the latest updates.
 ---
 
 # Release Cello
@@ -38,6 +38,18 @@ The version is Lucas's call. **patch** is the default for ordinary merges; **min
 - In an orchestrating session, ask on a task with `cello task ask` instead. Create a "Release vX.Y.Z" task if none fits.
 
 A release is outward-facing (GitHub). Never run it without his answer in this conversation.
+
+### Preview releases (the app's Preview channel)
+
+A **preview** is a version like `v0.6.0-beta.1`: GitHub publishes it as a **prerelease**, and only Cello.app's **Preview** channel offers it (Settings → Updates; Stable never sees it). Offer it only when Lucas asks for a preview, beta or prerelease; never as a default.
+
+```bash
+bun run release -- preminor --preid beta   # 0.5.1 -> 0.6.0-beta.1 (prepatch: 0.5.2-beta.1, premajor: 1.0.0-beta.1)
+bun run release -- prerelease              # the next preview: 0.6.0-beta.1 -> 0.6.0-beta.2
+bun run release -- minor                   # from a preview, releases what it previewed: 0.6.0-beta.2 -> 0.6.0
+```
+
+Everything else is the same: the checks, the changelog section (a preview's covers what came since the last tag; the stable release after it covers everything since the last stable one), the tag, the deploy to his board, and GitHub Actions building the downloads. In step 6 check that the release says **Pre-release** on GitHub (`gh release view vX.Y.Z --json isPrerelease`). How the app picks it up: docs/releases.md, "How the app updates".
 
 ## 4. Release
 
@@ -83,7 +95,7 @@ Follow "Talking to Lucas" in the global instructions:
 - The GitHub release link, and that its downloads (Apple silicon and Intel) were built by GitHub Actions; or, if the run isn't done or failed, say so and give the run's link.
 - What shipped: the changelog's Features and Fixes, as short bullets.
 - The backup the deploy took (`~/.cello/backups/<id>`), and that `cello restore <id>` with no server running undoes the deploy.
-- **Test it:** reload Cello (⌘R); the sidebar footer shows the new version.
+- **Test it:** reload Cello (⌘R); the sidebar footer shows the new version. Cello.app (from a DMG) on the release's channel shows "Update available: X.Y.Z" in its footer and a toast within its next check (at launch, every 4 hours, or Settings → Updates → Check now).
 
 ## Never
 

@@ -64,7 +64,7 @@ export const stagedProblem = (facts: StagedFacts, probe: Probe = probeVersion, f
   if (!files.isExecutable(staged)) return `The staged build ${staged} isn't executable: a build that didn't finish (a full disk?). Release again.`
   const said = probe(staged)
   if (said === null) return `The staged build ${staged} doesn't run (--version failed): release again.`
-  const match = /v?(\d+\.\d+\.\d+) \(build ([0-9a-f]+)\)/.exec(said)
+  const match = /v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?) \(build ([0-9a-f]+)\)/.exec(said)
   if (!match || match[1] !== version || !head.startsWith(match[2]!)) {
     return `The staged build says ${said}, not ${version} built from ${head.slice(0, 7)}: it isn't this release's build (left from a release that was undone?). Delete release/ and release again.`
   }

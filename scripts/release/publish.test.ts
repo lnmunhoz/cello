@@ -24,6 +24,17 @@ describe("publishCommands", () => {
       ["gh", "release", "edit", "v0.5.0", "--title", "Cello v0.5.0", "--notes-file", "/tmp/notes.md"],
     ])
   })
+
+  // CEL-140: the app's Preview channel reads GitHub's prerelease flag.
+  it("publishes a preview version (v0.6.0-beta.1) as a GitHub prerelease, creating or updating it", () => {
+    const beta = ["dist/Cello-v0.6.0-beta.1-mac-arm64.dmg"]
+    expect(publishCommands({ version: "0.6.0-beta.1", files: beta, notesFile: "/tmp/notes.md", exists: false })).toEqual([
+      ["gh", "release", "create", "v0.6.0-beta.1", ...beta, "--title", "Cello v0.6.0-beta.1", "--notes-file", "/tmp/notes.md", "--verify-tag", "--prerelease"],
+    ])
+    expect(publishCommands({ version: "0.6.0-beta.1", files: beta, notesFile: "/tmp/notes.md", exists: true })[1]).toEqual(
+      ["gh", "release", "edit", "v0.6.0-beta.1", "--title", "Cello v0.6.0-beta.1", "--notes-file", "/tmp/notes.md", "--prerelease"],
+    )
+  })
 })
 
 describe("releaseFilesIn", () => {

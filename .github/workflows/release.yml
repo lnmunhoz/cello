@@ -4,7 +4,9 @@
 #   publish  once both built: creates or updates the GitHub release "Cello vX.Y.Z" with the version's
 #            CHANGELOG.md section as its notes and every file attached
 #
-# It runs when `bun run release` pushes a vX.Y.Z tag. By hand (Actions > Release > Run workflow), give a tag
+# It runs when `bun run release` pushes a vX.Y.Z tag, or a preview's vX.Y.Z-beta.N (`bun run release -- preminor
+# --preid beta`, CEL-140), which publish.ts makes a GitHub prerelease: only Cello.app's Preview channel offers it.
+# Either way the tag must match the checked-out package.json's version, or the build refuses. By hand (Actions > Release > Run workflow), give a tag
 # that exists and leave "publish" off to only build (the files stay on the run's page for 14 days), or turn it
 # on to (re)publish that release. A build-only run can also build another ref (`ref: main`, a branch or a
 # commit), to test this workflow and the build scripts before a tag has them: an old tag builds with its own,

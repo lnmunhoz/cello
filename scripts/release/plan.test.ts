@@ -11,8 +11,21 @@ describe("parseReleaseArgs", () => {
       deploy: true,
       localArtifacts: false,
       desktop: true,
+      preid: "beta",
       help: false,
     })
+  })
+
+  // CEL-140: preview releases for the app's Preview channel.
+  it("takes a pre- increment and --preid for a preview release", () => {
+    expect(parseReleaseArgs(["preminor", "--preid", "beta"])).toMatchObject({ increment: "preminor", preid: "beta" })
+    expect(parseReleaseArgs(["prerelease", "--preid=rc"])).toMatchObject({ increment: "prerelease", preid: "rc" })
+    expect(parseReleaseArgs(["prepatch"])).toMatchObject({ increment: "prepatch", preid: "beta" })
+  })
+
+  it("refuses --preid without a pre- increment, or without its id", () => {
+    expect(() => parseReleaseArgs(["minor", "--preid", "beta"])).toThrow("--preid names a preview: use it with prepatch, preminor, premajor or prerelease.")
+    expect(() => parseReleaseArgs(["preminor", "--preid"])).toThrow("--preid needs an id, like --preid beta.")
   })
 
   it("takes minor, major or a version, and the dry run, no-deploy, local-artifacts and skip-desktop flags", () => {

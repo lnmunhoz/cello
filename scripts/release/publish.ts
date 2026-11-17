@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
+import { isPrerelease } from "../../packages/shared/src/updates.ts"
 import { RELEASE_DIR } from "./artifacts.ts"
 import { notesOf } from "./changelog.ts"
 
@@ -16,14 +17,17 @@ export type Publish = { readonly version: string; readonly files: ReadonlyArray<
 export const publishCommands = ({ version, files, notesFile, exists }: Publish): string[][] => {
   const tag = `v${version}`
   const title = `Cello ${tag}`
+  // A preview (v0.6.0-beta.1) is a GitHub prerelease: only the app's Preview channel offers it (CEL-140),
+  // and GitHub never marks it the latest release.
+  const preview = isPrerelease(version) ? ["--prerelease"] : []
   if (exists) {
     return [
       ["gh", "release", "upload", tag, ...files, "--clobber"],
-      ["gh", "release", "edit", tag, "--title", title, "--notes-file", notesFile],
+      ["gh", "release", "edit", tag, "--title", title, "--notes-file", notesFile, ...preview],
     ]
   }
   // --verify-tag: never let gh make the tag; the release commit's tag must already be on GitHub.
-  return [["gh", "release", "create", tag, ...files, "--title", title, "--notes-file", notesFile, "--verify-tag"]]
+  return [["gh", "release", "create", tag, ...files, "--title", title, "--notes-file", notesFile, "--verify-tag", ...preview]]
 }
 
 /** The .zip and .dmg files at the top of `dir` (never release/stage's binary), sorted. */
