@@ -99,6 +99,30 @@ export const testRunLabel = (command: string): string => {
   return "tests"
 }
 
+/** The Docker runner's modes (`scripts/test-in-docker.ts <mode>`). */
+export type DockerMode = "all" | "e2e" | "desktop"
+
+/**
+ * The stages scripts/test-in-docker.ts runs in each mode, in order; its reports name the one it's on
+ * (`stage`). `install` comes first and stops the run when it fails.
+ */
+export const DOCKER_STEPS: Readonly<Record<DockerMode, ReadonlyArray<string>>> = {
+  all: ["install", "unit", "typecheck", "web-e2e", "desktop-e2e"],
+  e2e: ["install", "web-e2e"],
+  desktop: ["install", "desktop-e2e"],
+}
+
+/** What the board calls a run of each Docker mode (testRunLabel). */
+export const DOCKER_LABELS: Readonly<Record<DockerMode, string>> = { all: "Docker tests", e2e: "web e2e", desktop: "desktop e2e" }
+
+/**
+ * Whether a runner reporting `stage` could be running the run the board calls `label` (CEL-147): the
+ * Docker mode of that name runs that stage. `web-e2e` fits "web e2e" and "Docker tests", `install` every
+ * Docker run; no stage, or one Cello doesn't know, fits none in particular.
+ */
+export const stageFits = (stage: string | null, label: string): boolean =>
+  stage !== null && (Object.keys(DOCKER_LABELS) as DockerMode[]).some((mode) => DOCKER_LABELS[mode] === label && DOCKER_STEPS[mode].includes(stage))
+
 /** How long, short: "42s", "3m12s", "1h05m". */
 export const elapsedWords = (ms: number): string => {
   const seconds = Math.max(0, Math.floor(ms / 1000))
