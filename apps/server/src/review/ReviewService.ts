@@ -209,7 +209,7 @@ const make = Effect.gen(function* () {
   /**
    * Approve in a project that merges after approval: the agent session that should merge it (the claim
    * holder, else the last agent session to hold it, which gets the claim back), or null when there's none
-   * (the human holds it, or no agent ever did), and the task as it is now.
+   * (the human holds it, or no agent ever did).
    */
   const merger = (context: Commands.WriteContext, task: Task) =>
     Effect.gen(function* () {
@@ -229,11 +229,12 @@ const make = Effect.gen(function* () {
         const done = approveTarget(statuses)
         if (done === null) return yield* new Invalid({ field: "key", reason: "this workspace has no completed status" })
         const sessionId = (yield* mergesAfterApproval(task)) ? yield* merger(context, task) : null
+        // While an agent holds the task (before the move to Done, after a reopen): the comment reaches it.
+        if (shots.length > 0) {
+          yield* comments.addWithin(context, { taskId: task.id, body: input.note ?? "", attachmentIds: shots }, "comment")
+        }
         if (sessionId !== null) {
           // The agent keeps its claim and merges: the task waits in In Review as Approved · merging.
-          if (shots.length > 0) {
-            yield* comments.addWithin(context, { taskId: task.id, body: input.note ?? "", attachmentIds: shots }, "comment")
-          }
           const review = reviewTarget(statuses, task.statusId)
           if (review !== null && review.id !== task.statusId) {
             yield* tasks.moveWithin(context, { id: task.id, statusId: review.id, keepClaim: true })
@@ -242,10 +243,6 @@ const make = Effect.gen(function* () {
           const note = shots.length > 0 ? null : input.note?.trim() || null
           yield* inbox.deliverApprovalWithin(context, { taskId: task.id, sessionId, note })
           return merging
-        }
-        // Before the move, while the agent still holds the task: the comment reaches it.
-        if (shots.length > 0) {
-          yield* comments.addWithin(context, { taskId: task.id, body: input.note ?? "", attachmentIds: shots }, "comment")
         }
         // The claim ends with the move, but the agent isn't told: its work is done, not cut short (CEL-46).
         return yield* tasks.moveWithin(context, { id: task.id, statusId: done.id, tell: false })
