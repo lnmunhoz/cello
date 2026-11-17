@@ -3,6 +3,12 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.4.9](https://github.com/lnmunhoz/cello/compare/v0.4.8...v0.4.9) (2026-11-17)
+
+### Fixes
+
+- two test runs started together each keep their own progress on the card (CEL-147) ([0f804b6](https://github.com/lnmunhoz/cello/commit/0f804b6ae89551705383137800c3c1ef2fa6d059))
+
 ## [0.4.8](https://github.com/lnmunhoz/cello/compare/v0.4.7...v0.4.8) (2026-11-17)
 
 ### Features
