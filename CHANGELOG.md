@@ -3,6 +3,23 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.4.1](https://github.com/lnmunhoz/cello/compare/v0.4.0...v0.4.1) (2026-11-17)
+
+### Features
+
+- approving tells the agent to merge it, in projects set to merge after you approve; the card shows Approved · merging until it's done (CEL-143) ([8fef805](https://github.com/lnmunhoz/cello/commit/8fef805231be2ca30734976e0fc26f45e3ecf656))
+- GitHub Actions builds the downloads for Apple silicon and Intel; the Mac builds only its own cello (CEL-139) ([5600cb4](https://github.com/lnmunhoz/cello/commit/5600cb4c89577930a81e0311d4cff96c13b21fd9))
+
+### Fixes
+
+- a task link off its board opens the task in the page's side panel (CEL-141) ([79f3002](https://github.com/lnmunhoz/cello/commit/79f30026b1df8325542fda69e6b9c1ad8b9dfa12))
+- release builds pick Xcode 26 for the .icon icon; a build-only run can build main (CEL-139) ([d5b9cf0](https://github.com/lnmunhoz/cello/commit/d5b9cf074df215e7d9e7e6d783a6971e1ae939ba))
+
+### Other changes
+
+- slim AGENTS.md so every session starts with less context (CEL-146) ([8f68f5b](https://github.com/lnmunhoz/cello/commit/8f68f5b7d22898706bddec30cde811193a75d416))
+- **claude:** a /cello-release skill for this repo: preview, ask the version, release, make sure the board runs it (CEL-138) ([4576dee](https://github.com/lnmunhoz/cello/commit/4576deeeb0046e1ce441ebdb218bc191b1f90755))
+
 ## [0.4.0](https://github.com/lnmunhoz/cello/compare/v0.3.1...v0.4.0) (2026-11-17)
 
 ### Features
