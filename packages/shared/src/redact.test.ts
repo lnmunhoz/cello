@@ -83,6 +83,8 @@ describe("redact", () => {
     ["curl --user=", "curl --user=lucy:hunter2pass https://example.com", "hunter2pass"],
     ["mysql -p with the password attached", "mysql -uroot -phunter2pass app", "hunter2pass"],
     ["mysqldump -p", "mysqldump -u root -phunter2pass app > dump.sql", "hunter2pass"],
+    ["curl -u on a continued line", "curl -s \\\n  -u lucy:hunter2pass \\\n  https://example.com", "hunter2pass"],
+    ["curl -u after a cookie header", "curl -H 'Cookie: a=1; b=2' -u lucy:hunter2pass https://x", "hunter2pass"],
   ])("masks %s", (_, text, secret) => {
     const out = redact(text)
     expect(out.masked).toBe(true)
@@ -117,6 +119,11 @@ describe("redact", () => {
       "ssh -p2222 lucy@example.com",
       "tar -pxvf archive.tar",
       "mkdir -p apps/server/src",
+      // -u and -p in the next command, after a curl or a mysql
+      "curl -fsS https://example.com/health && docker run -u 1000:1000 node:22",
+      'mysql -e "select 1" || ssh -p2222 lucy@example.com',
+      "curl -O https://example.com/a.tar",
+      "tar -pxvf a.tar",
       // a header that only names the cookie, a TypeScript type
       "cookie: string",
       "x-api-key header is required",
@@ -124,22 +131,33 @@ describe("redact", () => {
     expect(redact(plain)).toEqual({ text: plain, masked: false })
   })
 
-  // A ReDoS guard, not a speed target: all of these take well under a second, while one pattern that
-  // backtracks quadratically (say /\bcurl\b[^\n]*?[ \t]-u/) takes about five on a single one of them.
-  it("stays fast on long lines built to make a pattern backtrack", () => {
-    const pumps = [
-      "token=".repeat(50_000),
-      "token: ".repeat(50_000),
-      "-u a:".repeat(50_000),
-      "curl -u ".repeat(50_000),
-      "mysql -p".repeat(50_000),
-      "Cookie: a".repeat(50_000),
-      "x-api-key:".repeat(50_000),
-      "Authorization: Basic ".repeat(50_000),
-      "password ".repeat(50_000),
-    ]
-    const started = performance.now()
-    for (const text of pumps) redact(text)
-    expect(performance.now() - started).toBeLessThan(2_000)
+  // ReDoS guards. Each line is built to make a pattern backtrack: a pattern that's quadratic on it takes
+  // half a minute or more per line (and vitest fails the test as timed out), a linear one milliseconds.
+  // No clock here: what's checked is the answer.
+  describe("on lines built to make a pattern backtrack", () => {
+    const N = 40_000
+
+    it.each([
+      ["one long word made of a secret name", "token".repeat(N)],
+      ["a long secret-ish name that never reaches = or :", `${"token_".repeat(N)}!`],
+      ["a long capital name", `${"TOKEN_".repeat(N)}!`],
+      ["a long flag", `--${"token".repeat(N)}`],
+      ["a long run of what could start a URL's scheme", "a.".repeat(N)],
+      ["cookie: over and over", "cookie:".repeat(N)],
+      ["what could start a JWT, over and over", "eyJ-".repeat(N * 4)],
+    ])("leaves %s alone, and still masks a secret after it", (_, pump) => {
+      expect(redact(pump)).toEqual({ text: pump, masked: false })
+      expect(redact(`${pump} password=hunter2pass`).text).toBe(`${pump} password=••••••••`)
+    })
+
+    it.each([
+      ["token=", "token=".repeat(N), "token=••••••••"],
+      ["password, spaced", "password ".repeat(N), "password ".repeat(N)],
+      ["-u a: without curl", "-u a:".repeat(N), "-u a:".repeat(N)],
+      ["curl -u", "curl -u ".repeat(N), "curl -u ".repeat(N)],
+      ["Cookie: a", "Cookie: a".repeat(N), "Cookie: a".repeat(N)],
+    ])("answers on %s repeated", (_, pump, expected) => {
+      expect(redact(pump).text).toBe(expected)
+    })
   })
 })

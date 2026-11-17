@@ -16,12 +16,20 @@ const KNOWN = [
   /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, // AWS access key ids
   /\bxox[abprs]-[A-Za-z0-9-]{10,}/g, // Slack
   /\bAIza[0-9A-Za-z_-]{35}/g, // Google API keys
-  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, // JWTs
+  // JWTs. Not right after a base64url character (`\b` would be): else every `-eyJ` in a long run is a start, and it's quadratic.
+  /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
 ]
 
+/**
+ * How many name characters may come before and after the word that says it's secret. Real names fit
+ * (`aws_secret_access_key`, `GITHUB_PERSONAL_ACCESS_TOKEN`); unbounded, a pattern backtracks across one
+ * long word (`tokentoken…`) and takes seconds.
+ */
+const AROUND = "{0,40}"
+
 /** A name that says its value is a secret, in any case. */
-const SECRET_NAME = String.raw`[A-Za-z0-9_]*(?:secret|token|password|passwd|api_?key|private_?key|access_?key)[A-Za-z0-9_]*`
+const SECRET_NAME = String.raw`[A-Za-z0-9_]${AROUND}(?:secret|token|password|passwd|api_?key|private_?key|access_?key)[A-Za-z0-9_]${AROUND}`
 
 /** An unquoted literal, not code: 8 or more of these characters, and not followed by `(` or `[` (a call, an index). */
 const LITERAL = String.raw`[A-Za-z0-9_+/=.-]{8,}(?![A-Za-z0-9_+/=.(\[-])`
@@ -32,11 +40,17 @@ const mixed = (value: string) => /[0-9]/.test(value) && /[A-Za-z]/.test(value)
 /** How far back a command's name may be from its flag: `curl -s -H "…" -u user:pass` fits, a `\`-continued line too. */
 const COMMAND_REACH = 300
 
-/** The command's name is shortly before the match, so `-u`/`-p` carry a password here, unlike `docker run -u 1000:1000` or `ssh -p2222`. */
+/** Where one command ends: a newline that doesn't continue the line, `&&`, `||`. (Not `;` or `&`: a header or a URL holds those.) */
+const COMMAND_END = /(?<!\\)\n|&&|\|\|/
+
+/**
+ * The command's name is shortly before the match, in the same command, so `-u`/`-p` carry a password
+ * here, unlike `docker run -u 1000:1000` or `curl … && ssh -p2222`.
+ */
 const after =
   (command: RegExp) =>
   (_value: string, text: string, offset: number): boolean =>
-    command.test(text.slice(Math.max(0, offset - COMMAND_REACH), offset))
+    command.test(text.slice(Math.max(0, offset - COMMAND_REACH), offset).split(COMMAND_END).at(-1)!)
 
 interface After {
   /** Its `value` group is masked, the `pre` group kept. */
@@ -51,14 +65,18 @@ interface After {
  * value, an ini line, an unquoted value of letters and digits), so `const token = getToken()` and
  * `passwordField: string` are left alone.
  *
- * Each pattern stays linear (CodeQL checks for ReDoS): no repeats that can split the same text two ways.
- * A check that would need one (letters and digits both, which command it is) runs on the match, in `when`.
+ * Each pattern stays linear on any line (CodeQL checks for ReDoS). A pattern can start at many places in
+ * one long word, so a repeat that could run on to the next start is bounded (the name, `AROUND`; a URL's
+ * scheme) or stops at a character the start needs (a cookie's name stops at `:`). A check that would need
+ * a looser pattern (letters and digits both, which command it is) runs on the match, in `when`.
  */
 const AFTER: ReadonlyArray<After> = [
   // NAME=value, NAME: value, with an environment-style name (capitals): whatever the value looks like.
   {
-    pattern:
-      /\b(?<pre>[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|PRIVATE_KEY|ACCESS_KEY)[A-Z0-9_]*["']?\s*[:=]\s*)(?<value>"[^"\n]{4,}"|'[^'\n]{4,}'|[^\s"'`]{4,})/g,
+    pattern: new RegExp(
+      String.raw`\b(?<pre>[A-Z0-9_]${AROUND}(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|PRIVATE_KEY|ACCESS_KEY)[A-Z0-9_]${AROUND}["']?\s*[:=]\s*)(?<value>"[^"\n]{4,}"|'[^'\n]{4,}'|[^\s"'\`]{4,})`,
+      "g",
+    ),
   },
   // any name, quoted value: "api_key": "…", password: '…'
   { pattern: new RegExp(String.raw`\b(?<pre>${SECRET_NAME}["']?\s*[:=]\s*)(?<value>"[^"\n]{4,}"|'[^'\n]{4,}')`, "gi") },
@@ -78,11 +96,16 @@ const AFTER: ReadonlyArray<After> = [
   // a header that names a key: X-Api-Key: …, Private-Token: … (a quoted object key, "x-api-key": apiKey, is code)
   { pattern: /\b(?<pre>(?:x-)?(?:api-?key|(?:auth|access|private)-token)[ \t]*:[ \t]*)(?<value>[^\s"'`,;]{4,})/gi },
   // Cookie: session=…, Set-Cookie: sid=…: all of it, the cookies' names too
-  { pattern: /\b(?<pre>(?:set-)?cookie["']?[ \t]*:[ \t]*["']?)(?<value>[^\s"'`;=,]+=[^\r\n"'`]*)/gi },
+  { pattern: /\b(?<pre>(?:set-)?cookie["']?[ \t]*:[ \t]*["']?)(?<value>[^\s"'`;=,:]+=[^\r\n"'`]*)/gi },
   // a password in a URL: scheme://user:password@host
-  { pattern: /\b(?<pre>[a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:)(?<value>[^\s@/]{3,})(?=@)/gi },
+  { pattern: /\b(?<pre>[a-z][a-z0-9+.-]{0,30}:\/\/[^\s:/@]+:)(?<value>[^\s@/]{3,})(?=@)/gi },
   // --password=…, --token …
-  { pattern: /(?<pre>--[a-z0-9-]*(?:password|passwd|token|secret|api-?key)[a-z0-9-]*(?:=|\s+))(?<value>[^\s"'`-][^\s"'`]{3,})/gi },
+  {
+    pattern: new RegExp(
+      String.raw`(?<pre>--[a-z0-9-]${AROUND}(?:password|passwd|token|secret|api-?key)[a-z0-9-]${AROUND}(?:=|\s+))(?<value>[^\s"'\`-][^\s"'\`]{3,})`,
+      "gi",
+    ),
+  },
   // curl -u user:password, curl --user user:password
   {
     pattern: /(?<pre>(?:^|[ \t])(?:-u[ \t]*|--user(?:[ \t]+|=))["']?[^\s:"'@]+:)(?<value>[^\s"'@]+)/gm,
