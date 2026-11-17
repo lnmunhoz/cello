@@ -88,6 +88,13 @@ describe("the review queue", () => {
     expect(reviewQueue({ ...state, asks: { k1: ask } }, "w1").map((i) => i.task.id)).toEqual(["t2", "t1", "t3"])
   })
 
+  // CEL-143: approved in a project that merges after approval, a task waits in In Review for its agent to
+  // merge it (Approved · merging): it waits on the agent, not on Lucas, so the Review page leaves it out.
+  it("leaves out a task approved and waiting for its agent to merge it", () => {
+    const approved = { ...state, tasks: { ...state.tasks, t3: task("t3", "review", { stage: "merging" }) } }
+    expect(reviewQueue(approved, "w1").map((i) => i.task.id)).toEqual(["t2", "t6", "t1"])
+  })
+
   it("finds a task's open review", () => {
     expect(openReviewOf(state, "t1")?.id).toBe("r1")
     expect(openReviewOf(state, "t5")).toBeUndefined()

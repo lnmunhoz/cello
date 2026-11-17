@@ -170,6 +170,18 @@ flowchart TD
 
 Approve is sign-off, not a gate: the code is already merged and tested. It moves the task to Done.
 
+**That's Cello's own project, which merges before review.** Each project chooses (Settings → the project → "Merge after I approve", CEL-143). With it on, the packet comes before the merge, with the PR link when the project uses PRs, and Approve is the gate: the button reads "Approve and merge", the card stays in In Review as **Approved · merging**, and the orchestrator's session is told to merge. It merges and deploys, then `cello task done CEL-n` moves the task to Done.
+
+```mermaid
+flowchart TD
+    A["Review clean"] --> B["Submit, with the PR link<br/>cello task submit: In Review"]
+    B --> C{"Lucas"}
+    C -->|"Approve and merge"| D["Approved · merging<br/>the claim stays; the session is told to merge"]
+    D --> E["Merge and deploy"]
+    E --> F(["cello task done: Done<br/>the claim ends"])
+    C -->|"Send back + a note"| G["Back to In Progress"]
+```
+
 ## Where everything lives
 
 | What | Where |

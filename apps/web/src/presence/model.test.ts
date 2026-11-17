@@ -207,6 +207,15 @@ describe("agentMood (CEL-69)", () => {
     }
   })
 
+  // CEL-143: approved in a project that merges after approval, the task waits in In Review while its agent
+  // merges it: not done yet.
+  it("works while an active agent merges an approved task (Approved · merging), and keeps still while it's quiet", () => {
+    expect(agentMood("merging", inReview, "active")).toBe("working")
+    expect(agentMood("fixing", inReview, "active")).toBe("working")
+    expect(agentMood("merged", inReview, "active")).toBe("merged")
+    expect(agentMood("merging", inReview, "idle")).toBe("still")
+  })
+
   it("keeps still on a canceled task, and on one whose status the board doesn't have", () => {
     expect(agentMood("building", { name: "Canceled", category: "canceled" }, "active")).toBe("still")
     expect(agentMood("building", undefined, "active")).toBe("still")

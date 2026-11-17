@@ -4,7 +4,7 @@ import type { Attachment, Project, Review, Task } from "@cello/contract/entities
 import type { CelloEvent } from "@cello/contract/events"
 import { attachmentPath } from "@cello/shared/attachment"
 import { shortUrl } from "@cello/shared/linkify"
-import { holdsPacket, isReviewStatus } from "@cello/shared/review"
+import { awaitsMerge, holdsPacket, isReviewStatus } from "@cello/shared/review"
 import type { BoardState } from "./applyEvents.ts"
 
 export interface ReviewItem {
@@ -32,7 +32,8 @@ export const openReviewOf = (state: BoardState, taskId: string): Review | undefi
 /**
  * Every packet waiting on Lucas in a workspace: tasks with an open review (oldest packet first), then
  * tasks sitting in In Review without one. Archived tasks and projects are left out, and so are tasks
- * waiting on his answers to an ask (CEL-47): the Needs input group shows those first.
+ * waiting on his answers to an ask (CEL-47): the Needs input group shows those first. So are tasks he
+ * approved that wait for their agent to merge them (Approved · merging, CEL-143): they wait on the agent.
  */
 export const reviewQueue = (state: BoardState, workspaceId: string): ReviewItem[] => {
   const projectOf = (task: Task) => {
@@ -50,7 +51,10 @@ export const reviewQueue = (state: BoardState, workspaceId: string): ReviewItem[
     withPacket.push({ task, project, review })
   }
   const without = Object.values(state.tasks)
-    .filter((t) => t.archivedAt === null && !reviewed.has(t.id) && isReviewStatus(state.statuses[t.statusId]?.name ?? ""))
+    .filter((t) => {
+      const status = state.statuses[t.statusId]
+      return t.archivedAt === null && !reviewed.has(t.id) && isReviewStatus(status?.name ?? "") && !awaitsMerge(t, status)
+    })
     .sort((a, b) => a.updatedAt - b.updatedAt || a.number - b.number)
     .flatMap((task) => {
       const project = projectOf(task)

@@ -19,6 +19,7 @@ import { SAVES_ON_BLUR } from "../lib/editing.ts"
 import { writeStored } from "../lib/storage.ts"
 import { SegmentedControl, SegmentedControlItem } from "../components/ui/SegmentedControl.tsx"
 import { BAR_LAYOUT_KEY, LAYOUT_NAMES, useBarLayout } from "../search/layout.ts"
+import { MergeSettings } from "./MergeSettings.tsx"
 import { TestingProfile } from "./TestingProfile.tsx"
 import { WakeSettings } from "./WakeSettings.tsx"
 
@@ -87,6 +88,12 @@ export function Settings() {
             >
               <ProjectPicker label="Waking agents of project" projectId={project.id} projects={projects} />
               <WakeSettings key={project.key} projectKey={project.key} />
+            </Section>
+          ) : null}
+          {project ? (
+            <Section title="Merging" description={`When ${project.name}'s agents merge their work: before you review it, or after you approve it.`}>
+              <ProjectPicker label="Merging of project" projectId={project.id} projects={projects} />
+              <MergeSettings project={project} />
             </Section>
           ) : null}
           <Section title="Workspaces" description="A second workspace adds a switcher at the top of the sidebar.">

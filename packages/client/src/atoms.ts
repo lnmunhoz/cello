@@ -170,7 +170,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
       quiet: (e) => (e as { _tag?: string })._tag === "KeyTaken",
     }),
     updateProject: command({
-      patch: (a: { id: string; name?: string; color?: string; description?: string }) => patches.updateProject(a.id, a),
+      patch: (a: { id: string; name?: string; color?: string; description?: string; mergeAfterApproval?: boolean }) => patches.updateProject(a.id, a),
       call: (c, a, commandId) => c["project.update"]({ commandId, ...a }),
     }),
     createTask: command({

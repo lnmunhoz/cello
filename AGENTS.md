@@ -76,6 +76,11 @@ The session running the work (the orchestrator) claims the task, then (the whole
 
 At each step it marks the task's **stage** with `cello task stage CEL-n building|review|fixing|merged`, so the In Progress card says where the work is instead of looking stuck. Submitting clears it.
 
+**When the merge happens is a per-project setting, "Merge after I approve"** (Settings → the project; `cello context` prints "Merge after approval  on" or "off"; CEL-143):
+
+- **off:** build → review → merge → submit. Lucas reviews what's already merged and deployed, and Approve moves the task to Done. **Cello's own project (CEL) stays off:** its review happens on the live board, after the release. The steps below are this order.
+- **on** (new projects with a repository start this way): build → review → submit (with the PR link when the project's rules use PRs) → wait for Lucas's approval (`cello inbox --wait`) → merge and deploy → `cello task done CEL-n`. His "Approve and merge" keeps the claim, shows **Approved · merging** on the card and tells the orchestrator's session to merge; `cello task done` moves the task to Done and ends the claim. A failed merge: `cello task stage CEL-n fixing` and a comment, and Lucas can send it back. docs/cli.md, "Merge after I approve", has the details.
+
 1. **Build** (`cello task stage CEL-n building`). A `cello-builder` agent (`.claude/agents/`) works in its own git worktree, test first, and commits on its branch. It never pushes, touches main or changes the live board. The orchestrator's brief says what to build, what to read, and what other agents are changing at the same time.
 2. **Review** (`cello task stage CEL-n review`). Before merging, a fresh `cello-code-reviewer` agent reviews the branch. It gets the diff against main and the task text, never the builder's report, so it judges the code rather than echoing the builder.
    - When the task touches Lucas's data (migrations, backups and restore, writes outside the data folder such as Claude Code settings, deleting or overwriting files, the desktop panel's security rules), also run `cello-data-reviewer` on just those parts (Sonnet, high). It checks only the data paths and reproduces the failures; the code reviewer covers everything else. When the data reviewer flags a blocker it can't settle, ask Opus for a second look at that point only.

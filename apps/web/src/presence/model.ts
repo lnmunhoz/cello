@@ -325,9 +325,10 @@ export const agentMood = (
 ): AgentMood => {
   if (status === undefined || status.category === "canceled") return "still"
   if (isNeedsInputStatus(status)) return "waiting"
-  if (isReviewStatus(status.name) || status.category === "completed") return "done"
+  // Approved and waiting for its merge (CEL-143): its agent is still at work, so the mood follows the stage.
+  if ((isReviewStatus(status.name) && stage === null) || status.category === "completed") return "done"
   if (presence !== "active") return "still"
-  if (stage === "building" || stage === "fixing") return "working"
+  if (stage === "building" || stage === "fixing" || stage === "merging") return "working"
   if (stage === "merged") return "merged"
   return "thinking"
 }
