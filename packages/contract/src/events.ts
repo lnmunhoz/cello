@@ -200,15 +200,19 @@ export type CelloEvent = typeof CelloEvent.Type
 
 /**
  * An event this build can't read (CEL-131): a type a newer server added, or a known type in a newer
- * shape. It keeps only the event's seq and the type the server sent, so a client can skip past it
- * instead of failing its stream. Only ever decoded: a server sends real events, never this.
+ * shape. It keeps only the event's seq, the type the server sent and, when it has one, its time (for a
+ * task's history line, CEL-135), so a client can skip past it instead of failing its stream. Only ever
+ * decoded: a server sends real events, never this.
  */
-export const UnreadableEvent = Schema.Struct({ seq: Schema.Number, type: Schema.String }).pipe(
+export const UnreadableEvent = Schema.Struct({ seq: Schema.Number, type: Schema.String, ts: Schema.optionalKey(Schema.Number) }).pipe(
   // "unreadable" is reserved: no real event type may ever use that name.
-  Schema.decodeTo(Schema.Struct({ type: Schema.Literal("unreadable"), seq: Schema.Number, sentType: Schema.String }), {
-    decode: SchemaGetter.transform(({ seq, type }) => ({ type: "unreadable" as const, seq, sentType: type })),
-    encode: SchemaGetter.transform(({ seq, sentType }) => ({ seq, type: sentType })),
-  }),
+  Schema.decodeTo(
+    Schema.Struct({ type: Schema.Literal("unreadable"), seq: Schema.Number, ts: Schema.optionalKey(Schema.Number), sentType: Schema.String }),
+    {
+      decode: SchemaGetter.transform(({ seq, type, ts }) => ({ type: "unreadable" as const, seq, ...(ts === undefined ? {} : { ts }), sentType: type })),
+      encode: SchemaGetter.transform(({ seq, sentType, ts }) => ({ seq, type: sentType, ...(ts === undefined ? {} : { ts }) })),
+    },
+  ),
 )
 export type UnreadableEvent = typeof UnreadableEvent.Type
 

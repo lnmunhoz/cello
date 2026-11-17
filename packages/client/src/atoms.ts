@@ -483,7 +483,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
         void version
         void wake
         const client = yield* CelloClient
-        return (yield* client["task.history"]({ id: taskId })) as ReadonlyArray<CelloEvent>
+        return yield* client["task.history"]({ id: taskId })
       })
     }),
   )

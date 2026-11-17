@@ -49,10 +49,10 @@ import {
   TaskClaimed,
   VersionConflict,
 } from "./errors.ts"
-import { CelloEvent, StreamedEvent } from "./events.ts"
+import { StreamedEvent } from "./events.ts"
 import { SearchKind, SearchResults } from "./search.ts"
 import { TaskStage } from "./stages.ts"
-import { AskWaited, DocumentList, Inbox, LabelList, MilestoneDetail, MilestoneList, ProjectContext, TaskDetail, TaskList, Whoami } from "./views.ts"
+import { AskWaited, DocumentList, Inbox, LabelList, MilestoneDetail, MilestoneList, ProjectContext, TaskDetail, TaskHistory, TaskList, Whoami } from "./views.ts"
 
 /**
  * Who is calling, resolved by the server from per-request RPC headers. `agentId`: the session's subagent
@@ -366,7 +366,7 @@ export const CelloRpcs = RpcGroup.make(
   }),
   Rpc.make("task.archive", { payload: { commandId, id: Id }, success: write(Task), error: NotFound }),
   Rpc.make("task.unarchive", { payload: { commandId, id: Id }, success: write(Task), error: NotFound }),
-  Rpc.make("task.history", { payload: { id: Id }, success: Schema.Array(CelloEvent), error: NotFound }),
+  Rpc.make("task.history", { payload: { id: Id }, success: TaskHistory, error: NotFound }),
 
   // For the CLI. Tasks are named by key ("CEL-3"); projects by key or repository folder.
   Rpc.make("whoami", { payload: { project: ProjectRef }, success: Whoami }),
