@@ -22,6 +22,8 @@ export interface FakeReleaseFeed {
   readonly downloads: string[]
   /** How many times the release list was asked for. */
   readonly reads: () => number
+  /** Resolves when the release list is next asked for (Check now). */
+  readonly nextRead: () => Promise<void>
   /** Replaces the releases it lists. */
   readonly set: (releases: ReadonlyArray<FakeRelease>) => void
   readonly close: () => Promise<void>
@@ -32,11 +34,13 @@ const ARCHES = ["arm64", "x64"]
 export const startFakeReleaseFeed = async (initial: ReadonlyArray<FakeRelease>): Promise<FakeReleaseFeed> => {
   let releases = [...initial]
   let reads = 0
+  const readWaiters: Array<() => void> = []
   const downloads: string[] = []
   const server = http.createServer((request, response) => {
     const { pathname } = new URL(request.url ?? "/", "http://x")
     if (pathname === "/releases") {
       reads++
+      for (const resolve of readWaiters.splice(0)) resolve()
       const base = `http://127.0.0.1:${(server.address() as net.AddressInfo).port}`
       const body = releases.map((release) => ({
         tag_name: `v${release.version}`,
@@ -72,6 +76,7 @@ export const startFakeReleaseFeed = async (initial: ReadonlyArray<FakeRelease>):
     url: `http://127.0.0.1:${(server.address() as net.AddressInfo).port}/releases`,
     downloads,
     reads: () => reads,
+    nextRead: () => new Promise<void>((resolve) => readWaiters.push(resolve)),
     set: (next) => (releases = [...next]),
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   }

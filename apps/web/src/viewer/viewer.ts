@@ -5,6 +5,7 @@
 import { attachmentIdOf } from "@cello/shared/attachment"
 import { shortUrl } from "@cello/shared/linkify"
 import { parseTaskKey, parseTaskPath } from "@cello/shared/taskKey"
+import { parseVersion } from "@cello/shared/updates"
 import type { CelloDesktop } from "../lib/desktop.ts"
 import type { WidthRule } from "../lib/resize.ts"
 
@@ -112,6 +113,15 @@ export const pageRef = (url: string, origin: string): PageRef | null => {
     version: Number.isInteger(version) && version > 0 ? version : undefined,
     hash: decodeURIComponent(parsed.hash.slice(1)),
   }
+}
+
+/** The release a URL on the board shows (`/releases/0.5.1`, What's new, CEL-140), or null for any other address. */
+export const releaseRef = (url: string, origin: string): string | null => {
+  const parsed = URL.parse(url)
+  if (!parsed || parsed.origin !== new URL(origin).origin) return null
+  const match = /^\/releases\/([^/]+)\/?$/.exec(parsed.pathname)
+  const version = match ? decodeURIComponent(match[1]!) : null
+  return version && parseVersion(version) ? version : null
 }
 
 /** The task a link points at (`/CEL/3`, or that path on the board's origin), or null: such a link opens the task, as its key would. */

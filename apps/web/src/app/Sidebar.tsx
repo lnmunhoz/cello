@@ -29,6 +29,7 @@ import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { widthLimits } from "../lib/resize.ts"
 import { toggleTheme, useDark } from "../lib/theme.ts"
 import { COMMAND_BAR_SHORTCUT } from "../search/layout.ts"
+import { UpdateFooter } from "../updates/UpdateFooter.tsx"
 import { BuildFooter } from "./BuildFooter.tsx"
 import { ConnectionStatus, useConnectionText } from "./ConnectionStatus.tsx"
 import { AgentsWorking, AgentsWorkingRail } from "../presence/Presence.tsx"
@@ -318,6 +319,7 @@ export function Sidebar({
 
       {/* The running build sits just above Settings, which stays at the very bottom. */}
       <div className="mt-auto flex flex-col gap-1">
+        <UpdateFooter />
         <BuildFooter />
         <div className="flex items-center gap-1">
           <Link

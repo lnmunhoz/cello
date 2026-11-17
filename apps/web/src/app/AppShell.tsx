@@ -15,6 +15,7 @@ import { installPanelHistory } from "../viewer/panelBack.ts"
 import { usePanelBackShortcut, ViewerPanel } from "../viewer/ViewerPanel.tsx"
 import { ConnectionStatus } from "./ConnectionStatus.tsx"
 import { AppRestartBar } from "./AppRestartBar.tsx"
+import { UpdateNotices } from "../updates/UpdateNotices.tsx"
 import { ReloadBar } from "./ReloadBar.tsx"
 import { ShowSidebarButton, Sidebar, SidebarContext } from "./Sidebar.tsx"
 import {
@@ -102,6 +103,7 @@ export function AppShell() {
           <ReloadBar />
           <AppRestartBar />
         </NoticeStack>
+        <UpdateNotices />
         <Toaster />
       </div>
     </SidebarContext>

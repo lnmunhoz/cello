@@ -189,6 +189,12 @@ export interface AppEnv {
   readonly HOME?: string
   /** A PATH with a fake `launchctl` first (CEL-81). */
   readonly PATH?: string
+  /** The release feed to check (CEL-140): a fake one; without it the unpackaged app checks nothing. */
+  readonly CELLO_UPDATE_FEED?: string
+  /** The version the app says it runs, in place of apps/desktop/package.json's (CEL-140). */
+  readonly CELLO_APP_VERSION?: string
+  /** Where it saves DMGs, in place of ~/Downloads (CEL-140). */
+  readonly CELLO_UPDATE_DOWNLOADS?: string
 }
 
 /** A background service's plist in `home`, as `cello service install` writes it (CEL-81). */

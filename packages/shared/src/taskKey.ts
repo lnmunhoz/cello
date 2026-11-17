@@ -11,6 +11,7 @@ export const isValidProjectKey = (key: string): boolean => PROJECT_KEY.test(key)
  */
 const RESERVED_KEYS: Readonly<Record<string, string>> = {
   BUILDS: "Builds page",
+  RELEASES: "Releases page",
   SETTINGS: "Settings page",
   REVIEW: "Review page",
   AGENTS: "Agents page",
