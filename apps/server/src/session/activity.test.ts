@@ -147,6 +147,18 @@ describe("an agent's runs", () => {
     expect(many.reduce<ReadonlyArray<StoredTestRun>>(withRun, [])).toHaveLength(MAX_RUNS)
   })
 
+  // CEL-147 review: an ended run that took a run folder's reports is remembered, so that folder's late reports stay with it.
+  it("a new run keeps the ended runs bound to a run folder, in the room live runs leave, newest first", () => {
+    const bound = (runId: string, now: number) =>
+      testsTurnEnded(testsProgressed(testsStarted({ runId, command: "bun run test:docker:e2e", cwd: "/repo/wt", now }), { ...progress, folder: `/repo/wt/r-${runId}` }, now), [], now + 1)
+    const [a, b, c] = [bound("a", 1), bound("b", 2), bound("c", 3)]
+    expect(withRun([a, unit], docker)).toEqual([a, unit, docker])
+    // Live runs come first; the newest bound ones fill what's left of MAX_RUNS.
+    expect(withRun([a, b, c, unit], docker)).toEqual([b, c, unit, docker])
+    const live = Array.from({ length: MAX_RUNS - 1 }, (_, i) => testsStarted({ runId: `l${i}`, command: "bun run test", cwd: null, now: 10 + i }))
+    expect(withRun([a, ...live], docker)).toEqual([...live, docker])
+  })
+
   it("shownRun: the newest running one, else the one that ended last", () => {
     const ended = testsToolFinished(unit, "toolu_u", true, 3000)
     expect(shownRun([docker, unit])).toBe(unit)

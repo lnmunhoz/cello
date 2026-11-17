@@ -147,9 +147,21 @@ export const parseRuns = (json: string | null | undefined): ReadonlyArray<Stored
   return Array.isArray(value) ? value.filter(isStoredRun) : []
 }
 
-/** `runs` with a new one started: live runs stay (a background Docker run goes on while a unit run starts), ended ones go. */
-export const withRun = (runs: ReadonlyArray<StoredTestRun>, run: StoredTestRun): ReadonlyArray<StoredTestRun> =>
-  [...runs.filter((r) => r.endedAt === null), run].slice(-MAX_RUNS)
+/** The run folder a run took its first report from (CEL-147): its reports come from there, and only there. */
+const boundFolder = (run: StoredTestRun): string | null => run.progress?.folder ?? null
+
+/**
+ * `runs` with a new one started, at most MAX_RUNS: live runs stay (a background Docker run goes on while a
+ * unit run starts). Of the ended ones, the newest bound to a run folder stay in the room left, so a late
+ * report from that folder still finds its run and never lands on the new one (CEL-147); the rest go.
+ */
+export const withRun = (runs: ReadonlyArray<StoredTestRun>, run: StoredTestRun): ReadonlyArray<StoredTestRun> => {
+  const live = [...runs.filter((r) => r.endedAt === null), run].slice(-MAX_RUNS)
+  const room = MAX_RUNS - live.length
+  const remembered = room === 0 ? [] : runs.filter((r) => r.endedAt !== null && boundFolder(r) !== null).slice(-room)
+  const kept = new Set([...remembered, ...live])
+  return [...runs.filter((r) => kept.has(r)), run]
+}
 
 /** The run boards show: the newest running one, else the one that ended last. */
 export const shownRun = (runs: ReadonlyArray<StoredTestRun>): StoredTestRun | null => {
@@ -168,9 +180,6 @@ const inside = (child: string, parent: string) => child === parent || child.star
 
 /** Whether two folders are one inside the other (the runner may run from the repo root, the call from below it, or the other way). */
 export const sameFolder = (a: string | null, b: string | null): boolean => a !== null && b !== null && (inside(a, b) || inside(b, a))
-
-/** The run folder a run took its first report from (CEL-147): its reports come from there, and only there. */
-const boundFolder = (run: StoredTestRun): string | null => run.progress?.folder ?? null
 
 /**
  * Which of the session's runs a runner's report from `cwd` is for. A run ended or not taken (undefined)

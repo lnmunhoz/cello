@@ -2157,10 +2157,10 @@ const testProgress = Command.make("progress", {
     yield* print(result.matched ? "Reported." : "No test run of this session is running here, so nothing took it.")
   })).pipe(Command.withDescription(
     "Report a test run's progress to the board, for the agent whose tool call started it: the test runner runs it, not you. " +
-      "The run is this session's, or one of its subagents': the one that took reports from the file's run folder before, else a running " +
-      "one started from this folder (one inside the other) whose label fits the stage, else the session's only running one; the Agents page, the card and the task panel show where it is (\"web e2e 7 of 13 · 1 failed\") and each failure " +
-      "as it happens. A run nobody started, or a call without a session, changes nothing. scripts/test-in-docker.ts calls it as it goes, " +
-      "and never waits on it: without a server the tests run as before.",
+      "It goes to a run of this session or its subagents, found by the file's run folder, this folder and the stage " +
+      "(\"Which run a report is for\" in the guide). The Agents page, the card and the task panel show where it is " +
+      "(\"web e2e 7 of 13 · 1 failed\") and each failure as it happens. A run nobody started, or a call without a session, " +
+      "changes nothing. scripts/test-in-docker.ts calls it as it goes and never waits on it: without a server the tests run as before.",
   ))
 
 const test = Command.make("test").pipe(

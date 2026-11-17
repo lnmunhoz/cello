@@ -200,6 +200,32 @@ describe("ActivityService: test runs (CEL-134)", () => {
         ])
     })))
 
+  // CEL-147 review: a new run used to drop every ended one, and with it the folder it was bound to.
+  it.effect("an ended run's runner still reporting after a new run started in its folder: the new run never takes it (CEL-147)", () =>
+    run(Effect.gen(function* () {
+      const { activity } = yield* board
+      const worktree = "/repo/.claude/worktrees/agent-a353"
+      const desktopFolder = `${worktree}/test-results/docker/2026-11-17_125519-desktop-24400`
+      yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_d", command: "bun run test:docker:desktop", cwd: worktree }))
+      yield* asAgent(builder)(activity.report({ kind: "background", id: "bjumxbgzy", label: "Bash · bun run test:docker:desktop", toolUseId: "toolu_d", waits: true }))
+      const runner = (extra: Partial<TestProgress>) =>
+        asAgent(orchestrator)(activity.progress(worktree, progress({ stage: "desktop-e2e", total: 3, folder: desktopFolder, ...extra })))
+      expect(yield* runner({ passed: 1 })).toEqual({ matched: true })
+      // The turn ends without the desktop task listed: the run ends, though its runner goes on a little.
+      yield* TestClock.adjust("5 seconds")
+      yield* asAgent(builder)(activity.report({ kind: "turn-ended", running: [] }))
+      yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_u", command: "bun run test -- apps/server", cwd: worktree }))
+
+      expect(yield* runner({ passed: 2 })).toEqual({ matched: false })
+      const sql = yield* SqlClient.SqlClient
+      const [row] = yield* sql<{ tests_json: string }>`SELECT tests_json FROM session_agents WHERE agent_id = ${builder.agent}`
+      const runs = JSON.parse(row!.tests_json) as ReadonlyArray<{ label: string; outcome: string | null; progress: TestProgress | null }>
+      expect(runs.map((r) => ({ label: r.label, outcome: r.outcome, passed: r.progress?.passed ?? null }))).toEqual([
+        { label: "desktop e2e", outcome: "ended", passed: 1 },
+        { label: "unit tests", outcome: null, passed: null },
+      ])
+    })))
+
   it.effect("data review: a stored run that isn't whole (no endedAt, a bad progress) is dropped, so the snapshot still encodes", () =>
     run(Effect.gen(function* () {
       yield* board
