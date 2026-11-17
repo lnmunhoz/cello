@@ -31,7 +31,7 @@ import {
   type Task,
   TestProgress,
 } from "@cello/contract/entities"
-import type { CelloEvent, EventOf } from "@cello/contract/events"
+import { type EventOf, isReadable, type StreamedEvent } from "@cello/contract/events"
 import { type ActivityReport, HUMAN_SESSION, IDENTITY_HEADERS, type ProfileWrite } from "@cello/contract/rpcs"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { isAlive } from "@cello/server/process/isAlive"
@@ -341,7 +341,7 @@ const DECISIONS = { approved: "approved", sent_back: "sent back", superseded: "s
 const withdrawal = (
   names: Names & { readonly actors: ReadonlyArray<Actor> },
   review: Review,
-  history: ReadonlyArray<CelloEvent>,
+  history: ReadonlyArray<StreamedEvent>,
 ) => {
   const move = history.find((e): e is EventOf<"task.moved"> =>
     e.type === "task.moved" && e.ts === review.decidedAt && e.from.statusId !== e.to.statusId)
@@ -352,7 +352,7 @@ const withdrawal = (
 const reviewLines = (
   names: Names & { readonly actors: ReadonlyArray<Actor> },
   review: Review,
-  history: ReadonlyArray<CelloEvent>,
+  history: ReadonlyArray<StreamedEvent>,
   now: number,
 ): string[] => {
   const state = review.decision === null
@@ -603,7 +603,11 @@ const get = Command.make("get", { key, json }, (input) =>
       }
     }
     lines.push("", "History")
-    lines.push(...columns(detail.history.map((e) => [ago(e.ts, now), describeEvent(e, { ...byIds(detail), actors: {} }, author(detail, e.actorId, e.sessionId, e.agentId, e))]))
+    // An event this build can't read (a newer server's, CEL-135) has no author to name; its line says so.
+    lines.push(...columns(detail.history.map((e) => [
+      e.ts === undefined ? "" : ago(e.ts, now),
+      describeEvent(e, { ...byIds(detail), actors: {} }, isReadable(e) ? author(detail, e.actorId, e.sessionId, e.agentId, e) : undefined),
+    ]))
       .map((l) => `  ${l}`))
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription("One task in full: description, labels, milestone, claim, pages, review packets with the human's notes, comments, history."))
@@ -2157,10 +2161,10 @@ const testProgress = Command.make("progress", {
     yield* print(result.matched ? "Reported." : "No test run of this session is running here, so nothing took it.")
   })).pipe(Command.withDescription(
     "Report a test run's progress to the board, for the agent whose tool call started it: the test runner runs it, not you. " +
-      "The run is this session's, or one of its subagents', started from this folder (one inside the other), else the session's only " +
-      "running one; the Agents page, the card and the task panel show where it is (\"web e2e 7 of 13 · 1 failed\") and each failure " +
-      "as it happens. A run nobody started, or a call without a session, changes nothing. scripts/test-in-docker.ts calls it as it goes, " +
-      "and never waits on it: without a server the tests run as before.",
+      "It goes to a run of this session or its subagents, found by the file's run folder, this folder and the stage " +
+      "(\"Which run a report is for\" in the guide). The Agents page, the card and the task panel show where it is " +
+      "(\"web e2e 7 of 13 · 1 failed\") and each failure as it happens. A run nobody started, or a call without a session, " +
+      "changes nothing. scripts/test-in-docker.ts calls it as it goes and never waits on it: without a server the tests run as before.",
   ))
 
 const test = Command.make("test").pipe(

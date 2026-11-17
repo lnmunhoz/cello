@@ -13,14 +13,19 @@ const A = { commit: "aaaaaaa", dir: path.join(work, "web-a") }
 const B = { commit: "bbbbbbb", dir: path.join(work, "web-b") }
 /** What build B's build.json lists as merged since A. Git isn't in the container, so the test writes it. */
 const B_CHANGES = ["merge: open tabs notice a new Cello build and offer a reload (CEL-1)", "docs: what each column means"]
+/** A third build, for a tab two builds behind (CEL-148). */
+const C = { commit: "ccccccc", dir: path.join(work, "web-c") }
+const C_CHANGES = ["merge: the update notice expands to show what's in the new build (CEL-1)"]
 
 const seed = (port: number) => seedBoard(port, "Ship the reload bar")
 
 test.beforeAll(async () => {
-  test.setTimeout(180_000)
+  test.setTimeout(240_000)
   buildWeb(A)
   buildWeb(B, B_CHANGES)
+  buildWeb(C, C_CHANGES)
   expect(entryOf(A.dir)).not.toBe(entryOf(B.dir))
+  expect(entryOf(B.dir)).not.toBe(entryOf(C.dir))
 })
 
 test.afterEach(stopAll)
@@ -133,4 +138,105 @@ test("CEL-37: a new label's name typed in Settings and left is a draft too: the 
   await page.locator("[data-build-footer]").click()
   await expect(page.getByRole("list", { name: "Changes in this build" }).getByRole("listitem")).toHaveCount(2)
   await still(page, "reload-footer-changes-dark")
+})
+
+test("CEL-148: a tab two builds behind expands the notice to see both builds' changes, newest first, task keys linked; Reload brings in the newest", async ({ page }) => {
+  test.setTimeout(Math.max(test.info().timeout, 120_000))
+  const port = await freePort()
+  const dataDir = fs.mkdtempSync(path.join(work, "data-"))
+  const a = await startCello(A, port, dataDir)
+  await seed(port)
+  await page.goto(`http://127.0.0.1:${port}/CEL/1`)
+  const bar = page.locator("[data-reload-bar]")
+  const toggle = bar.getByRole("button", { name: "What's in this build" })
+
+  await caption(page, "On build aaaaaaa, start writing a comment, so the tab only offers the reload")
+  const comment = page.getByRole("textbox", { name: "New comment" })
+  await comment.click()
+  await comment.pressSequentially("Reading what's new first")
+
+  await caption(page, "Deploy build bbbbbbb, then build ccccccc: the tab, still on aaaaaaa, is two builds behind")
+  await stop(a)
+  const b = await startCello(B, port, dataDir)
+  await expect(bar).toContainText("build bbbbbbb")
+  await stop(b)
+  await startCello(C, port, dataDir)
+  await expect(bar).toContainText("build ccccccc")
+  await expect(bar).toHaveAttribute("data-reload-bar", "offer")
+
+  await caption(page, "The notice is small by default: a chevron beside Reload opens what's in the build")
+  await expect(toggle).toHaveAttribute("aria-expanded", "false")
+  await expect(bar.getByRole("list")).toHaveCount(0)
+  await still(page, "update-notice-collapsed")
+
+  await caption(page, "Open it: every build since the one this tab runs, newest first, one line per merge")
+  await toggle.click()
+  await expect(toggle).toHaveAttribute("aria-expanded", "true")
+  const builds = bar.locator("[data-new-build]")
+  await expect(builds).toHaveCount(2)
+  await expect(builds.nth(0)).toHaveAttribute("data-new-build", "3")
+  await expect(builds.nth(0)).toContainText("#3 · build ccccccc")
+  await expect(builds.nth(1)).toHaveAttribute("data-new-build", "2")
+  await expect(builds.nth(1)).toContainText("#2 · build bbbbbbb")
+  const newest = bar.getByRole("list", { name: "Changes in build 3" })
+  await expect(newest.getByRole("listitem")).toHaveCount(1)
+  await expect(newest.getByRole("listitem")).toContainText("merge: the update notice expands to show what's in the new build")
+  const before = bar.getByRole("list", { name: "Changes in build 2" })
+  await expect(before.getByRole("listitem")).toHaveCount(2)
+  await expect(before.getByRole("listitem").first()).toContainText("merge: open tabs notice a new Cello build and offer a reload")
+  await expect(before.getByRole("listitem").nth(1)).toContainText("docs: what each column means")
+
+  await caption(page, "Task keys are links to their tasks")
+  const key = newest.getByRole("link", { name: /CEL-1/ })
+  await expect(key).toBeVisible()
+  await expect(key).toHaveAttribute("href", /\/CEL\/1$/)
+  await key.hover()
+  await still(page, "update-notice-expanded")
+
+  await caption(page, "Collapse it again: the notice is back to one line")
+  await toggle.click()
+  await expect(toggle).toHaveAttribute("aria-expanded", "false")
+  await expect(builds).toHaveCount(0)
+
+  await caption(page, "Reload works the same either way: the tab loads build ccccccc")
+  const reloaded = page.waitForEvent("load")
+  await bar.getByRole("button", { name: "Reload" }).click()
+  await reloaded
+  expect(await loadedEntry(page)).toBe(entryOf(C.dir))
+  await expect(bar).toHaveCount(0)
+  await expect(page.locator("[data-build-footer]")).toContainText("build ccccccc")
+})
+
+test("CEL-148: opening the list while the notice counts down stops the countdown, so there's time to read it (dark theme)", async ({ page }) => {
+  test.setTimeout(Math.max(test.info().timeout, 90_000))
+  await page.addInitScript(() => localStorage.setItem("cello:theme", "dark"))
+  const port = await freePort()
+  const dataDir = fs.mkdtempSync(path.join(work, "data-"))
+  const a = await startCello(A, port, dataDir)
+  await seed(port)
+  await page.goto(`http://127.0.0.1:${port}/CEL`)
+  const bar = page.locator("[data-reload-bar]")
+
+  await caption(page, "Idle on build aaaaaaa. Deploy build bbbbbbb: the notice counts down to a reload; open what's in it right away")
+  await stop(a)
+  await startCello(B, port, dataDir)
+  await expect(bar).toHaveAttribute("data-reload-bar", "reload")
+  await bar.getByRole("button", { name: "What's in this build" }).click()
+
+  await caption(page, "The countdown stops and Reload waits for you, with build #2's changes listed")
+  await expect(bar).toHaveAttribute("data-reload-bar", "offer")
+  await expect(bar).not.toContainText("reloading in")
+  await expect(bar.locator("[data-new-build]")).toHaveCount(1)
+  const changes = bar.getByRole("list", { name: "Changes in build 2" })
+  await expect(changes.getByRole("listitem")).toHaveCount(2)
+  await expect(changes.getByRole("link", { name: /CEL-1/ })).toBeVisible()
+  expect(await loadedEntry(page)).toBe(entryOf(A.dir))
+  await still(page, "update-notice-expanded-dark")
+
+  await caption(page, "Click Reload: the tab loads build bbbbbbb")
+  const reloaded = page.waitForEvent("load")
+  await bar.getByRole("button", { name: "Reload" }).click()
+  await reloaded
+  expect(await loadedEntry(page)).toBe(entryOf(B.dir))
+  await expect(bar).toHaveCount(0)
 })

@@ -72,6 +72,8 @@ export function TaskPanel({
   const parent = task?.parentId ? board.tasks[task.parentId] : undefined
   const navigate = useNavigate()
   const view = useTaskView()
+  // Opened at a comment from ⌘K (`?comment=<id>`, CEL-43).
+  const { comment } = useSearch({ strict: false }) as TaskSearch
   // With the viewer open the task moves to the main area, the viewer beside it; closing the viewer
   // docks it again. In a narrow window the viewer covers it instead. It's one element either way, so
   // scroll and drafts stay.
@@ -160,7 +162,7 @@ export function TaskPanel({
           </Button>
         </span>
       </div>
-      {task ? <TaskDetails key={task.id} board={board} project={project} task={task} full={full} /> : <NotFound title={`No task ${project.key}-${number}`} projectKey={project.key} />}
+      {task ? <TaskDetails key={task.id} board={board} project={project} task={task} full={full} comment={comment} /> : <NotFound title={`No task ${project.key}-${number}`} projectKey={project.key} />}
     </aside>
   )
 }
@@ -168,9 +170,9 @@ export function TaskPanel({
 /**
  * A task in the side panel of a page that isn't its board (the Review page, a doc…; CEL-141): its
  * fields, packet, pages, comments and history, as docked; the viewer's header (viewer/ViewerPanel.tsx)
- * has its key, Back, Open in board and close.
+ * has its key, Back, Open in board and close. `comment`: opened at that comment from ⌘K (CEL-144).
  */
-export function TaskInViewer({ projectKey, number }: { projectKey: string; number: number }) {
+export function TaskInViewer({ projectKey, number, comment }: { projectKey: string; number: number; comment?: string | undefined }) {
   const board = useBoard()
   if (!board) return null
   const project = projectByKey(board, projectKey)
@@ -192,7 +194,7 @@ export function TaskInViewer({ projectKey, number }: { projectKey: string; numbe
           </TaskLink>
         </p>
       ) : null}
-      <TaskDetails key={task.id} board={board} project={project} task={task} full={false} />
+      <TaskDetails key={task.id} board={board} project={project} task={task} full={false} comment={comment} />
     </>
   )
 }
@@ -233,9 +235,10 @@ function TaskMenu({ task, onArchived }: { task: Task; onArchived: () => void }) 
 /**
  * The task's fields, packet, pages, comments and history. As a full page the scroll area is a packet
  * container (index.css): the column is centred, and widens for an open packet so it can split in two,
- * while the rest keeps a readable width, aligned with the packet's left edge.
+ * while the rest keeps a readable width, aligned with the packet's left edge. `comment`: the comment
+ * it was opened at, scrolled to and flashed once.
  */
-function TaskDetails({ board, project, task, full }: { board: BoardState; project: Project; task: Task; full: boolean }) {
+function TaskDetails({ board, project, task, full, comment }: { board: BoardState; project: Project; task: Task; full: boolean; comment: string | undefined }) {
   // An open packet or ask splits in two on a wide page, so the column widens for it.
   const reviewing = openReviewOf(board, task.id) !== undefined || openAskOf(board, task.id) !== undefined
   const update = useAtomSet(commands.updateTask)
@@ -317,7 +320,7 @@ function TaskDetails({ board, project, task, full }: { board: BoardState; projec
         <TaskPages board={board} task={task} />
         <AskThread task={task} />
         <EarlierReviews task={task} />
-        <Comments board={board} task={task} />
+        <Comments board={board} task={task} target={comment} />
         <History board={board} task={task} />
       </div>
       </div>

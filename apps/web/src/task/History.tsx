@@ -5,7 +5,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { historyFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
 import { describeEvent } from "@cello/client/history"
-import type { CelloEvent } from "@cello/contract/events"
+import { type CelloEvent, isReadable } from "@cello/contract/events"
 import { sessionWho, whoOf, whoSubject } from "../presence/model.ts"
 
 /** "cello-builder · a13bfb89, under Claude Code session 2fd0505c": for the hover. */
@@ -37,11 +37,16 @@ export function History({ board, task }: { board: BoardState; task: Task }) {
         {events.map((e) => (
           <li key={e.seq} className="flex items-baseline gap-2 text-xs text-muted">
             <i aria-hidden className="size-1.5 shrink-0 translate-y-[-1px] rounded-full bg-line-strong" />
-            {/* An agent's change names it as the main session or a subagent, with its model (CEL-55, CEL-119); the hover has its full name. */}
-            <span title={e.agentId ? named(board, e) : undefined} data-history-event={e.type}>
-              {describeEvent(e, names, doer(board, e))}
-            </span>
-            <span className="text-faint">· {relativeTime(e.ts)}</span>
+            {/* An agent's change names it as the main session or a subagent, with its model (CEL-55, CEL-119); the hover has its full name.
+                An event this build can't read (a newer server's, CEL-135) says only that a change happened. */}
+            {isReadable(e) ? (
+              <span title={e.agentId ? named(board, e) : undefined} data-history-event={e.type}>
+                {describeEvent(e, names, doer(board, e))}
+              </span>
+            ) : (
+              <span data-history-event="unreadable">{describeEvent(e, names)}</span>
+            )}
+            {e.ts === undefined ? null : <span className="text-faint">· {relativeTime(e.ts)}</span>}
           </li>
         ))}
       </ol>

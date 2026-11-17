@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest"
-import { commandWords, elapsedWords, isRunning, isTestCommand, STALE_RUN_MS, testRunLabel, testRunShort, testRunWords, type TestRunLike } from "./testRun.ts"
+import {
+  commandWords,
+  DOCKER_LABELS,
+  DOCKER_STEPS,
+  elapsedWords,
+  isRunning,
+  isTestCommand,
+  STALE_RUN_MS,
+  stageFits,
+  testRunLabel,
+  testRunShort,
+  testRunWords,
+  type TestRunLike,
+} from "./testRun.ts"
 
 describe("isTestCommand (CEL-134): does this shell command run tests?", () => {
   it.each([
@@ -72,6 +85,42 @@ describe("testRunLabel: what the run is called on the board", () => {
     ["npm test", "tests"],
   ])("%s → %s", (command, label) => {
     expect(testRunLabel(command)).toBe(label)
+  })
+})
+
+// CEL-147: two Docker runs from one folder are told apart by the stage their runner reports.
+describe("stageFits: could a runner reporting this stage be this run?", () => {
+  it("names each Docker mode's run as testRunLabel does", () => {
+    for (const mode of ["all", "e2e", "desktop"] as const) expect(testRunLabel(`bun scripts/test-in-docker.ts ${mode}`)).toBe(DOCKER_LABELS[mode])
+  })
+
+  it.each([
+    ["web-e2e", "web e2e", true],
+    ["web-e2e", "Docker tests", true],
+    ["web-e2e", "desktop e2e", false],
+    ["desktop-e2e", "desktop e2e", true],
+    ["desktop-e2e", "web e2e", false],
+    ["unit", "Docker tests", true],
+    ["unit", "web e2e", false],
+    ["typecheck", "desktop e2e", false],
+    // Every Docker run installs first, so installing fits them all, and nothing else.
+    ["install", "web e2e", true],
+    ["install", "desktop e2e", true],
+    ["install", "Docker tests", true],
+    ["install", "unit tests", false],
+    // A runner that names no stage, or one Cello doesn't know, fits no run in particular.
+    [null, "web e2e", false],
+    ["build", "tests", false],
+  ] as const)("%s, %s → %s", (stage, label, fits) => {
+    expect(stageFits(stage, label)).toBe(fits)
+  })
+
+  it("is what each mode runs, in order", () => {
+    expect(DOCKER_STEPS).toEqual({
+      all: ["install", "unit", "typecheck", "web-e2e", "desktop-e2e"],
+      e2e: ["install", "web-e2e"],
+      desktop: ["install", "desktop-e2e"],
+    })
   })
 })
 

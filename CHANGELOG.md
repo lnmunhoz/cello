@@ -3,6 +3,30 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.4.10](https://github.com/lnmunhoz/cello/compare/v0.4.9...v0.4.10) (2026-11-17)
+
+### Features
+
+- picking a task in ⌘K opens it beside the current page; ⌘Enter goes to its board (CEL-144) ([78415e9](https://github.com/lnmunhoz/cello/commit/78415e91550e05feff661469582cc49b3ba49d03))
+
+## [0.4.9](https://github.com/lnmunhoz/cello/compare/v0.4.8...v0.4.9) (2026-11-17)
+
+### Fixes
+
+- two test runs started together each keep their own progress on the card (CEL-147) ([0f804b6](https://github.com/lnmunhoz/cello/commit/0f804b6ae89551705383137800c3c1ef2fa6d059))
+
+## [0.4.8](https://github.com/lnmunhoz/cello/compare/v0.4.7...v0.4.8) (2026-11-17)
+
+### Features
+
+- the "Cello was updated" notice expands to show what's in the new build (CEL-148) ([ea7be2d](https://github.com/lnmunhoz/cello/commit/ea7be2d1dde47ed91a4539e590f73a5cb7a23876))
+
+## [0.4.7](https://github.com/lnmunhoz/cello/compare/v0.4.6...v0.4.7) (2026-11-17)
+
+### Fixes
+
+- a task's history opens even when it holds a change this version can't show (CEL-135) ([b914d99](https://github.com/lnmunhoz/cello/commit/b914d99be461f2776657818a6d6360c083b1fc6b))
+
 ## [0.4.6](https://github.com/lnmunhoz/cello/compare/v0.4.5...v0.4.6) (2026-11-17)
 
 ### Other changes

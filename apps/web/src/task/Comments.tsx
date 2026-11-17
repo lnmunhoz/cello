@@ -1,7 +1,6 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Comment, Task } from "@cello/contract/entities"
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
-import { useSearch } from "@tanstack/react-router"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { AlarmClockIcon, MoreHorizontalIcon, RotateCcwIcon } from "lucide-react"
 import { Fragment, type ReactNode, useId, useState } from "react"
@@ -21,7 +20,6 @@ import { addScreenshot, removeScreenshot, toComment, useCommentDraft } from "./c
 import { Reactions } from "./Reactions.tsx"
 import { CommentStatusRow, ReceiptTicks } from "./Receipt.tsx"
 import { reopenOf, reopenWords, statusCommentId, wakeHintOf, wakeHintWords } from "./receipts.ts"
-import type { TaskSearch } from "./view.ts"
 
 interface CommentsProps {
   readonly board: BoardState
@@ -29,6 +27,11 @@ interface CommentsProps {
   readonly placeholder?: string | undefined
   /** More buttons after Comment, in its row (the Review page's Send back and Approve); the row's buttons are then full size. */
   readonly actions?: ((state: { readonly uploading: boolean }) => ReactNode) | undefined
+  /**
+   * The comment the task was opened at from ⌘K (CEL-43): it scrolls into view and flashes once. On its
+   * board it's the task's `?comment=<id>`; in another page's side panel, the panel's own address's (CEL-144).
+   */
+  readonly target?: string | undefined
 }
 
 /**
@@ -39,7 +42,7 @@ interface CommentsProps {
  * a status row in the thread saying where it stands (CEL-76). On a task nobody holds that an agent worked
  * on, a line by the Comment button says the comment reopens it and goes to that agent (CEL-110).
  */
-export function Comments({ board, task, placeholder = "Leave a comment…", actions }: CommentsProps) {
+export function Comments({ board, task, placeholder = "Leave a comment…", actions, target }: CommentsProps) {
   const result = useAtomValue(commentsFamily(task.id))
   const add = useAtomSet(commands.addComment, { mode: "promiseExit" })
   const { draft, update, clear } = useCommentDraft(task.id)
@@ -47,8 +50,6 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
   const toSend = uploading > 0 ? null : toComment(draft)
   const headingId = useId()
   const comments = AsyncResult.isSuccess(result) ? result.value.filter((c) => c.deletedAt === null) : []
-  // Opened at a comment from ⌘K (`?comment=<id>`, CEL-43): it scrolls into view and flashes once.
-  const target = (useSearch({ strict: false }) as TaskSearch).comment
   const statusAfter = statusCommentId(comments)
   // On a task nobody holds, a comment goes to the agent that last worked on it and reopens it (CEL-110).
   const reopen = reopenOf(board, task)

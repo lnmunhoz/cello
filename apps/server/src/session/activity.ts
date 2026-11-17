@@ -5,7 +5,7 @@
 // Monitor's `taskId`), and a stop compares it with the session's `background_tasks`: while some of its
 // own work runs, the agent is waiting on it, not finished.
 import { type TestProgress, TestRun } from "@cello/contract/entities"
-import { testRunLabel } from "@cello/shared/testRun"
+import { stageFits, testRunLabel } from "@cello/shared/testRun"
 import * as Schema from "effect/Schema"
 
 /**
@@ -147,9 +147,21 @@ export const parseRuns = (json: string | null | undefined): ReadonlyArray<Stored
   return Array.isArray(value) ? value.filter(isStoredRun) : []
 }
 
-/** `runs` with a new one started: live runs stay (a background Docker run goes on while a unit run starts), ended ones go. */
-export const withRun = (runs: ReadonlyArray<StoredTestRun>, run: StoredTestRun): ReadonlyArray<StoredTestRun> =>
-  [...runs.filter((r) => r.endedAt === null), run].slice(-MAX_RUNS)
+/** The run folder a run took its first report from (CEL-147): its reports come from there, and only there. */
+const boundFolder = (run: StoredTestRun): string | null => run.progress?.folder ?? null
+
+/**
+ * `runs` with a new one started, at most MAX_RUNS: live runs stay (a background Docker run goes on while a
+ * unit run starts). Of the ended ones, the newest bound to a run folder stay in the room left, so a late
+ * report from that folder still finds its run and never lands on the new one (CEL-147); the rest go.
+ */
+export const withRun = (runs: ReadonlyArray<StoredTestRun>, run: StoredTestRun): ReadonlyArray<StoredTestRun> => {
+  const live = [...runs.filter((r) => r.endedAt === null), run].slice(-MAX_RUNS)
+  const room = MAX_RUNS - live.length
+  const remembered = room === 0 ? [] : runs.filter((r) => r.endedAt !== null && boundFolder(r) !== null).slice(-room)
+  const kept = new Set([...remembered, ...live])
+  return [...runs.filter((r) => kept.has(r)), run]
+}
 
 /** The run boards show: the newest running one, else the one that ended last. */
 export const shownRun = (runs: ReadonlyArray<StoredTestRun>): StoredTestRun | null => {
@@ -170,16 +182,35 @@ const inside = (child: string, parent: string) => child === parent || child.star
 export const sameFolder = (a: string | null, b: string | null): boolean => a !== null && b !== null && (inside(a, b) || inside(b, a))
 
 /**
- * Which running run a runner's report from `cwd` is for (review S1: the orchestrator at the repo root and
- * a builder in a worktree inside it both hold the folder). Of the runs whose folder holds `cwd` or is
- * inside it: one started from `cwd` exactly, then the deepest folder, then the newest. None: the only
- * running run, else nothing.
+ * Which of the session's runs a runner's report from `cwd` is for. A run ended or not taken (undefined)
+ * takes nothing; the caller drops the report.
+ *
+ * 1. A run that took a report from the report's run folder (`folder`) takes it, ended or not (CEL-147):
+ *    a late report from a finished run never lands on another.
+ * 2. Else a running run that hasn't taken one from another folder: started from `cwd` or from a folder
+ *    one inside the other (review S1: the orchestrator at the repo root and a builder in a worktree inside
+ *    it), else the session's only such run. Of those, one started from `cwd` exactly, then the deepest
+ *    folder, then one whose label fits the stage (stageFits: a `web-e2e` report is a "web e2e" run's).
+ * 3. Still a tie: the oldest, as runners start reporting in the order they started. But while the stage
+ *    fits runs of different kinds (both a web and a desktop Docker run are installing first), the report
+ *    waits for one that tells them apart, unless it's the last.
  */
-export const pickRun = <C extends { readonly run: StoredTestRun }>(candidates: ReadonlyArray<C>, cwd: string): C | undefined => {
-  const ranked = candidates
-    .filter((c) => sameFolder(c.run.cwd, cwd))
-    .sort((a, b) =>
-      Number(b.run.cwd === cwd) - Number(a.run.cwd === cwd) || (b.run.cwd?.length ?? 0) - (a.run.cwd?.length ?? 0) || b.run.startedAt - a.run.startedAt
-    )
-  return ranked[0] ?? (candidates.length === 1 ? candidates[0] : undefined)
+export const pickRun = <C extends { readonly run: StoredTestRun }>(candidates: ReadonlyArray<C>, cwd: string, progress: TestProgress): C | undefined => {
+  const { folder, stage } = progress
+  const bound = folder === null ? undefined : candidates.find((c) => boundFolder(c.run) === folder)
+  if (bound !== undefined) return bound
+  const open = candidates.filter((c) => c.run.endedAt === null && boundFolder(c.run) === null)
+  const near = open.filter((c) => sameFolder(c.run.cwd, cwd))
+  const pool = near.length > 0 ? near : open.length === 1 ? open : []
+  const rank = (c: C) => [Number(c.run.cwd === cwd), c.run.cwd?.length ?? 0, Number(stageFits(stage, c.run.label))] as const
+  const better = (a: C, b: C) => {
+    const [x, y] = [rank(a), rank(b)]
+    return y[0] - x[0] || y[1] - x[1] || y[2] - x[2]
+  }
+  const ranked = [...pool].sort((a, b) => better(a, b) || a.run.startedAt - b.run.startedAt)
+  const first = ranked[0]
+  if (first === undefined) return undefined
+  const tied = ranked.filter((c) => better(c, first) === 0)
+  const kinds = new Set(tied.map((c) => c.run.label))
+  return kinds.size > 1 && stageFits(stage, first.run.label) && !progress.done ? undefined : first
 }

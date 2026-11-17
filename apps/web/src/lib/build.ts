@@ -12,6 +12,9 @@ export { reloadedFor } from "./reloadGuard.ts"
 /** Stamped into the bundle by apps/web/buildStamp.ts; null where it isn't (unit tests). */
 export const loadedBuild: BuildStamp | null = typeof __CELLO_BUILD__ === "undefined" ? null : __CELLO_BUILD__
 
+/** How many builds the Builds page asks for at first; the update notice asks for the same page. */
+export const BUILDS_PAGE = 50
+
 /** Reloads the page to bring in `served`, remembering that it did. */
 export const reloadInto = (served: BuildStamp): void => {
   rememberReload(buildKey(served))

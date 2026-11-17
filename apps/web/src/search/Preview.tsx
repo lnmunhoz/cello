@@ -39,15 +39,16 @@ export function Marked({ text, ranges }: { text: string; ranges: ReadonlyArray<R
 
 export const DECISION_LABELS = { approved: "Approved", sent_back: "Sent back", superseded: "Replaced", withdrawn: "Withdrawn" } as const
 
-function OpenHint({ label, full }: { label: string; full?: boolean }) {
+/** What Enter does with the previewed result; `board`: ⌘Enter goes to its task's board (CEL-144). */
+function OpenHint({ label, board }: { label: string; board?: boolean }) {
   return (
     <p className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 pt-2 text-xs text-faint">
       <span className="flex items-center gap-1.5">
         <Kbd>↵</Kbd> {label}
       </span>
-      {full ? (
+      {board ? (
         <span className="flex items-center gap-1.5">
-          <Kbd>{formatShortcut("mod+enter")}</Kbd> Full page
+          <Kbd>{formatShortcut("mod+enter")}</Kbd> Open in board
         </span>
       ) : null}
     </p>
@@ -120,7 +121,7 @@ export function Preview({ hit, board }: { hit: SearchHit; board: BoardState }) {
             <Marked text={hit.text} ranges={hit.textRanges} />
           </p>
         </div>
-        <OpenHint label={open ? "Open on the Review page" : hit.kind === "comment" ? "Open the task at this comment" : "Open the task"} full />
+        <OpenHint label={open ? "Open on the Review page" : hit.kind === "comment" ? "Open the task at this comment" : "Open the task"} board />
       </div>
     )
   }
@@ -143,7 +144,7 @@ export function Preview({ hit, board }: { hit: SearchHit; board: BoardState }) {
           <p className="text-[13px] text-faint">No description.</p>
         )}
         {hit.taskId ? <LatestComment board={board} taskId={hit.taskId} /> : null}
-        <OpenHint label="Open in the panel" full />
+        <OpenHint label="Open the task" board />
       </div>
     )
   }

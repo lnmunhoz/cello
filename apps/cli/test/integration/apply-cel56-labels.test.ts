@@ -260,8 +260,7 @@ describe("apply-cel56-labels against a real server", () => {
       expect([groupOf("bug"), groupOf("server"), groupOf("cli"), groupOf("M2"), groupOf("ui")]).toEqual(["kind", "area", "area", "milestone", "none"])
       // Credited to the agent session that ran it.
       const relabel = (yield* human["task.history"]({ id: snapshot.tasks.find((t) => t.key === "CEL-3")!.id })).at(-1)!
-      expect(relabel).toMatchObject({ type: "task.labels_changed" })
-      expect(relabel.sessionId).not.toBeNull()
+      expect(relabel).toMatchObject({ type: "task.labels_changed", sessionId: expect.any(String) })
 
       // Again, the way the orchestrator runs it: a process running `cello` from source.
       const proc = Bun.spawn(["bun", SCRIPT, "--project", "CEL"], {

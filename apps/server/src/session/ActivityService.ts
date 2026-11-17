@@ -38,9 +38,9 @@ export class ActivityService extends Context.Service<ActivityService, {
   /** What a hook saw the caller do. The human, or a call without a session, changes nothing. */
   readonly report: (report: ActivityReport) => Effect.Effect<void, never, Caller>
   /**
-   * A test runner's progress, from the caller's session (its shell can't say which subagent): the
-   * running run started from `cwd`, else from the deepest folder holding it or inside it, else the
-   * session's only running one, takes it (activity.ts pickRun). Whether one did.
+   * A test runner's progress, from the caller's session (its shell can't say which subagent): the run
+   * that took its run folder's reports before, else a running one found by `cwd` and the stage it's on
+   * (activity.ts pickRun), takes it. Whether one did.
    */
   readonly progress: (cwd: string, progress: TestProgress) => Effect.Effect<{ readonly matched: boolean }, never, Caller>
 }>()("cello/ActivityService") {}
@@ -190,11 +190,10 @@ const make = Effect.gen(function* () {
         SELECT NULL AS agent_id, tests_json FROM agent_sessions WHERE id = ${sessionId} AND tests_json IS NOT NULL
         UNION ALL
         SELECT agent_id, tests_json FROM session_agents WHERE session_id = ${sessionId} AND tests_json IS NOT NULL`
-      const running = rows.flatMap((r) =>
-        parseRuns(r.tests_json).filter((run) => run.endedAt === null).map((run) => ({ actor: { sessionId, agentId: r.agent_id }, run }))
-      )
-      const picked = pickRun(running, cwd)
-      if (picked === undefined) return undefined
+      // Ended runs too: one that took this run folder's reports keeps them, so a late one never lands elsewhere.
+      const candidates = rows.flatMap((r) => parseRuns(r.tests_json).map((run) => ({ actor: { sessionId, agentId: r.agent_id }, run })))
+      const picked = pickRun(candidates, cwd, cleaned)
+      if (picked === undefined || picked.run.endedAt !== null) return undefined
       const row = yield* read(picked.actor)
       if (row === null) return undefined
       const next = testsProgressed(picked.run, cleaned, now)

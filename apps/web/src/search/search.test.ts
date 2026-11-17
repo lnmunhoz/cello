@@ -39,19 +39,20 @@ describe("the layout", () => {
 })
 
 describe("opening a result", () => {
-  it("a task opens in the panel, or as a full page with ⌘Enter", () => {
-    expect(targetOf(hit({ kind: "task", id: "t", taskKey: "CEL-15" }), false)).toEqual({ to: "task", projectKey: "CEL", number: 15, full: false })
-    expect(targetOf(hit({ kind: "task", id: "t", taskKey: "CEL-15" }), true)).toMatchObject({ full: true })
+  it("Enter opens a task where its links open (beside the page you're on); ⌘Enter goes to its board (CEL-144)", () => {
+    expect(targetOf(hit({ kind: "task", id: "t", taskKey: "CEL-15" }), false)).toEqual({ to: "task", projectKey: "CEL", number: 15, board: false })
+    expect(targetOf(hit({ kind: "task", id: "t", taskKey: "CEL-15" }), true)).toEqual({ to: "task", projectKey: "CEL", number: 15, board: true })
   })
 
-  it("a comment opens its task at the comment", () => {
-    expect(targetOf(hit({ kind: "comment", id: "c1", taskKey: "CEL-9" }), false)).toEqual({ to: "task", projectKey: "CEL", number: 9, full: false, comment: "c1" })
+  it("a comment opens its task at the comment, beside the page or on its board", () => {
+    expect(targetOf(hit({ kind: "comment", id: "c1", taskKey: "CEL-9" }), false)).toEqual({ to: "task", projectKey: "CEL", number: 9, board: false, comment: "c1" })
+    expect(targetOf(hit({ kind: "comment", id: "c1", taskKey: "CEL-9" }), true)).toEqual({ to: "task", projectKey: "CEL", number: 9, board: true, comment: "c1" })
   })
 
-  it("an open packet opens on the Review page; a decided one, or ⌘Enter, opens its task", () => {
+  it("an open packet opens on the Review page; a decided one opens its task, and ⌘Enter goes to its board", () => {
     expect(targetOf(hit({ kind: "packet", id: "r", taskKey: "CEL-3" }), false)).toEqual({ to: "review", key: "CEL-3" })
-    expect(targetOf(hit({ kind: "packet", id: "r", taskKey: "CEL-3", decision: "approved" }), false)).toMatchObject({ to: "task", number: 3 })
-    expect(targetOf(hit({ kind: "packet", id: "r", taskKey: "CEL-3" }), true)).toMatchObject({ to: "task", full: true })
+    expect(targetOf(hit({ kind: "packet", id: "r", taskKey: "CEL-3", decision: "approved" }), false)).toEqual({ to: "task", projectKey: "CEL", number: 3, board: false })
+    expect(targetOf(hit({ kind: "packet", id: "r", taskKey: "CEL-3" }), true)).toEqual({ to: "task", projectKey: "CEL", number: 3, board: true })
   })
 
   it("a document opens its page, a project its issues, a label Settings", () => {
@@ -63,7 +64,7 @@ describe("opening a result", () => {
 
 describe("recent places", () => {
   it("are what was opened, newest first, once each, at most eight", () => {
-    const task = recentOf({ to: "task", projectKey: "CEL", number: 9, full: false, comment: "c1" })!
+    const task = recentOf({ to: "task", projectKey: "CEL", number: 9, board: false, comment: "c1" })!
     expect(task).toEqual({ kind: "task", key: "CEL-9" })
     expect(recentOf({ to: "review", key: "CEL-3" })).toEqual({ kind: "task", key: "CEL-3" })
     expect(recentOf({ to: "settings" })).toBeNull()

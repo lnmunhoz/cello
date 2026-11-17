@@ -15,7 +15,9 @@ import {
   taskOfHref,
   taskOpenFrom,
   taskRoute,
+  taskViewerPath,
   toViewerItem,
+  viewerTaskOf,
   VIEWER_WIDTH,
   withVersion,
   type OpenEnv,
@@ -356,4 +358,29 @@ describe("nextFrameState: whether an external page showed in the iframe", () => 
     expect(nextFrameState("loading", "timeout")).toBe("blocked")
   })
   it("a late timeout doesn't hide a page that loaded", () => expect(nextFrameState("shown", "timeout")).toBe("shown"))
+})
+
+describe("taskViewerPath and viewerTaskOf: a task in the side panel, at a comment when ⌘K opened it there (CEL-144)", () => {
+  const thai96 = { projectKey: "THAI", number: 96 }
+  const inViewer = (url: string) => toViewerItem({ url }, ORIGIN)!
+
+  it("the side panel's address is the task's path, with the comment to open at", () => {
+    expect(taskViewerPath(thai96)).toBe("/THAI/96")
+    expect(taskViewerPath(thai96, "c 1/2")).toBe("/THAI/96?comment=c+1%2F2")
+  })
+
+  it("reads back the task and the comment, the comment's id as it was", () => {
+    expect(viewerTaskOf(inViewer(taskViewerPath(thai96)), ORIGIN)).toEqual(thai96)
+    expect(viewerTaskOf(inViewer(taskViewerPath(thai96, "c 1/2")), ORIGIN)).toEqual({ ...thai96, comment: "c 1/2" })
+  })
+
+  it("null for what isn't a task: a page, a file, another site", () => {
+    expect(viewerTaskOf(inViewer("/THAI/pages/notes"), ORIGIN)).toBeNull()
+    expect(viewerTaskOf(inViewer("/attachments/a1"), ORIGIN)).toBeNull()
+    expect(viewerTaskOf(inViewer("https://example.com/THAI/96"), ORIGIN)).toBeNull()
+  })
+
+  it("Open in board keeps the comment, so the board opens at it too", () => {
+    expect(fullPageHref(inViewer(taskViewerPath(thai96, "c1")).url)).toBe("/THAI/96?comment=c1")
+  })
 })

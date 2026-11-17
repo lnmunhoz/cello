@@ -4,16 +4,16 @@
 import { createHash } from "node:crypto"
 import * as fs from "node:fs"
 import * as path from "node:path"
+import { DOCKER_STEPS, type DockerMode } from "../../packages/shared/src/testRun.ts"
 import { IN_CONTAINER } from "./guard.ts"
 
-export type Mode = "all" | "e2e" | "desktop"
+export type Mode = DockerMode
 
-/** The steps each mode runs, in order. `install` comes first and stops the run when it fails. */
-export const MODE_STEPS: Readonly<Record<Mode, ReadonlyArray<string>>> = {
-  all: ["install", "unit", "typecheck", "web-e2e", "desktop-e2e"],
-  e2e: ["install", "web-e2e"],
-  desktop: ["install", "desktop-e2e"],
-}
+/**
+ * The steps each mode runs, in order. `install` comes first and stops the run when it fails. Kept in
+ * @cello/shared, where the server tells two runs apart by the stage their reports name (CEL-147).
+ */
+export const MODE_STEPS = DOCKER_STEPS
 
 /**
  * Electron's window is 1440×900 and the tests run it at a device scale of 2 (apps/desktop/e2e/support.ts),
