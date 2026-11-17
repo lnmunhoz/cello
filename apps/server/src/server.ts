@@ -124,7 +124,7 @@ const recordPort = Layer.effectDiscard(Effect.gen(function* () {
 
 export const layer = (options: ServerOptions) => {
   const storage = Seed.layer(options.humanName).pipe(
-    Layer.provideMerge(Migrations.layer),
+    Layer.provideMerge(Migrations.layerFor(path.resolve(options.dataDir))),
     Layer.provideMerge(database),
   )
   const assets = AssetStore.layer({ dir: path.join(options.dataDir, AssetStore.ASSETS_DIR) })

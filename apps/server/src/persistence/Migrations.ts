@@ -1,7 +1,12 @@
-// Numbered migrations, run in order at startup and tracked in the `migrations` table.
+// Numbered migrations, run in order at startup and tracked in the `migrations` table. A database with a
+// migration this build doesn't know was opened by a newer Cello (CEL-149): it's refused before anything
+// runs, so an older download never writes to a board a newer build already migrated.
 import * as SqliteMigrator from "@effect/sql-sqlite-bun/SqliteMigrator"
+import { APP_VERSION } from "@cello/shared/version"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Schema from "effect/Schema"
+import * as SqlClient from "effect/sql/SqlClient"
 import init from "./migrations/0001_init.ts"
 import reviews from "./migrations/0002_reviews.ts"
 import documents from "./migrations/0003_documents.ts"
@@ -63,10 +68,55 @@ export const records = {
 
 export const migrations = SqliteMigrator.fromRecord(records)
 
-/** Applies pending migrations. Failing to migrate is a defect: the server can't run on a half-built schema. */
-export const run = SqliteMigrator.run({ loader: migrations, table: "migrations" }).pipe(
-  Effect.orDie,
-  Effect.withSpan("Migrations.run"),
-)
+/** "0027_merge_after_approval": a migration as its file and the `records` key name it. */
+const label = (id: number, name: string): string => `${String(id).padStart(4, "0")}_${name}`
+
+/**
+ * The database has a migration this build doesn't know: a newer Cello opened it (CEL-149). Nothing was
+ * run or written. `dataDir` is the board's folder when the server knows it (server.ts adds it).
+ */
+export class BoardTooNew extends Schema.TaggedError<BoardTooNew>()("BoardTooNew", {
+  /** The newest migration it has that this build doesn't know, e.g. "0028_inbox_rules". */
+  newest: Schema.String,
+  /** The newest migration this build knows. */
+  known: Schema.String,
+  /** This build's version. */
+  version: Schema.String,
+  dataDir: Schema.NullOr(Schema.String),
+}) {
+  override get message(): string {
+    const board = this.dataDir === null ? "This board" : `This board (${this.dataDir})`
+    return `${board} was opened by a newer Cello (migration ${this.newest}); this cello is v${this.version}. ` +
+      "Update Cello, or use another board. Nothing was changed."
+  }
+}
+
+/** Fails with BoardTooNew when the database has a migration this build doesn't have. Only reads. */
+const refuseNewer = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+  const known = yield* migrations
+  const tracked = yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'migrations'`
+  if ((tracked[0]?.n ?? 0) === 0) return
+  const applied = yield* sql<{ migration_id: number; name: string }>`SELECT migration_id, name FROM migrations ORDER BY migration_id`
+  const ids = new Set(known.map(([id]) => id))
+  const newest = applied.filter((row) => !ids.has(row.migration_id)).at(-1)
+  if (!newest) return
+  const [knownId, knownName] = known.at(-1) ?? [0, "none"]
+  return yield* new BoardTooNew({ newest: label(newest.migration_id, newest.name), known: label(knownId, knownName), version: APP_VERSION, dataDir: null })
+})
+
+/**
+ * Refuses a database a newer Cello migrated (BoardTooNew), then applies the pending migrations. Failing to
+ * read or migrate is a defect: the server can't run on a half-built schema.
+ */
+export const run: Effect.Effect<void, BoardTooNew, SqlClient.SqlClient> = Effect.gen(function* () {
+  yield* refuseNewer.pipe(Effect.catchTag(["SqlError", "MigrationError"], (error) => Effect.die(error)))
+  yield* SqliteMigrator.run({ loader: migrations, table: "migrations" }).pipe(Effect.orDie)
+}).pipe(Effect.withSpan("Migrations.run"))
 
 export const layer = Layer.effectDiscard(run)
+
+/** The server's: `layer`, its refusal naming the board's folder. */
+export const layerFor = (dataDir: string) =>
+  Layer.effectDiscard(run.pipe(Effect.mapError((error) =>
+    new BoardTooNew({ newest: error.newest, known: error.known, version: error.version, dataDir }))))
