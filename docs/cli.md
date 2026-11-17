@@ -857,6 +857,8 @@ The Agents page opens each agent's **live log**: what it says, each tool it call
 - **After each tool call, the step in one line** ("Bash · bun run test", "Edit · FacetPanel.tsx") is the agent's current step on the Agents page.
 - **Only those files, only there.** The server reads a transcript only when a hook reported that exact path and it's a `.jsonl` inside Claude Code's `projects/` folder (`$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`), symlinks resolved. A log Claude Code has cleaned up shows "no longer on disk".
 - **Keys and tokens are masked** (`sk-…`, `ghp_…`, `AKIA…`, `API_TOKEN=…`, `password=…`, `--token …`, `Bearer …`, the password in `https://user:password@host`, long random strings) before the log or the current step leaves the server; the human can ask to see them. Still: don't print secrets you don't need.
+  - Also masked: a secret-named setting with a value of letters and digits (`password: hunter2hunter2`, `token = abcd1234efgh5678`, `apikey abc123def456`), the `X-Api-Key:`, `Authorization: Basic …` and `Cookie:` headers, `curl -u user:password` and `mysql -ppassword`. The name stays, so `password: hunter2hunter2` reads `password: ••••••••`.
+  - Code stays readable: `const token = getToken()`, `token: string` and `"input_tokens": 12345678` are left alone, and so are `docker run -u 1000:1000` and `ssh -p2222`.
 - **A run Cello woke** (see "When your process is gone, Cello can wake you") also shows its run log there.
 
 Nothing to do for this beyond `cello install claude`; without the hooks, the Agents page lists you but has no log. For example, the human sees a builder's log as:
