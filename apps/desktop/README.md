@@ -106,7 +106,7 @@ Electron's Node can't run the Bun server, so the app uses the `cello` binary as 
 
 ### Settings → Board: which board the app opens
 
-The board's Settings page has a **Board** section in the app (not in a browser): the data folder and port the
+The board's Settings page starts with a **Board** section in the app (not in a browser): the data folder and port the
 app's server uses, `~/.cello` on 4747 until you change it. Point the downloaded Cello at a test board once
 (`~/.cello-release` on 4757, say) and it runs its own server there with the `cello` inside it, starting empty like
 a new user's board, while Cello Dev keeps your real board on 4747.

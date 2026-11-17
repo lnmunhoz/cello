@@ -106,7 +106,6 @@ test("CEL-149: Settings → Board switches the app to a test board: its own serv
   const section = boardSection(board)
   await expect(section.getByLabel("Board folder")).toHaveValue(first)
   await expect(section.getByLabel("Board port")).toHaveValue(String(portA))
-  await section.scrollIntoViewIfNeeded()
   await themes(app, board, "board-setting")
 
   await video.caption("A folder without a full path is refused, and nothing changes")

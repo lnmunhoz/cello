@@ -56,6 +56,12 @@ export function Settings() {
       <Breadcrumb crumbs={[{ label: board.workspaces[workspaceId]?.name ?? "Workspace" }, { label: "Settings" }]} />
       <div className="flex-1 overflow-y-auto px-8 py-6">
         <div className="mx-auto flex max-w-2xl flex-col gap-10">
+          {/* First: which board this is. A switch lands here, on the board it switched to. */}
+          {desktopBoard ? (
+            <Section title="Board" description="The data folder and port this app's server uses. Kept in the app, not in the board.">
+              <BoardSettings key={`${desktopBoard.dataDir}:${desktopBoard.port}`} state={desktopBoard} />
+            </Section>
+          ) : null}
           <Section title="Statuses" description="The board's columns, shared by every project in this workspace.">
             <ul aria-label="Statuses" className="divide-y divide-line rounded-lg border border-line">
               {statuses.map((s, i) => (
@@ -108,11 +114,6 @@ export function Settings() {
           <Section title="Search" description="How the ⌘K bar shows results on this device. Peek previews the highlighted result beside the list; in a narrow window it shows as Palette.">
             <SearchLayout />
           </Section>
-          {desktopBoard ? (
-            <Section title="Board" description="The data folder and port this app's server uses. Kept in the app, not in the board.">
-              <BoardSettings key={`${desktopBoard.dataDir}:${desktopBoard.port}`} state={desktopBoard} />
-            </Section>
-          ) : null}
           {updates ? (
             <Section title="Updates" description="How the Cello app finds new versions on GitHub, and which ones it offers.">
               <UpdateSettings state={updates} />
