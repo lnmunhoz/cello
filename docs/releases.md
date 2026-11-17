@@ -61,6 +61,10 @@ flowchart TD
 8. **Prints the GitHub Actions run** the tag started (`gh run list --workflow release.yml --branch vX.Y.Z`), or the workflow's page when GitHub doesn't list the run yet, and the release page the downloads will be on.
 9. **Deploys**, in this order. First it checks, before touching anything, that the staged build is this release's: `release/stage/cello` exists and is executable, its `--version` says package.json's version and HEAD's commit, and `vX.Y.Z` is on origin. A leftover from an undone release, or a build cut short by a full disk, is refused. Then `cello backup` (the old cello, against the running server), then the staged build goes live with one rename of `release/stage/cello` onto `apps/cli/dist/cello` (same filesystem, so that path holds the old build or the new one, never a half-written file), then `cello service restart`. The service runs the new build, and a migration runs at that restart, after the backup. If the backup fails, nothing goes live and nothing restarts.
 
+### After the deploy: reload open boards
+
+Board windows that were open during the deploy (the browser, the desktop app) still run the old web app. The ReloadBar sees the new build: an idle tab reloads by itself after a short notice, and a tab with something being edited shows the bar until it's clicked. Reload any window that still shows the bar, so no old board reads data only the new build knows (CEL-143's `approved` items and wake reasons broke older boards and `cello` binaries before this build learned to skip values it doesn't know).
+
 ## What GitHub Actions does
 
 The Release workflow (`.github/workflows/release.yml`) starts when a `vX.Y.Z` tag is pushed:
@@ -172,7 +176,7 @@ When release-it fails, `bun run release` looks at how far it got (the release co
 To go back to an earlier release, say v0.3.0 after v0.3.1 misbehaved:
 
 1. **Put the old binary back.** Either download `cello-v0.3.0-darwin-arm64.zip` from the GitHub release and unzip it over `apps/cli/dist/cello` in the main checkout (the service and `~/.local/bin/cello` run that file), or rebuild it: `git checkout v0.3.0 && (cd apps/cli && bun run build) && git checkout main`.
-2. **If the bad release ran a migration**, the old binary can't read the new database. Restore the backup the release took right before it went live: stop the server (`cello service uninstall` stops it and removes the plist; data and log stay), `cello backup list` (the manual backup taken at the release), `cello restore <id>` (it takes a safety backup first), then `cello service install` again with `~/.local/bin/cello`. Agents run `cello restore` only when Lucas asks.
+2. **If the bad release ran a migration, or wrote data the old build doesn't know, restore the backup; don't just swap the binary back.** The old binary can't read the new database, and data the new build wrote can break it even without a migration: after CEL-143, once an approval exists (an `approved` inbox item, a run woken for an approval, a project switched to merge after approval), an older `cello` fails on it and an older board loses its snapshot. Restore the backup the release took right before it went live: stop the server (`cello service uninstall` stops it and removes the plist; data and log stay), `cello backup list` (the manual backup taken at the release), `cello restore <id>` (it takes a safety backup first), then `cello service install` again with `~/.local/bin/cello`. Agents run `cello restore` only when Lucas asks.
 3. **Restart** (if you didn't reinstall the service in step 2): `cello service restart`, and check `cello --version` says 0.3.0.
 4. Fix forward: the next `bun run release` ships the fix as a new patch. Tags and GitHub releases are never deleted or reused.
 

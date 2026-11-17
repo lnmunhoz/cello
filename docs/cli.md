@@ -1028,6 +1028,7 @@ cello task done APP-7
 - **Only the session holding the claim** runs `cello task done`, and only on a task that's Approved · merging. Anywhere else it's refused and says why.
 - **If the merge fails** (a conflict, a red build), the task stays Approved · merging: set `cello task stage APP-7 fixing`, and say what broke on the card. Fix it and try again, or leave it to the human: they can send it back from the card, which brings it back to In Progress, still yours.
 - **Their note**, if they typed one with the approval, comes under the line ("Ship it" above) and shows under Reviews in `cello task get`.
+- **Going back to a build from before this** (rare, and only the human decides): once an approval exists, older `cello` binaries and boards can't read it, so the undo is restoring the backup the release took, not swapping the binary back (see Releases, "Rolling back", in the Cello repository).
 - **Approving twice** is refused while it waits for your merge; a task the human holds themselves, or one no agent ever held, goes straight to Done.
 - **No asks while it waits for your merge.** `cello task ask` is refused there: its trip through Needs input would clear the stage, and with it the approval. Say what you need in a comment (`cello task comment APP-7 "…"`).
 
