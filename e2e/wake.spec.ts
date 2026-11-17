@@ -213,6 +213,9 @@ test("CEL-136: a comment that wakes the session says so at once: the box beforeh
   await caption(page, "Lucas comments: right away the row under it says Cello is waking the session, counting down, with Wake now")
   await say(page, task, "Make the tap targets bigger")
   await expect(status).toHaveAttribute("data-wake-status", "scheduled")
+  // The row mid-panel, clear of the caption at the bottom of the video (the comment made the panel tall
+  // enough to scroll), so the countdown and its steps after are plainly on screen.
+  await status.evaluate((el) => el.scrollIntoView({ block: "center" }))
   await expect(words).toHaveText(/^Waking c136e2e0 in [1-6] s · more comments join this wake$/)
   // It counts down each second while the wake is due.
   const first = await words.textContent()
