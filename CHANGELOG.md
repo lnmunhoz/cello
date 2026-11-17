@@ -3,6 +3,16 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.4.4](https://github.com/lnmunhoz/cello/compare/v0.4.3...v0.4.4) (2026-11-17)
+
+### Features
+
+- **desktop:** Cello Dev's icon is indigo, so it tells apart from Cello in the Dock (CEL-149) ([2c39ac3](https://github.com/lnmunhoz/cello/commit/2c39ac35f91d646edc4429eeaa57a5c6b8b31092))
+
+### Other changes
+
+- **desktop:** Cello Dev's icon test expects the indigo fill (CEL-149) ([b653645](https://github.com/lnmunhoz/cello/commit/b653645d7e85164619ff95adb2880e74deba5cd7))
+
 ## [0.4.3](https://github.com/lnmunhoz/cello/compare/v0.4.2...v0.4.3) (2026-11-17)
 
 ### Features
