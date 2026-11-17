@@ -166,7 +166,7 @@ const drawn = drawnMarks<MarkSeen & { readonly holder: LiveHolder | null }>()
  * was off screen, plays no entry: what's drawn first is the baseline. When Lucas approves and the claim
  * ends, the holder stays for Done, then leaves.
  */
-function useTaskMark(task: Task, board: BoardState, holder: LiveHolder | null, place: "card" | "panel" | "panel-bar" = "card") {
+function useTaskMark(task: Task, board: BoardState, holder: LiveHolder | null, place: "card" | "panel" | "panel-bar" | "preview" = "card") {
   const now = useNow()
   const presence: Presence = holder ? presenceOf(holder.subject, now) : "ended"
   const mood = agentMood(task.stage, board.statuses[task.statusId], presence)
@@ -384,6 +384,39 @@ export function PanelWork({ task, board }: { task: Task; board: BoardState }) {
         </>
       ) : null}
       <TestRunWord run={holderRun(holder)} />
+    </span>
+  )
+}
+
+/**
+ * In a task link's hover card (CEL-142): who's on it (the agent mark, its name and presence, and where
+ * its session runs, CEL-137), then the stage; "Nobody on it" when nobody holds it.
+ */
+export function PreviewWork({ task, board }: { task: Task; board: BoardState }) {
+  const now = useNow()
+  const p = provenanceOf(board, task, now)
+  const shown = live(board, p.holder)
+  const { mark } = useTaskMark(task, board, shown, "preview")
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 text-xs" data-preview-work>
+      {shown ? (
+        <>
+          <HolderWords live={shown} mark={mark} />
+          {shown.holder.session ? <OriginBadge session={shown.holder.session} /> : null}
+        </>
+      ) : p.holder ? (
+        <>
+          <Avatar who={p.holder.who} />
+          <span className="truncate">{p.holder.who.name}</span>
+        </>
+      ) : (
+        <span className="text-muted">Nobody on it</span>
+      )}
+      {p.step ? (
+        <span className="ml-auto flex shrink-0">
+          <StageWord stage={p.step} />
+        </span>
+      ) : null}
     </span>
   )
 }

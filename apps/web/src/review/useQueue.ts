@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useEffect, useEffectEvent, useRef, useState } from "react"
+import { popupTakesEscape } from "../lib/escape.ts"
 import { nextRow } from "../list/rows.ts"
 import { nextAfterDecision, rowKey } from "./queue.ts"
 import type { QueueRowState } from "./QueueRow.tsx"
@@ -48,7 +49,7 @@ export function useQueue({ keys, open, setOpen }: {
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.target !== document.body || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
       if (e.key === "Escape" && open !== null) {
-        closeOpen()
+        if (!popupTakesEscape(document)) closeOpen()
       } else if ((e.key === "j" || e.key === "k") && tabbable !== null) {
         e.preventDefault()
         setUsingKeys(true)
@@ -76,11 +77,13 @@ export function useQueue({ keys, open, setOpen }: {
   }
 
   // Esc closes the open row from anywhere in the list, and its row takes the focus. Not while typing,
-  // nor from a dialog (portaled out of the list), which Esc closes first.
+  // nor from a dialog (portaled out of the list), nor while a popup is open over it (a task link's hover
+  // card, CEL-142), which Esc closes first.
   const onListKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement
     if (e.key !== "Escape" || open === null || e.defaultPrevented || !e.currentTarget.contains(target)) return
     if (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
+    if (popupTakesEscape(document)) return
     e.preventDefault()
     setOpen(null)
     focusRow(open)

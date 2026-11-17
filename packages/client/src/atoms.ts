@@ -546,6 +546,15 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     })))
 
   /**
+   * A task the board doesn't hold (another workspace's), by key, as `cello task get` reads it: for the
+   * hover card on a link to it (CEL-142). Read once while the card shows; a task the board holds never asks.
+   */
+  const taskDetailFamily = Atom.family((key: string) =>
+    runtime.atom(Effect.gen(function* () {
+      return yield* (yield* CelloClient)["task.get"]({ key })
+    })))
+
+  /**
    * An agent's live log (CEL-106), by `logKey` (agentLog.ts): the steps so far, kept current while the
    * screen reads it. A dropped connection opens the stream again, whose first batch replaces the steps.
    */
@@ -588,6 +597,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     pageFamily,
     documentHistoryFamily,
     searchFamily,
+    taskDetailFamily,
     command,
   }
 }
