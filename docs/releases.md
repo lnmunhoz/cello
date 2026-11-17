@@ -1,6 +1,6 @@
 ---
 title: Releases
-summary: Every deploy of Cello is a release. One command, bun run release, checks, bumps the version, writes the changelog, tags, pushes and deploys this Mac's own cello to the live board; the pushed tag starts GitHub Actions, which builds the downloads for Apple silicon and Intel and publishes the GitHub release. How to preview it, pick minor or major, build locally when GitHub is down, turn on signing, and roll back. Preview releases (v0.6.0-beta.1) for the Preview channel, and how Cello.app finds and offers updates.
+summary: Every deploy of Cello is a release. One command, bun run release, checks, bumps the version, writes the changelog, tags, pushes and deploys this Mac's own cello to the live board; the pushed tag starts GitHub Actions, which builds the downloads for Apple silicon and Intel and publishes the GitHub release. How to preview it, pick minor or major, build locally when GitHub is down, turn on signing, and roll back. Preview releases (v0.6.0-beta.1) for the Preview channel, and how Cello.app finds and offers updates. Two flavors: the downloaded Cello and Cello Dev, built on the Mac, side by side.
 ---
 
 ## Every deploy is a release
@@ -43,6 +43,35 @@ flowchart TD
     N --> O(["github.com/lnmunhoz/cello/releases/tag/vX.Y.Z"])
 ```
 
+## Two flavors: Cello and Cello Dev
+
+Every build of Cello is one of two flavors, set when it's built (`--flavor release|dev`, CEL-149), so the Cello
+people download and the one built from this repo live side by side on Lucas's Mac:
+
+| | **Cello** (`release`) | **Cello Dev** (`dev`) |
+| --- | --- | --- |
+| Who builds it | GitHub Actions: the release's downloads | this Mac: `bun run release`'s `cello`, `bun run package` in apps/desktop |
+| The app | `Cello.app`, `app.cello.desktop` | `Cello Dev.app`, `app.cello.desktop.dev`, a DEV badge on the icon |
+| Links `cello` prints and the app opens | `cello://` | `cello-dev://` |
+| Updates | the app checks GitHub (below) | none: `bun run release` deploys its `cello` (and so its board); `bun run package -- --install` its app |
+| Its board | Settings → Board in the app: ~/.cello on 4747 until pointed elsewhere | ~/.cello on 4747, the live board |
+
+- **Defaults:** a build on the Mac is dev unless it says otherwise (`apps/cli`'s `bun run build`, `bun run package`,
+  `--install`); `--artifacts` packages the release. `scripts/release/artifacts.ts` passes the flavor explicitly
+  either way: `--flavor dev` for the `cello` the Mac deploys (`release/stage/cello`), `--flavor release` for the
+  downloads (`release/download/cello`, zipped and bundled into Cello.app). The workflow then checks the DMG's
+  app is `app.cello.desktop` with the `cello` scheme.
+- **Trying the download on this Mac:** install Cello.app from the release's DMG, open Settings → Board, and point it
+  at a test board once (`~/.cello-release` on 4757). It starts its own server there with the `cello` inside it,
+  empty like a new user's board. Until then it joins whatever answers on 4747, your live board.
+- **An older Cello can't open a newer board.** A server refuses a database with a migration it doesn't know, before
+  it writes anything: "This board (…) was opened by a newer Cello (migration 0028_x); this cello is v0.4.2. Update
+  Cello, or use another board. Nothing was changed." The app shows it in its window with Try Again, Use Another
+  Board… and Quit.
+- **Once, on Lucas's Mac:** `bun run package -- --install` in apps/desktop installs `/Applications/Cello Dev.app` (it refuses `--install` for the release flavor, so it can never replace the downloaded Cello.app).
+  The `/Applications/Cello.app` an earlier local install left (v0.1.0) stays; nothing deletes an app. Drag it to
+  the Trash, then install the downloaded Cello.app from a release's DMG if you want it.
+
 ## What one release does on the Mac, in order
 
 1. **Refuses** unless all of these hold (a dry run lists the ones that fail as "a real release would refuse"):
@@ -56,7 +85,7 @@ flowchart TD
 3. **Bumps** the version everywhere it lives (`scripts/release/version.ts`). The root `package.json` is the one source of truth; the release writes the same version to `APP_VERSION` in `packages/shared/src/version.ts` (what `cello --version`, the sidebar footer and backup manifests report) and to every workspace `package.json` that has a `version` (today `apps/desktop`, which electron-builder stamps into Cello.app), to the Claude Code plugin's `apps/cli/claude-plugin/cello/.claude-plugin/plugin.json` (then it regenerates the copy the binary embeds with `bun run docs:cli`), and to `bun.lock`'s record of the workspace versions. A unit test fails if they ever disagree.
 4. **Writes the changelog** section at the top of `CHANGELOG.md` (below).
 5. **Commits** `chore(release): vX.Y.Z` and **tags** `vX.Y.Z` (annotated).
-6. **Builds its own `cello`** into `release/stage/cello` (`bun run build --outfile … --target bun-darwin-arm64` in `apps/cli`). It builds after the tag, so the binary embeds the release commit and the new version. If the build fails, it deletes `release/stage`, so a half-built binary can't be deployed. **It never builds over `apps/cli/dist/cello`**: that's the live cello (`~/.local/bin/cello` and the background service run it), and only the deploy replaces it, after its backup.
+6. **Builds its own `cello`** into `release/stage/cello` (`bun run build --outfile … --target bun-darwin-arm64 --flavor dev` in `apps/cli`: Cello Dev's `cello`, whose links are `cello-dev://`). It builds after the tag, so the binary embeds the release commit and the new version. If the build fails, it deletes `release/stage`, so a half-built binary can't be deployed. **It never builds over `apps/cli/dist/cello`**: that's the live cello (`~/.local/bin/cello` and the background service run it), and only the deploy replaces it, after its backup.
 7. **Pushes** `main` and the tag together (`git push --atomic`), only once the build worked: a failed build leaves the commit and tag local, easy to undo.
 8. **Prints the GitHub Actions run** the tag started (`gh run list --workflow release.yml --branch vX.Y.Z`), or the workflow's page when GitHub doesn't list the run yet, and the release page the downloads will be on.
 9. **Deploys**, in this order. First it checks, before touching anything, that the staged build is this release's: `release/stage/cello` exists and is executable, its `--version` says package.json's version and HEAD's commit, and `vX.Y.Z` is on origin. A leftover from an undone release, or a build cut short by a full disk, is refused. Then `cello backup` (the old cello, against the running server), then the staged build goes live with one rename of `release/stage/cello` onto `apps/cli/dist/cello` (same filesystem, so that path holds the old build or the new one, never a half-written file), then `cello service restart`. The service runs the new build, and a migration runs at that restart, after the backup. If the backup fails, nothing goes live and nothing restarts.
@@ -70,8 +99,8 @@ Board windows that were open during the deploy (the browser, the desktop app) st
 The Release workflow (`.github/workflows/release.yml`) starts when a `vX.Y.Z` tag is pushed:
 
 1. **Build**, two jobs in parallel, one per Mac architecture, each on a runner of that kind: `macos-15` (Apple silicon) and `macos-15-intel` (Intel; GitHub's last Intel Mac image, supported until August 2027). Each checks out the tag, refuses when the tag and package.json's version disagree, selects the newest Xcode 26 on the runner (the app icon, `apps/desktop/resources/Cello.icon`, is an Icon Composer icon only Xcode 26's `actool` compiles; the macOS 15 images default to Xcode 16.4 but also ship 26.x, and the log prints `xcodebuild -version` and the `actool` version), installs Bun 1.4.4 and the dependencies (`bun install --frozen-lockfile`, with Bun's and Electron's downloads cached), then runs **`bun scripts/release/hooks.ts artifacts <version>`**, the same code `--local-artifacts` runs on the Mac:
-   - `cello`, built for the runner's architecture (`--target bun-darwin-arm64` or `bun-darwin-x64`), zipped as `cello-vX.Y.Z-darwin-<arch>.zip`
-   - Cello.app packaged with that same binary (`bun run package --cli … --arch <arch> --artifacts`) as `Cello-vX.Y.Z-mac-<arch>.dmg` (drag it to Applications) and `Cello-vX.Y.Z-mac-<arch>.zip` (what the app's own updates will use, CEL-140)
+   - `cello`, the release flavor (`--flavor release`, `cello://` links) built for the runner's architecture (`--target bun-darwin-arm64` or `bun-darwin-x64`) into `release/download/cello`, zipped as `cello-vX.Y.Z-darwin-<arch>.zip`
+   - Cello.app packaged with that same binary (`bun run package --cli … --arch <arch> --artifacts --flavor release`) as `Cello-vX.Y.Z-mac-<arch>.dmg` (drag it to Applications) and `Cello-vX.Y.Z-mac-<arch>.zip` (what the app's own updates will use, CEL-140)
    - `codesign --verify --deep --strict` on the packaged app, then again on the copy inside the DMG: a broken seal (a file changed after signing) is what macOS calls "damaged" on a downloaded copy, so it fails the build instead
 
    The three files are kept on the run's page for 14 days.
@@ -158,7 +187,7 @@ Apart from that fetch, it writes, commits, tags, pushes, releases and deploys no
 | `prepatch` / `preminor` / `premajor` / `prerelease`, `--preid <id>` | A preview release (`0.6.0-beta.1`), published as a GitHub prerelease for the app's Preview channel; see [Preview releases](#preview-releases). Only when Lucas asks. |
 | `--dry-run`, `-d` | The preview above. |
 | `--no-deploy` | Release (tag, push; GitHub Actions still builds and publishes) but leave the live board alone: no backup, `apps/cli/dist/cello` untouched, no restart. The build waits in `release/stage/cello`; `bun scripts/release/deploy.ts` deploys it later (backup, rename, restart). Tests and builder agents never deploy. |
-| `--local-artifacts` | For when GitHub Actions is down or broken: this Mac builds the downloads itself (the `cello` zip, Cello.app's DMG and zip, Apple silicon only) into `release/` and creates the GitHub release with them (`bun scripts/release/publish.ts`, with gh, which must be logged in; gh uses a `GH_TOKEN` or `GITHUB_TOKEN` in the environment first, when one is set, before its own login, so unset a stale one). The tag still starts the workflow; if it runs later, it adds the Intel files and replaces the Apple silicon ones with its own. |
+| `--local-artifacts` | For when GitHub Actions is down or broken: this Mac builds the downloads itself (the `cello` zip, Cello.app's DMG and zip, Apple silicon only, the release flavor; the `cello` it deploys stays Cello Dev's) into `release/` and creates the GitHub release with them (`bun scripts/release/publish.ts`, with gh, which must be logged in; gh uses a `GH_TOKEN` or `GITHUB_TOKEN` in the environment first, when one is set, before its own login, so unset a stale one). The tag still starts the workflow; if it runs later, it adds the Intel files and replaces the Apple silicon ones with its own. |
 | `--skip-desktop` | Only with `--local-artifacts`: leave Cello.app out, when packaging it can't work on this machine (electron-builder's error is printed). The `cello` zip is still attached. |
 
 ## When a release fails
@@ -220,7 +249,7 @@ flowchart TD
 - **Preview**: previews too (`v0.6.0-beta.1`), and every stable release that's newer than them.
 - Moving from Preview back to Stable while running a preview offers the newest stable release even though it's older: a downgrade on purpose, so you can leave the previews.
 
-**What you see**, only in Cello.app (the board in a browser shows none of it, and a dev build of the app checks nothing):
+**What you see**, only in Cello.app (the board in a browser shows none of it, and neither Cello Dev nor a dev run of the app checks anything):
 
 - **The sidebar's footer**, above the server's build line: "Cello 0.5.0 · Stable · up to date", or "Update available: 0.5.1". Before a check has worked, or while offline, it just says "Cello 0.5.0 · Stable". It opens the Releases page.
 - **A toast, once per new version**: "Cello 0.5.1 is available", with **Download** and **What's new**. However it closes, it doesn't come back for that version.

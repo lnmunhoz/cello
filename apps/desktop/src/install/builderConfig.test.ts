@@ -25,15 +25,15 @@ describe("bundlingCli", () => {
 })
 
 describe("packagingConfig", () => {
-  it("by default: an ad-hoc signed Cello.app folder for Apple silicon, as electron-builder.json has it", () => {
-    expect(packagingConfig(config, { arch: "arm64", artifacts: false, sign: false })).toEqual(config)
+  it("the release: an ad-hoc signed Cello.app folder for Apple silicon, as electron-builder.json has it", () => {
+    expect(packagingConfig(config, { arch: "arm64", artifacts: false, sign: false, flavor: "release", install: false })).toEqual(config)
     // "-": signed ad hoc, so the whole bundle (helpers, Resources/cello) is sealed again after electron-builder
     // rewrote it, and a downloaded copy gets macOS's "can't verify the developer" prompt instead of "is damaged".
     expect(config.mac).toMatchObject({ target: [{ target: "dir", arch: ["arm64"] }], identity: "-", hardenedRuntime: false })
   })
 
   it("for a release: the DMG and zip for the given architecture, named as the release attaches them", () => {
-    const intel = packagingConfig(config, { arch: "x64", artifacts: true, sign: false })
+    const intel = packagingConfig(config, { arch: "x64", artifacts: true, sign: false, flavor: "release", install: false })
     expect(intel.mac).toEqual({
       ...config.mac,
       target: [
@@ -42,11 +42,11 @@ describe("packagingConfig", () => {
       ],
     })
     expect(config.mac.artifactName).toBe("Cello-v${version}-mac-${arch}.${ext}")
-    expect(packagingConfig(config, { arch: "x64", artifacts: false, sign: false }).mac.target).toEqual([{ target: "dir", arch: ["x64"] }])
+    expect(packagingConfig(config, { arch: "x64", artifacts: false, sign: false, flavor: "release", install: false }).mac.target).toEqual([{ target: "dir", arch: ["x64"] }])
   })
 
   it("signed: no ad-hoc identity, so electron-builder signs with CSC_LINK's certificate, with the hardened runtime and the entitlements Electron and Bun need", () => {
-    const signed = packagingConfig(config, { arch: "arm64", artifacts: true, sign: true })
+    const signed = packagingConfig(config, { arch: "arm64", artifacts: true, sign: true, flavor: "release", install: false })
     expect(signed.mac).not.toHaveProperty("identity")
     expect(signed.mac).toMatchObject({
       hardenedRuntime: true,
@@ -57,6 +57,20 @@ describe("packagingConfig", () => {
     expect(config.mac.identity).toBe("-") // not mutated
   })
 
+  it("Cello Dev (CEL-149): its own name, bundle id, cello-dev:// scheme and DEV icon, so macOS keeps it apart from Cello", () => {
+    const dev = packagingConfig(config, { arch: "arm64", artifacts: false, sign: false, flavor: "dev", install: false })
+    expect(dev).toEqual({
+      ...config,
+      productName: "Cello Dev",
+      appId: "app.cello.desktop.dev",
+      protocols: [{ name: "Cello Dev", schemes: ["cello-dev"] }],
+      mac: { ...config.mac, icon: "resources/CelloDev.icon", artifactName: "Cello-Dev-v${version}-mac-${arch}.${ext}" },
+    })
+    expect(fs.existsSync(path.join(import.meta.dirname, "../..", "resources/CelloDev.icon/icon.json"))).toBe(true)
+    // electron-builder.json is the release's.
+    expect(config).toMatchObject({ productName: "Cello", appId: "app.cello.desktop", protocols: [{ name: "Cello", schemes: ["cello"] }] })
+  })
+
   it("strips Electron's demo app before signing and the DMG: the afterPack hook exists", () => {
     expect(config.afterPack).toBe("./scripts/after-pack.cjs")
     expect(fs.existsSync(path.join(import.meta.dirname, "../..", config.afterPack))).toBe(true)
@@ -64,19 +78,35 @@ describe("packagingConfig", () => {
 })
 
 describe("packagedApp", () => {
-  it("is where electron-builder puts Cello.app: dist/mac-arm64, or dist/mac for x64 (its default arch)", () => {
-    expect(packagedApp("arm64")).toBe("dist/mac-arm64/Cello.app")
-    expect(packagedApp("x64")).toBe("dist/mac/Cello.app")
+  it("is where electron-builder puts the app: dist/mac-arm64, or dist/mac for x64 (its default arch)", () => {
+    expect(packagedApp("arm64", "release")).toBe("dist/mac-arm64/Cello.app")
+    expect(packagedApp("x64", "release")).toBe("dist/mac/Cello.app")
+    expect(packagedApp("arm64", "dev")).toBe("dist/mac-arm64/Cello Dev.app")
   })
 })
 
 describe("parsePackaging", () => {
-  it("defaults to an unsigned Apple silicon app folder", () => {
-    expect(parsePackaging([])).toEqual({ arch: "arm64", artifacts: false, sign: false })
+  it("defaults to an unsigned Apple silicon app folder of Cello Dev: a package made on the Mac is the dev build (CEL-149)", () => {
+    expect(parsePackaging([])).toEqual({ arch: "arm64", artifacts: false, sign: false, flavor: "dev", install: false })
+    expect(parsePackaging(["--install"])).toMatchObject({ flavor: "dev" })
   })
 
-  it("takes --arch, --artifacts and --sign among package.ts's other flags", () => {
-    expect(parsePackaging(["--cli", "/x/cello", "--arch", "x64", "--artifacts", "--sign"])).toEqual({ arch: "x64", artifacts: true, sign: true })
+  it("takes --arch, --artifacts and --sign among package.ts's other flags; the downloads (--artifacts) are the release", () => {
+    expect(parsePackaging(["--cli", "/x/cello", "--arch", "x64", "--artifacts", "--sign"])).toEqual({ arch: "x64", artifacts: true, sign: true, flavor: "release", install: false })
+  })
+
+  it("--install installs Cello Dev only: the release's Cello.app in /Applications comes from a DMG and is never replaced from here", () => {
+    expect(parsePackaging(["--install"])).toMatchObject({ flavor: "dev", install: true })
+    expect(parsePackaging([])).toMatchObject({ install: false })
+    const refusal = "--install installs Cello Dev (/Applications/Cello Dev.app) only. Cello.app comes from a release's DMG; package it without --install."
+    expect(() => parsePackaging(["--install", "--flavor", "release"])).toThrow(refusal)
+    expect(() => parsePackaging(["--install", "--artifacts"])).toThrow(refusal)
+  })
+
+  it("--flavor names it either way", () => {
+    expect(parsePackaging(["--flavor", "release"])).toMatchObject({ artifacts: false, flavor: "release" })
+    expect(parsePackaging(["--artifacts", "--flavor", "dev"])).toMatchObject({ artifacts: true, flavor: "dev" })
+    expect(() => parsePackaging(["--flavor", "canary"])).toThrow("--flavor takes release or dev, not canary.")
   })
 
   it("refuses an architecture it can't package", () => {

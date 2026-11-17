@@ -8,11 +8,15 @@
 // old build, `cello://open` links land in whatever that build did. So after installing, the build-folder
 // copies are unregistered (never deleted) and /Applications' copy is registered again; and a Cello still
 // running from a build folder, or started before the install, gets a line telling Lucas to reopen it.
+//
+// Two apps (CEL-149): what's installed is one flavor's (src/flavor.ts), Cello Dev from the Mac's own builds, at
+// /Applications/Cello Dev.app. Build folders may hold either app (a dev package, or a release one made with
+// --artifacts); both are unregistered there, so neither steals the other's links. Apps in /Applications are
+// never touched, the downloaded Cello.app included.
 import * as path from "node:path"
+import { APP_BUNDLES, type AppIdentity } from "../flavor.ts"
 
 export const LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-export const INSTALLED_APP = "/Applications/Cello.app"
-const APP_NAME = "Cello.app"
 /** How deep under `apps/desktop/dist*` a packaged Cello.app sits (electron-builder: `dist/mac-arm64/Cello.app`). */
 const MAX_DEPTH = 3
 
@@ -65,7 +69,7 @@ export const findBuildCopies = (roots: readonly string[], readDir: ReadDir): str
     for (const entry of readDir(dir)) {
       if (!entry.isDirectory) continue
       const child = path.join(dir, entry.name)
-      if (entry.name === APP_NAME) found.push(child)
+      if (APP_BUNDLES.includes(entry.name)) found.push(child)
       else if (!entry.name.endsWith(".app") && depth < MAX_DEPTH) walk(child, depth + 1)
     }
   }
@@ -79,10 +83,11 @@ export const findBuildCopies = (roots: readonly string[], readDir: ReadDir): str
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
-// <checkout>/apps/desktop/dist*/…/Cello.app, for a known checkout or any folder in .claude/worktrees.
+// <checkout>/apps/desktop/dist*/…/Cello.app (or Cello Dev.app), for a known checkout or any folder in .claude/worktrees.
 const buildCopyPattern = (mainRoot: string, roots: readonly string[]): RegExp => {
   const checkouts = [...roots.map(escape), `${escape(worktreesDir(mainRoot))}/[^/]+`]
-  return new RegExp(`^(?:${checkouts.join("|")})/apps/desktop/dist[^/]*/(?:[^/]+/){0,${MAX_DEPTH - 1}}Cello\\.app$`)
+  const bundles = APP_BUNDLES.map(escape).join("|")
+  return new RegExp(`^(?:${checkouts.join("|")})/apps/desktop/dist[^/]*/(?:[^/]+/){0,${MAX_DEPTH - 1}}(?:${bundles})$`)
 }
 
 /**
@@ -121,13 +126,16 @@ export interface CelloProcess {
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 /**
- * Cello's main processes in `LC_ALL=C ps -axo pid=,lstart=,comm=` (comm: the executable's full path, without arguments), whose start time reads
- * `Sun Nov 15 17:54:22 2026` in local time. Helpers run `…/Cello Helper.app/…` and don't match.
+ * One app's main processes (`identity`: Cello, or Cello Dev) in `LC_ALL=C ps -axo pid=,lstart=,comm=` (comm: the
+ * executable's full path, without arguments), whose start time reads `Sun Nov 15 17:54:22 2026` in local time.
+ * Helpers run `…/Cello Helper.app/…` and don't match, nor does the other flavor's app.
  */
-export const parseCelloProcesses = (ps: string): CelloProcess[] => {
+export const parseCelloProcesses = (ps: string, identity: AppIdentity): CelloProcess[] => {
   const processes: CelloProcess[] = []
+  const name = escape(identity.name)
+  const pattern = new RegExp(`^\\s*(\\d+)\\s+\\w{3}\\s+(\\w{3})\\s+(\\d{1,2})\\s+(\\d{2}):(\\d{2}):(\\d{2})\\s+(\\d{4})\\s+(\\/.*\\/${name}\\.app)\\/Contents\\/MacOS\\/${name}\\s*$`)
   for (const line of ps.split("\n")) {
-    const match = /^\s*(\d+)\s+\w{3}\s+(\w{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})\s+(\/.*\/Cello\.app)\/Contents\/MacOS\/Cello\s*$/.exec(line)
+    const match = pattern.exec(line)
     if (!match) continue
     const [, pid, month, day, hours, minutes, seconds, year, app] = match
     const monthIndex = MONTHS.indexOf(month!)
@@ -149,16 +157,17 @@ const localTime = (date: Date) =>
  * A line for each running Cello that won't run the build just installed: one from another copy, or
  * /Applications' copy started before the install began. The script prints them; it never quits Cello.
  */
-export const outdatedWarnings = (options: { readonly processes: readonly CelloProcess[]; readonly installed: string; readonly installedAt: Date }): string[] =>
+export const outdatedWarnings = (options: { readonly processes: readonly CelloProcess[]; readonly identity: AppIdentity; readonly installedAt: Date }): string[] =>
   options.processes.flatMap((process) => {
-    if (process.app !== options.installed) {
+    const { name, installedApp: installed, scheme } = options.identity
+    if (process.app !== installed) {
       return [
-        `Cello (pid ${process.pid}) is running from ${process.app}, not ${options.installed}. Quit it (⌘Q) and open ${options.installed}, so cello:// links reach the new build.`,
+        `${name} (pid ${process.pid}) is running from ${process.app}, not ${installed}. Quit it (⌘Q) and open ${installed}, so ${scheme}:// links reach the new build.`,
       ]
     }
     if (process.startedAt.getTime() < options.installedAt.getTime()) {
       return [
-        `Cello (pid ${process.pid}) started at ${localTime(process.startedAt)}, before this install, so it still runs the old build. Quit it (⌘Q) and reopen ${options.installed}.`,
+        `${name} (pid ${process.pid}) started at ${localTime(process.startedAt)}, before this install, so it still runs the old build. Quit it (⌘Q) and reopen ${installed}.`,
       ]
     }
     return []

@@ -1,6 +1,10 @@
-// Tests 15–16: first start seeds once; one server per data folder.
+// Tests 15–16: first start seeds once; one server per data folder. CEL-149: a board a newer Cello migrated
+// is refused before anything is written.
+import { Database } from "bun:sqlite"
+import * as crypto from "node:crypto"
 import * as fs from "node:fs"
 import * as path from "node:path"
+import { APP_VERSION } from "@cello/shared/version"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -69,5 +73,48 @@ describe("startup", () => {
       expect(JSON.parse(fs.readFileSync(lockFile, "utf8"))).toEqual({ pid: process.pid, port })
       yield* Scope.close(scope, Exit.void)
       expect(fs.existsSync(lockFile)).toBe(false)
+    }).pipe(Effect.scoped))
+
+  it.live("CEL-149: a board a newer Cello migrated is refused before anything is written, and the lock is released", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* tempDataDir
+      // A real board, made and stopped by this build, then migrated further by a "newer" one.
+      yield* snapshotOfFreshStart(dataDir)
+      const dbPath = path.join(dataDir, DB_FILE)
+      const db = new Database(dbPath)
+      const { newest } = db.query("SELECT MAX(migration_id) AS newest FROM migrations").get() as { newest: number }
+      db.run("INSERT INTO migrations (migration_id, name) VALUES (?, 'from_a_newer_cello')", [newest + 1])
+      const builds = (db.query("SELECT COUNT(*) AS n FROM builds").get() as { n: number }).n
+      db.close()
+      const files = () => fs.readdirSync(dataDir).sort()
+      const hash = () => crypto.createHash("sha256").update(fs.readFileSync(dbPath)).digest("hex")
+      const [filesBefore, hashBefore] = [files(), hash()]
+
+      const error = yield* Effect.flip(Effect.scoped(startServer(dataDir)))
+      const migration = `${String(newest + 1).padStart(4, "0")}_from_a_newer_cello`
+      expect(error).toMatchObject({ _tag: "BoardTooNew", newest: migration, version: APP_VERSION, dataDir })
+      expect(error.message).toBe(
+        `This board (${dataDir}) was opened by a newer Cello (migration ${migration}); this cello is v${APP_VERSION}. ` +
+          "Update Cello, or use another board. Nothing was changed.",
+      )
+      // Nothing written: the same database bytes, no new build recorded, no seed, and no lock left behind.
+      expect(hash()).toBe(hashBefore)
+      expect(files()).toEqual(filesBefore)
+      expect(fs.existsSync(path.join(dataDir, LOCK_FILE))).toBe(false)
+      const after = new Database(dbPath, { readonly: true })
+      expect((after.query("SELECT COUNT(*) AS n FROM builds").get() as { n: number }).n).toBe(builds)
+      after.close()
+
+      // The server's own entry (src/main.ts) prints the sentence, exits 1, and leaves no -wal, -shm or lock behind.
+      const entry = Bun.spawn([process.execPath, path.join(import.meta.dirname, "../../src/main.ts")], {
+        env: { PATH: process.env.PATH ?? "", HOME: yield* tempDataDir, CELLO_DATA_DIR: dataDir, CELLO_PORT: "0" },
+        stdout: "ignore",
+        stderr: "pipe",
+      })
+      const [code, stderr] = yield* Effect.promise(() => Promise.all([entry.exited, new Response(entry.stderr).text()]))
+      expect(code).toBe(1)
+      expect(stderr.trim()).toBe(error.message)
+      expect(files()).toEqual(filesBefore)
+      expect(hash()).toBe(hashBefore)
     }).pipe(Effect.scoped))
 })

@@ -1,6 +1,7 @@
 // Test 10: `cello start` refuses a second server for the same data folder and prints the running
 // one. And a real `cello start` serves the board and /rpc on its port, and stops promptly on
 // SIGTERM or SIGINT even with board tabs connected (CEL-17).
+import { Database } from "bun:sqlite"
 import * as fs from "node:fs"
 import * as net from "node:net"
 import * as path from "node:path"
@@ -119,6 +120,29 @@ describe("cello start", () => {
       const stderr = yield* Effect.promise(() => new Response(proc.stderr).text())
       expect(code).toBe(1)
       expect(stderr.trim()).toBe(`Cello is already running for ${dataDir} (pid ${process.pid}, http://127.0.0.1:${port}).`)
+    }).pipe(Effect.scoped))
+
+  it.live("CEL-149: refuses a board a newer Cello migrated, saying so in one line, and changes nothing", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* tempDataDir
+      yield* Effect.scoped(startServer(dataDir))
+      const db = new Database(path.join(dataDir, "cello.db"))
+      const { newest } = db.query("SELECT MAX(migration_id) AS newest FROM migrations").get() as { newest: number }
+      db.run("INSERT INTO migrations (migration_id, name) VALUES (?, 'from_a_newer_cello')", [newest + 1])
+      db.close()
+      const files = () => fs.readdirSync(dataDir).sort()
+      const before = files()
+      const proc = yield* spawnStart({ CELLO_DATA_DIR: dataDir, CELLO_PORT: "0" })
+      const code = yield* Effect.promise(() => proc.exited)
+      const stderr = yield* Effect.promise(() => new Response(proc.stderr).text())
+      expect(code).toBe(1)
+      expect(stderr.trim()).toBe(
+        `This board (${dataDir}) was opened by a newer Cello (migration ${String(newest + 1).padStart(4, "0")}_from_a_newer_cello); ` +
+          `this cello is v${APP_VERSION}. Update Cello, or use another board. Nothing was changed.`,
+      )
+      // The database was closed before the process exited: no -wal or -shm left, no lock, nothing new.
+      expect(files()).toEqual(before)
+      expect(fs.existsSync(path.join(dataDir, LOCK_FILE))).toBe(false)
     }).pipe(Effect.scoped))
 
   it.live("runs the server with the web app, on CELLO_PORT with data in CELLO_DATA_DIR", () =>

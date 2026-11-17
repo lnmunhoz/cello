@@ -20,6 +20,7 @@ import { writeStored } from "../lib/storage.ts"
 import { SegmentedControl, SegmentedControlItem } from "../components/ui/SegmentedControl.tsx"
 import { BAR_LAYOUT_KEY, LAYOUT_NAMES, useBarLayout } from "../search/layout.ts"
 import { useUpdateState } from "../updates/updates.ts"
+import { BoardSettings, useDesktopBoard } from "./BoardSettings.tsx"
 import { MergeSettings } from "./MergeSettings.tsx"
 import { TestingProfile } from "./TestingProfile.tsx"
 import { UpdateSettings } from "./UpdateSettings.tsx"
@@ -39,8 +40,9 @@ export function Settings() {
   const board = useBoard()
   const workspaceId = useWorkspaceId()
   const search = useSearch({ from: "/settings" })
-  // Cello.app's updates (CEL-140); null in a browser.
+  // Cello.app's updates (CEL-140) and its board (CEL-149); null in a browser.
   const updates = useUpdateState()
+  const desktopBoard = useDesktopBoard()
   if (!board || !workspaceId) return <Centered>Loading…</Centered>
   const statuses = statusesOf(board, workspaceId)
   // Labels belong to a project (CEL-80): the one in the URL, else the first.
@@ -54,6 +56,12 @@ export function Settings() {
       <Breadcrumb crumbs={[{ label: board.workspaces[workspaceId]?.name ?? "Workspace" }, { label: "Settings" }]} />
       <div className="flex-1 overflow-y-auto px-8 py-6">
         <div className="mx-auto flex max-w-2xl flex-col gap-10">
+          {/* First: which board this is. A switch lands here, on the board it switched to. */}
+          {desktopBoard ? (
+            <Section title="Board" description="The data folder and port this app's server uses. Kept in the app, not in the board.">
+              <BoardSettings key={`${desktopBoard.dataDir}:${desktopBoard.port}`} state={desktopBoard} />
+            </Section>
+          ) : null}
           <Section title="Statuses" description="The board's columns, shared by every project in this workspace.">
             <ul aria-label="Statuses" className="divide-y divide-line rounded-lg border border-line">
               {statuses.map((s, i) => (

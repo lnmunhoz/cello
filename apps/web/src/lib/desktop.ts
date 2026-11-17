@@ -3,6 +3,7 @@
 // artifacts, `frame-ancestors 'self'`). Its preload exposes `window.celloDesktop`. Cello's own pages,
 // text files, images and videos open in the board's own side panel (apps/web/src/viewer) either way;
 // in a plain browser the bridge is missing and outside sites open there too.
+import type { DesktopBoardCommand, DesktopBoardState } from "@cello/shared/desktopBoard"
 import { parseTaskKey } from "@cello/shared/taskKey"
 import type { UpdateCommand, UpdateState } from "@cello/shared/updates"
 import { openImageModal } from "../viewer/imageModal.ts"
@@ -33,6 +34,18 @@ export interface CelloDesktop {
   restartApp?(): void
   /** The app's update check (CEL-140); missing in desktop builds before it. */
   readonly updates?: DesktopUpdates
+  /** Settings → Board: the data folder and port the app's server uses (CEL-149); missing in desktop builds before it. */
+  readonly board?: DesktopBoard
+}
+
+/**
+ * The desktop app's board (CEL-149): the main process keeps which data folder and port its server uses; the
+ * board's Settings shows it and asks for a switch.
+ */
+export interface DesktopBoard {
+  /** Calls `listener` with the current state (when there is one) and on each change, until the returned function is called. */
+  onState(listener: (state: DesktopBoardState) => void): () => void
+  command(command: DesktopBoardCommand): void
 }
 
 /**

@@ -3,15 +3,15 @@ import { findCelloLink, parseCelloLink, routeCelloLink } from "./celloLink.ts"
 
 describe("parseCelloLink", () => {
   it("turns a task key into the board path of that task", () => {
-    expect(parseCelloLink("cello://CEL-3")).toEqual({ kind: "task", path: "/CEL/3" })
-    expect(parseCelloLink("cello://thai-12/")).toEqual({ kind: "task", path: "/THAI/12" })
-    expect(parseCelloLink("CELLO:CEL-3")).toEqual({ kind: "task", path: "/CEL/3" })
+    expect(parseCelloLink("cello://CEL-3", "release")).toEqual({ kind: "task", path: "/CEL/3" })
+    expect(parseCelloLink("cello://thai-12/", "release")).toEqual({ kind: "task", path: "/THAI/12" })
+    expect(parseCelloLink("CELLO:CEL-3", "release")).toEqual({ kind: "task", path: "/CEL/3" })
   })
 
   it("opens an http(s) URL in the panel", () => {
     const url = "https://claude.ai/artifact/RNpQF3GNVbCdMLNVWJqoYh"
-    expect(parseCelloLink(`cello://open?url=${encodeURIComponent(url)}`)).toEqual({ kind: "panel", url })
-    expect(parseCelloLink(`cello://open?url=${encodeURIComponent("http://localhost:5173")}`)).toEqual({
+    expect(parseCelloLink(`cello://open?url=${encodeURIComponent(url)}`, "release")).toEqual({ kind: "panel", url })
+    expect(parseCelloLink(`cello://open?url=${encodeURIComponent("http://localhost:5173")}`, "release")).toEqual({
       kind: "panel",
       url: "http://localhost:5173/",
     })
@@ -28,7 +28,7 @@ describe("parseCelloLink", () => {
       "https://claude.ai",
       "garbage",
     ]) {
-      expect(parseCelloLink(bad), bad).toBeNull()
+      expect(parseCelloLink(bad, "release"), bad).toBeNull()
     }
   })
 })
@@ -38,7 +38,7 @@ describe("routeCelloLink: where a link goes once the board is up (CEL-60)", () =
 
   it("a Cello page goes to the board window, which opens it in its own side panel, not the built-in browser", () => {
     const page = "http://127.0.0.1:4747/CEL/pages/billing-audit"
-    expect(routeCelloLink(parseCelloLink(`cello://open?url=${encodeURIComponent(page)}`)!, BOARD)).toEqual({ kind: "board", url: page })
+    expect(routeCelloLink(parseCelloLink(`cello://open?url=${encodeURIComponent(page)}`, "release")!, BOARD)).toEqual({ kind: "board", url: page })
     const section = "http://127.0.0.1:4747/CEL/pages/billing-audit?version=2#next-steps"
     expect(routeCelloLink({ kind: "panel", url: section }, BOARD)).toEqual({ kind: "board", url: section })
   })
@@ -70,7 +70,23 @@ describe("routeCelloLink: where a link goes once the board is up (CEL-60)", () =
 
 describe("findCelloLink", () => {
   it("finds the link a second launch was given among its arguments", () => {
-    expect(findCelloLink(["/Applications/Cello.app/Contents/MacOS/Cello", "--flag", "cello://CEL-3"])).toBe("cello://CEL-3")
-    expect(findCelloLink(["electron", "."])).toBeUndefined()
+    expect(findCelloLink(["/Applications/Cello.app/Contents/MacOS/Cello", "--flag", "cello://CEL-3"], "release")).toBe("cello://CEL-3")
+    expect(findCelloLink(["electron", "."], "release")).toBeUndefined()
+  })
+
+  it("finds only its own flavor's scheme (CEL-149): Cello Dev takes cello-dev://, Cello takes cello://", () => {
+    const argv = ["/Applications/Cello Dev.app/Contents/MacOS/Cello Dev", "cello-dev://CEL-3"]
+    expect(findCelloLink(argv, "dev")).toBe("cello-dev://CEL-3")
+    expect(findCelloLink(argv, "release")).toBeUndefined()
+    expect(findCelloLink(["x", "cello://CEL-3"], "dev")).toBeUndefined()
+  })
+})
+
+describe("parseCelloLink in Cello Dev (CEL-149)", () => {
+  it("follows cello-dev:// links, and not the release's cello:// ones, which are the downloaded Cello's", () => {
+    expect(parseCelloLink("cello-dev://CEL-3", "dev")).toEqual({ kind: "task", path: "/CEL/3" })
+    expect(parseCelloLink(`cello-dev://open?url=${encodeURIComponent("https://example.com/")}`, "dev")).toEqual({ kind: "panel", url: "https://example.com/" })
+    expect(parseCelloLink("cello://CEL-3", "dev")).toBeNull()
+    expect(parseCelloLink("cello-dev://CEL-3", "release")).toBeNull()
   })
 })

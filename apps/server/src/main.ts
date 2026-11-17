@@ -22,7 +22,7 @@ const port = Number(process.env.CELLO_PORT ?? 4747)
 const wake = testWaitsFromEnv(process.env)
 
 Layer.launch(Server.layer({ dataDir, port, humanName: gitUserName(), commit: buildCommit(process.env, import.meta.dir), checkout: import.meta.dir, wake })).pipe(
-  Effect.catchTag("ServerAlreadyRunning", (error) =>
+  Effect.catchTag(["ServerAlreadyRunning", "BoardTooNew"], (error) =>
     Console.error(error.message).pipe(Effect.andThen(Effect.sync(() => process.exit(1))))),
   BunRuntime.runMain,
 )

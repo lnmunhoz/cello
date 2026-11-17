@@ -27,6 +27,8 @@ export const start = Effect.gen(function* () {
   }))
 }).pipe(
   Effect.catchTag("ServerAlreadyRunning", (error) => Effect.fail(new CliFailure({ message: error.message }))),
+  // A board a newer Cello migrated (CEL-149): the desktop app shows this line in its window.
+  Effect.catchTag("BoardTooNew", (error) => Effect.fail(new CliFailure({ message: error.message }))),
   Effect.catchTag("ServeError", () =>
     Effect.fail(new CliFailure({ message: "Couldn't listen on that port; another program is using it. Set CELLO_PORT to another port." }))),
 )

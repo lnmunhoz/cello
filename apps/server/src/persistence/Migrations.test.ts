@@ -9,6 +9,7 @@ import * as SqliteMigrator from "@effect/sql-sqlite-bun/SqliteMigrator"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/sql/SqlClient"
+import { APP_VERSION } from "@cello/shared/version"
 import { tempDataDir } from "../testing/tempDir.ts"
 import * as Migrations from "./Migrations.ts"
 import init from "./migrations/0001_init.ts"
@@ -649,5 +650,44 @@ describe("migration 0014_inbox_read_via", () => {
       yield* Migrations.run
       expect(yield* allRows).toEqual(migrated)
       expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
+    }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
+})
+
+// CEL-149: an older Cello (a download behind the board's own build) must not open a database a newer one
+// already migrated. It refuses before it migrates or writes anything, and says which build to get.
+describe("a database a newer Cello migrated", () => {
+  it.effect("is refused with BoardTooNew, naming the migration it doesn't know and this build's version, and nothing is written", () =>
+    Effect.gen(function* () {
+      yield* Migrations.run
+      const sql = yield* SqlClient.SqlClient
+      const known = yield* Migrations.migrations
+      const [newestId, newestName] = known.at(-1)!
+      const future = newestId + 1
+      yield* sql`INSERT INTO migrations (migration_id, name) VALUES (${future}, 'from_a_newer_cello')`
+      const before = yield* sql`SELECT migration_id, name FROM migrations ORDER BY migration_id`
+
+      const error = yield* Effect.flip(Migrations.run)
+      expect(error).toMatchObject({
+        _tag: "BoardTooNew",
+        newest: `${String(future).padStart(4, "0")}_from_a_newer_cello`,
+        known: `${String(newestId).padStart(4, "0")}_${newestName}`,
+        version: APP_VERSION,
+        dataDir: null,
+      })
+      expect(error.message).toBe(
+        `This board was opened by a newer Cello (migration ${String(future).padStart(4, "0")}_from_a_newer_cello); ` +
+          `this cello is v${APP_VERSION}. Update Cello, or use another board. Nothing was changed.`,
+      )
+      expect(yield* sql`SELECT migration_id, name FROM migrations ORDER BY migration_id`).toEqual(before)
+    }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
+
+  it.effect("an older database, or a new one, migrates as before", () =>
+    Effect.gen(function* () {
+      yield* beforeReadVia
+      yield* Migrations.run
+      yield* Migrations.run
+      const sql = yield* SqlClient.SqlClient
+      const known = yield* Migrations.migrations
+      expect((yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM migrations`)[0]!.n).toBe(known.length)
     }).pipe(Effect.provide(Sqlite.layer(":memory:"))))
 })

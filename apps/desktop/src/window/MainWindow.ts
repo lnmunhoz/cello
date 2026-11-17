@@ -3,11 +3,13 @@
 // window-state.json; the panel's URL lives only as long as the app runs.
 import * as fs from "node:fs"
 import { BaseWindow, nativeTheme, screen, shell, webContents, WebContentsView, type WebContents } from "electron"
+import type { DesktopBoardState } from "@cello/shared/desktopBoard"
 import type { UpdateState } from "@cello/shared/updates"
-import { APP_NOTICE, APP_RESTART, BOARD_OPEN, BOARD_OPEN_TASK, PANEL_CLOSE, PANEL_OPEN, UPDATE_COMMAND, UPDATE_STATE } from "../ipc.ts"
+import { APP_NOTICE, APP_RESTART, BOARD_COMMAND, BOARD_OPEN, BOARD_OPEN_TASK, BOARD_STATE, PANEL_CLOSE, PANEL_OPEN, UPDATE_COMMAND, UPDATE_STATE } from "../ipc.ts"
 import { Panel } from "../panel/Panel.ts"
 import { boardNavigationAction, boardWindowOpenAction } from "../panel/urls.ts"
 import type { BoardNotice } from "../update/appUpdate.ts"
+import { isBoardPage } from "./sender.ts"
 import { appCommandDirection, goInHistory, type HistoryDirection, historyShortcut, swipeDirection } from "./history.ts"
 import {
   clampPanelWidth,
@@ -30,6 +32,10 @@ export interface MainWindowOptions {
   readonly restartApp: () => void
   /** A command from the board's update UI (CEL-140), unchecked: main.ts checks it. */
   readonly updateCommand: (message: unknown) => void
+  /** A command from Settings → Board (CEL-149), unchecked: main.ts checks it. */
+  readonly boardCommand: (message: unknown) => void
+  /** The window's title: the app's name (Cello, or Cello Dev). */
+  readonly title: string
 }
 
 const SAVE_DELAY_MS = 400
@@ -61,6 +67,7 @@ export class MainWindow {
   #origin: string | null = null
   #notice: BoardNotice | null = null
   #updates: UpdateState | null = null
+  #board: DesktopBoardState | null = null
   #saveTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(private readonly options: MainWindowOptions) {
@@ -71,7 +78,7 @@ export class MainWindow {
       ...bounds,
       minWidth: MIN_WINDOW_SIZE.width,
       minHeight: MIN_WINDOW_SIZE.height,
-      title: "Cello",
+      title: options.title,
       backgroundColor: canvasColor(),
       show: false,
     })
@@ -207,8 +214,19 @@ export class MainWindow {
     board.on("did-finish-load", () => {
       board.send(APP_NOTICE, this.#notice)
       if (this.#updates) board.send(UPDATE_STATE, this.#updates)
+      if (this.#board) board.send(BOARD_STATE, this.#board)
     })
-    board.ipc.on(UPDATE_COMMAND, (_event, message: unknown) => this.options.updateCommand(message))
+    // Commands that change the app come only from the board's own page (window/sender.ts).
+    const fromBoard = (event: Electron.IpcMainEvent) => {
+      const frame = event.senderFrame
+      return isBoardPage(frame ? { url: frame.url, top: frame.parent === null } : null, this.#origin)
+    }
+    board.ipc.on(UPDATE_COMMAND, (event, message: unknown) => {
+      if (fromBoard(event)) this.options.updateCommand(message)
+    })
+    board.ipc.on(BOARD_COMMAND, (event, message: unknown) => {
+      if (fromBoard(event)) this.options.boardCommand(message)
+    })
     // Links that want a new window, and links off the board's origin, open in the panel.
     board.setWindowOpenHandler(({ url }) => {
       this.#route(url, boardWindowOpenAction(url, this.#origin))
@@ -234,6 +252,12 @@ export class MainWindow {
   showUpdateState(state: UpdateState): void {
     this.#updates = state
     if (!this.board.webContents.isDestroyed()) this.board.webContents.send(UPDATE_STATE, state)
+  }
+
+  /** Which board the app uses (CEL-149): Settings → Board shows it, and gets it again after each load. */
+  showBoardState(state: DesktopBoardState): void {
+    this.#board = state
+    if (!this.board.webContents.isDestroyed()) this.board.webContents.send(BOARD_STATE, state)
   }
 
   /** A task clicked in the panel: the board opens it (its router, no reload) and takes the focus; the panel stays. */

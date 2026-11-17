@@ -32,7 +32,7 @@ const setup = (feed: FakeReleaseFeed, options: { current: string; settings?: str
     arch: "arm64",
     // As main.ts wires a dev build pointed at a test feed: the feed's own origin is trusted for its DMGs.
     feed: githubFeed(feed.url),
-    trusted: feedFor({ CELLO_UPDATE_FEED: feed.url }, false)!.trusted,
+    trusted: feedFor({ CELLO_UPDATE_FEED: feed.url }, false, true)!.trusted,
     settings: { read: () => (fs.existsSync(settingsFile) ? fs.readFileSync(settingsFile, "utf8") : null), write: (text) => fs.writeFileSync(settingsFile, text) },
     downloadsDir: downloads,
     fetchFile: downloadFile,

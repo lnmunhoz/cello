@@ -195,6 +195,10 @@ jobs:
           trap 'hdiutil detach "$mount"' EXIT
           codesign --verify --deep --strict --verbose=2 "$mount/Cello.app"
           codesign --display --verbose=2 "$mount/Cello.app" 2>&1 | grep -E '^(Identifier|Signature|Authority|TeamIdentifier)='
+          # The download is the release flavor (CEL-149): Cello, app.cello.desktop, cello:// links. Never Cello Dev.
+          plist="$mount/Cello.app/Contents/Info.plist"
+          test "$(plutil -extract CFBundleIdentifier raw "$plist")" = app.cello.desktop
+          test "$(plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw "$plist")" = cello
 
       - name: Upload the downloads
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

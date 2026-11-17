@@ -6,6 +6,7 @@
 // web app reloads into a new server build by itself (CEL-37's ReloadBar); this is the same idea for the
 // app around it. The build stamp (`build.json`, written by scripts/build.ts) tells builds apart.
 import * as path from "node:path"
+import { linkFlavor } from "@cello/shared/celloLink"
 import type { DesktopAppNotice } from "../../../web/src/lib/desktop.ts"
 
 /** The build stamp scripts/build.ts writes into dist-electron/, also copied beside app.asar. */
@@ -33,8 +34,10 @@ export interface UpdateFacts {
   readonly loaded: string | null
   /** The stamp on disk now; null while the bundle is missing or being replaced. */
   readonly onDisk: string | null
-  /** /Applications/Cello.app */
+  /** The installed app, /Applications/Cello.app (Cello Dev.app for the dev build, CEL-149). */
   readonly installed: string
+  /** Its executable (`executableOf`): Contents/MacOS/Cello, or Cello Dev. */
+  readonly installedExec: string
   readonly installedExists: boolean
 }
 
@@ -53,7 +56,7 @@ export type BoardNotice = DesktopAppNotice
  * board dismissed comes back only for a newer build.
  */
 export const appNotice = (facts: UpdateFacts): AppNotice | null => {
-  const installedExec = path.join(facts.installed, "Contents/MacOS/Cello")
+  const installedExec = facts.installedExec
   const elsewhere = facts.bundle !== null && facts.bundle !== facts.installed && facts.installedExists
   const restartInto = elsewhere ? installedExec : facts.execPath
   if (facts.loaded !== null && facts.onDisk !== null && facts.onDisk !== facts.loaded) {
@@ -78,12 +81,12 @@ export const restartTarget = (notice: AppNotice | null, execPath: string, exists
 
 /**
  * `app.relaunch`'s options: the same executable keeps its launch arguments (dev's app folder, the
- * test's switches) but not a `cello://` link it was opened with; another copy starts bare.
+ * test's switches) but not a `cello://` (or `cello-dev://`) link it was opened with; another copy starts bare.
  */
 export const relaunchOptions = (
   restartInto: string,
   running: { readonly execPath: string; readonly argv: readonly string[] },
 ): { execPath: string; args: string[] } =>
   restartInto === running.execPath
-    ? { execPath: restartInto, args: running.argv.slice(1).filter((arg) => !arg.startsWith("cello:")) }
+    ? { execPath: restartInto, args: running.argv.slice(1).filter((arg) => linkFlavor(arg) === null) }
     : { execPath: restartInto, args: [] }

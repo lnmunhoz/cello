@@ -2,6 +2,7 @@
 import * as os from "node:os"
 import * as path from "node:path"
 import type { WebFiles } from "@cello/server/web/WebFiles"
+import type { Flavor } from "@cello/shared/flavor"
 import * as Context from "effect/Context"
 import type { Env } from "./identity.ts"
 
@@ -14,7 +15,16 @@ export interface CliBuild {
    * the build history (CEL-50); left out when unknown. A compiled binary carries the path it was built in.
    */
   readonly checkout?: string | undefined
+  /**
+   * Which Cello it is (CEL-149): `dev` for the `cello` built on this Mac (`bun run release` deploys it, and
+   * Cello Dev.app bundles it), whose links are `cello-dev://`; `release` for the download. scripts/build.ts
+   * embeds it; left out (from source, in tests) it's `release`.
+   */
+  readonly flavor?: Flavor | undefined
 }
+
+/** The flavor of this build: `release` unless the binary was built as `dev`. */
+export const flavorOf = (build: CliBuild | undefined): Flavor => build?.flavor ?? "release"
 
 export class CliEnv extends Context.Service<CliEnv, {
   readonly env: Env

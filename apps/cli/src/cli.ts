@@ -110,7 +110,7 @@ import {
   uninstallCello,
   writeFileAtomically,
 } from "./claudeSettings.ts"
-import { CliEnv, dataDirOf, portOf } from "./env.ts"
+import { CliEnv, dataDirOf, flavorOf, portOf } from "./env.ts"
 import { CliFailure, explain } from "./errors.ts"
 import { editFields, priorityOf } from "./edit.ts"
 import { evidenceFromArgs } from "./evidence.ts"
@@ -1475,7 +1475,7 @@ const docPublish = Command.make("publish", {
 }, (input) =>
   Effect.gen(function* () {
     const kind = yield* kindOf(input.kind)
-    const { cwd, env, readStdin } = yield* CliEnv
+    const { cwd, env, readStdin, build } = yield* CliEnv
     const ref = yield* projectRef(input.project)
     const source = input.file === "-" ? undefined : path.resolve(cwd, input.file)
     const body = source === undefined ? yield* Effect.promise(readStdin) : yield* readFile(source)
@@ -1504,7 +1504,7 @@ const docPublish = Command.make("publish", {
     )
     const doc = response.result
     const url = pageUrl(env, found?.key ?? ref.key?.toUpperCase() ?? "", doc.slug)
-    const link = celloOpenLink(url)
+    const link = celloOpenLink(url, flavorOf(build))
     if (input.json) return yield* printJson({ ...response, url, link })
     const what = `${doc.kind} "${doc.title}"`
     const where = `${url}\n${replyLine(link)}`
@@ -1585,8 +1585,8 @@ const openCommand = Command.make("open", {
   print: Flag.Boolean("print").pipe(Flag.withDefault(false), Flag.withDescription("Print the link without opening it.")),
 }, (input) =>
   Effect.gen(function* () {
-    const { env, open } = yield* CliEnv
-    const target = openTarget(input.target)
+    const { env, open, build } = yield* CliEnv
+    const target = openTarget(input.target, flavorOf(build))
     if (target === null) {
       return yield* new CliFailure({
         message: `Can't open "${input.target}": give a page's address, its slug (billing-audit) or a task key (CEL-12).`,
@@ -1606,7 +1606,7 @@ const openCommand = Command.make("open", {
           })
         )
         const url = pageUrl(env, projectKey, target.slug)
-        return { link: celloOpenLink(url), name: url, url }
+        return { link: celloOpenLink(url, flavorOf(build)), name: url, url }
       })
     if (!input.print) {
       yield* Effect.tryPromise({

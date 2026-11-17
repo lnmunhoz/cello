@@ -4,6 +4,7 @@
 // Cello's panel.
 import { celloOpenLink, celloTaskLink, parseCelloLink } from "@cello/shared/celloLink"
 import { isSlug } from "@cello/shared/document"
+import type { Flavor } from "@cello/shared/flavor"
 import { formatTaskKey, parseTaskKey } from "@cello/shared/taskKey"
 
 /** A page (its http address) or a task, with the link that opens it; or a slug to look up first. */
@@ -17,14 +18,15 @@ const webPage = (raw: string): string | null => {
   return url && (url.protocol === "http:" || url.protocol === "https:") ? url.href : null
 }
 
-const pageLink = (url: string): OpenTarget => ({ kind: "page", link: celloOpenLink(url), url })
-const taskLink = (key: string): OpenTarget => ({ kind: "task", link: celloTaskLink(key), key: key.toUpperCase() })
-
 /**
- * What `cello open` was given: a web address, a `cello://` link, a task key in capitals (CEL-12), or a
- * page's slug (slugs are always lower case, so `cel-12` is a slug). Null for anything else.
+ * What `cello open` was given: a web address, a `cello://` (or `cello-dev://`) link, a task key in
+ * capitals (CEL-12), or a page's slug (slugs are always lower case, so `cel-12` is a slug). Null for
+ * anything else. The link it makes has this build's own scheme (`flavor`, CEL-149), so it opens the
+ * app of the same flavor: Cello Dev for a dev build, the downloaded Cello.app for a release.
  */
-export const openTarget = (raw: string): OpenTarget | null => {
+export const openTarget = (raw: string, flavor: Flavor): OpenTarget | null => {
+  const pageLink = (url: string): OpenTarget => ({ kind: "page", link: celloOpenLink(url, flavor), url })
+  const taskLink = (key: string): OpenTarget => ({ kind: "task", link: celloTaskLink(key, flavor), key: key.toUpperCase() })
   const text = raw.trim()
   const link = parseCelloLink(text)
   if (link) {

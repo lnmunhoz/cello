@@ -24,6 +24,7 @@ import {
   isAlive,
   killOnCleanup,
   launchApp,
+  LINK_SCHEME,
   nextDialogShown,
   openAppMenu,
   quitApp,
@@ -437,10 +438,10 @@ test("CEL-60, CEL-20: cello://open with a Cello page opens it in the board's own
   // The page's address, then the cello:// link agents put in replies (CEL-88), which is what gets opened here.
   const [, pageUrl, replyLine] = celloAsAgent(server.port, "doc", "publish", file, "--project", "DSK").split("\n")
   expect(pageUrl).toBe(`${server.url}/DSK/pages/desktop-progress`)
-  expect(replyLine).toBe(`Link in replies (opens in Cello): cello://open?url=${encodeURIComponent(pageUrl!)}`)
+  expect(replyLine).toBe(`Link in replies (opens in Cello): ${LINK_SCHEME}://open?url=${encodeURIComponent(pageUrl!)}`)
 
   await video.caption("open the cello:// link doc publish printed: it opens in the board's side panel, rendered by the app; the native browser stays shut")
-  expect(await secondLaunch(env, [replyLine!.slice(replyLine!.indexOf("cello://"))])).toBe(0)
+  expect(await secondLaunch(env, [replyLine!.slice(replyLine!.indexOf(`${LINK_SCHEME}://`))])).toBe(0)
   await expect(sidePanel.getByRole("heading", { level: 1, name: "Desktop progress" })).toBeVisible()
   await expect(sidePanel.locator("iframe")).toHaveCount(0)
   // The header names the document, not its address.
@@ -458,7 +459,7 @@ test("CEL-60, CEL-20: cello://open with a Cello page opens it in the board's own
   await screenshotWindow(app, path.join(SCREENSHOTS_DIR, "side-panel-text.png"))
 
   await video.caption("Open the page again and click DSK-2 in it: the task opens in the main window, in the panel's place")
-  expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(pageUrl!)}`])).toBe(0)
+  expect(await secondLaunch(env, [`${LINK_SCHEME}://open?url=${encodeURIComponent(pageUrl!)}`])).toBe(0)
   const key = sidePanel.locator('table [data-task-link="DSK-2"]')
   await expect(key.locator("[data-task-status]")).toHaveText("Todo")
   await key.click()
@@ -468,7 +469,7 @@ test("CEL-60, CEL-20: cello://open with a Cello page opens it in the board's own
   expect((await views(app)).page.visible).toBe(false)
 
   await video.caption("open cello://open?url=<another site>: that one opens in the native browser")
-  expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(site.url)}`])).toBe(0)
+  expect(await secondLaunch(env, [`${LINK_SCHEME}://open?url=${encodeURIComponent(site.url)}`])).toBe(0)
   await panel.waitForURL(site.url)
   await expect(panel.getByRole("heading", { name: "Cello panel test page" })).toBeVisible()
   expect((await views(app)).page.visible).toBe(true)
@@ -596,7 +597,7 @@ test("CEL-75: when a new build of the app lands on disk, the board says so; Late
   writeStamp(`${JSON.stringify({ builtAt: "2026-11-16T05:00:00.000Z", commit: "bbbbbbb" })}\n`)
 
   await video.caption("An agent opens a cello:// link: the app follows it, and says it was updated")
-  expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(site.url)}`])).toBe(0)
+  expect(await secondLaunch(env, [`${LINK_SCHEME}://open?url=${encodeURIComponent(site.url)}`])).toBe(0)
   await panel.waitForURL(site.url)
   await expect(bar).toHaveAttribute("data-app-restart-bar", "updated")
   await expect(bar).toContainText("The Cello app was updated")
@@ -943,12 +944,12 @@ test("cello:// links from a second launch reach the running app", async ({}, tes
 
   await video.caption("open cello://open?url=… : the second launch hands it over and quits")
   const pageUrl = `${site.url}?from=link`
-  expect(await secondLaunch(env, [`cello://open?url=${encodeURIComponent(pageUrl)}`])).toBe(0)
+  expect(await secondLaunch(env, [`${LINK_SCHEME}://open?url=${encodeURIComponent(pageUrl)}`])).toBe(0)
   await panel.waitForURL(pageUrl)
   expect((await views(app)).page.visible).toBe(true)
 
   await video.caption("open cello://CEL-1 : the board goes to that task")
-  expect(await secondLaunch(env, ["cello://CEL-1"])).toBe(0)
+  expect(await secondLaunch(env, [`${LINK_SCHEME}://CEL-1`])).toBe(0)
   await board.waitForURL(`${server.url}/CEL/1`)
 })
 

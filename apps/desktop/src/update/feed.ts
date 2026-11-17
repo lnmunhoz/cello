@@ -16,14 +16,16 @@ export const RELEASES_URL = "https://api.github.com/repos/lnmunhoz/cello/release
 /**
  * Where the app reads releases from, and which addresses it trusts in them (`parseReleases`); null when
  * it doesn't check. The packaged app always reads GitHub's list and trusts only the repository's
- * addresses: CELLO_UPDATE_FEED can't point it elsewhere. A dev build (the e2e tests run one) checks only
- * the test feed CELLO_UPDATE_FEED names, and trusts that feed's own origin for its downloads too.
+ * addresses: CELLO_UPDATE_FEED can't point it elsewhere. Packaged Cello Dev (`checksUpdates` false, CEL-149)
+ * checks nothing. An unpackaged build (`bun run dev`, the e2e tests) checks only the test feed
+ * CELLO_UPDATE_FEED names, and trusts that feed's own origin for its downloads too.
  */
 export const feedFor = (
   env: Record<string, string | undefined>,
   isPackaged: boolean,
+  checksUpdates: boolean,
 ): { readonly url: string; readonly trusted: ReadonlyArray<string> } | null => {
-  if (isPackaged) return { url: RELEASES_URL, trusted: [RELEASE_URL_PREFIX] }
+  if (isPackaged) return checksUpdates ? { url: RELEASES_URL, trusted: [RELEASE_URL_PREFIX] } : null
   const test = URL.parse(env.CELLO_UPDATE_FEED ?? "")
   if (!test || (test.protocol !== "http:" && test.protocol !== "https:")) return null
   return { url: test.href, trusted: [RELEASE_URL_PREFIX, `${test.origin}/`] }

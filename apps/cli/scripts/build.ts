@@ -3,8 +3,11 @@
 // with nothing next to the binary, and the commit it's built from (CELLO_BUILD_COMMIT, else HEAD)
 // embedded as its build (CEL-37), with the checkout it was built in, for the build history to read the
 // commits between builds from (CEL-50). Output: apps/cli/dist/cello, or `--outfile <path>`; `--target` below.
+// `--flavor release|dev` (CEL-149, default dev): a dev `cello` (this Mac's, the one `bun run release` deploys and
+// Cello Dev.app bundles) makes `cello-dev://` links; the release (the download GitHub Actions builds) `cello://`.
 import * as fs from "node:fs"
 import * as path from "node:path"
+import { flavorArg } from "@cello/shared/flavor"
 import { buildCommit } from "../../server/src/build/git.ts"
 
 const cli = path.join(import.meta.dir, "..")
@@ -15,6 +18,7 @@ const run = (cmd: string[], cwd: string) => {
   if (result.exitCode !== 0) process.exit(result.exitCode ?? 1)
 }
 
+const flavor = flavorArg(process.argv, "dev")
 if (!process.argv.includes("--skip-web")) run(["bun", "run", "build"], web)
 
 const files: string[] = []
@@ -37,7 +41,7 @@ const entry = [
   "const files = new Map<string, string>([",
   ...files.map((file, i) => `  [${JSON.stringify(`/${file}`)}, f${i}],`),
   "])",
-  `main(() => files, { commit: ${JSON.stringify(buildCommit(process.env, cli))}, checkout: ${JSON.stringify(cli)} })`,
+  `main(() => files, { commit: ${JSON.stringify(buildCommit(process.env, cli))}, checkout: ${JSON.stringify(cli)}, flavor: ${JSON.stringify(flavor)} })`,
   "",
 ].join("\n")
 fs.writeFileSync(path.join(buildDir, "entry.ts"), entry)
@@ -51,4 +55,4 @@ const outfile = outfileFlag === -1 ? path.join(cli, "dist", "cello") : path.reso
 const targetFlag = process.argv.indexOf("--target")
 const target = targetFlag === -1 ? [] : ["--target", process.argv[targetFlag + 1] ?? ""]
 run(["bun", "build", "--compile", ...target, path.join(buildDir, "entry.ts"), "--outfile", outfile], cli)
-console.log(`Built ${outfile} (${(fs.statSync(outfile).size / 1024 / 1024).toFixed(1)} MB, ${files.length} web files embedded)`)
+console.log(`Built ${outfile} (${flavor}, ${(fs.statSync(outfile).size / 1024 / 1024).toFixed(1)} MB, ${files.length} web files embedded)`)

@@ -8,6 +8,7 @@ import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import { CliEnv, run } from "../../src/cli.ts"
+import type { CliBuild } from "../../src/env.ts"
 import type { Env } from "../../src/identity.ts"
 
 export interface Output {
@@ -32,7 +33,7 @@ export const cello = (options: {
   readonly cwd: string
   readonly stdin?: string
   /** The CLI's own build, as bin.ts or the compiled binary passes it. */
-  readonly build?: { readonly commit: string | null }
+  readonly build?: CliBuild
   /** Hears each line the command prints to stderr as it prints it (a waiter saying it's waiting). */
   readonly onErr?: (line: string) => void
   /** Hears each line the command prints to stdout as it prints it (`cello agents log --follow`'s new steps). */

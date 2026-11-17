@@ -11,11 +11,17 @@
 //     macOS's "can't verify the developer" prompt (Open Anyway) instead of "is damaged". electron-builder
 //     only falls back to ad hoc after finding no keychain identity whose name contains "-".
 
+//   - `--flavor release|dev` (CEL-149): which app it is. electron-builder.json is the release, Cello; dev is Cello Dev,
+//     with its own name, bundle id, `cello-dev://` scheme and DEV icon (src/flavor.ts). A package made on the Mac
+//     is dev unless it says otherwise; `--artifacts` (the downloads) is the release.
+import { flavorArg, type Flavor } from "@cello/shared/flavor"
+import { appIdentity } from "../flavor.ts"
+
 type Resource = { readonly from: string; readonly to: string }
 type BuilderConfig = { readonly extraResources?: ReadonlyArray<Resource>; readonly mac?: Record<string, unknown> } & Record<string, unknown>
 
 export type Arch = "arm64" | "x64"
-export type Packaging = { readonly arch: Arch; readonly artifacts: boolean; readonly sign: boolean }
+export type Packaging = { readonly arch: Arch; readonly artifacts: boolean; readonly sign: boolean; readonly flavor: Flavor; readonly install: boolean }
 
 export const bundlingCli = <C extends BuilderConfig>(config: C, binary: string): C => {
   const resources = config.extraResources ?? []
@@ -32,16 +38,33 @@ export const packagingConfig = <C extends BuilderConfig>(config: C, packaging: P
   const signing = packaging.sign
     ? { ...developerId, hardenedRuntime: true, entitlements: ENTITLEMENTS, entitlementsInherit: ENTITLEMENTS }
     : { ...config.mac }
-  return { ...config, mac: { ...signing, target: targets.map((target) => ({ target, arch: [packaging.arch] })) } }
+  const mac = { ...signing, target: targets.map((target) => ({ target, arch: [packaging.arch] })) }
+  if (packaging.flavor === "release") return { ...config, mac }
+  const dev = appIdentity("dev")
+  return {
+    ...config,
+    productName: dev.name,
+    appId: dev.appId,
+    protocols: [{ name: dev.name, schemes: [dev.scheme] }],
+    mac: { ...mac, icon: dev.icon, artifactName: `${dev.name.replaceAll(" ", "-")}-v\${version}-mac-\${arch}.\${ext}` },
+  }
 }
 
-/** Where electron-builder puts Cello.app, under apps/desktop: it leaves its default arch (x64) out of the folder's name. */
-export const packagedApp = (arch: Arch): string => `dist/${arch === "x64" ? "mac" : "mac-arm64"}/Cello.app`
+/** Where electron-builder puts the app, under apps/desktop: it leaves its default arch (x64) out of the folder's name. */
+export const packagedApp = (arch: Arch, flavor: Flavor): string =>
+  `dist/${arch === "x64" ? "mac" : "mac-arm64"}/${appIdentity(flavor).name}.app`
 
-/** package.ts's --arch, --artifacts and --sign; its other flags are its own. */
+/** package.ts's --arch, --artifacts, --sign, --flavor and --install (Cello Dev only); its other flags are its own. */
 export const parsePackaging = (argv: ReadonlyArray<string>): Packaging => {
   const flag = argv.indexOf("--arch")
   const arch = flag === -1 ? "arm64" : argv[flag + 1]
   if (arch !== "arm64" && arch !== "x64") throw new Error(`--arch takes arm64 or x64, not ${arch ?? "nothing"}.`)
-  return { arch, artifacts: argv.includes("--artifacts"), sign: argv.includes("--sign") }
+  const artifacts = argv.includes("--artifacts")
+  const flavor = flavorArg(argv, artifacts ? "release" : "dev")
+  const install = argv.includes("--install")
+  // Installing replaces /Applications' copy: only ever Cello Dev's, never the Cello.app a release DMG put there.
+  if (install && flavor !== "dev") {
+    throw new Error("--install installs Cello Dev (/Applications/Cello Dev.app) only. Cello.app comes from a release's DMG; package it without --install.")
+  }
+  return { arch, artifacts, sign: argv.includes("--sign"), flavor, install }
 }

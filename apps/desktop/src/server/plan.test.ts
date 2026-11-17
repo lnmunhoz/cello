@@ -1,47 +1,68 @@
 import { describe, expect, it } from "vitest"
 import { renderPlist } from "@cello/shared/launchAgent"
-import { celloCommand, isAlreadyRunning, parseBanner, parseLock, planServer, serverConfig, serviceFor, serviceInstaller } from "./plan.ts"
+import { celloCommand, isAlreadyRunning, isBoardTooNew, parseBanner, parseLock, planServer, serviceFor, serviceInstaller, takenPortMessage } from "./plan.ts"
 
 describe("planServer", () => {
   it("starts the bundled server when nothing answers and no live server holds the data folder", () => {
-    expect(planServer({ port: 4747, portAnswers: false, lock: null, service: false })).toEqual({ kind: "start" })
+    expect(planServer({ port: 4747, portAnswers: false, lock: null, service: false, defaultBoard: true })).toEqual({ kind: "start" })
   })
 
-  it("joins whatever answers on CELLO_PORT (Lucas's terminal `cello start`)", () => {
-    expect(planServer({ port: 4747, portAnswers: true, lock: null, service: false })).toEqual({ kind: "join", url: "http://127.0.0.1:4747" })
+  it("joins the server on the default board's port, ~/.cello on 4747, even without its lock (Lucas's terminal `cello start`)", () => {
+    expect(planServer({ port: 4747, portAnswers: true, lock: null, service: false, defaultBoard: true })).toEqual({ kind: "join", url: "http://127.0.0.1:4747" })
+  })
+
+  it("CEL-149: never joins a server another board's folder holds: a port that answers without this folder's lock on it is taken", () => {
+    // ~/.cello-test typed in Settings on 4747, where the live board's server answers.
+    expect(planServer({ port: 4747, portAnswers: true, lock: null, service: false, defaultBoard: false })).toEqual({ kind: "taken", port: 4747 })
+    const stale = { pid: 123, port: 4747, alive: false, answers: false }
+    expect(planServer({ port: 4747, portAnswers: true, lock: stale, service: false, defaultBoard: false })).toEqual({ kind: "taken", port: 4747 })
+  })
+
+  it("CEL-149: joins a board's own server on its port, as before", () => {
+    const lock = { pid: 123, port: 4757, alive: true, answers: true }
+    expect(planServer({ port: 4757, portAnswers: true, lock, service: false, defaultBoard: false })).toEqual({ kind: "join", url: "http://127.0.0.1:4757" })
+  })
+
+  it("CEL-149: waits for this folder's own server rather than join another one on the port", () => {
+    const lock = { pid: 123, port: 4800, alive: true, answers: false }
+    expect(planServer({ port: 4747, portAnswers: true, lock, service: false, defaultBoard: false })).toEqual({ kind: "wait", url: "http://127.0.0.1:4800", pid: 123 })
+  })
+
+  it("says why a port is taken, and what to do", () => {
+    expect(takenPortMessage(4747)).toBe("Port 4747 is already used by another Cello board or another program; pick another port for this board.")
   })
 
   it("starts over a lock left by a dead process: the new server takes it over", () => {
     const lock = { pid: 123, port: 4747, alive: false, answers: false }
-    expect(planServer({ port: 4747, portAnswers: false, lock, service: false })).toEqual({ kind: "start" })
+    expect(planServer({ port: 4747, portAnswers: false, lock, service: false, defaultBoard: true })).toEqual({ kind: "start" })
   })
 
   it("joins the server that holds the data folder, on its own port, even when CELLO_PORT differs", () => {
     const lock = { pid: 123, port: 4800, alive: true, answers: true }
-    expect(planServer({ port: 4747, portAnswers: true, lock, service: false })).toEqual({ kind: "join", url: "http://127.0.0.1:4800" })
+    expect(planServer({ port: 4747, portAnswers: true, lock, service: false, defaultBoard: true })).toEqual({ kind: "join", url: "http://127.0.0.1:4800" })
   })
 
   it("never starts a second server for a held data folder: it waits for the holder to answer", () => {
     const lock = { pid: 123, port: 4800, alive: true, answers: false }
-    expect(planServer({ port: 4747, portAnswers: false, lock, service: false })).toEqual({ kind: "wait", url: "http://127.0.0.1:4800", pid: 123 })
+    expect(planServer({ port: 4747, portAnswers: false, lock, service: false, defaultBoard: true })).toEqual({ kind: "wait", url: "http://127.0.0.1:4800", pid: 123 })
   })
 
   it("waits on CELLO_PORT when the holder hasn't recorded its port yet", () => {
     const lock = { pid: 123, port: 0, alive: true, answers: false }
-    expect(planServer({ port: 4747, portAnswers: false, lock, service: false })).toEqual({ kind: "wait", url: "http://127.0.0.1:4747", pid: 123 })
+    expect(planServer({ port: 4747, portAnswers: false, lock, service: false, defaultBoard: true })).toEqual({ kind: "wait", url: "http://127.0.0.1:4747", pid: 123 })
   })
 })
 
 describe("planServer with the background service installed (CEL-81)", () => {
   it("joins it when it answers, like any server", () => {
     const lock = { pid: 44568, port: 4747, alive: true, answers: true }
-    expect(planServer({ port: 4747, portAnswers: true, lock, service: true })).toEqual({ kind: "join", url: "http://127.0.0.1:4747" })
+    expect(planServer({ port: 4747, portAnswers: true, lock, service: true, defaultBoard: true })).toEqual({ kind: "join", url: "http://127.0.0.1:4747" })
   })
 
   it("never starts a server of its own beside it: it asks launchd to start the service and waits for it", () => {
-    expect(planServer({ port: 4747, portAnswers: false, lock: null, service: true })).toEqual({ kind: "service", url: "http://127.0.0.1:4747" })
+    expect(planServer({ port: 4747, portAnswers: false, lock: null, service: true, defaultBoard: true })).toEqual({ kind: "service", url: "http://127.0.0.1:4747" })
     const stale = { pid: 123, port: 4747, alive: false, answers: false }
-    expect(planServer({ port: 4747, portAnswers: false, lock: stale, service: true })).toEqual({ kind: "service", url: "http://127.0.0.1:4747" })
+    expect(planServer({ port: 4747, portAnswers: false, lock: stale, service: true, defaultBoard: true })).toEqual({ kind: "service", url: "http://127.0.0.1:4747" })
   })
 })
 
@@ -89,21 +110,17 @@ describe("server output and lock", () => {
     expect(isAlreadyRunning("Couldn't listen on that port")).toBe(false)
   })
 
+  it("recognises the refusal of a board a newer Cello migrated (CEL-149)", () => {
+    const refusal = "This board (/Users/x/.cello) was opened by a newer Cello (migration 0028_x); this cello is v0.4.2. Update Cello, or use another board. Nothing was changed."
+    expect(isBoardTooNew(refusal)).toBe(true)
+    expect(isBoardTooNew("Cello is already running for /Users/x/.cello (pid 9, http://127.0.0.1:4747).")).toBe(false)
+  })
+
   it("parses the server lock, and ignores a broken one", () => {
     expect(parseLock(JSON.stringify({ pid: 42, port: 4747 }))).toEqual({ pid: 42, port: 4747 })
     expect(parseLock(JSON.stringify({ pid: 42 }))).toEqual({ pid: 42, port: 0 })
     expect(parseLock("{not json")).toBeNull()
     expect(parseLock(JSON.stringify({ port: 4747 }))).toBeNull()
-  })
-})
-
-describe("serverConfig", () => {
-  it("uses 4747 and ~/.cello unless CELLO_PORT and CELLO_DATA_DIR say otherwise", () => {
-    expect(serverConfig({ HOME: "/Users/me" })).toEqual({ port: 4747, dataDir: "/Users/me/.cello" })
-    expect(serverConfig({ HOME: "/Users/me", CELLO_PORT: "4791", CELLO_DATA_DIR: "/tmp/cello-e2e" })).toEqual({
-      port: 4791,
-      dataDir: "/tmp/cello-e2e",
-    })
   })
 })
 
