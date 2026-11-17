@@ -1,0 +1,209 @@
+# Builds what people download for each release (CEL-139), so the Mac that cuts it doesn't have to:
+#   build    one job per Mac architecture, each on a runner of its own kind (electron-builder packages this
+#            machine's Electron, and Bun builds natively): the cello zip, and Cello.app as a DMG and a zip
+#   publish  once both built: creates or updates the GitHub release "Cello vX.Y.Z" with the version's
+#            CHANGELOG.md section as its notes and every file attached
+#
+# It runs when `bun run release` pushes a vX.Y.Z tag. By hand (Actions > Release > Run workflow), give a tag
+# that exists and leave "publish" off to only build (the files stay on the run's page for 14 days), or turn it
+# on to (re)publish that release. Pull requests that change the build scripts run the build jobs too, never
+# publish, so a broken build shows before a tag does.
+#
+# Cello.app is signed ad hoc (sealed, no developer named: macOS offers Open Anyway on the first launch) until
+# the repository has all five signing secrets: CSC_LINK (the Developer ID Application certificate as a base64
+# .p12) and CSC_KEY_PASSWORD, plus APPLE_API_KEY (the App Store Connect API key's .p8 contents),
+# APPLE_API_KEY_ID and APPLE_API_ISSUER for notarization. With all five, it's signed with the Developer ID
+# and notarized; with only some, the build fails rather than ship ad hoc by mistake. docs/releases.md.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/release/artifacts.ts
+      - scripts/release/hooks.ts
+      - scripts/release/publish.ts
+      - apps/cli/scripts/build.ts
+      - apps/desktop/scripts/**
+      - apps/desktop/electron-builder.json
+      - apps/desktop/resources/entitlements.mac.plist
+      - apps/desktop/src/install/builderConfig.ts
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release tag to build, e.g. v0.5.0 (it must exist)"
+        required: true
+        type: string
+      publish:
+        description: "Publish the GitHub release (off: build only)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# One run per tag at a time, never cancelled midway: a tag push (ref_name v0.5.0) and a run by hand for the same
+# tag share a group, so they can't publish at once. A pull request (ref_name 123/merge) gets its own, and its
+# newer push replaces its older run.
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The tag being released: the pushed one, or the one given by hand. Empty on a pull request (its own commit).
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || (github.ref_type == 'tag' && github.ref_name || '') }}
+
+jobs:
+  build:
+    name: Build macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      # Let the other architecture finish, so "Re-run failed jobs" only redoes the one that failed.
+      fail-fast: false
+      matrix:
+        include:
+          # Apple silicon.
+          - arch: arm64
+            runner: macos-15
+          # GitHub's last Intel Mac image, supported until August 2027 (macos-13 was retired in December 2025).
+          - arch: x64
+            runner: macos-15-intel
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG && format('refs/tags/{0}', env.RELEASE_TAG) || '' }}
+          persist-credentials: false
+
+      - name: Read the version
+        run: |
+          set -euo pipefail
+          version="$(jq -r .version package.json)"
+          if [[ -n "$RELEASE_TAG" && "$RELEASE_TAG" != "v$version" ]]; then
+            echo "::error::$RELEASE_TAG's package.json says $version: only a release commit (bun run release) can be built."
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+
+      # Bun's package cache, and the Electron and electron-builder downloads (Electron itself, the DMG tools).
+      # bun.lock changes with every release (it records the workspace versions), so a new key restores the last.
+      - name: Cache Bun packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-${{ matrix.arch }}-
+
+      - name: Cache Electron downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('apps/desktop/electron-builder.json') }}
+          restore-keys: electron-${{ runner.os }}-${{ matrix.arch }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # The same command the Mac runs for `bun run release -- --local-artifacts` (scripts/release/artifacts.ts).
+      # A pull request's build only checks the scripts work: it never gets the signing secrets.
+      - name: Build cello and Cello.app
+        env:
+          CSC_LINK: ${{ github.event_name != 'pull_request' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.CSC_KEY_PASSWORD || '' }}
+          APPLE_API_KEY: ${{ github.event_name != 'pull_request' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_KEY_ID: ${{ github.event_name != 'pull_request' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ github.event_name != 'pull_request' && secrets.APPLE_API_ISSUER || '' }}
+        run: |
+          set -euo pipefail
+          names=(CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER)
+          missing=()
+          for name in "${names[@]}"; do
+            [[ -n "${!name:-}" ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} == 0 )); then
+            # electron-builder wants the API key as a file.
+            key="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+            (umask 077 && printf '%s' "$APPLE_API_KEY" > "$key")
+            export APPLE_API_KEY="$key" CELLO_RELEASE_SIGN=1
+            echo "Signing Cello.app with the certificate in CSC_LINK, and notarizing it."
+          elif (( ${#missing[@]} == ${#names[@]} )); then
+            unset "${names[@]}"
+            echo "Cello.app is signed ad hoc: no signing secrets (docs/releases.md says how to add them)."
+          else
+            echo "::error::Signing is half set up: missing ${missing[*]}. Add them, or remove the others to sign ad hoc."
+            exit 1
+          fi
+          bun scripts/release/hooks.ts artifacts "$VERSION"
+          ls -l release
+
+      # The build already checked the packaged app's seal (scripts/release/artifacts.ts). This checks the copy
+      # people download, inside the DMG: a broken seal is what macOS calls "damaged". Mounted read-only and hidden.
+      - name: Check the seal of the app in the DMG
+        run: |
+          set -euo pipefail
+          mount="$RUNNER_TEMP/cello-dmg"
+          mkdir -p "$mount"
+          hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mount" release/Cello-v"$VERSION"-mac-${{ matrix.arch }}.dmg
+          trap 'hdiutil detach "$mount"' EXIT
+          codesign --verify --deep --strict --verbose=2 "$mount/Cello.app"
+          codesign --display --verbose=2 "$mount/Cello.app" 2>&1 | grep -E '^(Identifier|Signature|Authority|TeamIdentifier)='
+
+      - name: Upload the downloads
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cello-macos-${{ matrix.arch }}
+          path: |
+            release/*.zip
+            release/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+          # They're zips and a compressed DMG already.
+          compression-level: 0
+
+  publish:
+    name: Publish the GitHub release
+    needs: build
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+
+      - name: Download the builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: cello-macos-*
+          merge-multiple: true
+          path: downloads
+
+      # Creates the release, or updates it (e.g. after `bun run release -- --local-artifacts`), with every file.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ls -l downloads
+          bun scripts/release/publish.ts "${RELEASE_TAG#v}" downloads/*

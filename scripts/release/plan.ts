@@ -1,43 +1,55 @@
 // What `bun run release` takes and plans (CEL-36): its arguments, the checks that refuse a release, the
-// steps it prints (and which a dry run skips), and the arguments it hands to release-it.
+// steps it prints (and which a dry run skips), the arguments it hands to release-it, and where it says GitHub
+// Actions builds the downloads (CEL-139).
 
 export type ReleaseOptions = {
   /** patch (the default), minor, major, or an exact version. */
   readonly increment: string
   readonly dryRun: boolean
   readonly deploy: boolean
+  /** --local-artifacts: build the downloads and create the GitHub release on this Mac instead of GitHub Actions. */
+  readonly localArtifacts: boolean
+  /** With --local-artifacts: Cello.app too (false with --skip-desktop). */
   readonly desktop: boolean
   readonly help: boolean
 }
 
-export const USAGE = `Usage: bun run release [-- [patch|minor|major|<x.y.z>] [--dry-run] [--no-deploy] [--skip-desktop]]
+export const USAGE = `Usage: bun run release [-- [patch|minor|major|<x.y.z>] [--dry-run] [--no-deploy] [--local-artifacts [--skip-desktop]]]
 
-  patch            the default: 0.3.0 -> 0.3.1 (the first release is minor or an exact version)
-  minor | major    when Lucas asks: 0.3.1 -> 0.4.0 | 1.0.0
-  --dry-run, -d    run the checks, typecheck and tests, print the plan, the changelog section and
-                   release-it's commands; write, commit, tag, push, release and deploy nothing
-  --no-deploy      release, but leave the live cello and server alone; the build waits in
-                   release/stage/cello until bun scripts/release/deploy.ts
-  --skip-desktop   release without Cello.app (when packaging it can't work here)
+  patch              the default: 0.3.0 -> 0.3.1 (the first release is minor or an exact version)
+  minor | major      when Lucas asks: 0.3.1 -> 0.4.0 | 1.0.0
+  --dry-run, -d      run the checks, typecheck and tests, print the plan, the changelog section and
+                     release-it's commands; write, commit, tag, push, release and deploy nothing
+  --no-deploy        release, but leave the live cello and server alone; the build waits in
+                     release/stage/cello until bun scripts/release/deploy.ts
+  --local-artifacts  build the downloads (cello zip, Cello.app DMG and zip) on this Mac and create the
+                     GitHub release from here, instead of GitHub Actions (for when GitHub Actions is down)
+  --skip-desktop     with --local-artifacts: leave Cello.app out (when packaging it can't work here)
 
-How releases work: docs/releases.md`
+The pushed tag starts GitHub Actions (.github/workflows/release.yml), which builds the downloads for
+Apple silicon and Intel and publishes the GitHub release. How releases work: docs/releases.md`
 
 export const parseReleaseArgs = (argv: ReadonlyArray<string>): ReleaseOptions => {
   let increment: string | null = null
   let dryRun = false
   let deploy = true
+  let localArtifacts = false
   let desktop = true
   let help = false
   for (const arg of argv) {
     if (arg === "--dry-run" || arg === "-d") dryRun = true
     else if (arg === "--no-deploy") deploy = false
+    else if (arg === "--local-artifacts") localArtifacts = true
     else if (arg === "--skip-desktop") desktop = false
     else if (arg === "--help" || arg === "-h") help = true
     else if (arg.startsWith("-")) throw new Error(`Unknown option ${arg}.\n\n${USAGE}`)
     else if (increment !== null) throw new Error(`Give one increment (patch, minor, major or a version), not "${increment}" and "${arg}".`)
     else increment = arg
   }
-  return { increment: increment ?? "patch", dryRun, deploy, desktop, help }
+  if (!desktop && !localArtifacts) {
+    throw new Error("--skip-desktop only applies with --local-artifacts: without it this Mac builds no Cello.app (GitHub Actions does).")
+  }
+  return { increment: increment ?? "patch", dryRun, deploy, localArtifacts, desktop, help }
 }
 
 export type RepoState = {
@@ -119,9 +131,14 @@ export type Step = { readonly title: string; readonly dryRun: "runs" | "skipped"
 export const releaseSteps = (options: ReleaseOptions, next: string, versionFiles: ReadonlyArray<string>): Step[] => {
   const tag = `v${next}`
   const write = options.dryRun ? "skipped" : "runs"
-  const build = options.desktop
-    ? "build the cello binary into release/stage (not live yet) and package Cello.app with it, zipped into release/"
-    : "build the cello binary into release/stage (not live yet), zipped into release/ (Cello.app skipped: --skip-desktop)"
+  const build = !options.localArtifacts
+    ? "build this Mac's cello into release/stage (not live yet), for the deploy"
+    : options.desktop
+      ? "build the cello binary into release/stage (not live yet) and package Cello.app with it: the cello zip, the DMG and the app zip into release/"
+      : "build the cello binary into release/stage (not live yet), zipped into release/ (Cello.app skipped: --skip-desktop)"
+  const publish = !options.localArtifacts
+    ? `GitHub Actions (${RELEASE_WORKFLOW}) builds cello and Cello.app for Apple silicon and Intel, then publishes the GitHub release ${tag} with the changelog section`
+    : `GitHub release ${tag} from this Mac with the changelog section${options.desktop ? ", the cello zip, the DMG and the app zip" : " and the cello zip"}`
   return [
     { title: "refuse unless on a clean main, up to date with origin, after a fully pushed release", dryRun: "runs" },
     { title: "bun run typecheck", dryRun: "runs" },
@@ -132,10 +149,7 @@ export const releaseSteps = (options: ReleaseOptions, next: string, versionFiles
     { title: `tag ${tag}`, dryRun: write },
     { title: build, dryRun: write },
     { title: `push main and ${tag}`, dryRun: write },
-    {
-      title: `GitHub release ${tag} with the changelog section and ${options.desktop ? "both zips" : "the cello zip"}`,
-      dryRun: write,
-    },
+    { title: publish, dryRun: write },
     { title: "deploy: cello backup, then the staged cello goes live, then cello service restart", dryRun: options.dryRun || !options.deploy ? "skipped" : "runs" },
   ]
 }
@@ -152,6 +166,16 @@ export const releaseItArgs = (options: Pick<ReleaseOptions, "dryRun">, next: str
   ...(options.dryRun ? ["--dry-run", "--no-git.requireBranch", "--no-git.requireUpstream"] : []),
 ]
 
+export const RELEASE_WORKFLOW = ".github/workflows/release.yml"
+
+/** Where the pushed tag's downloads are being built: the workflow run when gh found it, else the workflow's page. */
+export const actionsReport = (repoUrl: string, tag: string, runUrl: string | null): string[] => [
+  runUrl
+    ? `GitHub Actions is building ${tag}'s downloads: ${runUrl}`
+    : `GitHub Actions builds ${tag}'s downloads in the Release workflow (its run shows here within a minute): ${repoUrl}/actions/workflows/release.yml`,
+  `When it's done, they're on ${repoUrl}/releases/tag/${tag}`,
+]
+
 export type FailedRelease = {
   readonly version: string
   /** Whether v<version> exists here. */
@@ -164,6 +188,8 @@ export type FailedRelease = {
   readonly changedFiles: ReadonlyArray<string> | null
   /** Whether packaging Cello.app was the step that failed (artifacts.ts PACKAGING_FAILED). */
   readonly packagingFailed: boolean
+  /** --local-artifacts: this Mac, not GitHub Actions, creates the GitHub release. */
+  readonly localArtifacts: boolean
 }
 
 /**
@@ -172,10 +198,9 @@ export type FailedRelease = {
  */
 export const recoveryAdvice = (state: FailedRelease): string[] => {
   const tag = `v${state.version}`
-  const finish = [
-    `  gh release create ${tag} release/*.zip --title "Cello ${tag}" --notes "$(bun scripts/release/changelog.ts notes-of ${state.version})"`,
-    "  bun scripts/release/deploy.ts",
-  ]
+  // Once the tag is pushed, GitHub Actions builds and publishes the release by itself; --local-artifacts does it here.
+  const finishBy = state.localArtifacts ? "finish by hand:" : "GitHub Actions builds and publishes its release; deploy by hand:"
+  const finish = [...(state.localArtifacts ? [`  bun scripts/release/publish.ts ${state.version}`] : []), "  bun scripts/release/deploy.ts"]
   // release/ goes too: its staged build is the undone commit's, and must never be deployed.
   const undo = [
     ...(state.localTag ? [`  git tag -d ${tag}`] : []),
@@ -184,11 +209,11 @@ export const recoveryAdvice = (state: FailedRelease): string[] => {
   ]
   const madeSomething = state.localTag || state.headIsRelease
   if (state.remoteTag === true) {
-    return [`${tag} is pushed: the release commit and tag are on GitHub, so don't undo them. Finish by hand:`, ...finish]
+    return [`${tag} is pushed: the release commit and tag are on GitHub, so don't undo them. ${finishBy[0]!.toUpperCase()}${finishBy.slice(1)}`, ...finish]
   }
   if (state.remoteTag === null && madeSomething) {
     return [
-      `Can't tell whether ${tag} was pushed (git ls-remote --tags origin failed). Don't reset or delete anything until \`git ls-remote --tags origin refs/tags/${tag}\` works. If it lists the tag, finish by hand:`,
+      `Can't tell whether ${tag} was pushed (git ls-remote --tags origin failed). Don't reset or delete anything until \`git ls-remote --tags origin refs/tags/${tag}\` works. If it lists the tag, ${finishBy}`,
       ...finish,
       "If it doesn't, undo the release here and release again:",
       ...undo,

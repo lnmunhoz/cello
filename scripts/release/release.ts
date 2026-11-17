@@ -1,8 +1,10 @@
 // `bun run release` (CEL-36): every deploy is a release. Checks it can release from here, runs the
 // typecheck and tests, then hands the rest to release-it (.release-it.json): bump, CHANGELOG.md, commit,
-// tag, build (staged in release/stage) and zip, push, GitHub release. Then deploys: cello backup, the staged
-// cello goes live, cello service restart. `-- --dry-run` previews all of it without writing anything.
-// How it works: docs/releases.md.
+// tag, this Mac's own cello (staged in release/stage), push. The pushed tag starts GitHub Actions
+// (.github/workflows/release.yml, CEL-139), which builds the downloads for Apple silicon and Intel and
+// publishes the GitHub release; this prints the run's link. Then deploys: cello backup, the staged cello
+// goes live, cello service restart. `-- --local-artifacts` builds the downloads and creates the GitHub release
+// on this Mac instead. `-- --dry-run` previews all of it without writing anything. How it works: docs/releases.md.
 //
 // The clean-tree check is ours, not release-it's (requireCleanWorkingDir is off in .release-it.json):
 // with it on, release-it arms a rollback on process exit that would reset main and delete the tag even
@@ -12,9 +14,18 @@ import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { PACKAGING_FAILED } from "./artifacts.ts"
-import { latestTag, releaseOf, renderSection } from "./changelog.ts"
+import { latestTag, originUrl, releaseOf, renderSection } from "./changelog.ts"
 import { deploy, deployPlanOf, liveBinaryProblem } from "./deploy.ts"
-import { parseReleaseArgs, preflightProblems, recoveryAdvice, releaseItArgs, releaseSteps, USAGE } from "./plan.ts"
+import {
+  actionsReport,
+  parseReleaseArgs,
+  preflightProblems,
+  RELEASE_WORKFLOW,
+  recoveryAdvice,
+  releaseItArgs,
+  releaseSteps,
+  USAGE,
+} from "./plan.ts"
 import { currentVersion, nextVersion, syncVersion } from "./version.ts"
 
 const root = path.join(import.meta.dirname, "../..")
@@ -46,12 +57,18 @@ const tagOnOrigin = (tag: string): boolean | null => {
   return listed === null ? null : listed !== ""
 }
 
-// release-it needs a token to create the GitHub release (without one it would open a browser instead).
-// Only release-it gets it: its hooks run under `env -u GITHUB_TOKEN` (.release-it.json).
-const githubToken = (): string | null => {
-  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN
-  const gh = spawnSync("gh", ["auth", "token"], { encoding: "utf8" })
-  return gh.status === 0 && gh.stdout.trim() ? gh.stdout.trim() : null
+// --local-artifacts creates the GitHub release from here with gh (publish.ts), so gh must be logged in.
+const ghCanPublish = (): boolean =>
+  Boolean(process.env.GH_TOKEN || process.env.GITHUB_TOKEN) || spawnSync("gh", ["auth", "token"], { stdio: "ignore" }).status === 0
+
+// The workflow run the pushed tag started, if GitHub lists it yet: one look, no waiting.
+const workflowRun = (tag: string): string | null => {
+  const workflow = path.basename(RELEASE_WORKFLOW)
+  const listed = spawnSync("gh", ["run", "list", "--workflow", workflow, "--branch", tag, "--limit", "1", "--json", "url", "--jq", ".[0].url // \"\""], {
+    cwd: root,
+    encoding: "utf8",
+  })
+  return listed.status === 0 && listed.stdout.trim() ? listed.stdout.trim() : null
 }
 
 const main = () => {
@@ -112,12 +129,13 @@ const main = () => {
     console.log(renderSection(releaseOf(root, next)))
   }
 
-  const token = githubToken()
-  if (!token && !options.dryRun) throw new Error("No GitHub token: log in with gh auth login (or set GITHUB_TOKEN), then release again.")
+  if (options.localArtifacts && !options.dryRun && !ghCanPublish()) {
+    throw new Error("--local-artifacts creates the GitHub release with gh, which isn't logged in: gh auth login, then release again.")
+  }
 
   heading(`release-it ${releaseItArgs(options, next).join(" ")}`)
   const released = run([path.join(root, "node_modules/.bin/release-it"), ...releaseItArgs(options, next)], {
-    GITHUB_TOKEN: token ?? "dry-run-has-no-token",
+    ...(options.localArtifacts ? { CELLO_RELEASE_LOCAL_ARTIFACTS: "1" } : {}),
     ...(options.desktop ? {} : { CELLO_RELEASE_SKIP_DESKTOP: "1" }),
   })
   if (released !== 0) {
@@ -130,10 +148,17 @@ const main = () => {
       headIsRelease: tryGit("log", "-1", "--format=%s") === `chore(release): ${releaseTag}`,
       changedFiles: changedFiles(),
       packagingFailed: fs.existsSync(path.join(root, PACKAGING_FAILED)),
+      localArtifacts: options.localArtifacts,
     })
     throw new Error(
       [`release-it failed (exit ${released}); see its output above. Nothing was deployed: the live cello is untouched.`, ...advice].join("\n"),
     )
+  }
+
+  if (!options.dryRun && !options.localArtifacts) {
+    heading("GitHub Actions")
+    const tag = `v${next}`
+    for (const line of actionsReport(originUrl(root), tag, workflowRun(tag))) console.log(`  ${line}`)
   }
 
   heading("Deploy")
