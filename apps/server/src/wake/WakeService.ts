@@ -398,16 +398,19 @@ const make = Effect.gen(function* () {
       return yield* new Invalid({ field: "session", reason: "name a session or a task key" })
     }
     const outcome = yield* decide(Effect.gen(function* () {
+      // Cello is running it already: Wake now came a moment after the wait ran it (CEL-136). That run is
+      // the answer, and the card, which shows it, isn't told otherwise.
+      const going = yield* host.current(row.id)
+      if (going !== null) return { kind: "woken" as const, written: { result: going, seq: null } }
       // A wake that's due for it (the board's Wake now, CEL-136) runs now, as it would when its wait is
-      // up: for what Lucas did, with every task batched in it. Only when that one can't say why it
-      // didn't wake (nothing was due any more) does a manual wake follow.
+      // up: for what Lucas did, with every task batched in it. When it doesn't run, that's the answer,
+      // never a manual wake instead: a session that took the comment itself has nothing to wake for.
       const due = pending.get(row.id)
       if (due !== undefined && (input.key === undefined || due.tasks.has(task.id))) {
         yield* FiberMap.remove(timers, row.id)
         const fired = yield* fire(row.id, input.commandId)
         if (fired.woken !== null) return { kind: "woken" as const, written: fired.woken }
-        const reason = fired.reasons.get(task.id) ?? fired.reasons.values().next().value
-        if (reason !== undefined) return { kind: "not" as const, reason }
+        return { kind: "not" as const, reason: fired.reasons.get(task.id) ?? fired.reasons.values().next().value ?? ("taken" as const) }
       }
       const now = yield* Clock.currentTimeMillis
       const { verdict: v, runnable } = yield* verdict(row, task, "manual", now)

@@ -510,6 +510,37 @@ describe("WakeService.wakeNow (`cello sessions wake`)", () => {
         expect((yield* wakeEvents(task.id)).map(([type]) => type)).toEqual(["session.wake_scheduled", "session.run_started"])
       })))
 
+  it.effect("Wake now just after the wait ran it (it lost the race to the timer): the run that's going, and nothing on the card says otherwise", () =>
+    run((fake) =>
+      Effect.gen(function* () {
+        const { wake, task, comment } = yield* setup()
+        yield* comment()
+        yield* TestClock.adjust("30 seconds")
+        yield* Queue.take(fake.turns)
+        const before = yield* wakeEvents(task.id)
+        expect(before.map(([type]) => type)).toEqual(["session.wake_scheduled", "session.run_started"])
+        const { result } = yield* wake.wakeNow({ commandId: cmd(), key: "CEL-1" })
+        expect(result).toMatchObject({ taskId: task.id, why: "comment", outcome: "running" })
+        expect(yield* wakeEvents(task.id)).toEqual(before)
+        expect(yield* Queue.size(fake.turns)).toBe(0)
+      })))
+
+  it.effect("Wake now on a due wake the session made moot (it took the comment itself): SessionNotWoken, taken, and no manual run instead", () =>
+    run((fake, world) =>
+      Effect.gen(function* () {
+        // Its process is open when Lucas comments, so nothing is announced; it takes the comment, then exits.
+        world.alive.add(PID)
+        const { wake, task, comment } = yield* setup()
+        yield* comment()
+        yield* Effect.asVoid((yield* InboxService.InboxService).take({ via: "hook" })).pipe(asAgent(agent))
+        world.alive.delete(PID)
+        const failed = yield* Effect.flip(wake.wakeNow({ commandId: cmd(), key: "CEL-1" }))
+        expect(failed).toMatchObject({ _tag: "SessionNotWoken", reason: "taken" })
+        expect(yield* wakeEvents(task.id)).toEqual([])
+        yield* TestClock.adjust("2 minutes")
+        expect(yield* Queue.size(fake.turns)).toBe(0)
+      })))
+
   it.effect("on a wake that's due but can't happen now: SessionNotWoken with the reason, on the card too, and the wake is off", () =>
     run((fake, world) =>
       Effect.gen(function* () {

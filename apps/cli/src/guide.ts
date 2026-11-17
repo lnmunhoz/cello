@@ -798,7 +798,7 @@ cello sessions runs c14ca1fa
 #     /Users/ana/.cello/runs/c14ca1fa-…/2026-11-16T15-58-12-123Z.jsonl
 \`\`\`
 
-When a wake is already due for that task (the 30 seconds after the human's comment), \`cello sessions wake\` runs that wake now instead, exactly as it would have run when the wait was up: for what the human did (the prompt is the comment one, not "asked Cello to wake"), with every task batched in it. The board's **Wake now** button under the comment does the same. If a check fails at that moment, it refuses with the reason, and the due wake is off.
+When a wake is already due for that task (the 30 seconds after the human's comment), \`cello sessions wake\` runs that wake now instead, exactly as it would have run when the wait was up: for what the human did (the prompt is the comment one, not "asked Cello to wake"), with every task batched in it. The board's **Wake now** button under the comment does the same. If a check fails at that moment, it refuses with the reason, and the due wake is off; if the session took the comment itself in the meantime, it refuses with "it took your comment itself" and starts nothing. While Cello is already running the session (the wait ended a moment before), it hands back that run instead of an error.
 
 Never wake your own session: you're already running.
 
