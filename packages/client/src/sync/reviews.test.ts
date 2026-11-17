@@ -8,7 +8,7 @@ const status = (id: string, name: string, category: Status["category"], position
   id, workspaceId: "w1", name, category, position, color: "#999", hidden: false, createdAt: 1, updatedAt: 1,
 })
 const project = (id: string, key: string, workspaceId = "w1"): Project => ({
-  id, workspaceId, name: key, key, color: "#000", description: "", repoPath: null, createdAt: 1, updatedAt: 1, archivedAt: null,
+  id, workspaceId, name: key, key, color: "#000", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: null,
 })
 const task = (id: string, statusId: string, extra: Partial<Task> = {}): Task => ({
   id, projectId: "p1", number: 1, key: `CEL-${id}`, title: id, description: "", statusId, priority: 0, position: "a0",
@@ -86,6 +86,13 @@ describe("the review queue", () => {
       withdrawnAt: null, withdrawnBy: null,
     }
     expect(reviewQueue({ ...state, asks: { k1: ask } }, "w1").map((i) => i.task.id)).toEqual(["t2", "t1", "t3"])
+  })
+
+  // CEL-143: approved in a project that merges after approval, a task waits in In Review for its agent to
+  // merge it (Approved · merging): it waits on the agent, not on Lucas, so the Review page leaves it out.
+  it("leaves out a task approved and waiting for its agent to merge it", () => {
+    const approved = { ...state, tasks: { ...state.tasks, t3: task("t3", "review", { stage: "merging" }) } }
+    expect(reviewQueue(approved, "w1").map((i) => i.task.id)).toEqual(["t2", "t6", "t1"])
   })
 
   it("finds a task's open review", () => {

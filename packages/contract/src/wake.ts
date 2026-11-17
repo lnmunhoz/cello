@@ -1,6 +1,6 @@
 // Waking sessions (CEL-92): a task's wake from its latest wake event, and the words for it, so the
 // server's snapshot, the board, the task's history and the CLI all say the same thing.
-import type { NotWokenReason, TaskWake, WakeWhy } from "./entities.ts"
+import type { NotWokenReasonSeen, TaskWake, WakeWhySeen } from "./entities.ts"
 import type { CelloEvent } from "./events.ts"
 
 /** The wake events, which `wakeOf` reads. */
@@ -46,7 +46,7 @@ export const wakeOf = (e: CelloEvent): TaskWake | null => {
 }
 
 /** Why a session wasn't woken, in a phrase that follows "Not woken: ". */
-export const NOT_WOKEN_TEXT: Record<NotWokenReason, string> = {
+export const NOT_WOKEN_TEXT: Record<NotWokenReasonSeen, string> = {
   listening: "its `cello inbox --wait` is running, so your comment reaches it by itself",
   process_alive: "its process is still open, so your comment reaches it with its next hook",
   recent_check_in: "it checked in less than 2 minutes ago",
@@ -61,6 +61,7 @@ export const NOT_WOKEN_TEXT: Record<NotWokenReason, string> = {
   running: "Cello is already running it",
   taken: "it took your comment itself",
   cancelled: "you said don't wake it",
+  other: "a reason this version of Cello doesn't know yet",
 }
 
 /** How long Cello waits after the human's last action before it wakes a session (WakeConfig, CEL-92). */
@@ -70,12 +71,14 @@ export const WAKE_BATCH_MS = 30_000
 export const WAKE_CAP_WINDOW_MS = 60 * 60_000
 
 /** What woke it, after "Cello woke …": "(a comment)". */
-export const WAKE_WHY_TEXT: Record<WakeWhy, string> = {
+export const WAKE_WHY_TEXT: Record<WakeWhySeen, string> = {
   comment: "a comment",
   answers: "answers to its questions",
   send_back: "a Send back",
   reaction: "a reaction",
+  approved: "an approval to merge",
   manual: "cello sessions wake",
+  other: "something this version of Cello doesn't know yet",
 }
 
 /** How a woken run ended, before "in 1 min" / "after 1 min". */

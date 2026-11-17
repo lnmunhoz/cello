@@ -205,6 +205,11 @@ export const CelloRpcs = RpcGroup.make(
       key: Schema.optionalKey(Schema.String),
       color: Schema.optionalKey(Schema.String),
       repoPath: Schema.optionalKey(Schema.String),
+      /**
+       * Merge after I approve (CEL-143). Left out: on for a project with a repository folder (an agent has
+       * somewhere to merge), off without one.
+       */
+      mergeAfterApproval: Schema.optionalKey(Schema.Boolean),
     },
     success: write(Project),
     error: Schema.Union([NotFound, Invalid, KeyTaken]),
@@ -216,9 +221,11 @@ export const CelloRpcs = RpcGroup.make(
       name: Schema.optionalKey(Schema.String),
       color: Schema.optionalKey(Schema.String),
       description: Schema.optionalKey(Schema.String),
+      /** Merge after I approve (CEL-143): only the human changes it (HumanOnly). */
+      mergeAfterApproval: Schema.optionalKey(Schema.Boolean),
     },
     success: write(Project),
-    error: Schema.Union([NotFound, Invalid]),
+    error: Schema.Union([NotFound, Invalid, HumanOnly]),
   }),
   Rpc.make("project.archive", { payload: { commandId, id: Id }, success: write(Project), error: NotFound }),
   // A project's testing profile (CEL-89): how to test its repo and collect evidence.
@@ -393,6 +400,15 @@ export const CelloRpcs = RpcGroup.make(
   // while the task is in In Progress.
   Rpc.make("task.stage", {
     payload: { commandId, key: Schema.String, stage: Schema.NullOr(TaskStage) },
+    success: write(Task),
+    error: Schema.Union([NotFound, Invalid]),
+  }),
+  // `cello task done` (CEL-143): the session holding the claim of a task the human approved in a project
+  // that merges after approval (In Review, Approved · merging) finishes it once merged: the task moves to
+  // the first completed status (Done) and the claim ends. Refused for anyone else, and for a task that
+  // isn't approved.
+  Rpc.make("task.done", {
+    payload: { commandId, key: Schema.String },
     success: write(Task),
     error: Schema.Union([NotFound, Invalid]),
   }),

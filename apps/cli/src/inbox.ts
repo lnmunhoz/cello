@@ -1,6 +1,7 @@
 // How an agent session reads what reached it (CEL-15): Lucas's comments, Send back notes, his
 // answers to the questions it asked on a card and word that he withdrew one by moving the card (CEL-47),
-// his reactions (CEL-77), and word that a change of his ended its claim (CEL-46). A comment on a task
+// his reactions (CEL-77), word that a change of his ended its claim (CEL-46), and, in a project that merges
+// after approval, his approval: merge it now, then `cello task done` (CEL-143). A comment on a task
 // nobody held says it reopened the task for the session, which holds it again (CEL-110).
 // `cello inbox`, `cello context` and the Claude Code hook print items the same way, so the agent sees one
 // format wherever they arrive. Screenshots in Lucas's answers and comments (CEL-73) are saved to temp
@@ -95,6 +96,8 @@ const who = (item: InboxItem) => {
       return `${item.author} reacted ${item.emoji} to your comment`
     case "claim_ended":
       return `${item.author} ended your claim`
+    case "approved":
+      return `${item.author} approved it`
   }
 }
 
@@ -119,6 +122,8 @@ const textOf = (item: InboxItem, files: SavedFiles) => {
       return quoteOf(item.comment.body)
     case "claim_ended":
       return `${item.author} ${claimEnd(item)}: your claim ended. Stop working on it.`
+    case "approved":
+      return [`${item.author} approved ${item.taskKey}: merge it now, then \`cello task done ${item.taskKey}\`.`, ...(item.note ? [item.note] : [])].join("\n")
     default:
       return commentText(item.comment, files)
   }
@@ -153,13 +158,15 @@ const headOf = (items: ReadonlyArray<InboxItem>) => {
   const withdrawn = items.filter((i) => i.kind === "withdrawn").length
   const reactions = items.filter((i) => i.kind === "reaction").length
   const ended = items.filter((i) => i.kind === "claim_ended").length
-  const comments = items.length - answers - withdrawn - reactions - ended
+  const approvals = items.filter((i) => i.kind === "approved").length
+  const comments = items.length - answers - withdrawn - reactions - ended - approvals
   const parts = [
     ...(answers ? [answers === 1 ? "answers to the questions you asked" : `answers to ${answers} asks`] : []),
     ...(withdrawn ? [withdrawn === 1 ? "an ask withdrawn" : `${withdrawn} asks withdrawn`] : []),
     ...(comments ? [comments === 1 ? "a comment" : `${comments} comments`] : []),
     ...(reactions ? [reactions === 1 ? "a reaction" : `${reactions} reactions`] : []),
     ...(ended ? [ended === 1 ? "an ended claim" : `${ended} ended claims`] : []),
+    ...(approvals ? [approvals === 1 ? "an approval to merge" : `${approvals} approvals to merge`] : []),
   ]
   const human = items[0]?.author ?? "the human"
   if (comments === items.length) {
@@ -176,6 +183,9 @@ const headOf = (items: ReadonlyArray<InboxItem>) => {
     // A task can end twice in one batch (released, claimed again, edited): count the tasks.
     const tasks = unique(items.map((i) => i.taskKey)).length
     return tasks === 1 ? `${human} ended your claim on a task in Cello:` : `${human} ended your claims on ${tasks} tasks in Cello:`
+  }
+  if (approvals === items.length) {
+    return approvals === 1 ? `${human} approved a task in Cello: merge it now.` : `${human} approved ${approvals} tasks in Cello: merge them now.`
   }
   return `New in Cello for you: ${andList(parts)}:`
 }
@@ -194,6 +204,7 @@ export const deliveryText = (items: ReadonlyArray<InboxItem>, now: number, files
   const withdrawn = unique(items.filter((i) => i.kind === "withdrawn").map((i) => i.taskKey))
   const sentBack = unique(items.filter((i) => i.kind === "send_back").map((i) => i.taskKey))
   const ended = unique(items.filter((i) => i.kind === "claim_ended").map((i) => i.taskKey))
+  const approved = unique(items.filter((i) => i.kind === "approved").map((i) => i.taskKey))
   const reacted = items.some((i) => i.kind === "reaction")
   // One line per task a comment reopened for the session (CEL-110), the first comment that did.
   const reopenedTasks = comments.flatMap((i) => (i.reopened ? [{ ...i, reopened: i.reopened }] : []))
@@ -218,6 +229,13 @@ export const deliveryText = (items: ReadonlyArray<InboxItem>, now: number, files
       ? [ended.length === 1
         ? `Stop working on ${ended[0]}: your claim on it ended. See where it stands with \`cello task get ${ended[0]}\`. If you think the work should go on, say so on the card (\`cello task comment ${ended[0]} "…"\`) and leave the decision to ${human}.`
         : `Stop working on ${andList(ended)}: your claims on them ended. See where they stand with \`cello task get ${ended[0]}\`. If you think the work should go on, say so on the card (\`cello task comment ${ended[0]} "…"\`) and leave the decision to ${human}.`]
+      : []),
+    ...(approved.length
+      ? [
+        `Merge and deploy ${andList(approved)} the way this project does (its AGENTS.md says how), then finish ${approved.length === 1 ? "it" : "each"} with \`cello task done ${approved[0]}\`` +
+        `${approved.length > 1 ? ` (${approved.slice(1).join(", ")} the same way)` : ""}: that moves it to Done and ends your claim. ` +
+        `If the merge fails, say so on the card (\`cello task stage ${approved[0]} fixing\`, then \`cello task comment ${approved[0]} "…"\`) and leave it to ${human}, who can send it back.`,
+      ]
       : []),
   ]
   const build = (limit?: number) => [headOf(items), "", ...inboxEntries(items, now, limit, files), "", ...tail].join("\n")

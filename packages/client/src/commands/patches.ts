@@ -90,5 +90,8 @@ export const updateLabel = (id: string, fields: { readonly name?: string; readon
 
 export const archiveLabel = (id: string): Patch => change("labels", id, (l) => ({ ...l, archivedAt: now() }))
 
-export const updateProject = (id: string, fields: { readonly name?: string; readonly color?: string; readonly description?: string }): Patch =>
+export const updateProject = (
+  id: string,
+  fields: { readonly name?: string; readonly color?: string; readonly description?: string; readonly mergeAfterApproval?: boolean },
+): Patch =>
   change("projects", id, (p: Project) => ({ ...p, ...fields }))

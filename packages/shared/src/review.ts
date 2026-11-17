@@ -21,6 +21,24 @@ export const isReviewStatus = (name: string): boolean => name.trim().toLowerCase
 export const holdsPacket = (status: { readonly name: string; readonly category: string }): boolean =>
   isReviewStatus(status.name) || isNeedsInputStatus(status)
 
+/**
+ * Whether a task was approved and waits for its agent to merge it (CEL-143): in a project that merges
+ * after approval, Approve leaves the task in In Review and sets its stage (Approved · merging), and only
+ * Approve puts a stage there. The agent's `cello task done` then moves it to Done. Not on the Review page:
+ * it waits on the agent, not on Lucas.
+ *
+ * The invariant (a stage in In Review means approved) holds because every other way a stage meets In
+ * Review clears it, and nothing clears it while the task waits:
+ * - a move into or out of In Review clears the stage (TaskService.moveIn, `stageCarries`: only In
+ *   Progress ↔ Needs input keeps it), so submitting, Send back, `cello task done` and any drag clear it
+ * - `cello task stage --clear` on a waiting task is refused (TaskService.setStage), and `merging`
+ *   anywhere else is too
+ * - `cello task ask` on a waiting task is refused (AskService), since its trip through Needs input would
+ *   clear the stage and lose the approval
+ */
+export const awaitsMerge = (task: { readonly stage: string | null }, status: { readonly name: string } | undefined): boolean =>
+  status !== undefined && isReviewStatus(status.name) && task.stage !== null
+
 const sorted = <S extends StatusLike>(statuses: ReadonlyArray<S>): S[] =>
   [...statuses].sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
 

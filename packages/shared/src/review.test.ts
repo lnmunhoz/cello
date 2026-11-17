@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { approveTarget, holdsPacket, isReviewStatus, reviewTarget, sendBackTarget, stageStatus } from "./review.ts"
+import { approveTarget, awaitsMerge, holdsPacket, isReviewStatus, reviewTarget, sendBackTarget, stageStatus } from "./review.ts"
 
 const status = (id: string, name: string, category: string, position: string) => ({ id, name, category, position })
 
@@ -60,5 +60,17 @@ describe("stageStatus", () => {
 
   it("is null without a started status", () => {
     expect(stageStatus([status("todo", "Todo", "unstarted", "a1")])).toBeNull()
+  })
+})
+
+// CEL-143: in a project that merges after approval, Approve leaves the task in In Review with a stage
+// (Approved · merging); a stage there means exactly that, so every part tells it the same way.
+describe("a task approved and waiting to be merged", () => {
+  it("is a task in In Review with a stage; anywhere else, or without one, it isn't", () => {
+    expect(awaitsMerge({ stage: "merging" }, { name: "In Review" })).toBe(true)
+    expect(awaitsMerge({ stage: "fixing" }, { name: "in review" })).toBe(true)
+    expect(awaitsMerge({ stage: null }, { name: "In Review" })).toBe(false)
+    expect(awaitsMerge({ stage: "building" }, { name: "In Progress" })).toBe(false)
+    expect(awaitsMerge({ stage: "merging" }, undefined)).toBe(false)
   })
 })

@@ -1,7 +1,7 @@
 // Read models for the CLI (and later MCP): one RPC returns everything a command prints.
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { Actor, AgentSession, Ask, Comment, DeliveryVia, DocumentSummary, InboxItem, Label, Milestone, Millis, Project, Review, SessionAgent, Status, Task, TestingProfile } from "./entities.ts"
+import { Actor, AgentSession, Ask, Comment, DeliveryVia, DocumentSummary, InboxItems, Label, Milestone, Millis, Project, Review, SessionAgent, Status, Task, TestingProfile } from "./entities.ts"
 import { CelloEvent } from "./events.ts"
 
 /**
@@ -66,7 +66,7 @@ export const ProjectContext = Schema.Struct({
    * New comments waiting in this session's inbox, from every project, oldest first (empty for the
    * human). Showing them doesn't mark them read: subagents share their parent's session.
    */
-  inbox: Schema.Array(InboxItem),
+  inbox: InboxItems,
   /**
    * The project's testing profile (CEL-89): how to test the repo and collect evidence. Optional so a
    * newer CLI still reads an older server's context.
@@ -82,9 +82,9 @@ export const Inbox = Schema.Struct({
   /** The caller's session; null for the human, who has no inbox. */
   session: Schema.NullOr(AgentSession),
   /** The new items this call handed over, now marked read, oldest first. Another call never gets them. */
-  items: Schema.Array(InboxItem),
+  items: InboxItems,
   /** The latest items read before, oldest first; empty when only new ones were asked for. */
-  earlier: Schema.Array(InboxItem),
+  earlier: InboxItems,
   /**
    * The keys of the tasks the session holds a claim on now (CEL-74): comments on them come to it, so
    * the Stop hook asks it to wait for them when it goes idle. Empty for the human. Optional, like

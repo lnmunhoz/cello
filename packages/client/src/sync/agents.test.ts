@@ -25,7 +25,7 @@ const agent = (sessionId: string, agentId: string, extra: Partial<SessionAgent> 
 })
 
 const project = (id: string, workspaceId: string) =>
-  ({ id, workspaceId, name: id, key: id.toUpperCase(), color: "#000", description: "", repoPath: null, createdAt: 1, updatedAt: 1, archivedAt: null })
+  ({ id, workspaceId, name: id, key: id.toUpperCase(), color: "#000", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: null })
 
 const board = (tasks: Task[], sessions: AgentSession[], agents: SessionAgent[] = []): BoardState => ({
   seq: 1,

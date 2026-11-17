@@ -1,7 +1,25 @@
 // Entities as they travel on the wire and live in client state. Schemas only.
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import * as SchemaGetter from "effect/SchemaGetter"
+import * as SchemaTransformation from "effect/SchemaTransformation"
 import { TaskStage } from "./stages.ts"
+
+/**
+ * One of `literals`, or `other` for a value this build doesn't know (CEL-143): a newer server may add a
+ * value, and an older board shouldn't lose a whole snapshot over it. The board shows `other` generically.
+ * What a server sends is unchanged: a known value encodes as itself.
+ */
+const orOther = <const L extends string>(literals: ReadonlyArray<L>) =>
+  Schema.String.pipe(
+    Schema.decodeTo(
+      Schema.Literals([...literals, "other" as const]),
+      SchemaTransformation.transform({
+        decode: (value: string): L | "other" => ((literals as ReadonlyArray<string>).includes(value) ? (value as L) : "other"),
+        encode: (value: L | "other"): string => value,
+      }),
+    ),
+  )
 
 export const Id = Schema.String
 export const Millis = Schema.Number
@@ -171,15 +189,22 @@ export type SessionAgent = typeof SessionAgent.Type
 // When Lucas acts on a task an agent session claimed and nothing of that session is running, Cello
 // continues the same conversation itself, headless: a woken run.
 
-/** What started a wake: one of Lucas's actions on the task, or `cello sessions wake` (`manual`). */
-export const WakeWhy = Schema.Literals(["comment", "answers", "send_back", "reaction", "manual"])
+/**
+ * What started a wake: one of Lucas's actions on the task (`approved`: his Approve in a project that merges
+ * after approval, CEL-143), or `cello sessions wake` (`manual`).
+ */
+const WAKE_WHYS = ["comment", "answers", "send_back", "reaction", "approved", "manual"] as const
+export const WakeWhy = Schema.Literals(WAKE_WHYS)
 export type WakeWhy = typeof WakeWhy.Type
+/** A wake reason as a board reads it from a snapshot or a run: an unknown one (a newer server's) is `other`. */
+export const WakeWhySeen = orOther(WAKE_WHYS)
+export type WakeWhySeen = typeof WakeWhySeen.Type
 
 /**
  * Why Cello didn't wake a session. `taken`: it took the comment itself before the wake was due;
  * `cancelled`: Lucas pressed "Don't wake". The rest are the checks (WakeService has them in order).
  */
-export const NotWokenReason = Schema.Literals([
+const NOT_WOKEN_REASONS = [
   "listening",
   "process_alive",
   "recent_check_in",
@@ -194,8 +219,12 @@ export const NotWokenReason = Schema.Literals([
   "running",
   "taken",
   "cancelled",
-])
+] as const
+export const NotWokenReason = Schema.Literals(NOT_WOKEN_REASONS)
 export type NotWokenReason = typeof NotWokenReason.Type
+/** A not-woken reason as a board reads it from a snapshot: an unknown one (a newer server's) is `other`. */
+export const NotWokenReasonSeen = orOther(NOT_WOKEN_REASONS)
+export type NotWokenReasonSeen = typeof NotWokenReasonSeen.Type
 
 /** Cello's own permission modes, which each agent CLI maps to its own (`bypass` is never used for a woken run). */
 export const CelloMode = Schema.Literals(["ask", "edits", "auto", "plan", "bypass"])
@@ -211,7 +240,7 @@ export const SessionRun = Schema.Struct({
   sessionId: Id,
   /** The task whose action woke it (the latest, when several were batched); null for none. */
   taskId: Schema.NullOr(Id),
-  why: WakeWhy,
+  why: WakeWhySeen,
   /** Which adapter ran it (`claude-code`). */
   agentKind: Schema.String,
   /** The CLI's own permission mode it ran with (`auto`, `acceptEdits`…), and that mode in Cello's words. */
@@ -235,13 +264,13 @@ export const TaskWake = Schema.Struct({
   taskId: Id,
   sessionId: Id,
   state: Schema.Literals(["scheduled", "not_woken", "running", "ended"]),
-  why: WakeWhy,
+  why: WakeWhySeen,
   /** When it happened (the event's time). */
   ts: Millis,
   /** scheduled: when the wake is due. */
   at: Schema.NullOr(Millis),
   /** not_woken: why. */
-  reason: Schema.NullOr(NotWokenReason),
+  reason: Schema.NullOr(NotWokenReasonSeen),
   /** running and ended: the run. */
   run: Schema.NullOr(SessionRun),
 })
@@ -286,6 +315,13 @@ export const Project = Schema.Struct({
   color: Schema.String,
   description: Schema.String,
   repoPath: Schema.NullOr(Schema.String),
+  /**
+   * Merge after I approve (CEL-143): agents submit before they merge, and Lucas's Approve tells the claim
+   * holder to merge (the task waits in In Review as Approved · merging) until it runs `cello task done`.
+   * Off: agents merge before they submit, and Approve moves the task to Done. Projects stored inside
+   * events from before it existed read as off.
+   */
+  mergeAfterApproval: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
   createdAt: Millis,
   updatedAt: Millis,
   archivedAt: Schema.NullOr(Millis),
@@ -645,9 +681,10 @@ export type Ask = typeof Ask.Type
  * Why something reached an agent's inbox: a comment on its task, the note of a review Lucas sent back,
  * his answers to the questions it asked on the card (CEL-47), his moving that card himself, which
  * withdrew the ask (`withdrawn`), his emoji reaction to one of its comments (`reaction`, CEL-77), or a
- * change of his to its task that ended its claim (`claim_ended`, CEL-46).
+ * change of his to its task that ended its claim (`claim_ended`, CEL-46), or his approval in a project
+ * that merges after approval (`approved`, CEL-143).
  */
-export const InboxKind = Schema.Literals(["comment", "send_back", "answers", "withdrawn", "reaction", "claim_ended"])
+export const InboxKind = Schema.Literals(["comment", "send_back", "answers", "withdrawn", "reaction", "claim_ended", "approved"])
 export type InboxKind = typeof InboxKind.Type
 
 const inboxFields = {
@@ -717,11 +754,42 @@ export const InboxClaimEnded = Schema.Struct({ ...inboxFields, kind: Schema.Lite
 export type InboxClaimEnded = typeof InboxClaimEnded.Type
 
 /**
- * Something delivered to an agent session's inbox: a comment (CEL-15), Lucas's answers or a withdrawn
- * ask (CEL-47), his reaction (CEL-77), word that he ended its claim (CEL-46).
+ * Lucas approved the task in a project that merges after approval (CEL-143): the session keeps its claim
+ * and should merge and deploy now, then finish with `cello task done`. `note` is his approval note, if he
+ * wrote one. Delivered once, to the session holding the claim.
  */
-export const InboxItem = Schema.Union([InboxComment, InboxAnswers, InboxWithdrawn, InboxReaction, InboxClaimEnded])
+export const InboxApproved = Schema.Struct({ ...inboxFields, kind: Schema.Literal("approved"), note: Schema.NullOr(Schema.String) })
+export type InboxApproved = typeof InboxApproved.Type
+
+/**
+ * Something delivered to an agent session's inbox: a comment (CEL-15), Lucas's answers or a withdrawn
+ * ask (CEL-47), his reaction (CEL-77), word that he ended its claim (CEL-46), his approval to merge (CEL-143).
+ */
+export const InboxItem = Schema.Union([InboxComment, InboxAnswers, InboxWithdrawn, InboxReaction, InboxClaimEnded, InboxApproved])
 export type InboxItem = typeof InboxItem.Type
+
+/** An inbox item this build can't read (a newer server's kind, CEL-143): only decoded, to be skipped. */
+const UnreadableInboxItem = Schema.Struct({ kind: Schema.String }).pipe(
+  Schema.decodeTo(Schema.Struct({ kind: Schema.Literal("unreadable"), sentKind: Schema.String }), {
+    decode: SchemaGetter.transform(({ kind }) => ({ kind: "unreadable" as const, sentKind: kind })),
+    encode: SchemaGetter.transform(({ sentKind }) => ({ kind: sentKind })),
+  }),
+)
+
+/**
+ * A list of inbox items as this build reads it (CEL-143): an item of a kind it doesn't know is skipped, so
+ * an older `cello` still gets the rest instead of failing the whole response (the server has marked them
+ * read by then). What a server sends is unchanged.
+ */
+export const InboxItems = Schema.Array(Schema.Union([InboxItem, UnreadableInboxItem])).pipe(
+  Schema.decodeTo(
+    Schema.toType(Schema.Array(InboxItem)),
+    SchemaTransformation.transform({
+      decode: (items): ReadonlyArray<InboxItem> => items.filter((item): item is InboxItem => item.kind !== "unreadable"),
+      encode: (items) => items,
+    }),
+  ),
+)
 
 /** Docs, specs and pages share one table and one reader; `kind` says what a document is for. */
 export const DocumentKind = Schema.Literals(["doc", "spec", "page"])

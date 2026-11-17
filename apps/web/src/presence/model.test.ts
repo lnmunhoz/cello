@@ -36,7 +36,7 @@ const board = (tasks: Task[], sessions: AgentSession[], agents: SessionAgent[] =
     claude: { id: "claude", kind: "agent", name: "Claude Code", client: "Claude Code", color: "#10b981", createdAt: 1 },
   },
   workspaces: {},
-  projects: { p1: { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", color: "#000", description: "", repoPath: null, createdAt: 1, updatedAt: 1, archivedAt: null } },
+  projects: { p1: { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", color: "#000", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: null } },
   statuses: STATUSES,
   labels: {},
   tasks: Object.fromEntries(tasks.map((t) => [t.id, t])),
@@ -205,6 +205,15 @@ describe("agentMood (CEL-69)", () => {
       expect(agentMood(null, inReview, presence)).toBe("done")
       expect(agentMood(null, done, presence)).toBe("done")
     }
+  })
+
+  // CEL-143: approved in a project that merges after approval, the task waits in In Review while its agent
+  // merges it: not done yet.
+  it("works while an active agent merges an approved task (Approved · merging), and keeps still while it's quiet", () => {
+    expect(agentMood("merging", inReview, "active")).toBe("working")
+    expect(agentMood("fixing", inReview, "active")).toBe("working")
+    expect(agentMood("merged", inReview, "active")).toBe("merged")
+    expect(agentMood("merging", inReview, "idle")).toBe("still")
   })
 
   it("keeps still on a canceled task, and on one whose status the board doesn't have", () => {

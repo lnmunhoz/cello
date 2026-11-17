@@ -65,6 +65,11 @@ The orchestrator claims the task and runs it. Full path with diagrams: [docs/fea
 
 Small changes (docs, a one-line fix) skip steps 1–3, still test first.
 
+**When the merge happens is a per-project setting, "Merge after I approve"** (`cello context` prints it; CEL-143):
+
+- **off** (Cello's own project): the steps above. Lucas reviews what's already released, and Approve moves the task to Done.
+- **on** (new projects with a repository): build → review → submit (with the PR link when the project uses PRs) → wait for Lucas's "Approve and merge" (`cello inbox --wait`) → merge and release → `cello task done CEL-n`. A failed merge: stage `fixing` and a comment. Details: docs/cli.md, "Merge after I approve".
+
 **Models and effort.** Each agent definition in `.claude/agents/` pins its model and effort. Pass the same values when starting one another way. Effort is never below medium. Why, and when to change: [docs/models.md](docs/models.md). Change the table and that page together.
 
 | Agent | Model | Effort |

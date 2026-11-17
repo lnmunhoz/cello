@@ -32,7 +32,7 @@ const board: BoardState = {
   seq: 1,
   actors: { claude: { id: "claude", kind: "agent", name: "Claude Code", client: "Claude Code", color: "#10b981", createdAt: 1 } },
   workspaces: {},
-  projects: { p1: { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", color: "#000", description: "", repoPath: null, createdAt: 1, updatedAt: 1, archivedAt: null } },
+  projects: { p1: { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", color: "#000", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: null } },
   statuses: { prog: status("prog", "In Progress", "started"), needs: status("needs", "Needs input", "waiting") },
   labels: {},
   tasks: Object.fromEntries(tasks.map((t) => [t.id, t])),

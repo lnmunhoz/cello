@@ -29,7 +29,9 @@ describe("migration 0016_testing_profile", () => {
       yield* Migrations.run
       // 0021 adds the tasks' last holder (CEL-110), null on a task nobody claimed.
       const tasks = (yield* sql<Record<string, unknown>>`SELECT * FROM tasks`).map(({ last_holder_session_id: _holder, milestone_id: _milestone, ...t }) => t)
-      expect({ projects: yield* sql`SELECT * FROM projects`, tasks }).toEqual(before)
+      // 0027 adds the merge-after-approval setting (CEL-143), off on every project it finds.
+      const projects = (yield* sql<Record<string, unknown>>`SELECT * FROM projects`).map(({ merge_after_approval: _merge, ...p }) => p)
+      expect({ projects, tasks }).toEqual(before)
       yield* sql`INSERT INTO profile_fields (project_id, field, value, source, actor_id, session_id, updated_at)
         VALUES ('p1', 'unit', 'bun run test', 'detected', 'human', NULL, 2)`
       expect(yield* sql`SELECT field, value, source FROM profile_fields`).toEqual([{ field: "unit", value: "bun run test", source: "detected" }])

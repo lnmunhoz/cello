@@ -6,7 +6,7 @@ import type { TaskStage } from "@cello/contract/stages"
 import type { Caller } from "@cello/contract/rpcs"
 import { isNeedsInputStatus } from "@cello/shared/ask"
 import { claimKeepsStatus } from "@cello/shared/claim"
-import { holdsPacket, isReviewStatus } from "@cello/shared/review"
+import { awaitsMerge, holdsPacket, isReviewStatus } from "@cello/shared/review"
 import { isClosedCategory } from "@cello/shared/status"
 import { parseTaskKey } from "@cello/shared/taskKey"
 import * as Context from "effect/Context"
@@ -133,9 +133,22 @@ export class TaskService extends Context.Service<TaskService, {
   /**
    * Where the task is inside In Progress (CEL-35); null clears it. Only the session holding the claim,
    * or the human, and only while the task is in the stage status (In Progress). Moving the task to
-   * another status clears it, except to Needs input and back (an ask pauses the work, CEL-47).
+   * another status clears it, except to Needs input and back (an ask pauses the work, CEL-47). A task
+   * approved and waiting for its merge (In Review, Approved · merging, CEL-143) takes a stage too, so its
+   * agent can say where the merge is, but keeps one until `cello task done`; `merging` itself only
+   * Approve sets (ReviewService).
    */
   readonly setStage: (input: SetStage) => Write<NotFound | Invalid>
+  /**
+   * For another service's command: sets the stage as the caller, wherever the task is, with
+   * `task.stage_changed` (Approve marking a task Approved · merging in In Review, CEL-143).
+   */
+  readonly setStageWithin: (context: Commands.WriteContext, taskId: string, stage: TaskStage | null) => Effect.Effect<Task, NotFound | SqlError>
+  /**
+   * For another service's command: the claim holder finishing the task gives up its claim, with
+   * `task.released` (`cello task done`, CEL-143). Unclaimed: nothing changes.
+   */
+  readonly releaseWithin: (context: Commands.WriteContext, taskId: string) => Effect.Effect<Task, NotFound | SqlError>
   /**
    * For another service's command: moves a task to the top of a status inside that command's
    * transaction, with the same events as `move`. A human move ends an agent's claim unless `keepClaim`.
@@ -732,7 +745,19 @@ const make = Effect.gen(function* () {
         }
         const workspaceId = yield* workspaceOf(current.projectId)
         const stageStatusId = yield* firstStarted(workspaceId)
-        if (current.statusId !== stageStatusId) {
+        // Approved and waiting for its merge (CEL-143): its agent says where the merge is, but the stage
+        // stays, since a stage on an In Review task is what marks it approved.
+        const merging = awaitsMerge(current, yield* statusOf(current.statusId))
+        if (merging && input.stage === null) {
+          return yield* new Invalid({
+            field: "stage",
+            reason: `${current.key} is approved and waits for its merge: it keeps a stage until \`cello task done ${current.key}\``,
+          })
+        }
+        if (!merging && input.stage === "merging") {
+          return yield* new Invalid({ field: "stage", reason: "merging is set by the human's Approve in a project that merges after approval" })
+        }
+        if (current.statusId !== stageStatusId && !merging) {
           const names = yield* sql<{ id: string; name: string }>`SELECT id, name FROM statuses WHERE id IN (${current.statusId}, ${stageStatusId})`
           const name = (id: string) => names.find((n) => n.id === id)?.name ?? "another status"
           return yield* new Invalid({
@@ -749,6 +774,31 @@ const make = Effect.gen(function* () {
         return yield* load(current.id)
       }))
   })
+
+  const setStageWithin = (context: Commands.WriteContext, taskId: string, stage: TaskStage | null) =>
+    Effect.gen(function* () {
+      const current = yield* load(taskId)
+      if (current.stage === stage) return current
+      yield* bump(current, context, { stage })
+      yield* context.emit(
+        { type: "task.stage_changed", id: current.id, version: current.version + 1, before: current.stage, after: stage },
+        { workspaceId: yield* workspaceOf(current.projectId), projectId: current.projectId },
+      )
+      return yield* load(current.id)
+    })
+
+  const releaseWithin = (context: Commands.WriteContext, taskId: string) =>
+    Effect.gen(function* () {
+      const current = yield* load(taskId)
+      if (current.assigneeActorId === null) return current
+      yield* bump(current, context, { assignee_actor_id: null, assignee_session_id: null })
+      const task = yield* load(current.id)
+      yield* context.emit(
+        { type: "task.released", id: task.id, version: task.version, task },
+        { workspaceId: yield* workspaceOf(task.projectId), projectId: task.projectId },
+      )
+      return task
+    })
 
   const touchWithin = (context: Commands.WriteContext, taskId: string) =>
     Effect.flatMap(load(taskId), (current) => Effect.andThen(bump(current, context, {}), load(taskId)))
@@ -776,6 +826,8 @@ const make = Effect.gen(function* () {
 
   return TaskService.of({
     touchWithin,
+    setStageWithin,
+    releaseWithin,
     reopenWithin,
     setStage,
     byKey,

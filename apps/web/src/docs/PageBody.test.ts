@@ -14,7 +14,7 @@ vi.hoisted(() => Object.assign(globalThis, { location: { protocol: "http:", host
 const inProgress: Status = {
   id: "s2", workspaceId: "w1", name: "In Progress", category: "started", position: "a1", color: "#f2c94c", hidden: false, createdAt: 1, updatedAt: 1,
 }
-const cel: Project = { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", color: "#000", description: "", repoPath: null, createdAt: 1, updatedAt: 1, archivedAt: null }
+const cel: Project = { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", color: "#000", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: null }
 const review: Task = {
   id: "t8", projectId: "p1", number: 8, key: "CEL-8", title: "Review packets", description: "", statusId: "s2", priority: 0, position: "a0",
   dueDate: null, parentId: null, labelIds: [], assigneeActorId: null, assigneeSessionId: null, createdByActorId: "me",

@@ -1,12 +1,15 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Attachment, Task } from "@cello/contract/entities"
+import { awaitsMerge } from "@cello/shared/review"
 import { useAtomSet } from "@effect/atom-react"
 import { CheckIcon, CornerUpLeftIcon } from "lucide-react"
 import { useState } from "react"
 import { Button } from "../components/ui/Button.tsx"
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "../components/ui/Dialog.tsx"
 import { Textarea } from "../components/ui/Input.tsx"
+import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/Tooltip.tsx"
 import { commands } from "../lib/cello.ts"
+import { useBoard } from "../lib/hooks.ts"
 import { Comments } from "../task/Comments.tsx"
 import { useCommentDraft } from "../task/commentDraft.ts"
 import { decisionNote } from "./queue.ts"
@@ -40,6 +43,9 @@ export function CommentOrDecide({ board, task, onDecided }: { board: BoardState;
   )
 }
 
+/** What "Approve and merge" does, on hover and for screen readers (CEL-143). */
+const MERGE_HINT = "The agent merges it after you approve, then moves it to Done"
+
 interface ReviewActionsProps {
   readonly task: Task
   readonly onDecided?: (() => void) | undefined
@@ -63,8 +69,14 @@ interface ReviewActionsProps {
 /**
  * Approve (to Done) or send back with a note (to In Progress). The page updates when the events
  * arrive; `onDecided` runs once the server took the decision (the Review page opens the next packet).
+ * In a project that merges after approval (CEL-143) Approve reads "Approve and merge": the task stays in
+ * In Review as Approved · merging until its agent has merged it. While it waits for that, only Send back
+ * is left (the merge failed, or Lucas changed his mind).
  */
 export function ReviewActions({ task, onDecided, typed = "", screenshots = [], uploading = false, onNoteSent }: ReviewActionsProps) {
+  const board = useBoard()
+  const mergeAfter = board?.projects[task.projectId]?.mergeAfterApproval === true
+  const merging = awaitsMerge(task, board?.statuses[task.statusId])
   const approve = useAtomSet(commands.approveReview, { mode: "promiseExit" })
   const sendBack = useAtomSet(commands.sendBackReview, { mode: "promiseExit" })
   const [busy, setBusy] = useState(false)
@@ -84,6 +96,21 @@ export function ReviewActions({ task, onDecided, typed = "", screenshots = [], u
     return exit._tag === "Success"
   }
 
+  const approveButton = (
+    <Button
+      variant="primary"
+      size="md"
+      disabled={waiting}
+      onClick={async () => {
+        const approved = await run(() => approve({ key: task.key, ...(typedNote === null ? {} : { note: typedNote }), ...withShots }))
+        if (approved && (typedNote !== null || attachmentIds.length > 0)) onNoteSent?.(attachmentIds.length > 0)
+      }}
+    >
+      <CheckIcon aria-hidden className="size-3.5" />
+      {mergeAfter ? "Approve and merge" : "Approve"}
+    </Button>
+  )
+
   return (
     <div className="flex items-center gap-2">
       <Button
@@ -98,18 +125,12 @@ export function ReviewActions({ task, onDecided, typed = "", screenshots = [], u
         <CornerUpLeftIcon aria-hidden className="size-3.5" />
         Send back
       </Button>
-      <Button
-        variant="primary"
-        size="md"
-        disabled={waiting}
-        onClick={async () => {
-          const approved = await run(() => approve({ key: task.key, ...(typedNote === null ? {} : { note: typedNote }), ...withShots }))
-          if (approved && (typedNote !== null || attachmentIds.length > 0)) onNoteSent?.(attachmentIds.length > 0)
-        }}
-      >
-        <CheckIcon aria-hidden className="size-3.5" />
-        Approve
-      </Button>
+      {merging ? null : mergeAfter ? (
+        <Tooltip>
+          <TooltipTrigger render={approveButton} />
+          <TooltipContent side="top">{MERGE_HINT}</TooltipContent>
+        </Tooltip>
+      ) : approveButton}
       <Dialog open={asking} onOpenChange={setAsking}>
         <DialogContent size="md">
           <div className="flex flex-col gap-1">

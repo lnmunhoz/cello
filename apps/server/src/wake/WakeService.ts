@@ -2,8 +2,9 @@
 // session is running, Cello continues the same conversation itself (SessionHost), headless. This is the
 // only place with the rules: the board's actions, `cello sessions wake` and later the chat all decide here.
 //
-// What wakes: Lucas's comment, his answers to an ask, a Send back, or his reaction, on a task the
-// session holds the claim on. A comment on a task nobody holds first gives it back to the session that
+// What wakes: Lucas's comment, his answers to an ask, a Send back, his reaction, or his approval in a
+// project that merges after approval (CEL-143: the session is told to merge), on a task the session holds
+// the claim on. A comment on a task nobody holds first gives it back to the session that
 // last held it, in its own command (CEL-110), so it wakes that session the same way. Never a timer,
 // another agent, or a board change.
 //
@@ -61,7 +62,7 @@ export const DEFAULT_CAP = 3
 export const MAX_CAP = 20
 
 /** Which of Lucas's actions wins when several on one task are batched (a Send back also adds its note as a comment). */
-const STRENGTH: Record<WakeWhy, number> = { reaction: 0, comment: 1, answers: 2, send_back: 3, manual: 4 }
+const STRENGTH: Record<WakeWhy, number> = { reaction: 0, comment: 1, answers: 2, send_back: 3, approved: 4, manual: 5 }
 
 /** The prompt a woken run gets. Delivery goes through the session itself: it runs `cello inbox`. */
 export const wakePrompt = (input: { readonly human: string; readonly keys: ReadonlyArray<string>; readonly manual: boolean }) => {
@@ -163,8 +164,10 @@ export const actionOf = (e: CelloEvent, humanId: string): { readonly taskId: str
       return { taskId: e.comment.taskId, why: "comment" }
     case "ask.answered":
       return { taskId: e.ask.taskId, why: "answers" }
+    // An approval keeps the claim only in a project that merges after approval (CEL-143); elsewhere it
+    // ended the claim, and noteAction finds no holder to wake.
     case "review.decided":
-      return e.decision === "sent_back" ? { taskId: e.taskId, why: "send_back" } : null
+      return e.decision === "sent_back" ? { taskId: e.taskId, why: "send_back" } : e.decision === "approved" ? { taskId: e.taskId, why: "approved" } : null
     case "reaction.added":
       return { taskId: e.reaction.taskId, why: "reaction" }
     default:

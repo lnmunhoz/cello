@@ -1,17 +1,35 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { openReviewOf } from "@cello/client/sync/reviews"
 import type { Review, Task } from "@cello/contract/entities"
+import { awaitsMerge } from "@cello/shared/review"
 import { useAtomValue } from "@effect/atom-react"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { ChevronRightIcon } from "lucide-react"
 import { useState } from "react"
 import { reviewsFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
+import { ReviewActions } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
 
-/** The open packet, pinned at the top of the task panel with Approve and Send back. */
+/**
+ * The open packet, pinned at the top of the task panel with Approve and Send back. A task Lucas approved
+ * that waits for its agent to merge it (Approved · merging, CEL-143) shows that instead, with Send back.
+ */
 export function PinnedReview({ board, task }: { board: BoardState; task: Task }) {
   const review = openReviewOf(board, task.id)
+  if (!review && awaitsMerge(task, board.statuses[task.statusId])) {
+    return (
+      <section aria-label="Approved, merging" className="flex flex-col gap-3 rounded-lg border border-line bg-sunken p-4">
+        <h3 className="text-[13px] font-semibold">Approved · merging</h3>
+        <p className="text-[13px] text-muted">
+          You approved it. Its agent merges it now, then moves it to Done. If the merge goes wrong, send it back with a note.
+        </p>
+        <div className="flex justify-end">
+          <ReviewActions task={task} />
+        </div>
+      </section>
+    )
+  }
   if (!review) return null
   return (
     <section aria-label="Review packet" className="flex flex-col gap-4 rounded-lg border border-accent/40 bg-sunken p-4">

@@ -1,7 +1,7 @@
 // Projects: one product each, with a globally unique task key (`THAI`) and its own task numbers.
 import type { Project, ProjectRef } from "@cello/contract/entities"
-import { Invalid, KeyTaken, NotFound } from "@cello/contract/errors"
-import type { Caller } from "@cello/contract/rpcs"
+import { HumanOnly, Invalid, KeyTaken, NotFound } from "@cello/contract/errors"
+import { Caller } from "@cello/contract/rpcs"
 import { freeProjectKey, isValidProjectKey, reservedKeyProblem } from "@cello/shared/taskKey"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -10,6 +10,7 @@ import * as SqlClient from "effect/sql/SqlClient"
 import * as Commands from "../commands/Commands.ts"
 import { newId } from "../persistence/ids.ts"
 import { selectProjects } from "../persistence/rows.ts"
+import * as Seed from "../persistence/Seed.ts"
 import { requireColor, requireText } from "../validation.ts"
 import { RepoPaths } from "./repoPath.ts"
 
@@ -24,6 +25,11 @@ export interface CreateProject {
   readonly key?: string
   readonly color?: string
   readonly repoPath?: string
+  /**
+   * Merge after I approve (CEL-143). Left out: on when the project has a repository folder (an agent has
+   * somewhere to merge, as with `cello init`), off without one.
+   */
+  readonly mergeAfterApproval?: boolean
 }
 
 export interface UpdateProject {
@@ -32,11 +38,14 @@ export interface UpdateProject {
   readonly name?: string
   readonly color?: string
   readonly description?: string
+  /** Merge after I approve (CEL-143); only the human changes it. */
+  readonly mergeAfterApproval?: boolean
 }
 
 export class ProjectService extends Context.Service<ProjectService, {
   readonly create: (input: CreateProject) => Effect.Effect<Commands.Written<Project>, NotFound | Invalid | KeyTaken, Caller>
-  readonly update: (input: UpdateProject) => Effect.Effect<Commands.Written<Project>, NotFound | Invalid, Caller>
+  /** `mergeAfterApproval` is the human's to change: an agent passing it gets HumanOnly. */
+  readonly update: (input: UpdateProject) => Effect.Effect<Commands.Written<Project>, NotFound | Invalid | HumanOnly, Caller>
   readonly archive: (input: { readonly commandId: string; readonly id: string }) => Effect.Effect<
     Commands.Written<Project>,
     NotFound,
@@ -53,6 +62,7 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const commands = yield* Commands.Commands
   const repoPaths = yield* RepoPaths
+  const human = yield* Seed.HumanActor
 
   const load = (id: string) =>
     selectProjects(sql, sql`p.id = ${id}`).pipe(
@@ -104,9 +114,10 @@ const make = Effect.gen(function* () {
         }
         const [{ count }] = (yield* sql<{ count: number }>`SELECT COUNT(*) AS count FROM projects`) as [{ count: number }]
         const id = newId(now)
-        yield* sql`INSERT INTO projects (id, workspace_id, name, key, color, description, created_at, updated_at)
+        const mergeAfterApproval = input.mergeAfterApproval ?? repoPath !== undefined
+        yield* sql`INSERT INTO projects (id, workspace_id, name, key, color, description, merge_after_approval, created_at, updated_at)
           VALUES (${id}, ${input.workspaceId}, ${name}, ${key}, ${color ?? PROJECT_COLORS[count % PROJECT_COLORS.length]!},
-                  '', ${now}, ${now})`
+                  '', ${mergeAfterApproval ? 1 : 0}, ${now}, ${now})`
         if (repoPath !== undefined) {
           yield* sql`INSERT INTO project_repos (id, project_id, path, git_remote, is_main, created_at, updated_at)
             VALUES (${newId(now)}, ${id}, ${repoPath}, NULL, 1, ${now}, ${now})`
@@ -118,24 +129,32 @@ const make = Effect.gen(function* () {
   })
 
   const update = Effect.fn("ProjectService.update")(function* (input: UpdateProject) {
+    // Whether agents merge before or after Lucas approves is his call, not theirs.
+    if (input.mergeAfterApproval !== undefined && (yield* Caller).sessionId !== null) {
+      return yield* new HumanOnly({ action: "change whether agents merge after you approve", human: human.name })
+    }
     const next = {
       ...(input.name === undefined ? {} : { name: yield* requireText("name", input.name) }),
       ...(input.color === undefined ? {} : { color: yield* requireColor("color", input.color) }),
       ...(input.description === undefined ? {} : { description: input.description }),
+      ...(input.mergeAfterApproval === undefined ? {} : { mergeAfterApproval: input.mergeAfterApproval }),
     }
     return yield* commands.write({ commandId: input.commandId, rpc: "project.update" }, ({ now, emit }) =>
       Effect.gen(function* () {
         const current = yield* load(input.id)
-        const before: Record<string, string> = {}
-        const after: Record<string, string> = {}
-        for (const [field, value] of Object.entries(next) as Array<[keyof typeof next, string]>) {
+        const before: Record<string, string | boolean> = {}
+        const after: Record<string, string | boolean> = {}
+        for (const [field, value] of Object.entries(next) as Array<[keyof typeof next, string | boolean]>) {
           if (current[field] !== value) {
             before[field] = current[field]
             after[field] = value
           }
         }
         if (Object.keys(after).length === 0) return current
-        yield* sql`UPDATE projects SET ${sql.update({ ...after, updated_at: now })} WHERE id = ${current.id}`
+        const { mergeAfterApproval, ...columns } = after
+        yield* sql`UPDATE projects SET ${
+          sql.update({ ...columns, ...(mergeAfterApproval === undefined ? {} : { merge_after_approval: mergeAfterApproval ? 1 : 0 }), updated_at: now })
+        } WHERE id = ${current.id}`
         yield* emit(
           { type: "project.updated", id: current.id, before, after },
           { workspaceId: current.workspaceId, projectId: current.id },

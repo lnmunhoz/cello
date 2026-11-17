@@ -7,7 +7,7 @@ import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import type { StageInfo } from "@cello/contract/stages"
 import { modelName } from "@cello/shared/model"
 import { agoShort, type Presence, presenceOf, presenceWords, type SessionLike } from "@cello/shared/presence"
-import { ActivityIcon, BotIcon, CircleDotIcon, GitMergeIcon, HammerIcon, ListChecksIcon, type LucideIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
+import { ActivityIcon, BotIcon, CircleDotIcon, GitMergeIcon, GitPullRequestArrowIcon, HammerIcon, ListChecksIcon, type LucideIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
 import { type ReactNode, useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { logLinkOf } from "../agents/layout.ts"
@@ -42,6 +42,7 @@ const STAGE_ICONS: Record<string, LucideIcon> = {
   "scan-eye": ScanEyeIcon,
   wrench: WrenchIcon,
   "git-merge": GitMergeIcon,
+  "git-pull-request-arrow": GitPullRequestArrowIcon,
   activity: ActivityIcon,
 }
 

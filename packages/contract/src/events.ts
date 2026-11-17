@@ -57,7 +57,7 @@ const patch = <F extends Schema.Struct.Fields>(fields: F) =>
   })
 
 export const WorkspacePatch = patch({ name: Schema.String })
-export const ProjectPatch = patch({ name: Schema.String, color: Schema.String, description: Schema.String })
+export const ProjectPatch = patch({ name: Schema.String, color: Schema.String, description: Schema.String, mergeAfterApproval: Schema.Boolean })
 export const StatusPatch = patch({ name: Schema.String, color: Schema.String, hidden: Schema.Boolean, position: Schema.String })
 export const LabelPatch = patch({ name: Schema.String, color: Schema.String, group: LabelGroup })
 export const MilestonePatch = patch({ name: Schema.String, goal: Schema.String, targetDate: Schema.NullOr(DueDate), position: Schema.String })

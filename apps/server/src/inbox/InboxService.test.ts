@@ -57,6 +57,8 @@ const bodies = (items: ReadonlyArray<InboxItem>) =>
         return `${i.emoji}: ${i.comment.body}`
       case "claim_ended":
         return `claim ended: ${i.cause}, ${i.status}`
+      case "approved":
+        return `approved: ${i.note ?? ""}`
       default:
         return i.comment.body
     }
