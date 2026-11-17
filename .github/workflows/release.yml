@@ -6,8 +6,10 @@
 #
 # It runs when `bun run release` pushes a vX.Y.Z tag. By hand (Actions > Release > Run workflow), give a tag
 # that exists and leave "publish" off to only build (the files stay on the run's page for 14 days), or turn it
-# on to (re)publish that release. Pull requests that change the build scripts run the build jobs too, never
-# publish, so a broken build shows before a tag does.
+# on to (re)publish that release. A build-only run can also build another ref (`ref: main`, a branch or a
+# commit), to test this workflow and the build scripts before a tag has them: an old tag builds with its own,
+# old copy. Pull requests that change the build scripts run the build jobs too, never publish, so a broken
+# build shows before a tag does.
 #
 # Cello.app is signed ad hoc (sealed, no developer named: macOS offers Open Anyway on the first launch) until
 # the repository has all five signing secrets: CSC_LINK (the Developer ID Application certificate as a base64
@@ -36,6 +38,11 @@ on:
         description: "The release tag to build, e.g. v0.5.0 (it must exist)"
         required: true
         type: string
+      ref:
+        description: "Build this branch or commit instead (e.g. main), named after its package.json version; build only. Empty: the tag"
+        required: false
+        default: ""
+        type: string
       publish:
         description: "Publish the GitHub release (off: build only)"
         required: false
@@ -55,6 +62,8 @@ concurrency:
 env:
   # The tag being released: the pushed one, or the one given by hand. Empty on a pull request (its own commit).
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || (github.ref_type == 'tag' && github.ref_name || '') }}
+  # A run by hand's other ref to build instead of the tag (main, a branch, a commit). Empty otherwise.
+  BUILD_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || '' }}
 
 jobs:
   build:
@@ -73,21 +82,47 @@ jobs:
           - arch: x64
             runner: macos-15-intel
     steps:
-      - name: Check out the release tag
+      - name: Check out the release tag (or the ref given by hand)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.RELEASE_TAG && format('refs/tags/{0}', env.RELEASE_TAG) || '' }}
+          ref: ${{ env.BUILD_REF || (env.RELEASE_TAG && format('refs/tags/{0}', env.RELEASE_TAG)) || '' }}
           persist-credentials: false
 
+      # The files are named after the checked-out package.json's version (electron-builder names the DMG and
+      # app zip from it too). Building the tag itself, that must be the tag's version; another ref is build only.
       - name: Read the version
+        env:
+          PUBLISH: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
         run: |
           set -euo pipefail
           version="$(jq -r .version package.json)"
-          if [[ -n "$RELEASE_TAG" && "$RELEASE_TAG" != "v$version" ]]; then
+          if [[ -n "$BUILD_REF" ]]; then
+            if [[ "$PUBLISH" == "true" ]]; then
+              echo "::error::publish builds the tag itself: leave ref empty to publish $RELEASE_TAG, or turn publish off to build $BUILD_REF."
+              exit 1
+            fi
+            echo "Building $BUILD_REF ($(git rev-parse --short HEAD)) as version $version, build only."
+          elif [[ -n "$RELEASE_TAG" && "$RELEASE_TAG" != "v$version" ]]; then
             echo "::error::$RELEASE_TAG's package.json says $version: only a release commit (bun run release) can be built."
             exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      # Cello.app's icon is an Icon Composer .icon (apps/desktop/resources/Cello.icon), which only Xcode 26's
+      # actool compiles. The macOS 15 images (Apple silicon and Intel) default to Xcode 16.4 but also ship
+      # Xcode 26.x (runner-images' macos-15 and macos-15-arm64 READMEs); this picks the newest Xcode 26.
+      - name: Select Xcode 26
+        run: |
+          set -euo pipefail
+          xcode="$(find /Applications -maxdepth 1 -name 'Xcode_26*.app' | sort -V | tail -1)"
+          if [[ -z "$xcode" ]]; then
+            echo "::error::No Xcode 26 on this runner (no /Applications/Xcode_26*.app): Cello.app's .icon icon needs Xcode 26's actool."
+            find /Applications -maxdepth 1 -name 'Xcode*.app'
+            exit 1
+          fi
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+          echo "actool $(xcrun actool --version | grep -A1 short-bundle-version | tail -1 | sed -E 's/<[^>]+>//g; s/[[:space:]]//g')"
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -174,7 +209,8 @@ jobs:
   publish:
     name: Publish the GitHub release
     needs: build
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    # Never after a run by hand that built another ref: what's published is always the tag's own build.
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish && inputs.ref == '')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

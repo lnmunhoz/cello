@@ -65,7 +65,7 @@ flowchart TD
 
 The Release workflow (`.github/workflows/release.yml`) starts when a `vX.Y.Z` tag is pushed:
 
-1. **Build**, two jobs in parallel, one per Mac architecture, each on a runner of that kind: `macos-15` (Apple silicon) and `macos-15-intel` (Intel; GitHub's last Intel Mac image, supported until August 2027). Each checks out the tag, refuses when the tag and package.json's version disagree, installs Bun 1.4.4 and the dependencies (`bun install --frozen-lockfile`, with Bun's and Electron's downloads cached), then runs **`bun scripts/release/hooks.ts artifacts <version>`**, the same code `--local-artifacts` runs on the Mac:
+1. **Build**, two jobs in parallel, one per Mac architecture, each on a runner of that kind: `macos-15` (Apple silicon) and `macos-15-intel` (Intel; GitHub's last Intel Mac image, supported until August 2027). Each checks out the tag, refuses when the tag and package.json's version disagree, selects the newest Xcode 26 on the runner (the app icon, `apps/desktop/resources/Cello.icon`, is an Icon Composer icon only Xcode 26's `actool` compiles; the macOS 15 images default to Xcode 16.4 but also ship 26.x, and the log prints `xcodebuild -version` and the `actool` version), installs Bun 1.4.4 and the dependencies (`bun install --frozen-lockfile`, with Bun's and Electron's downloads cached), then runs **`bun scripts/release/hooks.ts artifacts <version>`**, the same code `--local-artifacts` runs on the Mac:
    - `cello`, built for the runner's architecture (`--target bun-darwin-arm64` or `bun-darwin-x64`), zipped as `cello-vX.Y.Z-darwin-<arch>.zip`
    - Cello.app packaged with that same binary (`bun run package --cli … --arch <arch> --artifacts`) as `Cello-vX.Y.Z-mac-<arch>.dmg` (drag it to Applications) and `Cello-vX.Y.Z-mac-<arch>.zip` (what the app's own updates will use, CEL-140)
    - `codesign --verify --deep --strict` on the packaged app, then again on the copy inside the DMG: a broken seal (a file changed after signing) is what macOS calls "damaged" on a downloaded copy, so it fails the build instead
@@ -86,11 +86,17 @@ A release takes about 10 to 15 minutes on GitHub; the Mac doesn't wait for it.
 Actions → **Release** → **Run workflow**, or with gh:
 
 ```bash
-gh workflow run release.yml -f tag=v0.5.0                 # build only: nothing is published
-gh workflow run release.yml -f tag=v0.5.0 -f publish=true # build, then create or update the v0.5.0 release
+gh workflow run release.yml -f tag=v0.4.0 -f ref=main     # build main, build only: test the workflow and build scripts
+gh workflow run release.yml -f tag=v0.5.0                 # build the v0.5.0 tag, build only: nothing is published
+gh workflow run release.yml -f tag=v0.5.0 -f publish=true # build the tag, then create or update the v0.5.0 release
 ```
 
-The tag must exist. **Build only** is how to test a change to the workflow or the build scripts without releasing anything: the files land on the run's page. Pull requests that change the build scripts (the workflow, `scripts/release/artifacts.ts`, `hooks.ts`, `publish.ts`, `apps/cli/scripts/build.ts`, `apps/desktop/scripts/`, `electron-builder.json`) run the build jobs too, on the pull request's own commit, and never publish.
+The tag must exist. **Build only** is how to try the workflow without releasing anything: the files land on the run's page.
+
+- **`ref`** (a branch, `main`, or a commit) builds that instead of the tag, with its own copy of the workflow's scripts, and names the files after its package.json's version. Use it to test a change to the workflow or the build scripts: a tag builds with the scripts it was cut with, so an old tag can't test new ones (v0.4.0's own `hooks.ts` refuses to package Cello.app on Intel, for one). The tag-and-version check only applies when building the tag itself. A run with `ref` never publishes: turning publish on with it fails at once.
+- **No `ref`** builds the tag itself, as a tag push does; `publish=true` then (re)publishes that release.
+
+Pull requests that change the build scripts (the workflow, `scripts/release/artifacts.ts`, `hooks.ts`, `publish.ts`, `apps/cli/scripts/build.ts`, `apps/desktop/scripts/`, `electron-builder.json`) run the build jobs too, on the pull request's own commit, and never publish.
 
 ### Signing and notarizing Cello.app
 
@@ -116,7 +122,7 @@ Developer ID signing turns on by itself once the repository has these **five sec
 
 With all five, each build job signs Cello.app with the Developer ID and the hardened runtime (`apps/desktop/resources/entitlements.mac.plist` gives Electron and the bundled Bun binary the JIT they need) and notarizes it through electron-builder, so it opens with no warning. With none, it's signed ad hoc, as above. With only some, the build fails instead of quietly shipping the wrong thing. Pull requests never get them. The standalone `cello` zip isn't signed either way (Terminal downloads with curl aren't quarantined; a browser download needs the `xattr` line above, on `cello`).
 
-**Before the first signed release is trusted**, prove it with a build-only run once the secrets are set: `gh workflow run release.yml -f tag=<the latest tag>` (publish off). Check that both build jobs log "Signing Cello.app with the certificate in CSC_LINK, and notarizing it", that notarization succeeded, and that the DMG check shows `Authority=Developer ID Application: …` and a `TeamIdentifier`. Then download a DMG from the run's page on a Mac and open it: no prompt at all. Only after that does the next `bun run release` ship signed builds. Signing and notarization have never run in this workflow until then, and the entitlements may need adjusting.
+**Before the first signed release is trusted**, prove it with a build-only run of main once the secrets are set: `gh workflow run release.yml -f tag=<the latest tag> -f ref=main` (publish off). Check that both build jobs log "Signing Cello.app with the certificate in CSC_LINK, and notarizing it", that notarization succeeded, and that the DMG check shows `Authority=Developer ID Application: …` and a `TeamIdentifier`. Then download a DMG from the run's page on a Mac and open it: no prompt at all. Only after that does the next `bun run release` ship signed builds. Signing and notarization have never run in this workflow until then, and the entitlements may need adjusting.
 
 ## The changelog
 
@@ -138,7 +144,7 @@ Write subjects for the reader of the changelog: the merge subject is the line Lu
 - **runs** the typecheck and the tests
 - prints the CHANGELOG.md section the release would add, and release-it's own preview: the commands and hooks it would run
 
-Apart from that fetch, it writes, commits, tags, pushes, releases and deploys nothing, and doesn't build. To try the GitHub side without releasing, run the workflow by hand in build-only mode (above).
+Apart from that fetch, it writes, commits, tags, pushes, releases and deploys nothing, and doesn't build. To try the GitHub side without releasing, run the workflow by hand on main in build-only mode (`gh workflow run release.yml -f tag=v0.4.0 -f ref=main`, above).
 
 ## Flags
 
@@ -158,7 +164,7 @@ When release-it fails, `bun run release` looks at how far it got (the release co
 - **Stopped after the bump, before the commit:** `git checkout -- <the files it names>` drops the version and changelog edits.
 - **Stopped after the commit and tag, before the push** (the build failed, or the push was rejected): nothing reached GitHub. `git tag -d vX.Y.Z && git reset --hard HEAD~1 && rm -rf release`, then fix it and release again. The next release refuses until this is undone, and the deploy refuses a staged build that isn't a pushed release's. With `--local-artifacts`, when packaging Cello.app was what failed, the advice also offers `--skip-desktop`.
 - **Stopped after the push:** the tag is on GitHub, so don't undo it. GitHub Actions builds and publishes the release by itself; finish the deploy with `bun scripts/release/deploy.ts`. With `--local-artifacts` (the GitHub release from the Mac failed), first `bun scripts/release/publish.ts X.Y.Z`, which attaches every zip and DMG in `release/`.
-- **The GitHub Actions run failed:** the release is cut and the board runs it; only the downloads are missing. Read the failed job's log, fix the cause on main, then rebuild that tag's files: `gh workflow run release.yml -f tag=vX.Y.Z -f publish=true` (a fix to the workflow itself ships in the next release's tag; this reruns the tag's own copy). If GitHub is down, `bun scripts/release/hooks.ts artifacts X.Y.Z` on the Mac at that tag, then `bun scripts/release/publish.ts X.Y.Z`.
+- **The GitHub Actions run failed:** the release is cut and the board runs it; only the downloads are missing. Read the failed job's log, fix the cause on main, and check the fix with a build-only run of main (`gh workflow run release.yml -f tag=vX.Y.Z -f ref=main`). A failure that came and went (a flaky download) is fixed by rebuilding the tag's files: `gh workflow run release.yml -f tag=vX.Y.Z -f publish=true`, which builds with the tag's own copy of the scripts. A fix to the workflow or the scripts can't reach a tag that's already cut: it ships with the next release, whose tag the workflow builds and publishes. If GitHub is down, `bun scripts/release/hooks.ts artifacts X.Y.Z` on the Mac at that tag, then `bun scripts/release/publish.ts X.Y.Z`.
 - **The deploy failed:** the release is out. If the backup failed, nothing went live: fix it and run `bun scripts/release/deploy.ts`. If the restart failed, the new cello is in place: `cello service status` says why, then `cello service restart`.
 
 ## Rolling back

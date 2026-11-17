@@ -24,6 +24,8 @@ Read two things in its output:
 - **"a real release would refuse"** lines. If there are any, fix the cause, don't work around it. docs/releases.md lists each refusal and how to undo a half-finished earlier release.
 - **The CHANGELOG.md section** it would add: one line per merged task, filed under Features, Fixes and Other changes. If a line reads badly, the merge commit's subject is what to fix next time; don't rewrite history now.
 
+The dry run doesn't touch GitHub. When main changed the release workflow or the build scripts since the last release, test them first with a build-only run of main, which publishes nothing: `gh workflow run release.yml -f tag=v0.4.0 -f ref=main` (`tag` is the latest release tag; `ref=main` builds main's own code instead of that tag's). Wait for it with `gh run watch <id> --exit-status` in the background; release once it's green.
+
 ## 3. Ask Lucas the version
 
 The version is Lucas's call. **patch** is the default for ordinary merges; **minor** and **major** only when he says so.
@@ -72,7 +74,7 @@ The deploy doesn't wait for GitHub. Once the board is fine, follow the run the r
 - the run is green: both build jobs (macOS arm64 and x64) and Publish
 - `gh release view vX.Y.Z --json name,url,assets --jq '.name, .url, (.assets[].name)'` names `Cello vX.Y.Z` and lists **6 files**: `cello-vX.Y.Z-darwin-arm64.zip`, `cello-vX.Y.Z-darwin-x64.zip`, `Cello-vX.Y.Z-mac-arm64.dmg`, `Cello-vX.Y.Z-mac-x64.dmg`, `Cello-vX.Y.Z-mac-arm64.zip`, `Cello-vX.Y.Z-mac-x64.zip`
 
-If a job failed, read its log (`gh run view <id> --log-failed`). The release is cut and the board runs it; only the downloads are missing. "Re-run failed jobs" (`gh run rerun <id> --failed`) when it was a flake; otherwise fix it as a task, and docs/releases.md ("The GitHub Actions run failed") says how to rebuild that tag's files. Tell Lucas either way.
+If a job failed, read its log (`gh run view <id> --log-failed`). The release is cut and the board runs it; only the downloads are missing. "Re-run failed jobs" (`gh run rerun <id> --failed`) when it was a flake; otherwise fix it as a task, check the fix with `gh workflow run release.yml -f tag=vX.Y.Z -f ref=main`, and docs/releases.md ("The GitHub Actions run failed") says what can still be rebuilt for that tag. Tell Lucas either way.
 
 ## 7. Report to Lucas
 
