@@ -194,7 +194,7 @@ It shows the project, its statuses (hidden ones in brackets), its labels, its op
 
 ```
 Project   CEL · Cello · /Users/lnmunhoz/projects/cello
-You       Claude Code session 2fd0505c (cli)
+You       Claude Code session 2fd0505c (Terminal · WezTerm)
 Statuses  Todo · In Progress · Needs input · In Review · Done (hidden: Backlog, Canceled)
 Labels    feature · server · ui
 Milestones  M3 6/11 done (due 2026-12-01) · M4 0/2 done
@@ -774,6 +774,7 @@ How a woken run differs from a normal turn:
 
 - **You run with a clean environment:** Cello leaves out `CELLO_SESSION`, `CELLO_AGENT` and every other Claude Code session's variables, so your `cello` commands are yours.
 - **`CELLO_WOKEN=1` is in your environment.** The Stop hook then never asks you to start `cello inbox --wait`: a waiter would keep the run alive for nothing, and Cello wakes you again when the human next acts. Don't start one yourself.
+- **The board says "Woken by Cello"** on your row and card while the run goes, and you count as working from the moment it starts, before your first command. Your session keeps saying where you were started (`Terminal · WezTerm`, `Claude desktop`): a woken run's commands don't send `CLAUDE_CODE_ENTRYPOINT` or `TERM_PROGRAM`.
 - **Nobody is watching.** You run in the permission mode your session last had (Cello's hooks record it on every event), never `bypassPermissions`. A tool the mode doesn't allow is refused; say on the card what you couldn't do ("couldn't run `bun install`: not allowed in this mode") so the human can answer or open the chat.
 - **One turn, at most 40 agentic steps.** Do what the comment asks, answer, and stop. Big follow-up work waits for the human.
 - **Your output is logged** to `<data folder>/runs/<session>/<time>.jsonl` (the newest 20 per session; backups leave them out). The card links it, with a Stop button while the run goes.
@@ -792,6 +793,8 @@ cello sessions runs c14ca1fa
 #   2026-11-16 15:58  a comment  auto  completed in 1 min
 #     /Users/ana/.cello/runs/c14ca1fa-…/2026-11-16T15-58-12-123Z.jsonl
 ```
+
+When a wake is already due for that task (the 30 seconds after the human's comment), `cello sessions wake` runs that wake now instead, exactly as it would have run when the wait was up: for what the human did (the prompt is the comment one, not "asked Cello to wake"), with every task batched in it. The board's **Wake now** button under the comment does the same. If a check fails at that moment, it refuses with the reason, and the due wake is off.
 
 Never wake your own session: you're already running.
 
@@ -882,9 +885,9 @@ An orchestrator doesn't need the Agents page to see what its builders are doing:
 ```bash
 cello agents
 # Agents working (3):
-#   Claude Code session 2fd0505c (Opus 5.5, high)  orchestrator  active now    holds CEL-7  Agent · cello-builder: CEL-7 pancake timer
-#     cello-builder/a13bfb89 (Sonnet 5.5, medium)                active now    on CEL-7     Bash · bun run test
-#     cello-code-reviewer/b77d0e11 (Sonnet 5.5, medium)          seen 12m ago  on CEL-6
+#   Claude Code session 2fd0505c (Opus 5.5, high)  orchestrator  active now    Terminal · WezTerm  holds CEL-7  Agent · cello-builder: CEL-7 pancake timer
+#     cello-builder/a13bfb89 (Sonnet 5.5, medium)                active now                        on CEL-7     Bash · bun run test
+#     cello-code-reviewer/b77d0e11 (Sonnet 5.5, medium)          seen 12m ago                      on CEL-6
 #
 # 1 agent finished today: `cello agents --all` lists them.
 # `cello agents log <id>` prints one's log: a session's short id (2fd0505c) or a subagent's (cello-builder/a13bfb89).
@@ -899,6 +902,7 @@ cello agents log cello-builder/a13bfb89
 #             … 2 more lines (--full shows them)
 ```
 
+- **Where each session runs** comes after its presence: `Terminal` (with the terminal app when it's known: `Terminal · WezTerm`, `Terminal · iTerm`, `Terminal · VS Code`), `Claude desktop`, `IDE · VS Code`, `Agent SDK app`, `Headless (claude -p)`, or the raw `CLAUDE_CODE_ENTRYPOINT` when Cello doesn't know it. While Cello runs a session it woke, it says `Woken by Cello`, and that session counts as working even before its first check-in; afterwards it says when, after where the session was started: `Claude desktop · last woken by Cello 5m ago`. The board's Agents page, the task panel's Working on it line and comment receipts show the same words. `cello context` shows yours after your name, in brackets. A run Cello woke never changes where the session says it runs (see "When your process is gone, Cello can wake you").
 - **Which agent:** a session by the start of its id (`2fd0505c`), a subagent by the start of its id with its type in front or not (`cello-builder/a13bfb89`, or `a13bfb89`), as `cello agents` prints them. An id that starts more than one says which, so you can give more of it. `--all` adds the agents that finished today; their logs still print while Claude Code keeps the transcript.
 - **What each line is:** the time, then `Prompt` (what the agent was told), `Said` (what it wrote), or a tool call with ✓ (it worked), ✗ (it failed) or ▸ (still running) and how long it took. A result shows its first 3 lines; `--full` prints it whole. A subagent the agent launched shows its id after `→`. Thinking is left out unless you pass `--thinking`.
 - **`--follow` (or `-f`)** keeps printing steps as they're written, until Ctrl-C: a running call prints when it starts and again with its result when it ends. It rides out a server restart the way `cello inbox --wait` does: it says on stderr that the server went away, reconnects for up to 2 minutes, and carries on without printing a step twice. A log that isn't on disk yet (a subagent that just started) says so on stderr and prints once Claude Code writes it.
@@ -1317,7 +1321,9 @@ cello builds
 | `CLAUDE_PID` | Set by Claude Code. Lets Cello tell whether your session is still alive, so a dead session's claim can be taken over. |
 | `CELLO_SESSION` | Overrides the session. An agent that isn't Claude Code sets a stable id for its conversation here. `CELLO_SESSION=me` acts as the human: only when they ask you to. |
 | `CELLO_PORT` | The server's port, 4747 by default. Dev servers and tests use other ports. A woken run gets the port of the server that woke it. |
-| `CELLO_WOKEN` | Set to `1` by Cello in a run it woke (see "When your process is gone, Cello can wake you"): the Stop hook then never asks for `cello inbox --wait`. |
+| `CLAUDE_CODE_ENTRYPOINT` | Set by Claude Code: where the session runs (`cli` in a terminal, `claude-desktop`, `sdk-ts`…). The board and `cello agents` show it in plain words ("Terminal", "Claude desktop"). |
+| `TERM_PROGRAM` | Set by your terminal app (`WezTerm`, `iTerm.app`, `vscode`): shown after Terminal ("Terminal · WezTerm"). |
+| `CELLO_WOKEN` | Set to `1` by Cello in a run it woke (see "When your process is gone, Cello can wake you"): the Stop hook then never asks for `cello inbox --wait`, and the run's `CLAUDE_CODE_ENTRYPOINT` and `TERM_PROGRAM` aren't sent, so the session keeps saying where it was started. |
 | `CELLO_PERMISSION_MODE` | Set by Cello's hooks only: the session's permission mode from Claude Code, sent with the hook's calls so a woken run uses the same one. |
 | `CELLO_DATA_DIR` | `cello start`'s data folder, `~/.cello` by default. |
 | `CELLO_WEB_DIR` | A built web app (`vite build`'s folder) for `cello start` to serve instead of its own. It serves **every file in that folder** to anything that can reach the port, so point it only at a build. Without an `index.html` there, `cello start` says so on stderr and serves its own app. Tests use it to serve two builds. |

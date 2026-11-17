@@ -161,7 +161,8 @@ const apply = (d: Draft, e: CelloEvent) => {
           createdAt: e.ts,
         })
       }
-      return d.set("sessions", e.session.id, e.session)
+      // Its latest woken run (CEL-137) comes with it only where the server looked; else what's known stays.
+      return d.set("sessions", e.session.id, "lastRun" in e.session ? e.session : { ...e.session, lastRun: d.get("sessions")[e.session.id]?.lastRun ?? null })
     case "agent.seen":
       return d.set("agents", agentKey(e.agent.sessionId, e.agent.agentId), e.agent)
     // A session's `cello inbox --wait` opened or closed (CEL-76): a comment reaches it at once while it waits.
@@ -214,10 +215,16 @@ const apply = (d: Draft, e: CelloEvent) => {
     case "reaction.added":
     case "reaction.removed":
       return // reactions load with a task's comments (sync/comments.ts); they're no activity on the task
-    case "session.wake_scheduled":
-    case "session.not_woken":
     case "session.run_started":
     case "session.run_ended": {
+      // The session's latest woken run (CEL-137): it's Woken by Cello, and active, while it goes.
+      const { id, sessionId, startedAt, endedAt } = e.run
+      if (sessionId in d.get("sessions")) d.update("sessions", sessionId, (s) => ({ ...s, lastRun: { id, startedAt, endedAt } }))
+      const wake = wakeOf(e)
+      return wake === null ? undefined : d.set("wakes", wake.taskId, wake)
+    }
+    case "session.wake_scheduled":
+    case "session.not_woken": {
       const wake = wakeOf(e)
       return wake === null ? undefined : d.set("wakes", wake.taskId, wake)
     }

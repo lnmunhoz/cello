@@ -45,6 +45,29 @@ describe("SessionService.resolve", () => {
       expect(agents).toEqual([{ id: first.actorId, name: "Claude Code", client: "Claude Code" }])
     })))
 
+  it.effect("keeps where it runs (CEL-137): the terminal app it reported, until it reports another; a call that says none keeps it", () =>
+    run(Effect.gen(function* () {
+      const sessions = yield* SessionService
+      const { sessionId } = yield* sessions.resolve({ ...claude, terminal: "WezTerm" })
+      yield* sessions.resolve(claude)
+      expect((yield* sessions.byIds([sessionId!]))[0]).toMatchObject({ entrypoint: "cli", terminal: "WezTerm", lastRun: null })
+      yield* sessions.resolve({ ...claude, terminal: "iTerm.app" })
+      expect((yield* sessions.byIds([sessionId!]))[0]?.terminal).toBe("iTerm.app")
+    })))
+
+  it.effect("a session's latest woken run comes with it (CEL-137), going until it ends", () =>
+    run(Effect.gen(function* () {
+      const sessions = yield* SessionService
+      const { sessionId } = yield* sessions.resolve(claude)
+      const sql = yield* SqlClient.SqlClient
+      const runRow = (id: string, started: number, ended: number | null) =>
+        sql`INSERT INTO session_runs (id, session_id, task_id, task_ids, why, agent_kind, mode, cello_mode, pid, started_at, ended_at, outcome, log_path)
+          VALUES (${id}, ${sessionId}, NULL, '[]', 'comment', 'claude-code', 'auto', 'auto', NULL, ${started}, ${ended}, ${ended === null ? "running" : "completed"}, '/runs/x.jsonl')`
+      yield* runRow("r1", 10, 20).pipe(Effect.orDie)
+      yield* runRow("r2", 30, null).pipe(Effect.orDie)
+      expect((yield* sessions.byIds([sessionId!]))[0]?.lastRun).toEqual({ id: "r2", startedAt: 30, endedAt: null })
+    })))
+
   it.effect("a second session of the same client gets its own session under the same actor", () =>
     run(Effect.gen(function* () {
       const sessions = yield* SessionService

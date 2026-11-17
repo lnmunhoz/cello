@@ -103,6 +103,8 @@ export const IDENTITY_HEADERS = {
   cwd: "x-cello-cwd",
   pid: "x-cello-pid",
   entrypoint: "x-cello-entrypoint",
+  /** The terminal app it runs in, from TERM_PROGRAM (CEL-137): `WezTerm`, `iTerm.app`, `vscode`. */
+  terminal: "x-cello-terminal",
   /** The session's subagent making the call (CEL-55): its host id, and what it was launched as. */
   agent: "x-cello-agent",
   agentType: "x-cello-agent-type",

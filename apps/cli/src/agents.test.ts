@@ -159,12 +159,12 @@ describe("agentsText: what `cello agents` prints", () => {
     { session: session("9a8b7c6d", { endedAt: at(11, 30) }), agent: null, endedAt: at(11, 30), tasks: [] },
   ]
 
-  it("each session working, its subagents under it: id, role, presence, tasks, and what it's doing right now", () => {
+  it("each session working, its subagents under it: id, role, presence, where it runs, tasks, and what it's doing right now", () => {
     expect(agentsText({ working, finished, all: false, now })).toBe([
       "Agents working (3):",
-      "  Claude Code session 2fd0505c    orchestrator  active now    holds CEL-7, CEL-8  Agent · cello-builder: CEL-7",
-      "    cello-builder/a13bfb89                      active now    on CEL-7            Bash · bun run test",
-      "    cello-code-reviewer/b77d0e11                seen 12m ago  on CEL-8",
+      "  Claude Code session 2fd0505c    orchestrator  active now    Terminal  holds CEL-7, CEL-8  Agent · cello-builder: CEL-7",
+      "    cello-builder/a13bfb89                      active now              on CEL-7            Bash · bun run test",
+      "    cello-code-reviewer/b77d0e11                seen 12m ago            on CEL-8",
       "",
       "2 agents finished today: `cello agents --all` lists them.",
       "`cello agents log <id>` prints one's log: a session's short id (2fd0505c) or a subagent's (cello-builder/a13bfb89).",
@@ -181,10 +181,21 @@ describe("agentsText: what `cello agents` prints", () => {
       ],
     }]
     expect(agentsText({ working: onModels, finished: [], all: false, now }).split("\n").slice(1, 4)).toEqual([
-      "  Claude Code session 2fd0505c (Opus 5.5, high)  orchestrator  active now    holds CEL-7, CEL-8  Agent · cello-builder: CEL-7",
-      "    cello-builder/a13bfb89 (Sonnet 5.5, medium)                active now    on CEL-7            Bash · bun run test",
-      "    cello-code-reviewer/b77d0e11                               seen 12m ago  on CEL-8",
+      "  Claude Code session 2fd0505c (Opus 5.5, high)  orchestrator  active now    Terminal  holds CEL-7, CEL-8  Agent · cello-builder: CEL-7",
+      "    cello-builder/a13bfb89 (Sonnet 5.5, medium)                active now              on CEL-7            Bash · bun run test",
+      "    cello-code-reviewer/b77d0e11                               seen 12m ago            on CEL-8",
     ])
+  })
+
+  it("says where each session runs (CEL-137): its terminal app, Woken by Cello during a woken run, and when Cello last woke it", () => {
+    const rows = (s: AgentSession) => agentsText({ working: [{ session: s, presence: "active" as const, tasks: [task("CEL-7")], agents: [] }], finished: [], all: false, now }).split("\n")[1]
+    expect(rows(session("2fd0505c", { terminal: "WezTerm" }))).toBe("  Claude Code session 2fd0505c  session  active now  Terminal · WezTerm  holds CEL-7")
+    expect(rows(session("2fd0505c", { entrypoint: "claude-desktop", lastRun: { id: "r1", startedAt: now - 2 * MIN, endedAt: null } }))).toBe(
+      "  Claude Code session 2fd0505c  session  active now  Woken by Cello  holds CEL-7",
+    )
+    expect(rows(session("2fd0505c", { entrypoint: "claude-desktop", lastRun: { id: "r1", startedAt: now - 9 * MIN, endedAt: now - 5 * MIN } }))).toBe(
+      "  Claude Code session 2fd0505c  session  active now  Claude desktop · last woken by Cello 5m ago  holds CEL-7",
+    )
   })
 
   it("--all lists the ones that finished today, newest first", () => {

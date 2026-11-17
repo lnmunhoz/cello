@@ -121,6 +121,8 @@ describe("CallerMiddleware", () => {
       [IDENTITY_HEADERS.transcript]: "/home/u/.claude/projects/-repo/s.jsonl",
       [IDENTITY_HEADERS.step]: "Bash · bun run test",
     }))).toEqual({ transcript: "/home/u/.claude/projects/-repo/s.jsonl", step: "Bash · bun run test" })
+    // And the terminal app it runs in (CEL-137).
+    expect(CallerLayer.identityFromHeaders(Headers.fromInput({ [IDENTITY_HEADERS.terminal]: "WezTerm" }))).toEqual({ terminal: "WezTerm" })
   })
 
   it.effect("a subagent's headers (CEL-55) resolve to its session, with the agent named on the caller", () =>

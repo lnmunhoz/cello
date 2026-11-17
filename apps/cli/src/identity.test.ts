@@ -34,6 +34,18 @@ describe("identityHeaders", () => {
     })
   })
 
+  it("TERM_PROGRAM becomes the terminal header (CEL-137): which terminal app the session runs in", () => {
+    expect(identityHeaders({ ...claude, TERM_PROGRAM: "WezTerm" }, "/x")[IDENTITY_HEADERS.terminal]).toBe("WezTerm")
+    expect(identityHeaders(claude, "/x")[IDENTITY_HEADERS.terminal]).toBeUndefined()
+    expect(identityHeaders({ TERM_PROGRAM: "WezTerm" }, "/x")[IDENTITY_HEADERS.terminal]).toBeUndefined()
+  })
+
+  it("a run Cello woke (CELLO_WOKEN=1) leaves out where it runs: the session keeps the terminal or app it was started in (CEL-137)", () => {
+    const woken = identityHeaders({ ...claude, CLAUDE_CODE_ENTRYPOINT: "sdk-cli", TERM_PROGRAM: "tmux", CELLO_WOKEN: "1" }, "/x")
+    expect([woken[IDENTITY_HEADERS.entrypoint], woken[IDENTITY_HEADERS.terminal]]).toEqual([undefined, undefined])
+    expect(woken[IDENTITY_HEADERS.session]).toBe(claude.CLAUDE_CODE_SESSION_ID)
+  })
+
   it("CELLO_SESSION wins over the Claude session id", () => {
     expect(identityHeaders({ ...claude, CELLO_SESSION: "custom" }, "/x")).toMatchObject({
       "x-cello-session": "custom",

@@ -7,6 +7,7 @@ import type { FinishedAgent, WorkingSessionOf } from "@cello/client/sync/agents"
 import type { LogStep, LogUpdate } from "@cello/contract/agentLog"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { modelLabel } from "@cello/shared/model"
+import { originText } from "@cello/shared/origin"
 import { presenceWords } from "@cello/shared/presence"
 import { columns, plural, sessionName, shortSession } from "./format.ts"
 
@@ -88,6 +89,8 @@ export const agentsText = (input: {
       `  ${sessionName(w.session, w.session)}`,
       w.agents.length > 0 ? "orchestrator" : "session",
       presenceWords(w.session, input.now),
+      // Where it runs (CEL-137): "Terminal · WezTerm", "Woken by Cello".
+      originText(w.session, input.now) ?? "",
       w.tasks.length > 0 ? `holds ${keys(w.tasks)}` : "",
       doingNowOf({ presence: w.presence, session: w.session, agent: null }, input.now) ?? "",
     ],
@@ -95,6 +98,7 @@ export const agentsText = (input: {
       `    ${agentId(a.agent)}${model(a.agent)}`,
       "",
       presenceWords(a.agent, input.now),
+      "",
       a.task ? `on ${a.task.key}` : "",
       doingNowOf({ presence: a.presence, session: w.session, agent: a.agent }, input.now) ?? "",
     ]),

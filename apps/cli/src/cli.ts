@@ -41,6 +41,7 @@ import { celloOpenLink } from "@cello/shared/celloLink"
 import { pagePath } from "@cello/shared/document"
 import { formatBytes } from "@cello/shared/bytes"
 import { colorFromSeed } from "@cello/shared/color"
+import { originText } from "@cello/shared/origin"
 import { cleanReaction, groupReactions } from "@cello/shared/reaction"
 import { type Detection, detectRepo } from "@cello/shared/detect"
 import { findMilestone, progressText } from "@cello/shared/milestone"
@@ -411,7 +412,7 @@ const context = Command.make("context", { project, json }, (input) =>
       `Project   ${ctx.project.key} · ${ctx.project.name}${ctx.project.repoPath ? ` · ${ctx.project.repoPath}` : ""}`,
       `You       ${
         ctx.session
-          ? `${sessionName(ctx.session)}${ctx.session.entrypoint ? ` (${ctx.session.entrypoint})` : ""}${ctx.session.orchestrating ? " · orchestrating" : ""}`
+          ? `${sessionName(ctx.session)}${origin(ctx.session, now)}${ctx.session.orchestrating ? " · orchestrating" : ""}`
           : `${ctx.actor.name} (human)`
       }`,
       `Statuses  ${visible.join(" · ")}${hidden.length ? ` (hidden: ${hidden.join(", ")})` : ""}`,
@@ -460,6 +461,12 @@ const context = Command.make("context", { project, json }, (input) =>
     if (ctx.recent.length === 0) lines.push("  none yet")
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription("Start here: the project, its statuses, labels and open milestones, new comments for you, your claims and recent activity."))
+
+/** " (Terminal · WezTerm)": where a session runs (CEL-137), when it's known. */
+const origin = (session: AgentSession, now: number) => {
+  const text = originText(session, now)
+  return text ? ` (${text})` : ""
+}
 
 /** Lines indented by two spaces; blank lines stay blank. */
 const indent = (lines: ReadonlyArray<string>) => lines.map((l) => (l === "" ? l : `  ${l}`))

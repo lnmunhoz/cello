@@ -474,6 +474,35 @@ describe("WakeService.wakeNow (`cello sessions wake`)", () => {
         expect((yield* Effect.flip(wake.wakeNow({ commandId: cmd(), session: "zzzzzz" })))._tag).toBe("NotFound")
       })))
 
+  it.effect("on a wake that's due (the board's Wake now, CEL-136): it runs that wake at once, for what Lucas did, and nothing runs again when the wait is up", () =>
+    run((fake) =>
+      Effect.gen(function* () {
+        const { wake, task, comment } = yield* setup()
+        yield* comment()
+        yield* TestClock.adjust("5 seconds")
+        const { result } = yield* wake.wakeNow({ commandId: cmd(), key: "CEL-1" })
+        expect(result).toMatchObject({ taskId: task.id, why: "comment", outcome: "running" })
+        const turn = yield* Queue.take(fake.turns)
+        expect(turn.prompt).toBe(wakePrompt({ human: "Lucas", keys: ["CEL-1"], manual: false }))
+        yield* TestClock.adjust("2 minutes")
+        expect(yield* Queue.size(fake.turns)).toBe(0)
+        expect((yield* wakeEvents(task.id)).map(([type]) => type)).toEqual(["session.wake_scheduled", "session.run_started"])
+      })))
+
+  it.effect("on a wake that's due but can't happen now: SessionNotWoken with the reason, on the card too, and the wake is off", () =>
+    run((fake, world) =>
+      Effect.gen(function* () {
+        const { wake, task, comment } = yield* setup()
+        yield* comment()
+        world.alive.add(PID)
+        const failed = yield* Effect.flip(wake.wakeNow({ commandId: cmd(), key: "CEL-1" }))
+        expect(failed).toMatchObject({ _tag: "SessionNotWoken", reason: "process_alive" })
+        expect((yield* wakeEvents(task.id)).at(-1)).toEqual(["session.not_woken", "process_alive"])
+        world.alive.delete(PID)
+        yield* TestClock.adjust("2 minutes")
+        expect(yield* Queue.size(fake.turns)).toBe(0)
+      })))
+
   it.effect("a retried command hands back its run and starts nothing again", () =>
     run((fake) =>
       Effect.gen(function* () {
@@ -500,6 +529,7 @@ describe("WakeService settings", () => {
           projectId: project.id,
           enabled: false,
           capPerHour: 3,
+          batchMs: 30_000,
           apiKeySet: true,
           agents: [{ kind: "claude-code", name: "Fake agent", installed: true }],
         })

@@ -275,14 +275,19 @@ const make = Effect.gen(function* () {
       place: placeOf(task),
     })
 
-  /** A session's due wake: the checks again for each task, then one run for the ones that pass. */
-  const fire = (sessionId: string) =>
+  /**
+   * A session's due wake: the checks again for each task, then one run for the ones that pass. Says
+   * the run it started, if any, and why each task that didn't pass wasn't woken (for Wake now).
+   */
+  const fire = (sessionId: string, commandId: string = crypto.randomUUID()) =>
     Effect.gen(function* () {
+      const reasons = new Map<string, NotWokenReason>()
+      const fired = (woken: Commands.Written<SessionRun> | null) => ({ woken, reasons })
       const due = pending.get(sessionId)
       pending.delete(sessionId)
-      if (!due) return
+      if (!due) return fired(null)
       const row = yield* sessionRow(sessionId)
-      if (!row) return
+      if (!row) return fired(null)
       const now = yield* Clock.currentTimeMillis
       const woken: Array<{ task: TaskRow; why: WakeWhy; runnable: Runnable }> = []
       for (const [taskId, why] of due.tasks) {
@@ -291,12 +296,17 @@ const make = Effect.gen(function* () {
         if (!task || task.assignee_session_id !== sessionId) continue
         const { verdict: v, runnable } = yield* verdict(row, task, "fire", now)
         if (v.kind === "wake") woken.push({ task, why, runnable: runnable! })
-        else if (v.kind === "not") yield* tell(row, task, { type: "not", why, reason: v.reason })
-        else if (due.announced.has(taskId)) yield* tell(row, task, { type: "not", why, reason: "taken" })
+        else if (v.kind === "not") {
+          reasons.set(taskId, v.reason)
+          yield* tell(row, task, { type: "not", why, reason: v.reason })
+        } else if (due.announced.has(taskId)) {
+          reasons.set(taskId, "taken")
+          yield* tell(row, task, { type: "not", why, reason: "taken" })
+        }
       }
       const last = woken.at(-1)
-      if (!last) return
-      yield* startRun(crypto.randomUUID(), last.runnable, last.task, woken.map((w) => w.task), last.why)
+      if (!last) return fired(null)
+      return fired(yield* startRun(commandId, last.runnable, last.task, woken.map((w) => w.task), last.why))
     })
 
   const noteAction = (taskId: string, why: WakeWhy) =>
@@ -368,6 +378,17 @@ const make = Effect.gen(function* () {
       return yield* new Invalid({ field: "session", reason: "name a session or a task key" })
     }
     const outcome = yield* decide(Effect.gen(function* () {
+      // A wake that's due for it (the board's Wake now, CEL-136) runs now, as it would when its wait is
+      // up: for what Lucas did, with every task batched in it. Only when that one can't say why it
+      // didn't wake (nothing was due any more) does a manual wake follow.
+      const due = pending.get(row.id)
+      if (due !== undefined && (input.key === undefined || due.tasks.has(task.id))) {
+        yield* FiberMap.remove(timers, row.id)
+        const fired = yield* fire(row.id, input.commandId)
+        if (fired.woken !== null) return { kind: "woken" as const, written: fired.woken }
+        const reason = fired.reasons.get(task.id) ?? fired.reasons.values().next().value
+        if (reason !== undefined) return { kind: "not" as const, reason }
+      }
       const now = yield* Clock.currentTimeMillis
       const { verdict: v, runnable } = yield* verdict(row, task, "manual", now)
       if (v.kind !== "wake") {
@@ -415,7 +436,14 @@ const make = Effect.gen(function* () {
       const row = yield* settingsRow(projectId)
       const env = yield* config.env
       const agents = yield* Effect.forEach(registry.drivers, (d) => Effect.map(d.installed(env), (installed) => ({ kind: d.kind, name: d.name, installed })))
-      return { projectId, enabled: row.enabled, capPerHour: row.capPerHour, apiKeySet: Boolean(env.ANTHROPIC_API_KEY), agents }
+      return {
+        projectId,
+        enabled: row.enabled,
+        capPerHour: row.capPerHour,
+        batchMs: Duration.toMillis(config.batch),
+        apiKeySet: Boolean(env.ANTHROPIC_API_KEY),
+        agents,
+      }
     })
 
   const settings = Effect.fn("WakeService.settings")(function* (ref: ProjectRef) {

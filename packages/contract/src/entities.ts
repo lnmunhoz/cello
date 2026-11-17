@@ -106,6 +106,18 @@ export const AgentSession = Schema.Struct({
   orchestrating: Schema.optionalKey(Schema.Boolean),
   /** Its test run, running or the last one (CEL-134). Null or absent: none seen. */
   tests: Schema.optionalKey(Schema.NullOr(TestRun)),
+  /**
+   * Where it runs (CEL-137), with `entrypoint`: the terminal app it was started in (TERM_PROGRAM:
+   * `WezTerm`, `iTerm.app`, `vscode`), as its first calls reported it. Null or absent when unknown.
+   */
+  terminal: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /**
+   * Its latest woken run (CEL-92, CEL-137): going while `endedAt` is null, when the board says "Woken by
+   * Cello" and counts the session as active. Null when Cello never woke it; absent where the server
+   * didn't look (presence events from a sweep, events stored before CEL-137), which keeps what a board
+   * knew.
+   */
+  lastRun: Schema.optionalKey(Schema.NullOr(Schema.Struct({ id: Id, startedAt: Millis, endedAt: Schema.NullOr(Millis) }))),
 })
 export type AgentSession = typeof AgentSession.Type
 
@@ -240,6 +252,11 @@ export const WakeSettings = Schema.Struct({
   projectId: Id,
   enabled: Schema.Boolean,
   capPerHour: Schema.Number,
+  /**
+   * How long Cello waits after Lucas's last action before it wakes (30 s), so the comment box can say it
+   * beforehand (CEL-136). A server's own, the same for every project.
+   */
+  batchMs: Schema.Number,
   /** Woken runs bill ANTHROPIC_API_KEY when it's in the server's environment, not the subscription. */
   apiKeySet: Schema.Boolean,
   /** The agent CLIs Cello can wake sessions of, and whether each is installed here. */

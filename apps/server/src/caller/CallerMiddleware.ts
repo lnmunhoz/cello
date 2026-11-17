@@ -25,6 +25,7 @@ export const identityFromHeaders = (headers: Headers.Headers): Identity => {
     pid: Number.isInteger(pid) && pid > 0 ? pid : undefined,
     cwd: text(IDENTITY_HEADERS.cwd),
     entrypoint: text(IDENTITY_HEADERS.entrypoint),
+    terminal: text(IDENTITY_HEADERS.terminal),
     agent: text(IDENTITY_HEADERS.agent),
     agentType: text(IDENTITY_HEADERS.agentType),
     permissionMode: text(IDENTITY_HEADERS.permissionMode),

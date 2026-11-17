@@ -14,6 +14,13 @@ describe("presenceOf", () => {
     expect(presenceOf({ lastSeenAt: now - ACTIVE_MS - 1, endedAt: null }, now)).toBe("idle")
     expect(presenceOf({ lastSeenAt: now - 10_000, endedAt: now - 5_000 }, now)).toBe("ended")
   })
+
+  it("is active while a run Cello woke goes (CEL-136), before it checks in and however long it runs", () => {
+    const run = { startedAt: now - 20 * MIN, endedAt: null }
+    expect(presenceOf({ lastSeenAt: now - 60 * MIN, endedAt: now - 30 * MIN, lastRun: run }, now)).toBe("active")
+    // Once the run ended, its presence is the session's own again.
+    expect(presenceOf({ lastSeenAt: now - 60 * MIN, endedAt: now - 30 * MIN, lastRun: { ...run, endedAt: now - MIN } }, now)).toBe("ended")
+  })
 })
 
 describe("presenceWords", () => {
