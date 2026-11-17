@@ -47,6 +47,7 @@ import {
   releaseRef,
   taskOfHref,
   VIEWER_WIDTH,
+  viewerTaskOf,
   WIDTH_KEY,
   withVersion,
   type FrameState,
@@ -118,9 +119,6 @@ const useDocumentTitle = (item: ViewerItem | null): string | undefined => {
   return board && page && project ? documentBySlug(board, project.id, page.slug)?.title : undefined
 }
 
-/** The task the viewer shows (`?viewer=/THAI/96`, a task opened off its board, CEL-141), or null. */
-const viewerTaskOf = (item: ViewerItem): { projectKey: string; number: number } | null => (item.kind === "page" ? taskOfHref(item.url, location.origin) : null)
-
 /** What the side panel showed at `spot`, in a few words: the task's key, or the item's title. */
 const useSideLabel = (spot: Spot | undefined): string | undefined => {
   const side = spot ? sideOf(spot) : null
@@ -164,7 +162,7 @@ function Viewer({ item }: { item: ViewerItem }) {
   const router = useRouter()
   const Icon = KIND_ICON[item.kind]
   const title = useDocumentTitle(item) ?? item.title
-  const task = viewerTaskOf(item)
+  const task = viewerTaskOf(item, location.origin)
 
   // Focus moves into the viewer (it may cover what you clicked), and back when it closes.
   useEffect(() => {
@@ -251,8 +249,8 @@ function TaskViewerHeading({ taskKey }: { taskKey: string }) {
 }
 
 function Body({ item }: { item: ViewerItem }) {
-  const task = viewerTaskOf(item)
-  if (task) return <TaskInViewer projectKey={task.projectKey} number={task.number} />
+  const task = viewerTaskOf(item, location.origin)
+  if (task) return <TaskInViewer projectKey={task.projectKey} number={task.number} comment={task.comment} />
   switch (item.kind) {
     case "image":
       return <ImageView item={item} />

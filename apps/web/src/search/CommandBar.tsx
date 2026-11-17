@@ -8,7 +8,7 @@ import type { SearchHit, SearchResults } from "@cello/contract/search"
 import { matchesAll, searchTerms, wordPrefixRanges } from "@cello/shared/search"
 import { formatTaskKey, parseTaskKey } from "@cello/shared/taskKey"
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
-import { useNavigate } from "@tanstack/react-router"
+import { useNavigate, useRouter } from "@tanstack/react-router"
 import { formatShortcut } from "@ui-sdk/react/shortcuts"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { ArrowRightIcon, ClipboardCheckIcon, FolderIcon, HistoryIcon, MessageSquareIcon, PlusIcon, SearchIcon, type LucideIcon } from "lucide-react"
@@ -21,6 +21,7 @@ import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { Tabs, TabsList, TabsTab } from "../components/ui/Tabs.tsx"
 import { KIND_LABELS, KindIcon } from "../docs/kinds.tsx"
 import { searchFamily, workspaceIdAtom } from "../lib/cello.ts"
+import { openTaskHere } from "../task/openTaskHere.ts"
 import { relativeTime } from "../lib/format.ts"
 import { useBoard, useMediaQuery, useWorkspaceId } from "../lib/hooks.ts"
 import { readStored, writeStored } from "../lib/storage.ts"
@@ -69,6 +70,7 @@ function Bar({ chosen, layout, onClose, onToggleSidebar }: { chosen: BarLayout; 
   const board = useBoard()
   const workspaceId = useWorkspaceId()
   const navigate = useNavigate()
+  const router = useRouter()
   const setWorkspace = useAtomSet(workspaceIdAtom)
   const [query, setQuery] = useState("")
   const [page, setPage] = useState<Page | null>(null)
@@ -118,10 +120,12 @@ function Bar({ chosen, layout, onClose, onToggleSidebar }: { chosen: BarLayout; 
     onClose()
     switch (target.to) {
       case "task":
+        // Enter: where its links open, so the page you're on stays (CEL-144); ⌘Enter: its board.
+        if (!target.board) return openTaskHere(router, target, { comment: target.comment })
         return void navigate({
           to: "/$projectKey/$number",
           params: { projectKey: target.projectKey, number: String(target.number) },
-          search: { ...(target.full ? { view: "full" as const } : {}), ...(target.comment ? { comment: target.comment } : {}) },
+          search: target.comment ? { comment: target.comment } : {},
         })
       case "review":
         return void navigate({ to: "/review", search: { open: target.key } })
@@ -142,10 +146,11 @@ function Bar({ chosen, layout, onClose, onToggleSidebar }: { chosen: BarLayout; 
   }
 
   const run = (value: string, event: Event | undefined) => {
-    const full = event instanceof KeyboardEvent || event instanceof MouseEvent ? event.metaKey || event.ctrlKey : false
+    // ⌘Enter, or ⌘-click on a row: the task's board, as ⌘-click on a task link.
+    const toBoard = event instanceof KeyboardEvent || event instanceof MouseEvent ? event.metaKey || event.ctrlKey : false
     const row = rowByValue.get(value)
     if (row) {
-      const target = targetOf(row.hit, full)
+      const target = targetOf(row.hit, toBoard)
       return target ? go(target) : undefined
     }
     const action = actionByValue.get(value)
@@ -515,7 +520,7 @@ function Footer({ chosen, openable }: { chosen: BarLayout; openable: boolean }) 
       </span>
       {openable ? (
         <span className="flex items-center gap-1.5 max-sm:hidden">
-          <Kbd>{formatShortcut("mod+enter")}</Kbd> full page
+          <Kbd>{formatShortcut("mod+enter")}</Kbd> open in board
         </span>
       ) : null}
       <span className="flex items-center gap-1.5 max-sm:hidden">

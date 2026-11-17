@@ -1,9 +1,11 @@
 // The ⌘K bar (CEL-43): search everything in Cello, and run actions, from anywhere, against a real
 // server's FTS5 search (the one `cello search` uses). Peek is the default (a result list and a preview),
 // the footer and Settings switch to Palette and the choice is remembered; Peek shows as Palette in a
-// narrow window. Enter on a comment lands on it, flashed once. A key jumps; ⌘Enter opens the full
-// page; the actions create a task, go to Review, switch project, toggle the sidebar and the theme.
-// One test also saves light and dark screenshots of both layouts, for the review packet.
+// narrow window. Enter on a task opens it where its links open (CEL-144): docked on its own board, or
+// else in the side panel of the page you're on, which stays; ⌘Enter goes to its board. Enter on a
+// comment lands on it, flashed once, in the panel or on the board. A key jumps; the actions create a
+// task, go to Review, switch project, toggle the sidebar and the theme. Tests also save light and dark
+// screenshots of both layouts and of a comment opened beside a page, for the review packet.
 import * as fs from "node:fs"
 import * as path from "node:path"
 import type { Browser, Page } from "@playwright/test"
@@ -127,6 +129,14 @@ const bar = (page: Page) => page.getByRole("dialog", { name: "Search Cello" })
 const field = (page: Page) => bar(page).getByRole("combobox", { name: "Search Cello" })
 const option = (page: Page, name: string | RegExp) => bar(page).getByRole("option", { name })
 const preview = (page: Page) => bar(page).locator("[data-search-preview]")
+const viewerOf = (page: Page) => page.getByRole("complementary", { name: "Viewer" })
+
+/** The page is at `pathname`, with task `key` in its side panel (at a comment when `comment`). */
+const showsBeside = (pathname: string, key: string, comment = false) => (url: URL) => {
+  const [projectKey, number] = key.split("-")
+  const viewer = url.searchParams.get("viewer") ?? ""
+  return url.pathname === pathname && (comment ? viewer.startsWith(`/${projectKey}/${number}?comment=`) : viewer === `/${projectKey}/${number}`)
+}
 
 /** Presses ↓ until `row` is highlighted. */
 async function highlight(page: Page, row: ReturnType<Page["locator"]>) {
@@ -202,41 +212,81 @@ test("⌘K: Peek lists results by kind with the words highlighted, previews the 
   await expect(taskPanel(page, "CEL-6")).toBeVisible()
 })
 
-test("⌘K: Enter on a comment opens its task scrolled to that comment, which flashes once", async ({ cello, page, baseURL }) => {
-  await seed(cello, baseURL!)
-  await page.setViewportSize({ width: 1280, height: 640 })
-  await boardOf(page, "THAI")
-  await caption(page, "From another project: ⌘K, “record it again”")
+/** ⌘K, `words`, and highlights the comment that asks to record the video again. */
+async function findComment(page: Page, words: string) {
   await openBar(page)
-  await field(page).pressSequentially("record it again", { delay: 60 })
-  const comment = bar(page).locator('[data-section="comment"] [role="option"]').first()
-  await expect(comment).toContainText("Can you record it again")
-  await caption(page, "Enter on the comment: CEL-9 opens, scrolled down to it, which flashes once")
+  await field(page).pressSequentially(words, { delay: 60 })
+  const comment = bar(page).locator('[data-section="comment"] [role="option"]').filter({ hasText: "Can you record it again" }).first()
+  await expect(comment).toBeVisible()
   await highlight(page, comment)
-  await page.keyboard.press("Enter")
-  await expect(page).toHaveURL(/\/CEL\/9\?comment=/)
-  const target = taskPanel(page, "CEL-9").locator("li[data-target]")
+}
+
+/** The comment ⌘K opened at, in `where`: scrolled to and flashed once, the thread's first comment scrolled away above it. */
+async function landsOnComment(where: ReturnType<Page["locator"]>) {
+  const target = where.locator("li[data-target]")
   await expect(target).toContainText(TARGET)
   await expect(target).toBeInViewport()
   await expect(target).toHaveClass(/comment-flash/)
   // One run of the flash, not a loop.
   expect(await target.evaluate((el) => getComputedStyle(el).animationIterationCount)).toBe("1")
-  // The first comment of the thread is scrolled away above it.
-  await expect(taskPanel(page, "CEL-9").locator("li[data-comment-id]").first()).not.toBeInViewport()
+  await expect(where.locator("li[data-comment-id]").first()).not.toBeInViewport()
+}
+
+test("⌘K: Enter on a comment opens its task beside the page you're on, scrolled to that comment, which flashes once; ⌘Enter opens it on the board (CEL-144)", async ({ cello, page, baseURL }) => {
+  await seed(cello, baseURL!)
+  await page.setViewportSize({ width: 1280, height: 640 })
+  await boardOf(page, "THAI")
+  await caption(page, "On ThaiLookup's board: ⌘K, “record it again”, a comment on CEL-9")
+  await findComment(page, "record it again")
+  await caption(page, "Enter: CEL-9 opens in the side panel, scrolled down to the comment, which flashes once; ThaiLookup's board stays")
+  await page.keyboard.press("Enter")
+  await expect(page).toHaveURL(showsBeside("/THAI/issues", "CEL-9", true))
+  await expect(card(page, "THAI-1")).toBeVisible()
+  await landsOnComment(viewerOf(page))
+
+  await caption(page, "⌘K again, the same comment, ⌘Enter: CEL-9 on Cello's board, at the comment")
+  await findComment(page, "record it again")
+  await page.keyboard.press("ControlOrMeta+Enter")
+  await expect(page).toHaveURL(/\/CEL\/9\?comment=[^&]+$/)
+  await expect(viewerOf(page)).toHaveCount(0)
+  await landsOnComment(taskPanel(page, "CEL-9"))
 })
 
-test("⌘K: a key jumps to the task; ⌘Enter opens it as a full page; the key's mentions are listed", async ({ cello, page, baseURL }) => {
+test("⌘K on the Review page: Enter on a task opens it in the side panel and Review stays; ⌘Enter goes to its board; a key's mentions are listed (CEL-144)", async ({ cello, page, baseURL }) => {
   await seed(cello, baseURL!)
-  await boardOf(page, "CEL")
-  await caption(page, "Type CEL-9: a Go to row on top, then what mentions it")
+  await page.goto("/review?open=CEL-12")
+  await expect(page.locator('[data-review-task="CEL-12"]')).toBeVisible()
+  await caption(page, "On the Review page, CEL-12's packet open: ⌘K, type CEL-9, a Go to row on top, then what mentions it")
   await openBar(page)
   await field(page).pressSequentially("CEL-9", { delay: 60 })
   await expect(option(page, /Comments from Lucas reach the agent's session/).first()).toBeVisible()
   await expect(bar(page).getByText("Jump")).toBeVisible()
   await expect(bar(page).locator('[data-section="mentions"]')).toContainText("Review page uses the full width")
-  await caption(page, "⌘Enter opens it as a full page")
+  // The footer and the preview both say what ⌘Enter does now.
+  await expect(bar(page).getByText(/open in board$/)).toBeVisible()
+  await expect(preview(page)).toContainText("Open in board")
+  await expect(preview(page)).not.toContainText("Full page")
+
+  await caption(page, "Enter: CEL-9 opens in the Review page's side panel; the packet stays open beside it")
+  await page.keyboard.press("Enter")
+  await expect(bar(page)).toBeHidden()
+  await expect(page).toHaveURL(showsBeside("/review", "CEL-9"))
+  await expect(viewerOf(page).getByLabel("Title")).toHaveValue("Comments from Lucas reach the agent's session")
+  await expect(page.locator('[data-review-task="CEL-12"]')).toBeVisible()
+
+  await caption(page, "Close the panel: Review, exactly as it was")
+  await viewerOf(page).getByRole("button", { name: "Close viewer" }).click()
+  await expect(viewerOf(page)).toHaveCount(0)
+  await expect(page).toHaveURL((url) => url.pathname === "/review" && url.searchParams.get("open") === "CEL-12" && !url.searchParams.has("viewer"))
+
+  await caption(page, "⌘K, CEL-9, ⌘Enter: it goes to CEL-9 on Cello's board, as ⌘-click on a task link")
+  await openBar(page)
+  await field(page).pressSequentially("CEL-9", { delay: 60 })
+  await expect(bar(page).getByText("Jump")).toBeVisible()
   await page.keyboard.press("ControlOrMeta+Enter")
-  await expect(page).toHaveURL(/\/CEL\/9\?view=full$/)
+  await expect(page).toHaveURL(/\/CEL\/9$/)
+  await expect(taskPanel(page, "CEL-9")).toBeVisible()
+  await expect(card(page, "CEL-1")).toBeVisible()
 })
 
 test("⌘K: the footer switches to Palette, remembered after a reload; Settings shows and changes it; a narrow window shows Palette", async ({ cello, page, baseURL }) => {
@@ -342,10 +392,25 @@ async function shots(browser: Browser, layout: "peek" | "palette", scheme: "ligh
   await context.close()
 }
 
-test("⌘K: screenshots of both layouts, light and dark", async ({ cello, browser, baseURL }) => {
+/** The Review page with CEL-9 opened beside it from ⌘K, at its comment: search/cel-144-comment-beside-review-<scheme>.png. */
+async function besideShot(browser: Browser, scheme: "light" | "dark") {
+  const context = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, colorScheme: scheme, reducedMotion: "reduce" })
+  const page = await context.newPage()
+  await page.goto("/review?open=CEL-12")
+  await expect(page.locator('[data-review-task="CEL-12"]')).toBeVisible()
+  await findComment(page, "record it again")
+  await page.keyboard.press("Enter")
+  await expect(page).toHaveURL(showsBeside("/review", "CEL-9", true))
+  await expect(viewerOf(page).locator("li[data-target]")).toBeInViewport()
+  await page.screenshot({ path: path.join(OUT, `cel-144-comment-beside-review-${scheme}.png`) })
+  await context.close()
+}
+
+test("⌘K: screenshots of both layouts, and of a comment opened beside the Review page, light and dark", async ({ cello, browser, baseURL }) => {
   await seed(cello, baseURL!)
   fs.mkdirSync(OUT, { recursive: true })
   for (const layout of ["peek", "palette"] as const) {
     for (const scheme of ["light", "dark"] as const) await shots(browser, layout, scheme)
   }
+  for (const scheme of ["light", "dark"] as const) await besideShot(browser, scheme)
 })

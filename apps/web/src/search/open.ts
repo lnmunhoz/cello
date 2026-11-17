@@ -4,8 +4,12 @@ import type { SearchHit } from "@cello/contract/search"
 import { parseTaskKey } from "@cello/shared/taskKey"
 
 export type Target =
-  /** A task in the panel, or as a full page; `comment`: scrolled to that comment, which flashes once. */
-  | { readonly to: "task"; readonly projectKey: string; readonly number: number; readonly full: boolean; readonly comment?: string }
+  /**
+   * A task where its links open (task/openTaskHere.ts: beside the page you're on, or docked on its own
+   * board, CEL-144), or, with `board`, on its project's board; `comment`: scrolled to that comment,
+   * which flashes once.
+   */
+  | { readonly to: "task"; readonly projectKey: string; readonly number: number; readonly board: boolean; readonly comment?: string }
   /** The Review page with this task's packet open. */
   | { readonly to: "review"; readonly key: string }
   | { readonly to: "page"; readonly projectKey: string; readonly slug: string }
@@ -14,20 +18,20 @@ export type Target =
   | { readonly to: "settings"; readonly projectKey?: string }
 
 /**
- * Enter opens a hit; ⌘Enter (`full`) opens its task as a full page. A comment opens its task at the
- * comment; a packet still waiting for Lucas opens on the Review page; a label opens Settings, where
- * labels live, on its project's labels.
+ * Enter opens a hit; ⌘Enter (`board`) goes to its task's board, as ⌘-click on a task link does
+ * (CEL-144). A comment opens its task at the comment; a packet still waiting for Lucas opens on the
+ * Review page; a label opens Settings, where labels live, on its project's labels.
  */
-export const targetOf = (hit: SearchHit, full: boolean): Target | null => {
+export const targetOf = (hit: SearchHit, board: boolean): Target | null => {
   const key = hit.taskKey ? parseTaskKey(hit.taskKey) : null
   switch (hit.kind) {
     case "task":
-      return key ? { to: "task", ...key, full } : null
+      return key ? { to: "task", ...key, board } : null
     case "comment":
-      return key ? { to: "task", ...key, full, comment: hit.id } : null
+      return key ? { to: "task", ...key, board, comment: hit.id } : null
     case "packet":
-      if (hit.decision === null && !full && hit.taskKey) return { to: "review", key: hit.taskKey }
-      return key ? { to: "task", ...key, full } : null
+      if (hit.decision === null && !board && hit.taskKey) return { to: "review", key: hit.taskKey }
+      return key ? { to: "task", ...key, board } : null
     case "document":
       return hit.slug ? { to: "page", projectKey: hit.projectKey, slug: hit.slug } : null
     case "project":
