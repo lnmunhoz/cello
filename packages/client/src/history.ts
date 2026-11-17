@@ -1,6 +1,6 @@
 // One plain line per history event, for the task panel and `cello task get`.
 import type { BoardState } from "./sync/applyEvents.ts"
-import type { CelloEvent } from "@cello/contract/events"
+import { isReadable, type StreamedEvent } from "@cello/contract/events"
 import { stageInfo } from "@cello/contract/stages"
 import { NOT_WOKEN_TEXT, RUN_END_TEXT, runLength, WAKE_WHY_TEXT } from "@cello/contract/wake"
 import { andList } from "@cello/shared/words"
@@ -38,8 +38,10 @@ export interface EventDoer {
 /**
  * `name`: who did it, when the caller knows better than the actor's name ("Claude Code session
  * 2fd0505c", "cello-builder · a13bfb89", CEL-55; or a subject and a plain name, CEL-119); else the actor's name.
+ * An event this build can't read (a newer server's, CEL-135) says only that a change happened.
  */
-export const describeEvent = (e: CelloEvent, state: HistoryNames, name?: string | EventDoer): string => {
+export const describeEvent = (e: StreamedEvent, state: HistoryNames, name?: string | EventDoer): string => {
+  if (!isReadable(e)) return "A change this version of Cello can't show"
   const fallback = state.actors[e.actorId]?.name ?? "Someone"
   const who = typeof name === "object" ? name.subject : name ?? fallback
   const plain = typeof name === "object" ? name.plain : name ?? fallback

@@ -225,16 +225,23 @@ describe("StreamedEvent", () => {
     expect(decode(archived)).toEqual(Schema.decodeUnknownSync(CelloEvent)(archived))
   })
 
-  it("reads an event of a type this build doesn't know as unreadable, keeping its seq and type", () => {
+  // Its time too, when it has one: a task's history shows when the change it can't read happened (CEL-135).
+  const unreadable = (sentType: string) => ({ type: "unreadable", seq: 7, ts: envelope.ts, sentType })
+
+  it("reads an event of a type this build doesn't know as unreadable, keeping its seq, time and type", () => {
     expect(decode({ ...envelope, schemaVersion: 1, type: "test.from-a-newer-build", note: "only a newer build reads this" }))
-      .toEqual({ type: "unreadable", seq: 7, sentType: "test.from-a-newer-build" })
+      .toEqual(unreadable("test.from-a-newer-build"))
   })
 
   it("reads a known type in a shape this build can't read, or a newer schema version, as unreadable too", () => {
-    expect(decode({ ...envelope, schemaVersion: 1, type: "task.archived" })).toEqual({ type: "unreadable", seq: 7, sentType: "task.archived" })
+    expect(decode({ ...envelope, schemaVersion: 1, type: "task.archived" })).toEqual(unreadable("task.archived"))
     expect(decode({ ...envelope, schemaVersion: 1, type: "session.orchestrating", session: "s-1", on: true }))
-      .toEqual({ type: "unreadable", seq: 7, sentType: "session.orchestrating" })
-    expect(decode({ ...archived, schemaVersion: 2 })).toEqual({ type: "unreadable", seq: 7, sentType: "task.archived" })
+      .toEqual(unreadable("session.orchestrating"))
+    expect(decode({ ...archived, schemaVersion: 2 })).toEqual(unreadable("task.archived"))
+  })
+
+  it("needs only a seq and a type to skip past: an event without a time is still unreadable, not a failure", () => {
+    expect(decode({ seq: 7, type: "test.from-a-newer-build" })).toEqual({ type: "unreadable", seq: 7, sentType: "test.from-a-newer-build" })
   })
 
   it("still refuses something that isn't an event at all: without a seq there is nothing to skip past", () => {

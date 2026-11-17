@@ -2,7 +2,7 @@
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { Actor, AgentSession, Ask, Comment, DeliveryVia, DocumentSummary, InboxItems, Label, Milestone, Millis, Project, Review, SessionAgent, Status, Task, TestingProfile } from "./entities.ts"
-import { CelloEvent } from "./events.ts"
+import { CelloEvent, StreamedEvent } from "./events.ts"
 
 /**
  * Who the server sees: the actor, its agent session (null for the human), the session's subagent making
@@ -121,6 +121,14 @@ export type AskWaited = typeof AskWaited.Type
 export const TaskList = Schema.Struct({ ...projectFields, tasks: Schema.Array(Task) })
 export type TaskList = typeof TaskList.Type
 
+/**
+ * A task's events, oldest first: `task.history`, and `task.get`'s history. Read like the event stream
+ * (CEL-131): an event this build can't read comes back as unreadable instead of failing the whole
+ * response, so an older tab still shows the rest of a task's history (CEL-135).
+ */
+export const TaskHistory = Schema.Array(StreamedEvent)
+export type TaskHistory = typeof TaskHistory.Type
+
 export const TaskDetail = Schema.Struct({
   ...projectFields,
   task: Task,
@@ -132,7 +140,7 @@ export const TaskDetail = Schema.Struct({
   /** Documents linked to the task that aren't archived, newest first. */
   documents: Schema.Array(DocumentSummary),
   /** Every event about the task, oldest first. */
-  history: Schema.Array(CelloEvent),
+  history: TaskHistory,
 })
 export type TaskDetail = typeof TaskDetail.Type
 

@@ -186,7 +186,7 @@ Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.loca
   Publishing again updates a document in place, and its old versions are kept.
 - **Reaction:** an emoji on a comment (👍 ✅ 👀 ❤️ 🎉 …), the human's quick answer that needs no words. Their reactions to your comments reach your session like their comments; \`cello task react\` adds yours. See Reactions.
 - **Testing profile:** how to test this project's repo and collect evidence: the install, unit test and typecheck commands, how to start the app and where it's ready, each e2e surface with its videos and screenshots folders, and what a packet needs. It lives in Cello, one per project, shown by \`cello context\` and in Settings. It's current best knowledge, not a fixed config: it changes as the repo does, and agents keep it right. See The testing profile.
-- **History:** every change is recorded with who made it. \`cello task get\` shows a task's history; \`cello context\` shows recent activity.
+- **History:** every change is recorded with who made it. \`cello task get\` shows a task's history; \`cello context\` shows recent activity. A change made by a newer version of Cello than the \`cello\` you're running shows as "A change this version of Cello can't show"; the rest of the history reads as usual.
 
 ## Start of every session
 

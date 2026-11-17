@@ -133,6 +133,15 @@ describe("describeEvent", () => {
   })
 })
 
+// CEL-135: a task's history from a newer server can hold an event this build can't read.
+describe("describeEvent: an event this build can't read", () => {
+  it("says a change happened that this version can't show, whoever made it", () => {
+    const unreadable = { type: "unreadable", seq: 6, ts: 1, sentType: "test.from-a-newer-build" } as const
+    expect(describeEvent(unreadable, state)).toBe("A change this version of Cello can't show")
+    expect(describeEvent(unreadable, state, "Claude Code session d0d47d35")).toBe("A change this version of Cello can't show")
+  })
+})
+
 describe("describeEvent: an old stage (CEL-105)", () => {
   it("a stage change stored as `designing`, before it was renamed, reads as Planning", () => {
     const stored = decodeEvent({ seq: 1, ts: 1, commandId: "c", actorId: "me", sessionId: null, workspaceId: "w", projectId: "p", schemaVersion: 1, type: "task.stage_changed", id: "t", version: 3, before: null, after: "designing" })
