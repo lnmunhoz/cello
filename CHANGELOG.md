@@ -3,6 +3,27 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.4.0](https://github.com/lnmunhoz/cello/compare/v0.3.1...v0.4.0) (2026-11-17)
+
+### Features
+
+- waking a session says so at once with a countdown and Wake now; each session shows where it runs (CEL-136, CEL-137) ([7a165a7](https://github.com/lnmunhoz/cello/commit/7a165a7225972fd5bf19d3a01ab8c9382d311301))
+- waiting on background work isn't finished; live test progress on the Agents page, card and panel (CEL-133, CEL-134) ([749ef3a](https://github.com/lnmunhoz/cello/commit/749ef3a15027534aa557afdb6da2615d38071304))
+- the Milestones tab, a page per milestone, the board grouped by milestone (CEL-132, CEL-113) ([eaa0f00](https://github.com/lnmunhoz/cello/commit/eaa0f00f76dc8062591d8aff983d4b417d54027c))
+- a Milestone section in the filter panel; task create --milestone none (CEL-113) ([8b59727](https://github.com/lnmunhoz/cello/commit/8b59727e3c07a92482bdc0f3f2c8321880267d16))
+- milestones per project, a task's milestone, the chip and the picker; M2/M3 labels become milestones (CEL-113) ([855289c](https://github.com/lnmunhoz/cello/commit/855289c85bd3de62747dab222228345cc6746264))
+- AskUserQuestion is denied only where nobody watches: orchestrate mode, subagents, woken runs (CEL-124) ([391ed1d](https://github.com/lnmunhoz/cello/commit/391ed1db8c68feac996345ade5493e66ef3cd430))
+
+### Fixes
+
+- skip events this build can't read instead of freezing the board (CEL-131) ([2047f20](https://github.com/lnmunhoz/cello/commit/2047f2062c8022c0ebefffcb26305a74dcd3dd5a))
+- comments, descriptions, packets and asks render GitHub-flavored markdown, tables included (CEL-127) ([585a4da](https://github.com/lnmunhoz/cello/commit/585a4dad998df0bb9b9f8897848a840151b8fdb9))
+
+### Other changes
+
+- **e2e:** open a project by its key, not its name, so tests that share a server don't click another run's project (CEL-16) ([81532e5](https://github.com/lnmunhoz/cello/commit/81532e5f2bb17a0432ff64b78efefc04e53e19d2))
+- **e2e:** a stopped subagent moves to Finished today instead of leaving the Agents page (CEL-123, CEL-120) ([f0a63c6](https://github.com/lnmunhoz/cello/commit/f0a63c60d6c4fbeb9864fa326bf02c52069db502))
+
 ## [0.3.1](https://github.com/lnmunhoz/cello/compare/v0.3.0...v0.3.1) (2026-11-16)
 
 ### Fixes
