@@ -99,13 +99,16 @@ export function ReviewActions({ task, onDecision, typed = "", screenshots = [], 
   const withShots = attachmentIds.length > 0 ? { attachmentIds } : {}
   const sendBackWith = (note: string) => sendBack({ key: task.key, note, ...withShots })
   const pending = state.phase === "pending" ? state.decision : null
-  const waiting = pending !== null || uploading
+  const waiting = state.phase === "pending" || state.phase === "decided" || uploading
   const failure = state.phase === "failed" ? state.message : null
 
-  /** Whether the server took it. These buttons go back to idle either way: the row (or the panel) shows what was decided. */
+  /**
+   * Whether the server took it. Where a page listens (`onDecision`), it shows what was decided and takes
+   * the row away, so the buttons stay as they are meanwhile; elsewhere they go back to idle.
+   */
   const run = async (decision: Decision, action: () => Promise<Exit.Exit<unknown, unknown>>) => {
     const step = (event: DecisionEvent) => {
-      setState((s) => (event.type === "taken" ? IDLE : decisionStep(s, event)))
+      setState((s) => (event.type === "taken" && !onDecision ? IDLE : decisionStep(s, event)))
       onDecision?.(event)
     }
     step({ type: "clicked", decision })
