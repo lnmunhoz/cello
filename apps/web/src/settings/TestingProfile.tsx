@@ -1,4 +1,4 @@
-// Settings' Testing section (CEL-89): the project's testing profile, how agents test its repo and
+// The project's Settings tab, Testing section (CEL-89): the project's testing profile, how agents test its repo and
 // collect evidence. Each field shows where its value came from; what Lucas sets here is his, and agents
 // can't change it (they ask on the card).
 import { DEFAULT_UI_RUNS_IN, e2eField, UI_RUNS_IN } from "@cello/shared/testingProfile"

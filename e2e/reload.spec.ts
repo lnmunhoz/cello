@@ -125,13 +125,13 @@ test("CEL-37: a new label's name typed in Settings and left is a draft too: the 
   const dataDir = fs.mkdtempSync(path.join(work, "data-"))
   const a = await startCello(A, port, dataDir)
   await seed(port)
-  await page.goto(`http://127.0.0.1:${port}/settings`)
+  await page.goto(`http://127.0.0.1:${port}/CEL/settings`)
   const bar = page.locator("[data-reload-bar]")
 
-  await caption(page, "In Settings, type a new label's name, then click away without adding it")
+  await caption(page, "In the project's Settings tab, type a new label's name, then click away without adding it")
   const name = page.getByRole("textbox", { name: "New label name" })
   await name.fill("needs-design")
-  await page.getByRole("main").click({ position: { x: 600, y: 860 } })
+  await page.getByRole("main").click({ position: { x: 1100, y: 600 } })
   await expect(name).not.toBeFocused()
 
   await caption(page, "Deploy build bbbbbbb: the typed name would be lost, so the bar only offers the reload")

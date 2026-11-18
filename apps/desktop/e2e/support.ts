@@ -38,6 +38,9 @@ export const COMMAND_OR_CONTROL = process.platform === "darwin" ? "meta" : "cont
 /** The panel's shortcut as captions spell it. */
 export const TOGGLE_PANEL_KEYS = process.platform === "darwin" ? "⌘\\" : "Ctrl+\\"
 
+/** The sidebar's Settings link: a project's tabs have a Settings link of their own, so a click by name alone matches two. */
+export const sidebarSettings = (page: Page) => page.getByRole("complementary").getByRole("link", { name: "Settings", exact: true })
+
 /**
  * Chromium switches for the Docker run (Linux under Xvfb), none on the Mac:
  * - `--no-sandbox` when running as root, which the container does: Chromium won't start as root

@@ -1,4 +1,4 @@
-// Settings' Waking section (CEL-92): whether Cello wakes a project's agent sessions by itself when you
+// The project's Settings tab, Waking agents section (CEL-92): whether Cello wakes a project's agent sessions by itself when you
 // act on a task they claimed and their process is gone (off by default), the cap, what a woken run may
 // do, and a warning when woken runs would bill an API key.
 import { useAtomSet, useAtomValue } from "@effect/atom-react"

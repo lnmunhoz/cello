@@ -68,6 +68,9 @@ export function useActions({ board, workspaceId, layout, typed, onToggleSidebar 
       case "docs":
         if (project) void navigate({ to: "/$projectKey/docs", params: { projectKey: project.key } })
         return "done"
+      case "project-settings":
+        if (project) void navigate({ to: "/$projectKey/settings", params: { projectKey: project.key } })
+        return "done"
       case "switch-project":
         return "projects"
       case "switch-workspace":

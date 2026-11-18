@@ -39,7 +39,7 @@ flowchart TD
 | **Approved · merging** | Being merged into main after your Approve | Not yet |
 | **Done** | **Merged into main**, not released yet | **After the next release**: you say when (below) |
 
-**Cello merges after you approve** (Settings → the project → "Merge after I approve", on since Nov 18; `cello context` prints it): agents submit before they merge, and your "Approve and merge" tells them to merge. **Releases happen only when you say so** (Nov 18): nothing goes live on your board until you ask for a release. Then everything merged since the last one goes out together. After that, two parts update differently:
+**Cello merges after you approve** (the project's Settings tab → "Merge after I approve", on since Nov 18; `cello context` prints it): agents submit before they merge, and your "Approve and merge" tells them to merge. **Releases happen only when you say so** (Nov 18): nothing goes live on your board until you ask for a release. Then everything merged since the last one goes out together. After that, two parts update differently:
 
 - **The board, the Review page, every screen** come from the server. After a deploy, open tabs and the desktop app notice the new build when they reconnect: "Cello was updated · Reload", and they reload by themselves after 5 seconds unless you're typing (CEL-37). The sidebar's footer shows the build you're running ("Cello 0.2.0 · build c602f25 · live since 18:19"); a click lists what that build changed.
 - **The desktop app's own shell** (its icon, the side panel's browser) only changes when the app is repackaged. That happens only for desktop changes, and the packet says so.
@@ -166,7 +166,7 @@ flowchart TD
 
 **Feedback in chat works the same as Send back.** If Lucas reviews a task in the conversation instead of on the Review page, the orchestrator puts his words on the card as a comment ("Lucas, in chat (review): …"), moves the task back to In Progress, and the fix goes through build, review and a new packet like any Send back.
 
-**Approve is the gate:** nothing reaches main before it. Each project chooses (Settings → the project → "Merge after I approve", CEL-143), and Cello's own has it on. The packet comes before the merge, with the PR link when the project uses PRs, and Approve is the gate: the button reads "Approve and merge", the card stays in In Review as **Approved · merging**, and the orchestrator's session is told to merge. It merges, then `cello task done CEL-n` moves the task to Done. With the setting off (some other projects), the order is reversed: the orchestrator merges before it submits, and Approve only moves the task to Done.
+**Approve is the gate:** nothing reaches main before it. Each project chooses (the project's Settings tab → "Merge after I approve", CEL-143), and Cello's own has it on. The packet comes before the merge, with the PR link when the project uses PRs, and Approve is the gate: the button reads "Approve and merge", the card stays in In Review as **Approved · merging**, and the orchestrator's session is told to merge. It merges, then `cello task done CEL-n` moves the task to Done. With the setting off (some other projects), the order is reversed: the orchestrator merges before it submits, and Approve only moves the task to Done.
 
 ```mermaid
 flowchart TD

@@ -142,8 +142,8 @@ function Bar({ chosen, layout, onClose, onToggleSidebar }: { chosen: BarLayout; 
         return void navigate({ to: "/$projectKey/pages/$slug", params: { projectKey: target.projectKey, slug: target.slug } })
       case "issues":
         return void navigate({ to: "/$projectKey/issues", params: { projectKey: target.projectKey } })
-      case "settings":
-        return void navigate({ to: "/settings", search: target.projectKey ? { project: target.projectKey } : {} })
+      case "projectSettings":
+        return void navigate({ to: "/$projectKey/settings", params: { projectKey: target.projectKey } })
     }
   }
 

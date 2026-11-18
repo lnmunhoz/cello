@@ -209,7 +209,7 @@ export function Preview({ hit, board }: { hit: SearchHit; board: BoardState }) {
           ) : null
         })}
       </div>
-      <OpenHint label={hit.kind === "label" ? "Open labels in Settings" : "Open the project"} />
+      <OpenHint label={hit.kind === "label" ? "Open the project's settings" : "Open the project"} />
     </div>
   )
 }

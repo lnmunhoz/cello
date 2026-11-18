@@ -144,7 +144,7 @@ Allowed `cello` commands in /Users/lnmunhoz/projects/app/.claude/settings.local.
 - **Label:** a name and a colour on a task. Each project has its own labels: CEL's `bug` and THAI's `bug` are two labels. A task can carry several of its project's labels. `cello label list` shows them; see Labels.
 - **Milestone:** a goal for a project ("M3 · Watching agents"), with an optional target date, in the order the human sets. Each task is in at most one. How far along it is (done of total) is counted from its tasks' statuses, never typed in. Each project has its own milestones. Agents create, edit and assign them; only the human closes one, like approving a review. See Milestones.
 - **Project:** one product, usually one git repository, with its own key (`CEL`). The CLI works out the project from the repository you're in; `--project KEY` picks another.
-  - **Merge after approval** is a project setting (Settings → the project → "Merge after I approve"), which `cello context` shows. **Off:** you merge before you submit, and the human's Approve moves the task to Done. **On:** you submit before you merge (with the PR link when the project uses PRs), and their Approve tells you to merge; you finish with `cello task done`. New projects with a repository start with it on; projects made before it existed stay off until the human turns it on. See Merge after I approve.
+  - **Merge after approval** is a project setting (the project's Settings tab → "Merge after I approve"), which `cello context` shows. **Off:** you merge before you submit, and the human's Approve moves the task to Done. **On:** you submit before you merge (with the PR link when the project uses PRs), and their Approve tells you to merge; you finish with `cello task done`. New projects with a repository start with it on; projects made before it existed stay off until the human turns it on. See Merge after I approve.
 - **Task:** a card, keyed `<PROJECT>-<number>` (`CEL-12`). It has a title, a markdown description, a status, a priority, labels, an optional milestone, an optional parent task, comments and a history.
 - **Status:** a column on the board, shared by the workspace. Names match in any case. `cello context` lists a workspace's own; the defaults are:
 
@@ -183,7 +183,7 @@ Allowed `cello` commands in /Users/lnmunhoz/projects/app/.claude/settings.local.
 
   Publishing again updates a document in place, and its old versions are kept.
 - **Reaction:** an emoji on a comment (👍 ✅ 👀 ❤️ 🎉 …), the human's quick answer that needs no words. Their reactions to your comments reach your session like their comments; `cello task react` adds yours. See Reactions.
-- **Testing profile:** how to test this project's repo and collect evidence: the install, unit test and typecheck commands, how to start the app and where it's ready, each e2e surface with its videos and screenshots folders, and what a packet needs. It lives in Cello, one per project, shown by `cello context` and in Settings. It's current best knowledge, not a fixed config: it changes as the repo does, and agents keep it right. See The testing profile.
+- **Testing profile:** how to test this project's repo and collect evidence: the install, unit test and typecheck commands, how to start the app and where it's ready, each e2e surface with its videos and screenshots folders, and what a packet needs. It lives in Cello, one per project, shown by `cello context` and on the project's Settings tab. It's current best knowledge, not a fixed config: it changes as the repo does, and agents keep it right. See The testing profile.
 - **History:** every change is recorded with who made it. `cello task get` shows a task's history; `cello context` shows recent activity. A change made by a newer version of Cello than the `cello` you're running shows as "A change this version of Cello can't show"; the rest of the history reads as usual.
 
 ## Start of every session
@@ -239,7 +239,7 @@ Each project has a testing profile in Cello: how to test its repo and how to col
 - **When a command in it fails** because the command is wrong (the script was renamed, the port moved), find the right one and set it.
 - **When the repo changes** (you add an e2e tool, a new surface, a script, a port), update the fields your change affects in the same task.
 - **Say so in your review packet**, in the summary: which fields you changed and why ("`e2e.web.run` was `bun run e2e`, which no longer exists; now `bun run test:e2e`").
-- **Fields the human set are theirs.** An agent can't change or unset them; Cello refuses with "Ana Souza set unit (…)". If one is wrong, ask them on the card with `cello task ask` (see Questions for the human) and mention it in your packet. Their edits, in Settings or from their own `cello`, overwrite anything.
+- **Fields the human set are theirs.** An agent can't change or unset them; Cello refuses with "Ana Souza set unit (…)". If one is wrong, ask them on the card with `cello task ask` (see Questions for the human) and mention it in your packet. Their edits, on the project's Settings tab or from their own `cello`, overwrite anything.
 - **Nothing to record with?** When the profile has no e2e surface and the work is UI, say so in your packet and bring what you can (screenshots, a transcript); don't set up a new e2e tool unless the task asks for it.
 
 Each field records who set it last (`detected`, `agent` or `human`) and when; setting the value it already has confirms it. Every change is an event, so Recent activity in `cello context` and Settings show who changed what.
@@ -762,7 +762,7 @@ Closing the terminal (or the Claude Code thread) ends the session. Nothing is lo
 
 ### When your process is gone, Cello can wake you
 
-A session doesn't die with its process: Claude Code keeps the conversation on disk. When the human comments on a task you claimed (or on one you worked on before, which their comment reopens for you), answers your ask, sends it back or reacts to your comment, and nothing of your session is running, Cello can continue your conversation itself, headless, in the folder you started Claude Code in (where it keeps the conversation). That's a **woken run**. It's off until the human turns it on for the project (Settings → the project → "Wake agent sessions when you comment").
+A session doesn't die with its process: Claude Code keeps the conversation on disk. When the human comments on a task you claimed (or on one you worked on before, which their comment reopens for you), answers your ask, sends it back or reacts to your comment, and nothing of your session is running, Cello can continue your conversation itself, headless, in the folder you started Claude Code in (where it keeps the conversation). That's a **woken run**. It's off until the human turns it on for the project (the project's Settings tab → "Wake agent sessions when you comment").
 
 What happens:
 
@@ -1010,7 +1010,7 @@ What to bring, by kind of work (the project's testing profile says how to make i
 
 ### Merge after I approve
 
-Each project says when its agents merge (`cello context` prints it: "Merge after approval  on" or "off"; the human changes it in Settings → the project).
+Each project says when its agents merge (`cello context` prints it: "Merge after approval  on" or "off"; the human changes it on the project's Settings tab).
 
 - **Off** (merge before review): build, merge and deploy, then `cello task submit`. Approve moves the task to Done and ends your claim.
 - **On** (merge after approval): the human reviews before anything lands. Build, then `cello task submit` with the evidence, plus the PR link when the project's rules use PRs (`--link https://github.com/acme/app/pull/7 --caption "The PR"`). You keep your claim while they review. When they press **Approve and merge**:

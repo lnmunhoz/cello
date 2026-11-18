@@ -1,4 +1,4 @@
-import { createRootRoute, createRoute, createRouter, Navigate, notFound, retainSearchParams, useParams } from "@tanstack/react-router"
+import { createRootRoute, createRoute, createRouter, Navigate, notFound, redirect, retainSearchParams, useParams } from "@tanstack/react-router"
 import { AgentsPage } from "../agents/AgentsPage.tsx"
 import { parseAgentsSearch } from "../agents/layout.ts"
 import { DocsPage } from "../docs/DocsPage.tsx"
@@ -15,7 +15,9 @@ import { ProjectLayout } from "../project/ProjectLayout.tsx"
 import { parseReviewSearch } from "../review/queue.ts"
 import { ReviewPage } from "../review/ReviewPage.tsx"
 import { BuildsPage } from "../settings/BuildsPage.tsx"
-import { parseSettingsSearch, Settings } from "../settings/Settings.tsx"
+import { ProjectSettings } from "../settings/ProjectSettings.tsx"
+import { parseSettingsSearch } from "../settings/search.ts"
+import { Settings } from "../settings/Settings.tsx"
 import { parseTaskSearch } from "../task/view.ts"
 import { ReleaseNotesPage, ReleasesPage } from "../updates/ReleasesPage.tsx"
 import { parseViewerSearch } from "../viewer/search.ts"
@@ -35,7 +37,16 @@ const root = createRootRoute({
 })
 
 const home = createRoute({ getParentRoute: () => root, path: "/", component: Home })
-const settings = createRoute({ getParentRoute: () => root, path: "/settings", component: Settings, validateSearch: parseSettingsSearch })
+// `?project=KEY` is the old address of a project's settings: they're on its Settings tab now (CEL-164).
+const settings = createRoute({
+  getParentRoute: () => root,
+  path: "/settings",
+  component: Settings,
+  validateSearch: parseSettingsSearch,
+  beforeLoad: ({ search }) => {
+    if (search.project) throw redirect({ to: "/$projectKey/settings", params: { projectKey: search.project }, replace: true })
+  },
+})
 // Settings → Builds (CEL-50). Static routes win over `$projectKey`; each top-level word is reserved as a
 // project key (reservedKeyProblem in packages/shared/src/taskKey.ts).
 const builds = createRoute({ getParentRoute: () => root, path: "/builds", component: BuildsPage })
@@ -68,6 +79,8 @@ const docs = createRoute({ getParentRoute: () => project, path: "docs", componen
 // The reader for every kind of document.
 const page = createRoute({ getParentRoute: () => project, path: "pages/$slug", component: PageReader, validateSearch: parsePageSearch })
 const activity = createRoute({ getParentRoute: () => project, path: "activity", component: () => <ComingSoon what="Activity" when="M3" /> })
+// A project's own settings (CEL-164): its labels, testing profile, waking agents and merge setting.
+const projectSettings = createRoute({ getParentRoute: () => project, path: "settings", component: ProjectSettings })
 // The same component as `issues`, so opening a task keeps the page mounted. `?view=full` shows the task as a full page.
 const task = createRoute({
   getParentRoute: () => project,
@@ -97,7 +110,7 @@ const milestoneTask = createRoute({
 // The Agents page (CEL-65): `?open=session:…` or `?open=agent:…/…`, the open row, so a reload or a link keeps it.
 const agents = createRoute({ getParentRoute: () => root, path: "/agents", component: AgentsPage, validateSearch: parseAgentsSearch })
 
-const routeTree = root.addChildren([home, settings, builds, releases, release, review, agents, project.addChildren([projectIndex, overview, issues, milestones, milestone, milestoneTask, docs, page, activity, task])])
+const routeTree = root.addChildren([home, settings, builds, releases, release, review, agents, project.addChildren([projectIndex, overview, issues, milestones, milestone, milestoneTask, docs, page, activity, projectSettings, task])])
 
 // An address no route matches shows a Not found screen with a way back, in the layout around it.
 export const router = createRouter({ routeTree, defaultPreload: false, defaultNotFoundComponent: RouteNotFound })

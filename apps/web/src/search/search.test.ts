@@ -56,10 +56,10 @@ describe("opening a result", () => {
     expect(targetOf(hit({ kind: "packet", id: "r", taskKey: "CEL-3" }), true)).toEqual({ to: "task", projectKey: "CEL", number: 3, board: true })
   })
 
-  it("a document opens its page, a project its issues, a label Settings", () => {
+  it("a document opens its page, a project its issues, a label its project's Settings tab", () => {
     expect(targetOf(hit({ kind: "document", id: "d", slug: "scope" }), false)).toEqual({ to: "page", projectKey: "CEL", slug: "scope" })
     expect(targetOf(hit({ kind: "project", id: "p", projectKey: "THAI" }), false)).toEqual({ to: "issues", projectKey: "THAI" })
-    expect(targetOf(hit({ kind: "label", id: "l", projectKey: "THAI" }), false)).toEqual({ to: "settings", projectKey: "THAI" })
+    expect(targetOf(hit({ kind: "label", id: "l", projectKey: "THAI" }), false)).toEqual({ to: "projectSettings", projectKey: "THAI" })
   })
 })
 
@@ -68,7 +68,7 @@ describe("recent places", () => {
     const task = recentOf({ to: "task", projectKey: "CEL", number: 9, board: false, comment: "c1" })!
     expect(task).toEqual({ kind: "task", key: "CEL-9" })
     expect(recentOf({ to: "review", key: "CEL-3" })).toEqual({ kind: "task", key: "CEL-3" })
-    expect(recentOf({ to: "settings" })).toBeNull()
+    expect(recentOf({ to: "projectSettings", projectKey: "CEL" })).toBeNull()
     const page = recentOf({ to: "page", projectKey: "CEL", slug: "scope" })!
     let list = withRecent(withRecent([], task), page)
     expect(list).toEqual([page, task])
@@ -92,7 +92,7 @@ const CONTEXT: ActionContext = { project: { name: "Cello" }, waiting: 2, workspa
 describe("the actions", () => {
   it("live in one list: create, Review with its count, the project's pages, switching, sidebar, theme, layout, settings", () => {
     const specs = actionSpecs(CONTEXT)
-    expect(specs.map((a) => a.id)).toEqual(["new-task", "review", "issues", "docs", "switch-project", "sidebar", "theme", "layout", "settings"])
+    expect(specs.map((a) => a.id)).toEqual(["new-task", "review", "issues", "docs", "project-settings", "switch-project", "sidebar", "theme", "layout", "settings"])
     expect(specs.find((a) => a.id === "review")).toMatchObject({ label: "Go to Review", meta: "2 waiting" })
     expect(specs.find((a) => a.id === "new-task")).toMatchObject({ label: "Create task in Cello…", opensList: true })
     expect(specs.find((a) => a.id === "sidebar")?.shortcut).toBe("mod+b")
@@ -101,6 +101,15 @@ describe("the actions", () => {
     expect(specs.find((a) => a.id === "layout")?.label).toBe("Search with the Palette layout")
     expect(actionSpecs({ ...CONTEXT, workspaces: 2 }).map((a) => a.id)).toContain("switch-workspace")
     expect(actionSpecs({ ...CONTEXT, project: null }).map((a) => a.id)).not.toContain("new-task")
+  })
+
+  it("Go to <project> settings finds labels, testing, waking and merging; Open settings is the global one (CEL-164)", () => {
+    const specs = actionSpecs(CONTEXT)
+    expect(specs.find((a) => a.id === "project-settings")?.label).toBe("Go to Cello settings")
+    expect(actionSpecs({ ...CONTEXT, project: null }).map((a) => a.id)).not.toContain("project-settings")
+    for (const word of ["labels", "testing", "profile", "waking", "merging"]) expect(matchActions(specs, word).map((a) => a.id)).toEqual(["project-settings"])
+    expect(matchActions(specs, "preferences").map((a) => a.id)).toEqual(["project-settings", "settings"])
+    expect(matchActions(specs, "statuses").map((a) => a.id)).toEqual(["settings"])
   })
 
   it("offer what's typed as a new task's title", () => {
