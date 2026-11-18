@@ -30,6 +30,8 @@ describe("importsOf", () => {
       `export { e } from "../e.ts"`,
       `// import { x } from "@cello/shared/commented"`,
       ` * import { y } from "@cello/shared/doc"`,
+      "const fixture = `import { _electron } from \"@playwright/test\"`",
+      `const other = 'from "@cello/shared/quoted"'`,
     ].join("\n")
     expect(importsOf(source)).toEqual(["@cello/domain/ask", "./b.ts", "./side.css", "node:fs", "effect", "../e.ts"])
   })

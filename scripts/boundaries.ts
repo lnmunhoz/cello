@@ -54,10 +54,15 @@ export const importsOf = (source: string): ReadonlyArray<string> => {
   for (const line of source.split("\n")) {
     const trimmed = line.trimStart()
     if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue
-    for (const match of line.matchAll(SPECIFIER)) found.push(match[2]!)
+    for (const match of line.matchAll(SPECIFIER)) {
+      if (!insideString(line.slice(0, match.index))) found.push(match[2]!)
+    }
   }
   return found
 }
+
+/** An import written inside a string (a test's fixture) has an open quote before it; a real one doesn't. */
+const insideString = (before: string): boolean => ["\"", "'", "`"].some((quote) => before.split(`\\${quote}`).join("").split(quote).length % 2 === 0)
 
 /** The package or app a file belongs to: `packages/domain/src/x.ts` is "packages/domain". Null for e2e and scripts. */
 export const ownerOf = (file: string): string | null => {

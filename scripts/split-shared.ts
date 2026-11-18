@@ -99,7 +99,8 @@ export const rewriteRelativeImports = (text: string, file: string): string => {
   const own = ownerOf(file)
   return text.replace(RELATIVE_IMPORT, (whole, lead: string, quote: string, name: string) => {
     const target = TARGETS.get(name)
-    if (target === undefined || own === null || target.group === "web" || own === `packages/${target.group}`) return whole
+    const inNewPackage = PACKAGES.some((name) => own === `packages/${name}`)
+    if (target === undefined || !inNewPackage || target.group === "web" || own === `packages/${target.group}`) return whole
     return `${lead}${quote}@cello/${target.group}/${name}${quote}`
   })
 }
@@ -147,7 +148,9 @@ const moveModules = (root: string, report: Report): void => {
   for (const file of files) {
     const to = `${TARGETS.get(moduleOfFile(file))!.dir}/${file}`
     fs.mkdirSync(path.dirname(path.join(root, to)), { recursive: true })
-    git(root, ["mv", `packages/shared/src/${file}`, to])
+    // A file git doesn't know yet (not added or committed on this branch) is moved on disk.
+    const moved = spawnSync("git", ["mv", `packages/shared/src/${file}`, to], { cwd: root, encoding: "utf8" })
+    if (moved.status !== 0) fs.renameSync(path.join(root, "packages/shared/src", file), path.join(root, to))
     report.moved.push(`${file} -> ${to}`)
   }
 }
