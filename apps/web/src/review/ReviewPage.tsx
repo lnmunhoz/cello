@@ -17,8 +17,8 @@ import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { instant as motionInstant } from "../lib/motion.ts"
 import { EvidenceBadge } from "./EvidenceBadge.tsx"
 import { FOLD_SPRING, QueueRow, type QueueRowState } from "./QueueRow.tsx"
-import { allLeft, type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, filterQueue, type Held, holdStep, IDLE, syncHeld, withHeld } from "./queue.ts"
-import { NothingFor, ProjectChips } from "./ProjectChips.tsx"
+import { allLeft, type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, filterQueue, type Held, holdStep, IDLE, REVIEW_SORT_LABELS, REVIEW_SORTS, sortQueue, syncHeld, withHeld } from "./queue.ts"
+import { NothingFor, QueueToolbar } from "./ProjectChips.tsx"
 import { projectChips } from "./queueView.ts"
 import { useQueueView } from "./useQueueView.ts"
 import { CommentOrDecide } from "./ReviewActions.tsx"
@@ -48,13 +48,13 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   const navigate = useNavigate({ from: "/review" })
 
   const projects = projectsOf(board, workspaceId)
-  const { picked, pick, instant } = useQueueView("review", projects)
+  const { picked, pick, sort, pickSort, instant } = useQueueView("review", projects, REVIEW_SORTS)
   const projectId = picked?.id ?? null
   // Asks first (an agent is waiting on them), then packets; a task is in one group only. The chips count
   // all of them, so rows stay put while you filter (CEL-188).
   const allAsked = needsInputQueue(board, workspaceId)
   const allQueue = reviewQueue(board, workspaceId)
-  const asked = filterQueue(allAsked, projectId)
+  const asked = sortQueue(filterQueue(allAsked, projectId), sort)
   const queue = filterQueue(allQueue, projectId)
   const chips = projectChips([...allAsked, ...allQueue].map((item) => item.project.id), projects, picked)
   const reduced = useReducedMotion() === true
@@ -64,7 +64,8 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   // Held on the whole queue, so a row's place (`at`) doesn't move with the pick; the pick filters after, and keeps the held ones.
   const allPackets = withHeld(allQueue, (item) => item.task.key, held)
   const keepKeys = new Set(held.filter((h) => h.state.phase === "pending" || h.state.phase === "decided").map((h) => h.key))
-  const packets = filterQueue(allPackets, projectId, keepKeys)
+  // A held row sorts by its frozen item, so it keeps its place until it folds away.
+  const packets = sortQueue(filterQueue(allPackets, projectId, keepKeys), sort)
   const decisionOn = (key: string): Decision | null => {
     const state = held.find((h) => h.key === key)?.state
     return state?.phase === "decided" ? state.decision : null
@@ -136,7 +137,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
               with a note for the agent. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
             </p>
           </header>
-          <ProjectChips chips={chips} picked={picked} onPick={onPick} />
+          <QueueToolbar chips={chips} picked={picked} onPick={onPick} sort={sort} sorts={REVIEW_SORTS} labels={REVIEW_SORT_LABELS} onSort={pickSort} />
           {/* Both groups are one list for the keys: ↑ ↓ go from the last ask to the first packet. */}
           <div {...rows.list} className="flex flex-col gap-6">
             {asked.length > 0 ? (

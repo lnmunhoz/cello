@@ -1,6 +1,6 @@
 import type { Project } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { parseProjectPick, projectChips, viewKey } from "./queueView.ts"
+import { parseProjectPick, parseSort, projectChips, viewKey } from "./queueView.ts"
 
 const project = (id: string, key: string, name: string): Project => ({ id, key, name }) as Project
 const a = project("pa", "AAA", "Alpha")
@@ -43,5 +43,19 @@ describe("viewKey", () => {
   it("keeps one setting per page", () => {
     expect(viewKey("agents", "project")).toBe("cello:agents:project")
     expect(viewKey("review", "project")).toBe("cello:review:project")
+    expect(viewKey("review", "sort")).toBe("cello:review:sort")
+  })
+})
+
+describe("parseSort", () => {
+  const sorts = ["oldest", "newest", "priority"] as const
+
+  it("reads a saved sort the page offers", () => {
+    expect(parseSort("priority", sorts)).toBe("priority")
+  })
+
+  it("is the page's first sort for nothing saved, or one it doesn't offer (another page's, an old value)", () => {
+    expect(parseSort(null, sorts)).toBe("oldest")
+    expect(parseSort("started", sorts)).toBe("oldest")
   })
 })

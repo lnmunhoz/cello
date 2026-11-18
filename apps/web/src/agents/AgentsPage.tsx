@@ -18,14 +18,14 @@ import { Centered } from "../app/Home.tsx"
 import { CardBody } from "../board/Card.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
-import { instant as motionInstant, layoutTransition } from "../lib/motion.ts"
+import { layoutTransition } from "../lib/motion.ts"
 import { Author } from "../presence/Author.tsx"
 import { OriginBadge } from "../presence/OriginBadge.tsx"
 import { agentsWorkingCount, workingSessions } from "../presence/model.ts"
 import { AgentMarkOf, presenceSubjectOf, StageWord } from "../presence/Presence.tsx"
 import { TestRunFacts, TestRunLine, testRunOf } from "../presence/TestRun.tsx"
 import { useNow } from "../presence/useNow.ts"
-import { NothingFor, ProjectChips } from "../review/ProjectChips.tsx"
+import { NothingFor, QueueToolbar } from "../review/ProjectChips.tsx"
 import { QueueRow, type QueueRowState } from "../review/QueueRow.tsx"
 import { projectChips } from "../review/queueView.ts"
 import { useQueue } from "../review/useQueue.ts"
@@ -37,6 +37,8 @@ import {
   type AgentGroupId,
   type AgentRow,
   agentGroups,
+  AGENT_SORT_LABELS,
+  AGENT_SORTS,
   agentRows,
   directTasks,
   filterAgentRows,
@@ -45,6 +47,7 @@ import {
   homeProjectOf,
   pulseKeyOf,
   rowKeysOf,
+  sortFamilies,
   stateTaskOf,
   subagentsLabel,
   waitingTaskOf,
@@ -52,27 +55,13 @@ import {
 
 /** How a row moves to its new group, or out (CEL-186): the board's spring. */
 
-/** AnimatePresence's custom for a row: the rows on the page now, and whether the human just changed the view (CEL-188). */
-interface Leave {
-  readonly keys: ReadonlyArray<string>
-  readonly instant: boolean
-}
-
 /**
  * How a row leaves its group: one that left the page fades out; one that moved to another group (still in
- * `keys`, AnimatePresence's custom) leaves its old place at once, while its copy there slides in. A row
- * the human's pick took off the page goes at once too.
+ * `keys`, AnimatePresence's custom) leaves its old place at once, while its copy there slides in.
  */
 const exitOf = (id: string) => ({
-  gone: (leave: Leave | undefined) => ({
-    opacity: 0,
-    height: 0,
-    transition: leave?.instant || leave?.keys.includes(id) ? motionInstant : LEAVE,
-  }),
+  gone: (keys: ReadonlyArray<string> | undefined) => ({ opacity: 0, height: 0, transition: keys?.includes(id) ? { duration: 0 } : LEAVE }),
 })
-
-/** How a group leaves: it folds away, or at once when the human's pick took it off the page. */
-const groupGone = { gone: (instant: boolean | undefined) => ({ opacity: 0, height: 0, transition: instant ? motionInstant : LEAVE }) }
 
 /** How long a row or an emptied group takes to fold away: its height closes, so what's under it follows. */
 const LEAVE = { duration: 0.2, ease: "easeOut" } as const
@@ -100,19 +89,22 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const navigate = useNavigate({ from: "/agents" })
   const now = useNow()
   const projects = projectsOf(board, workspaceId)
-  const { picked, pick, instant } = useQueueView("agents", projects)
+  const { picked, pick, sort, pickSort } = useQueueView("agents", projects, AGENT_SORTS)
   const projectId = picked?.id ?? null
   const allSessions = workingSessions(board, workspaceId, now)
   const allRows = agentRows(allSessions)
   const allFinished = finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now)))
   // The chips count the whole list, so rows stay put while you filter; a family is never split by a pick.
   const chips = projectChips(allRows.map((r) => homeProjectOf(r, allRows, board.statuses)), projects, picked)
-  const rows = filterAgentRows(allRows, projectId, board.statuses)
+  const nameOf = (id: string) => board.projects[id]?.name ?? ""
+  const rows = sortFamilies(filterAgentRows(allRows, projectId, board.statuses), sort, nameOf, board.statuses)
   const finished = filterAgentRows(allFinished, projectId, board.statuses)
   const sessions = allSessions.filter((s) => rows.some((r) => r.id === `session:${s.session.id}`))
   const groups = agentGroups(rows, finished)
   const keys = rowKeysOf(groups)
-  const leave: Leave = { keys, instant }
+  // A pick or a new sort starts the list afresh (the LayoutGroup's key, and its id, so no row's layoutId reaches back to
+  // where the same row was before): no row glides or folds to its new place, since the human asked for it; events still do.
+  const view = `${picked?.key ?? "all"}/${sort}`
   const layoutKey = groups.map((g) => `${g.id}:${g.rows.map((r) => r.id).join(",")}`).join(";")
   const placement = new Map(groups.flatMap((g) => g.rows.map((r) => [r.id, g.id] as const)))
   const openId = open !== undefined && keys.includes(open) ? open : null
@@ -141,7 +133,7 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
               that finished today last. Open one to see what it was asked and its log. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
             </p>
           </header>
-          <ProjectChips chips={chips} picked={picked} onPick={onPick} />
+          <QueueToolbar chips={chips} picked={picked} onPick={onPick} sort={sort} sorts={AGENT_SORTS} labels={AGENT_SORT_LABELS} onSort={pickSort} />
           {rows.length === 0 && picked !== null ? <NothingFor project={picked} onShowAll={() => onPick(null)} /> : null}
           {rows.length === 0 && picked === null ? (
             <div className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-line px-6 py-14 text-center text-[13px] text-muted">
@@ -152,26 +144,24 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
           {groups.length === 0 ? null : (
             <MotionConfig reducedMotion="user">
               <Placement.Provider value={placement}>
-                <LayoutGroup>
+                <LayoutGroup id={view} key={view}>
                   <div {...queue.list} className="flex flex-col gap-6">
                     {/* A group that empties stays while its last row leaves, then folds away, instead of the page jumping. */}
-                    <AnimatePresence initial={false} custom={instant}>
+                    <AnimatePresence initial={false}>
                       {groups.map((group) => (
                         <motion.section
                           key={group.id}
                           aria-labelledby={`agents-${group.id}`}
                           data-agents-group={group.id}
                           className="flex flex-col gap-2"
-                          variants={groupGone}
-                          custom={instant}
-                          exit="gone"
+                          exit={{ opacity: 0, height: 0, transition: LEAVE }}
                         >
                           {/* The heading slides with the rows when a group above appears or goes; the rows (z-10) pass over it. */}
                           <motion.h2
                             id={`agents-${group.id}`}
                             layout="position"
                             layoutDependency={layoutKey}
-                            transition={instant ? motionInstant : layoutTransition}
+                            transition={layoutTransition}
                             className="flex items-center gap-2 text-[13px] font-semibold text-ink"
                           >
                             {group.id === "waiting" ? <i aria-hidden className="size-1.5 rounded-full bg-accent" /> : null}
@@ -179,7 +169,7 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                           </motion.h2>
                           <ul aria-label={group.label} className="flex flex-col gap-2">
                             {/* custom: the rows on the page now, so a row that left this group for another goes at once (the copy there slides in). */}
-                            <AnimatePresence initial={false} custom={leave}>
+                            <AnimatePresence initial={false} custom={keys}>
                               {group.rows.map((row) => {
                                 // A subagent sits under its session, always in the same group (CEL-104); finished ones stand on their own.
                                 const under = row.kind === "agent" && group.id !== "finished"
@@ -192,8 +182,8 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                                     layoutId={row.id}
                                     layout="position"
                                     layoutDependency={layoutKey}
-                                    transition={instant ? motionInstant : layoutTransition}
-                                    custom={leave}
+                                    transition={layoutTransition}
+                                    custom={keys}
                                     variants={exitOf(row.id)}
                                     exit="gone"
                                     className={under ? "relative z-10 pl-6" : "relative z-10"}

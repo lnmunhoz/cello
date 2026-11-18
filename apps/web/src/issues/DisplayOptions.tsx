@@ -1,6 +1,7 @@
 import { ORDERING_LABELS, ORDERINGS, parseOrdering } from "@cello/client/sync/ordering"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { KanbanIcon, ListIcon, SlidersHorizontalIcon } from "lucide-react"
+import type { ReactNode } from "react"
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/Popover.tsx"
 import { SegmentedControl, SegmentedControlItem } from "../components/ui/SegmentedControl.tsx"
 import { Select } from "../components/ui/Select.tsx"
@@ -29,14 +30,7 @@ export function DisplayOptions() {
   const { ordering, pick } = useOrdering()
 
   return (
-    <Popover>
-      <PopoverTrigger variant="toolbar">
-        <SlidersHorizontalIcon aria-hidden className="size-3.5 text-muted" />
-        Display
-        {ordering === "manual" ? null : <span className="text-muted">· {ORDERING_LABELS[ordering]}</span>}
-      </PopoverTrigger>
-      <PopoverContent aria-label="Display options" align="end">
-        <div className="flex w-72 flex-col gap-2 p-1">
+    <DisplayMenu note={ordering === "manual" ? null : ORDERING_LABELS[ordering]}>
           <SegmentedControl aria-label="Layout" value={layout} onValueChange={(value) => value && pickLayout(value as Layout)}>
             <SegmentedControlItem value="list">
               <ListIcon aria-hidden className="size-3.5" />
@@ -47,9 +41,8 @@ export function DisplayOptions() {
               Board
             </SegmentedControlItem>
           </SegmentedControl>
-          <dl className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 border-t border-line pt-2 text-[13px]">
-            <dt className="text-muted">Grouping</dt>
-            <dd>
+          <DisplayFields>
+            <DisplayField label="Grouping">
               {/* Milestone (CEL-132): swimlanes on the board; the list keeps its status groups. */}
               <Select
                 variant="chip"
@@ -60,9 +53,8 @@ export function DisplayOptions() {
                   if (value === "status" || value === "milestone") void navigate({ to: ".", search: (prev) => ({ ...prev, ...groupSearch(value) }) })
                 }}
               />
-            </dd>
-            <dt className="text-muted">Ordering</dt>
-            <dd>
+            </DisplayField>
+            <DisplayField label="Ordering">
               <Select
                 variant="chip"
                 label="Ordering"
@@ -73,15 +65,47 @@ export function DisplayOptions() {
                   if (next) pick(next)
                 }}
               />
-            </dd>
-          </dl>
+            </DisplayField>
+          </DisplayFields>
           <NeedsInputColumnRow />
           <StageLanesRow />
           <CardMilestoneRow />
           <AgentCursorsRow />
-        </div>
+    </DisplayMenu>
+  )
+}
+
+/**
+ * The Display button and its popover (the Issues tab's, and the Agents and Review pages': CEL-188): the
+ * button reads "Display" and, when `note` is set, "· note" (the order in use, when it isn't the default).
+ */
+export function DisplayMenu({ note, children }: { note: string | null; children: ReactNode }) {
+  return (
+    <Popover>
+      <PopoverTrigger variant="toolbar">
+        <SlidersHorizontalIcon aria-hidden className="size-3.5 text-muted" />
+        Display
+        {note === null ? null : <span className="text-muted">· {note}</span>}
+      </PopoverTrigger>
+      <PopoverContent aria-label="Display options" align="end">
+        <div className="flex w-72 flex-col gap-2 p-1">{children}</div>
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** The popover's label and value rows, as a grid. */
+export function DisplayFields({ children }: { children: ReactNode }) {
+  return <dl className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 border-t border-line pt-2 text-[13px]">{children}</dl>
+}
+
+/** One row of DisplayFields: its label, and the control that sets it. */
+export function DisplayField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <>
+      <dt className="text-muted">{label}</dt>
+      <dd>{children}</dd>
+    </>
   )
 }
 

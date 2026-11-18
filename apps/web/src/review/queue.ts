@@ -1,5 +1,7 @@
 // The Review page's rules, kept pure: which row is open (it lives in the URL, `?open=CEL-12`), which
 // opens after a decision, the keys that move between rows, and the note a decision sends.
+import { priorityRank } from "@cello/client/sync/ordering"
+import type { Task } from "@cello/contract/entities"
 import { formatTaskKey, parseTaskKey } from "@cello/shared/taskKey"
 
 export interface ReviewSearch {
@@ -146,6 +148,32 @@ export const withHeld = <Item>(queue: ReadonlyArray<Item>, keyOf: (item: Item) =
     rows.splice(Math.min(h.at, rows.length), 0, h.item)
   }
   return rows
+}
+
+/** How the Review page orders its rows (CEL-188); Oldest, the queue's own order, is the default. */
+export const REVIEW_SORTS = ["oldest", "newest", "project", "priority"] as const
+export type ReviewSort = (typeof REVIEW_SORTS)[number]
+export const REVIEW_SORT_LABELS: Readonly<Record<ReviewSort, string>> = { oldest: "Oldest", newest: "Newest", project: "Project", priority: "Priority" }
+
+/**
+ * The rows in `sort`'s order: Oldest is the queue's own, Newest is that reversed, Project goes by the
+ * project's name, Priority by the task's (urgent first, none last). Ties keep the queue's order. The
+ * asks and the packets are sorted on their own, each as one list.
+ */
+export const sortQueue = <Item extends { readonly task: Pick<Task, "priority">; readonly project: { readonly name: string } }>(
+  items: ReadonlyArray<Item>,
+  sort: ReviewSort,
+): Item[] => {
+  switch (sort) {
+    case "oldest":
+      return [...items]
+    case "newest":
+      return [...items].reverse()
+    case "project":
+      return [...items].sort((a, b) => a.project.name.localeCompare(b.project.name))
+    case "priority":
+      return [...items].sort((a, b) => priorityRank(a.task) - priorityRank(b.task))
+  }
 }
 
 /**

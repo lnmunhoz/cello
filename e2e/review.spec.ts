@@ -690,3 +690,46 @@ for (const theme of ["light", "dark"] as const) {
     for (const { dir } of [alpha, beta]) fs.rmSync(dir, { recursive: true, force: true })
   })
 }
+
+test("CEL-188: the Review page's Display menu sorts the rows: Newest reverses the queue, Oldest brings it back; the trigger names the sort, and it is kept after a reload", async ({ page }) => {
+  const key = uniqueKey("SRT")
+  await createProject(page, "Review sort test", key)
+  const { dir } = await submitPackets(page, key, ["Made first", "Made second", "Made third"])
+  const mine = page.locator(`[data-review-task^="${key}-"]`)
+  /** This test's rows, in the order the page shows them (another test's rows may share the page). */
+  const expectOrder = async (order: ReadonlyArray<number>) => {
+    await expect(mine).toHaveCount(order.length)
+    for (const [i, n] of order.entries()) await expect(mine.nth(i)).toHaveAttribute("data-review-task", `${key}-${n}`)
+  }
+  const display = page.getByRole("button", { name: /^Display/ })
+  const pickSort = async (label: string) => {
+    await display.click()
+    const sort = page.getByRole("combobox", { name: "Sort", exact: true })
+    await sort.click()
+    await page.getByRole("option", { name: label, exact: true }).click()
+    await expect(sort).toContainText(label)
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog", { name: "Display options" })).toBeHidden()
+  }
+
+  await page.goto("/review")
+  await caption(page, "Three packets, the oldest first")
+  await expectOrder([1, 2, 3])
+  await expect(display).toHaveText("Display")
+
+  await caption(page, "Display, Sort by Newest: the last one submitted comes first")
+  await pickSort("Newest")
+  await expectOrder([3, 2, 1])
+  await expect(display).toContainText(/Display\s*· Newest/)
+
+  await captionWithUrl(page, "Reload: the sort stays on this device")
+  await page.reload()
+  await expectOrder([3, 2, 1])
+  await expect(display).toContainText(/Display\s*· Newest/)
+
+  await caption(page, "Sort by Oldest: the queue's own order is back")
+  await pickSort("Oldest")
+  await expectOrder([1, 2, 3])
+  await expect(display).toHaveText("Display")
+  fs.rmSync(dir, { recursive: true, force: true })
+})

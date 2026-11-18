@@ -23,7 +23,7 @@ export const parseOrdering = (value: unknown): Ordering | null =>
 type Compare = (a: Task, b: Task) => number
 
 /** Urgent (1) first, then high, medium, low; no priority (0) last. */
-const priorityRank = (t: Task) => (t.priority === 0 ? 5 : t.priority)
+export const priorityRank = (t: Pick<Task, "priority">) => (t.priority === 0 ? 5 : t.priority)
 
 /** Due dates are `YYYY-MM-DD`, so they sort as strings; no due date sorts after every date. */
 const dueRank = (t: Task) => t.dueDate ?? "9999-99-99"

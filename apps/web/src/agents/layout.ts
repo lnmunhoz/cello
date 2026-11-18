@@ -235,5 +235,42 @@ export const filterAgentRows = (
   statuses: Readonly<Record<string, { readonly name: string; readonly category: string }>>,
 ): AgentRow[] => (projectId === null ? [...rows] : rows.filter((r) => homeProjectOf(r, rows, statuses) === projectId))
 
+/** How the Agents page orders the families in each group (CEL-188); Started, when they began, is the default. */
+export const AGENT_SORTS = ["started", "active", "project", "task"] as const
+export type AgentSort = (typeof AGENT_SORTS)[number]
+export const AGENT_SORT_LABELS: Readonly<Record<AgentSort, string>> = { started: "Started", active: "Last active", project: "Project", task: "Task" }
+
+/**
+ * The rows with their families (a session and its subagents) in `sort`'s order, each family whole and
+ * its subagents in the order they started. Started keeps the order given; Last active puts the family
+ * whose agents checked in last first; Project goes by the project's name, Task by the first task's
+ * project and number, rows with no task last. Ties keep the order given.
+ */
+export const sortFamilies = (
+  rows: ReadonlyArray<AgentRow>,
+  sort: AgentSort,
+  projectName: (projectId: string) => string,
+  statuses: Readonly<Record<string, { readonly name: string; readonly category: string }>>,
+): AgentRow[] => {
+  if (sort === "started") return [...rows]
+  const families = new Map<string, AgentRow[]>()
+  for (const row of rows) families.set(row.session.id, [...(families.get(row.session.id) ?? []), row])
+  const lastActive = (family: ReadonlyArray<AgentRow>) => Math.max(...family.map(pulseKeyOf))
+  const home = (family: ReadonlyArray<AgentRow>) => homeProjectOf(family[0]!, rows, statuses)
+  const nameOf = (family: ReadonlyArray<AgentRow>) => {
+    const id = home(family)
+    return id === null ? null : projectName(id)
+  }
+  /** Rows with no project (or task) sort after the ones that have. */
+  const byName = (a: string | null, b: string | null) => (a === b ? 0 : a === null ? 1 : b === null ? -1 : a.localeCompare(b))
+  const numberOf = (family: ReadonlyArray<AgentRow>) => stateTaskOf(family[0]!, statuses)?.number ?? null
+  const compare: Record<Exclude<AgentSort, "started">, (a: ReadonlyArray<AgentRow>, b: ReadonlyArray<AgentRow>) => number> = {
+    active: (a, b) => lastActive(b) - lastActive(a),
+    project: (a, b) => byName(nameOf(a), nameOf(b)),
+    task: (a, b) => byName(nameOf(a), nameOf(b)) || (numberOf(a) === null ? (numberOf(b) === null ? 0 : 1) : numberOf(b) === null ? -1 : numberOf(a)! - numberOf(b)!),
+  }
+  return [...families.values()].sort(compare[sort]).flat()
+}
+
 /** "1 subagent", "3 subagents". */
 export const subagentsLabel = (n: number): string => `${n} ${n === 1 ? "subagent" : "subagents"}`

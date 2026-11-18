@@ -7,7 +7,10 @@ import type { Project } from "@cello/contract/entities"
 export type QueuePage = "agents" | "review"
 
 /** The localStorage key of one saved setting of a page: `cello:agents:project`. */
-export const viewKey = (page: QueuePage, what: "project"): string => `cello:${page}:${what}`
+export const viewKey = (page: QueuePage, what: "project" | "sort"): string => `cello:${page}:${what}`
+
+/** A page's saved sort: one it offers, else its default (the first). */
+export const parseSort = <S extends string>(stored: string | null, sorts: ReadonlyArray<S>): S => sorts.find((s) => s === stored) ?? sorts[0]!
 
 /** What a pick of All is stored as. */
 export const ALL = "all"

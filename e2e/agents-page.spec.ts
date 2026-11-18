@@ -24,6 +24,7 @@ import {
 } from "./fixtures.ts"
 import { celloIn, claudeHooks } from "./claudeHooks.ts"
 import { expectLeftAligned, SHOTS } from "./packets.ts"
+import { isReview } from "./recording.ts"
 import { openClient } from "../packages/client/test/support/promiseClient.ts"
 
 const ORCHESTRATOR = "2fd0505c-417a-4167-acfe-2d66080fcae0"
@@ -83,6 +84,8 @@ const group = (page: Page, id: "waiting" | "working" | "quiet" | "finished") => 
 const rowsIn = (page: Page, id: "waiting" | "working" | "quiet") => group(page, id).locator("[data-agent-row]")
 
 test.beforeEach(async ({ context }) => {
+  // Review videos hold every step (e2e/recording.ts), which takes these flows past the default timeout, as on review.spec.ts.
+  if (isReview(process.env)) test.setTimeout(180_000)
   await context.addInitScript(() => {
     if (localStorage.getItem("cello:agent-cursors") === null) localStorage.setItem("cello:agent-cursors", "off")
   })
@@ -532,7 +535,15 @@ for (const theme of ["light", "dark"] as const) {
     await expect(chip(nameA, 2)).toHaveAttribute("aria-checked", "true")
     await expect(mine).toHaveCount(2)
 
-    await caption(page, `Pick ${nameB}: the other agent shows alone`)
+    // A pick snaps the rows: from here on, watch for any row that is mid-move (motion gives it a transform while it glides).
+    await page.evaluate(() => {
+      const moved: string[] = []
+      Object.assign(window, { rowMoved: moved })
+      new MutationObserver(() => {
+        for (const li of document.querySelectorAll("main li[style*='transform']:not([style*='none'])")) moved.push(`${li.querySelector("[data-agent-row]")?.getAttribute("data-agent-row")}: ${li.getAttribute("style")}`)
+      }).observe(document.querySelector("main")!, { subtree: true, attributes: true, attributeFilter: ["style"] })
+    })
+    await caption(page, `Pick ${nameB}: the other agent shows alone, and takes the top place at once`)
     await chip(nameB, 1).click()
     await expect(mine).toHaveCount(1)
     await expect(third).toBeVisible()
@@ -544,5 +555,59 @@ for (const theme of ["light", "dark"] as const) {
     await expect(second).toBeVisible()
     await expect(third).toBeVisible()
     await expect(page.getByRole("radio", { name: /^All \d+$/ })).toHaveAttribute("aria-checked", "true")
+    expect(await page.evaluate(() => (window as unknown as { rowMoved: string[] }).rowMoved)).toEqual([])
   })
 }
+
+test("CEL-188: the Agents page's Display menu sorts the rows: Project goes by the project's name, Started brings the order back; the trigger names the sort, and it is kept after a reload", async ({ page, cello, baseURL }) => {
+  const keys = ["SRZ", "SRA", "SRM"] as const
+  const names = ["Sort Zeta", "Sort Alpha", "Sort Mid"] as const
+  const { statuses } = await defaultWorkspace(cello)
+  for (const [i, key] of keys.entries()) {
+    const project = await seedProject(cello, names[i]!, key)
+    await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title: `Task in ${names[i]}`, statusId: statuses.Todo!.id }))
+  }
+  // Three agents start one after another, each on a task of a different project: Zeta, Alpha, Mid.
+  const externals = ["c188sort1-first-session", "c188sort2-second-session", "c188sort3-third-session"] as const
+  for (const [i, external] of externals.entries()) {
+    const agent = await agentAs(baseURL!, external, process.pid)
+    await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: `${keys[i]}-1` }))
+  }
+  const ids = (await Promise.all(externals.map((e) => sessionId(cello, e)))).map((id) => `session:${id}`)
+  const mine = page.locator(ids.map((id) => `[data-agent-row="${id}"]`).join(", "))
+  /** Our rows, in the order the page shows them. */
+  const expectOrder = async (order: ReadonlyArray<number>) => {
+    await expect(mine).toHaveCount(order.length)
+    for (const [i, n] of order.entries()) await expect(mine.nth(i)).toHaveAttribute("data-agent-row", ids[n]!)
+  }
+  const display = page.getByRole("button", { name: /^Display/ })
+  const pickSort = async (label: string) => {
+    await display.click()
+    const sort = page.getByRole("combobox", { name: "Sort", exact: true })
+    await sort.click()
+    await page.getByRole("option", { name: label, exact: true }).click()
+    await expect(sort).toContainText(label)
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog", { name: "Display options" })).toBeHidden()
+  }
+
+  await page.goto("/agents")
+  await caption(page, "Three agents, in the order they started: Zeta, Alpha, Mid")
+  await expectOrder([0, 1, 2])
+  await expect(display).toHaveText("Display")
+
+  await caption(page, "Display, Sort by Project: Alpha, Mid, Zeta")
+  await pickSort("Project")
+  await expectOrder([1, 2, 0])
+  await expect(display).toContainText(/Display\s*· Project/)
+
+  await captionWithUrl(page, "Reload: the sort stays on this device")
+  await page.reload()
+  await expectOrder([1, 2, 0])
+  await expect(display).toContainText(/Display\s*· Project/)
+
+  await caption(page, "Sort by Started: the order they began is back")
+  await pickSort("Started")
+  await expectOrder([0, 1, 2])
+  await expect(display).toHaveText("Display")
+})
