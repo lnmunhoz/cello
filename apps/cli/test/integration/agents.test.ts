@@ -193,6 +193,26 @@ describe("a subagent running tests", () => {
       expect((yield* x("test", "progress", "--file", file)).failure).toContain("Can't read the progress in")
     }).pipe(Effect.scoped))
 
+  // CEL-181: the run's end is kept on the task it was for (the claim the session touched last, here CEL-2, which
+  // it just commented on), so `cello task get` says how it went; the other claim has nothing.
+  it.live("how a run ended is on its task's History: the claim the session commented on last, with the spec and the counts", () =>
+    Effect.gen(function* () {
+      const { hook, x, repo } = yield* setup
+      expect((yield* x("task", "comment", "CEL-2", "Running the spec now")).failure).toBeNull()
+      const call = { session_id: X, cwd: repo, tool_name: "Bash", tool_use_id: "toolu_s", tool_input: { command: "bun run test:e2e -- e2e/pages.spec.ts", run_in_background: true } }
+      yield* hook("pre-tool-use", { ...call, hook_event_name: "PreToolUse" })
+      yield* hook("post-tool-use", { ...call, hook_event_name: "PostToolUse", tool_response: { stdout: "", backgroundTaskId: "blo3xolgq" } })
+      expect((yield* x("task", "get", "CEL-2")).out).not.toContain("ran web e2e")
+
+      const file = path.join(repo, "progress.json")
+      const folder = path.join(repo, "test-results/docker/run-1")
+      fs.writeFileSync(file, JSON.stringify({ stage: "web-e2e", passed: 3, failed: 0, skipped: 0, total: 3, current: null, failures: [], done: true, outcome: "passed", folder }))
+      expect(yield* x("test", "progress", "--file", file)).toEqual({ out: "Reported.", failure: null })
+
+      expect((yield* x("task", "get", "CEL-2")).out).toMatch(/ran web e2e: passed · e2e\/pages\.spec\.ts · 3 of 3 · \d+s/)
+      expect((yield* x("task", "get", "CEL-1")).out).not.toContain("ran web e2e")
+    }).pipe(Effect.scoped))
+
   it.live("a foreground run ends with its call: PostToolUse passed, PostToolUseFailure failed; other commands start nothing", () =>
     Effect.gen(function* () {
       const { hook, human, repo } = yield* setup
