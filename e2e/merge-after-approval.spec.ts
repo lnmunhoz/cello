@@ -15,9 +15,9 @@ test.beforeEach(() => {
 })
 
 /** `url` in its own unrecorded window, light or dark, saved to e2e/videos/<name>-<scheme>.png once `ready` says it's drawn. */
-async function still(browser: Browser, url: string, name: string, ready: (page: Page) => Promise<void>) {
+async function still(browser: Browser, url: string, name: string, ready: (page: Page) => Promise<void>, height = 900) {
   for (const colorScheme of ["light", "dark"] as const) {
-    const context = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height: 900 }, colorScheme })
+    const context = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height }, colorScheme })
     const page = await context.newPage()
     await page.goto(url)
     await ready(page)
@@ -133,7 +133,8 @@ test("CEL-169: an approval relayed from chat leaves the card Approved · merging
     await expect(p.locator(`[data-task-key="${key}-1"] [data-stage="merging"]`)).toBeVisible()
     await expect(p.getByRole("region", { name: "Approved, merging" })).toContainText("approved it in chat")
     await expect(p.getByRole("region", { name: "Earlier reviews" }).getByRole("button", { name: /Approved in chat/ })).toBeVisible()
-  })
+    await expect(p.locator("[data-comment-id]")).toContainText("in chat (approval):")
+  }, 1300)
 
   await caption(page, "Nothing comes back to the agent's inbox: it was its own action")
   expect(cello("inbox", "--new")).toBe("")

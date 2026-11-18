@@ -83,10 +83,10 @@ function EarlierReview({ task, review }: { task: Task; review: Review }) {
         className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
       >
         <ChevronRightIcon aria-hidden className={`size-3.5 shrink-0 text-faint transition-transform ${open ? "rotate-90" : ""}`} />
-        <span className="font-medium text-ink">{review.relayedBy ? "Approved in chat" : DECISIONS[review.decision!]}</span>
-        <span className="text-faint">· {relativeTime(review.decidedAt ?? review.createdAt)}</span>
-        {review.relayedBy ? <span className="text-faint">· relayed by {relayerName(review.relayedBy)}</span> : null}
+        <span className="shrink-0 whitespace-nowrap font-medium text-ink">{review.relayedBy ? "Approved in chat" : DECISIONS[review.decision!]}</span>
+        <span className="shrink-0 whitespace-nowrap text-faint">· {relativeTime(review.decidedAt ?? review.createdAt)}</span>
         {review.decisionNote ? <span className="min-w-0 truncate text-muted">“{review.decisionNote}”</span> : null}
+        {review.relayedBy ? <span className="min-w-0 truncate text-faint">· relayed by {relayerName(review.relayedBy)}</span> : null}
       </button>
       {open ? (
         <div className="border-t border-line px-3 py-3">
