@@ -691,7 +691,8 @@ for (const theme of ["light", "dark"] as const) {
     await caption(page, "Show all: everything else is back")
     await page.getByRole("button", { name: "Show all" }).click()
     await expect(beta1.header).toBeVisible()
-    await expect(all).toHaveAttribute("aria-checked", "true")
+    await expect(page.locator("[data-nothing-for]")).toHaveCount(0)
+    // With a single project left that has rows, the chips have nothing to offer and are hidden.
     for (const { dir } of [alpha, beta]) fs.rmSync(dir, { recursive: true, force: true })
   })
 }
