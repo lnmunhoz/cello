@@ -3,7 +3,8 @@
 import * as Data from "effect/Data"
 import type { NotWokenReason } from "@cello/contract/entities"
 import { NOT_WOKEN_TEXT } from "@cello/contract/wake"
-import { ago, shortSession } from "./format.ts"
+import { shortSession } from "@cello/shared/session"
+import { ago } from "./format.ts"
 
 /** A command's failure, already explained. `cello` prints the message to stderr and exits 1. */
 export class CliFailure extends Data.TaggedError("CliFailure")<{ readonly message: string }> {}

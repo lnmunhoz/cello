@@ -8,8 +8,9 @@ import type { LogStep, LogUpdate } from "@cello/contract/agentLog"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { modelLabel } from "@cello/shared/model"
 import { originText } from "@cello/shared/origin"
+import { shortSession } from "@cello/shared/session"
 import { presenceWords } from "@cello/shared/presence"
-import { columns, plural, sessionName, shortSession } from "./format.ts"
+import { columns, plural, sessionName } from "./format.ts"
 
 /** A subagent as --agent and `cello agents log` take it: "cello-builder/a13bfb89". */
 export const agentId = (agent: Pick<SessionAgent, "agentId" | "agentType">): string => `${agent.agentType ?? "agent"}/${agent.agentId.slice(0, 8)}`

@@ -48,6 +48,7 @@ import { findMilestone, progressText } from "@cello/shared/milestone"
 import { missingFields } from "@cello/shared/testingProfile"
 import { isRunning, testRunWords } from "@cello/shared/testRun"
 import { shortCommit } from "@cello/shared/build"
+import { sessionLabel } from "@cello/shared/session"
 import { APP_VERSION } from "@cello/shared/version"
 import * as Console from "effect/Console"
 import * as Context from "effect/Context"
@@ -114,7 +115,7 @@ import { CliEnv, dataDirOf, flavorOf, portOf } from "./env.ts"
 import { CliFailure, explain } from "./errors.ts"
 import { editFields, priorityOf } from "./edit.ts"
 import { evidenceFromArgs } from "./evidence.ts"
-import { agentName, ago, andList, columns, localTime, plural, sessionName, shortSession, type WrittenWith } from "./format.ts"
+import { agentName, ago, andList, columns, localTime, plural, sessionName, type WrittenWith } from "./format.ts"
 import { GUIDE } from "./guide.ts"
 import { type Env, IDENTITY_VARIABLES, identityHeaders, parseAgent } from "./identity.ts"
 import { askScreenshots, commentScreenshots, commentStart, commentText, deliveryText, inboxEntries, inboxScreenshots, type ScreenshotFile } from "./inbox.ts"
@@ -351,7 +352,7 @@ const withdrawal = (
 /** Who passed on an approval from chat: "Claude Code session 2fd0505c", from the sessions the task's detail knows, else from the review. */
 const relayer = (names: Names, relayedBy: { readonly name: string; readonly session: string | null }) => {
   const known = names.sessions.find((s) => s.externalId === relayedBy.session)
-  return known ? sessionName(known) : `${relayedBy.name} session ${relayedBy.session === null ? "" : shortSession(relayedBy.session)}`.trim()
+  return known ? sessionName(known) : sessionLabel(relayedBy.name, relayedBy.session)
 }
 
 /** One review in `task get`: state, who submitted it, summary, steps, evidence and Lucas's note. */

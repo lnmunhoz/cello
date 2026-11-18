@@ -2,6 +2,7 @@ import type { BoardState } from "@cello/client/sync/applyEvents"
 import { openReviewOf } from "@cello/client/sync/reviews"
 import type { Review, Task } from "@cello/contract/entities"
 import { awaitsMerge } from "@cello/shared/review"
+import { sessionLabel } from "@cello/shared/session"
 import { useAtomValue } from "@effect/atom-react"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { ChevronRightIcon } from "lucide-react"
@@ -11,9 +12,7 @@ import { relativeTime } from "../lib/format.ts"
 import { ReviewActions } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
 
-/** "Claude Code session 2fd0505c": a review's relayer, named the way the CLI does. */
-const relayerName = (relayedBy: NonNullable<Review["relayedBy"]>) =>
-  `${relayedBy.name} session ${(relayedBy.session ?? "").slice(0, 8)}`.trim()
+const relayerName = (relayedBy: NonNullable<Review["relayedBy"]>) => sessionLabel(relayedBy.name, relayedBy.session)
 
 /**
  * The open packet, pinned at the top of the task panel with Approve and Send back. A task Lucas approved
