@@ -1,5 +1,5 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import { foldRuns, timelineOf } from "@cello/client/timeline"
+import { foldRuns, liveTestLines, testKeysOf, timelineOf } from "@cello/client/timeline"
 import type { Comment, Task } from "@cello/contract/entities"
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
@@ -64,19 +64,23 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
   const statusAfter = statusCommentId(comments)
   const history = useAtomValue(historyFamily(task.id))
   const timeline = useAtomValue(timelineFamily(task.id))
+  const now = useNow()
+  const historyEvents = events && AsyncResult.isSuccess(history) ? history.value : []
   const thread = foldRuns(
     timelineOf({
       comments,
-      history: events && AsyncResult.isSuccess(history) ? history.value : [],
+      history: historyEvents,
       timeline: events && AsyncResult.isSuccess(timeline) ? timeline.value : { runs: [], releases: [] },
       statuses: board.statuses,
+      // Test runs going now, and ones that just ended and the history doesn't have yet (CEL-181): presence
+      // moves them (progress events re-render this), and the clock ticks their elapsed time.
+      live: events ? liveTestLines({ taskId: task.id, sessions: board.sessions, agents: board.agents, known: testKeysOf(historyEvents), now }) : [],
     }),
   )
   // On a task nobody holds, a comment goes to the agent that last worked on it and reopens it (CEL-110).
   const reopen = reopenOf(board, task)
   // A comment that will wake that session, or the holder's, says so beforehand (CEL-136).
   const wakeSettings = useWakeSettings(board.projects[task.projectId]?.key)
-  const now = useNow()
   const wakeHint = wakeHintOf(board, task, wakeSettings, now)
 
   const submit = async () => {
