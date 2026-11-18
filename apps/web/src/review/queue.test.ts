@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { type DecisionState, decisionStep, holdStep, IDLE, nextAfterDecision, parseReviewSearch, decisionNote, rowKey, withHeld } from "./queue.ts"
+import { allLeft, type DecisionState, decisionStep, type Held, holdStep, IDLE, nextAfterDecision, parseReviewSearch, decisionNote, rowKey, syncHeld, withHeld } from "./queue.ts"
 
 describe("decisionStep: what a row shows from the click on Approve or Send back until it has left (CEL-187)", () => {
   const pending: DecisionState = { phase: "pending", decision: "approved" }
@@ -37,7 +37,10 @@ describe("decisionStep: what a row shows from the click on Approve or Send back 
 
 describe("withHeld: a decided row stays where it was until it has left, though the events took it off the queue (CEL-187)", () => {
   const keyOf = (key: string) => key
-  const held = (key: string, at: number, phase: "pending" | "decided" | "leaving") => ({ key, item: key, at, state: { phase, decision: "approved" } as const })
+  /** `dropped`: the queue has stopped listing the row since the click (the decision's events arrived). */
+  const held = (key: string, at: number, phase: "pending" | "decided" | "leaving" | "gone", dropped = false): Held<string> => ({
+    key, item: key, at, dropped, state: phase === "gone" ? { phase } : { phase, decision: "approved" },
+  })
 
   it("the queue as it is, with nothing decided", () => {
     expect(withHeld(["CEL-3", "CEL-7"], keyOf, [])).toEqual(["CEL-3", "CEL-7"])
@@ -51,8 +54,40 @@ describe("withHeld: a decided row stays where it was until it has left, though t
     const rows = [held("CEL-3", 0, "pending"), held("CEL-7", 1, "leaving")]
     expect(holdStep(rows, "CEL-3", { type: "taken" })).toEqual([held("CEL-3", 0, "decided"), held("CEL-7", 1, "leaving")])
     expect(holdStep(rows, "CEL-3", { type: "refused", message: "Can't reach the Cello server" })).toEqual([held("CEL-7", 1, "leaving")])
-    expect(holdStep(rows, "CEL-7", { type: "left" })).toEqual([held("CEL-3", 0, "pending")])
     expect(holdStep(rows, "CEL-9", { type: "taken" })).toEqual(rows)
+    // It has left: let go once the queue has dropped it.
+    expect(holdStep([held("CEL-3", 0, "pending"), held("CEL-7", 1, "leaving", true)], "CEL-7", { type: "left" })).toEqual([held("CEL-3", 0, "pending")])
+  })
+
+  it("a row that folded away before its events arrived stays out of the list until the queue drops it: it doesn't pop back", () => {
+    const folded = holdStep([held("CEL-7", 1, "leaving")], "CEL-7", { type: "left" })
+    expect(folded).toEqual([held("CEL-7", 1, "gone")])
+    expect(withHeld(["CEL-3", "CEL-7"], keyOf, folded)).toEqual(["CEL-3"])
+    // The events arrive: the queue drops it, and the hold is let go.
+    expect(syncHeld(folded, ["CEL-3"])).toEqual([])
+  })
+
+  it("allLeft: every leaving row has left, whether the fold's end or the fallback timer says so; the others stay", () => {
+    const rows = [held("CEL-3", 0, "decided", true), held("CEL-7", 1, "leaving", true), held("THAI-2", 2, "leaving")]
+    expect(allLeft(rows)).toEqual([held("CEL-3", 0, "decided", true), held("THAI-2", 2, "gone")])
+    expect(allLeft(allLeft(rows))).toEqual(allLeft(rows))
+  })
+
+  it("syncHeld notes when the queue drops a held row, and changes nothing otherwise", () => {
+    const rows = [held("CEL-3", 0, "pending"), held("CEL-7", 1, "decided")]
+    expect(syncHeld(rows, ["CEL-3", "CEL-7"])).toBe(rows)
+    const dropped = syncHeld(rows, ["CEL-3"])
+    expect(dropped).toEqual([held("CEL-3", 0, "pending"), held("CEL-7", 1, "decided", true)])
+    expect(syncHeld(dropped, ["CEL-3"])).toBe(dropped)
+  })
+
+  it("a row the queue lists again after dropping it (a new packet came in) is let go and shows, in any phase", () => {
+    for (const phase of ["pending", "decided", "leaving"] as const) {
+      const rows = [held("CEL-7", 1, phase, true)]
+      expect(syncHeld(rows, ["CEL-3", "CEL-7"])).toEqual([])
+      // Even before the hold is let go, the list shows it: a leaving key isn't hidden once it's back.
+      expect(withHeld(["CEL-3", "CEL-7"], keyOf, rows)).toEqual(["CEL-3", "CEL-7"])
+    }
   })
 
   it("a decided row the queue dropped is still shown, in its place", () => {
@@ -69,8 +104,8 @@ describe("withHeld: a decided row stays where it was until it has left, though t
     expect(withHeld(["CEL-3", "CEL-7"], keyOf, [held("CEL-7", 1, "decided")])).toEqual(["CEL-3", "CEL-7"])
   })
 
-  it("a leaving row is out of the list, so it can fold away, even while the queue still lists it", () => {
-    expect(withHeld(["CEL-3", "THAI-2"], keyOf, [held("CEL-7", 1, "leaving")])).toEqual(["CEL-3", "THAI-2"])
+  it("a leaving row is out of the list, so it can fold away, even while the queue still lists it (its events haven't arrived)", () => {
+    expect(withHeld(["CEL-3", "THAI-2"], keyOf, [held("CEL-7", 1, "leaving", true)])).toEqual(["CEL-3", "THAI-2"])
     expect(withHeld(["CEL-3", "CEL-7"], keyOf, [held("CEL-7", 1, "leaving")])).toEqual(["CEL-3"])
   })
 })

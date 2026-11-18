@@ -15,7 +15,7 @@ import { relativeTime } from "../lib/format.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { EvidenceBadge } from "./EvidenceBadge.tsx"
 import { FOLD_SPRING, QueueRow, type QueueRowState } from "./QueueRow.tsx"
-import { type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, type Held, holdStep, IDLE, withHeld } from "./queue.ts"
+import { allLeft, type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, type Held, holdStep, IDLE, syncHeld, withHeld } from "./queue.ts"
 import { CommentOrDecide } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
 import { useQueue } from "./useQueue.ts"
@@ -76,8 +76,13 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
     if (event.type !== "clicked") return setHeld((rows) => holdStep(rows, key, event))
     const at = packets.findIndex((p) => p.task.key === key)
     const state = decisionStep(IDLE, event)
-    setHeld((rows) => [...rows.filter((h) => h.key !== key), { key, item, at: at === -1 ? packets.length : at, state }])
+    setHeld((rows) => [...rows.filter((h) => h.key !== key), { key, item, at: at === -1 ? packets.length : at, state, dropped: false }])
   }
+  // The held rows follow the queue: a row the events took off it is noted, and one that comes back (a new packet) is let go.
+  const listed = queue.map((item) => item.task.key)
+  const listedKeys = listed.join(" ")
+  const followQueue = useEffectEvent(() => setHeld((rows) => syncHeld(rows, listed)))
+  useEffect(() => followQueue(), [listedKeys])
   /** The row has said so for its moment: it folds away, and the next one opens, unless Lucas opened another meanwhile. */
   const shown = (key: string) => {
     // Nothing folds with reduced motion: out of the list, the row has left.
@@ -85,8 +90,16 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
     if (openKey === key) setUnfolding(rows.openNext(key))
   }
   /** The rows that were leaving have folded away. */
-  const left = () => setHeld((rows) => rows.filter((h) => h.state.phase !== "leaving"))
-  const leaving = held.some((h) => h.state.phase === "leaving")
+  const left = () => setHeld(allLeft)
+  const leavingKeys = held.filter((h) => h.state.phase === "leaving").map((h) => h.key).join(" ")
+  const leaving = leavingKeys !== ""
+  // The fold's end (onExitComplete) isn't the only word on it: it never comes in a hidden tab, or for a row
+  // that came back mid-fold. A timer says so too, well after the spring has settled.
+  useEffect(() => {
+    if (leavingKeys === "") return
+    const timer = setTimeout(() => setHeld(allLeft), FOLD_FALLBACK_MS)
+    return () => clearTimeout(timer)
+  }, [leavingKeys])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -177,11 +190,14 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
 /** How long a row says "Approved" or "Sent back" before it folds away: long enough to read two words. */
 const CONFIRMATION_MS = 1100
 
+/** When a folding row counts as gone, whether or not its fold reported its end: several times the spring's length. */
+const FOLD_FALLBACK_MS = 1500
+
 /** What a decided row says in its badge's place, for a moment; then `onShown` runs. */
 function Decided({ decision, onShown }: { decision: Decision; onShown: () => void }) {
   const done = useEffectEvent(onShown)
   useEffect(() => {
-    const timer = setTimeout(done, CONFIRMATION_MS)
+    const timer = setTimeout(() => done(), CONFIRMATION_MS)
     return () => clearTimeout(timer)
   }, [])
   const Icon = decision === "approved" ? CheckIcon : CornerUpLeftIcon
