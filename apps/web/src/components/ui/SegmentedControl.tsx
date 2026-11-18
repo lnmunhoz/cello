@@ -13,7 +13,7 @@ const control = variants(
 )
 
 const indicator = variants(
-  "absolute top-(--segmented-control-indicator-top) left-(--segmented-control-indicator-left) -z-10 h-(--segmented-control-indicator-height) w-(--segmented-control-indicator-width) border border-line bg-raised shadow-card transition-[left,width] duration-150 motion-reduce:transition-none",
+  "absolute top-(--segmented-control-indicator-top) left-(--segmented-control-indicator-left) -z-10 h-(--segmented-control-indicator-height) w-(--segmented-control-indicator-width) border border-line bg-raised shadow-card transition-[left,width] duration-(--motion-fast) ease-motion-out motion-reduce:transition-none",
   { size: { md: "rounded-md", sm: "rounded" } },
   { size: "md" },
 )

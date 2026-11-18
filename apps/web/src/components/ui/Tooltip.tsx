@@ -25,7 +25,7 @@ export function TooltipContent(props: Omit<ComponentProps<typeof BaseContent>, "
       side="right"
       sideOffset={8}
       {...props}
-      className="flex items-center gap-2 rounded-md bg-ink px-2 py-1 text-xs font-medium whitespace-nowrap text-canvas shadow-pop transition-opacity duration-100 data-ending-style:opacity-0 data-instant:transition-none data-starting-style:opacity-0 motion-reduce:transition-none"
+      className="flex items-center gap-2 rounded-md bg-ink px-2 py-1 text-xs font-medium whitespace-nowrap text-canvas shadow-pop transition-[opacity,scale] duration-(--motion-fast) ease-motion-out origin-(--transform-origin) data-ending-style:scale-97 data-ending-style:opacity-0 data-instant:transition-none data-starting-style:scale-97 data-starting-style:opacity-0 motion-reduce:transition-none"
     />
   )
 }

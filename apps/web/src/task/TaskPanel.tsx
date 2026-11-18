@@ -7,7 +7,7 @@ import { openReviewOf } from "@cello/client/sync/reviews"
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useShortcut, useShortcutHint } from "@ui-sdk/react/shortcuts"
 import { ChevronRightIcon, Maximize2Icon, Minimize2Icon, MoreHorizontalIcon, XIcon } from "lucide-react"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { NotFound } from "../app/NotFound.tsx"
 import { NARROW_WIDTH } from "../app/sidebarState.ts"
 import { Button } from "../components/ui/Button.tsx"
@@ -23,6 +23,7 @@ import { commands } from "../lib/cello.ts"
 import { copyText } from "../lib/clipboard.ts"
 import { SAVES_ON_BLUR } from "../lib/editing.ts"
 import { useBoard, useMediaQuery } from "../lib/hooks.ts"
+import { exitMotion } from "../lib/motion.ts"
 import { EarlierReviews, PinnedReview } from "../review/TaskReviews.tsx"
 import { AskThread, PinnedAsk } from "../ask/TaskAsks.tsx"
 import { useRestoredSideScroll } from "../viewer/panelBack.ts"
@@ -45,6 +46,12 @@ export const useTaskView = (): TaskView => taskViewOf(useSearch({ strict: false 
 /** Where the open task sits (view.ts's `taskPlacement`): it follows the view, whether the viewer is open and whether the window is narrow. */
 export const useTaskPlacement = (taskOpen: boolean): TaskPlacement =>
   taskPlacement(taskOpen, useTaskView(), useViewerItem() !== null, useMediaQuery(`(max-width: ${NARROW_WIDTH - 1}px)`))
+
+/**
+ * The path the app loaded at, until the first task panel shows. A panel open at load (a reload, a link
+ * to the task) is simply there; one opened afterwards slides in (CEL-189).
+ */
+let loadedAt: string | null = typeof location === "undefined" ? null : location.pathname
 
 /**
  * The open task: a side panel docked on the right of the main area at full height, `width` wide and
@@ -84,10 +91,37 @@ export function TaskPanel({
   const narrow = useMediaQuery(`(max-width: ${NARROW_WIDTH - 1}px)`)
   // Opened from a milestone's page (CEL-132), closing goes back to it; otherwise to the Issues tab.
   const { milestoneId } = useParams({ strict: false }) as { milestoneId?: string }
-  const close = () => {
+  const leave = () => {
     if (milestoneId === undefined) void navigate({ to: "/$projectKey/issues", params: { projectKey: project.key } })
     else void navigate({ to: "/$projectKey/milestones/$milestoneId", params: { projectKey: project.key, milestoneId } })
   }
+  // The close button and Escape slide the panel out, then leave (CEL-189). It's the task being closed, so
+  // opening another one mid-slide keeps that one open. With reduced motion, or while the panel is covered,
+  // it leaves at once; a slide cut short (the panel hidden mid-slide) leaves too, so it can't stick.
+  const [closing, setClosing] = useState<number | null>(null)
+  const [slidesIn] = useState(() => loadedAt !== location.pathname)
+  useEffect(() => {
+    loadedAt = null
+  }, [])
+  const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)")
+  const close = () => {
+    if (exitMotion({ reduceMotion, shown: placement !== "covered" }) === "leave") leave()
+    else setClosing(number)
+  }
+  const aside = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const el = aside.current
+    if (!el || closing !== number) return
+    if (placement === "covered") {
+      leave()
+      return
+    }
+    const cut = (e: AnimationEvent) => {
+      if (e.target === el && e.animationName === "task-panel-out") leave()
+    }
+    el.addEventListener("animationcancel", cut)
+    return () => el.removeEventListener("animationcancel", cut)
+  })
   // Expand from the panel; collapse from the main area, closing the viewer beside it. It stays on the
   // page it was opened from (the Issues tab, a milestone's page).
   const toggle = () => {
@@ -101,14 +135,20 @@ export function TaskPanel({
   useShortcut(task ? COPY_KEY_SHORTCUT : null, () => task && copyKey(task), { description: "Copy the open task's key" })
   return (
     <aside
+      ref={aside}
       hidden={placement === "covered"}
       aria-label={task ? `${task.key} details` : "Task details"}
       data-view={view}
       data-side-panel="task"
       data-placement={placement}
-      className={`relative col-start-1 row-start-3 flex min-h-0 min-w-0 flex-col bg-surface ${full ? "" : "border-line md:col-start-2 md:row-span-full md:border-l"}`}
+      data-slide-in={slidesIn ? "" : undefined}
+      data-closing={closing === number ? "" : undefined}
+      className={`task-panel-slide relative col-start-1 row-start-3 flex min-h-0 min-w-0 flex-col bg-surface ${full ? "" : "border-line md:col-start-2 md:row-span-full md:border-l"}`}
       onKeyDown={(e) => {
         if (e.key === "Escape" && e.target === e.currentTarget && !full) close()
+      }}
+      onAnimationEnd={(e) => {
+        if (e.target === e.currentTarget && e.animationName === "task-panel-out" && closing === number) leave()
       }}
     >
       {placement === "side" && !narrow ? <ResizeHandle edge="left" label="Resize task panel" rule={TASK_PANEL_WIDTH} width={width} onResize={onResize} /> : null}

@@ -12,7 +12,7 @@ export function TabsTab(props: Omit<ComponentProps<typeof BaseTab>, "className">
   return (
     <BaseTab
       {...props}
-      className="inline-flex h-6 items-center rounded px-2 text-xs font-medium text-muted outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring data-selected:bg-raised data-selected:text-ink data-selected:shadow-card"
+      className="inline-flex h-6 items-center rounded px-2 text-xs font-medium text-muted outline-none transition-[color,background-color,box-shadow] duration-(--motion-fast) ease-motion-out hover:text-ink focus-visible:ring-2 focus-visible:ring-ring data-selected:bg-raised data-selected:text-ink data-selected:shadow-card"
     />
   )
 }

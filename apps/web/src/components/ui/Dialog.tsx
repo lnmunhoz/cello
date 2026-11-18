@@ -27,7 +27,7 @@ const BAR = `${FLOATING} top-[12vh] overflow-hidden`
  * preview beside it.
  */
 const content = variants(
-  "outline-none duration-150 motion-reduce:transition-none",
+  "outline-none duration-(--motion-base) ease-motion-out motion-reduce:transition-none",
   {
     size: {
       sm: `${PANEL} w-[min(420px,calc(100vw-32px))]`,
@@ -42,7 +42,7 @@ const content = variants(
 )
 
 const backdrop = variants(
-  "fixed inset-0 transition-opacity duration-150 data-starting-style:opacity-0 data-ending-style:opacity-0",
+  "fixed inset-0 transition-opacity duration-(--motion-base) ease-motion-out data-starting-style:opacity-0 data-ending-style:opacity-0",
   { size: { sm: "bg-black/30", md: "bg-black/30", palette: "bg-black/30", peek: "bg-black/30", screen: "bg-transparent", page: "bg-transparent" } },
   { size: "md" },
 )

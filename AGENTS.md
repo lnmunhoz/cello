@@ -70,7 +70,7 @@ How a task goes from Todo to Done is in [LIFECYCLE.md](LIFECYCLE.md): its workfl
 - **UI:**
   - `apps/web/src/components/ui` primitives take a `variant` or `size`; never restyle them with `className`.
   - No `useMemo`/`useCallback` (React Compiler).
-  - Animations run only when an event arrives or an agent is working on a card.
+  - Animations run only when an event arrives, an agent is working on a card, or as a short transition answering the human's own action (a menu opening, a drop, a submit). They take their timing from `apps/web/src/lib/motion.ts`; an idle page runs none.
 - **Docs:** `docs/internals/` holds decisions only. Specs, plans and reports are published into Cello with `cello doc publish`.
 - **Backups:** agents run `cello restore` only when the human asks. How backups work: `apps/server/src/backup/README.md`.
 
