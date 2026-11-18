@@ -7,7 +7,7 @@ summary: The full life of a Cello feature, from an idea in chat to Done on the b
 
 Every feature goes through the same path. **Lucas says what he wants, agents build and review it, and Lucas decides on the Review page.** Nothing reaches him without tests and visual evidence, and nothing reaches main without a review.
 
-**The steps are written down in [LIFECYCLE.md](../LIFECYCLE.md)** at the repo root, as instructions: `/cello:orchestrate` reads it first and follows it (CEL-168). This page explains them with diagrams. Change both together.
+**The steps are written down in [LIFECYCLE.md](../LIFECYCLE.md)** at the repo root, as instructions, in two workflows: `feature` (this page) and `small` (docs or a one-line fix, which skips the plan, the build agent and the review). `/cello:orchestrate` reads it first, picks a task's workflow and follows it (CEL-168). This page explains `feature` with diagrams. Change both together.
 
 ```mermaid
 flowchart TD

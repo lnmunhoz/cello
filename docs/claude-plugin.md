@@ -18,18 +18,18 @@ It's on **per project** by default, since not every project uses Cello. `cello i
 
 ## Each project has its own lifecycle: LIFECYCLE.md
 
-**How a task goes from Todo to Done is the project's, not the plugin's** (CEL-168). Cello builds each task in a worktree and merges the branch after Lucas approves; ThaiLookup works on `develop` in the main checkout and commits only after he approves. So each repo writes its flow in **`LIFECYCLE.md` at its root**:
+**How a task goes from Todo to Done is the project's, not the plugin's** (CEL-168). Cello builds each task in a worktree and merges the branch after Lucas approves; ThaiLookup works on `develop` in the main checkout and commits only after he approves. And within one repo, a one-line fix shouldn't go through the same steps as a feature. So each repo writes its flows in **`LIFECYCLE.md` at its root**: a few named **workflows**, one per kind of task, and the parts they share:
 
 | Section | What it says |
 | --- | --- |
-| **Steps** | The steps in order, the stage each sets, where you approve before the next one, which small changes skip steps |
+| **Workflows** | One per kind of task (`feature`, `fix`, `docs`, `data`…): when to use it, its steps in order, the stage and agent of each, where you approve before the next one |
 | **Agents** | Who runs each step: the repo's own agents (`.claude/agents/`) or the plugin's `cello:builder` and `cello:reviewer`, with model and effort |
 | **Where agents work** | A worktree per task on its own branch, or the main checkout shared with other sessions |
 | **How work lands** | A merge, a PR, or a commit straight to a branch; what's never done |
 | **After it lands** | Tests, deploys, migrations, and which wait for your yes |
 | **Releases** | How and when one goes out |
 
-Cello's own is [LIFECYCLE.md](../LIFECYCLE.md). The template lives in the plugin's `commands/orchestrate.md`.
+**The orchestrator picks the workflow per task** from each one's "Use it when" line, and comments which and why on the card ("Workflow: `small`, because it's a docs fix"). Reply with another workflow's name to change it; when none fits, it asks you on the card. Cello's own [LIFECYCLE.md](../LIFECYCLE.md) has two: `feature` (planner, your plan approval, builder, reviewers) and `small` (docs or a one-line fix, made directly). The template lives in the plugin's `commands/orchestrate.md`.
 
 **The plugin keeps only the board's mechanics**, the same in every project: orchestrate mode, claims, stages, asking on the card, comments and the inbox, `cello task submit` and `cello task done`. **When** work lands is still the project's "Merge after I approve" setting; `LIFECYCLE.md` says **how**.
 
@@ -40,13 +40,14 @@ You type `/cello:orchestrate CEL-12 CEL-14`, or a goal like `/cello:orchestrate 
 ```mermaid
 flowchart TD
     A["You type /cello:orchestrate<br/>with task keys, or a goal"] --> B{"LIFECYCLE.md<br/>at the repo root?"}
-    B -->|no| D["① Draft one from the repo<br/>AGENTS.md, branches, CI, cello context,<br/>.claude/agents/; guesses marked"]
+    B -->|no| D["① Draft one from the repo<br/>a few workflows, from AGENTS.md, branches, CI,<br/>cello context, .claude/agents/; guesses marked"]
     D --> Q["Ask you on the card<br/>Use this lifecycle? Use it / Change it"]
     Q -->|Change it| D
-    Q -->|Use it| W["Write LIFECYCLE.md"]
+    Q -->|Use it| W["Write LIFECYCLE.md<br/>uncommitted, lands with the first task"]
     W --> C
     B -->|yes| C["② Get the tasks ready<br/>cello context · tasks from the goal · claim each"]
-    C --> S["③ LIFECYCLE.md's steps, in order<br/>its agents, where it says they work<br/>cello task stage at each"]
+    C --> P["③ Pick each task's workflow<br/>feature, fix, docs…<br/>say which and why on the card"]
+    P --> S["④ That workflow's steps, in order<br/>its agents, where LIFECYCLE.md says they work<br/>cello task stage at each"]
     S --> M{"Merge after I approve?"}
     M -->|off| L1["Land it as LIFECYCLE.md says<br/>then submit"]
     M -->|on| L2["Submit, wait for your Approve<br/>then land it, cello task done"]
@@ -55,7 +56,7 @@ flowchart TD
 The rules it follows for the whole run:
 
 - **It doesn't write the feature itself.** It writes briefs, starts agents, reads their reports, lands the work and submits. Only tiny changes (docs, a one-line fix) it makes directly.
-- **It follows `LIFECYCLE.md`, and never guesses one.** Without the file it drafts it from the repo and asks you on the card before running any task. When the file looks out of date, it asks before changing it.
+- **It follows `LIFECYCLE.md`, one workflow per task, and never guesses one.** Without the file it drafts it from the repo and asks you on the card before running any task. When the file looks out of date, it asks before changing it.
 - **Independent tasks run at the same time; tasks that touch the same files run one after another.** Each agent's brief says what the others are changing, so they stay out of each other's files. In a shared checkout no two agents edit the same file.
 - **The card always says where the work is**, through `cello task stage`. Submitting clears it.
 - **Your decisions are asked on the card**, never in the terminal. Your comments reach the thread by themselves through the hooks, and it answers on the card.

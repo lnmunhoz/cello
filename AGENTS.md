@@ -50,7 +50,7 @@ Cello's own backlog is the **CEL** project on Lucas's board. Run `cello context`
 
 ## Lifecycle
 
-How a task goes from Todo to Done (planner → Lucas approves the plan → builder in a worktree → code and data reviewers → submit → merge after his approval → no release unless he asks), which agents run each step with which model, and how work lands: all in [LIFECYCLE.md](LIFECYCLE.md). `/cello:orchestrate CEL-n` reads it first and follows it ([docs/claude-plugin.md](docs/claude-plugin.md)). Full path with diagrams: [docs/feature-lifecycle.md](docs/feature-lifecycle.md). Change the flow in LIFECYCLE.md, not here.
+How a task goes from Todo to Done is in [LIFECYCLE.md](LIFECYCLE.md): its workflows (`feature`: planner → Lucas approves the plan → builder in a worktree → code and data reviewers → submit → merge after his approval; `small`: docs or a one-line fix, the same without the plan, build agent and review), which agents run each step with which model, how work lands, and no release unless he asks. `/cello:orchestrate CEL-n` reads it first, picks the task's workflow and follows it ([docs/claude-plugin.md](docs/claude-plugin.md)). Full path with diagrams: [docs/feature-lifecycle.md](docs/feature-lifecycle.md). Change the flow in LIFECYCLE.md, not here.
 
 ## How to work
 

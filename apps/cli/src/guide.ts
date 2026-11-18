@@ -952,18 +952,18 @@ New Claude Code sessions pick them up.
 
 ### LIFECYCLE.md: the project's own flow
 
-**How a task goes from Todo to Done differs per project**, so the plugin doesn't decide it. One repo builds in worktrees and merges branches; another works in the main checkout on \`develop\` and commits only after the human approves. Each repo says how in **\`LIFECYCLE.md\` at its root**, in six sections:
+**How a task goes from Todo to Done differs per project**, so the plugin doesn't decide it. One repo builds in worktrees and merges branches; another works in the main checkout on \`develop\` and commits only after the human approves. Each repo says how in **\`LIFECYCLE.md\` at its root**: a few named **workflows** (one per kind of task) and the parts they share, in six sections:
 
 | Section | What it says |
 | --- | --- |
-| \`## Steps\` | The steps in order (plan, build, review, fix, submit…), the stage each sets, and where the human approves before the next one; which small changes skip steps |
+| \`## Workflows\` | One \`### <name>\` per kind of task (\`feature\`, \`fix\`, \`docs\`, \`data\`…), each with a \`Use it when:\` line and its steps in order (plan, build, review, fix, submit…): the stage each sets, its agent, and where the human approves before the next one |
 | \`## Agents\` | Which agent runs each step: the repo's own in \`.claude/agents/\`, or the plugin's \`cello:builder\` and \`cello:reviewer\`; their model and effort |
 | \`## Where agents work\` | A git worktree per task on its own branch, or the main checkout shared with other sessions |
 | \`## How work lands\` | A merge, a PR or a commit straight to a branch, and its message; what's never done |
 | \`## After it lands\` | Tests to run, deploys, migrations, and which wait for the human's yes |
 | \`## Releases\` | How and when a release goes out, or "only when the human says" |
 
-\`/cello:orchestrate\` reads it before it claims anything and follows it. The plugin keeps only what's the same everywhere: orchestrate mode, claims, stages, asking on the card, comments and the inbox, \`cello task submit\`, \`cello task done\`. **When work lands is still the Merge after approval setting** (see "Merge after I approve"): the setting decides the order, \`LIFECYCLE.md\` says how. When the two disagree, the orchestrator follows the setting and says so on the card.
+\`/cello:orchestrate\` reads it before it claims anything. **For each task it picks one workflow** from the \`Use it when:\` lines and comments which and why on the card ("Workflow: \`fix\`, because …"); the human changes it by replying with another workflow's name. When none fits, or two fit equally, it asks on the card. The plugin keeps only what's the same everywhere: orchestrate mode, claims, stages, asking on the card, comments and the inbox, \`cello task submit\`, \`cello task done\`. **When work lands is still the Merge after approval setting** (see "Merge after I approve"): the setting decides the order, \`LIFECYCLE.md\` says how. When the two disagree, the orchestrator follows the setting and says so on the card.
 
 \`\`\`mermaid
 flowchart TD
@@ -974,11 +974,12 @@ flowchart TD
     Q -->|Change it| D
     Q -->|Use it| W["Write LIFECYCLE.md"]
     W --> R
-    R --> S["Its steps, its agents,<br/>where it says they work<br/>cello task stage at each"]
+    R --> P["Pick the task's workflow<br/>from its Use it when line,<br/>say which and why on the card"]
+    P --> S["That workflow's steps and agents,<br/>where LIFECYCLE.md says they work<br/>cello task stage at each"]
     S --> L(["Submit and land<br/>in the order Merge after approval says"])
 \`\`\`
 
-**No \`LIFECYCLE.md\` yet?** The orchestrator doesn't guess. It drafts one from what the repo shows (AGENTS.md or CLAUDE.md, the branches and recent merges, CI and release workflows, the testing profile, \`.claude/agents/\`), marks what it guessed, publishes the draft and asks the human on the card to use it or change it. Once they say use it, it writes the file at the repo root and carries on with the tasks. The template it starts from is in the plugin's \`commands/orchestrate.md\`.
+**No \`LIFECYCLE.md\` yet?** The orchestrator doesn't guess. It drafts one from what the repo shows (AGENTS.md or CLAUDE.md, the branches and recent merges, CI and release workflows, the testing profile, \`.claude/agents/\`), with a few workflows for the kinds of task the repo has, marks what it guessed, publishes the draft and asks the human on the card to use it or change it. Once they say use it, it writes the file at the repo root, leaves it uncommitted (it lands with the first task's work), and carries on with the tasks. The template it starts from is in the plugin's \`commands/orchestrate.md\`.
 
 - **Where the files go.** The plugin's files are written to \`$XDG_DATA_HOME/cello/claude-plugin\` (by default \`~/.local/share/cello/claude-plugin\`), a folder of Cello's own, never inside the repo or \`~/.cello\`. Every install rewrites what changed there, so updating \`cello\` and running \`cello install claude\` again updates the plugin. Cello only ever removes files it wrote there itself, and refuses to write through a symlinked folder inside it.
 - **Don't edit the plugin's files there:** the next install puts Cello's text back. Put your own commands in the project's \`.claude/commands/\` (or skills in \`.claude/skills/\`) instead.

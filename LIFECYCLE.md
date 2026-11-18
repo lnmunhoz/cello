@@ -1,10 +1,16 @@
 # Lifecycle
 
-How a Cello task goes from Todo to Done. `/cello:orchestrate` reads this file first and follows it ([docs/claude-plugin.md](docs/claude-plugin.md)). The board's own rules (claim, stages, asking on the card, submit, done) are in [AGENTS.md](AGENTS.md) and `cello guide`. The full path with diagrams: [docs/feature-lifecycle.md](docs/feature-lifecycle.md). Change this file, that page and AGENTS.md's pointer together.
+How a Cello task goes from Todo to Done. `/cello:orchestrate` reads this file first, picks one workflow per task and follows it ([docs/claude-plugin.md](docs/claude-plugin.md)). The board's own rules (claim, stages, asking on the card, submit, done) are in [AGENTS.md](AGENTS.md) and `cello guide`. The full path with diagrams: [docs/feature-lifecycle.md](docs/feature-lifecycle.md). Change this file, that page and AGENTS.md's pointer together.
 
 The orchestrator claims the task and runs it.
 
-## Steps
+## Workflows
+
+Each task runs one. The orchestrator picks it from "Use it when" and says which and why on the card; Lucas can change it there. When it's unclear, it asks on the card.
+
+### feature
+
+Use it when: anything that changes how Cello behaves or looks, or touches Lucas's data. When in doubt, this one.
 
 1. **Plan** (stage `planning`). A `cello-planner` agent reads the task and the code and writes a step-by-step plan, test first. It never writes code.
    - Publish the plan on the task: `cello doc publish plan.md --task CEL-n --kind spec`. Its `risk: data` decides whether the data reviewer runs.
@@ -19,7 +25,14 @@ The orchestrator claims the task and runs it.
 6. **Merge only after Lucas approves** (below), then `cello task done CEL-n`.
 7. **No release** (below).
 
-Small changes (docs, a one-line fix) skip steps 1–4, still test first.
+### small
+
+Use it when: docs only, or a one-line fix. The `feature` workflow without its steps 1–4.
+
+1. **Change it** (stage `building`). The orchestrator makes the change itself, still test first, on a branch in its own worktree, and commits there.
+2. **Submit, not merged yet**, as in `feature` step 5.
+3. **Merge only after Lucas approves** (below), then `cello task done CEL-n`.
+4. **No release** (below).
 
 ## Agents
 

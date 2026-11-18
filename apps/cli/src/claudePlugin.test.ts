@@ -47,6 +47,8 @@ describe("the plugin follows the project's LIFECYCLE.md (CEL-168)", () => {
   const text = (p: string) => CLAUDE_PLUGIN_FILES.find((f) => f.path === p)?.text ?? ""
   const orchestrate = text("cello/commands/orchestrate.md")
   const REPO_ROOT = path.join(import.meta.dirname, "../../..")
+  const workflows = (doc: string) =>
+    doc.split(/^### /m).slice(1).map((part) => ({ name: part.split("\n")[0]!.trim(), body: part.split(/^## /m)[0]! }))
   const templateHeadings = () => {
     const template = /````markdown\n([\s\S]*?)\n````/.exec(orchestrate)?.[1] ?? ""
     return template.split("\n").filter((line) => line.startsWith("## "))
@@ -76,13 +78,31 @@ describe("the plugin follows the project's LIFECYCLE.md (CEL-168)", () => {
     for (const step of ["AGENTS.md", ".claude/agents/", "cello context", "cello task ask", "Write"]) expect(missing, step).toContain(step)
   })
 
-  it("ships a template whose sections cover a lifecycle: steps, agents, where they work, how work lands, after it lands, releases", () => {
-    expect(templateHeadings()).toEqual(["## Steps", "## Agents", "## Where agents work", "## How work lands", "## After it lands", "## Releases"])
+  it("ships a template whose sections cover a lifecycle: workflows, agents, where they work, how work lands, after it lands, releases", () => {
+    expect(templateHeadings()).toEqual(["## Workflows", "## Agents", "## Where agents work", "## How work lands", "## After it lands", "## Releases"])
+  })
+
+  // Lucas: "different types of workflows inside that ... the orchestrator agent can dictate which one to
+  // use for each feature, for each kind of specific task".
+  it("LIFECYCLE.md lists named workflows, each saying when to use it; the template shows several", () => {
+    const template = /````markdown\n([\s\S]*?)\n````/.exec(orchestrate)?.[1] ?? ""
+    expect(workflows(template).length).toBeGreaterThan(1)
+    for (const workflow of workflows(template)) expect(workflow.body, workflow.name).toMatch(/^Use it when: /m)
+  })
+
+  it("orchestrate picks one workflow per task, says which and why on the card, takes a change from the person, and asks when none fits", () => {
+    const pick = orchestrate.slice(orchestrate.indexOf("**Pick each task's workflow**"), orchestrate.indexOf("Plan the order"))
+    for (const part of ["Use it when", "cello task comment", "because", "change it", "None fits", "cello task ask"]) expect(pick, part).toContain(part)
+    // Picked at the start, before the first step runs.
+    expect(orchestrate.indexOf("**Pick each task's workflow**")).toBeLessThan(orchestrate.indexOf("## Each task, step by step"))
   })
 
   it("Cello's own LIFECYCLE.md has every section of the template, and AGENTS.md points to it instead of holding the flow", () => {
     const lifecycle = fs.readFileSync(path.join(REPO_ROOT, "LIFECYCLE.md"), "utf8")
     for (const heading of templateHeadings()) expect(lifecycle, heading).toContain(`\n${heading}\n`)
+    // Today's flow is `feature`; AGENTS.md's "small changes skip steps 1-4" is a workflow of its own.
+    expect(workflows(lifecycle).map((w) => w.name)).toEqual(["feature", "small"])
+    for (const workflow of workflows(lifecycle)) expect(workflow.body, workflow.name).toMatch(/^Use it when: /m)
     const agents = fs.readFileSync(path.join(REPO_ROOT, "AGENTS.md"), "utf8")
     expect(agents).toContain("LIFECYCLE.md")
     expect(agents).not.toContain("## How a task flows")
