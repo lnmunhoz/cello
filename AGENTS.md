@@ -52,18 +52,21 @@ Cello's own backlog is the **CEL** project on Lucas's board. Run `cello context`
 
 The orchestrator claims the task and runs it. Full path with diagrams: [docs/feature-lifecycle.md](docs/feature-lifecycle.md). `/cello:orchestrate CEL-n` takes this role ([docs/claude-plugin.md](docs/claude-plugin.md)).
 
-1. **Build.** A `cello-builder` agent works test first in its own worktree and commits on its branch. It never pushes, touches main or changes the live board.
-2. **Review.** A fresh `cello-code-reviewer` gets the diff against main and the task text, never the builder's report.
+1. **Plan.** A `cello-planner` agent (stage `planning`) reads the task and the code and writes a step-by-step plan, test first. It never writes code.
+   - Publish the plan on the task: `cello doc publish plan.md --task CEL-n --kind spec`.
+   - Its open questions go on the card (`cello task ask`) before building starts. Its `risk: data` decides whether the data reviewer runs.
+2. **Build.** A `cello-builder` agent follows the plan, test first, in its own worktree, and commits on its branch. It never pushes, touches main or changes the live board.
+3. **Review.** A fresh `cello-code-reviewer` gets the diff against main, the task text and the plan, never the builder's report.
    - When the change touches Lucas's data, also run `cello-data-reviewer` on those parts. Lucas's data means migrations, backup/restore, writes outside the data folder, deleting files, or the desktop panel's security rules.
    - For UI work, the same reviewer checks every video and screenshot (its "UI work: the evidence" checklist). Give it their paths.
-3. **Fix.** Findings go back to the same builder. If a blocker survives one round, or it's a design question, ask on the card.
-4. **Merge and release.** Merge as `merge: <what> (CEL-n)`, which becomes the changelog line, so write it for Lucas. Run the related e2e specs. Then run `bun run release` on main.
+4. **Fix.** Findings go back to the same builder. If a blocker survives one round, or it's a design question, ask on the card.
+5. **Merge and release.** Merge as `merge: <what> (CEL-n)`, which becomes the changelog line, so write it for Lucas. Run the related e2e specs. Then run `bun run release` on main.
    - Every deploy is a release. Never rebuild or restart by hand.
    - Use `-- minor`/`-- major` only when Lucas says. `-- --dry-run` previews.
    - Never bump versions by hand. Details: [docs/releases.md](docs/releases.md).
-5. **Submit right after the release.** Don't batch merges or hold packets. The packet says what review found and fixed, which models built and reviewed it, and the release (`v0.3.1`).
+6. **Submit right after the release.** Don't batch merges or hold packets. The packet says what review found and fixed, which models built and reviewed it, and the release (`v0.3.1`).
 
-Small changes (docs, a one-line fix) skip steps 1–3, still test first.
+Small changes (docs, a one-line fix) skip steps 1–4, still test first.
 
 **When the merge happens is a per-project setting, "Merge after I approve"** (`cello context` prints it; CEL-143):
 
@@ -74,7 +77,8 @@ Small changes (docs, a one-line fix) skip steps 1–3, still test first.
 
 | Agent | Model | Effort |
 | --- | --- | --- |
-| `cello-builder` | Opus 5.5 | high |
+| `cello-planner` | Opus 5.5 | high |
+| `cello-builder` | Sonnet 5.5 | high |
 | `cello-code-reviewer` | Sonnet 5.5 | medium |
 | `cello-data-reviewer` | Sonnet 5.5 | high |
 | `Explore` | Haiku 5.5 | medium |

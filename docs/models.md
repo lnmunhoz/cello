@@ -1,6 +1,6 @@
 ---
 title: When to use which model and effort
-summary: Which Claude model and effort level each kind of agent work gets in Cello, why, and when to move up or down. Builders run Opus at high, reviews mostly Sonnet at medium, search Haiku, and effort is never below medium.
+summary: Which Claude model and effort level each kind of agent work gets in Cello, why, and when to move up or down. Planners run Opus at high, builders Sonnet at high, reviews mostly Sonnet at medium, search Haiku, and effort is never below medium.
 ---
 
 ## The short version
@@ -14,11 +14,14 @@ In Cello every agent has both pinned in its definition (`.claude/agents/*.md`), 
 
 | Agent | Model | Effort | In one line |
 | --- | --- | --- | --- |
-| `cello-builder` (every build) | Opus 5.5 | high | Writes the code, so quality comes first |
+| `cello-planner` (first, for every build) | Opus 5.5 | high | Decides what to change, where and in what order: the judgment-heavy part |
+| `cello-builder` (every build) | Sonnet 5.5 | high | Follows the plan, test first |
 | `cello-data-reviewer` | Sonnet 5.5 | high | Only the risky part (migrations, deletes, settings writes): it reproduces failure cases; Opus takes a second look only at a blocker it can't settle |
 | `cello-code-reviewer` | Sonnet 5.5 | medium | Checks a diff against the task and the rules, and for UI work every video and screenshot |
 | Search and exploration (`Explore`) | Haiku 5.5 | medium | Finds files and code, fast and cheap |
 | Fable 5.2 | only when Lucas asks | | For the hardest open-ended problems |
+
+**Opus plans, Sonnet builds (Nov 18, CEL-158).** Lucas moved the hard thinking to a planner on Opus 5.5 at high, and builders to Sonnet 5.5 at high. A builder with a step-by-step plan is doing well-specified terminal work, where Sonnet matches Opus at half the price. The planner never writes code; the orchestrator publishes its plan on the task, and the reviewer checks the branch against it.
 
 **Effort is never below medium.** Lucas decided this on Nov 15: low effort saves little on short jobs and risks sloppy work.
 
@@ -30,8 +33,10 @@ In Cello every agent has both pinned in its definition (`.claude/agents/*.md`), 
 
 ```mermaid
 flowchart TD
-    A["A piece of agent work"] --> B{"Does it write the code?"}
-    B -->|yes| O1["Opus 5.5, high<br/>every builder"]
+    A["A piece of agent work"] --> P{"Does it plan the work?"}
+    P -->|yes| O1["Opus 5.5, high<br/>cello-planner, first for every build"]
+    P -->|no| B{"Does it write the code?"}
+    B -->|yes| SB["Sonnet 5.5, high<br/>cello-builder, following the plan"]
     B -->|no| C{"Could it hurt Lucas's data?<br/>migrations, backups, restore,<br/>settings files, deleting files,<br/>the desktop panel's security"}
     C -->|yes| O2["Sonnet 5.5, high<br/>cello-data-reviewer: the data paths only<br/>(Opus only for a blocker it can't settle)"]
     C -->|no| D{"Reviewing a diff, or checking<br/>videos and screenshots?"}
@@ -54,7 +59,7 @@ flowchart TD
 What the numbers mean for Cello:
 
 - **Sonnet 5.5 is as good as Opus 5.5 at well-specified terminal work,** for half the price. That makes it the right reviewer: a review is a well-specified job (this diff, this task, these rules).
-- **Opus 5.5 leads on hard, judgment-heavy work.** The subtle bugs found this week were all of that kind: a comment delivered three times, a settings file that could be cut short, a restore that failed silently. Builders write that kind of code, so they run Opus.
+- **Opus 5.5 leads on hard, judgment-heavy work.** The subtle bugs found this week were all of that kind: a comment delivered three times, a settings file that could be cut short, a restore that failed silently. That judgment now goes into the plan, so the planner runs Opus; the builder follows it on Sonnet.
 - **Haiku 5.5 is 40 times cheaper than Opus per token** and built for sub-agent lookups. It's not for writing code.
 - **Fable 5.2 costs twice as much as Opus.** Anthropic itself recommends Opus 5.5 for most work and Fable only when the scope calls for it.
 
@@ -64,7 +69,7 @@ What the numbers mean for Cello:
 | --- | --- | --- |
 | low | Fewest tokens, terse, fewer tool calls | Never (Lucas's rule) |
 | medium | The default for Opus, Sonnet and Haiku in Claude Code | Reviews, visual checks, search |
-| high | Thinks longer before and between steps | Every build, and data-risk reviews |
+| high | Thinks longer before and between steps | Every plan and build, and data-risk reviews |
 | xhigh | Longer still; the best setting for long agentic coding runs on some models | A build that keeps failing review at high, or a large refactor |
 | max | The ceiling: maximum thinking, maximum tokens | Only when Lucas asks, for a problem where correctness matters more than cost |
 
@@ -79,7 +84,8 @@ Judge by **cost per finished task**, not cost per call. A cheap agent that needs
 
 Move **up** (Sonnet to Opus, or high to xhigh) when:
 
-- a reviewer finds a blocker the builder should have seen
+- a reviewer finds a blocker the builder should have seen (first check whether the plan missed it)
+- a builder on Sonnet keeps leaving the plan or needs a second fix round: give that kind of task an Opus builder
 - a task needs a second fix round
 - the work touches data, security, concurrency or the sync engine
 
@@ -92,7 +98,7 @@ Each review packet says which models built and reviewed the work, so these patte
 
 ## How it's set
 
-- **Agent definitions:** `model:` and `effort:` in the frontmatter of `.claude/agents/cello-builder.md`, `cello-code-reviewer.md` and `cello-data-reviewer.md`. Claude Code reads these when a session starts.
+- **Agent definitions:** `model:` and `effort:` in the frontmatter of `.claude/agents/cello-planner.md`, `cello-builder.md`, `cello-code-reviewer.md` and `cello-data-reviewer.md`. Claude Code reads these when a session starts.
 - **When starting an agent another way** (a general-purpose agent, or `Explore`), the orchestrator passes the same model and effort.
 - **AGENTS.md** has the table under "How a task flows". This page explains it; change both together.
 

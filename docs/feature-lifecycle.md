@@ -16,7 +16,7 @@ flowchart TD
     T --> S{"Visible UI?"}
     S -->|yes| SC["③ UI scope<br/>real screens, Lucas approves"]
     S -->|no| C
-    SC --> C["④ Claim<br/>the orchestrator: In Progress"]
+    SC --> C["④ Claim and plan<br/>the orchestrator claims; a planner agent writes the plan"]
     C --> BU["⑤ Build<br/>builder agent, own worktree, test first"]
     BU --> RV["⑥ Review<br/>a fresh reviewer agent"]
     RV -->|findings| BU
@@ -47,7 +47,8 @@ So anything in In Review or Done is already in the Cello you're running, once yo
 | --- | --- | --- |
 | **Lucas** | Asks for features, approves UI scopes, approves or sends back on the Review page | |
 | **The orchestrator** (the main Claude session) | Turns requests into tasks, writes briefs, starts agents, merges, deploys, submits packets | Opus 5.5 |
-| **Builder** (`cello-builder`) | Writes the code and tests in its own git worktree, records the evidence | Opus 5.5, high |
+| **Planner** (`cello-planner`) | Reads the task and the code, writes the step-by-step plan, test first; never writes code | Opus 5.5, high |
+| **Builder** (`cello-builder`) | Follows the plan: writes the code and tests in its own git worktree, records the evidence | Sonnet 5.5, high |
 | **Code reviewer** (`cello-code-reviewer`) | Reads the diff against the task and AGENTS.md, and for UI work every video and screenshot | Sonnet 5.5, medium |
 | **Data reviewer** (`cello-data-reviewer`) | Only the data paths (migrations, deletes, settings writes), reproducing failure cases | Sonnet 5.5, high |
 
@@ -68,12 +69,20 @@ For a visible change, the first step is a scope, not code: where it shows up and
 
 Making the scope is work on the task, so the task is claimed (In Progress) while the scope is built. **Once the scope is published, its questions are asked on the card with `cello task ask`**, and the task waits in Needs input until Lucas picks: In Progress only ever means someone is working on it right now.
 
-## ④ Claim, and ⑤ Build
+## ④ Claim and plan
+
+The orchestrator claims the task, sets the stage to `planning` and starts a `cello-planner` agent. The planner reads the task, the rules and the code, and returns a plan: the goal in Lucas's words, what exists (`file:line`), ordered steps each with its failing test first, the files to touch and to stay out of, the risks (`risk: data` brings in the data reviewer), the checks and evidence to record, and open questions.
+
+- The orchestrator publishes the plan on the task as a spec (`cello doc publish plan.md --task CEL-n --kind spec`), so Lucas can read it.
+- **Open questions go on the card** with `cello task ask` before any code: the task waits in Needs input until Lucas answers.
+- The builder's brief and the reviewer's both get the plan.
+
+## ⑤ Build
 
 ```mermaid
 flowchart TD
     A["Orchestrator claims the task<br/>cello task claim CEL-n: In Progress"] --> S["Marks the stage<br/>cello task stage CEL-n building"]
-    S --> B["Writes the brief<br/>what, why, what to read,<br/>what other agents are changing"]
+    S --> B["Writes the brief<br/>what, why, the plan,<br/>what other agents are changing"]
     B --> C["Builder starts in its own git worktree<br/>a copy of the repo on its own branch"]
     C --> D["Test first<br/>a failing test, then the code that passes it"]
     D --> E["Unit and integration tests<br/>on the Mac (Vitest)"]
@@ -83,10 +92,11 @@ flowchart TD
     G --> H["Report back<br/>commits, test results, evidence paths"]
 ```
 
-**The stage shows where the task is inside In Progress.** In Progress holds a task from the claim to the packet, so on its own it can't tell building from waiting for review. The orchestrator says which step it's on, and the card shows it as a word (Building, Agent review, Fixing findings, Merged), or as lanes when Lucas turns on Display → "Group In Progress by stage":
+**The stage shows where the task is inside In Progress.** In Progress holds a task from the claim to the packet, so on its own it can't tell building from waiting for review. The orchestrator says which step it's on, and the card shows it as a word (Planning, Building, Agent review, Fixing findings, Merged), or as lanes when Lucas turns on Display → "Group In Progress by stage":
 
 | When | The orchestrator runs |
 | --- | --- |
+| It starts the planner | `cello task stage CEL-n planning` |
 | It starts the builder | `cello task stage CEL-n building` |
 | It starts the reviewer | `cello task stage CEL-n review` |
 | Findings go back to the builder | `cello task stage CEL-n fixing` |
