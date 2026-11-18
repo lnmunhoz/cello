@@ -3,6 +3,12 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.4.17](https://github.com/lnmunhoz/cello/compare/v0.4.16...v0.4.17) (2026-11-18)
+
+### Features
+
+- when you approve a task in the Claude chat, the agent passes it to the card with `cello task approve KEY --quote`, so it goes to Approved · merging (or Done) without a second approval on the Review page (CEL-169) ([1166bf3](https://github.com/lnmunhoz/cello/commit/1166bf32cb1b6ecf34f011c38a13c9f365697007))
+
 ## [0.4.16](https://github.com/lnmunhoz/cello/compare/v0.4.15...v0.4.16) (2026-11-18)
 
 ### Features
