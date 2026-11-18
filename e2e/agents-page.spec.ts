@@ -149,8 +149,7 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   await expect(sidebarLink).toHaveAttribute("data-status", "active")
 
   await caption(page, "The Agents page: waiting on you first, then working, then quiet")
-  // Every row listed (the chip All's number, CEL-188): the orchestrator and its two subagents, the asker and the quiet one. The sidebar's 4 counts the active ones.
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Agents working 5")
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Agents working 4")
   await expect(rowsIn(page, "waiting")).toHaveCount(1)
   await expect(askerRow).toHaveAttribute("data-agent-group", "waiting")
   await expect(askerRow.locator("[data-agent-task-state]")).toHaveText("Needs input")

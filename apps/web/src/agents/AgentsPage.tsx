@@ -21,7 +21,7 @@ import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { layoutTransition } from "../lib/motion.ts"
 import { Author } from "../presence/Author.tsx"
 import { OriginBadge } from "../presence/OriginBadge.tsx"
-import { workingSessions } from "../presence/model.ts"
+import { agentsWorkingCount, workingSessions } from "../presence/model.ts"
 import { AgentMarkOf, presenceSubjectOf, StageWord } from "../presence/Presence.tsx"
 import { TestRunFacts, TestRunLine, testRunOf } from "../presence/TestRun.tsx"
 import { useNow } from "../presence/useNow.ts"
@@ -91,15 +91,17 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const projects = projectsOf(board, workspaceId)
   const { picked, pick, sort, pickSort, view } = useQueueView("agents", projects, AGENT_SORTS)
   const projectId = picked?.id ?? null
-  const allRows = agentRows(workingSessions(board, workspaceId, now))
+  const allSessions = workingSessions(board, workspaceId, now)
+  const allRows = agentRows(allSessions)
   const allFinished = finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now)))
   // The chips count the whole list, Finished today too (the pick filters it), so rows stay put while you filter;
-  // a family is never split by a pick. All N is every row listed, and the header's number is the rows shown, so
-  // the two agree.
+  // a family is never split by a pick. All N is every row listed (working, quiet and finished today). The header's
+  // number stays the sidebar's: agents working now, of the rows shown.
   const chips = projectChips(agentProjectIds(allRows, allFinished, board.statuses), projects, picked)
   const nameOf = (id: string) => board.projects[id]?.name ?? ""
   const rows = sortFamilies(filterAgentRows(allRows, projectId, board.statuses), sort, nameOf, board.statuses)
   const finished = filterAgentRows(allFinished, projectId, board.statuses)
+  const sessions = allSessions.filter((s) => rows.some((r) => r.id === `session:${s.session.id}`))
   const groups = agentGroups(rows, finished)
   const keys = rowKeysOf(groups)
   // A pick or a new sort starts the list afresh (the LayoutGroup's key, and its id, so no row's layoutId reaches back to
@@ -125,7 +127,7 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
         <div className="packet-column flex flex-col gap-6">
           <header className="flex flex-col gap-0.5">
             <h1 className="text-[17px] font-semibold">
-              Agents working <span className="font-normal text-muted tabular-nums">{rows.length + finished.length}</span>
+              Agents working <span className="font-normal text-muted tabular-nums">{agentsWorkingCount(sessions)}</span>
             </h1>
             <p className="text-[13px] text-muted">
               Every agent session and subagent on a task in this workspace, and the card it's on. Agents waiting on you come first, the ones
