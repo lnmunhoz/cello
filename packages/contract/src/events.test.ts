@@ -145,6 +145,16 @@ describe("decodeEvent", () => {
     const decided = decodeEvent({ ...envelope, schemaVersion: 1, type: "review.decided", id: "r-1", taskId: "t-1", decision: "sent_back", note: "Fix the poster" })
     expect(decided).toMatchObject({ decision: "sent_back", note: "Fix the poster" })
     expect(() => decodeEvent({ ...envelope, schemaVersion: 1, type: "review.decided", id: "r-1", taskId: "t-1", decision: "maybe", note: null })).toThrow()
+    // An approval passed on from chat (CEL-169) says which session relayed it; older events, and the human's own, don't.
+    expect(decided).not.toHaveProperty("relayedBy")
+    const relayed = decodeEvent({
+      ...envelope, schemaVersion: 1, type: "review.decided", id: "r-1", taskId: "t-1", decision: "approved", note: "Approved, commit",
+      relayedBy: { name: "Claude Code", session: "3fd1f460" },
+    })
+    expect(relayed).toMatchObject({ decision: "approved", relayedBy: { name: "Claude Code", session: "3fd1f460" } })
+    expect(decodeEvent({ ...envelope, schemaVersion: 1, type: "review.submitted", review: { ...review, decision: "approved", decidedAt: 2, relayedBy: { name: "Claude Code", session: "3fd1f460" } } }))
+      .toMatchObject({ review: { relayedBy: { session: "3fd1f460" } } })
+    expect(submitted.type === "review.submitted" && submitted.review).not.toHaveProperty("relayedBy")
     // A plain move out of In Review closes the packet undecided (CEL-71), saying where the task went.
     const withdrawn = decodeEvent({ ...envelope, schemaVersion: 1, type: "review.withdrawn", id: "r-1", taskId: "t-1", to: "s-progress" })
     expect(withdrawn).toMatchObject({ type: "review.withdrawn", id: "r-1", taskId: "t-1", to: "s-progress" })

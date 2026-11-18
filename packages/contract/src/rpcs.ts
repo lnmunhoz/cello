@@ -489,7 +489,8 @@ export const CelloRpcs = RpcGroup.make(
   }),
 
   // Review packets. `review.submit` copies the files (absolute paths on this machine) into the data
-  // folder and moves the task to In Review, in one command. Only the human approves or sends back.
+  // folder and moves the task to In Review, in one command. Only the human approves or sends back, or an
+  // agent passes on their approval from chat (`review.relayApproval`).
   Rpc.make("review.submit", {
     payload: {
       commandId,
@@ -508,6 +509,14 @@ export const CelloRpcs = RpcGroup.make(
     payload: { commandId, key: Schema.String, note: Schema.optionalKey(Schema.String), attachmentIds: Schema.optionalKey(Schema.Array(Id)) },
     success: write(Task),
     error: Schema.Union([NotFound, Invalid, HumanOnly]),
+  }),
+  // An agent passes on the human's approval from its chat (CEL-169): does what Approve does, stored as the
+  // human's, relayed by the calling session, with their words (`quote`) as the note and as a comment.
+  // Only the session holding the claim, never a subagent, on a task with a packet waiting.
+  Rpc.make("review.relayApproval", {
+    payload: { commandId, key: Schema.String, quote: Schema.String },
+    success: write(Task),
+    error: Schema.Union([NotFound, Invalid]),
   }),
   // The note becomes a comment; `attachmentIds`: screenshots pasted into the Review page's box with it (CEL-73).
   Rpc.make("review.sendBack", {

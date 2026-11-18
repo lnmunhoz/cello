@@ -37,7 +37,7 @@ export class TaskClaimed extends Schema.TaggedError<TaskClaimed>()("TaskClaimed"
   lastSeenAt: Schema.NullOr(Schema.Number),
 }) {}
 
-/** Only the human decides a review: approving it or sending it back. */
+/** Only the human decides a review: approving it or sending it back. An agent may only pass on their approval from chat (`review.relayApproval`, CEL-169). */
 export class HumanOnly extends Schema.TaggedError<HumanOnly>()("HumanOnly", {
   /** What was refused, e.g. "approve a review". */
   action: Schema.String,
