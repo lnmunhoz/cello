@@ -20,7 +20,7 @@ flowchart TD
     C --> BU["⑤ Build<br/>builder agent, own worktree, test first"]
     BU --> RV["⑥ Review<br/>a fresh reviewer agent"]
     RV -->|findings| BU
-    RV -->|clean| M["⑦ Merge and release<br/>related tests, bun run release: tag, live server updated;<br/>GitHub Actions builds the downloads and the GitHub release"]
+    RV -->|clean| M["⑦ Merge<br/>into main, related tests;<br/>released only when Lucas says"]
     M --> P["⑧ Submit<br/>review packet with videos: In Review"]
     P --> L{"⑨ Lucas on the Review page"}
     L -->|Approve| D(["Done"])
@@ -33,10 +33,10 @@ flowchart TD
 | --- | --- | --- |
 | **Todo** | Nowhere yet | No |
 | **In Progress** | In an agent's worktree: being built, reviewed or fixed | No |
-| **In Review** | **Merged into main and live on your board** (server restarted with it) | **Yes**: reload Cello (⌘R) and follow the packet's "How to check" |
-| **Done** | Same as In Review; you signed it off | Yes |
+| **In Review** | **Merged into main**, not released yet | **After the next release**: you say when (below). Until then, the packet's videos and screenshots |
+| **Done** | Same as In Review; you signed it off | After the next release |
 
-So anything in In Review or Done is already in the Cello you're running, once you've reloaded. Two parts update differently:
+**Releases happen only when you say so** (Nov 18): agents merge into main and submit, and nothing goes live on your board until you ask for a release. Then everything merged since the last one goes out together. After that, two parts update differently:
 
 - **The board, the Review page, every screen** come from the server. After a deploy, open tabs and the desktop app notice the new build when they reconnect: "Cello was updated · Reload", and they reload by themselves after 5 seconds unless you're typing (CEL-37). The sidebar's footer shows the build you're running ("Cello 0.2.0 · build c602f25 · live since 18:19"); a click lists what that build changed.
 - **The desktop app's own shell** (its icon, the side panel's browser) only changes when the app is repackaged. That happens only for desktop changes, and the packet says so.
@@ -46,7 +46,7 @@ So anything in In Review or Done is already in the Cello you're running, once yo
 | Who | What they do | Model |
 | --- | --- | --- |
 | **Lucas** | Asks for features, approves UI scopes, approves or sends back on the Review page | |
-| **The orchestrator** (the main Claude session) | Turns requests into tasks, writes briefs, starts agents, merges, deploys, submits packets | Opus 5.5 |
+| **The orchestrator** (the main Claude session) | Turns requests into tasks, writes briefs, starts agents, merges, submits packets, and releases when Lucas says | Opus 5.5 |
 | **Planner** (`cello-planner`) | Reads the task and the code, writes the step-by-step plan, test first; never writes code | Opus 5.5, high |
 | **Builder** (`cello-builder`) | Follows the plan: writes the code and tests in its own git worktree, records the evidence | Sonnet 5.5, high |
 | **Code reviewer** (`cello-code-reviewer`) | Reads the diff against the task and AGENTS.md, and for UI work every video and screenshot | Sonnet 5.5, medium |
@@ -133,19 +133,22 @@ flowchart TD
 - For UI work it also checks the **videos and screenshots** frame by frame: does the evidence, on its own, show the task is done?
 - This is where the expensive mistakes get caught. This week reviews found a settings write that could be cut short, a comment delivered three times, and a restore that failed silently.
 
-## ⑦ Merge and release
+## ⑦ Merge
 
-The orchestrator merges the branch into main (`cello task stage CEL-n merged`) with a `merge: <what> (CEL-n)` subject (that's the task's line in the changelog), then ships it. **Every deploy is a release** (CEL-36):
+The orchestrator merges the branch into main (`cello task stage CEL-n merged`) with a `merge: <what> (CEL-n)` subject (that's the task's line in the changelog), and runs **the related e2e specs** only (AGENTS.md, "Pick the e2e specs"). The full Docker run (`bun run test:docker`) only before a minor or major release, when the change touches what every screen shares, or when Lucas asks. Then it submits the packet. **No release.**
 
-1. **The related e2e specs** only (AGENTS.md, "Pick the e2e specs"). The full Docker run (`bun run test:docker`) only before a minor or major release, when the change touches what every screen shares, or when Lucas asks.
-2. **`bun run release`**, on main in the main checkout. One command, in order:
-   - refuses unless it's on main with a clean tree
-   - runs the typecheck and the unit and integration tests (the CLI-docs check is one of them)
-   - bumps the version (patch; `-- minor` or `-- major` when Lucas says) and writes the CHANGELOG.md section from main's merges and commits since the last tag
-   - commits `chore(release): vX.Y.Z` and tags it
-   - builds this Mac's own `cello` binary (into `release/stage`, not over the live one), for the deploy
-   - pushes main and the tag to GitHub, which starts the **Release workflow on GitHub Actions**: it builds the `cello` zip and Cello.app (DMG and zip) for Apple silicon and Intel, then creates the GitHub release with the changelog as notes and every file attached. The release prints the run's link
-   - **deploys to Lucas's board:** `cello backup`, then the new `cello` goes live, then `cello service restart`. A database migration runs at that restart, which is why the backup comes first.
+### Releasing, only when Lucas says
+
+Lucas decides when a release goes out (Nov 18: "We only release when I say so"). It ships everything merged since the last one. **Every deploy is a release** (CEL-36): nobody rebuilds or restarts the live board by hand.
+
+**`bun run release`**, on main in the main checkout. One command, in order:
+- refuses unless it's on main with a clean tree
+- runs the typecheck and the unit and integration tests (the CLI-docs check is one of them)
+- bumps the version (patch; `-- minor` or `-- major` when Lucas says) and writes the CHANGELOG.md section from main's merges and commits since the last tag
+- commits `chore(release): vX.Y.Z` and tags it
+- builds this Mac's own `cello` binary (into `release/stage`, not over the live one), for the deploy
+- pushes main and the tag to GitHub, which starts the **Release workflow on GitHub Actions**: it builds the `cello` zip and Cello.app (DMG and zip) for Apple silicon and Intel, then creates the GitHub release with the changelog as notes and every file attached. The release prints the run's link
+- **deploys to Lucas's board:** `cello backup`, then the new `cello` goes live, then `cello service restart`. A database migration runs at that restart, which is why the backup comes first.
 
 `bun run release -- --dry-run` previews all of it without changing anything. The steps, the flags, what to do when a step fails and how to roll back: [Releases](releases.md).
 
@@ -180,14 +183,14 @@ flowchart TD
 
 Approve is sign-off, not a gate: the code is already merged and tested. It moves the task to Done.
 
-**That's Cello's own project, which merges before review.** Each project chooses (Settings → the project → "Merge after I approve", CEL-143). With it on, the packet comes before the merge, with the PR link when the project uses PRs, and Approve is the gate: the button reads "Approve and merge", the card stays in In Review as **Approved · merging**, and the orchestrator's session is told to merge. It merges and deploys, then `cello task done CEL-n` moves the task to Done.
+**That's Cello's own project, which merges before review.** Each project chooses (Settings → the project → "Merge after I approve", CEL-143). With it on, the packet comes before the merge, with the PR link when the project uses PRs, and Approve is the gate: the button reads "Approve and merge", the card stays in In Review as **Approved · merging**, and the orchestrator's session is told to merge. It merges, then `cello task done CEL-n` moves the task to Done.
 
 ```mermaid
 flowchart TD
     A["Review clean"] --> B["Submit, with the PR link<br/>cello task submit: In Review"]
     B --> C{"Lucas"}
     C -->|"Approve and merge"| D["Approved · merging<br/>the claim stays; the session is told to merge"]
-    D --> E["Merge and deploy"]
+    D --> E["Merge"]
     E --> F(["cello task done: Done<br/>the claim ends"])
     C -->|"Send back + a note"| G["Back to In Progress"]
 ```

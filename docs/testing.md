@@ -33,7 +33,7 @@ Don't run the full e2e suite every time (Lucas, Nov 16: the full run adds up as 
 The **full e2e suite** (`bun run test:docker`, or `bun run test:e2e` with no spec) runs only in these cases:
 
 - the change touches what every screen shares: the app shell, routing, `e2e/fixtures.ts` or other e2e helpers, the Docker test setup, the Playwright or Vite config, or a dependency
-- before a minor or major release, or a packaged build (every merge is a patch release since CEL-36, so not before each merge)
+- before a minor or major release, or a packaged build (releases happen only when Lucas says; not before each merge)
 - when Lucas asks
 
 ## UI runs in Docker, never on Lucas's screen
