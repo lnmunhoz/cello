@@ -361,13 +361,22 @@ async function decideOnTheRow(page: Page) {
   await buttons(three).approve.click()
   await expect(three.article).toHaveCount(0)
   expect(await decidedSeen(page)).toEqual([`${key}-1: Approved`, `${key}-2: Sent back`, `${key}-3: Approved`])
-  await expect(page).toHaveURL(/\/review$/)
+  // None of this test's rows is left; a row another test left in the queue may open instead.
+  await expect(page).not.toHaveURL(new RegExp(`open=${key}-`))
   await caption(page, "Each decision is answered on its row, then the next packet opens")
   fs.rmSync(dir, { recursive: true, force: true })
 }
 
 test("CEL-187: Approve and Send back answer on the row: the button shows it's running, a failure stays on the row with the note, then the row says Approved or Sent back, folds away, and the next opens", async ({ page }) => {
   await decideOnTheRow(page)
+})
+
+// With reduced motion nothing folds: the row still says what was decided, then it's gone and the next is open.
+test.describe("with reduced motion", () => {
+  test.use({ contextOptions: { reducedMotion: "reduce" } })
+  test("CEL-187 reduced motion: the row still says Approved or Sent back, then leaves without folding, and the next opens", async ({ page }) => {
+    await decideOnTheRow(page)
+  })
 })
 
 // The same walk in the dark theme, for the review videos only (CELLO_E2E_REVIEW=1): nothing in it depends on the theme.
