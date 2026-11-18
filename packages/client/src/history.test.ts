@@ -105,6 +105,18 @@ describe("describeEvent", () => {
     )
   })
 
+  it("says an approval an agent session passed on from chat is the human's, relayed (CEL-169)", () => {
+    const relayed = { ...ev({ type: "review.decided", id: "r", taskId: "t", decision: "approved", note: "Approved, commit" }, "agent"), sessionId: "s1" }
+    expect(describeEvent(relayed, state, "Claude Code session 2fd0505c")).toBe("Lucas approved in chat, relayed by Claude Code session 2fd0505c")
+    expect(describeEvent(relayed, { ...state, actors: {} }, "Claude Code session 2fd0505c")).toBe(
+      "The human approved in chat, relayed by Claude Code session 2fd0505c",
+    )
+    // Their own approval on the board, and a session's other decisions, read as before.
+    expect(describeEvent(ev({ type: "review.decided", id: "r", taskId: "t", decision: "approved", note: null }), state)).toBe("Lucas approved the review")
+    const superseded = { ...ev({ type: "review.decided", id: "r", taskId: "t", decision: "superseded", note: null }, "agent"), sessionId: "s1" }
+    expect(describeEvent(superseded, state, "Claude Code session 2fd0505c")).toBe("Claude Code session 2fd0505c replaced the open review")
+  })
+
   it("describes claims", () => {
     const from = { actorId: "agent", sessionId: "s1" }
     expect(describeEvent(ev({ type: "task.claimed", id: "t", version: 2, task: {} as never }), state)).toBe("Lucas claimed it")

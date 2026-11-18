@@ -204,6 +204,17 @@ describe("applyReviewEvents", () => {
     expect(sent[1]).toMatchObject({ decision: "sent_back", decisionNote: "Redo", decidedAt: 5 })
   })
 
+  it("an approval passed on from chat says which session relayed it; the human's own leaves it as it was (CEL-169)", () => {
+    const list = [review("r1", "t1", 1), review("r2", "t1", 2)]
+    const relayedBy = { name: "Claude Code", session: "3fd1f460" }
+    const next = applyReviewEvents(list, "t1", [
+      ev(5, { type: "review.decided", id: "r1", taskId: "t1", decision: "approved", note: "Approved, commit", relayedBy }),
+      ev(6, { type: "review.decided", id: "r2", taskId: "t1", decision: "approved", note: null }),
+    ])
+    expect(next[0]).toMatchObject({ decision: "approved", decisionNote: "Approved, commit", relayedBy })
+    expect(next[1]!.relayedBy).toBeUndefined()
+  })
+
   it("a packet withdrawn by a move closes as withdrawn (CEL-71)", () => {
     const next = applyReviewEvents([review("r1", "t1", 1)], "t1", [ev(6, { type: "review.withdrawn", id: "r1", taskId: "t1", to: "doing" })])
     expect(next[0]).toMatchObject({ decision: "withdrawn", decisionNote: null, decidedAt: 6 })
