@@ -10,7 +10,7 @@ import { agoShort, presenceWords } from "@cello/shared/presence"
 import { isRunning } from "@cello/shared/testRun"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { FolderIcon, HourglassIcon } from "lucide-react"
-import { AnimatePresence, LayoutGroup, MotionConfig, motion, usePresence } from "motion/react"
+import { AnimatePresence, LayoutGroup, MotionConfig, motion, useAnimate, usePresence } from "motion/react"
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
 import { Centered } from "../app/Home.tsx"
@@ -29,6 +29,7 @@ import { TaskLink } from "../task/TaskKey.tsx"
 import { keepViewer } from "../viewer/search.ts"
 import { AgentLog } from "./AgentLog.tsx"
 import {
+  type AgentGroupId,
   type AgentRow,
   agentGroups,
   agentRows,
@@ -51,8 +52,11 @@ const layoutTransition = { type: "spring", stiffness: 520, damping: 42, mass: 0.
  * `keys`, AnimatePresence's custom) leaves its old place at once, while its copy there slides in.
  */
 const exitOf = (id: string) => ({
-  gone: (keys: ReadonlyArray<string> | undefined) => ({ opacity: 0, transition: { duration: keys?.includes(id) ? 0 : 0.15 } }),
+  gone: (keys: ReadonlyArray<string> | undefined) => ({ opacity: 0, height: 0, transition: keys?.includes(id) ? { duration: 0 } : LEAVE }),
 })
+
+/** How long a row or an emptied group takes to fold away: its height closes, so what's under it follows. */
+const LEAVE = { duration: 0.2, ease: "easeOut" } as const
 
 /**
  * The Agents page (CEL-65), opened from the sidebar's "Agents working": every agent session and subagent
@@ -82,6 +86,7 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const groups = agentGroups(rows, finished)
   const keys = rowKeysOf(groups)
   const layoutKey = groups.map((g) => `${g.id}:${g.rows.map((r) => r.id).join(",")}`).join(";")
+  const placement = new Map(groups.flatMap((g) => g.rows.map((r) => [r.id, g.id] as const)))
   const openId = open !== undefined && keys.includes(open) ? open : null
   const queue = useQueue({ keys, open: openId, setOpen: (id) => void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(id === null ? {} : { open: id }) }), replace: true }) })
 
@@ -108,49 +113,66 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
           ) : null}
           {groups.length === 0 ? null : (
             <MotionConfig reducedMotion="user">
-              <PageRows.Provider value={keys}>
+              <Placement.Provider value={placement}>
                 <LayoutGroup>
                   <div {...queue.list} className="flex flex-col gap-6">
-                    {groups.map((group) => (
-                      <section key={group.id} aria-labelledby={`agents-${group.id}`} data-agents-group={group.id} className="flex flex-col gap-2">
-                        <h2 id={`agents-${group.id}`} className="flex items-center gap-2 text-[13px] font-semibold text-ink">
-                          {group.id === "waiting" ? <i aria-hidden className="size-1.5 rounded-full bg-accent" /> : null}
-                          {group.label} <span className="font-normal text-muted tabular-nums">{group.rows.length}</span>
-                        </h2>
-                        <ul aria-label={group.label} className="flex flex-col gap-2">
-                          {/* custom: the rows on the page now, so a row that left this group for another goes at once (the copy there slides in). */}
-                          <AnimatePresence initial={false} custom={keys}>
-                            {group.rows.map((row) => {
-                              // A subagent sits under its session, always in the same group (CEL-104); finished ones stand on their own.
-                              const under = row.kind === "agent" && group.id !== "finished"
-                              return (
-                                // layoutId: a row that changes group slides there from where it was, instead of jumping (CEL-186).
-                                // layoutDependency: only a change of rows animates, not a row opening above it.
-                                <motion.li
-                                  key={row.id}
-                                  layoutId={row.id}
-                                  layout="position"
-                                  layoutDependency={layoutKey}
-                                  transition={layoutTransition}
-                                  custom={keys}
-                                  variants={exitOf(row.id)}
-                                  exit="gone"
-                                  className={under ? "relative pl-6" : "relative"}
-                                >
-                                  <Leaving id={row.id}>
-                                    <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
-                                    <Pulse at={pulseKeyOf(row)} under={under} />
-                                  </Leaving>
-                                </motion.li>
-                              )
-                            })}
-                          </AnimatePresence>
-                        </ul>
-                      </section>
-                    ))}
+                    {/* A group that empties stays while its last row leaves, then folds away, instead of the page jumping. */}
+                    <AnimatePresence initial={false}>
+                      {groups.map((group) => (
+                        <motion.section
+                          key={group.id}
+                          aria-labelledby={`agents-${group.id}`}
+                          data-agents-group={group.id}
+                          className="flex flex-col gap-2"
+                          exit={{ opacity: 0, height: 0, transition: LEAVE }}
+                        >
+                          {/* The heading slides with the rows when a group above appears or goes; the rows (z-10) pass over it. */}
+                          <motion.h2
+                            id={`agents-${group.id}`}
+                            layout="position"
+                            layoutDependency={layoutKey}
+                            transition={layoutTransition}
+                            className="flex items-center gap-2 text-[13px] font-semibold text-ink"
+                          >
+                            {group.id === "waiting" ? <i aria-hidden className="size-1.5 rounded-full bg-accent" /> : null}
+                            {group.label} <span className="font-normal text-muted tabular-nums">{group.rows.length}</span>
+                          </motion.h2>
+                          <ul aria-label={group.label} className="flex flex-col gap-2">
+                            {/* custom: the rows on the page now, so a row that left this group for another goes at once (the copy there slides in). */}
+                            <AnimatePresence initial={false} custom={keys}>
+                              {group.rows.map((row) => {
+                                // A subagent sits under its session, always in the same group (CEL-104); finished ones stand on their own.
+                                const under = row.kind === "agent" && group.id !== "finished"
+                                return (
+                                  // layoutId: a row that changes group slides there from where it was, instead of jumping (CEL-186).
+                                  // layoutDependency: only a change of rows animates, not a row opening above it.
+                                  // z-10: a sliding row passes over the headings it crosses.
+                                  <motion.li
+                                    key={row.id}
+                                    layoutId={row.id}
+                                    layout="position"
+                                    layoutDependency={layoutKey}
+                                    transition={layoutTransition}
+                                    custom={keys}
+                                    variants={exitOf(row.id)}
+                                    exit="gone"
+                                    className={under ? "relative z-10 pl-6" : "relative z-10"}
+                                  >
+                                    <Leaving id={row.id} group={group.id}>
+                                      <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
+                                      <Pulse at={pulseKeyOf(row)} under={under} />
+                                    </Leaving>
+                                  </motion.li>
+                                )
+                              })}
+                            </AnimatePresence>
+                          </ul>
+                        </motion.section>
+                      ))}
+                    </AnimatePresence>
                   </div>
                 </LayoutGroup>
-              </PageRows.Provider>
+              </Placement.Provider>
             </MotionConfig>
           )}
         </div>
@@ -160,14 +182,15 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
 }
 
 /**
- * A row's content while AnimatePresence lets it go. One that moved to another group (its id still on the
- * page: the copy there slides in from here, layoutId) is gone at once, so the page never shows it twice;
- * one that left the page stays while it fades. The rows come from context: an exiting row keeps its last props.
+ * A row's content while AnimatePresence lets it go, in its own group or in a group that's going. One
+ * that moved to another group (the copy there slides in from here, layoutId) is gone at once, so the
+ * page never shows it twice; one that left the page stays while it fades. Where each row is now comes
+ * from context: an exiting row keeps its last props.
  */
-function Leaving({ id, children }: { id: string; children: ReactNode }) {
+function Leaving({ id, group, children }: { id: string; group: AgentGroupId; children: ReactNode }) {
   const [present, safeToRemove] = usePresence()
-  const onPage = useContext(PageRows)
-  const moved = !present && onPage.includes(id)
+  const now = useContext(Placement).get(id)
+  const moved = now !== undefined && now !== group
   // Done here either way: a row that left the page goes when its li's fade ends (AnimatePresence waits for both).
   useEffect(() => {
     if (!present) safeToRemove?.()
@@ -175,27 +198,31 @@ function Leaving({ id, children }: { id: string; children: ReactNode }) {
   return moved ? null : children
 }
 
-/** The rows on the page now, for an exiting row (whose props are stale) to tell a move from a leave. */
-const PageRows = createContext<ReadonlyArray<string>>([])
+/** Each row on the page now, by id: its group. For an exiting row (whose props are stale) to tell a move from a leave. */
+const Placement = createContext<ReadonlyMap<string, AgentGroupId>>(new Map())
 
 /**
- * One short pulse over a row each time the board hears its agent check in (CEL-186; at most once a minute
+ * One pulse over a row each time the board hears its agent check in (CEL-186; at most once a minute
  * while it makes calls, PRESENCE_EVERY_MS, the same beat as its card's burst): what used to move the row
- * to the top now shows where it is. None for the check-in it had when the page opened; it ends invisible,
- * so an idle page runs no animation.
+ * to the top now shows where it is. An accent wash and ring that come up, hold a beat and fade, about
+ * 1.6 s. None for the check-in it had when the page opened; it rests invisible (opacity 0) with no
+ * animation left, so an idle page runs none. useAnimate, not `initial`/`animate`: the row's
+ * AnimatePresence (initial={false}) would have it start at its end, invisible.
  */
 function Pulse({ at, under }: { at: number; under: boolean }) {
   const [first] = useState(at)
+  const [scope, animate] = useAnimate<HTMLSpanElement>()
+  useEffect(() => {
+    if (at !== first && scope.current) void animate(scope.current, { opacity: [0, 1, 1, 0] }, { duration: 1.6, times: [0, 0.1, 0.45, 1], ease: "easeOut" })
+  }, [at, first, scope, animate])
   if (at === first) return null
   return (
-    <motion.span
+    <span
+      ref={scope}
       key={at}
       aria-hidden
       data-agent-pulse=""
-      className={under ? "pointer-events-none absolute inset-y-0 right-0 left-6 rounded-lg bg-accent/10" : "pointer-events-none absolute inset-0 rounded-lg bg-accent/10"}
-      initial={{ opacity: 1 }}
-      animate={{ opacity: 0 }}
-      transition={{ duration: 0.7, ease: "easeOut" }}
+      className={`pointer-events-none absolute rounded-lg bg-accent/15 opacity-0 ring-2 ring-inset ring-accent/70 ${under ? "inset-y-0 right-0 left-6" : "inset-0"}`}
     />
   )
 }
