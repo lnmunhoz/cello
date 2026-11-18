@@ -67,7 +67,7 @@ export function ReviewPacket({ task, review, decide, onDecision, comments }: Rev
             {" · "}
             {relativeTime(review.createdAt)}
           </span>
-          {decide && !comments ? <ReviewActions task={task} onDecision={onDecision} /> : null}
+          {decide && !comments ? <ReviewActions task={task} onDecision={onDecision} inRow /> : null}
         </footer>
         {decide && comments ? <CommentOrDecide board={comments} task={task} onDecision={onDecision} /> : null}
       </div>

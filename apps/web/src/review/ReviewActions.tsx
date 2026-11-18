@@ -42,6 +42,7 @@ export function CommentOrDecide({ board, task, onDecision }: { board: BoardState
           typed={draft.body}
           screenshots={draft.attachments}
           uploading={uploading}
+          inRow
           onNoteSent={(withScreenshots) => (withScreenshots ? clear() : update((d) => ({ ...d, body: "" })))}
         />
       )}
@@ -70,6 +71,13 @@ interface ReviewActionsProps {
   readonly uploading?: boolean | undefined
   /** What went, so the box can let go of it: `withScreenshots` empties it, otherwise only its text. */
   readonly onNoteSent?: ((withScreenshots: boolean) => void) | undefined
+  /**
+   * These buttons sit in a row that wraps, beside other things on its line (the comment box's Comment
+   * button, a packet's "Submitted by"): a failure takes a line of its own in that row, so the line the
+   * buttons are on doesn't grow and nothing on it moves. Without it the buttons and the failure under
+   * them are one box, which holds in any parent.
+   */
+  readonly inRow?: boolean | undefined
 }
 
 /** The mark a button shows in place of its icon while its command runs (CEL-187). */
@@ -85,7 +93,7 @@ const PendingIcon = () => <LoaderCircleIcon aria-hidden className="size-3.5 moti
  * In Review as Approved · merging until its agent has merged it. While it waits for that, only Send back
  * is left (the merge failed, or Lucas changed his mind).
  */
-export function ReviewActions({ task, onDecision, typed = "", screenshots = [], uploading = false, onNoteSent }: ReviewActionsProps) {
+export function ReviewActions({ task, onDecision, typed = "", screenshots = [], uploading = false, onNoteSent, inRow = false }: ReviewActionsProps) {
   const board = useBoard()
   const mergeAfter = board?.projects[task.projectId]?.mergeAfterApproval === true
   const merging = awaitsMerge(task, board?.statuses[task.statusId])
@@ -121,9 +129,9 @@ export function ReviewActions({ task, onDecision, typed = "", screenshots = [], 
     return false
   }
 
-  // On a line of its own under the buttons (the rows that hold them wrap), so nothing moves under the pointer.
+  // On a line of its own under the buttons, so nothing moves under the pointer.
   const alert = failure === null ? null : (
-    <p role="alert" data-decision-failed="" className="order-last min-w-0 basis-full text-right text-xs text-danger">
+    <p role="alert" data-decision-failed="" className={`min-w-0 text-right text-xs text-danger ${inRow ? "order-last basis-full" : ""}`}>
       {failure}. Try again.
     </p>
   )
@@ -146,7 +154,7 @@ export function ReviewActions({ task, onDecision, typed = "", screenshots = [], 
   )
 
   return (
-    <>
+    <div data-review-actions="" className={inRow ? "contents" : "flex min-w-0 flex-col items-end gap-1.5"}>
       <div className="flex shrink-0 items-center gap-2">
         <Button
           variant="secondary"
@@ -209,6 +217,6 @@ export function ReviewActions({ task, onDecision, typed = "", screenshots = [], 
         </Dialog>
       </div>
       {asking ? null : alert}
-    </>
+    </div>
   )
 }

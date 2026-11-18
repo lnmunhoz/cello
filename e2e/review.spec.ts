@@ -7,7 +7,7 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import type { Browser, Page } from "@playwright/test"
-import { caption, captionWithUrl, card, column, createProject, expect, projectLink, test, uniqueKey } from "./fixtures.ts"
+import { caption, captionWithUrl, card, column, createProject, expect, projectLink, taskPanel, test, uniqueKey } from "./fixtures.ts"
 import {
   cello,
   decidedSeen,
@@ -377,6 +377,92 @@ test.describe("with reduced motion", () => {
   test("CEL-187 reduced motion: the row still says Approved or Sent back, then leaves without folding, and the next opens", async ({ page }) => {
     await decideOnTheRow(page)
   })
+})
+
+test("CEL-187: Send back from its dialog: a refused one keeps the dialog open with its note and says why; a taken one closes it and the row says Sent back", async ({ page }) => {
+  const decisions = await decisionsThroughTest(page)
+  const key = uniqueKey("DLG")
+  await createProject(page, "Send back dialog test", key)
+  await caption(page, "An agent submits two packets")
+  const { dir } = await submitPackets(page, key, ["Ask for the note in a dialog", "Open after the dialog's Send back"])
+  const [one, two] = [1, 2].map((n) => rowOf(page, `${key}-${n}`)) as [ReturnType<typeof rowOf>, ReturnType<typeof rowOf>]
+
+  await captionWithUrl(page, `Open Review at ${key}-1 and click Send back with nothing typed: it asks for a note`)
+  await page.goto(`/review?open=${key}-1`)
+  await expect(one.header).toHaveAttribute("aria-expanded", "true")
+  await watchDecided(page)
+  await one.article.locator('[data-decide="sent_back"]').click()
+  const dialog = page.getByRole("dialog", { name: `Send ${key}-1 back` })
+  const note = dialog.getByLabel("Note")
+  const send = dialog.locator('button[type="submit"]')
+  await note.fill("The fold is too fast.")
+
+  await captionWithUrl(page, "Send back, but the server refuses: the dialog stays open with the note, and says why")
+  decisions.failNext()
+  await send.click()
+  await expect(dialog.getByRole("alert")).toContainText("no longer exists")
+  await expect(note).toHaveValue("The fold is too fast.")
+  await expect(send).toBeEnabled()
+  await expect(send).toHaveAttribute("aria-busy", "false")
+  // The reason shows once, in the dialog; the packet behind it is still open.
+  await expect(one.article.getByRole("alert")).toHaveCount(0)
+  await expect(one.header).toHaveAttribute("aria-expanded", "true")
+
+  await captionWithUrl(page, "Send back again: the dialog's button says it's sending, and waits")
+  decisions.holdNext()
+  await send.click()
+  await expect(send).toHaveAttribute("aria-busy", "true")
+  await expect(send).toHaveText("Sending back…")
+  await expect(send).toBeDisabled()
+  await expect(dialog.getByRole("alert")).toHaveCount(0)
+
+  await captionWithUrl(page, `The server took it: the dialog closes, the row says Sent back and folds away, and ${key}-2 opens`)
+  decisions.release()
+  await expect(dialog).toBeHidden()
+  await expect(one.article).toHaveCount(0)
+  expect(await decidedSeen(page)).toEqual([`${key}-1: Sent back`])
+  await expect(two.header).toHaveAttribute("aria-expanded", "true")
+  await expect(page).toHaveURL(new RegExp(`/review\\?open=${key}-2$`))
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test("CEL-187: in the task panel, a refused Send back on an approved task shows its reason on a line under the button, not squeezed beside it", async ({ page }) => {
+  const decisions = await decisionsThroughTest(page)
+  const key = uniqueKey("PNL")
+  await createProject(page, "Panel failure test", key)
+  await caption(page, "Merge after I approve is on, an agent submits a packet, and it's approved: the task waits for its merge")
+  await page.goto(`/${key}/settings`)
+  const toggle = page.getByRole("region", { name: "Merging" }).getByRole("switch")
+  await toggle.click()
+  await expect(toggle).toBeChecked()
+  await projectLink(page, key).click()
+  const { dir } = await submitPacket(page, key)
+  await page.goto(`/review?open=${key}-1`)
+  const item = page.getByRole("article", { name: new RegExp(`${key}-1`) })
+  await item.getByRole("button", { name: "Approve and merge" }).click()
+  await expect(item).toHaveCount(0)
+
+  await captionWithUrl(page, "In the task panel, Send back with a note, but the server refuses")
+  await page.goto(`/${key}/1`)
+  const approved = taskPanel(page, `${key}-1`).getByRole("region", { name: "Approved, merging" })
+  const sendBack = approved.locator('[data-decide="sent_back"]')
+  await sendBack.click()
+  const dialog = page.getByRole("dialog", { name: `Send ${key}-1 back` })
+  await dialog.getByLabel("Note").fill("The merge left a conflict.")
+  decisions.failNext()
+  await dialog.locator('button[type="submit"]').click()
+  await expect(dialog.getByRole("alert")).toContainText("no longer exists")
+
+  await captionWithUrl(page, "Cancel the dialog: the reason is on a line of its own under Send back")
+  await dialog.getByRole("button", { name: "Cancel" }).click()
+  await expect(dialog).toBeHidden()
+  const reason = approved.getByRole("alert")
+  await expect(reason).toContainText("no longer exists")
+  await expect(sendBack).toBeEnabled()
+  const [button, line] = [(await sendBack.boundingBox())!, (await reason.boundingBox())!]
+  expect(line.y, "under the button").toBeGreaterThanOrEqual(button.y + button.height)
+  expect(Math.abs(line.x + line.width - (button.x + button.width)), "its right edge on the button's").toBeLessThan(1)
+  fs.rmSync(dir, { recursive: true, force: true })
 })
 
 // The same walk in the dark theme, for the review videos only (CELLO_E2E_REVIEW=1): nothing in it depends on the theme.
