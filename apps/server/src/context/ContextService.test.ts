@@ -1,6 +1,8 @@
 // The CLI's read models: whoami, context, task list and task detail.
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as SqlClient from "effect/sql/SqlClient"
+import * as TestClock from "effect/testing/TestClock"
 import * as CommentService from "../comment/CommentService.ts"
 import * as InboxService from "../inbox/InboxService.ts"
 import * as LabelService from "../label/LabelService.ts"
@@ -14,6 +16,7 @@ import { cmd } from "../testing/fixtures.ts"
 import { writePng } from "../testing/media.ts"
 import { tempDataDir } from "../testing/tempDir.ts"
 import { asAgent, asHuman, services } from "../testing/TestLayers.ts"
+import { AgentService } from "../session/AgentService.ts"
 import { ContextService } from "./ContextService.ts"
 
 const run = <A, E>(effect: Effect.Effect<A, E, any>) => asHuman(effect).pipe(Effect.provide(services())) as Effect.Effect<A, E>
@@ -191,6 +194,44 @@ describe("ContextService.taskDetail", () => {
       expect(detail.actors.map((a) => a.name)).toEqual(expect.arrayContaining(["Lucas", "Claude Code"]))
       expect(detail.sessions.map((s) => s.externalId)).toEqual(["2fd0505c"])
       expect(yield* Effect.flip(context.taskDetail("CEL-99"))).toMatchObject({ _tag: "NotFound", entity: "task", id: "CEL-99" })
+    })))
+})
+
+// CEL-160: what the comment thread weaves between comments: every run of every subagent on the task, and
+// the builds that name it.
+describe("ContextService.taskTimeline", () => {
+  it.effect("lists a reviewer's runs with their verdicts, model and effort, and the builds that name the task", () =>
+    run(Effect.gen(function* () {
+      const { context, tasks, one, two } = yield* setup
+      const sql = yield* SqlClient.SqlClient
+      const agents = yield* AgentService
+      yield* agent(tasks.claim({ commandId: cmd(), key: one.key }))
+      const reviewer = { agentId: "b77d0e11aa22bb33", agentType: "cello-code-reviewer" }
+      const asReviewer = (state: "started" | "launched" | "stopped", extra: { description?: string; lastMessage?: string } = {}) =>
+        agent(agents.report({ ...reviewer, state, ...extra }))
+      yield* asReviewer("started")
+      yield* asReviewer("launched", { description: `Review ${one.key}` })
+      yield* sql`UPDATE session_agents SET model = 'claude-sonnet-5-5', effort = 'medium' WHERE agent_id = ${reviewer.agentId}`
+      yield* TestClock.adjust("10 seconds")
+      yield* asReviewer("stopped", { lastMessage: "**Verdict: fix first** — two findings" })
+      yield* TestClock.adjust("20 seconds")
+      yield* asReviewer("started")
+      yield* TestClock.adjust("10 seconds")
+      yield* asReviewer("stopped", { lastMessage: "Verdict: merge" })
+      // A reviewer on another task, and a build naming this one and one that doesn't.
+      yield* sql`INSERT INTO builds (id, number, version, commit_hash, web_built_at, started_at, last_started_at, changes, created_at) VALUES
+        ('b1', 1, '0.4.9', 'aaaaaaa', 1, 100, 100, ${JSON.stringify([`merge: the timeline (${one.key})`, `docs: x (${two.key})`])}, 100),
+        ('b2', 2, '0.4.10', 'bbbbbbb', 2, 200, 200, ${JSON.stringify([`merge: another (${two.key})`])}, 200)`
+
+      const timeline = yield* context.taskTimeline(one.id)
+      expect(timeline.runs).toEqual([
+        { sessionId: expect.any(String), agentId: reviewer.agentId, agentType: "cello-code-reviewer", model: "claude-sonnet-5-5", effort: "medium", startedAt: 0, endedAt: 10_000, verdict: "fix_first" },
+        { sessionId: expect.any(String), agentId: reviewer.agentId, agentType: "cello-code-reviewer", model: "claude-sonnet-5-5", effort: "medium", startedAt: 30_000, endedAt: 40_000, verdict: "merge" },
+      ])
+      expect(timeline.releases.map((b) => [b.number, b.version])).toEqual([[1, "0.4.9"]])
+      expect((yield* context.taskTimeline(two.id)).runs).toEqual([])
+      expect((yield* context.taskTimeline(two.id)).releases.map((b) => b.number)).toEqual([1, 2])
+      expect(yield* Effect.flip(context.taskTimeline("no-such-task"))).toMatchObject({ _tag: "NotFound", entity: "task" })
     })))
 })
 

@@ -52,7 +52,7 @@ import {
 import { StreamedEvent } from "./events.ts"
 import { SearchKind, SearchResults } from "./search.ts"
 import { TaskStage } from "./stages.ts"
-import { AskWaited, DocumentList, Inbox, LabelList, MilestoneDetail, MilestoneList, ProjectContext, TaskDetail, TaskHistory, TaskList, Whoami } from "./views.ts"
+import { AskWaited, DocumentList, Inbox, LabelList, MilestoneDetail, MilestoneList, ProjectContext, TaskDetail, TaskHistory, TaskList, TaskTimeline, Whoami } from "./views.ts"
 
 /**
  * Who is calling, resolved by the server from per-request RPC headers. `agentId`: the session's subagent
@@ -367,6 +367,9 @@ export const CelloRpcs = RpcGroup.make(
   Rpc.make("task.archive", { payload: { commandId, id: Id }, success: write(Task), error: NotFound }),
   Rpc.make("task.unarchive", { payload: { commandId, id: Id }, success: write(Task), error: NotFound }),
   Rpc.make("task.history", { payload: { id: Id }, success: TaskHistory, error: NotFound }),
+  // Every run of every subagent on the task, and the builds that name it (CEL-160): what the comment thread
+  // shows between comments. Read-only; an older server doesn't have it, and a board shows no runs then.
+  Rpc.make("task.timeline", { payload: { id: Id }, success: TaskTimeline, error: NotFound }),
 
   // For the CLI. Tasks are named by key ("CEL-3"); projects by key or repository folder.
   Rpc.make("whoami", { payload: { project: ProjectRef }, success: Whoami }),
