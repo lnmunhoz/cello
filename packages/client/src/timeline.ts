@@ -206,3 +206,17 @@ export const timelineLineText = (line: TimelineLine): string => {
       return `Released in v${line.build.version} · build #${line.build.number}`
   }
 }
+
+/** A reviewer's verdict as the chip says it; `ask` names the human it asks (the project's human actor). */
+export const verdictLabel = (verdict: ReviewVerdictSeen, humanName: string | null): string => {
+  switch (verdict) {
+    case "merge":
+      return "Merge"
+    case "fix_first":
+      return "Fix first"
+    case "ask":
+      return humanName ? `Ask ${humanName}` : "Ask"
+    case "other":
+      return "Reviewed"
+  }
+}

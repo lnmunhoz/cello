@@ -5,7 +5,7 @@ import type { BuildRecord } from "@cello/contract/build"
 import type { EventBody, StreamedEvent } from "@cello/contract/events"
 import type { AgentRun, TaskTimeline } from "@cello/contract/views"
 import { describe, expect, it } from "vitest"
-import { foldRuns, foldText, timelineLineText, timelineOf, type FoldVariant, type TimelineItem } from "./timeline.ts"
+import { foldRuns, foldText, timelineLineText, timelineOf, verdictLabel, type FoldVariant, type TimelineItem } from "./timeline.ts"
 
 const statuses = {
   doing: { name: "In Progress" },
@@ -154,5 +154,15 @@ describe("foldRuns", () => {
     expect(fold && fold.kind === "fold" && foldText(fold)).toBe("2 changes")
     const earlier = foldRuns(timelineOf(input({ comments: [comment("c1", 1), comment("c2", 500)], history: stages(4, 10) })), "latest")[1]
     expect(earlier && earlier.kind === "fold" && foldText(earlier)).toBe("3 earlier")
+  })
+})
+
+describe("verdictLabel", () => {
+  it("says what the reviewer concluded; asking names the human; a word this build doesn't know is just a review", () => {
+    expect(verdictLabel("merge", "Lucas")).toBe("Merge")
+    expect(verdictLabel("fix_first", "Lucas")).toBe("Fix first")
+    expect(verdictLabel("ask", "Lucas")).toBe("Ask Lucas")
+    expect(verdictLabel("ask", null)).toBe("Ask")
+    expect(verdictLabel("other", "Lucas")).toBe("Reviewed")
   })
 })
