@@ -2233,7 +2233,7 @@ const gitEnv = (env: Env) =>
 
 /** What the plugin gives a session, said after installing or updating it. */
 const PLUGIN_GIVES =
-  "The plugin gives new sessions /cello:orchestrate (run tasks through builder and reviewer agents), /cello:work (do one task in this thread) and the cello skill."
+  "The plugin gives new sessions /cello:orchestrate (run tasks the way the project's LIFECYCLE.md says, through builder and reviewer agents) and the cello skill."
 
 /**
  * `cello install claude`'s work, also run by `cello init --hooks`: writes Cello's Claude Code plugin to
@@ -2354,7 +2354,7 @@ const installClaude = Command.make("claude", {
       "where nobody watches the window (orchestrating sessions, subagents, woken runs), " +
       "and edits away until the session has claimed a task " +
       "(PreToolUse on Artifact, AskUserQuestion, Edit, Write and NotebookEdit; not with --user), all running `cello hook claude`. Installs Cello's " +
-      "Claude Code plugin too (/cello:orchestrate, /cello:work, the cello skill, and builder and reviewer agents): writes its files to " +
+      "Claude Code plugin too (/cello:orchestrate, the cello skill, and builder and reviewer agents): writes its files to " +
       "$XDG_DATA_HOME/cello/claude-plugin (default ~/.local/share/cello/claude-plugin), rewritten on every run so a new Cello " +
       `updates it, and enables it. Adds ${CELLO_PERMISSION} to permissions.allow, so \`cello\` commands run without Claude Code's ` +
       "permission check and a check that fails can't cut agents off the board. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, " +

@@ -106,7 +106,7 @@ Cello's own backlog lives on a Cello board. Most of it was built by agents claim
 | **Comments that reach agents** | Your comments, send-back notes and emoji reactions arrive in the agent's session through Claude Code hooks, or `cello inbox --wait` while it's idle. |
 | **Pages** | Agents publish reports, specs and docs as markdown pages with images, video and Mermaid diagrams, versioned, linked to their tasks, and read in a side panel next to the board. |
 | **Desktop app** | An Electron app with a dock icon, a side panel for evidence and pages, and `cello://` links agents can put in their replies. |
-| **Claude Code plugin** | `cello install claude` adds hooks, the `/cello:orchestrate` and `/cello:work` commands, and guards that keep agents from editing a repo before they've claimed a task. |
+| **Claude Code plugin** | `cello install claude` adds hooks, the `/cello:orchestrate` command (it follows the repo's `LIFECYCLE.md`), and guards that keep agents from editing a repo before they've claimed a task. |
 | **Backups** | Automatic daily backups of the database and evidence, plus `cello backup` and `cello restore`. |
 
 <picture>

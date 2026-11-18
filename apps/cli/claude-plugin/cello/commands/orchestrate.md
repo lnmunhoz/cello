@@ -1,5 +1,5 @@
 ---
-description: Make this thread the orchestrator for a set of Cello tasks, run through builder and reviewer agents.
+description: Make this thread the orchestrator for a set of Cello tasks, run the way the project's LIFECYCLE.md says.
 argument-hint: "[task keys, or a goal; or off]"
 ---
 
@@ -9,55 +9,103 @@ Otherwise, this thread is now the **orchestrator** for: $ARGUMENTS
 
 (Task keys like `APP-12 APP-14`, or a goal to split into tasks. If that's empty, ask which tasks, then go on.)
 
-You run the work through agents and keep the Cello board true. You don't write the feature code yourself: you plan, brief, delegate, review, merge and submit. Only tiny changes (docs, a one-line fix) you make directly, still test first.
+You run the work through agents and keep the Cello board true. You don't write the feature code yourself: you brief, delegate, review, land and submit. Only tiny changes (docs, a one-line fix) you make directly, still test first.
+
+**How a task goes from Todo to Done is the project's own**, written in `LIFECYCLE.md` at the repo root: its steps, which agent runs each, where agents work (a worktree or the main checkout), how and when work lands (a merge, a PR or a commit), what follows (tests, deploys) and releases. Follow it. This page holds only the board's mechanics, which are the same in every project.
 
 ## Start
 
 0. Run `cello sessions orchestrate on`. Nobody watches an orchestrator's window, so from now on the hook turns Claude's question dialog (AskUserQuestion) away here: every question goes on a card (below). `/cello:orchestrate off` ends it.
-1. Run `cello context`. If you haven't read `cello guide` in this session, read it once: it's the full reference for every command below. Don't guess flags. Note its **Merge after approval** line: it decides the order of the steps below (on or off).
-2. Turn $ARGUMENTS into tasks:
+1. Run `cello context`. If you haven't read `cello guide` in this session, read it once: it's the full reference for every command below. Don't guess flags. Note its **Merge after approval** line (on or off) and its testing profile.
+2. **Read `LIFECYCLE.md`** at the repo root (`git rev-parse --show-toplevel`), and the project's AGENTS.md or CLAUDE.md. **No `LIFECYCLE.md`?** Do "No LIFECYCLE.md yet" (below) first, then come back here.
+3. Turn $ARGUMENTS into tasks:
    - **Keys:** `cello task get <KEY>` for each, to read what's asked.
    - **A goal:** check it isn't on the board already (`cello task list`), else `cello task create` one task per piece of work, with the person's words in the description. Ideas that still need discussing go in Backlog (`--status Backlog`) and wait there; nobody builds from Backlog. Ready work goes in Todo.
-3. Claim each task you'll run now: `cello task claim <KEY>`. The claim is this session's.
-4. Plan the order: independent tasks run in parallel; tasks that touch the same files run one after another.
+4. Claim each task you'll run now: `cello task claim <KEY>`. The claim is this session's.
+5. Plan the order: independent tasks run in parallel; tasks that touch the same files run one after another. In a checkout shared with other sessions, no two agents edit the same file.
 
 ## Each task, step by step
 
-Mark each step with `cello task stage <KEY> building|review|fixing|merged`, so the card says where the work is.
-
-The order depends on the project's **Merge after approval** setting (`cello context`):
-
-- **off:** build → review → merge → submit. The person reviews what's merged; their Approve moves the task to Done.
-- **on:** build → review → submit (with the PR link when the project uses PRs) → wait for the approval → merge and deploy → `cello task done`. The person approves before anything lands.
-
 ```mermaid
 flowchart TD
-    A["Claim<br/>cello task claim"] --> B["Build: stage building<br/>a builder agent in its own worktree"]
-    B --> C["Review: stage review<br/>a fresh reviewer, diff + task text"]
-    C -->|findings| D["Fix: stage fixing<br/>same builder, same context"]
-    D --> C
-    C -->|"clean, merge after approval off"| E["Merge: stage merged<br/>the project's tests, deploy"]
-    E --> F(["Submit<br/>cello task submit: In Review"])
-    C -->|"clean, merge after approval on"| G["Submit with the PR link<br/>cello task submit: In Review"]
-    G --> H["Wait for the approval<br/>cello inbox --wait"]
-    H -->|"Approve and merge"| I["Merge and deploy<br/>Approved · merging"]
-    I --> J(["cello task done: Done"])
+    A["Read LIFECYCLE.md<br/>none yet: draft it, ask on the card, write it"] --> B["Claim<br/>cello task claim"]
+    B --> C["LIFECYCLE.md's steps, in its order<br/>its agents, where it says they work<br/>cello task stage at each step"]
+    C -->|"merge after approval off"| D["Land it the way LIFECYCLE.md says<br/>stage merged, then After it lands"]
+    D --> E(["Submit<br/>cello task submit: In Review"])
+    C -->|"merge after approval on"| F["Submit<br/>cello task submit: In Review"]
+    F --> G["Wait for the approval<br/>cello inbox --wait"]
+    G -->|Approve| H["Land it the way LIFECYCLE.md says<br/>stage merged, then After it lands"]
+    H --> I(["cello task done: Done"])
 ```
 
-1. **Build** (`stage building`). Start one builder agent per task with the Agent tool, in its own git worktree (`isolation: "worktree"`), in the background.
-   - **Which agent:** the project's own when `.claude/agents/` defines one (a name like `*-builder`), else this plugin's `cello:builder`.
-   - **The brief is all it knows.** Give it: what to build and why (the person's words, quoted), what to read first, what other agents are changing right now (so it stays out of their files), and the rules: test first, commit on its branch, never push or touch the default branch, never change the live board, take how to test and record evidence from the testing profile (`cello context`), report back with commits, test results, evidence and decisions.
-2. **Review** (`stage review`). When the builder reports, start a **fresh** reviewer: the project's own (`*-reviewer`) or `cello:reviewer`. Give it the task's text, the branch and its worktree, and nothing from the builder's report, so it judges the code, not the story.
-3. **Fix** (`stage fixing`). Send the findings back to **the same builder** with SendMessage, so it keeps its context. Only blockers get a re-check, by the same reviewer. If one round doesn't settle a blocker, or it's a design question the task doesn't answer, ask the person on the card (below). The reviewer's verdict (merge, fix first, ask) shows on the task by itself, read from the start of its reply, so it needn't be copied; a comment on what the findings were and what you did about them is still welcome.
-4. **Merge after approval off:**
-   - **Merge** (`stage merged`). Merge the branch into the default branch (usually main), run the tests the project's rules ask for (its AGENTS.md or CLAUDE.md), then release and deploy only if and when they say (in Cello's own repo: only when the person asks for a release). When they say nothing, run the whole test suite and don't release or deploy unless the person asks.
-   - **Submit right after the merge**, one task at a time; don't batch (the packet, below).
-5. **Merge after approval on:**
-   - **Submit once the review is clean**, before merging (the packet, below). When the project's rules require PRs, push the branch, open the PR and attach it: `--link <PR url> --caption "The PR"`. You keep the claim while the person reviews; start `cello inbox --wait` in the background when you end your turn.
-   - **Wait for the approval.** Their Approve and merge reaches you like a comment ("<person> approved <KEY>: merge it now, then `cello task done <KEY>`"); the card shows Approved · merging. A Send back comes the same way: fix it and submit again.
-   - **Merge and deploy** exactly the way the project's rules say, then **`cello task done <KEY>`**: the task moves to Done and the claim ends.
-   - **If the merge fails**, `cello task stage <KEY> fixing` and say what broke on the card (`cello task comment`). Fix it and merge again, or leave it to the person, who can send it back.
-6. **The packet:** `cello task submit <KEY>` with a summary, how to check it, and the evidence (videos and screenshots for UI; a terminal transcript or test output for CLI and server work). When the work is a flow, put a small ```mermaid flowchart TD in the summary. Say what the review found and what was fixed, and which testing-profile fields the builder changed (`cello profile`); when it flagged a field the person set as wrong, ask them on the card.
+1. **Run LIFECYCLE.md's steps, in its order.** For each:
+   - **The stage.** Mark it with `cello task stage <KEY> planning|building|review|fixing|merged`, so the card says where the work is: `planning` for a plan or a decision before code, `building`, `review`, `fixing`, and `merged` once the work has landed.
+   - **The agent** LIFECYCLE.md names for the step: the project's own (`.claude/agents/`) or this plugin's `cello:builder` and `cello:reviewer`. Start it with the Agent tool, in the background. Where it works is LIFECYCLE.md's "Where agents work": for a worktree of its own, pass `isolation: "worktree"`; in the main checkout, no isolation, and the brief names the files that are this task's.
+   - **The brief is all an agent knows.** Give it: what to build and why (the person's words, quoted), the approved plan if there is one, what to read first (LIFECYCLE.md included), what other agents are changing right now (so it stays out of their files), where it works and how its work is kept (from LIFECYCLE.md: commits on a branch, or changes left uncommitted), and the rules: test first, never push or land anything itself unless LIFECYCLE.md says the agent does, never change the live board, take how to test and record evidence from the testing profile (`cello context`), report back with where the work is, test results, evidence and decisions.
+   - **A reviewer is always fresh.** Give it the task's text, the plan if there is one, and where the change is, the way LIFECYCLE.md keeps it: a branch and its worktree, or the files the task changed in a shared checkout (it reads their working-tree diff). Nothing from the builder's report, so it judges the code, not the story. Its verdict (merge, fix first, ask) shows on the task by itself, read from the start of its reply.
+   - **Findings** go back to **the same builder** with SendMessage (stage `fixing`), so it keeps its context. Only blockers get a re-check, by the same reviewer. If one round doesn't settle a blocker, or it's a design question the task doesn't answer, ask the person on the card.
+   - **A step LIFECYCLE.md says the person approves** (a plan, a scope) is asked on the card (`cello task ask`, below), and the next step waits for the answer.
+2. **When it lands is the Merge after approval setting**, not LIFECYCLE.md: the setting decides the order, LIFECYCLE.md says how.
+   - **Off:** land the work the way LIFECYCLE.md's "How work lands" says, `cello task stage <KEY> merged`, do what its "After it lands" says, then **submit right away**, one task at a time; don't batch. The person's Approve moves the task to Done.
+   - **On:** **submit once the review is clean**, before anything lands (with the PR link, `--link <PR url> --caption "The PR"`, when LIFECYCLE.md lands work through PRs). Keep the claim, and start `cello inbox --wait` in the background when you end your turn. Their Approve reaches you like a comment ("<person> approved <KEY>: merge it now, then `cello task done <KEY>`"); the card shows Approved · merging. Then land it the way LIFECYCLE.md says, `cello task stage <KEY> merged`, do what "After it lands" says, and **`cello task done <KEY>`**: the task moves to Done and the claim ends. A Send back comes the same way: fix it and submit again.
+   - **Landing fails?** `cello task stage <KEY> fixing` and say what broke on the card (`cello task comment`). Fix it and land again, or leave it to the person, who can send it back.
+   - **LIFECYCLE.md says otherwise** (it lands work before the Approve while the setting is on, say)? Follow the setting and say on the card that the two disagree.
+3. **Releases** happen only the way LIFECYCLE.md's "Releases" says. When it says nothing, only when the person asks.
+4. **The packet:** `cello task submit <KEY>` with a summary, how to check it, and the evidence (videos and screenshots for UI; a terminal transcript or test output for CLI and server work). When the work is a flow, put a small ```mermaid flowchart TD in the summary. Say where the change is (a branch, a PR, or uncommitted files), what the review found and what was fixed, and which testing-profile fields the builder changed (`cello profile`); when it flagged a field the person set as wrong, ask them on the card.
+
+## No LIFECYCLE.md yet
+
+Don't guess the project's flow, and don't borrow Cello's own. Before running any task, make the file with the person:
+
+1. **Read what the repo shows:** AGENTS.md or CLAUDE.md (any section on how work flows, branches, PRs, deploys), the default branch and the others (`git branch -a`), how work landed lately (`git log --oneline -20`, `git log --merges --oneline -10`), CI, deploy and release workflows (`.github/workflows/`, release scripts in the package manifest), `git worktree list`, the testing profile and Merge after approval line in `cello context`, and the repo's agents in `.claude/agents/`.
+2. **Draft LIFECYCLE.md** from the template below, every section filled with what you found. Mark anything the repo doesn't settle with "(guess)".
+3. **Ask on a card**, since the question dialog is off while orchestrating: publish the draft (`cello doc publish <draft>.md --task <KEY>`), then `cello task ask <KEY> --file ask.yaml --wait` in the background. One question "Use this lifecycle?" (Use it / Change it, with their notes), linking the page, plus one question per guess, each with the option you recommend. Ask on the first task you claimed; with none, create one ("Write this repo's LIFECYCLE.md"), claim it and ask there.
+4. **Change it:** revise the draft, publish it again and ask again. **Use it:** Write it as `LIFECYCLE.md` at the repo root. It's a change like any other, so it lands the way it says work lands; their "Use it" is the approval. Say so on the card.
+5. Then carry on from Start, step 3.
+
+## The LIFECYCLE.md template
+
+````markdown
+# Lifecycle
+
+How a task goes from Todo to Done in this repo. `/cello:orchestrate` reads this file first and follows it. The board's own rules (claim, stages, asking on the card, submit, done) are Cello's and the same everywhere.
+
+## Steps
+
+The steps in order, the stage each sets, and where the person approves before the next one. For example:
+
+1. **Plan** (stage `planning`): `<planner>` writes a plan, test first. The person approves it on the card before anything is built.
+2. **Build** (stage `building`): `<builder>`, test first.
+3. **Review** (stage `review`): a fresh `<reviewer>` gets the change and the task text, never the builder's report.
+4. **Fix** (stage `fixing`): findings go back to the same builder.
+5. **Submit**, and land it (below).
+
+Which small changes (docs, a one-line fix) skip steps, and which.
+
+## Agents
+
+| Step | Agent | Model, effort |
+| --- | --- | --- |
+| Plan | `<.claude/agents/name>`, or none | |
+| Build | `cello:builder`, or `<.claude/agents/name>` | |
+| Review | `cello:reviewer`, or `<.claude/agents/name>` | |
+
+## Where agents work
+
+Its own git worktree per task, on its own branch; or the main checkout on `<branch>`, shared with other sessions (touch only the task's files, stage them by path, never switch branches).
+
+## How work lands
+
+A merge of the branch into `<branch>`, a PR, or a commit straight to `<branch>`, and its message. Before or after the person's Approve: Cello's Merge after approval setting decides that order. What's never done (push to `main`, force-push).
+
+## After it lands
+
+Tests to run, what deploys it (pushing `<branch>` deploys to …), migrations, and which of them wait for the person's yes.
+
+## Releases
+
+How a release goes out (`<command>`) and when: on every merge to `<branch>`, or only when the person says.
+````
 
 ## Rules for the whole run
 
@@ -65,4 +113,5 @@ flowchart TD
 - **The person's decisions go on the card, never in the terminal or Claude's AskUserQuestion.** Which design, which scope, what wording: `cello task ask <KEY> --file ask.yaml --wait`, run in the background. The task waits in Needs input and comes back to you with the answers. When no open task of yours fits (yours was approved, or it's a new decision), create one, claim it and ask there.
 - **Their comments come to you.** With the hooks installed they arrive by themselves; without them, `cello inbox`. Act on them, then answer on the card with `cello task comment`. When you end a turn while holding claims (waiting on agents or the person), start `cello inbox --wait` in the background, so their comments wake you while you're idle.
 - **Keep the board honest.** Comment progress and decisions on the card. In Progress means someone is on it now: when you pause a task, put where it stands on the card, move it back to Todo and `cello task release` it.
+- **LIFECYCLE.md looks wrong or out of date** (a step the repo no longer has, an agent that's gone)? Ask the person on the card, and change the file only on their answer.
 - **Report to the person per task:** its stage and what's next, in a line or two.

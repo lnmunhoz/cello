@@ -1,4 +1,4 @@
-// CEL-64: `cello install claude` installs Cello's Claude Code plugin (/cello:orchestrate, /cello:work,
+// CEL-64: `cello install claude` installs Cello's Claude Code plugin (/cello:orchestrate,
 // the cello skill, the builder and reviewer agents) next to its hooks. Each test uses a temp HOME and a
 // temp repo, so the real ~/.claude and ~/.local/share are never touched.
 import * as fs from "node:fs"
@@ -10,7 +10,7 @@ import { installSetup } from "./cli.ts"
 
 const pluginAt = (home: string) => path.join(home, ".local", "share", "cello", "claude-plugin")
 const GIVES =
-  "The plugin gives new sessions /cello:orchestrate (run tasks through builder and reviewer agents), /cello:work (do one task in this thread) and the cello skill."
+  "The plugin gives new sessions /cello:orchestrate (run tasks the way the project's LIFECYCLE.md says, through builder and reviewer agents) and the cello skill."
 const ALREADY_ALLOWED = (file: string) => `\`cello\` commands are already allowed in ${file}.`
 
 describe("cello install claude: the plugin", () => {

@@ -94,7 +94,7 @@ cello init --hooks --agents-md
 One command, three things. Tell the person each one:
 
 1. **The project.** It creates a Cello project named after the folder, with its own task key (like `SHOP`, so tasks are `SHOP-1`, `SHOP-2`…), and prints the board's URL. If the folder is already a project, it says which one and changes nothing.
-2. **Claude Code hooks and plugin** (this machine only, in `.claude/settings.local.json`, which git ignores). The person's comments on a task reach the session working on it; new sessions get `/cello:orchestrate` and `/cello:work`; `cello` commands run without permission prompts. It also adds two guards: an agent can't edit files here before it has claimed a task, and pages are published to Cello rather than elsewhere.
+2. **Claude Code hooks and plugin** (this machine only, in `.claude/settings.local.json`, which git ignores). The person's comments on a task reach the session working on it; new sessions get `/cello:orchestrate`, which runs tasks the way the repo's `LIFECYCLE.md` says; `cello` commands run without permission prompts. It also adds two guards: an agent can't edit files here before it has claimed a task, and pages are published to Cello rather than elsewhere.
 3. **A short "Tracking work in Cello" section** at the end of `AGENTS.md` (or `CLAUDE.md` when there's no AGENTS.md), so every future agent session knows the workflow. It's between markers; the rest of the file is untouched.
 
 The person's name or key preference wins: `--name "Acme Shop"`, `--key SHOP`. These changes are uncommitted; mention it, and leave committing to them.
