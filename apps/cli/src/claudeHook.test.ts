@@ -61,7 +61,14 @@ describe("parseHookInput", () => {
       toolUseId: null,
       backgroundTasks: null,
       startedBackground: null,
+      lastMessage: "Done.",
     })
+  })
+
+  it("reads a subagent's last reply (SubagentStop's last_assistant_message, CEL-160) trimmed, null when empty", () => {
+    expect(parseHookInput(JSON.stringify({ session_id: "s", agent_id: "a1", last_assistant_message: "  **Verdict: merge**\n\nNo findings.\n" })).lastMessage).toBe("**Verdict: merge**\n\nNo findings.")
+    expect(parseHookInput(JSON.stringify({ session_id: "s", last_assistant_message: "" })).lastMessage).toBeNull()
+    expect(parseHookInput(JSON.stringify({ session_id: "s" })).lastMessage).toBeNull()
   })
 
   it("reads the session's permission mode (CEL-92): a woken run continues in the same one", () => {
@@ -96,7 +103,7 @@ describe("parseHookInput", () => {
     const none = {
       sessionId: null, cwd: null, stopHookActive: false, inSubagent: false, agent: null, launched: null, toolName: null, toolInput: null,
       backgroundCommands: null, permissionMode: null, transcriptPath: null, agentTranscriptPath: null,
-      toolUseId: null, backgroundTasks: null, startedBackground: null,
+      toolUseId: null, backgroundTasks: null, startedBackground: null, lastMessage: null,
     }
     expect(parseHookInput("")).toEqual(none)
     expect(parseHookInput("{not json")).toEqual(none)

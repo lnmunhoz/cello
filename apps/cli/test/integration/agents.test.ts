@@ -95,6 +95,23 @@ describe("subagents through the hooks", () => {
       expect((yield* x("task", "get", "CEL-1")).out).toContain("Subagents on it (1)")
     }).pipe(Effect.scoped))
 
+  // CEL-160: a reviewer's last reply leads with its verdict; SubagentStop's last_assistant_message carries it.
+  it.live("SubagentStop's last_assistant_message gives a reviewer its verdict, kept as the word on the task's agent; a builder's reply gives none", () =>
+    Effect.gen(function* () {
+      const { hook, x } = yield* setup
+      yield* hook("post-tool-use", launch(REVIEWER, "cello-code-reviewer", "Review CEL-1", "Review CEL-1's diff"))
+      yield* hook("post-tool-use", launch(BUILDER, "cello-builder", "CEL-1 agents on cards", "Build CEL-1"))
+      yield* hook("subagent-stop", {
+        session_id: X, hook_event_name: "SubagentStop", agent_id: REVIEWER, agent_type: "cello-code-reviewer",
+        last_assistant_message: "**Verdict: merge**\n\nNo blockers. " + "More detail. ".repeat(100),
+      })
+      yield* hook("subagent-stop", {
+        session_id: X, hook_event_name: "SubagentStop", agent_id: BUILDER, agent_type: "cello-builder", last_assistant_message: "Verdict: merge",
+      })
+      const detail = JSON.parse((yield* x("task", "get", "CEL-1", "--json")).out) as { agents: ReadonlyArray<{ agentId: string; verdict: string | null }> }
+      expect(detail.agents.map((a) => [a.agentId, a.verdict])).toEqual([[REVIEWER, "merge"], [BUILDER, null]])
+    }).pipe(Effect.scoped))
+
   it.live("a hook event this cello doesn't know (a newer settings file, an older binary) exits 0 and prints nothing, so Claude Code shows no hook error", () =>
     Effect.gen(function* () {
       const { hook } = yield* setup

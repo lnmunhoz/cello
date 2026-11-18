@@ -9,7 +9,8 @@
 //             background_tasks: [{ id, type: "shell" | "monitor" | …, status, command (shell only) }] (Stop, and
 //             SubagentStop, where it lists the whole session's work, not only the subagent's; checked 2026-11-17),
 //             transcript_path (every event: the main session's transcript, even inside a subagent),
-//             agent_transcript_path (SubagentStop: the subagent's own, in `<session>/subagents/`, checked 2026-11-16), … }
+//             agent_transcript_path (SubagentStop: the subagent's own, in `<session>/subagents/`, checked 2026-11-16),
+//             last_assistant_message (SubagentStop: the text of the subagent's final response, checked 2026-11-18), … }
 //   start   { "hookSpecificOutput": { "hookEventName": "SubagentStart", "additionalContext": "…" } }
 //   both    { "hookSpecificOutput": { "hookEventName": "Stop" | "PostToolUse", "additionalContext": "…" } }
 //   pre     { "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "…" } }
@@ -79,6 +80,11 @@ export interface HookInput {
   readonly backgroundTasks: ReadonlyArray<BackgroundTask> | null
   /** PostToolUse (CEL-133): the background work this call started, when it did. */
   readonly startedBackground: StartedBackground | null
+  /**
+   * SubagentStop (CEL-160): `last_assistant_message`, the subagent's last reply, trimmed; null when absent. Only
+   * the start of a reviewer's is used, for its verdict.
+   */
+  readonly lastMessage: string | null
 }
 
 /** One entry of `background_tasks`: its id, its kind (`shell`, `monitor`, `subagent`, …), and a shell's command. */
@@ -187,6 +193,7 @@ export const parseHookInput = (raw: string): HookInput => {
     toolUseId: text(input.tool_use_id),
     backgroundTasks: backgroundTasksOf(input.background_tasks),
     startedBackground: startedBackgroundOf(toolName, toolInput, input.tool_response),
+    lastMessage: text(input.last_assistant_message),
   }
 }
 

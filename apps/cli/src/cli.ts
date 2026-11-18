@@ -2053,11 +2053,15 @@ const toolFailed = Effect.gen(function* () {
   yield* followTests(parseHookInput(yield* Effect.promise(readStdin)), "post-tool-use-failure")
 })
 
+/** How much of a subagent's last reply a stop sends: the verdict leads it (CEL-160). */
+const LAST_MESSAGE_CHARS = 500
+
 /**
  * SubagentStart and SubagentStop (CEL-55): a subagent of the session started (or was resumed) or
  * finished. Start first prints the context that tells it its --agent (no server needed), then
  * both tell the board, as the session. A stop also says which background work the session still runs
- * (CEL-133): a subagent whose own work is among it is waiting on it, not finished.
+ * (CEL-133): a subagent whose own work is among it is waiting on it, not finished, and the start of its
+ * last reply (CEL-160), where a reviewer's verdict is read.
  */
 const subagentHook = (state: "started" | "stopped") =>
   Effect.gen(function* () {
@@ -2071,6 +2075,8 @@ const subagentHook = (state: "started" | "stopped") =>
     // The subagent's own transcript (CEL-106): its log on the Agents page.
     const transcriptPath = transcriptOf(hook)
     const running = state === "stopped" && hook.backgroundTasks !== null ? hook.backgroundTasks.map((task) => task.id) : null
+    // The start of its last reply (CEL-160): the server reads a reviewer's verdict from it and keeps only the word.
+    const lastMessage = state === "stopped" ? hook.lastMessage?.slice(0, LAST_MESSAGE_CHARS) ?? null : null
     yield* withClient((client) =>
       client["agent.report"]({
         agentId: agent.id,
@@ -2078,6 +2084,7 @@ const subagentHook = (state: "started" | "stopped") =>
         state,
         ...(transcriptPath ? { transcriptPath } : {}),
         ...(running ? { running } : {}),
+        ...(lastMessage ? { lastMessage } : {}),
       }), {
       headers: identityHeaders(session, hook.cwd ?? cwd),
     })
