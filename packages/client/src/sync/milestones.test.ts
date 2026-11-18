@@ -17,7 +17,7 @@ const milestone = (id: string, position: string, extra: Partial<Milestone> = {})
 })
 
 const state: BoardState = {
-  seq: 1, actors: {}, workspaces: {}, projects: {}, labels: {}, sessions: {}, agents: {}, reviews: {}, asks: {}, documents: {}, wakes: {},
+  seq: 1, actors: {}, workspaces: {}, projects: {}, labels: {}, sessions: {}, agents: {}, reviews: {}, asks: {}, documents: {}, wakes: {}, testOutcomes: {},
   statuses: {
     todo: status("todo", "a0", "unstarted"),
     doing: status("doing", "a1", "started", "In Progress"),

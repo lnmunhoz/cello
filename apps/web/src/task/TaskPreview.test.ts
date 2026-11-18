@@ -68,7 +68,7 @@ const board: BoardState = {
   reviews: { r1: packet },
   asks: { k1: ask },
   documents: {},
-  wakes: {},
+  wakes: {}, testOutcomes: {},
 }
 
 const render = (key: string) =>

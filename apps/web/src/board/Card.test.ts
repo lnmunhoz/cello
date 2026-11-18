@@ -30,7 +30,7 @@ const board: BoardState = {
   sessions: {}, agents: {},
   reviews: {},
   asks: {},
-  documents: {}, wakes: {},
+  documents: {}, wakes: {}, testOutcomes: {},
   milestones: {
     m3: { id: "m3", projectId: "p1", name: "M3", goal: "", targetDate: null, position: "a0", state: "open", closedAt: null, createdAt: 1, updatedAt: 1 },
   },

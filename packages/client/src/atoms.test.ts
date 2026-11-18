@@ -139,6 +139,42 @@ describe("command atoms", () => {
     expect(fetches).toBe(2)
   })
 
+  // CEL-181: a finished test run isn't a change to the task, so its version stays; the history is fetched again
+  // for it all the same, and only for the task it's on.
+  it("fetch a task's history again when a test run finishes on it, not for another task's", async () => {
+    const events = Effect.runSync(Queue.unbounded<CelloEvent>())
+    let fetches = 0
+    const fake = {
+      "snapshot.get": () => Effect.succeed(snapshot),
+      "events.subscribe": () => Stream.fromQueue(events),
+      "comment.list": () => Effect.succeed([]),
+      "task.history": () => Effect.sync(() => (fetches++, [])),
+    } as unknown as CelloClient["Service"]
+    const atoms = makeCelloAtoms(Atom.runtime(Layer.succeed(CelloClient, fake)))
+    const registry = AtomRegistry.make()
+    registry.mount(atoms.boardAtom)
+    await Effect.runPromise(AtomRegistry.getResult(registry, atoms.boardAtom))
+    registry.mount(atoms.historyFamily("t1"))
+    await Effect.runPromise(AtomRegistry.getResult(registry, atoms.historyFamily("t1")))
+    expect(fetches).toBe(1)
+
+    const run = { label: "unit tests", command: "bun run test", startedAt: 1, endedAt: 9, outcome: "passed", background: false, progress: null }
+    const envelope = { ts: 6, actorId: "me", sessionId: "s1", workspaceId: "w1", projectId: "p1", schemaVersion: 1 }
+    let seq = 5
+    const finished = async (taskId: string) => {
+      seq += 1
+      Effect.runSync(Queue.offer(events, { ...envelope, seq, commandId: `c${seq}`, type: "tests.finished", taskId, run } as unknown as CelloEvent))
+      await Effect.runPromise(AtomRegistry.toStreamResult(registry, atoms.syncedAtom).pipe(Stream.filter((s) => s.state.seq >= seq), Stream.runHead))
+      await Effect.runPromise(AtomRegistry.getResult(registry, atoms.historyFamily("t1")))
+    }
+    await finished("t2")
+    expect(fetches).toBe(1)
+    await finished("t1")
+    expect(fetches).toBe(2)
+    // The task's version didn't move.
+    expect((await Effect.runPromise(AtomRegistry.getResult(registry, atoms.boardAtom))).tasks["t1"]?.version).toBe(2)
+  })
+
   // CEL-160: the comment thread's runs and releases come from task.timeline, fetched again when an agent on
   // the task starts, finishes or leaves a verdict, not on every check-in.
   it("fetch a task's timeline again when an agent on it finishes or leaves a verdict, not on a check-in or another task's agent", async () => {

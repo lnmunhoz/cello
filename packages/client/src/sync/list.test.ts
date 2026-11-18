@@ -42,7 +42,7 @@ const state: BoardState = {
   sessions: {}, agents: {},
   reviews: {},
   asks: {},
-  documents: {}, wakes: {}, milestones: {},
+  documents: {}, wakes: {}, testOutcomes: {}, milestones: {},
 }
 
 describe("listGroups", () => {

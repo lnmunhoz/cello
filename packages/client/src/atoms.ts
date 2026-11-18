@@ -474,15 +474,24 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
       return AsyncResult.isSuccess(synced) ? synced.value.state.wakes[taskId]?.ts : undefined
     }))
 
-  /** A task's history, fetched again whenever the server changes the task, its comments or its wake. */
+  /** When a test run last finished on the task (CEL-181); it's history, not a task change, so its version stays. */
+  const syncedTestOutcomeFamily = Atom.family((taskId: string) =>
+    Atom.make((get) => {
+      const synced = get(syncedAtom)
+      return AsyncResult.isSuccess(synced) ? synced.value.state.testOutcomes[taskId]?.ts : undefined
+    }))
+
+  /** A task's history, fetched again whenever the server changes the task, its comments, its wake or a test run finishes on it. */
   const historyFamily = Atom.family((taskId: string) =>
     runtime.atom((get) => {
       const version = get(syncedVersionFamily(taskId))
       const wake = get(syncedWakeFamily(taskId))
+      const outcome = get(syncedTestOutcomeFamily(taskId))
       get(commentsFamily(taskId))
       return Effect.gen(function* () {
         void version
         void wake
+        void outcome
         const client = yield* CelloClient
         return yield* client["task.history"]({ id: taskId })
       })
