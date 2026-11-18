@@ -1,7 +1,8 @@
 // CEL-160: a task's comments show what happened after each one. Comments stay cards, and between them, in
 // time order, sit one-line events: stages, status moves, every subagent starting and finishing (with its
 // model, and a reviewer's verdict read from its last reply), the merge, and the release that took it live.
-// Runs of lines fold ("4 changes · show"); the scope shows two ways, `?fold=count` and `?fold=latest`.
+// Three or more lines in a row fold ("3 earlier · show") and keep the newest; the run after the newest comment
+// stays open (Lucas picked this fold, Nov 18).
 //
 // The story is CEL-147's: an orchestrator claims, a builder builds, the orchestrator comments "Now in agent
 // review.", a reviewer says fix first, the builder fixes, the reviewer says merge, it merges and is submitted.
@@ -118,8 +119,9 @@ test("CEL-160: comments, stages, status moves, every subagent's start and finish
   builder.launch(`${task} one timeline of comments and events`)
   builder.toolCall()
 
-  // With one comment, the run after it is the newest and stays open: every line shows while it happens.
-  await page.goto(`/${key}/1?fold=latest`)
+  // The panel stays open for the whole story: the lines arrive by themselves. With one comment, the run after
+  // it is the newest and stays open: every line shows while it happens.
+  await page.goto(`/${key}/1`)
   const panel = taskPanel(page, task)
   await expect(panel).toBeVisible()
   await showThread(panel)
@@ -158,27 +160,28 @@ test("CEL-160: comments, stages, status moves, every subagent's start and finish
   cli("task", "submit", task, "--summary", "One timeline of comments and events.", "--step", "Open the task and read the thread", "--link", "https://github.com/lnmunhoz/cello/pull/160", "--caption", "The PR")
   await expect(panel.locator('[data-timeline-line="status"]')).toHaveText(/In Progress → In Review/)
 
-  // ?fold=count: runs of two or more fold; open them all and the whole thread reads in time order.
-  await page.goto(`/${key}/1?fold=count`)
-  await expect(panel).toBeVisible()
-  await showThread(panel)
+  // The run before "Now in agent review." folded the moment that comment arrived, keeping its newest line;
+  // everything after the comment stayed open as it came in.
+  await caption(page, "Everything after \"Now in agent review.\" stayed open as it happened; the run before it folded, keeping its newest line")
   await expect(panel.locator("[data-comment-id]")).toHaveCount(2)
-  await expect(panel.locator("[data-timeline-fold]")).toHaveCount(2)
-  expect(await threadOf(panel)).toEqual(["comment", "fold", "comment", "fold"])
-  await caption(page, "?fold=count: each run between two comments is one row, \"4 changes · show\" and \"9 changes · show\"")
-  await expect(panel.locator("[data-timeline-fold]").first()).toContainText("4 changes · show")
-  await expect(panel.locator("[data-timeline-fold]").last()).toContainText("9 changes · show")
-  await shoot(page, "fold-count-folded")
+  await expect(panel.locator("[data-timeline-fold]")).toHaveCount(1)
+  await expect(panel.locator("[data-timeline-fold]")).toContainText("3 earlier · show")
+  expect(await threadOf(panel)).toEqual([
+    "comment", "fold", "line:stage",
+    "comment",
+    "line:run_start", "line:run_end", "line:stage", "line:run_start", "line:run_end", "line:run_start", "line:run_end", "line:merge", "line:status",
+  ])
+  await showThread(panel)
+  await shoot(page, "fold-folded")
 
-  await caption(page, "Show both: every line, in time order, between the comments")
-  while ((await panel.locator("[data-timeline-fold]:not([data-open])").count()) > 0) {
-    await panel.locator("[data-timeline-fold]:not([data-open])").first().getByRole("button").click()
-  }
+  await caption(page, "Show the three earlier lines: every line, in time order, between the comments")
+  await panel.locator("[data-timeline-fold]").getByRole("button").click()
+  await expect(panel.locator("[data-timeline-fold]")).toHaveAttribute("data-open", "")
   expect(await threadOf(panel)).toEqual([
     "comment",
     "fold", "line:stage", "line:run_start", "line:run_end", "line:stage",
     "comment",
-    "fold", "line:run_start", "line:run_end", "line:stage", "line:run_start", "line:run_end", "line:run_start", "line:run_end", "line:merge", "line:status",
+    "line:run_start", "line:run_end", "line:stage", "line:run_start", "line:run_end", "line:run_start", "line:run_end", "line:merge", "line:status",
   ])
   await expect(panel.locator('[data-timeline-line="stage"]')).toHaveText([
     /Stage: Building/, /Stage: Agent review/, /Stage: Fixing findings/,
@@ -189,30 +192,15 @@ test("CEL-160: comments, stages, status moves, every subagent's start and finish
     /cello-builder started · Sonnet 5\.5, high/, /cello-code-reviewer started · Sonnet 5\.5, medium/, /cello-builder resumed/, /cello-code-reviewer resumed/,
   ])
   await expect(panel.locator("[data-verdict]")).toHaveCount(2)
-  await shoot(page, "fold-count-open")
+  await shoot(page, "fold-open")
 
-  // ?fold=latest: three or more fold and keep the newest line; the run after the newest comment stays open.
-  await caption(page, "?fold=latest: the run before the last comment folds and keeps its newest line; the run after it stays open")
-  await page.goto(`/${key}/1?fold=latest`)
-  await expect(panel).toBeVisible()
-  await showThread(panel)
-  await expect(panel.locator("[data-comment-id]")).toHaveCount(2)
-  await expect(panel.locator("[data-timeline-fold]")).toHaveCount(1)
-  await expect(panel.locator("[data-timeline-fold]")).toContainText("3 earlier · show")
-  expect(await threadOf(panel)).toEqual([
-    "comment", "fold", "line:stage",
-    "comment",
-    "line:run_start", "line:run_end", "line:stage", "line:run_start", "line:run_end", "line:run_start", "line:run_end", "line:merge", "line:status",
-  ])
-  await shoot(page, "fold-latest-folded")
+  await caption(page, "Hide them again")
   await panel.locator("[data-timeline-fold]").getByRole("button").click()
-  await expect(panel.locator("[data-timeline-fold]")).toHaveAttribute("data-open", "")
-  await expect(panel.locator("[data-timeline-line]")).toHaveCount(13)
-  await shoot(page, "fold-latest-open")
+  await expect(panel.locator("[data-timeline-fold]")).not.toHaveAttribute("data-open", "")
 
   // The thread is the same wherever Comments is: the full-page task view, and the Review page's packet.
   await caption(page, "The full-page task view has the same thread")
-  await page.goto(`/${key}/1?view=full&fold=latest`)
+  await page.goto(`/${key}/1?view=full`)
   const comments = page.getByRole("region", { name: "Comments" })
   await expect(comments.locator("[data-comment-id]")).toHaveCount(2)
   await expect(comments.locator("[data-timeline-line]")).toHaveCount(10)
@@ -220,7 +208,7 @@ test("CEL-160: comments, stages, status moves, every subagent's start and finish
   await shoot(page, "full-page")
 
   await caption(page, "The Review page's packet has it under How to check")
-  await page.goto(`/review?open=${task}&fold=latest`)
+  await page.goto(`/review?open=${task}`)
   const row = page.getByRole("article", { name: new RegExp(`${task}\\b`) })
   const thread = row.getByRole("region", { name: "Comments" })
   await expect(thread.locator("[data-comment-id]")).toHaveCount(2)
