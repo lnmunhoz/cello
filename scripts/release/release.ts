@@ -19,6 +19,7 @@ import { deploy, deployPlanOf, liveBinaryProblem } from "./deploy.ts"
 import {
   actionsReport,
   parseReleaseArgs,
+  pickIncrement,
   preflightProblems,
   RELEASE_WORKFLOW,
   recoveryAdvice,
@@ -78,9 +79,15 @@ const main = () => {
     return
   }
   const current = currentVersion(root)
-  const next = nextVersion(current, options.increment, options.preid)
+  // No increment given: pick it from what ships since the last stable tag (CEL-174).
+  const picked = pickIncrement({
+    given: options.increment,
+    latestTag: latestTag(root, { stable: true }),
+    sections: options.increment === null ? releaseOf(root, "next").entries.map((e) => e.section) : [],
+  })
+  const next = nextVersion(current, picked.increment, options.preid)
   console.log(
-    `Cello release: ${current} -> ${next}${options.dryRun ? " (dry run: it fetches origin; nothing is written, committed, tagged, pushed, released or deployed)" : ""}`,
+    `Cello release: ${current} -> ${next}${picked.why ? ` (${picked.increment}: ${picked.why})` : ""}${options.dryRun ? " (dry run: it fetches origin; nothing is written, committed, tagged, pushed, released or deployed)" : ""}`,
   )
 
   // Only remote-tracking refs change: what origin/main and the tags are now.
@@ -94,7 +101,7 @@ const main = () => {
     changedFiles: changedFiles(),
     latestTag: tag,
     version: current,
-    increment: options.increment,
+    increment: picked.increment,
     behindOrigin: fetched ? Number(git("rev-list", "--count", "HEAD..origin/main")) : null,
     latestTagOnOrigin: tag === null ? null : tagOnOrigin(tag),
     headIsUnpushedRelease: subject.startsWith("chore(release): v") && fetched && !headOnOrigin,

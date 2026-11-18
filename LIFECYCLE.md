@@ -67,4 +67,4 @@ Run the related e2e specs on main, only those the change touches (AGENTS.md, "Ho
 
 ## Releases
 
-Releases happen only when Lucas says so ("release", "ship it"), never as a step of a task: then `bun run release` on main ([docs/releases.md](docs/releases.md)). `-- minor`/`-- major` only when he says. Never rebuild or restart the live board by hand, and never bump versions by hand.
+Releases happen only when Lucas says so ("release", "ship it"), never as a step of a task: then `bun run release` on main ([docs/releases.md](docs/releases.md)). It picks minor when a feature ships, else patch (CEL-174); `-- major` only when he says. Never rebuild or restart the live board by hand, and never bump versions by hand.

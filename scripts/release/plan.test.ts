@@ -1,12 +1,12 @@
 // What `bun run release` takes and does, before anything runs: its arguments, the checks that refuse a
 // release, the steps a dry run prints, and the release-it arguments it passes on.
 import { describe, expect, it } from "vitest"
-import { actionsReport, parseReleaseArgs, preflightProblems, recoveryAdvice, releaseItArgs, releaseSteps } from "./plan.ts"
+import { actionsReport, parseReleaseArgs, pickIncrement, preflightProblems, recoveryAdvice, releaseItArgs, releaseSteps } from "./plan.ts"
 
 describe("parseReleaseArgs", () => {
-  it("defaults to a patch release that deploys, with the downloads left to GitHub Actions", () => {
+  it("leaves the increment for the release to pick from what ships, and deploys, with the downloads left to GitHub Actions", () => {
     expect(parseReleaseArgs([])).toEqual({
-      increment: "patch",
+      increment: null,
       dryRun: false,
       deploy: true,
       localArtifacts: false,
@@ -50,6 +50,37 @@ describe("parseReleaseArgs", () => {
     expect(() => parseReleaseArgs(["--skip-desktop"])).toThrow(
       "--skip-desktop only applies with --local-artifacts: without it this Mac builds no Cello.app (GitHub Actions does).",
     )
+  })
+})
+
+// CEL-174, Lucas: "make it read from the commits and if there is any feat we should bump the minor".
+describe("pickIncrement", () => {
+  const tagged = { latestTag: "v0.4.17" }
+
+  it("picks minor when any change ships as a feature (a task whose branch has a feat commit)", () => {
+    expect(pickIncrement({ ...tagged, given: null, sections: ["Fixes", "Features", "Other changes"] })).toEqual({
+      increment: "minor",
+      why: "it ships 1 feature",
+    })
+    expect(pickIncrement({ ...tagged, given: null, sections: ["Features", "Features"] }).why).toBe("it ships 2 features")
+  })
+
+  it("picks patch when only fixes and other changes ship", () => {
+    expect(pickIncrement({ ...tagged, given: null, sections: ["Fixes", "Other changes"] })).toEqual({
+      increment: "patch",
+      why: "no features, only fixes and other changes",
+    })
+    expect(pickIncrement({ ...tagged, given: null, sections: [] })).toEqual({ increment: "patch", why: "no features" })
+  })
+
+  it("picks minor for the first release, which can't be a patch", () => {
+    expect(pickIncrement({ latestTag: null, given: null, sections: ["Fixes"] })).toEqual({ increment: "minor", why: "the first release" })
+  })
+
+  it("keeps the increment the human gave, whatever ships", () => {
+    expect(pickIncrement({ ...tagged, given: "patch", sections: ["Features"] })).toEqual({ increment: "patch", why: null })
+    expect(pickIncrement({ ...tagged, given: "major", sections: [] })).toEqual({ increment: "major", why: null })
+    expect(pickIncrement({ ...tagged, given: "prerelease", sections: ["Features"] })).toEqual({ increment: "prerelease", why: null })
   })
 })
 

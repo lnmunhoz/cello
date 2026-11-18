@@ -17,7 +17,7 @@ This repo has one command for a release: `bun run release`. The full reference (
 ## 2. Preview (changes nothing)
 
 ```bash
-bun run release -- minor --dry-run   # or patch
+bun run release -- --dry-run   # its first line says the version it picks, and why
 ```
 
 Read two things in its output:
@@ -28,10 +28,10 @@ The dry run doesn't touch GitHub. When main changed the release workflow or the 
 
 ## 3. Ask Lucas the version
 
-The version is Lucas's call. **patch** is the default for ordinary merges; **minor** and **major** only when he says so.
+The version is Lucas's call. The release picks one from what ships (CEL-174): **minor** when any merged task is a feature (a `feat` commit on its branch), else **patch**. The dry run's first line says which and why: recommend that. **major** only when he says so.
 
 - He's chatting in this session (not orchestrating): ask with `AskUserQuestion`, one question with these options:
-  - your recommendation first, with "(Recommended)" and why. Real new features → minor; only fixes → patch.
+  - the dry run's pick first, with "(Recommended)" and its reason ("it ships 2 features")
   - the other bump
   - "Not yet"
 - Say in the question what a release does: it pushes main and the tag to GitHub (where GitHub Actions builds Cello.app and `cello` for Apple silicon and Intel and publishes the GitHub release), and deploys to his board.
@@ -54,7 +54,7 @@ Everything else is the same: the checks, the changelog section (a preview's cove
 ## 4. Release
 
 ```bash
-bun run release -- minor   # or patch / major, as he picked
+bun run release            # the picked version; add -- patch / minor / major when he picked another
 ```
 
 Run it in the background (the Bash tool with `run_in_background: true`; the tests take most of it, the rest about a minute). It runs typecheck and the full unit and integration suite first, then bumps, tags, builds this Mac's own `cello` into `release/stage`, pushes, prints the **GitHub Actions run** link, and deploys. It no longer builds Cello.app or creates the GitHub release: the pushed tag starts the Release workflow, which does both for Apple silicon and Intel in about 10 to 15 minutes.

@@ -2,11 +2,15 @@
 // steps it prints (and which a dry run skips), the arguments it hands to release-it, and where it says GitHub
 // Actions builds the downloads (CEL-139).
 
+import type { Section } from "./changelog.ts"
 import { DEFAULT_PREID, PRE_INCREMENTS } from "./version.ts"
 
 export type ReleaseOptions = {
-  /** patch (the default), minor, major, an exact version, or a preview: prepatch, preminor, premajor, prerelease (CEL-140). */
-  readonly increment: string
+  /**
+   * patch, minor, major, an exact version, or a preview: prepatch, preminor, premajor, prerelease (CEL-140).
+   * null when none was given: the release picks it from what ships (pickIncrement, CEL-174).
+   */
+  readonly increment: string | null
   readonly dryRun: boolean
   readonly deploy: boolean
   /** --local-artifacts: build the downloads and create the GitHub release on this Mac instead of GitHub Actions. */
@@ -20,8 +24,10 @@ export type ReleaseOptions = {
 
 export const USAGE = `Usage: bun run release [-- [patch|minor|major|<x.y.z>|prepatch|preminor|premajor|prerelease [--preid <id>]] [--dry-run] [--no-deploy] [--local-artifacts [--skip-desktop]]]
 
-  patch              the default: 0.3.0 -> 0.3.1 (the first release is minor or an exact version)
-  minor | major      when Lucas asks: 0.3.1 -> 0.4.0 | 1.0.0
+  (none)             picked from what ships: minor when any merged task is a feature (its branch has a
+                     feat commit), else patch; the first release is minor
+  patch | minor      to override that: 0.3.0 -> 0.3.1 | 0.4.0
+  major              when Lucas asks: 0.3.1 -> 1.0.0
   preminor | prepatch | premajor
                      a preview for the app's Preview channel, when Lucas asks: 0.5.1 -> 0.6.0-beta.1 |
                      0.5.2-beta.1 | 1.0.0-beta.1; GitHub publishes it as a prerelease
@@ -68,7 +74,25 @@ export const parseReleaseArgs = (argv: ReadonlyArray<string>): ReleaseOptions =>
   if (preid !== null && !PRE_INCREMENTS.includes(increment ?? "patch")) {
     throw new Error("--preid names a preview: use it with prepatch, preminor, premajor or prerelease.")
   }
-  return { increment: increment ?? "patch", dryRun, deploy, localArtifacts, desktop, preid: preid ?? DEFAULT_PREID, help }
+  return { increment, dryRun, deploy, localArtifacts, desktop, preid: preid ?? DEFAULT_PREID, help }
+}
+
+/**
+ * The increment a release uses (CEL-174): the one the human gave, else one picked from the sections of the
+ * changelog it's about to write. Any Features entry (a merged task whose branch has a `feat` commit, or a
+ * direct `feat:` commit) makes it minor; otherwise patch. The first release is always minor (preflightProblems).
+ * `why` says why it picked, for the release's first line; null when the human gave it.
+ */
+export const pickIncrement = (input: {
+  readonly given: string | null
+  readonly latestTag: string | null
+  readonly sections: ReadonlyArray<Section>
+}): { readonly increment: string; readonly why: string | null } => {
+  if (input.given !== null) return { increment: input.given, why: null }
+  if (input.latestTag === null) return { increment: "minor", why: "the first release" }
+  const features = input.sections.filter((s) => s === "Features").length
+  if (features > 0) return { increment: "minor", why: `it ships ${features} feature${features === 1 ? "" : "s"}` }
+  return { increment: "patch", why: input.sections.length > 0 ? "no features, only fixes and other changes" : "no features" }
 }
 
 export type RepoState = {

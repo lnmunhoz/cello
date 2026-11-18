@@ -8,11 +8,13 @@ summary: Every deploy of Cello is a release. One command, bun run release, check
 Cello ships **only when Lucas says so** (Nov 18). Merging a task doesn't release it (step ⑦ in [How a feature is built](feature-lifecycle.md)); a release ships everything merged since the last one. It's one command, run on `main` in the main checkout:
 
 ```bash
-bun run release                 # patch: 0.3.0 -> 0.3.1, the default
-bun run release -- minor        # 0.3.1 -> 0.4.0, when Lucas says so
+bun run release                 # picks the version from what ships: minor with any feature, else patch
+bun run release -- patch        # or minor: override what it picked
 bun run release -- major        # 0.4.0 -> 1.0.0, when Lucas says so
 bun run release -- --dry-run    # preview everything; writes, pushes and deploys nothing
 ```
+
+**The version follows the commits** (CEL-174; Lucas: "if there is any feat we should bump the minor"). With no version given, the release reads the changelog section it's about to write: any line under Features (a merged task whose branch has a `feat` commit, or a direct `feat:` commit) makes it a **minor**; only Fixes and Other changes make it a **patch**. The first release is always minor. Its first line says what it picked and why: `Cello release: 0.4.17 -> 0.5.0 (minor: it ships 1 feature)`. A version you name wins.
 
 It uses [release-it](https://github.com/release-it/release-it) (pinned in the root package.json, configured in `.release-it.json`); the steps that are ours are small TypeScript modules with tests in `scripts/release/`.
 
@@ -183,7 +185,7 @@ Apart from that fetch, it writes, commits, tags, pushes, releases and deploys no
 
 | Flag | What it does |
 | --- | --- |
-| `patch` / `minor` / `major` / `1.2.3` | The new version. Patch is the default; minor and major only when Lucas asks. |
+| `patch` / `minor` / `major` / `1.2.3` | The new version. Without one, the release picks minor when any feature ships, else patch (above); give one to override it. Major only when Lucas asks. |
 | `prepatch` / `preminor` / `premajor` / `prerelease`, `--preid <id>` | A preview release (`0.6.0-beta.1`), published as a GitHub prerelease for the app's Preview channel; see [Preview releases](#preview-releases). Only when Lucas asks. |
 | `--dry-run`, `-d` | The preview above. |
 | `--no-deploy` | Release (tag, push; GitHub Actions still builds and publishes) but leave the live board alone: no backup, `apps/cli/dist/cello` untouched, no restart. The build waits in `release/stage/cello`; `bun scripts/release/deploy.ts` deploys it later (backup, rename, restart). Tests and builder agents never deploy. |

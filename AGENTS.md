@@ -85,7 +85,7 @@ bun run test:docker          # everything in Docker: unit + integration, typeche
 bun run test:docker:desktop  # desktop (Electron) e2e in Docker under Xvfb; -- <spec>
 bun run test:e2e:local       # web e2e here in headless Chromium, when Docker isn't an option
 bun run docs:cli             # regenerate docs/cli.md's reference and `cello guide`
-bun run release              # only when Lucas says: release (patch) and deploy; -- minor | major, -- --dry-run
+bun run release              # only when Lucas says: release and deploy (minor when a feature ships, else patch); -- patch | minor | major, -- --dry-run
 ```
 
 Docker runs need OrbStack. Labels, caps and output folders: [docs/testing.md](docs/testing.md).
