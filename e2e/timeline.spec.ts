@@ -13,7 +13,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import type { Locator, Page } from "@playwright/test"
-import { animationsSettled, caption, defaultWorkspace, expect, newCommandId, seedProject, taskPanel, test, uniqueKey } from "./fixtures.ts"
+import { animationsSettled, caption, defaultWorkspace, hold, expect, newCommandId, seedProject, taskPanel, test, uniqueKey } from "./fixtures.ts"
 import { celloIn, claudeHooks } from "./claudeHooks.ts"
 import { buildWeb, freePort, seed, startCello, still, stop, stopAll } from "./servedBuilds.ts"
 import { openClient } from "../packages/client/test/support/promiseClient.ts"
@@ -93,7 +93,8 @@ test.beforeEach(async ({ context }) => {
   })
 })
 
-test.afterEach(stopAll)
+// After the test, not after each: the review video holds the last screen while its context closes, and the served build must still be up.
+test.afterAll(stopAll)
 
 test("CEL-160: comments, stages, status moves, every subagent's start and finish with a reviewer's verdict, the merge: one thread in time order; runs of lines fold", async ({ page, cello }) => {
   test.setTimeout(300_000)
@@ -236,19 +237,21 @@ test("CEL-160: the release that took a task live is a line in its thread, linkin
   await client.run((c) => c["comment.add"]({ commandId: newCommandId(), taskId, body: "Merged and deployed." }))
   await client.close()
 
-  await caption(page, "Before the deploy, the thread has the comment and no release")
+  // The connection line ("Connecting…", "Reconnecting to the Cello server…") is gone before anything is shown.
+  const connecting = page.getByRole("status").filter({ hasText: /connecting|reconnecting/i })
   await page.goto(`http://127.0.0.1:${port}/CEL/1`)
   const panel = taskPanel(page, "CEL-1")
   await expect(panel.locator("[data-comment-id]")).toHaveCount(1)
+  await expect(connecting).toHaveCount(0)
+  await caption(page, "Before the deploy, the thread has the comment and no release")
   await expect(panel.locator('[data-timeline-line="release"]')).toHaveCount(0)
 
   await caption(page, "Deploy build B, whose changes name CEL-1: the release is a line after the comment")
   await stop(a)
   await startCello(B, port, dataDir)
-  // The page offers to reload into the new build; the thread's release line is there once it has.
+  // The tab reconnects to the new server and offers to reload; the release line shows without reloading.
   await expect(page.locator("[data-reload-bar]")).toBeVisible()
-  await page.reload()
-  await expect(panel).toBeVisible()
+  await expect(connecting).toHaveCount(0)
   const release = panel.locator('[data-timeline-line="release"]')
   await expect(release).toHaveCount(1)
   await expect(release).toContainText(/Released in v\S+ · build #2/)
@@ -258,4 +261,13 @@ test("CEL-160: the release that took a task live is a line in its thread, linkin
   await caption(page, "The release links to the Builds page")
   await release.getByRole("link").click()
   await expect(page).toHaveURL(/\/builds$/)
+  // The Builds page has loaded, with build #2 (the release the line named) on it.
+  const build = page.locator('[data-build-row="2"]')
+  await expect(build).toBeVisible()
+  await expect(build).toContainText("one timeline of comments and events")
+  await expect(page.getByText("Loading builds…")).toHaveCount(0)
+  await expect(connecting).toHaveCount(0)
+  // The video ends on the loaded page: the caption holds it on screen before and after (review mode).
+  await caption(page, "The Builds page has build #2, with what changed in it")
+  await hold(page)
 })

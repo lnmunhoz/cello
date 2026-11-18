@@ -506,15 +506,27 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     }))
 
   /**
+   * Which build the server runs (CEL-160): its commit and web build time, "" until known. A release is a
+   * build the server records when it starts, so a new answer here means a thread may have a new release.
+   * Asked again on each reconnect, but the same build gives the same text.
+   */
+  const servedBuildFamily = Atom.make((get) => {
+    const build = get(serverBuildAtom)
+    return AsyncResult.isSuccess(build) ? `${build.value.commit ?? ""}@${build.value.web?.builtAt ?? ""}` : ""
+  })
+
+  /**
    * A task's subagent runs and the builds that name it (CEL-160), fetched again when an agent on the task
-   * starts, finishes or leaves a verdict. A server without `task.timeline` (older than this build) has
+   * starts, finishes or leaves a verdict, and when the server comes up on a new build (a release). A server without `task.timeline` (older than this build) has
    * none: the thread then shows comments and history lines only.
    */
   const timelineFamily = Atom.family((taskId: string) =>
     runtime.atom((get) => {
       const agents = get(syncedAgentsOnTaskFamily(taskId))
+      const build = get(servedBuildFamily)
       return Effect.gen(function* () {
         void agents
+        void build
         const client = yield* CelloClient
         return yield* client["task.timeline"]({ id: taskId }).pipe(
           Effect.catchCause(() => Effect.succeed({ runs: [], releases: [] } satisfies TaskTimeline)),

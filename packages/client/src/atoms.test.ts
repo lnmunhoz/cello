@@ -183,6 +183,42 @@ describe("command atoms", () => {
     expect(fetches).toBe(4)
   })
 
+  // CEL-160: a release is a build the server records when it starts on it; a thread open at that moment shows it.
+  it("fetch a task's timeline again when the server comes up on a new build, not on the same build again or a check-in", async () => {
+    const build = (commit: string) => ({ version: "0.2.0", commit, startedAt: 1, web: { version: "0.2.0", commit, builtAt: 1, changes: [] } })
+    const events = Effect.runSync(Queue.unbounded<StreamedEvent>())
+    let fetches = 0
+    let asked = 0
+    // The first two answers are the same build; the third is a new one.
+    const fake = {
+      "snapshot.get": () => Effect.succeed(snapshot),
+      "events.subscribe": () => Stream.fromQueue(events),
+      "server.build": () => Effect.sync(() => build(++asked <= 2 ? "aaaaaaa" : "bbbbbbb")),
+      "task.timeline": () => Effect.sync(() => (fetches++, { runs: [], releases: [] })),
+    } as unknown as CelloClient["Service"]
+    const atoms = makeCelloAtoms(Atom.runtime(Layer.succeed(CelloClient, fake)))
+    const registry = AtomRegistry.make()
+    registry.mount(atoms.boardAtom)
+    registry.mount(atoms.serverBuildAtom)
+    registry.mount(atoms.timelineFamily("t1"))
+    await Effect.runPromise(AtomRegistry.getResult(registry, atoms.serverBuildAtom))
+    await Effect.runPromise(AtomRegistry.getResult(registry, atoms.timelineFamily("t1")))
+    const settled = fetches
+
+    const unreadable = async (seq: number, wantAsked: number) => {
+      Effect.runSync(Queue.offer(events, { type: "unreadable", seq, sentType: "test.from-a-newer-build" }))
+      await Effect.runPromise(AtomRegistry.toStreamResult(registry, atoms.syncedAtom).pipe(Stream.filter(() => asked >= wantAsked), Stream.runHead))
+      await Effect.runPromise(AtomRegistry.getResult(registry, atoms.serverBuildAtom, { suspendOnWaiting: true }))
+      await Effect.runPromise(AtomRegistry.getResult(registry, atoms.timelineFamily("t1"), { suspendOnWaiting: true }))
+    }
+    // The server answers with the same build again: nothing to refetch.
+    await unreadable(6, 2)
+    expect(fetches).toBe(settled)
+    // A new build: the release may be in the thread now.
+    await unreadable(7, 3)
+    expect(fetches).toBe(settled + 1)
+  })
+
   it("an old server without task.timeline gives a thread with no runs or releases, not an error", async () => {
     const fake = {
       "snapshot.get": () => Effect.succeed(snapshot),

@@ -5,7 +5,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { foldText, timelineLineText, type TimelineFold, type TimelineLine, verdictLabel } from "@cello/client/timeline"
 import { agentKey, type ReviewVerdictSeen } from "@cello/contract/entities"
-import { stageInfo } from "@cello/contract/stages"
+import { stageInfo, type TaskStage } from "@cello/contract/stages"
 import { Link } from "@tanstack/react-router"
 import { ChevronRightIcon, CircleDotIcon, GitMergeIcon, PackageIcon } from "lucide-react"
 import { Fragment, type ReactNode, useState } from "react"
@@ -18,12 +18,13 @@ import { PresenceDot, STAGE_ICONS } from "../presence/Presence.tsx"
 import { useNow } from "../presence/useNow.ts"
 import { presenceOf } from "@cello/shared/presence"
 
+/** The stage whose colour a verdict borrows: merged (green), fixing (amber), agent review (indigo). */
+const VERDICT_STAGE: Record<ReviewVerdictSeen, TaskStage | null> = { merge: "merged", fix_first: "fixing", ask: "review", other: null }
+
 /** The verdict's dot: what the reviewer concluded, in the stage colours the board already uses. */
-const VERDICT_COLOR: Record<ReviewVerdictSeen, string> = {
-  merge: "#10B981",
-  fix_first: "#F59E0B",
-  ask: "#6366F1",
-  other: "var(--faint)",
+const verdictColor = (verdict: ReviewVerdictSeen): string => {
+  const stage = VERDICT_STAGE[verdict]
+  return (stage && stageInfo(stage)?.color) ?? "var(--faint)"
 }
 
 /** The human's first name, for "Ask Lucas": the board's human actor. */
@@ -138,7 +139,7 @@ function RunBody({ board, line, text }: { board: BoardState; line: Extract<Timel
       ) : null}
       {line.kind === "run_end" && line.verdict ? (
         <span className="shrink-0" data-verdict={line.verdict}>
-          <Chip size="sm" color={VERDICT_COLOR[line.verdict]}>
+          <Chip size="sm" color={verdictColor(line.verdict)}>
             {verdictLabel(line.verdict, humanName(board))}
           </Chip>
         </span>
