@@ -1,7 +1,8 @@
 import type { ComponentProps } from "react"
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown"
+import { blockView } from "../../docs/codeBlock.ts"
 import { Mermaid } from "../../docs/Mermaid.tsx"
-import { mermaidSource } from "../../docs/mermaidSource.ts"
+import { DiffText } from "../../diff/DiffText.tsx"
 import { useProjectKeys } from "../../lib/hooks.ts"
 import { LiveTaskKey, markdownTaskKey } from "../../task/TaskKey.tsx"
 import { ViewerLink } from "../../viewer/ViewerLink.tsx"
@@ -11,7 +12,8 @@ import { remarkPlugins } from "./remarkPlugins.ts"
  * Rendered markdown with the app's type scale, GitHub-flavored as pages are (tables, task lists,
  * strikethrough; CEL-127). Raw HTML is never rendered. Links, bare web addresses
  * included, open in the viewer beside the board; task keys link to their task, with its live status;
- * ```mermaid blocks become diagrams (review packets explain a flow with one). Its diagrams are one
+ * ```mermaid blocks become diagrams (review packets explain a flow with one), and ```diff / ```patch
+ * blocks the diff view (CEL-176; docs/codeBlock.ts says which blocks). Its diagrams are one
  * gallery in the image modal, unless `gallery` is false because what's around it is one (a packet).
  * `images="text"` (an agent's log, CEL-107): an image is never loaded, only named, as "Image: alt" and
  * its address in plain text, since text an agent saw could point the page at any address.
@@ -75,8 +77,11 @@ function ImageAsText({ alt, src }: ComponentProps<"img"> & ExtraProps) {
 }
 
 function MarkdownPre({ children }: ComponentProps<"pre"> & ExtraProps) {
-  const diagram = mermaidSource(children)
-  return diagram === null ? <pre>{children}</pre> : <Mermaid source={diagram} />
+  const view = blockView(children)
+  if (view.kind === "mermaid") return <Mermaid source={view.source} />
+  // Raw is the block as it was drawn before, so it keeps this container's look for <pre> (it scrolls sideways).
+  if (view.kind === "diff") return <DiffText variant="inline" diff={view.diff} source={view.source} label="Diff" raw={<pre>{children}</pre>} />
+  return <pre>{children}</pre>
 }
 
 const components: Components = { a: MarkdownLink, pre: MarkdownPre, table: MarkdownTable }

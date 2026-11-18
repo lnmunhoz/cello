@@ -6,13 +6,14 @@ import { Children, isValidElement, type ReactNode } from "react"
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown"
 import { MissingFile } from "../components/ui/MissingFile.tsx"
 import { remarkPlugins } from "../components/ui/remarkPlugins.ts"
+import { DiffText } from "../diff/DiffText.tsx"
 import { openInPanel } from "../lib/desktop.ts"
 import { Video } from "../review/Video.tsx"
 import { LiveTaskKey, markdownTaskKey, TaskLink } from "../task/TaskKey.tsx"
 import { openGallery, zoomable } from "../viewer/gallery.ts"
 import { isPlainClick, taskOfHref } from "../viewer/viewer.ts"
+import { blockView } from "./codeBlock.ts"
 import { Mermaid } from "./Mermaid.tsx"
-import { mermaidSource } from "./mermaidSource.ts"
 
 /** Links that leave the page (other sites, stored files) open in a new tab. */
 const opensElsewhere = (href: string | undefined) => href !== undefined && (/^(https?:)?\/\//i.test(href) || href.startsWith("/attachments/"))
@@ -72,13 +73,21 @@ export function Prose({
       return node && holdsVideo(node) ? <div className="page-media">{children}</div> : <p>{children}</p>
     },
     pre({ children }) {
-      const diagram = mermaidSource(children)
-      if (diagram !== null) return <Mermaid source={diagram} />
-      return (
+      const view = blockView(children)
+      if (view.kind === "mermaid") return <Mermaid source={view.source} />
+      const code = (
         <div className="page-code">
           <pre>{children}</pre>
         </div>
       )
+      if (view.kind === "diff") {
+        return (
+          <div className="page-diff">
+            <DiffText variant="inline" diff={view.diff} source={view.source} label="Diff" raw={code} />
+          </div>
+        )
+      }
+      return code
     },
     table({ children }) {
       return (

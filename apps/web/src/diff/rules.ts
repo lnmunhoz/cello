@@ -18,9 +18,22 @@ export const shownMode = (chosen: DiffMode, width: number): DiffMode => (chosen 
 
 export const formatCount = (n: number): string => n.toLocaleString("en-US")
 
-/** The summary row's three pieces: "6 files changed", "+42" and "−17" (a real minus sign), the last two coloured by the view. */
+/**
+ * The view width (px) from which a diff inside a comment or page offers "Show as" at all. Under it the
+ * summary, the control and Copy don't fit on one row in the narrowest task panel (360 px), so only Copy
+ * shows, and the diff is drawn Unified.
+ */
+export const INLINE_SHOW_AS_MIN_WIDTH = 360
+
+/** What the summary row of a diff inside a comment or page offers at this width (Copy is always there). */
+export const inlineControls = (width: number): { showAs: boolean; split: boolean } => ({ showAs: width >= INLINE_SHOW_AS_MIN_WIDTH, split: canSplit(width) })
+
+/**
+ * The summary row's three pieces: "6 files changed", "+42" and "−17" (a real minus sign), the last two
+ * coloured by the view. `files` is null when the diff has no file names to count (only hunks).
+ */
 export const summaryParts = ({ files, additions, deletions }: { files: number; additions: number; deletions: number }) => ({
-  files: `${formatCount(files)} ${files === 1 ? "file" : "files"} changed`,
+  files: files === 0 ? null : `${formatCount(files)} ${files === 1 ? "file" : "files"} changed`,
   additions: `+${formatCount(additions)}`,
   deletions: `−${formatCount(deletions)}`,
 })
