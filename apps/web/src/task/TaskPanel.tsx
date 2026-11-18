@@ -7,7 +7,7 @@ import { openReviewOf } from "@cello/client/sync/reviews"
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useShortcut, useShortcutHint } from "@ui-sdk/react/shortcuts"
 import { ChevronRightIcon, Maximize2Icon, Minimize2Icon, MoreHorizontalIcon, XIcon } from "lucide-react"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { NotFound } from "../app/NotFound.tsx"
 import { NARROW_WIDTH } from "../app/sidebarState.ts"
 import { Button } from "../components/ui/Button.tsx"
@@ -45,6 +45,12 @@ export const useTaskView = (): TaskView => taskViewOf(useSearch({ strict: false 
 /** Where the open task sits (view.ts's `taskPlacement`): it follows the view, whether the viewer is open and whether the window is narrow. */
 export const useTaskPlacement = (taskOpen: boolean): TaskPlacement =>
   taskPlacement(taskOpen, useTaskView(), useViewerItem() !== null, useMediaQuery(`(max-width: ${NARROW_WIDTH - 1}px)`))
+
+/**
+ * The path the app loaded at, until the first task panel shows. A panel open at load (a reload, a link
+ * to the task) is simply there; one opened afterwards slides in (CEL-189).
+ */
+let loadedAt: string | null = typeof location === "undefined" ? null : location.pathname
 
 /**
  * The open task: a side panel docked on the right of the main area at full height, `width` wide and
@@ -91,6 +97,10 @@ export function TaskPanel({
   // The close button and Escape slide the panel out, then leave (CEL-189). It's the task being closed, so
   // opening another one mid-slide keeps that one open. With reduced motion it leaves at once.
   const [closing, setClosing] = useState<number | null>(null)
+  const [slidesIn] = useState(() => loadedAt !== location.pathname)
+  useEffect(() => {
+    loadedAt = null
+  }, [])
   const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)")
   const close = () => {
     if (reduceMotion) leave()
@@ -114,6 +124,7 @@ export function TaskPanel({
       data-view={view}
       data-side-panel="task"
       data-placement={placement}
+      data-slide-in={slidesIn ? "" : undefined}
       data-closing={closing === number ? "" : undefined}
       className={`task-panel-slide relative col-start-1 row-start-3 flex min-h-0 min-w-0 flex-col bg-surface ${full ? "" : "border-line md:col-start-2 md:row-span-full md:border-l"}`}
       onKeyDown={(e) => {

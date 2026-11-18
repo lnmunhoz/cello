@@ -81,11 +81,11 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(page.getByRole("listbox")).toHaveCount(0)
       expect.soft(await motionSince(page)).toEqual(expect.arrayContaining(["listbox open scale", "listbox closing scale", "listbox closing opacity"]))
 
-      await caption(page, "Preview: the tab's panel fades in")
+      await caption(page, "Preview: the picked tab eases into its raised look")
       await panel.getByRole("tab", { name: "Preview" }).click()
       await expect(panel.getByTestId("description-preview")).toBeVisible()
       await animationsSettled(page)
-      expect.soft(await motionSince(page)).toContain("tabpanel open motion-fade-in")
+      expect.soft(await motionSince(page)).toContain("tab open background-color")
       await panel.getByRole("tab", { name: "Write" }).click()
       await animationsSettled(page)
       await motionSince(page)
@@ -112,6 +112,13 @@ for (const colorScheme of ["light", "dark"] as const) {
 
       await caption(page, "Idle on the board: nothing is moving")
       await animationsSettled(page)
+      expect(await contentAnimations(page)).toBe(0)
+
+      await caption(page, "Reload with a task open: the panel is simply there, nothing slides")
+      await card(page, `${key}-2`).click()
+      await expect(taskPanel(page, `${key}-2`)).toBeVisible()
+      await page.reload()
+      await expect(taskPanel(page, `${key}-2`)).toBeVisible()
       expect(await contentAnimations(page)).toBe(0)
     })
   })

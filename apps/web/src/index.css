@@ -657,20 +657,11 @@ body {
 }
 
 /*
- * Motion that answers the human's own action (CEL-189), timed by the motion tokens above. Each runs once
- * and ends, so an idle page runs none. A tab's panel fades in when its tab is picked.
- */
-@keyframes motion-fade-in {
-  from {
-    opacity: 0;
-  }
-}
-
-/*
- * The task panel slides in from the right when a task opens, and back out when its own close button or
+ * The task panel slides in from the right when a task opens (not when it's already open as the page
+ * loads: `data-slide-in`), and back out when its own close button or
  * Escape closes it (`data-closing`, task/TaskPanel.tsx): the route changes once the slide ends.
  */
-.task-panel-slide {
+.task-panel-slide[data-slide-in] {
   animation: task-panel-in var(--motion-slow) var(--motion-ease-out);
 }
 .task-panel-slide[data-closing] {

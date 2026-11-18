@@ -18,5 +18,5 @@ export function TabsTab(props: Omit<ComponentProps<typeof BaseTab>, "className">
 }
 
 export function TabsPanel(props: Omit<ComponentProps<typeof BasePanel>, "className">) {
-  return <BasePanel {...props} className="outline-none animate-[motion-fade-in_var(--motion-fast)_var(--motion-ease-out)]" />
+  return <BasePanel {...props} className="outline-none" />
 }
