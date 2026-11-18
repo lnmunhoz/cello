@@ -4,6 +4,11 @@
 // lands in the agent session's inbox). Any other way out of In Review withdraws the packet: TaskService
 // does that inside the move (openReview.ts, CEL-71).
 //
+// Approve from chat (CEL-169): when the human approves in the agent's chat, the agent passes it on with
+// `relayApproval` (`cello task approve --quote`). It does what Approve does, stored as the human's approval
+// relayed by that session, with their words as the note and as a comment. Only the session holding the claim
+// can (never a subagent), only for a packet waiting on the human. `approve` itself stays human-only.
+//
 // Merge after I approve (CEL-143): in a project with the setting on, agents submit before they merge, and
 // Approve doesn't finish the task. It stays in In Review with the stage `merging` (Approved · merging),
 // the agent keeps its claim, and its session gets an `approved` inbox item: merge it now. Once merged, the
@@ -12,7 +17,7 @@
 import * as path from "node:path"
 import type { Review, Task } from "@cello/contract/entities"
 import { HumanOnly, Invalid, NotFound } from "@cello/contract/errors"
-import type { Caller, EvidenceFile, EvidenceLink } from "@cello/contract/rpcs"
+import { Caller, type EvidenceFile, type EvidenceLink } from "@cello/contract/rpcs"
 import { approveTarget, awaitsMerge, holdsPacket, isReviewStatus, reviewTarget, sendBackTarget } from "@cello/shared/review"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -51,6 +56,14 @@ export interface DecideReview {
   readonly attachmentIds?: ReadonlyArray<string> | undefined
 }
 
+/** `cello task approve` (CEL-169). */
+export interface RelayApproval {
+  readonly commandId: string
+  readonly key: string
+  /** The human's words approving it, as they said them in the agent's chat. */
+  readonly quote: string
+}
+
 /** `cello task done` (CEL-143). */
 export interface FinishTask {
   readonly commandId: string
@@ -80,6 +93,13 @@ export class ReviewService extends Context.Service<ReviewService, {
    * holds, or no agent ever held, goes to Done. Approving one that's waiting for its merge is Invalid.
    */
   readonly approve: (input: DecideReview) => Write<Task, NotFound | Invalid | HumanOnly>
+  /**
+   * An agent passes on the human's approval from its chat (CEL-169): what Approve does, stored as the human's
+   * approval relayed by the calling session, with `quote` as the note and as a comment by the session. Invalid
+   * unless the caller holds the claim (and isn't a subagent) of a task with a packet waiting for the human.
+   * Called by the human, it's a plain Approve with the quote as its note.
+   */
+  readonly relayApproval: (input: RelayApproval) => Write<Task, NotFound | Invalid>
   /**
    * `cello task done` (CEL-143): the session holding the claim of a task approved and waiting for its merge
    * moves it to the first completed status (Done), and its claim ends. Invalid for a task that isn't
@@ -173,6 +193,28 @@ const make = Effect.gen(function* () {
       })).pipe(Effect.onError(() => assets.remove(copied)))
   }, Effect.scoped)
 
+  /**
+   * Closes a task's open review with the decision, in the command's transaction. `relayedSessionId`: the
+   * agent session that passed on the human's approval from chat (CEL-169), kept on the review and in its event.
+   */
+  const closeReview = (
+    context: Commands.WriteContext,
+    task: Task,
+    reviewId: string,
+    decision: "approved" | "sent_back",
+    note: string | null,
+    relayedSessionId: string | null,
+  ) =>
+    Effect.gen(function* () {
+      yield* sql`UPDATE reviews SET decided_at = ${context.now}, decision = ${decision}, decision_note = ${note},
+        relayed_session_id = ${relayedSessionId} WHERE id = ${reviewId}`
+      const relayedBy = relayedSessionId === null ? null : (yield* selectReviews(sql, sql`r.id = ${reviewId}`))[0]?.relayedBy ?? null
+      yield* context.emit(
+        { type: "review.decided", id: reviewId, taskId: task.id, decision, note, ...(relayedBy === null ? {} : { relayedBy }) },
+        yield* placeOf(task),
+      )
+    })
+
   /** Only the human decides; the decision closes the open review and moves the task. */
   const decide = (
     input: DecideReview,
@@ -193,9 +235,7 @@ const make = Effect.gen(function* () {
             return yield* new Invalid({ field: "key", reason: `${task.key} has no open review and isn't in In Review` })
           }
         } else {
-          const note = input.note?.trim() || null
-          yield* sql`UPDATE reviews SET decided_at = ${context.now}, decision = ${decision}, decision_note = ${note} WHERE id = ${open.id}`
-          yield* context.emit({ type: "review.decided", id: open.id, taskId: task.id, decision, note }, yield* placeOf(task))
+          yield* closeReview(context, task, open.id, decision, input.note?.trim() || null, null)
         }
         return yield* then(context, task)
       }))
@@ -218,34 +258,92 @@ const make = Effect.gen(function* () {
       return reopened?.sessionId ?? null
     })
 
+  /**
+   * What an approval does once its review is closed, whether the human made it or an agent passed it on
+   * (CEL-169). The relaying session needs no `approved` inbox item (it did this itself), and with the setting
+   * off its claim ends here, because only a human's move ends an agent's claim by itself.
+   */
+  const approveWithin = (
+    context: Commands.WriteContext,
+    task: Task,
+    input: { readonly note?: string | undefined; readonly shots: ReadonlyArray<string> },
+  ) =>
+    Effect.gen(function* () {
+      const statuses = yield* statusesOf(task)
+      if (awaitsMerge(task, statuses.find((s) => s.id === task.statusId))) {
+        return yield* new Invalid({ field: "key", reason: `${task.key} is approved already and waits for its agent to merge it; send it back to stop that` })
+      }
+      const done = approveTarget(statuses)
+      if (done === null) return yield* new Invalid({ field: "key", reason: "this workspace has no completed status" })
+      const sessionId = (yield* mergesAfterApproval(task)) ? yield* merger(context, task) : null
+      // While an agent holds the task (before the move to Done, after a reopen): the comment reaches it.
+      if (input.shots.length > 0) {
+        yield* comments.addWithin(context, { taskId: task.id, body: input.note ?? "", attachmentIds: input.shots }, "comment")
+      }
+      if (sessionId !== null) {
+        // The agent keeps its claim and merges: the task waits in In Review as Approved · merging.
+        const review = reviewTarget(statuses, task.statusId)
+        if (review !== null && review.id !== task.statusId) {
+          yield* tasks.moveWithin(context, { id: task.id, statusId: review.id, keepClaim: true })
+        }
+        const merging = yield* tasks.setStageWithin(context, task.id, "merging")
+        const note = input.shots.length > 0 ? null : input.note?.trim() || null
+        if (sessionId !== context.caller.sessionId) yield* inbox.deliverApprovalWithin(context, { taskId: task.id, sessionId, note })
+        return merging
+      }
+      if (context.caller.sessionId !== null) {
+        const moved = yield* tasks.moveWithin(context, { id: task.id, statusId: done.id, keepClaim: true })
+        return yield* tasks.releaseWithin(context, moved.id)
+      }
+      // The claim ends with the move, but the agent isn't told: its work is done, not cut short (CEL-46).
+      return yield* tasks.moveWithin(context, { id: task.id, statusId: done.id, tell: false })
+    })
+
   const approve = Effect.fn("ReviewService.approve")(function* (input: DecideReview) {
     const shots = input.attachmentIds ?? []
     return yield* decide(shots.length > 0 ? { ...input, note: undefined } : input, "approved", (context, task) =>
+      approveWithin(context, task, { note: input.note, shots }))
+  })
+
+  const relayApproval = Effect.fn("ReviewService.relayApproval")(function* (input: RelayApproval) {
+    const quote = yield* requireText("quote", input.quote)
+    const caller = yield* Caller
+    // The human through the same command: a plain Approve, their words as its note.
+    if (caller.sessionId === null) {
+      // HumanOnly can't happen here: the caller is the human.
+      return yield* approve({ commandId: input.commandId, key: input.key, note: quote }).pipe(Effect.catchTag("HumanOnly", Effect.die))
+    }
+    return yield* commands.write({ commandId: input.commandId, rpc: "review.relayApproval" }, (context) =>
       Effect.gen(function* () {
-        const statuses = yield* statusesOf(task)
-        if (awaitsMerge(task, statuses.find((s) => s.id === task.statusId))) {
-          return yield* new Invalid({ field: "key", reason: `${task.key} is approved already and waits for its agent to merge it; send it back to stop that` })
+        if (context.caller.agentId !== undefined) {
+          return yield* new Invalid({
+            field: "key",
+            reason: `${input.key} can't be approved by a subagent: only the session the human is talking to passes on their approval from chat`,
+          })
         }
-        const done = approveTarget(statuses)
-        if (done === null) return yield* new Invalid({ field: "key", reason: "this workspace has no completed status" })
-        const sessionId = (yield* mergesAfterApproval(task)) ? yield* merger(context, task) : null
-        // While an agent holds the task (before the move to Done, after a reopen): the comment reaches it.
-        if (shots.length > 0) {
-          yield* comments.addWithin(context, { taskId: task.id, body: input.note ?? "", attachmentIds: shots }, "comment")
+        const task = yield* tasks.byKey(input.key)
+        const status = (yield* statusesOf(task)).find((s) => s.id === task.statusId)
+        if (awaitsMerge(task, status)) {
+          return yield* new Invalid({ field: "key", reason: `${task.key} is approved already and waits for your merge: merge it, then \`cello task done ${task.key}\`` })
         }
-        if (sessionId !== null) {
-          // The agent keeps its claim and merges: the task waits in In Review as Approved · merging.
-          const review = reviewTarget(statuses, task.statusId)
-          if (review !== null && review.id !== task.statusId) {
-            yield* tasks.moveWithin(context, { id: task.id, statusId: review.id, keepClaim: true })
-          }
-          const merging = yield* tasks.setStageWithin(context, task.id, "merging")
-          const note = shots.length > 0 ? null : input.note?.trim() || null
-          yield* inbox.deliverApprovalWithin(context, { taskId: task.id, sessionId, note })
-          return merging
+        const open = status !== undefined && holdsPacket(status) ? yield* openReviewOf(task.id) : null
+        if (open === null) {
+          return yield* new Invalid({
+            field: "key",
+            reason: `${task.key} has no packet waiting for the human: hand the work in with \`cello task submit ${task.key}\` first, then pass on their approval`,
+          })
         }
-        // The claim ends with the move, but the agent isn't told: its work is done, not cut short (CEL-46).
-        return yield* tasks.moveWithin(context, { id: task.id, statusId: done.id, tell: false })
+        if (task.assigneeActorId === null) {
+          return yield* new Invalid({ field: "key", reason: `${task.key} isn't claimed: claim it first (\`cello task claim ${task.key}\`), then pass on the human's approval` })
+        }
+        if (task.assigneeSessionId !== context.caller.sessionId) {
+          return yield* new Invalid({ field: "key", reason: `${task.key} is claimed by another session: only the session holding its claim passes on the human's approval` })
+        }
+        yield* closeReview(context, task, open.id, "approved", quote, context.caller.sessionId)
+        // The human's words on the card, written here so an agent can't forget them. The agent still holds
+        // the claim, so the comment reaches no one's inbox.
+        yield* comments.addWithin(context, { taskId: task.id, body: `**${human.name}, in chat (approval):** "${quote}"` }, "comment")
+        return yield* approveWithin(context, task, { note: quote, shots: [] })
       }))
   })
 
@@ -304,7 +402,7 @@ const make = Effect.gen(function* () {
     return { path: stored, mime: variant === "poster" ? "image/jpeg" : row.mime ?? "application/octet-stream", bytes }
   }, Effect.catchTag("SqlError", Effect.die))
 
-  return ReviewService.of({ submit, approve, done, sendBack, list, file })
+  return ReviewService.of({ submit, approve, relayApproval, done, sendBack, list, file })
 })
 
 export const layer = Layer.effect(ReviewService, make)

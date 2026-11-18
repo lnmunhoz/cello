@@ -558,8 +558,11 @@ interface ReviewRow {
   decided_at: number | null
   decision: ReviewDecision | null
   decision_note: string | null
+  relayed_session_id: string | null
   author_name: string
   author_session: string | null
+  relayer_name: string | null
+  relayer_session: string | null
 }
 
 interface DocumentRow {
@@ -629,9 +632,11 @@ export const selectDocuments = (sql: Sql, where: Where) =>
 export const selectReviews = (sql: Sql, where: Where) =>
   Effect.gen(function* () {
     const rows = yield* sql<ReviewRow>`
-      SELECT r.*, a.name AS author_name, s.external_id AS author_session
+      SELECT r.*, a.name AS author_name, s.external_id AS author_session,
+             ra.name AS relayer_name, rs.external_id AS relayer_session
       FROM reviews r JOIN tasks t ON t.id = r.task_id JOIN projects p ON p.id = t.project_id
       JOIN actors a ON a.id = r.actor_id LEFT JOIN agent_sessions s ON s.id = r.session_id
+      LEFT JOIN agent_sessions rs ON rs.id = r.relayed_session_id LEFT JOIN actors ra ON ra.id = rs.actor_id
       WHERE ${where} ORDER BY r.created_at, r.id`
     const files = rows.length === 0 ? [] : yield* sql<AttachmentRow>`
       SELECT * FROM attachments WHERE ${sql.in("review_id", rows.map((r) => r.id))} AND deleted_at IS NULL
@@ -649,6 +654,7 @@ export const selectReviews = (sql: Sql, where: Where) =>
       decidedAt: r.decided_at,
       decision: r.decision,
       decisionNote: r.decision_note,
+      relayedBy: r.relayer_name === null ? null : { name: r.relayer_name, session: r.relayer_session },
     }))
   })
 
