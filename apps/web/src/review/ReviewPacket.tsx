@@ -5,19 +5,20 @@ import { relativeTime } from "../lib/format.ts"
 import { Linkified } from "../viewer/ViewerLink.tsx"
 import { Evidence } from "./Evidence.tsx"
 import { CommentOrDecide, ReviewActions } from "./ReviewActions.tsx"
+import type { DecisionEvent } from "./queue.ts"
 
 interface ReviewPacketProps {
   readonly task: Task
   readonly review: Review
   readonly decide: boolean
-  readonly onDecided?: (() => void) | undefined
+  readonly onDecision?: ((event: DecisionEvent) => void) | undefined
   /** The board, to show the task's comments thread above the decision with (the Review page). */
   readonly comments?: BoardState | undefined
 }
 
 /**
  * What an agent handed in: the summary, numbered "How to check" steps, the evidence, who submitted it
- * and when. With `decide`, Approve and Send back sit at the bottom; `onDecided` runs after either.
+ * and when. With `decide`, Approve and Send back sit at the bottom; `onDecision` hears either as it goes.
  * With `comments` too (the Review page, CEL-70), the task's comments and a comment box sit above them,
  * and Send back sends what's typed there; the task panel shows its comments below the packet already.
  *
@@ -26,7 +27,7 @@ interface ReviewPacketProps {
  *
  * One gallery: in the image modal, ← and → step from the summary's diagrams to the screenshots.
  */
-export function ReviewPacket({ task, review, decide, onDecided, comments }: ReviewPacketProps) {
+export function ReviewPacket({ task, review, decide, onDecision, comments }: ReviewPacketProps) {
   return (
     <div
       data-gallery=""
@@ -66,9 +67,9 @@ export function ReviewPacket({ task, review, decide, onDecided, comments }: Revi
             {" · "}
             {relativeTime(review.createdAt)}
           </span>
-          {decide && !comments ? <ReviewActions task={task} onDecided={onDecided} /> : null}
+          {decide && !comments ? <ReviewActions task={task} onDecision={onDecision} /> : null}
         </footer>
-        {decide && comments ? <CommentOrDecide board={comments} task={task} onDecided={onDecided} /> : null}
+        {decide && comments ? <CommentOrDecide board={comments} task={task} onDecision={onDecision} /> : null}
       </div>
     </div>
   )

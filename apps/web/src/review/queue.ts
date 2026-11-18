@@ -81,7 +81,11 @@ export const decisionStep = (state: DecisionState, event: DecisionEvent): Decisi
   }
 }
 
-/** A decided row the page keeps: the item as it was, and where it stood (`at`) among the rows shown. */
+/**
+ * A row the page keeps from the click on: the item as it was, and where it stood (`at`) among the rows
+ * shown. The decision's events can reach the page before the command's answer does, so the row is held
+ * while it's pending, too.
+ */
 export interface Held<Item> {
   readonly key: string
   readonly item: Item
@@ -89,16 +93,25 @@ export interface Held<Item> {
   readonly state: DecisionState
 }
 
+/** A held row after `event` on the row `key`; a row whose decision failed, or that has left, is let go. */
+export const holdStep = <Item>(held: ReadonlyArray<Held<Item>>, key: string, event: DecisionEvent): Held<Item>[] =>
+  held.flatMap((h) => {
+    if (h.key !== key) return [h]
+    const state = decisionStep(h.state, event)
+    return state.phase === "pending" || state.phase === "decided" || state.phase === "leaving" ? [{ ...h, state }] : []
+  })
+
 /**
- * The rows the page shows: the queue, with each decided row still at its place though the events took
- * it off the queue, so it can say what was decided; and without the rows that are leaving, so they can
- * fold away.
+ * The rows the page shows: the queue, with each pending or decided row still at its place though the
+ * events took it off the queue, so it can say what was decided; and without the rows that are leaving,
+ * so they can fold away.
  */
 export const withHeld = <Item>(queue: ReadonlyArray<Item>, keyOf: (item: Item) => string, held: ReadonlyArray<Held<Item>>): Item[] => {
-  const left = new Set(held.filter((h) => h.state.phase !== "decided").map((h) => h.key))
+  const stays = (h: Held<Item>) => h.state.phase === "pending" || h.state.phase === "decided"
+  const left = new Set(held.filter((h) => !stays(h)).map((h) => h.key))
   const rows = queue.filter((item) => !left.has(keyOf(item)))
   for (const h of [...held].sort((a, b) => a.at - b.at)) {
-    if (h.state.phase !== "decided" || rows.some((item) => keyOf(item) === h.key)) continue
+    if (!stays(h) || rows.some((item) => keyOf(item) === h.key)) continue
     rows.splice(Math.min(h.at, rows.length), 0, h.item)
   }
   return rows

@@ -10,6 +10,8 @@ import type { Browser, Page } from "@playwright/test"
 import { caption, captionWithUrl, card, column, createProject, expect, projectLink, test, uniqueKey } from "./fixtures.ts"
 import {
   cello,
+  decidedSeen,
+  decisionsThroughTest,
   expectLeftAligned,
   expectOneColumn,
   expectTwoColumns,
@@ -19,6 +21,7 @@ import {
   submitDiagramPacket,
   submitPacket,
   submitPackets,
+  watchDecided,
   WEB_URL,
 } from "./packets.ts"
 import { isReview } from "./recording.ts"
@@ -279,6 +282,100 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
   await expect(page).toHaveURL(new RegExp(`/review\\?open=${key}-3$`))
   await captionWithUrl(page, "One packet at a time, in order")
   fs.rmSync(dir, { recursive: true, force: true })
+})
+
+/**
+ * CEL-187: Approve and Send back answer on the row. The decisions go through the test (packets.ts), so
+ * it sees the page while one runs and when one fails, and reads the confirmations back afterwards.
+ */
+async function decideOnTheRow(page: Page) {
+  const decisions = await decisionsThroughTest(page)
+  const key = uniqueKey("ANS")
+  await createProject(page, "Review answers test", key)
+  await caption(page, "An agent submits three packets")
+  const { dir } = await submitPackets(page, key, ["Show that Approve is running", "Say what was decided", "Open the next packet smoothly"])
+  const [one, two, three] = [1, 2, 3].map((n) => rowOf(page, `${key}-${n}`)) as [ReturnType<typeof rowOf>, ReturnType<typeof rowOf>, ReturnType<typeof rowOf>]
+  const buttons = (row: ReturnType<typeof rowOf>) => ({
+    approve: row.article.locator('[data-decide="approved"]'),
+    sendBack: row.article.locator('[data-decide="sent_back"]'),
+    box: row.article.getByLabel("New comment"),
+  })
+
+  await captionWithUrl(page, `Open Review at ${key}-1 and write a note`)
+  await page.goto(`/review?open=${key}-1`)
+  await expect(one.header).toHaveAttribute("aria-expanded", "true")
+  await watchDecided(page)
+  const first = buttons(one)
+  await first.box.fill("Ship it.")
+
+  await captionWithUrl(page, "Approve, but the server refuses: the row says why, and the packet stays open with the note")
+  decisions.failNext()
+  await first.approve.click()
+  await expect(one.article.getByRole("alert")).toContainText("no longer exists")
+  await expect(one.header).toHaveAttribute("aria-expanded", "true")
+  await expect(one.steps).toBeVisible()
+  await expect(first.box).toHaveValue("Ship it.")
+  await expect(first.approve).toBeEnabled()
+  await expect(first.approve).toHaveAttribute("aria-busy", "false")
+
+  await captionWithUrl(page, "Approve again: the button says it's approving, and both wait")
+  decisions.holdNext()
+  await first.approve.click()
+  await expect(first.approve).toHaveAttribute("aria-busy", "true")
+  await expect(first.approve).toHaveText("Approving…")
+  await expect(first.approve).toBeDisabled()
+  await expect(first.sendBack).toBeDisabled()
+  await expect(one.article.getByRole("alert")).toHaveCount(0)
+  // The task is already Done on the board (its events arrived), and the row is still here, in its place.
+  await expect(one.steps.locator(`[data-task-link="${key}-1"] [data-task-status]`)).toHaveText("Done")
+  await expect(page.getByRole("list", { name: "Waiting for review" }).getByRole("article").first()).toHaveAttribute("data-review-task", `${key}-1`)
+
+  await captionWithUrl(page, `The server took it: the row says Approved, folds away, and ${key}-2 opens`)
+  decisions.release()
+  await expect(one.article).toHaveCount(0)
+  expect(await decidedSeen(page)).toEqual([`${key}-1: Approved`])
+  await expect(two.header).toHaveAttribute("aria-expanded", "true")
+  await expect(two.steps).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/review\\?open=${key}-2$`))
+  await expect(two.header).toBeFocused()
+
+  await captionWithUrl(page, `Write what to change on ${key}-2 and send it back`)
+  const second = buttons(two)
+  await second.box.fill("Make the fold a little slower.")
+  decisions.holdNext()
+  await second.sendBack.click()
+  await expect(second.sendBack).toHaveAttribute("aria-busy", "true")
+  await expect(second.sendBack).toHaveText("Sending back…")
+  await expect(second.sendBack).toBeDisabled()
+  await expect(second.approve).toBeDisabled()
+
+  await captionWithUrl(page, `The row says Sent back, folds away, and ${key}-3 opens`)
+  decisions.release()
+  await expect(two.article).toHaveCount(0)
+  expect(await decidedSeen(page)).toEqual([`${key}-1: Approved`, `${key}-2: Sent back`])
+  await expect(three.header).toHaveAttribute("aria-expanded", "true")
+  await expect(page).toHaveURL(new RegExp(`/review\\?open=${key}-3$`))
+
+  await captionWithUrl(page, `Approve ${key}-3, the last one: it says Approved and folds away`)
+  await buttons(three).approve.click()
+  await expect(three.article).toHaveCount(0)
+  expect(await decidedSeen(page)).toEqual([`${key}-1: Approved`, `${key}-2: Sent back`, `${key}-3: Approved`])
+  await expect(page).toHaveURL(/\/review$/)
+  await caption(page, "Each decision is answered on its row, then the next packet opens")
+  fs.rmSync(dir, { recursive: true, force: true })
+}
+
+test("CEL-187: Approve and Send back answer on the row: the button shows it's running, a failure stays on the row with the note, then the row says Approved or Sent back, folds away, and the next opens", async ({ page }) => {
+  await decideOnTheRow(page)
+})
+
+// The same walk in the dark theme, for the review videos only (CELLO_E2E_REVIEW=1): nothing in it depends on the theme.
+test.describe("in the dark theme", () => {
+  test.skip(!isReview(process.env), "recorded for review videos only")
+  test.use({ colorScheme: "dark" })
+  test("CEL-187 dark: Approve and Send back answer on the row", async ({ page }) => {
+    await decideOnTheRow(page)
+  })
 })
 
 /** The Review page with `key` open in its own unrecorded window, saved to e2e/videos/review-wide-<width>x<height>-<scheme>.png. */

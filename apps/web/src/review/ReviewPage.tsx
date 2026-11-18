@@ -3,7 +3,9 @@ import { needsInputQueue, type AskItem } from "@cello/client/sync/asks"
 import { reviewQueue, type ReviewItem } from "@cello/client/sync/reviews"
 import type { Project, Task } from "@cello/contract/entities"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import type { ReactNode } from "react"
+import { CheckIcon, CornerUpLeftIcon } from "lucide-react"
+import { AnimatePresence, motion, useIsPresent, useReducedMotion } from "motion/react"
+import { type ReactNode, useEffect, useEffectEvent, useState } from "react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
 import { AskForm } from "../ask/AskView.tsx"
 import { QuestionsBadge } from "../ask/QuestionsBadge.tsx"
@@ -12,7 +14,8 @@ import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { relativeTime } from "../lib/format.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { EvidenceBadge } from "./EvidenceBadge.tsx"
-import { QueueRow, type QueueRowState } from "./QueueRow.tsx"
+import { FOLD_SPRING, QueueRow, type QueueRowState } from "./QueueRow.tsx"
+import { type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, type Held, holdStep, IDLE, withHeld } from "./queue.ts"
 import { CommentOrDecide } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
 import { useQueue } from "./useQueue.ts"
@@ -23,6 +26,10 @@ import { keepViewer } from "../viewer/search.ts"
  * Everything waiting on Lucas, across the workspace's projects, one row per task: agents' questions first
  * (Needs your input, CEL-47), then review packets. One row is open at a time (`?open=CEL-12`): answer
  * or decide, and the next one opens, so the queue goes in order.
+ *
+ * A decision is answered on its row (CEL-187): the row says "Approved" or "Sent back" for a moment,
+ * folds away, and the next one unfolds. The decided row is kept (`held`) for that moment, since the
+ * events take it off the queue at once.
  */
 export function ReviewPage() {
   const board = useBoard()
@@ -38,14 +45,48 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   // Asks first (an agent is waiting on them), then packets; a task is in one group only.
   const asked = needsInputQueue(board, workspaceId)
   const queue = reviewQueue(board, workspaceId)
-  const keys = [...asked, ...queue].map((item) => item.task.key)
+  const reduced = useReducedMotion() === true
+  const [held, setHeld] = useState<ReadonlyArray<Held<ReviewItem>>>([])
+  /** The row a decision opened: it unfolds. A row Lucas opens himself opens at once. */
+  const [unfolding, setUnfolding] = useState<string | null>(null)
+  const packets = withHeld(queue, (item) => item.task.key, held)
+  const decisionOn = (key: string): Decision | null => {
+    const state = held.find((h) => h.key === key)?.state
+    return state?.phase === "decided" ? state.decision : null
+  }
+  const keys = [...asked, ...packets].map((item) => item.task.key)
   const openKey = open !== undefined && keys.includes(open) ? open : null
   const rows = useQueue({
     keys,
     open: openKey,
     // The viewer stays open beside the packet that changes.
-    setOpen: (key) => void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(key === null ? {} : { open: key }) }), replace: true }),
+    setOpen: (key) => {
+      setUnfolding(null)
+      void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(key === null ? {} : { open: key }) }), replace: true })
+    },
   })
+
+  /**
+   * A decision on `item` as it goes. From the click its row is held where it stands, since the events
+   * can take it off the queue before the command answers; taken, it says so; refused, it's let go (it
+   * never left the queue).
+   */
+  const onDecision = (item: ReviewItem, event: DecisionEvent) => {
+    const key = item.task.key
+    if (event.type !== "clicked") return setHeld((rows) => holdStep(rows, key, event))
+    const at = packets.findIndex((p) => p.task.key === key)
+    const state = decisionStep(IDLE, event)
+    setHeld((rows) => [...rows.filter((h) => h.key !== key), { key, item, at: at === -1 ? packets.length : at, state }])
+  }
+  /** The row has said so for its moment: it folds away, and the next one opens, unless Lucas opened another meanwhile. */
+  const shown = (key: string) => {
+    // Nothing folds with reduced motion: out of the list, the row has left.
+    setHeld((rows) => (reduced ? holdStep(holdStep(rows, key, { type: "shown" }), key, { type: "left" }) : holdStep(rows, key, { type: "shown" })))
+    if (openKey === key) setUnfolding(rows.openNext(key))
+  }
+  /** The rows that were leaving have folded away. */
+  const left = () => setHeld((rows) => rows.filter((h) => h.state.phase !== "leaving"))
+  const leaving = held.some((h) => h.state.phase === "leaving")
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -74,13 +115,20 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
                 <ul aria-label="Needs your input" className="flex flex-col gap-2">
                   {asked.map((item) => (
                     <li key={item.task.id}>
-                      <AskRow {...rows.row(item.task.key)} board={board} item={item} onAnswered={() => rows.openNext(item.task.key)} />
+                      <AskRow
+                        {...rows.row(item.task.key)}
+                        unfold={item.task.key === unfolding}
+                        board={board}
+                        item={item}
+                        onAnswered={() => void rows.openNext(item.task.key)}
+                      />
                     </li>
                   ))}
                 </ul>
               </section>
             ) : null}
-            {queue.length === 0 ? (
+            {/* The list stays while its last row folds away. */}
+            {packets.length === 0 && !leaving ? (
               asked.length === 0 ? (
                 <div className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-line px-6 py-14 text-center text-[13px] text-muted">
                   <p className="text-[15px] font-medium text-ink">Nothing to review</p>
@@ -98,11 +146,24 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
                   </h2>
                 ) : null}
                 <ul aria-label="Waiting for review" className="flex flex-col gap-2">
-                  {queue.map((item) => (
-                    <li key={item.task.id}>
-                      <ReviewRow {...rows.row(item.task.key)} board={board} item={item} onDecided={() => rows.openNext(item.task.key)} />
-                    </li>
-                  ))}
+                  <AnimatePresence initial={false} onExitComplete={left}>
+                    {packets.map((item) => {
+                      const key = item.task.key
+                      const decision = decisionOn(key)
+                      return (
+                        <FoldAway key={item.task.id}>
+                          <ReviewRow
+                            {...rows.row(key)}
+                            unfold={key === unfolding}
+                            confirmation={decision === null ? undefined : <Decided decision={decision} onShown={() => shown(key)} />}
+                            board={board}
+                            item={item}
+                            onDecision={(event) => onDecision(item, event)}
+                          />
+                        </FoldAway>
+                      )
+                    })}
+                  </AnimatePresence>
                 </ul>
               </section>
             )}
@@ -110,6 +171,37 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
         </div>
       </div>
     </div>
+  )
+}
+
+/** How long a row says "Approved" or "Sent back" before it folds away: long enough to read two words. */
+const CONFIRMATION_MS = 1100
+
+/** What a decided row says in its badge's place, for a moment; then `onShown` runs. */
+function Decided({ decision, onShown }: { decision: Decision; onShown: () => void }) {
+  const done = useEffectEvent(onShown)
+  useEffect(() => {
+    const timer = setTimeout(done, CONFIRMATION_MS)
+    return () => clearTimeout(timer)
+  }, [])
+  const Icon = decision === "approved" ? CheckIcon : CornerUpLeftIcon
+  return (
+    <span role="status" data-decided={decision} className={`flex shrink-0 items-center gap-1.5 text-[13px] font-medium ${decision === "approved" ? "text-answered" : "text-ink"}`}>
+      <Icon aria-hidden className="size-3.5" />
+      {DECISION_LABEL[decision]}
+    </span>
+  )
+}
+
+/** A packet's place in the list: when its row leaves the queue it folds away, so the rows under it glide up. With reduced motion it just goes. */
+function FoldAway({ children }: { children: ReactNode }) {
+  const present = useIsPresent()
+  const reduced = useReducedMotion() === true
+  return (
+    // The margin takes the list's gap (gap-2) with it. It clips only while it folds: a focus ring and the card's shadow reach past it.
+    <motion.li {...(reduced ? {} : { exit: { height: 0, opacity: 0, marginBottom: -8 } })} transition={FOLD_SPRING} className={present ? undefined : "overflow-hidden"}>
+      {children}
+    </motion.li>
   )
 }
 
@@ -178,7 +270,7 @@ function TaskQueueRow({
  * A task waiting for review: collapsed, who submitted it and when, and its evidence; open, its packet,
  * then the task's comments with a comment box, Send back and Approve (CEL-70).
  */
-function ReviewRow({ item, onDecided, ...row }: RowProps & { item: ReviewItem; onDecided: () => void }) {
+function ReviewRow({ item, onDecision, ...row }: RowProps & { item: ReviewItem; onDecision: (event: DecisionEvent) => void }) {
   const { task, project, review } = item
   const byHand = `moved to ${row.board.statuses[task.statusId]?.name ?? "In Review"} by hand`
   return (
@@ -190,13 +282,13 @@ function ReviewRow({ item, onDecided, ...row }: RowProps & { item: ReviewItem; o
       badge={<EvidenceBadge task={task} board={row.board} size="md" />}
     >
       {review ? (
-        <ReviewPacket task={task} review={review} decide onDecided={onDecided} comments={row.board} />
+        <ReviewPacket task={task} review={review} decide onDecision={onDecision} comments={row.board} />
       ) : (
         <div className="flex flex-col gap-4">
           <p className="text-[13px] text-muted">
             No review packet: {byHand} {relativeTime(task.updatedAt)}.
           </p>
-          <CommentOrDecide board={row.board} task={task} onDecided={onDecided} />
+          <CommentOrDecide board={row.board} task={task} onDecision={onDecision} />
         </div>
       )}
     </TaskQueueRow>

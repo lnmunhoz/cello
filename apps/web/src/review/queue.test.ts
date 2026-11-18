@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { type DecisionState, decisionStep, IDLE, nextAfterDecision, parseReviewSearch, decisionNote, rowKey, withHeld } from "./queue.ts"
+import { type DecisionState, decisionStep, holdStep, IDLE, nextAfterDecision, parseReviewSearch, decisionNote, rowKey, withHeld } from "./queue.ts"
 
 describe("decisionStep: what a row shows from the click on Approve or Send back until it has left (CEL-187)", () => {
   const pending: DecisionState = { phase: "pending", decision: "approved" }
@@ -37,10 +37,22 @@ describe("decisionStep: what a row shows from the click on Approve or Send back 
 
 describe("withHeld: a decided row stays where it was until it has left, though the events took it off the queue (CEL-187)", () => {
   const keyOf = (key: string) => key
-  const held = (key: string, at: number, phase: "decided" | "leaving") => ({ key, item: key, at, state: { phase, decision: "approved" } as const })
+  const held = (key: string, at: number, phase: "pending" | "decided" | "leaving") => ({ key, item: key, at, state: { phase, decision: "approved" } as const })
 
   it("the queue as it is, with nothing decided", () => {
     expect(withHeld(["CEL-3", "CEL-7"], keyOf, [])).toEqual(["CEL-3", "CEL-7"])
+  })
+
+  it("a pending row stays too: the decision's events can arrive before the command's answer", () => {
+    expect(withHeld(["CEL-3", "THAI-2"], keyOf, [held("CEL-7", 1, "pending")])).toEqual(["CEL-3", "CEL-7", "THAI-2"])
+  })
+
+  it("holdStep moves one held row on, and lets go of a row whose decision failed or that has left", () => {
+    const rows = [held("CEL-3", 0, "pending"), held("CEL-7", 1, "leaving")]
+    expect(holdStep(rows, "CEL-3", { type: "taken" })).toEqual([held("CEL-3", 0, "decided"), held("CEL-7", 1, "leaving")])
+    expect(holdStep(rows, "CEL-3", { type: "refused", message: "Can't reach the Cello server" })).toEqual([held("CEL-7", 1, "leaving")])
+    expect(holdStep(rows, "CEL-7", { type: "left" })).toEqual([held("CEL-3", 0, "pending")])
+    expect(holdStep(rows, "CEL-9", { type: "taken" })).toEqual(rows)
   })
 
   it("a decided row the queue dropped is still shown, in its place", () => {
