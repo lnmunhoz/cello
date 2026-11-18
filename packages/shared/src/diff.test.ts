@@ -484,6 +484,52 @@ describe("parseDiffBlock: real git output reads the same as parseUnifiedDiff", (
   })
 })
 
+describe("parseDiffBlock: bullets in the prose around real file headers are not removed lines", () => {
+  const texts = (parsed: ReturnType<typeof parseDiffBlock>) => parsed.parts.filter((p) => p.kind === "text").map((p) => (p as { text: string }).text)
+
+  it("a format-patch email whose message has a bullet list: one file, the bullets stay text", () => {
+    const text = join(
+      "From 1234567890abcdef1234567890abcdef12345678 Mon Sep 17 00:00:00 2001",
+      "Subject: [PATCH] Fix things",
+      "",
+      "Two fixes:",
+      "- fix x",
+      "- fix y",
+      "---",
+      " a.ts | 2 +-",
+      " 1 file changed, 1 insertion(+), 1 deletion(-)",
+      "",
+      "diff --git a/a.ts b/a.ts",
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "@@ -1 +1 @@",
+      "-a",
+      "+b",
+    )
+    const parsed = parseDiffBlock(text)
+    expect(parsed.files.map((f) => f.path)).toEqual(["a.ts"])
+    expect(diffTotals(parsed.files)).toEqual({ files: 1, additions: 1, deletions: 1 })
+    expect(texts(parsed)[0]).toContain("- fix x\n- fix y")
+    expect(parsed).toEqual(parseUnifiedDiff(text))
+  })
+  it("notes with bullets after a real file stay text", () => {
+    const parsed = parseDiffBlock(join("--- a/a.ts", "+++ b/a.ts", "@@ -1 +1 @@", "-a", "+b", "", "Notes:", "- x", "- y"))
+    expect(parsed.files).toHaveLength(1)
+    expect(diffTotals(parsed.files)).toEqual({ files: 1, additions: 1, deletions: 1 })
+    expect(texts(parsed)).toEqual(["Notes:\n- x\n- y"])
+  })
+  it("an @@ hunk with no file header still shows next to a real file", () => {
+    const parsed = parseDiffBlock(join("--- a/a.ts", "+++ b/a.ts", "@@ -1 +1 @@", "-a", "+b", "", "Also:", "@@ -9 +9 @@", "-c", "+d"))
+    expect(parsed.files.map((f) => f.headerless === true)).toEqual([false, true])
+  })
+  it("with no file headers at all, bullets are still removed lines: the writer said it is a diff", () => {
+    const parsed = parseDiffBlock("Notes\n- one\n- two\n\nmore")
+    expect(parsed.files).toHaveLength(1)
+    expect(parsed.files[0]).toMatchObject({ headerless: true, deletions: 2, additions: 0 })
+    expect(parsed.parts.map((p) => p.kind)).toEqual(["text", "file", "text"])
+  })
+})
+
 describe("isUnifiedDiff stays strict", () => {
   it("is still false for hunks and bare lines that parseDiffBlock accepts", () => {
     for (const text of ["@@ -1 +1 @@\n-a\n+b", "-a\n+b", "--- a/x\n+++ b/x\n-a\n+b"]) {

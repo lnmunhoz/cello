@@ -405,9 +405,9 @@ const readPlainFile = (lines: ReadonlyArray<string>, at: number, loose: boolean)
 }
 
 /** Loose mode: hunks with no file header, from an `@@` line or a run of bare lines at `at`; every hunk that follows joins them. */
-const readHeaderless = (lines: ReadonlyArray<string>, at: number): { file: DiffFile; next: number } | null => {
-  if (!lines[at]!.startsWith("@@") && !startsBareRun(lines, at)) return null
-  const read = readHunks(lines, at, true, true)
+const readHeaderless = (lines: ReadonlyArray<string>, at: number, allowBare: boolean): { file: DiffFile; next: number } | null => {
+  if (!lines[at]!.startsWith("@@") && !(allowBare && startsBareRun(lines, at))) return null
+  const read = readHunks(lines, at, true, allowBare)
   if (read.hunks.length === 0) return null
   const file: DiffFile = {
     path: "",
@@ -423,6 +423,10 @@ const readHeaderless = (lines: ReadonlyArray<string>, at: number): { file: DiffF
   return { file, next: read.next }
 }
 
+/** Does the text carry a file header anywhere: a `diff --git` line, or a `---` line followed by a `+++` line? */
+const hasFileHeaders = (lines: ReadonlyArray<string>): boolean =>
+  lines.some((line, i) => line.startsWith("diff --git ") || (line.startsWith("--- ") && (lines[i + 1]?.startsWith("+++ ") ?? false)))
+
 const parse = (text: string, loose: boolean): ParsedDiff => {
   const lines = text.split("\n").map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
   if (lines.at(-1) === "") lines.pop()
@@ -437,15 +441,19 @@ const parse = (text: string, loose: boolean): ParsedDiff => {
     }
     pending = []
   }
-  // Loose mode: a run of bare lines that holds no change is text, and so is every line inside it.
+  // Loose mode: runs of bare `+`/`-` lines are only read where the block has no file header at all. With
+  // one, the prose around the files (a commit message's bullets, a "Notes:" list) is text, not removed lines;
+  // `@@` hunks and the lines after a file's own header still count.
+  const allowBare = loose && !hasFileHeaders(lines)
+  // A run of bare lines that holds no change is text, and so is every line inside it.
   let noRunBefore = 0
   let i = 0
   while (i < lines.length) {
     const line = lines[i]!
     let read = line.startsWith("diff --git ") ? readGitFile(lines, i, loose) : startsFile(lines, i, loose) ? readPlainFile(lines, i, loose) : null
     if (!read && loose && i >= noRunBefore) {
-      read = readHeaderless(lines, i)
-      if (!read && line !== "" && !line.startsWith("\\") && !bodyEnds(lines, i, true)) noRunBefore = bareRunEnd(lines, i)
+      read = readHeaderless(lines, i, allowBare)
+      if (!read && allowBare && line !== "" && !line.startsWith("\\") && !bodyEnds(lines, i, true)) noRunBefore = bareRunEnd(lines, i)
     }
     if (read) {
       flush()
@@ -470,7 +478,8 @@ export const parseUnifiedDiff = (text: string): ParsedDiff => parse(text, false)
 /**
  * Parses the text of a block someone fenced as a diff (```diff, ```patch): what `parseUnifiedDiff` reads,
  * the same way, and also hunks without file headers (a file with no name), a hunk whose counts are off,
- * and runs of bare `+`/`-` lines. Anything that isn't a change is still `text`. Not for deciding that a
+ * and, when the text has no file header at all, runs of bare `+`/`-` lines. Anything that isn't a change
+ * is still `text`. Not for deciding that a
  * text is a diff: that is `isUnifiedDiff`'s.
  */
 export const parseDiffBlock = (text: string): ParsedDiff => parse(text, true)
