@@ -1,7 +1,23 @@
 import type { LogStep } from "@cello/contract/agentLog"
 import type { AgentSession, SessionAgent } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { applyLogUpdate, currentStepOf, doingNowOf, durationWords, EMPTY_LOG, filterSteps, logKey, parseLogKey, previewOf, unavailableWords } from "./agentLog.ts"
+import {
+  applyLogUpdate,
+  currentStepOf,
+  doingNowOf,
+  durationWords,
+  EMPTY_LOG,
+  filterSteps,
+  logKey,
+  parseLogKey,
+  previewOf,
+  storyKey,
+  storyOf,
+  storySteps,
+  thinkingNote,
+  unavailableWords,
+  workedWords,
+} from "./agentLog.ts"
 
 const message = (id: string, text: string): LogStep => ({ id, kind: "message", at: 1, text })
 const tool = (id: string, status: "running" | "ok" | "error"): LogStep => ({
@@ -15,7 +31,7 @@ const tool = (id: string, status: "running" | "ok" | "error"): LogStep => ({
 describe("applyLogUpdate", () => {
   it("the first batch replaces what was shown; later ones add steps and replace a step sent again by id, in place", () => {
     let log = applyLogUpdate(EMPTY_LOG, { _tag: "steps", reset: true, skipped: 3, steps: [message("m1", "Starting.")] })
-    expect(log).toEqual({ status: "ready", reason: null, skipped: 3, older: false, arrived: [], steps: [message("m1", "Starting.")] })
+    expect(log).toEqual({ status: "ready", reason: null, skipped: 3, older: false, arrived: [], unsavedThinking: 0, steps: [message("m1", "Starting.")] })
     log = applyLogUpdate(log, { _tag: "steps", reset: false, skipped: 0, steps: [tool("t1", "running"), message("m2", "Waiting.")] })
     log = applyLogUpdate(log, { _tag: "steps", reset: false, skipped: 0, steps: [tool("t1", "error")] })
     expect(log.steps.map((s) => [s.id, s.tool?.status])).toEqual([["m1", undefined], ["t1", "error"], ["m2", undefined]])
@@ -30,7 +46,17 @@ describe("applyLogUpdate", () => {
       _tag: "unavailable",
       reason: "missing",
     })
-    expect(log).toEqual({ status: "unavailable", reason: "missing", skipped: 0, older: false, arrived: [], steps: [] })
+    expect(log).toEqual({ status: "unavailable", reason: "missing", skipped: 0, older: false, arrived: [], unsavedThinking: 0, steps: [] })
+  })
+
+  it("keeps how many thoughts Claude Code saved without words: a reset takes the count, a later update only changes it when it sends one (CEL-170)", () => {
+    let log = applyLogUpdate(EMPTY_LOG, { _tag: "steps", reset: true, skipped: 0, steps: [message("m1", "a")], unsavedThinking: 2 })
+    expect(log.unsavedThinking).toBe(2)
+    log = applyLogUpdate(log, { _tag: "steps", reset: false, skipped: 0, steps: [message("m2", "b")] })
+    expect(log.unsavedThinking).toBe(2)
+    log = applyLogUpdate(log, { _tag: "steps", reset: false, skipped: 0, steps: [], unsavedThinking: 3 })
+    expect(log.unsavedThinking).toBe(3)
+    expect(applyLogUpdate(log, { _tag: "steps", reset: true, skipped: 0, steps: [] }).unsavedThinking).toBe(0)
   })
 
   it("marks the steps that just arrived live (CEL-107): not the first batch, a reset or a step updated in place", () => {
@@ -59,15 +85,23 @@ describe("filterSteps", () => {
     { id: "ag", kind: "agent", at: 0, text: "Agent · x", tool: { ...tool("ag", "error").tool! }, agentId: null },
     { id: "sys", kind: "system", at: 0, text: "The run ended: failed (boom)" },
   ]
-  const ids = (filter: Parameters<typeof filterSteps>[1], thinking: boolean) => filterSteps(steps, filter, thinking).map((s) => s.id)
+  const ids = (show: Parameters<typeof filterSteps>[1], thinking: boolean) => filterSteps(steps, show, thinking).map((s) => s.id)
 
-  it("all, messages, tools and errors; thinking only when its switch is on", () => {
-    expect(ids("all", false)).toEqual(["u", "m", "ok", "bad", "ag", "sys"])
-    expect(ids("all", true)).toEqual(["u", "m", "th", "ok", "bad", "ag", "sys"])
-    expect(ids("messages", false)).toEqual(["u", "m"])
-    expect(ids("messages", true)).toEqual(["u", "m", "th"])
-    expect(ids("tools", false)).toEqual(["ok", "bad", "ag"])
+  it("everything and errors; thinking only with its switch on, and never among errors", () => {
+    expect(ids("everything", false)).toEqual(["u", "m", "ok", "bad", "ag", "sys"])
+    expect(ids("everything", true)).toEqual(["u", "m", "th", "ok", "bad", "ag", "sys"])
     expect(ids("errors", true)).toEqual(["bad", "ag"])
+  })
+})
+
+describe("thinkingNote", () => {
+  const unsaved = { ...EMPTY_LOG, status: "ready" as const, unsavedThinking: 3 }
+
+  it("says Claude Code saved the thinking without its words, and what turns that on, only when it saved some and none shows (CEL-170)", () => {
+    expect(thinkingNote(unsaved)).toContain("showThinkingSummaries")
+    expect(thinkingNote(unsaved)).toContain("~/.claude/settings.json")
+    expect(thinkingNote({ ...unsaved, steps: [{ id: "th", kind: "thinking", at: 0, text: "A saved thought." }] })).toBeNull()
+    expect(thinkingNote({ ...unsaved, unsavedThinking: 0 })).toBeNull()
   })
 })
 
@@ -133,5 +167,182 @@ describe("currentStepOf", () => {
     expect(currentStepOf({ presence: "idle", session, agent: waiting })).toBe("Waiting on background work: Bash · bun run test:e2e, Monitor · e2e finishing")
     expect(currentStepOf({ presence: "active", session, agent: waiting })).toBe("Waiting on background work: Bash · bun run test:e2e, Monitor · e2e finishing")
     expect(currentStepOf({ presence: "ended", session, agent: waiting })).toBeNull()
+  })
+})
+
+// The Story view (CEL-170).
+const AT = Date.parse("2026-11-18T09:00:00.000Z")
+const sec = (n: number) => AT + n * 1000
+
+const prompt = (id: string, text: string, at = 0): LogStep => ({ id, kind: "user", at: sec(at), text })
+const said = (id: string, text: string, at: number, endsTurn = false): LogStep => ({ id, kind: "message", at: sec(at), text, ...(endsTurn ? { endsTurn: true } : {}) })
+const thought = (id: string, at: number): LogStep => ({ id, kind: "thinking", at: sec(at), text: "Hmm." })
+const note = (id: string, at: number): LogStep => ({ id, kind: "system", at: sec(at), text: "A background task finished" })
+const call = (id: string, name: string, target: string, at: number, status: "running" | "ok" | "error" = "ok", took = 1000): LogStep => ({
+  id,
+  kind: "tool",
+  at: sec(at),
+  text: `${name} · ${target}`,
+  tool: { name, status, durationMs: status === "running" ? null : took, output: "", lines: 0, cut: false },
+})
+const launch = (id: string, at: number): LogStep => ({
+  id,
+  kind: "agent",
+  at: sec(at),
+  text: "Agent · cello-builder: build it",
+  tool: { name: "Agent", status: "ok", durationMs: 500, output: "", lines: 0, cut: false },
+  agentId: "a1",
+})
+
+/** A story as ids, so a test reads at a glance: a group or a turn is `[id, ...what's inside]`, a live row `live:<id>`. */
+type Shape = string | [string, ...Shape[]]
+const shape = (items: ReturnType<typeof storyOf>): Shape[] =>
+  items.map((item) => {
+    if (item._tag === "step") return item.step.id
+    if (item._tag === "live") return `live:${item.step.id}`
+    if (item._tag === "group") return [item.id, ...item.steps.map((s) => s.id)]
+    return [item.id, ...shape(item.items)]
+  })
+
+describe("storyOf", () => {
+  const open = { thinking: false, live: true }
+  const idle = { thinking: false, live: false }
+
+  it("folds the calls between two messages into a group, and anything else breaks the run", () => {
+    const steps = [
+      prompt("u", "Go"),
+      said("m1", "Looking.", 1),
+      call("c1", "Read", "a.ts", 2),
+      call("c2", "Bash", "Run", 3),
+      call("c3", "Bash", "Run", 4),
+      said("m2", "Found it.", 5),
+      call("c4", "Edit", "a.ts", 6),
+      call("c5", "Edit", "b.ts", 7),
+      launch("ag", 8),
+      call("c6", "Read", "c.ts", 9),
+      call("c7", "Read", "d.ts", 10),
+      note("sys", 11),
+    ]
+    expect(shape(storyOf(steps, open))).toEqual(["u", "m1", ["group:c1", "c1", "c2", "c3"], "m2", ["group:c4", "c4", "c5"], "ag", ["group:c6", "c6", "c7"], "sys"])
+  })
+
+  it("leaves a lone call as its own row, not a group of one", () => {
+    const steps = [prompt("u", "Go"), call("c1", "Bash", "Run", 1), said("m1", "Hm.", 2), call("c2", "Read", "a.ts", 3), call("c3", "Read", "b.ts", 4)]
+    expect(shape(storyOf(steps, open))).toEqual(["u", "c1", "m1", ["group:c2", "c2", "c3"]])
+  })
+
+  it("words a group by what its calls did, in order of first appearance, counting each file once", () => {
+    const steps = [
+      call("r1", "Read", "a.ts", 0),
+      call("b1", "Bash", "Run", 1),
+      call("r2", "Read", "a.ts", 2),
+      call("r3", "Read", "b.ts", 3),
+      call("e1", "Edit", "a.ts", 4),
+      call("e2", "Write", "a.ts", 5),
+      call("g1", "Grep", "x", 6),
+      call("g2", "Glob", "*.ts", 7),
+      call("w1", "WebFetch", "docs", 8),
+      call("o1", "Skill", "cello:cello", 9),
+    ]
+    expect(storyOf(steps, open)[0]).toMatchObject({
+      _tag: "group",
+      calls: 10,
+      summary: "Read 2 files, ran 1 command, edited 1 file, searched 2 times, browsed the web 1 time, used 1 other tool",
+    })
+    expect(storyOf([call("b1", "Bash", "Run", 0), call("b2", "Bash", "Run", 1), call("b3", "Bash", "Run", 2)], open)[0]).toMatchObject({ summary: "Ran 3 commands" })
+    // Only unknown tools: not "other".
+    expect(storyOf([call("o1", "Skill", "x", 0), call("o2", "TodoWrite", "", 1)], open)[0]).toMatchObject({ summary: "Used 2 tools" })
+  })
+
+  it("gives a group its time span, from the first call to the last result, and how many failed", () => {
+    const steps = [call("c1", "Bash", "Run", 0, "ok", 2000), call("c2", "Bash", "Run", 10, "error", 5000), call("c3", "Bash", "Run", 4, "ok", 1000)]
+    expect(storyOf(steps, open)[0]).toMatchObject({ failed: 1, durationMs: 15_000 })
+    const unknown: LogStep[] = [
+      { ...call("c1", "Bash", "Run", 0), at: null },
+      { ...call("c2", "Bash", "Run", 0), at: null },
+    ]
+    expect(storyOf(unknown, open)[0]).toMatchObject({ durationMs: null })
+  })
+
+  it("shows a call that's still running as its own live row after its group, only while the agent works, only in the open turn's last run", () => {
+    const steps = [prompt("u", "Go"), call("c1", "Bash", "Run", 1), call("c2", "Bash", "Run", 2), call("c3", "Bash", "Run", 3, "running")]
+    expect(shape(storyOf(steps, open))).toEqual(["u", ["group:c1", "c1", "c2"], "live:c3"])
+    // The agent isn't working: the running call stays in its group (an interrupted call never got a result).
+    expect(shape(storyOf(steps, idle))).toEqual(["u", ["turn:c1", ["group:c1", "c1", "c2", "c3"]]])
+    // A lone running call is live too; the one before it stays a lone row.
+    expect(shape(storyOf([prompt("u", "Go"), call("c1", "Bash", "Run", 1), call("c2", "Bash", "Run", 2, "running")], open))).toEqual(["u", "c1", "live:c2"])
+    expect(shape(storyOf([prompt("u", "Go"), call("c1", "Bash", "Run", 1, "running")], open))).toEqual(["u", "live:c1"])
+    // An earlier run's call that never ended stays in its group, even while the agent works.
+    const earlier = [prompt("u", "Go"), call("c1", "Bash", "Run", 1), call("c2", "Bash", "Run", 2, "running"), said("m1", "Moving on.", 3), call("c3", "Bash", "Run", 4, "running")]
+    expect(shape(storyOf(earlier, open))).toEqual(["u", ["group:c1", "c1", "c2"], "m1", "live:c3"])
+    // Calls made in parallel each get a row.
+    expect(shape(storyOf([prompt("u", "Go"), call("c1", "Read", "a", 1, "running"), call("c2", "Read", "b", 1, "running")], open))).toEqual(["u", "live:c1", "live:c2"])
+  })
+
+  it("folds a turn that ended with its answer: the prompt, the work under one row, then the answer", () => {
+    const steps = [prompt("u", "Go"), said("m1", "Looking.", 1), call("c1", "Bash", "Run", 2), call("c2", "Bash", "Run", 3), said("m2", "All done.", 252, true)]
+    const story = storyOf(steps, open)
+    expect(shape(story)).toEqual(["u", ["turn:m1", "m1", ["group:c1", "c1", "c2"]], "m2"])
+    expect(story[1]).toMatchObject({ _tag: "turn", durationMs: 252_000 })
+    expect(workedWords(252_000)).toBe("Worked for 4 min 12 s")
+    expect(workedWords(null)).toBe("Worked")
+  })
+
+  it("ends a turn at the next prompt: its work folds up to its last message, what comes after stays out", () => {
+    const steps = [prompt("u1", "One"), call("c1", "Bash", "Run", 1), said("m1", "Partial.", 2), call("c2", "Read", "a", 3), call("c3", "Read", "b", 4), prompt("u2", "Two", 5), call("c4", "Bash", "Run", 6)]
+    // The second turn is open: flat, its lone call a row.
+    expect(shape(storyOf(steps, open))).toEqual(["u1", ["turn:c1", "c1"], "m1", ["group:c2", "c2", "c3"], "u2", "c4"])
+  })
+
+  it("ends the last turn when the agent isn't working, with no answer: all its work folds, to the last result", () => {
+    const steps = [prompt("u", "Go"), call("c1", "Bash", "Run", 1), call("c2", "Bash", "Run", 3)]
+    const story = storyOf(steps, idle)
+    expect(shape(story)).toEqual(["u", ["turn:c1", ["group:c1", "c1", "c2"]]])
+    expect(story[1]).toMatchObject({ durationMs: 4000 })
+  })
+
+  it("keeps a turn that is only talk flat, and an open turn flat", () => {
+    expect(shape(storyOf([prompt("u", "Hi"), said("m", "Hello.", 1, true)], open))).toEqual(["u", "m"])
+    expect(shape(storyOf([prompt("u", "Go"), said("m1", "Looking.", 1), call("c1", "Bash", "Run", 2), call("c2", "Bash", "Run", 3)], open))).toEqual([
+      "u",
+      "m1",
+      ["group:c1", "c1", "c2"],
+    ])
+  })
+
+  it("starts a new turn after an answer even without a prompt, flat while the agent works", () => {
+    const steps = [prompt("u", "Go"), call("c1", "Bash", "Run", 1), said("m1", "Done.", 2, true), note("sys", 3), call("c2", "Bash", "Run", 4, "running")]
+    expect(shape(storyOf(steps, open))).toEqual(["u", ["turn:c1", "c1"], "m1", "sys", "live:c2"])
+  })
+
+  it("shows thoughts in a run only with the switch on, and never counts them as calls", () => {
+    const steps = [prompt("u", "Go"), thought("t1", 1), call("c1", "Bash", "Run", 2), thought("t2", 3), call("c2", "Bash", "Run", 4), said("m", "Done.", 5), thought("t3", 6)]
+    const on = { thinking: true, live: true }
+    expect(shape(storyOf(steps, on))).toEqual(["u", ["group:t1", "t1", "c1", "t2", "c2"], "m", "t3"])
+    expect(storyOf(steps, on)[1]).toMatchObject({ calls: 2 })
+    // Off: they're gone, and don't break the run.
+    expect(shape(storyOf(steps, open))).toEqual(["u", ["group:c1", "c1", "c2"], "m"])
+    // A thought and one call: not enough calls for a group.
+    expect(shape(storyOf([thought("t1", 1), call("c1", "Bash", "Run", 2)], on))).toEqual(["t1", "c1"])
+  })
+
+  it("keeps group and turn ids as steps append, so an opened one stays open", () => {
+    const base = [prompt("u", "Go"), call("c1", "Bash", "Run", 1), call("c2", "Bash", "Run", 2)]
+    const grown = [...base, call("c3", "Bash", "Run", 3), call("c4", "Read", "a", 4)]
+    const group = (steps: LogStep[]) => storyOf(steps, open).find((i) => i._tag === "group")
+    expect(group(base)).toMatchObject({ id: "group:c1", calls: 2 })
+    expect(group(grown)).toMatchObject({ id: "group:c1", calls: 4 })
+    const ended = [...grown, said("m", "Done.", 9, true)]
+    expect(storyOf(ended, open).find((i) => i._tag === "turn")).toMatchObject({ id: "turn:c1" })
+    expect(storyOf([...ended, said("m2", "More.", 10)], open).find((i) => i._tag === "turn")).toMatchObject({ id: "turn:c1" })
+  })
+
+  it("keys each item and lists its steps, for the page's fade-in", () => {
+    const calls = [prompt("u", "Go"), call("c1", "Bash", "Run", 1), call("c2", "Bash", "Run", 2)]
+    const [head, group, live] = storyOf([...calls, call("c3", "Bash", "Run", 3, "running")], open)
+    expect([head!, group!, live!].map(storyKey)).toEqual(["u", "group:c1", "c3"])
+    expect(storySteps(group!).map((s) => s.id)).toEqual(["c1", "c2"])
+    const [, turn] = storyOf([...calls, said("m", "Done.", 3, true)], open)
+    expect(storySteps(turn!).map((s) => s.id)).toEqual(["c1", "c2"])
   })
 })
