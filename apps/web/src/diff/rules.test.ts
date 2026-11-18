@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { canSplit, formatCount, gutterDigits, shownMode, SPLIT_MIN_WIDTH, summaryParts } from "./rules.ts"
+import { canSplit, formatCount, gutterDigits, INLINE_SHOW_AS_MIN_WIDTH, inlineControls, shownMode, SPLIT_MIN_WIDTH, summaryParts } from "./rules.ts"
 
 describe("shownMode: what the diff view draws at this width", () => {
   it("Split needs room for two readable columns", () => {
@@ -23,6 +23,22 @@ describe("summaryParts: the summary row", () => {
   it("counts files, additions and deletions, with a real minus sign", () => {
     expect(summaryParts({ files: 6, additions: 42, deletions: 17 })).toEqual({ files: "6 files changed", additions: "+42", deletions: "−17" })
     expect(summaryParts({ files: 1, additions: 1, deletions: 0 })).toEqual({ files: "1 file changed", additions: "+1", deletions: "−0" })
+  })
+  it("has no files piece when the diff has only hunks without a file header", () => {
+    expect(summaryParts({ files: 0, additions: 3, deletions: 2 })).toEqual({ files: null, additions: "+3", deletions: "−2" })
+  })
+})
+
+describe("inlineControls: what the summary row of a diff inside a comment or page offers", () => {
+  it("Show as needs 360 px, the narrowest a task panel gets; under it only Copy shows", () => {
+    expect(INLINE_SHOW_AS_MIN_WIDTH).toBe(360)
+    expect(inlineControls(0)).toEqual({ showAs: false, split: false })
+    expect(inlineControls(359)).toEqual({ showAs: false, split: false })
+    expect(inlineControls(360)).toEqual({ showAs: true, split: false })
+  })
+  it("Split comes at the same width as for a file", () => {
+    expect(inlineControls(719)).toEqual({ showAs: true, split: false })
+    expect(inlineControls(720)).toEqual({ showAs: true, split: true })
   })
 })
 

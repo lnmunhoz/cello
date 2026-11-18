@@ -48,6 +48,7 @@ Cello's own backlog is the **CEL** project on Lucas's board. Run `cello context`
 - **Show Lucas things as Cello pages, never Claude artifacts:** this repo's rule beats your global instructions. That covers reports, plans, comparisons, and videos or screenshots before a packet.
   - Publish with `cello doc publish page.md --task CEL-n` (`--asset` for videos; `--kind page|doc|spec`), and open with `cello open <slug | url | KEY-n>`.
   - In replies, link the `cello://` link those commands print, never the http one.
+  - A change you show him is a ```` ```diff ```` block of `git diff` output, headers kept (it renders as a diff view); over ~200 lines attach a `.diff` ([docs/cli.md](docs/cli.md): Showing a change).
 
 ## Lifecycle
 

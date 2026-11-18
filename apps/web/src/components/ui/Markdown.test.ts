@@ -1,4 +1,5 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
+import { DIFF_BLOCK, DIFF_BLOCK_COMMENT, DIFF_BLOCK_PATHS, HEADERLESS_BLOCK_COMMENT } from "@cello/shared/diff.fixture"
 import { RegistryProvider } from "@effect/atom-react"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { createElement } from "react"
@@ -49,6 +50,55 @@ describe("Markdown: GitHub-flavored markdown", () => {
 
   it("links a bare www. address", () => {
     expect(render("See www.example.com for it.")).toContain('href="http://www.example.com"')
+  })
+})
+
+// CEL-176: a ```diff block is drawn as the diff view, in its inline form.
+describe("Markdown: a diff block is the diff view", () => {
+  /** What the diff view drew: the html from its region on, or the whole thing when there is none. */
+  const diffRegion = (html: string) => html.slice(html.indexOf('data-text-view="diff"'))
+
+  it("draws a ```diff block with its summary, file sections and Copy, in the inline form", () => {
+    const html = render(DIFF_BLOCK_COMMENT)
+    expect(html).toContain("data-diff-block")
+    expect(html).toContain('data-text-view="diff"')
+    expect(html).toContain("3 files changed")
+    for (const path of DIFF_BLOCK_PATHS) expect(html).toContain(`aria-label="${path}"`)
+    expect(html).toContain('aria-label="Copy"')
+    // It grows with its content: no scroll box of its own, nothing to focus.
+    expect(diffRegion(html)).not.toContain("overflow-y-auto")
+    expect(html).not.toContain("language-diff")
+  })
+
+  it("uses no heading, paragraph or pre tag inside the diff, so the markdown's own styles don't reach it", () => {
+    const inside = diffRegion(render(DIFF_BLOCK_COMMENT))
+    expect(inside).not.toContain("<h3")
+    expect(inside).not.toContain("<pre")
+    expect(inside).not.toContain("<p ")
+  })
+
+  it("draws hunks with no file header without a file section, and numbers only where an @@ line gives them", () => {
+    const html = render(HEADERLESS_BLOCK_COMMENT)
+    expect(html.match(/data-diff-file="headerless"/g)).toHaveLength(2)
+    expect(html).not.toContain("<section")
+    expect(html.match(/data-diff-hunk/g)).toHaveLength(1)
+    expect(html).toContain("@@ -10,3 +10,4 @@")
+    // The five lines of the first hunk have gutters; the three bare lines of the second have none.
+    expect(html.match(/data-new-line/g)).toHaveLength(5)
+    expect(html.match(/data-diff-line=/g)).toHaveLength(5 + 3)
+    expect(html).not.toContain("files changed")
+    expect(html).not.toContain("file changed")
+  })
+
+  it("leaves a block in another language as code", () => {
+    const html = render("```ts\n" + DIFF_BLOCK + "\n```")
+    expect(html).not.toContain("data-diff-block")
+    expect(html).toContain("<pre>")
+  })
+
+  it("draws an unmarked block as a diff only when it is a whole git diff", () => {
+    expect(render("```\ndiff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n```")).toContain("data-diff-block")
+    expect(render("```\n-a\n+b\n```")).not.toContain("data-diff-block")
   })
 })
 

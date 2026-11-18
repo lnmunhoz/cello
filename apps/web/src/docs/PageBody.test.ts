@@ -77,6 +77,18 @@ describe("PageBody", () => {
     expect(html).toContain('<a href="https://github.com/lnmunhoz/cello/pull/13" target="_blank" rel="noreferrer">the PR</a>')
   })
 
+  it("renders a ```diff block as the diff view, in a frame that keeps the page's rhythm, and a ts block still as code", () => {
+    const html = render(["## Change", "", "```diff", "--- a/x.ts", "+++ b/x.ts", "@@ -1 +1 @@", "-a", "+b", "```", "", "```ts", "const a = 1", "```"].join("\n"))
+    expect(html).toMatch(/<div class="page-diff"><div data-diff-block=""/)
+    expect(html).toContain("1 file changed")
+    expect(html).not.toContain("language-diff")
+    expect(html).toContain('<div class="page-code"><pre><code class="language-ts">')
+    const inside = html.slice(html.indexOf('data-text-view="diff"'), html.indexOf('class="page-code"'))
+    expect(inside).not.toContain("<h3")
+    expect(inside).not.toContain("<p>")
+    expect(inside).not.toContain("<pre")
+  })
+
   it("renders a mermaid block as a diagram, not as code", () => {
     const html = render(REPORT)
     expect(html).toMatch(/<figure class="page-diagram" data-mermaid="" aria-busy="true"/)

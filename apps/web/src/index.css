@@ -420,6 +420,9 @@ body {
     white-space: pre;
     overflow-wrap: normal;
   }
+  & .page-diff {
+    margin: 16px 0;
+  }
   & .page-diagram {
     margin: 20px 0;
     min-height: 64px;
