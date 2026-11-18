@@ -6,8 +6,10 @@ import {
   type BackgroundWork,
   MAX_BACKGROUND,
   parseBackground,
+  endedNow,
   MAX_RUNS,
   parseRuns,
+  runsOf,
   pickRun,
   shownRun,
   type StoredTestRun,
@@ -121,6 +123,41 @@ describe("a test run", () => {
     const { endedAt: _endedAt, ...noEnd } = started
     const badProgress = { ...started, runId: "t9", progress: { ...progress, stage: 42 } }
     expect(parseRuns(JSON.stringify([noEnd, badProgress, started]))).toEqual([started])
+  })
+
+  it("CEL-181: a run keeps its task; a run stored before it (no key) still parses, and the task reaches boards", () => {
+    const tasked = testsStarted({ runId: "toolu_9", command: "bun run test", cwd: "/repo", now: 1000, taskId: "t1" })
+    expect(tasked.taskId).toBe("t1")
+    expect(parseRuns(JSON.stringify([tasked]))[0]?.taskId).toBe("t1")
+    // An old row, written before the key existed, is kept whole (a required key would drop every run in flight).
+    const old = JSON.parse(JSON.stringify(started)) as Record<string, unknown>
+    expect("taskId" in old).toBe(false)
+    expect(parseRuns(JSON.stringify([old]))).toHaveLength(1)
+    // Boards need the task for the live row, but never the run's id or folder.
+    expect(publicRun(tasked)).toMatchObject({ taskId: "t1" })
+    expect(publicRun(tasked)).not.toHaveProperty("runId")
+    expect(publicRun(tasked)).not.toHaveProperty("cwd")
+    expect(runsOf(JSON.stringify([started, tasked]))).toEqual([publicRun(started), publicRun(tasked)])
+    expect(runsOf(null)).toEqual([])
+  })
+
+  it("CEL-181 endedNow: the runs a change ended, matched by run id, once", () => {
+    const a = testsStarted({ runId: "a", command: "bun run test", cwd: null, now: 1000, taskId: "t1" })
+    const b = testsBackgrounded(testsStarted({ runId: "b", command: "bun run test:docker:e2e", cwd: null, now: 1100 }), "b", "bg1")
+    const before = [a, b]
+    expect(endedNow(before, before)).toEqual([])
+    const aEnded = testsToolFinished(a, "a", false, 2000)
+    expect(endedNow(before, [aEnded, b])).toEqual([aEnded])
+    // Already ended before: a late report or a second stop ends nothing more.
+    expect(endedNow([aEnded, b], [aEnded, b])).toEqual([])
+    expect(endedNow([aEnded, b], [testsProgressed(aEnded, report({ done: true, outcome: "failed" }), 3000), b])).toEqual([])
+    // A run `withRun` dropped from the list isn't ended.
+    expect(endedNow(before, [b])).toEqual([])
+    // Both end together.
+    const bEnded = testsTurnEnded(b, [], 2500)
+    expect(endedNow(before, [aEnded, bEnded]).map((r) => r.runId)).toEqual(["a", "bg1"])
+    // A run that took a background id in the same change but didn't end isn't ended.
+    expect(endedNow([a], [testsBackgrounded(a, "a", "bg9")])).toEqual([])
   })
 
   it("sameFolder: the runner's folder and the call's, one inside the other", () => {

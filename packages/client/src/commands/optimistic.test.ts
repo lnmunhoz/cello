@@ -43,7 +43,7 @@ const state = (seq: number, tasks: Task[]): BoardState => ({
   sessions: {}, agents: {},
   reviews: {},
   asks: {},
-  documents: {}, wakes: {}, milestones: {},
+  documents: {}, wakes: {}, testOutcomes: {}, milestones: {},
 })
 
 const synced = (seq: number, tasks: Task[], extra: Partial<Synced> = {}): Synced => ({

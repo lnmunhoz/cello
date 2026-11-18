@@ -69,7 +69,10 @@ export type TestProgress = typeof TestProgress.Type
  * test:e2e`, …; @cello/shared/testRun), the one running (`endedAt` null) or the last one. `label` is what
  * the board calls it ("web e2e"), `command` the command in one line, keys masked. A background run
  * (run_in_background) runs on after the call returns. `outcome`: passed or failed by the command's exit
- * or the runner's report; `ended` when the agent's turn ended without either.
+ * or the runner's report; `ended` when the agent's turn ended without either. `taskId` (CEL-181): the task
+ * the run belongs to, picked by the server when it started (its subagent's task, else the claim the session
+ * touched last); null when it had none. Optional: a run stored before it has no key, and the stored runs
+ * are read as a whole, so it must never be required.
  */
 export const TestRun = Schema.Struct({
   label: Schema.String,
@@ -79,6 +82,7 @@ export const TestRun = Schema.Struct({
   outcome: Schema.NullOr(Schema.Literals(["passed", "failed", "ended"])),
   background: Schema.Boolean,
   progress: Schema.NullOr(TestProgress),
+  taskId: Schema.optionalKey(Schema.NullOr(Id)),
 })
 export type TestRun = typeof TestRun.Type
 
@@ -124,6 +128,12 @@ export const AgentSession = Schema.Struct({
   orchestrating: Schema.optionalKey(Schema.Boolean),
   /** Its test run, running or the last one (CEL-134). Null or absent: none seen. */
   tests: Schema.optionalKey(Schema.NullOr(TestRun)),
+  /**
+   * Every test run it keeps (CEL-181), live and recent, at most four, each with its task: what a task's
+   * thread shows live. `tests` stays the one shown on the Agents page. Absent in events stored before
+   * CEL-181, which means no live row.
+   */
+  runs: Schema.optionalKey(Schema.Array(TestRun)),
   /**
    * Where it runs (CEL-137), with `entrypoint`: the terminal app it was started in (TERM_PROGRAM:
    * `WezTerm`, `iTerm.app`, `vscode`), as its first calls reported it. Null or absent when unknown.
@@ -186,6 +196,8 @@ export const SessionAgent = Schema.Struct({
   waitingOn: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String))),
   /** Its test run, running or the last one (CEL-134). Null or absent: none seen. */
   tests: Schema.optionalKey(Schema.NullOr(TestRun)),
+  /** Every test run it keeps, live and recent (CEL-181); see AgentSession.runs. Absent before CEL-181. */
+  runs: Schema.optionalKey(Schema.Array(TestRun)),
   /**
    * A reviewer's verdict (CEL-160), read from the start of its last reply when it finished: the word only,
    * never the reply. Null when it isn't a reviewer, hasn't finished, or its reply led with none; a resume

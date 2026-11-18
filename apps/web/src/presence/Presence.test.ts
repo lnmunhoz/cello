@@ -40,7 +40,7 @@ const board: BoardState = {
   agents: { [`s1/${builder.agentId}`]: builder },
   reviews: {},
   asks: {},
-  documents: {}, wakes: {}, milestones: {},
+  documents: {}, wakes: {}, testOutcomes: {}, milestones: {},
 }
 
 /** The opening tag of the agent mark inside the element that has `attr` (`data-x` or `data-x="v"`). */

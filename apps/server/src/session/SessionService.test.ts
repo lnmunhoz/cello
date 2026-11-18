@@ -8,7 +8,11 @@ import * as Seed from "../persistence/Seed.ts"
 import * as TaskService from "../task/TaskService.ts"
 import { cmd, setupProject } from "../testing/fixtures.ts"
 import { asAgent, asHuman, services } from "../testing/TestLayers.ts"
-import { endIfUnchanged, isGone, SessionService } from "./SessionService.ts"
+import { Caller } from "@cello/contract/rpcs"
+import * as Commands from "../commands/Commands.ts"
+import { ActivityService } from "./ActivityService.ts"
+import { AgentService } from "./AgentService.ts"
+import { endGone, endIfUnchanged, isGone, SessionService } from "./SessionService.ts"
 
 const run = <A, E>(effect: Effect.Effect<A, E, any>) => effect.pipe(Effect.provide(services())) as Effect.Effect<A, E>
 
@@ -271,6 +275,108 @@ describe("SessionService.checkIn", () => {
       yield* claimed({ ...claude, pid: process.pid })
       expect(yield* sessions.sweep).toBe(0)
     })))
+
+  // CEL-181: a session whose process is gone leaves its test runs open; the sweep ends them as "ended", with
+  // their events, in the command that ends the session.
+  describe("a gone session's open test runs (CEL-181)", () => {
+    const finishedEvents = Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      const found = yield* sql<{ agent_id: string | null; ts: number; payload: string }>`SELECT agent_id, ts, payload FROM events WHERE type = 'tests.finished' ORDER BY seq`
+      return found.map((r) => ({ agentId: r.agent_id, ts: r.ts, ...(JSON.parse(r.payload) as { taskId: string; run: Record<string, any> }) }))
+    }).pipe(Effect.orDie)
+
+    const storedRuns = (query: "session" | "agent") =>
+      rows((sql) => query === "session"
+        ? sql<{ tests_json: string | null }>`SELECT tests_json FROM agent_sessions`
+        : sql<{ tests_json: string | null }>`SELECT tests_json FROM session_agents`).pipe(
+        Effect.map((r) => r.map((x) => (x.tests_json === null ? [] : (JSON.parse(x.tests_json) as ReadonlyArray<Record<string, any>>)))))
+
+    it.effect("ends its open runs and those of its subagents that haven't stopped, writes their tests.finished, and leaves stopped agents' alone", () =>
+      run(Effect.gen(function* () {
+        const sessions = yield* SessionService
+        const activity = yield* ActivityService
+        const agents = yield* AgentService
+        const exited = Bun.spawnSync(["true"]).pid
+        const gone = { ...claude, pid: exited }
+        const builder = { ...gone, agent: "a13bfb89c0de1234", agentType: "cello-builder" }
+        const done = { ...gone, agent: "b77d0e11aa22bb33", agentType: "cello-code-reviewer" }
+        const { task } = yield* claimed(gone)
+        yield* asAgent(gone)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "launched", description: task.key }))
+        // The session's own foreground run, a builder's background Docker run, and a reviewer's run that already ended.
+        yield* asAgent(gone)(activity.report({ kind: "tests-started", toolUseId: "toolu_s", command: "bun run test", cwd: "/repo" }))
+        yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_b", command: "bun run test:docker:e2e", cwd: "/repo/wt" }))
+        yield* asAgent(builder)(activity.report({ kind: "background", id: "blo3xolgq", label: "Bash · bun run test:docker:e2e", toolUseId: "toolu_b", waits: true }))
+        yield* asAgent(done)(activity.report({ kind: "tests-started", toolUseId: "toolu_d", command: "bun run test", cwd: "/repo/wt2" }))
+        yield* asAgent(done)(activity.report({ kind: "tool-finished", toolUseId: "toolu_d", failed: false }))
+        expect((yield* finishedEvents).map((e) => e.run.outcome)).toEqual(["passed"])
+
+        yield* TestClock.adjust("10 seconds")
+        expect(yield* sessions.sweep).toBe(1)
+        const events = yield* finishedEvents
+        expect(events.map((e) => ({ agentId: e.agentId, taskId: e.taskId, outcome: e.run.outcome, endedAt: e.run.endedAt }))).toEqual([
+          { agentId: done.agent, taskId: task.id, outcome: "passed", endedAt: 0 },
+          { agentId: null, taskId: task.id, outcome: "ended", endedAt: 10_000 },
+          { agentId: builder.agent, taskId: task.id, outcome: "ended", endedAt: 10_000 },
+        ])
+        // On the rows: every run is over, and the reviewer's own outcome stays "passed".
+        const all = [...(yield* storedRuns("session")), ...(yield* storedRuns("agent"))].flat()
+        expect(all.filter((r) => r.endedAt === null)).toEqual([])
+        // A second sweep writes nothing more.
+        expect(yield* sessions.sweep).toBe(0)
+        expect(yield* finishedEvents).toHaveLength(3)
+      })))
+
+    it.effect("the session.seen the sweep sends carries the runs as ended, not as they were before", () =>
+      run(Effect.gen(function* () {
+        const sessions = yield* SessionService
+        const activity = yield* ActivityService
+        const gone = { ...claude, pid: Bun.spawnSync(["true"]).pid }
+        yield* claimed(gone)
+        yield* asAgent(gone)(activity.report({ kind: "tests-started", toolUseId: "toolu_s", command: "bun run test", cwd: "/repo" }))
+        yield* TestClock.adjust("10 seconds")
+        expect(yield* sessions.sweep).toBe(1)
+        const last = (yield* seenEvents).at(-1)!.session as { endedAt: number | null; tests?: { endedAt: number | null; outcome: string | null } | null; runs?: ReadonlyArray<{ endedAt: number | null; outcome: string | null }> }
+        expect(last.endedAt).toBe(10_000)
+        expect(last.tests).toMatchObject({ endedAt: 10_000, outcome: "ended" })
+        expect(last.runs).toMatchObject([{ endedAt: 10_000, outcome: "ended" }])
+      })))
+
+    it.effect("a sweep that loses the race (the session checked in since) ends no run and writes nothing", () =>
+      run(Effect.gen(function* () {
+        const sessions = yield* SessionService
+        const activity = yield* ActivityService
+        const commands = yield* Commands.Commands
+        const sql = yield* SqlClient.SqlClient
+        const gone = { ...claude, pid: Bun.spawnSync(["true"]).pid }
+        yield* claimed(gone)
+        yield* asAgent(gone)(activity.report({ kind: "tests-started", toolUseId: "toolu_s", command: "bun run test", cwd: "/repo" }))
+        const caller = yield* sessions.resolve(gone)
+        const [stale] = yield* sessions.byIds([caller.sessionId!])
+        yield* TestClock.adjust("5 seconds")
+        yield* sessions.resolve(gone)
+        // The sweep read `stale` before the session called again: its end is called off, with its runs.
+        const ended = yield* commands.write({ commandId: cmd(), rpc: "test", receipt: false }, ({ emit }) => endGone(sql, emit, stale!, 5_000)).pipe(
+          Effect.provideService(Caller, { actorId: caller.actorId, sessionId: caller.sessionId }),
+        )
+        expect(ended.result).toBe(false)
+        expect(yield* finishedEvents).toEqual([])
+        expect((yield* storedRuns("session"))[0]).toMatchObject([{ endedAt: null, outcome: null }])
+      })))
+
+    it.effect("ending the runs and the session are one command: if the event can't be written, nothing ends", () =>
+      run(Effect.gen(function* () {
+        const sessions = yield* SessionService
+        const activity = yield* ActivityService
+        const sql = yield* SqlClient.SqlClient
+        const gone = { ...claude, pid: Bun.spawnSync(["true"]).pid }
+        yield* claimed(gone)
+        yield* asAgent(gone)(activity.report({ kind: "tests-started", toolUseId: "toolu_s", command: "bun run test", cwd: "/repo" }))
+        yield* sql`CREATE TRIGGER fail_finished BEFORE INSERT ON events WHEN NEW.type = 'tests.finished' BEGIN SELECT RAISE(ABORT, 'disk on fire'); END`.pipe(Effect.orDie)
+        expect((yield* Effect.exit(sessions.sweep))._tag).toBe("Failure")
+        expect(yield* rows((sql) => sql`SELECT ended_at FROM agent_sessions`)).toEqual([{ ended_at: null }])
+        expect((yield* storedRuns("session"))[0]).toMatchObject([{ endedAt: null }])
+      })))
+  })
 })
 
 describe("isGone", () => {

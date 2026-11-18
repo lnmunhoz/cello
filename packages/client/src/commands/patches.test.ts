@@ -56,7 +56,7 @@ const state: BoardState = {
   sessions: {}, agents: {},
   reviews: {},
   asks: {},
-  documents: {}, wakes: {},
+  documents: {}, wakes: {}, testOutcomes: {},
 }
 
 describe("milestone patches (CEL-113)", () => {

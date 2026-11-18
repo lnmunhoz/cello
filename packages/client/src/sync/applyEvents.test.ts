@@ -331,6 +331,23 @@ describe("applyEvents: stage, last change and presence (CEL-5, CEL-35)", () => {
   })
 })
 
+// CEL-181: a finished test run is on its task's history, not a change to the task: the board only notes
+// when, so an open history knows to fetch again.
+describe("finished test runs (CEL-181)", () => {
+  const run = { label: "unit tests", command: "bun run test", startedAt: 1_000, endedAt: 9_000, outcome: "passed" as const, background: false, progress: null }
+  const at = (seq: number, body: EventBody): CelloEvent =>
+    ({ seq, ts: seq * 1000, commandId: "c", actorId: "a", sessionId: "s1", workspaceId: "w", projectId: "p1", schemaVersion: 1, ...body }) as CelloEvent
+
+  it("notes when a task's latest run finished and leaves the task as it was", () => {
+    const state = fromSnapshot(snapshot([task("t1")]))
+    expect(state.testOutcomes).toEqual({})
+    const next = applyEvents(state, [at(11, { type: "tests.finished", taskId: "t1", run })])
+    expect(next.testOutcomes["t1"]).toEqual({ taskId: "t1", ts: 11_000 })
+    expect(next.tasks["t1"]).toBe(state.tasks["t1"])
+    expect(applyEvents(next, [at(12, { type: "tests.finished", taskId: "t1", run })]).testOutcomes["t1"]?.ts).toBe(12_000)
+  })
+})
+
 describe("wakes (CEL-92)", () => {
   const run = { id: "r1", sessionId: "s1", taskId: "t1", why: "comment" as const, agentKind: "claude-code", mode: "auto", celloMode: "auto" as const, pid: 7, startedAt: 1_000, endedAt: null, exitCode: null, outcome: "running" as const, error: null }
   const at = (seq: number, body: EventBody): CelloEvent =>

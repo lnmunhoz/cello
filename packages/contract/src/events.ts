@@ -26,6 +26,7 @@ import {
   SessionRun,
   Status,
   Task,
+  TestRun,
   WakeWhy,
   Workspace,
 } from "./entities.ts"
@@ -158,6 +159,11 @@ export const CelloEvent = Schema.Union([
   event("session.not_woken", { session: Id, taskId: Id, why: WakeWhy, reason: NotWokenReason }),
   event("session.run_started", { run: SessionRun }),
   event("session.run_ended", { run: SessionRun }),
+  // An agent's test run ended on a task (CEL-181): passed, failed, or ended without either. Written in the
+  // same command that ends the run on its agent's row, as that agent (the envelope's session and agent),
+  // in the task's project. It's part of the task's history (entity `tests`, id the task) and is not a
+  // change to the task: its version, last change and claim stay. Named `tests.*`, never `task.*`, for that.
+  event("tests.finished", { taskId: Id, run: TestRun }),
   // A project's wake settings changed (CEL-92): `project` is its id, the same as the envelope's projectId.
   event("wake.settings_changed", { project: Id, before: WakeSettingsPatch, after: WakeSettingsPatch }),
   // A comment is activity on its task: the same command sets the task's last change and version (no

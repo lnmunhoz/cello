@@ -22,6 +22,14 @@ const fraction = (run: TestRun): number | null => {
   return Math.min(1, (p.passed + p.failed + p.skipped) / p.total)
 }
 
+/**
+ * The flask of a run that is running (CEL-134, CEL-181): it pulses while the run runs, never otherwise, and
+ * not at all under reduced motion. The Agents page line and a task's live row share it.
+ */
+export function TestRunFlask() {
+  return <FlaskConicalIcon aria-hidden className="size-3 shrink-0 text-accent motion-safe:animate-pulse" />
+}
+
 /** The Agents page row's line while the run runs: "Running tests · web e2e 7 of 13 · 1 failed · 3m12s", and a bar. */
 export function TestRunLine({ run }: { run: TestRun }) {
   const now = useNow()
@@ -31,7 +39,7 @@ export function TestRunLine({ run }: { run: TestRun }) {
     <>
       <span className="text-faint">·</span>
       <span className="flex min-w-0 items-center gap-1.5 text-ink" data-agent-tests title={runTitle(run, now)}>
-        <FlaskConicalIcon aria-hidden className="size-3 shrink-0 text-accent motion-safe:animate-pulse" />
+        <TestRunFlask />
         <span className="shrink-0 font-medium">Running tests</span>
         <span className="min-w-0 truncate text-muted tabular-nums">
           {testRunWords(run, now, { failed: false })}

@@ -179,6 +179,21 @@ describe("describeEvent with a name (CEL-55)", () => {
     expect(describeEvent(ev({ type: "session.orchestrating", session: "s1", orchestrating: false }), state, who)).toBe("Claude Code session c14ca1fa stopped orchestrating")
   })
 
+  it("a finished test run (CEL-181): who ran it, what, and how it went, with the spec files", () => {
+    const builder = { subject: "cello-builder (Sonnet 5.5), subagent of d0d47d35,", plain: "cello-builder · b1d3e5f7" }
+    const run = {
+      label: "web e2e", command: "bun run test:e2e -- e2e/pages.spec.ts", startedAt: 1_000, endedAt: 105_000, outcome: "passed" as const, background: true,
+      progress: { stage: "web-e2e", passed: 3, failed: 0, skipped: 0, total: 3, current: null, failures: [], done: true, outcome: "passed" as const, folder: null },
+    }
+    expect(describeEvent(ev({ type: "tests.finished", taskId: "t1", run }, "claude"), state, builder))
+      .toBe("cello-builder (Sonnet 5.5), subagent of d0d47d35, ran web e2e: passed · e2e/pages.spec.ts · 3 of 3 · 1m44s")
+    // Without a command, or one that names no files, just the outcome.
+    expect(describeEvent(ev({ type: "tests.finished", taskId: "t1", run: { ...run, command: "bun run test", label: "unit tests", progress: null, outcome: "failed" } }), state, "Claude Code session c14ca1fa"))
+      .toBe("Claude Code session c14ca1fa ran unit tests: failed · 1m44s")
+    expect(describeEvent(ev({ type: "tests.finished", taskId: "t1", run: { ...run, outcome: "ended", progress: null } }), state, "Claude Code session c14ca1fa"))
+      .toBe("Claude Code session c14ca1fa ran web e2e: ended · e2e/pages.spec.ts · 1m44s")
+  })
+
   it("waking sessions (CEL-92): what Cello did with the session, and what Lucas changed in the settings", () => {
     const run = { id: "r1", sessionId: "s1", taskId: "t1", why: "comment" as const, agentKind: "claude-code", mode: "auto", celloMode: "auto" as const, pid: 7, startedAt: 1_000, endedAt: null, exitCode: null, outcome: "running" as const, error: null }
     const who = "Claude Code session c14ca1fa"

@@ -28,6 +28,12 @@ export interface BoardState {
   readonly documents: ById<DocumentSummary>
   /** Each task's latest wake (CEL-92), by task id, kept current by the `session.*` wake events. */
   readonly wakes: ById<TaskWake>
+  /**
+   * When each task's latest test run finished (CEL-181), by task id, kept current by `tests.finished`. It's
+   * on the task's history and is no change to the task (its version stays), so this is how an open history
+   * knows to fetch again.
+   */
+  readonly testOutcomes: ById<{ readonly taskId: string; readonly ts: number }>
 }
 
 const byId = <T extends { id: string }>(rows: ReadonlyArray<T>): ById<T> =>
@@ -48,6 +54,7 @@ export const fromSnapshot = (s: Snapshot): BoardState => ({
   asks: byId(s.asks),
   documents: byId(s.documents),
   wakes: Object.fromEntries((s.wakes ?? []).map((w) => [w.taskId, w])),
+  testOutcomes: {},
 })
 
 type Collection = Exclude<keyof BoardState, "seq">
@@ -230,6 +237,9 @@ const apply = (d: Draft, e: CelloEvent) => {
     }
     case "wake.settings_changed":
       return // wake settings load in Settings, not in board state
+    // A test run finished on a task (CEL-181): part of its history, no change to the task, so only the time is kept.
+    case "tests.finished":
+      return d.set("testOutcomes", e.taskId, { taskId: e.taskId, ts: e.ts })
   }
 }
 

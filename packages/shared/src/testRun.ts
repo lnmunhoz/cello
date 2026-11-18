@@ -99,6 +99,29 @@ export const testRunLabel = (command: string): string => {
   return "tests"
 }
 
+/**
+ * The files and folders the first test command in a line named (CEL-181): `bun run test:e2e -- e2e/a.spec.ts`
+ * gives `["e2e/a.spec.ts"]`, a bare `bun run test` none. A target is a word with a `/` or a file extension
+ * that isn't a flag, a `VAR=x`, the Docker runner's own script, or a quoted phrase (`-t "a name"`).
+ */
+export const testRunTargets = (command: string): ReadonlyArray<string> => {
+  const targets: string[] = []
+  const words = testWords(command).slice(1)
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i]!
+    // A flag that takes a value (`-t foo.bar`, `--grep x/y`) leaves that value alone; `--x=y` carries its own.
+    if (VALUE_FLAGS.has(word)) i++
+    else if (!word.startsWith("-") && !/\s/.test(word) && !word.endsWith("test-in-docker.ts") && (word.includes("/") || /\.\w+$/.test(word))) targets.push(word)
+  }
+  return targets
+}
+
+/** The test runners' flags that take their value as the next word. */
+const VALUE_FLAGS: ReadonlySet<string> = new Set(["-t", "--testNamePattern", "--grep", "-g", "--project", "--reporter", "--config", "-c"])
+
+/** The one id of a run, shared by its live row and its finished line (CEL-181): `tests:<session>:<agent or ->:<startedAt>`. */
+export const testRunKey = (sessionId: string, agentId: string | null, startedAt: number): string => `tests:${sessionId}:${agentId ?? "-"}:${startedAt}`
+
 /** The Docker runner's modes (`scripts/test-in-docker.ts <mode>`). */
 export type DockerMode = "all" | "e2e" | "desktop"
 
@@ -142,6 +165,8 @@ export interface TestProgressLike {
 /** What the words need of a run (the contract's TestRun). */
 export interface TestRunLike {
   readonly label: string
+  /** The command in one line; only `testRunWords`'s `targets` option reads it. */
+  readonly command?: string
   readonly startedAt: number
   readonly endedAt: number | null
   readonly outcome: "passed" | "failed" | "ended" | null
@@ -164,19 +189,27 @@ const doneOf = (p: TestProgressLike) => p.passed + p.failed
 /**
  * A run in words. Running: "web e2e 7 of 13 · 1 failed · 3m12s" (no total yet: "7 done"; no progress:
  * "web e2e · 1m20s"). Finished: "web e2e passed · 13 of 13 · 4m02s", "web e2e failed · 1 failed of 13 · 1m00s".
+ * `targets` (CEL-181) names up to two of the files the command ran after the label, "+N more" for the rest:
+ * "web e2e · e2e/pages.spec.ts · 7 of 13 · 1 failed · 3m12s", "web e2e passed · e2e/pages.spec.ts · 3 of 3 · 1m44s".
  */
-export const testRunWords = (run: TestRunLike, now: number, options: { readonly failed?: boolean } = {}): string => {
+export const testRunWords = (
+  run: TestRunLike,
+  now: number,
+  options: { readonly failed?: boolean; readonly targets?: boolean } = {},
+): string => {
   const p = run.progress
   const time = elapsedWords((run.endedAt ?? now) - run.startedAt)
+  const found = options.targets === true && run.command !== undefined ? testRunTargets(run.command) : []
+  const named = found.length === 0 ? null : found.length > 2 ? `${found.slice(0, 2).join(", ")} +${found.length - 2} more` : found.join(", ")
   if (run.endedAt !== null) {
     const counts = p === null ? null : p.failed > 0 ? `${p.failed} failed of ${p.total ?? doneOf(p)}` : `${doneOf(p)} of ${p.total ?? doneOf(p)}`
-    return [`${run.label} ${run.outcome ?? "ended"}`, counts, time].filter((part) => part !== null).join(" · ")
+    return [`${run.label} ${run.outcome ?? "ended"}`, named, counts, time].filter((part) => part !== null).join(" · ")
   }
-  if (p === null) return `${run.label} · ${time}`
+  if (p === null) return [run.label, named, time].filter((part) => part !== null).join(" · ")
   const where = p.total === null ? `${doneOf(p)} done` : `${doneOf(p)} of ${p.total}`
   // `failed: false` leaves a running run's failures out, for a screen that shows them on their own.
   const failed = p.failed > 0 && options.failed !== false ? `${p.failed} failed` : null
-  return [`${run.label} ${where}`, failed, time].filter((part) => part !== null).join(" · ")
+  return [named === null ? `${run.label} ${where}` : run.label, named, named === null ? null : where, failed, time].filter((part) => part !== null).join(" · ")
 }
 
 /** A run short, for a card's stage line: "web e2e 7/13", "web e2e 7 done", "web e2e". */

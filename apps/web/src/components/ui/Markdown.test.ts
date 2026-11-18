@@ -11,7 +11,7 @@ import { Markdown } from "./Markdown.tsx"
 // lib/cello.ts builds the socket's address from the page's location when it loads.
 vi.hoisted(() => Object.assign(globalThis, { location: { protocol: "http:", host: "localhost:4747" } }))
 
-const board: BoardState = { seq: 1, actors: {}, workspaces: {}, projects: {}, statuses: {}, labels: {}, tasks: {}, sessions: {}, agents: {}, reviews: {}, asks: {}, documents: {}, wakes: {}, milestones: {} }
+const board: BoardState = { seq: 1, actors: {}, workspaces: {}, projects: {}, statuses: {}, labels: {}, tasks: {}, sessions: {}, agents: {}, reviews: {}, asks: {}, documents: {}, wakes: {}, testOutcomes: {}, milestones: {} }
 
 const render = (source: string) =>
   renderToStaticMarkup(createElement(RegistryProvider, { initialValues: [[boardAtom, AsyncResult.success(board)]] }, createElement(Markdown, { source })))

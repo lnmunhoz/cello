@@ -93,7 +93,14 @@ const isStoredRun = Schema.is(StoredTestRun)
 export const MAX_RUNS = 4
 
 /** A new run, from the tool call about to run `command`. */
-export const testsStarted = (input: { readonly runId: string; readonly command: string; readonly cwd: string | null; readonly now: number }): StoredTestRun => ({
+export const testsStarted = (input: {
+  readonly runId: string
+  readonly command: string
+  readonly cwd: string | null
+  readonly now: number
+  /** The task the server picked for it (CEL-181); left out or null: none. */
+  readonly taskId?: string | null
+}): StoredTestRun => ({
   runId: input.runId,
   cwd: input.cwd,
   label: testRunLabel(input.command),
@@ -103,6 +110,7 @@ export const testsStarted = (input: { readonly runId: string; readonly command: 
   outcome: null,
   background: false,
   progress: null,
+  ...(input.taskId === undefined ? {} : { taskId: input.taskId }),
 })
 
 const end = (run: StoredTestRun, outcome: NonNullable<TestRun["outcome"]>, now: number): StoredTestRun => ({ ...run, endedAt: now, outcome })
@@ -162,6 +170,18 @@ export const withRun = (runs: ReadonlyArray<StoredTestRun>, run: StoredTestRun):
   const kept = new Set([...remembered, ...live])
   return [...runs.filter((r) => kept.has(r)), run]
 }
+
+/** Every kept run as boards see it (CEL-181): what a task's thread shows live, each with its task. */
+export const runsOf = (json: string | null | undefined): ReadonlyArray<TestRun> => parseRuns(json).map(publicRun)
+
+/**
+ * The runs a change ended (CEL-181): in `after`, ended, and open in `before` under the same run id. So an
+ * unchanged list, a run that was already over (a late report, a second stop) and a run `withRun` dropped
+ * from the list all give none, and each run is reported once. Match within one change only: a run that
+ * takes a background id changes its `runId`, but never ends in the same step.
+ */
+export const endedNow = (before: ReadonlyArray<StoredTestRun>, after: ReadonlyArray<StoredTestRun>): ReadonlyArray<StoredTestRun> =>
+  after.filter((run) => run.endedAt !== null && before.some((r) => r.runId === run.runId && r.endedAt === null))
 
 /** The run boards show: the newest running one, else the one that ended last. */
 export const shownRun = (runs: ReadonlyArray<StoredTestRun>): StoredTestRun | null => {

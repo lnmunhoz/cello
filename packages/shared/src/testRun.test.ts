@@ -10,6 +10,8 @@ import {
   stageFits,
   testRunLabel,
   testRunShort,
+  testRunKey,
+  testRunTargets,
   testRunWords,
   type TestRunLike,
 } from "./testRun.ts"
@@ -152,6 +154,48 @@ describe("the run in words", () => {
     expect(isRunning(run({ endedAt: start + 10, outcome: "passed" }), start + 1000)).toBe(false)
     expect(isRunning(run(), start + STALE_RUN_MS)).toBe(false)
     expect(isRunning(null, start)).toBe(false)
+  })
+
+  it("testRunTargets (CEL-181): the files and folders a test command named, not flags or VAR=x", () => {
+    expect(testRunTargets("bun run test:e2e -- e2e/pages.spec.ts")).toEqual(["e2e/pages.spec.ts"])
+    expect(testRunTargets("CELLO_E2E_REVIEW=1 bun run test:docker:e2e -- e2e/a.spec.ts e2e/b.spec.ts")).toEqual(["e2e/a.spec.ts", "e2e/b.spec.ts"])
+    expect(testRunTargets("bun run test -- apps/server")).toEqual(["apps/server"])
+    expect(testRunTargets("bun run test")).toEqual([])
+    expect(testRunTargets("bun run test -- --reporter=dot apps/server -t \"a name\"")).toEqual(["apps/server"])
+    expect(testRunTargets("bun run test -- apps/server && bun run typecheck apps/web")).toEqual(["apps/server"])
+    expect(testRunTargets("cd apps/web && bun run test -- src/a.test.ts")).toEqual(["src/a.test.ts"])
+    expect(testRunTargets("echo hi")).toEqual([])
+  })
+
+  it("testRunTargets: the value after a flag that takes one is not a target", () => {
+    expect(testRunTargets("bun run test -- -t foo.bar apps/server")).toEqual(["apps/server"])
+    expect(testRunTargets("bun run test -- --grep foo.bar")).toEqual([])
+    expect(testRunTargets("bun run test:e2e -- -g x/y e2e/a.spec.ts")).toEqual(["e2e/a.spec.ts"])
+    expect(testRunTargets("bun run test -- --testNamePattern a.b")).toEqual([])
+    expect(testRunTargets("bunx playwright test --project web e2e/a.spec.ts --reporter ./r.ts")).toEqual(["e2e/a.spec.ts"])
+    expect(testRunTargets("bunx vitest run -c ./vitest.config.ts src/a.test.ts")).toEqual(["src/a.test.ts"])
+    expect(testRunTargets("bunx vitest run --config ./vitest.config.ts src/a.test.ts")).toEqual(["src/a.test.ts"])
+    // `--x=y` carries its value; a flag that takes none leaves the next word alone.
+    expect(testRunTargets("bun run test -- --reporter=./r.ts --run apps/web/src/a.test.ts")).toEqual(["apps/web/src/a.test.ts"])
+  })
+
+  it("testRunWords with targets: up to two after the label, \"+N more\" for the rest, running and finished", () => {
+    const named = (command: string, extra: Partial<TestRunLike> = {}) => run({ command, ...extra })
+    const one = "bun run test:e2e -- e2e/pages.spec.ts"
+    expect(testRunWords(named(one, { progress }), start + 192_000, { targets: true })).toBe("web e2e · e2e/pages.spec.ts · 7 of 13 · 1 failed · 3m12s")
+    expect(testRunWords(named(one, { endedAt: start + 104_000, outcome: "passed", progress: { ...progress, passed: 3, failed: 0, total: 3 } }), start, { targets: true }))
+      .toBe("web e2e passed · e2e/pages.spec.ts · 3 of 3 · 1m44s")
+    expect(testRunWords(named("bun run test:e2e -- e2e/a.spec.ts e2e/b.spec.ts e2e/c.spec.ts e2e/d.spec.ts"), start + 5_000, { targets: true })).toBe("web e2e · e2e/a.spec.ts, e2e/b.spec.ts +2 more · 5s")
+    // No command, or no targets in it: the same words as without the option.
+    expect(testRunWords(run(), start + 80_000, { targets: true })).toBe("web e2e · 1m20s")
+    expect(testRunWords(named("bun run test:e2e"), start + 80_000, { targets: true })).toBe("web e2e · 1m20s")
+    // Without the option the Agents page and the card read as before.
+    expect(testRunWords(named(one, { progress }), start + 192_000)).toBe("web e2e 7 of 13 · 1 failed · 3m12s")
+  })
+
+  it("testRunKey: one id for a run, in its live row and in its finished line", () => {
+    expect(testRunKey("S1", "A9", 1_700_000)).toBe("tests:S1:A9:1700000")
+    expect(testRunKey("S1", null, 1_700_000)).toBe("tests:S1:-:1700000")
   })
 
   it("testRunShort: the card's stage line, \"e2e 7/13\"", () => {

@@ -3,7 +3,7 @@
 // task's wake or a woken run read as `other` instead, which the board shows generically.
 import * as Schema from "effect/Schema"
 import { describe, expect, it } from "vitest"
-import { SessionAgent, SessionRun, TaskWake } from "./entities.ts"
+import { AgentSession, SessionAgent, SessionRun, TaskWake, TestRun } from "./entities.ts"
 import { NOT_WOKEN_TEXT, WAKE_WHY_TEXT } from "./wake.ts"
 
 const run = {
@@ -26,6 +26,27 @@ describe("wake reasons a newer server added", () => {
     expect(wake).toMatchObject({ why: "other", reason: "other" })
     expect(WAKE_WHY_TEXT.other).toBe("something this version of Cello doesn't know yet")
     expect(NOT_WOKEN_TEXT.other).toBe("a reason this version of Cello doesn't know yet")
+  })
+})
+
+// CEL-181: a test run knows its task, and an agent's presence carries all its kept runs. Both keys are optional,
+// because runs stored in `tests_json` and presence events stored before them have neither.
+describe("a test run's task and an agent's runs", () => {
+  const testRun = { label: "web e2e", command: "bun run test:e2e", startedAt: 1, endedAt: null, outcome: null, background: true, progress: null }
+  const agent = { sessionId: "s1", agentId: "a1", agentType: "cello-builder", taskId: null, description: null, startedAt: 1, lastSeenAt: 2, endedAt: null }
+  const session = { id: "s1", actorId: "a1", externalId: null, clientName: "claude-code", entrypoint: null, cwd: null, pid: null, startedAt: 1, lastSeenAt: 2, endedAt: null }
+
+  it("a run stored before it has no task still decodes; with one, a task or null, it is kept", () => {
+    expect(Schema.decodeUnknownSync(TestRun)(testRun).taskId).toBeUndefined()
+    expect(Schema.decodeUnknownSync(TestRun)({ ...testRun, taskId: "t1" }).taskId).toBe("t1")
+    expect(Schema.decodeUnknownSync(TestRun)({ ...testRun, taskId: null }).taskId).toBeNull()
+  })
+
+  it("a session and a subagent decode with and without their runs", () => {
+    expect(Schema.decodeUnknownSync(SessionAgent)(agent).runs).toBeUndefined()
+    expect(Schema.decodeUnknownSync(AgentSession)(session).runs).toBeUndefined()
+    expect(Schema.decodeUnknownSync(SessionAgent)({ ...agent, runs: [{ ...testRun, taskId: "t1" }] }).runs?.[0]?.taskId).toBe("t1")
+    expect(Schema.decodeUnknownSync(AgentSession)({ ...session, runs: [] }).runs).toEqual([])
   })
 })
 

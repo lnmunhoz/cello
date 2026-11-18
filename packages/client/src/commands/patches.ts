@@ -4,7 +4,7 @@ import type { Label, LabelGroup, Milestone, Priority, Project, Status, Task } fr
 import type { BoardState } from "../sync/applyEvents.ts"
 import type { Patch } from "./optimistic.ts"
 
-type Collection = Exclude<keyof BoardState, "seq" | "agents" | "wakes">
+type Collection = Exclude<keyof BoardState, "seq" | "agents" | "wakes" | "testOutcomes">
 type Row<K extends Collection> = BoardState[K][string]
 
 const put = <K extends Collection>(state: BoardState, key: K, row: Row<K>): BoardState =>

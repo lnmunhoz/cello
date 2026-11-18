@@ -31,8 +31,10 @@ import {
   withBackground,
   withRun,
 } from "./activity.ts"
+import * as Commands from "../commands/Commands.ts"
 import { AgentService } from "./AgentService.ts"
 import { cleanAgentText, cleanStep, CONTROL_CHARACTERS, MAX_TRANSCRIPT_PATH, SessionService } from "./SessionService.ts"
+import { recordFinished, runTask } from "./testOutcomes.ts"
 
 export class ActivityService extends Context.Service<ActivityService, {
   /** What a hook saw the caller do. The human, or a call without a session, changes nothing. */
@@ -88,6 +90,7 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const agents = yield* AgentService
   const sessions = yield* SessionService
+  const commands = yield* Commands.Commands
   /** When boards last heard each actor's run move, with its failures then. In memory: a restart tells again. */
   const heard = new Map<string, { readonly at: number; readonly failed: number }>()
 
@@ -124,14 +127,17 @@ const make = Effect.gen(function* () {
   ) =>
     Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis
-      const moved = yield* sql.withTransaction(Effect.gen(function* () {
-        const row = yield* read(actor)
-        if (row === null) return false
-        const runs = parseRuns(row.tests_json)
-        const next = change(parseBackground(row.background_json), runs, now)
-        yield* write(actor, { background_json: stored(next.background), tests_json: stored(next.runs) })
-        return next.runs.length !== runs.length || next.runs.some((run, i) => run !== runs[i])
-      }))
+      // One command: the runs' change, and `tests.finished` for each it ended (testOutcomes.ts), commit together.
+      const { result: moved } = yield* commands.write({ commandId: crypto.randomUUID(), rpc: "activity.report", receipt: false }, ({ emit }) =>
+        Effect.gen(function* () {
+          const row = yield* read(actor)
+          if (row === null) return false
+          const runs = parseRuns(row.tests_json)
+          const next = change(parseBackground(row.background_json), runs, now)
+          const kept = yield* recordFinished(sql, emit, runs, next.runs, actor)
+          yield* write(actor, { background_json: stored(next.background), tests_json: stored(kept) })
+          return next.runs.length !== runs.length || next.runs.some((run, i) => run !== runs[i])
+        }))
       if (moved) {
         heard.delete(`${actor.sessionId} ${actor.agentId ?? ""}`)
         yield* announce(actor)
@@ -156,10 +162,12 @@ const make = Effect.gen(function* () {
         const runId = cleanAgentText(input.toolUseId)
         const command = cleanStep(input.command)
         if (runId === null || command === null) return
+        // The task it's for is picked now, and stays on the run (CEL-181): the live row and the outcome use it.
+        const taskId = yield* runTask(sql, actor)
         // Beside its live runs (a background Docker run goes on), never in place of them.
         return yield* change(actor, (background, runs, now) => ({
           background,
-          runs: withRun(runs, testsStarted({ runId, command, cwd: cleanFolder(input.cwd), now })),
+          runs: withRun(runs, testsStarted({ runId, command, cwd: cleanFolder(input.cwd), now, taskId })),
         }))
       }
       case "tool-finished": {
@@ -184,24 +192,28 @@ const make = Effect.gen(function* () {
     const sessionId = caller.sessionId
     const now = yield* Clock.currentTimeMillis
     const cleaned = cleanProgress(input)
-    // Read, pick and write in one transaction, so two reports (or a report and a hook) can't interleave.
-    const found = yield* sql.withTransaction(Effect.gen(function* () {
-      const rows = yield* sql<{ agent_id: string | null; tests_json: string | null }>`
-        SELECT NULL AS agent_id, tests_json FROM agent_sessions WHERE id = ${sessionId} AND tests_json IS NOT NULL
-        UNION ALL
-        SELECT agent_id, tests_json FROM session_agents WHERE session_id = ${sessionId} AND tests_json IS NOT NULL`
-      // Ended runs too: one that took this run folder's reports keeps them, so a late one never lands elsewhere.
-      const candidates = rows.flatMap((r) => parseRuns(r.tests_json).map((run) => ({ actor: { sessionId, agentId: r.agent_id }, run })))
-      const picked = pickRun(candidates, cwd, cleaned)
-      if (picked === undefined || picked.run.endedAt !== null) return undefined
-      const row = yield* read(picked.actor)
-      if (row === null) return undefined
-      const next = testsProgressed(picked.run, cleaned, now)
-      const runs = parseRuns(row.tests_json).map((run) => (run.runId === picked.run.runId ? next : run))
-      // A runner reporting is its agent at work: seen now.
-      yield* write(picked.actor, { background_json: row.background_json, tests_json: stored(runs) }, now)
-      return { actor: picked.actor, ended: next.endedAt !== null }
-    }))
+    // Read, pick and write in one command, so two reports (or a report and a hook) can't interleave; a run
+    // it ends is kept on its task in the same command (CEL-181), credited to the agent whose run it was.
+    const { result: found } = yield* commands.write({ commandId: crypto.randomUUID(), rpc: "activity.report", receipt: false }, ({ emit }) =>
+      Effect.gen(function* () {
+        const rows = yield* sql<{ agent_id: string | null; tests_json: string | null }>`
+          SELECT NULL AS agent_id, tests_json FROM agent_sessions WHERE id = ${sessionId} AND tests_json IS NOT NULL
+          UNION ALL
+          SELECT agent_id, tests_json FROM session_agents WHERE session_id = ${sessionId} AND tests_json IS NOT NULL`
+        // Ended runs too: one that took this run folder's reports keeps them, so a late one never lands elsewhere.
+        const candidates = rows.flatMap((r) => parseRuns(r.tests_json).map((run) => ({ actor: { sessionId, agentId: r.agent_id }, run })))
+        const picked = pickRun(candidates, cwd, cleaned)
+        if (picked === undefined || picked.run.endedAt !== null) return undefined
+        const row = yield* read(picked.actor)
+        if (row === null) return undefined
+        const next = testsProgressed(picked.run, cleaned, now)
+        const before = parseRuns(row.tests_json)
+        const after = before.map((run) => (run.runId === picked.run.runId ? next : run))
+        const kept = yield* recordFinished(sql, emit, before, after, picked.actor)
+        // A runner reporting is its agent at work: seen now.
+        yield* write(picked.actor, { background_json: row.background_json, tests_json: stored(kept) }, now)
+        return { actor: picked.actor, ended: next.endedAt !== null }
+      }))
     if (found === undefined) return { matched: false }
     const key = `${sessionId} ${found.actor.agentId ?? ""}`
     const last = heard.get(key)

@@ -19,7 +19,8 @@ import * as Commands from "../commands/Commands.ts"
 import { newId } from "../persistence/ids.ts"
 import * as Seed from "../persistence/Seed.ts"
 import { isAlive } from "../process/isAlive.ts"
-import { testsOf } from "./activity.ts"
+import { parseRuns, runsOf, stored, testsOf, testsTurnEnded } from "./activity.ts"
+import { recordFinished } from "./testOutcomes.ts"
 
 /** What a request says about its caller, decoded from the identity headers. */
 export interface Identity {
@@ -131,6 +132,31 @@ export const endIfUnchanged = (sql: SqlClient.SqlClient, seen: Pick<AgentSession
     RETURNING id`.pipe(Effect.map((rows) => rows.length > 0))
 
 /**
+ * What the sweep does for a gone session, in the command that tells the boards (CEL-181): `endIfUnchanged`,
+ * and only when that ended it, its test runs that are still open, and those of its subagents that haven't
+ * stopped, end as "ended" (nothing of it is left to end them), each with its `tests.finished` on its task.
+ * Returns whether the session was ended; a sweep that lost the race ends and writes nothing.
+ */
+export const endGone = (sql: SqlClient.SqlClient, emit: Commands.WriteContext["emit"], seen: Pick<AgentSession, "id" | "lastSeenAt">, now: number) =>
+  Effect.gen(function* () {
+    if (!(yield* endIfUnchanged(sql, seen, now))) return false
+    const holders = yield* sql<{ agent_id: string | null; tests_json: string }>`
+      SELECT NULL AS agent_id, tests_json FROM agent_sessions WHERE id = ${seen.id} AND tests_json IS NOT NULL
+      UNION ALL
+      SELECT agent_id, tests_json FROM session_agents WHERE session_id = ${seen.id} AND ended_at IS NULL AND tests_json IS NOT NULL`
+    for (const holder of holders) {
+      const before = parseRuns(holder.tests_json)
+      const after = before.map((run) => testsTurnEnded(run, [], now))
+      if (!after.some((run, i) => run !== before[i])) continue
+      const kept = stored(yield* recordFinished(sql, emit, before, after, { sessionId: seen.id, agentId: holder.agent_id }))
+      yield* holder.agent_id === null
+        ? sql`UPDATE agent_sessions SET tests_json = ${kept} WHERE id = ${seen.id}`
+        : sql`UPDATE session_agents SET tests_json = ${kept} WHERE session_id = ${seen.id} AND agent_id = ${holder.agent_id}`
+    }
+    return true
+  })
+
+/**
  * Whether a session holding a claim is gone: its process exited (checked by pid, since the server
  * runs on the same machine), or, with no pid, 2 hours passed without a call. Returns why, or false.
  */
@@ -227,6 +253,7 @@ export const toSession = (r: SessionRow): AgentSession => ({
   effort: r.effort ?? null,
   orchestrating: r.orchestrating === 1,
   tests: testsOf(r.tests_json),
+  runs: runsOf(r.tests_json),
   terminal: r.terminal ?? null,
 })
 
@@ -333,12 +360,17 @@ const make = Effect.gen(function* () {
     session: AgentSession,
     workspaceIds: ReadonlyArray<string>,
     now: number,
-    first: Effect.Effect<boolean, SqlError> = Effect.succeed(true),
+    first?: (context: Commands.WriteContext) => Effect.Effect<boolean, SqlError>,
   ) =>
-    commands.write({ commandId: crypto.randomUUID(), rpc: "session.seen", receipt: false }, ({ emit }) =>
+    commands.write({ commandId: crypto.randomUUID(), rpc: "session.seen", receipt: false }, (context) =>
       Effect.gen(function* () {
-        if (!(yield* first)) return false
-        yield* Effect.forEach(workspaceIds, (workspaceId) => emit({ type: "session.seen", session }, { workspaceId, projectId: null }), {
+        const { emit } = context
+        if (first !== undefined && !(yield* first(context))) return false
+        // What `first` changed (the sweep ends the session's test runs, CEL-181) is what boards are told:
+        // the runs as they are now, not as they were read before.
+        const [row] = first === undefined ? [] : yield* sql<SessionRow>`SELECT * FROM agent_sessions WHERE id = ${session.id}`
+        const told: AgentSession = row === undefined ? session : { ...session, tests: toSession(row).tests, runs: toSession(row).runs }
+        yield* Effect.forEach(workspaceIds, (workspaceId) => emit({ type: "session.seen", session: told }, { workspaceId, projectId: null }), {
           discard: true,
         })
         for (const id of workspaceIds) heard.set(`${session.id} ${id}`, now)
@@ -376,7 +408,7 @@ const make = Effect.gen(function* () {
     let ended = 0
     for (const session of gone) {
       // Ended and told in one command, and only if it hasn't checked in since it was read.
-      if (!(yield* tell({ ...session, endedAt: now }, yield* claimWorkspaces(session.id), now, endIfUnchanged(sql, session, now)))) continue
+      if (!(yield* tell({ ...session, endedAt: now }, yield* claimWorkspaces(session.id), now, ({ emit }) => endGone(sql, emit, session, now)))) continue
       ended++
       // Its next call (a resumed session) must reach the boards at once, whatever the throttle says.
       for (const key of heard.keys()) if (key.startsWith(`${session.id} `)) heard.delete(key)

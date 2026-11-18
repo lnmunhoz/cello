@@ -3,6 +3,7 @@ import type { BoardState } from "./sync/applyEvents.ts"
 import { isReadable, type StreamedEvent } from "@cello/contract/events"
 import { stageInfo } from "@cello/contract/stages"
 import { NOT_WOKEN_TEXT, RUN_END_TEXT, runLength, WAKE_WHY_TEXT } from "@cello/contract/wake"
+import { testRunWords } from "@cello/shared/testRun"
 import { andList } from "@cello/shared/words"
 
 const FIELD_NAMES: Record<string, string> = { title: "title", description: "description", priority: "priority", dueDate: "due date", parentId: "parent" }
@@ -165,6 +166,9 @@ export const describeEvent = (e: StreamedEvent, state: HistoryNames, name?: stri
       const length = e.run.endedAt === null ? "" : ` ${runLength(e.run.endedAt - e.run.startedAt)}`
       return `${plain}'s woken run ${RUN_END_TEXT[e.run.outcome]}${length}${e.run.error ? `: ${e.run.error}` : ""}`
     }
+    // A test run that ended on the task (CEL-181): the same words as the Agents page, with the spec files.
+    case "tests.finished":
+      return `${who} ran ${e.run.label}: ${testRunWords(e.run, e.run.endedAt ?? e.ts, { targets: true }).slice(e.run.label.length + 1)}`
     case "session.orchestrating":
       return e.orchestrating ? `${who} started orchestrating` : `${who} stopped orchestrating`
     case "wake.settings_changed": {
