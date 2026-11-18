@@ -84,9 +84,17 @@ export function TaskPanel({
   const narrow = useMediaQuery(`(max-width: ${NARROW_WIDTH - 1}px)`)
   // Opened from a milestone's page (CEL-132), closing goes back to it; otherwise to the Issues tab.
   const { milestoneId } = useParams({ strict: false }) as { milestoneId?: string }
-  const close = () => {
+  const leave = () => {
     if (milestoneId === undefined) void navigate({ to: "/$projectKey/issues", params: { projectKey: project.key } })
     else void navigate({ to: "/$projectKey/milestones/$milestoneId", params: { projectKey: project.key, milestoneId } })
+  }
+  // The close button and Escape slide the panel out, then leave (CEL-189). It's the task being closed, so
+  // opening another one mid-slide keeps that one open. With reduced motion it leaves at once.
+  const [closing, setClosing] = useState<number | null>(null)
+  const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)")
+  const close = () => {
+    if (reduceMotion) leave()
+    else setClosing(number)
   }
   // Expand from the panel; collapse from the main area, closing the viewer beside it. It stays on the
   // page it was opened from (the Issues tab, a milestone's page).
@@ -106,9 +114,13 @@ export function TaskPanel({
       data-view={view}
       data-side-panel="task"
       data-placement={placement}
-      className={`relative col-start-1 row-start-3 flex min-h-0 min-w-0 flex-col bg-surface ${full ? "" : "border-line md:col-start-2 md:row-span-full md:border-l"}`}
+      data-closing={closing === number ? "" : undefined}
+      className={`task-panel-slide relative col-start-1 row-start-3 flex min-h-0 min-w-0 flex-col bg-surface ${full ? "" : "border-line md:col-start-2 md:row-span-full md:border-l"}`}
       onKeyDown={(e) => {
         if (e.key === "Escape" && e.target === e.currentTarget && !full) close()
+      }}
+      onAnimationEnd={(e) => {
+        if (e.target === e.currentTarget && e.animationName === "task-panel-out" && closing === number) leave()
       }}
     >
       {placement === "side" && !narrow ? <ResizeHandle edge="left" label="Resize task panel" rule={TASK_PANEL_WIDTH} width={width} onResize={onResize} /> : null}
