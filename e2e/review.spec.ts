@@ -404,8 +404,8 @@ test("CEL-187: Send back from its dialog: a refused one keeps the dialog open wi
   await expect(note).toHaveValue("The fold is too fast.")
   await expect(send).toBeEnabled()
   await expect(send).toHaveAttribute("aria-busy", "false")
-  // The reason shows once, in the dialog; the packet behind it is still open.
-  await expect(one.article.getByRole("alert")).toHaveCount(0)
+  // The reason shows once, in the dialog (which sits inside the row), not under the row's buttons too; the packet behind it is still open.
+  await expect(page.locator("[data-decision-failed]")).toHaveCount(1)
   await expect(one.header).toHaveAttribute("aria-expanded", "true")
 
   await captionWithUrl(page, "Send back again: the dialog's button says it's sending, and waits")
