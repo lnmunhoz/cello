@@ -1,7 +1,8 @@
 // A build's git facts (CEL-37): the commit it's made from and what changed since the previous build.
 // Used where builds are made: the web app's `vite build` (apps/web/buildStamp.ts), `bun run build` in
-// apps/cli, and `cello start` or the dev server run from source. Node's child_process, not Bun's, since
-// Vite runs this under Node.
+// apps/cli, and `cello start` or the dev server run from source. Vite runs under Bun (the web app's
+// scripts are `bun --bun vite`, CEL-175), so builds don't depend on the shell's Node. `node:child_process`
+// stays because both runtimes have it.
 import { spawnSync } from "node:child_process"
 import type { WebBuild } from "@cello/contract/build"
 import { APP_VERSION } from "@cello/shared/version"
