@@ -213,6 +213,31 @@ describe("link targets", () => {
   it("decodes percent-escapes in targets", () => {
     expect(linkTargets("![x](my%20chart.png)")).toEqual([{ target: "my chart.png", image: true }])
   })
+
+  // CEL-100 (CodeQL js/redos): hostile text must be read in one pass. These finish at once with the fix and
+  // never finish with the old pattern, so a regression shows as a hang in CI, with no timer in the test.
+  it("reads unclosed nested brackets in one pass: CodeQL js/redos (CEL-100)", () => {
+    const witness = "[[]" + "()[]".repeat(5_000)
+    expect(linkTargets(witness)).toEqual([])
+    expect(mapLinkTargets(witness, () => "x")).toBe(witness)
+  })
+
+  it("still finds a link after unclosed nested brackets (CEL-100)", () => {
+    const witness = "[[]" + "()[]".repeat(5_000)
+    expect(linkTargets(`${witness} [ok](a.png)`)).toEqual([{ target: "a.png", image: false }])
+  })
+
+  it("reads long runs of nested and plain label text in one pass (CEL-100)", () => {
+    expect(linkTargets("[" + "[a]".repeat(30_000))).toEqual([])
+    expect(linkTargets("[" + "a".repeat(100_000))).toEqual([])
+  })
+
+  it("keeps brackets inside a link target and an image inside a link (CEL-100)", () => {
+    expect(linkTargets("[![a](b[1].png)](c)")).toEqual([
+      { target: "b[1].png", image: true },
+      { target: "c", image: false },
+    ])
+  })
 })
 
 describe("what a page's link points at", () => {
