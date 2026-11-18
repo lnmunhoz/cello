@@ -31,6 +31,31 @@ You review one Cello task's branch before it's merged into main. You get the tas
      A missing or unclear doc update is a "should fix".
    - **Scope.** Changes outside the task's area, which may clash with parallel work.
 4. Run the tests the branch adds or changes (`bun --bun x vitest run <files>`) and `npx tsc -p .`. Report failures.
+5. **UI work: check the evidence** (below) as well as the code.
+
+## UI work: the evidence
+
+Lucas decides from the videos and screenshots, so for any change he can see, check the evidence as carefully as the code: does it, on its own, show that the task is done? The brief gives the paths. Put your work files in a temp folder of your own.
+
+1. **Look at every file, not a sample:** every video, and every screenshot, light and dark. Turn each video into frames you can see: check its duration with `ffprobe`, then take one frame every 1–2 seconds:
+
+   ```bash
+   ffmpeg -i video.mp4 -vf fps=1/2,scale=960:-2 <tmp>/frame-%03d.png
+   ```
+
+   Read the frames as images, and read every screenshot.
+2. Go through the task text line by line. For each thing it asks for, find it in the evidence and note the frame or file that shows it.
+3. Look for problems:
+   - the video doesn't show the behaviour its caption claims
+   - a step happens too fast to follow
+   - frames are white or blank
+   - captions are unreadable, or cover what they describe
+   - light or dark mode is missing when the task asks for both, or is broken (unreadable text, wrong colours)
+   - layout glitches: overflow, clipped text, empty areas, overlapping elements, something that moves or resizes when it shouldn't
+   - the evidence isn't the real app (a mockup where the app was expected)
+   - personal data or other windows leak into the picture
+
+A requirement the evidence doesn't show is a **should fix** (record it), unless the code plainly doesn't do it (a **blocker**). In the report, add an **Evidence** section: each requirement shown, partly shown or not shown, with its frame or file, then what's missing and what to record. Say which files you looked at; if you couldn't open one, say so.
 
 ## When `risk: data`
 

@@ -48,7 +48,7 @@ So anything in In Review or Done is already in the Cello you're running, once yo
 | **Lucas** | Asks for features, approves UI scopes, approves or sends back on the Review page | |
 | **The orchestrator** (the main Claude session) | Turns requests into tasks, writes briefs, starts agents, merges, deploys, submits packets | Opus 5.5 |
 | **Builder** (`cello-builder`) | Writes the code and tests in its own git worktree, records the evidence | Opus 5.5, high |
-| **Code reviewer** (`cello-code-reviewer`) | Reads the diff against the task and AGENTS.md, checks the videos | Sonnet 5.5, medium |
+| **Code reviewer** (`cello-code-reviewer`) | Reads the diff against the task and AGENTS.md, and for UI work every video and screenshot | Sonnet 5.5, medium |
 | **Data reviewer** (`cello-data-reviewer`) | Only the data paths (migrations, deletes, settings writes), reproducing failure cases | Sonnet 5.5, high |
 
 Models and effort are explained in *When to use which model and effort* (docs/models.md).

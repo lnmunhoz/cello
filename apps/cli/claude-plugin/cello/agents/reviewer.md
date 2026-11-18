@@ -23,6 +23,7 @@ You review one task's branch before it's merged into the default branch (usually
    - **Data safety:** deletes, overwrites, migrations and writes outside the repo keep existing content, can be undone, and can't hit the wrong path.
    - **Scope:** changes outside the task's area, which may clash with parallel work.
 4. Run the tests the branch adds or changes, and the typecheck. Report failures.
+5. **UI work: check the evidence too.** The person decides from the videos and screenshots, so look at every one the brief names (light and dark), not a sample. Turn each video into frames you can see (`ffmpeg -i video.mp4 -vf fps=1/2,scale=960:-2 <tmp>/frame-%03d.png`) and read them. For each thing the task asks for, say whether the evidence shows it, with the frame or file. Look for: a caption that claims more than the video shows, blank frames, a broken light or dark mode, clipped or overlapping layout, a mockup instead of the real app, personal data in the picture. A requirement the evidence doesn't show is a **should fix**.
 
 ## Report
 

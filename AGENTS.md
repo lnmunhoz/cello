@@ -55,7 +55,7 @@ The orchestrator claims the task and runs it. Full path with diagrams: [docs/fea
 1. **Build.** A `cello-builder` agent works test first in its own worktree and commits on its branch. It never pushes, touches main or changes the live board.
 2. **Review.** A fresh `cello-code-reviewer` gets the diff against main and the task text, never the builder's report.
    - When the change touches Lucas's data, also run `cello-data-reviewer` on those parts. Lucas's data means migrations, backup/restore, writes outside the data folder, deleting files, or the desktop panel's security rules.
-   - For UI work, the code reviewer checks the videos with `cello-visual-reviewer`'s checklist.
+   - For UI work, the same reviewer checks every video and screenshot (its "UI work: the evidence" checklist). Give it their paths.
 3. **Fix.** Findings go back to the same builder. If a blocker survives one round, or it's a design question, ask on the card.
 4. **Merge and release.** Merge as `merge: <what> (CEL-n)`, which becomes the changelog line, so write it for Lucas. Run the related e2e specs. Then run `bun run release` on main.
    - Every deploy is a release. Never rebuild or restart by hand.
@@ -75,7 +75,7 @@ Small changes (docs, a one-line fix) skip steps 1–3, still test first.
 | Agent | Model | Effort |
 | --- | --- | --- |
 | `cello-builder` | Opus 5.5 | high |
-| `cello-code-reviewer`, `cello-visual-reviewer` | Sonnet 5.5 | medium |
+| `cello-code-reviewer` | Sonnet 5.5 | medium |
 | `cello-data-reviewer` | Sonnet 5.5 | high |
 | `Explore` | Haiku 5.5 | medium |
 | Fable 5.2 | only when Lucas asks | |
