@@ -7,9 +7,13 @@ import { createContext, use, type ComponentProps, type ReactNode } from "react"
 import { variants, type VariantProps } from "./variants.ts"
 
 const control = variants(
-  "relative isolate grid auto-cols-fr grid-flow-col gap-0.5 bg-sunken p-0.5",
-  { size: { md: "rounded-lg", sm: "rounded-md" } },
-  { size: "md" },
+  "relative isolate grid grid-flow-col gap-0.5 bg-sunken p-0.5",
+  {
+    size: { md: "rounded-lg", sm: "rounded-md" },
+    // equal: every item as wide as the widest; content: each as wide as its label (a row of project chips).
+    fit: { equal: "auto-cols-fr", content: "auto-cols-max" },
+  },
+  { size: "md", fit: "equal" },
 )
 
 const indicator = variants(
@@ -31,9 +35,9 @@ const SizeContext = createContext<Size>("md")
  * Pick one of a few options, like List / Board. Works as a radio group; the raised
  * background slides to the choice only when it changes. sm: a compact one for a footer (the ⌘K bar's layout).
  */
-export function SegmentedControl({ children, size, ...props }: Omit<ComponentProps<typeof BaseControl>, "className" | "children"> & { children: ReactNode } & VariantProps<typeof control>) {
+export function SegmentedControl({ children, size, fit, ...props }: Omit<ComponentProps<typeof BaseControl>, "className" | "children"> & { children: ReactNode } & VariantProps<typeof control>) {
   return (
-    <BaseControl {...props} className={control({ size })}>
+    <BaseControl {...props} className={control({ size, fit })}>
       <BaseIndicator className={indicator({ size })} />
       <SizeContext value={size}>{children}</SizeContext>
     </BaseControl>
