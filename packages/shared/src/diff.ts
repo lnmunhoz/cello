@@ -98,10 +98,19 @@ const pathOf = (raw: string): string => {
   return rest.startsWith('"') ? unquote(rest) : rest
 }
 
-/** Both sides lose git's one-letter prefix (`a/`, `b/`), when every side that has a path has one. */
+/** git's prefixes: `a/` and `b/`, or with diff.mnemonicPrefix `c/`, `i/`, `w/` and `o/`. */
+const GIT_PREFIX = /^[abciwo]\//
+
+/**
+ * Both sides lose git's one-letter prefix. Two paths lose it only when their letters differ (`a/` and `b/`),
+ * so a `--no-prefix` diff of `x/y.ts` keeps its folder; one path alone only when its letter is one git uses.
+ */
 const withoutPrefixes = (sides: readonly [string | null, string | null]): [string | null, string | null] => {
   const present = sides.filter((s): s is string => s !== null)
-  const strip = present.length > 0 && present.every((s) => /^[A-Za-z]\//.test(s))
+  const strip =
+    present.length === 2
+      ? present.every((s) => GIT_PREFIX.test(s)) && present[0]![0] !== present[1]![0]
+      : present.length === 1 && GIT_PREFIX.test(present[0]!)
   const one = (s: string | null) => (s !== null && strip ? s.slice(2) : s)
   return [one(sides[0]), one(sides[1])]
 }

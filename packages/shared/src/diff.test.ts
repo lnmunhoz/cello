@@ -91,6 +91,16 @@ describe("parseUnifiedDiff: new, deleted and empty files", () => {
   })
 })
 
+describe("parseUnifiedDiff: path prefixes", () => {
+  it("a --no-prefix diff keeps a one-letter folder in the path", () => {
+    expect(only(join("diff --git x/y.ts x/y.ts", "--- x/y.ts", "+++ x/y.ts", "@@ -1 +1 @@", "-a", "+b")).path).toBe("x/y.ts")
+    expect(only(join("--- /dev/null", "+++ x/new.ts", "@@ -0,0 +1 @@", "+a")).path).toBe("x/new.ts")
+  })
+  it("git's mnemonic prefixes (i/ and w/) are dropped like a/ and b/", () => {
+    expect(only(join("diff --git i/src/x.ts w/src/x.ts", "--- i/src/x.ts", "+++ w/src/x.ts", "@@ -1 +1 @@", "-a", "+b")).path).toBe("src/x.ts")
+  })
+})
+
 describe("parseUnifiedDiff: renames", () => {
   it("a pure rename (similarity 100%) has no hunks and keeps both paths", () => {
     const file = only(join("diff --git a/docs/old-dev.md b/docs/dev-server.md", "similarity index 100%", "rename from docs/old-dev.md", "rename to docs/dev-server.md"))
