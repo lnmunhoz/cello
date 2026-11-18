@@ -80,6 +80,27 @@ async function shoot(page: Page, name: string, prefix = "cel-160") {
   await page.evaluate(() => document.documentElement.classList.remove("dark"))
 }
 
+/**
+ * A still of a row's hover (CEL-181). The browser draws a native `title` tooltip outside the page, which a
+ * screenshot never has, so this draws the row's real `title` text in a box under it, in light and dark. The
+ * text is the attribute's, not written here.
+ */
+async function hoverStill(page: Page, row: Locator, name: string) {
+  await row.scrollIntoViewIfNeeded()
+  const title = (await row.getAttribute("title"))!
+  await page.evaluate(([text, box]) => {
+    const tip = document.createElement("pre")
+    tip.id = "e2e-hover-title"
+    tip.textContent = text
+    tip.style.cssText = `position:fixed;left:${box.x + 40}px;top:${box.y + box.height + 4}px;max-width:${box.width - 40}px;margin:0;padding:6px 10px;` +
+      "font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;z-index:2147483000;" +
+      "background:var(--raised);color:var(--ink);border-radius:6px;box-shadow:var(--shadow-pop)"
+    document.body.append(tip)
+  }, [title, (await row.boundingBox())!] as const)
+  await shoot(page, name, "cel-181")
+  await page.evaluate(() => document.getElementById("e2e-hover-title")?.remove())
+}
+
 /** The thread in view in the open task: its Comments section at the top of the panel. */
 const showThread = async (root: Locator) => {
   const heading = root.getByRole("region", { name: "Comments" })
@@ -392,6 +413,11 @@ test("CEL-181: a test run shows live under the comment that announced it, then h
   await expect(lives).toHaveCount(2)
   await expect(lives.nth(0)).toContainText("Running web e2e")
   await expect(lives.nth(1)).toContainText("Running unit tests · apps/server")
+
+  await caption(page, "The runner reports as it goes: 2 of 3 and a failure, which shows at once, in red")
+  report({ passed: 1, failed: 1, current: "e2e/pages.spec.ts", failures: ["e2e/pages.spec.ts:40 › opens the page"] })
+  await expect(lives.nth(0)).toContainText("Running web e2e · e2e/pages.spec.ts · 2 of 3 · 1 failed")
+  await expect(lives.nth(0).locator(".text-danger")).toHaveText("1 failed")
   await shoot(page, "two-live", "cel-181")
 
   await caption(page, "The builder's unit runs fail twice and pass: they collapse into one line, the Docker run still live")
@@ -416,6 +442,7 @@ test("CEL-181: a test run shows live under the comment that announced it, then h
   await expect(failed).toHaveAttribute("title", /✘ e2e\/pages\.spec\.ts:40 › opens the page/)
   await expect(lives).toHaveCount(0)
   await shoot(page, "failed", "cel-181")
+  await hoverStill(page, failed, "failed-hover")
 
   await caption(page, "A later comment folds the stretch before it, and the results stay visible")
   orchestrator("task", "stage", two, "fixing")
@@ -432,5 +459,15 @@ test("CEL-181: a test run shows live under the comment that announced it, then h
   await fold.getByRole("button").click()
   await expect(fold).toHaveAttribute("data-open", "")
   await expect(panel2.locator('[data-timeline-line="tests"]')).toHaveCount(2)
+
+  await caption(page, "A run whose end Cello never saw: the orchestrator starts one and its turn ends: a grey \"ended\" line")
+  hooks.hook("pre-tool-use", { ...call("toolu_u9", "bun run test -- apps/web"), hook_event_name: "PreToolUse" })
+  await expect(lives).toHaveCount(1)
+  hooks.hook("stop", { session_id: SESSION2, hook_event_name: "Stop", stop_hook_active: true })
+  const ended = panel2.locator('[data-timeline-line="tests"][data-outcome="ended"]')
+  await expect(ended).toHaveCount(1)
+  await expect(ended).toContainText(/unit tests ended · apps\/web · \d+s/)
+  await expect(lives).toHaveCount(0)
+  await shoot(page, "ended", "cel-181")
   await hold(page)
 })
