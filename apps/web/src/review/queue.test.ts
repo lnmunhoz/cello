@@ -152,6 +152,19 @@ describe("filterQueue: the Review page narrowed to a project (CEL-188)", () => {
   it("a project with no rows has none", () => {
     expect(filterQueue(items, "pc")).toEqual([])
   })
+
+  it("a pick during the confirmation: the decided row stays, and the next row to open is the next one shown", () => {
+    // B-1 was approved (its events took it off the queue); Lucas picks Alpha while the row still says Approved.
+    const queue = [item("A-1", "pa"), item("A-2", "pa")]
+    const decided: Held<(typeof items)[number]> = { key: "B-1", item: item("B-1", "pb"), at: 1, dropped: true, state: { phase: "decided", decision: "approved" } }
+    const keep = new Set([decided.key])
+    const shown = filterQueue(withHeld(queue, (i) => i.task.key, [decided]), "pa", keep).map((i) => i.task.key)
+    expect(shown).toEqual(["A-1", "B-1", "A-2"])
+    // The confirmation ends: the row folds away, and the one that opens is the next shown, not a hidden one.
+    expect(nextAfterDecision(shown, "B-1")).toBe("A-2")
+    const after = filterQueue(withHeld(queue, (i) => i.task.key, [{ ...decided, state: { phase: "leaving", decision: "approved" } }]), "pa", new Set()).map((i) => i.task.key)
+    expect(after).toEqual(["A-1", "A-2"])
+  })
 })
 
 describe("sortQueue: the Review page's order (CEL-188)", () => {
