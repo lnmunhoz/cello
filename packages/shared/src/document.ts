@@ -119,7 +119,7 @@ export const readerContent = (markdown: string, title: string): string => {
   return lines.slice(next).join("\n")
 }
 
-/** Inline markdown as plain text: `**Bold** [link](x)` → "Bold link". */
+/** Inline markdown as plain text: `**Bold** [link](x)` → "Bold link". Display text, never HTML: not a sanitizer. Its callers render it as text. */
 export const plainText = (inline: string): string => {
   const codes: string[] = []
   return inline
@@ -290,8 +290,9 @@ export interface LinkTarget {
 /** What to put in place of a target, or null to keep it. */
 export type MapTarget = (link: LinkTarget) => string | null | undefined
 
+// Each label part starts with a different character, so there is one way to read any text (CEL-100, js/redos).
 const INLINE_LINK =
-  /(!?)\[((?:[^[\]\\]|\\.|\[(?:[^[\]\\]|\\.)*\](?:\([^)]*\))?)*)\]\(([ \t]*)(<[^>\n]*>|[^\s()]+(?:\([^\s()]*\)[^\s()]*)*)((?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*)\)/g
+  /(!?)\[((?:[^[\]\\]|\\.|\[(?:[^[\]\\]|\\.)*\])*)\]\(([ \t]*)(<[^>\n]*>|[^\s()]+(?:\([^\s()]*\)[^\s()]*)*)((?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*)\)/g
 
 const decode = (raw: string) => {
   const target = raw.startsWith("<") && raw.endsWith(">") ? raw.slice(1, -1) : raw
