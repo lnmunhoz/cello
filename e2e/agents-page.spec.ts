@@ -390,7 +390,7 @@ test("CEL-163: the Agents page keeps its content aligned left at a wide, a mid a
   cli(QUIET)("task", "release", "ALN-1")
 })
 
-test("CEL-186: rows keep their place while agents work: a call pulses its row instead of moving it, an idle page runs nothing, a row that leaves or goes quiet moves there", async ({ page, cello, baseURL }) => {
+test("CEL-186: rows keep their place while agents work: a call pulses its row instead of moving it, an idle page runs nothing, a row that leaves or changes group moves there", async ({ page, cello, baseURL }) => {
   test.setTimeout(120_000)
   const project = await seedProject(cello, "Steady", "STD")
   const { statuses } = await defaultWorkspace(cello)
@@ -408,7 +408,7 @@ test("CEL-186: rows keep their place while agents work: a call pulses its row in
   const [first, second, third] = [await sessionId(cello, externals[0]), await sessionId(cello, externals[1]), await sessionId(cello, externals[2])]
   const mine = [first, second, third].map((id) => `session:${id}`)
   /** Our rows in a group, in the order the page shows them (another test's agents may share the workspace). */
-  const order = (id: "working" | "quiet") =>
+  const order = (id: "waiting" | "working") =>
     rowsIn(page, id).evaluateAll((rows, ids) => rows.map((r) => r.getAttribute("data-agent-row") ?? "").filter((r) => ids.includes(r)), mine)
   const rowOf = (id: string) => page.locator(`li:has([data-agent-row="session:${id}"])`)
   /** Nothing the page runs once is still running (a working agent's mark loops by design, CEL-69), and no row is mid-move. */
@@ -420,9 +420,6 @@ test("CEL-186: rows keep their place while agents work: a call pulses its row in
       }).length)).toBe(0)
     await expect(page.locator("main li[style*='transform']:not([style*='none'])")).toHaveCount(0)
   }
-  const start = Date.now()
-  await page.clock.setFixedTime(start)
-
   await page.goto("/agents")
   await caption(page, "Three agents working, in the order they started: first, second, third")
   await expect.poll(() => order("working")).toEqual(mine)
@@ -454,9 +451,11 @@ test("CEL-186: rows keep their place while agents work: a call pulses its row in
   await expect(rowOf(second)).toHaveCount(0)
   expect(await order("working")).toEqual([mine[0], mine[2]])
 
-  await caption(page, "Six minutes on, both go quiet: they move to Quiet, still in the order they started")
-  await page.clock.setFixedTime(start + 6 * 60_000)
-  await expect.poll(() => order("quiet")).toEqual([mine[0], mine[2]])
+  await caption(page, "The third agent's card moves to Needs input: its row slides up to Waiting on you")
+  const third3 = (await cello.run((c) => c["snapshot.get"]({}))).tasks.find((t) => t.key === "STD-3")!
+  await cello.run((c) => c["task.move"]({ commandId: newCommandId(), id: third3.id, statusId: statuses["Needs input"]!.id }))
+  await expect.poll(() => order("waiting")).toEqual([mine[2]])
+  expect(await order("working")).toEqual([mine[0]])
   await animationsSettled(page)
   await expectIdle()
 
