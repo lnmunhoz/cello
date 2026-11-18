@@ -191,15 +191,25 @@ test("CEL-13: an agent publishes a report with an image and a Mermaid diagram th
   await expect(diagram.locator("svg")).toBeVisible()
   await page.getByRole("button", { name: "Use light theme" }).click()
 
-  await caption(page, "Its task chip opens the task, which lists the page")
+  await caption(page, "Its task chip opens the task in the page's side panel (CEL-141), and it lists the page")
   await page.getByRole("link", { name: `${key}-1 Audit billing` }).click()
+  await expect(page).toHaveURL(
+    (url) => url.pathname === `/${key}/pages/billing-audit` && url.searchParams.get("viewer") === `/${key}/1`,
+  )
+  const viewer = page.getByRole("complementary", { name: "Viewer" })
+  await expect(viewer.getByRole("heading", { name: `${key}-1 Audit billing` })).toBeVisible()
+  await expect(viewer.getByLabel("Title")).toHaveValue("Audit billing")
+  await expect(viewer.getByRole("region", { name: "Pages" }).getByRole("link", { name: /Billing audit/ })).toContainText("version 2")
+  await expect(page.getByRole("heading", { level: 1, name: "Billing audit" })).toBeVisible()
+
+  await caption(page, "Open in board: the task on its board, which lists the page")
+  await viewer.getByRole("button", { name: "Open in board" }).click()
   await expect(page).toHaveURL(new RegExp(`/${key}/1$`))
   const panel = taskPanel(page, `${key}-1`)
   const pages = panel.getByRole("region", { name: "Pages" })
   await expect(pages.getByRole("link", { name: /Billing audit/ })).toContainText("version 2")
   // It opens in the side panel beside the board (CEL-60); Expand to full page goes to its address.
   await pages.getByRole("link", { name: /Billing audit/ }).click()
-  const viewer = page.getByRole("complementary", { name: "Viewer" })
   await expect(viewer.getByRole("heading", { level: 1, name: "Billing audit" })).toBeVisible()
   await viewer.getByRole("button", { name: "Expand to full page" }).click()
   await expect(page).toHaveURL(new RegExp(`/${key}/pages/billing-audit$`))
