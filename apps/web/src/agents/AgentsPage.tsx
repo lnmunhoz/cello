@@ -10,6 +10,8 @@ import { agoShort, presenceWords } from "@cello/shared/presence"
 import { isRunning } from "@cello/shared/testRun"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { FolderIcon, HourglassIcon } from "lucide-react"
+import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react"
+import { useState } from "react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
 import { Centered } from "../app/Home.tsx"
 import { CardBody } from "../board/Card.tsx"
@@ -33,6 +35,7 @@ import {
   directTasks,
   finishedRows,
   groupOf,
+  pulseKeyOf,
   rowKeysOf,
   stateTaskOf,
   subagentsLabel,
@@ -44,10 +47,16 @@ import {
  * working in the workspace, with the card each is on, laid out like the Review page. Agents waiting on
  * the human come first, then the ones working, then the quiet ones; subagents sit under their session. One
  * row is open at a time (`?open=`): what the agent was asked and its card on the left, and on the right
- * its live log (CEL-106, AgentLog.tsx). Rows come, move and go live, as agents start, wait, go quiet and finish;
+ * its live log (CEL-106, AgentLog.tsx). Rows keep their place, in the order the agents started (CEL-186):
+ * a call an agent makes pulses its row once; a row animates when it changes group (an agent starts, waits,
+ * goes quiet or finishes) or leaves, and nothing animates while nothing happens (spike-board-ui point 6);
  * the ones that finished today fold into "Finished today" at the bottom, newest first, their logs still
  * a click away while Claude Code keeps the transcript (CEL-107).
  */
+/** How a row moves to its new group, or out (CEL-186): the board's spring. */
+// CEL-189: replace with lib/motion.ts tokens at integration
+const layoutTransition = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 } as const
+
 export function AgentsPage() {
   const board = useBoard()
   const workspaceId = useWorkspaceId()
@@ -89,6 +98,8 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
             </div>
           ) : null}
           {groups.length === 0 ? null : (
+            <MotionConfig reducedMotion="user">
+              <LayoutGroup>
             <div {...queue.list} className="flex flex-col gap-6">
               {groups.map((group) => (
                 <section key={group.id} aria-labelledby={`agents-${group.id}`} data-agents-group={group.id} className="flex flex-col gap-2">
@@ -97,20 +108,56 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                     {group.label} <span className="font-normal text-muted tabular-nums">{group.rows.length}</span>
                   </h2>
                   <ul aria-label={group.label} className="flex flex-col gap-2">
-                    {group.rows.map((row) => (
-                      // A subagent sits under its session, always in the same group (CEL-104); finished ones stand on their own.
-                      <li key={row.id} className={row.kind === "agent" && group.id !== "finished" ? "pl-6" : undefined}>
-                        <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
-                      </li>
-                    ))}
+                    <AnimatePresence initial={false}>
+                      {group.rows.map((row) => (
+                        // A subagent sits under its session, always in the same group (CEL-104); finished ones stand on their own.
+                        // layoutId: a row that changes group slides there from where it was, instead of jumping (CEL-186).
+                        <motion.li
+                          key={row.id}
+                          layoutId={row.id}
+                          layout="position"
+                          transition={layoutTransition}
+                          exit={{ opacity: 0 }}
+                          className={row.kind === "agent" && group.id !== "finished" ? "pl-6" : undefined}
+                        >
+                          <div className="relative">
+                            <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
+                            <Pulse at={pulseKeyOf(row)} />
+                          </div>
+                        </motion.li>
+                      ))}
+                    </AnimatePresence>
                   </ul>
                 </section>
               ))}
             </div>
+              </LayoutGroup>
+            </MotionConfig>
           )}
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * One short pulse over a row each time its agent makes a call (CEL-186): what used to move the row to
+ * the top now shows where it is. None for the call it had when the page opened; it ends invisible, so an
+ * idle page runs no animation.
+ */
+function Pulse({ at }: { at: number }) {
+  const [first] = useState(at)
+  if (at === first) return null
+  return (
+    <motion.span
+      key={at}
+      aria-hidden
+      data-agent-pulse=""
+      className="pointer-events-none absolute inset-0 rounded-lg bg-accent/10"
+      initial={{ opacity: 1 }}
+      animate={{ opacity: 0 }}
+      transition={{ duration: 0.7, ease: "easeOut" }}
+    />
   )
 }
 

@@ -9,7 +9,19 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import type { Locator, Page } from "@playwright/test"
-import { animationsSettled, caption, captionWithUrl, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, test } from "./fixtures.ts"
+import {
+  agentAs,
+  animationsSettled,
+  caption,
+  captionWithUrl,
+  contentAnimations,
+  defaultWorkspace,
+  expect,
+  newCommandId,
+  seedLabels,
+  seedProject,
+  test,
+} from "./fixtures.ts"
 import { celloIn, claudeHooks } from "./claudeHooks.ts"
 import { expectLeftAligned, SHOTS } from "./packets.ts"
 import { openClient } from "../packages/client/test/support/promiseClient.ts"
@@ -377,4 +389,59 @@ test("CEL-163: the Agents page keeps its content aligned left at a wide, a mid a
   }
   await shoot(page, "left-aligned-mid")
   cli(QUIET)("task", "release", "ALN-1")
+})
+
+test("CEL-186: rows keep their place while agents work: a call pulses its row instead of moving it, an idle page runs nothing, a row that leaves or goes quiet moves there", async ({ page, cello, baseURL }) => {
+  test.setTimeout(120_000)
+  const project = await seedProject(cello, "Steady", "STD")
+  const { statuses } = await defaultWorkspace(cello)
+  for (const title of ["Make the timer louder", "Add a dark icon", "Sync the presets"]) {
+    await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title, statusId: statuses.Todo!.id }))
+  }
+  // Three agents start one after another (this test's process is alive, so they stay working).
+  const externals = ["c186e2e1-first-session", "c186e2e2-second-session", "c186e2e3-third-session"] as const
+  const agents = []
+  for (const [i, external] of externals.entries()) {
+    const agent = await agentAs(baseURL!, external, process.pid)
+    await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: `STD-${i + 1}` }))
+    agents.push(agent)
+  }
+  const [first, second, third] = [await sessionId(cello, externals[0]), await sessionId(cello, externals[1]), await sessionId(cello, externals[2])]
+  const mine = [first, second, third].map((id) => `session:${id}`)
+  /** Our rows in a group, in the order the page shows them (another test's agents may share the workspace). */
+  const order = (id: "working" | "quiet") =>
+    rowsIn(page, id).evaluateAll((rows, ids) => rows.map((r) => r.getAttribute("data-agent-row") ?? "").filter((r) => ids.includes(r)), mine)
+  const rowOf = (id: string) => page.locator(`li:has([data-agent-row="session:${id}"])`)
+  const start = Date.now()
+  await page.clock.setFixedTime(start)
+
+  await page.goto("/agents")
+  await caption(page, "Three agents working, in the order they started: first, second, third")
+  await expect.poll(() => order("working")).toEqual(mine)
+  await expect(page.locator("[data-agent-pulse]")).toHaveCount(0)
+
+  await caption(page, "The third agent makes a call, then the first: each row pulses where it is, and nothing moves")
+  await agents[2]!.run((c) => c["task.stage"]({ commandId: newCommandId(), key: "STD-3", stage: "building" }))
+  await expect(rowOf(third).locator("[data-agent-pulse]")).toHaveCount(1)
+  await agents[0]!.run((c) => c["task.stage"]({ commandId: newCommandId(), key: "STD-1", stage: "building" }))
+  await expect(rowOf(first).locator("[data-agent-pulse]")).toHaveCount(1)
+  expect(await order("working")).toEqual(mine)
+
+  await caption(page, "Once the pulses end, the idle page runs no animation")
+  await animationsSettled(page)
+  expect(await contentAnimations(page)).toBe(0)
+
+  await caption(page, "The second agent lets its task go: its row leaves, and the others close the gap")
+  await agents[1]!.run((c) => c["task.release"]({ commandId: newCommandId(), key: "STD-2" }))
+  await expect(rowOf(second)).toHaveCount(0)
+  expect(await order("working")).toEqual([mine[0], mine[2]])
+
+  await caption(page, "Six minutes on, both go quiet: they move to Quiet, still in the order they started")
+  await page.clock.setFixedTime(start + 6 * 60_000)
+  await expect.poll(() => order("quiet")).toEqual([mine[0], mine[2]])
+  await animationsSettled(page)
+  expect(await contentAnimations(page)).toBe(0)
+
+  await agents[0]!.run((c) => c["task.release"]({ commandId: newCommandId(), key: "STD-1" }))
+  await agents[2]!.run((c) => c["task.release"]({ commandId: newCommandId(), key: "STD-3" }))
 })
