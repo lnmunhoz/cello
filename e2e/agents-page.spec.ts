@@ -149,7 +149,8 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   await expect(sidebarLink).toHaveAttribute("data-status", "active")
 
   await caption(page, "The Agents page: waiting on you first, then working, then quiet")
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Agents working 4")
+  // Every row listed (the chip All's number, CEL-188): the orchestrator and its two subagents, the asker and the quiet one. The sidebar's 4 counts the active ones.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Agents working 5")
   await expect(rowsIn(page, "waiting")).toHaveCount(1)
   await expect(askerRow).toHaveAttribute("data-agent-group", "waiting")
   await expect(askerRow.locator("[data-agent-task-state]")).toHaveText("Needs input")
@@ -559,6 +560,8 @@ for (const theme of ["light", "dark"] as const) {
   })
 }
 
+const SORT_BUILDER = "c188sortbuilder01"
+
 test("CEL-188: the Agents page's Display menu sorts the rows: Project goes by the project's name, Started brings the order back; the trigger names the sort, and it is kept after a reload", async ({ page, cello, baseURL }) => {
   const keys = ["SRZ", "SRA", "SRM"] as const
   const names = ["Sort Zeta", "Sort Alpha", "Sort Mid"] as const
@@ -573,7 +576,10 @@ test("CEL-188: the Agents page's Display menu sorts the rows: Project goes by th
     const agent = await agentAs(baseURL!, external, process.pid)
     await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: `${keys[i]}-1` }))
   }
-  const ids = (await Promise.all(externals.map((e) => sessionId(cello, e)))).map((id) => `session:${id}`)
+  // The first session (Zeta) is an orchestrator: a builder under it stays with it under every sort.
+  hooks.launch(externals[0], SORT_BUILDER, "cello-builder", `${keys[0]}-1 build the Zeta task`)
+  const sessions = await Promise.all(externals.map((e) => sessionId(cello, e)))
+  const ids = [...sessions.map((id) => `session:${id}`), `agent:${sessions[0]}/${SORT_BUILDER}`]
   const mine = page.locator(ids.map((id) => `[data-agent-row="${id}"]`).join(", "))
   /** Our rows, in the order the page shows them. */
   const expectOrder = async (order: ReadonlyArray<number>) => {
@@ -583,6 +589,7 @@ test("CEL-188: the Agents page's Display menu sorts the rows: Project goes by th
   const display = page.getByRole("button", { name: /^Display/ })
   const pickSort = async (label: string) => {
     await display.click()
+    await caption(page, `The Display menu is open: Sort by ${label}`)
     const sort = page.getByRole("combobox", { name: "Sort", exact: true })
     await sort.click()
     await page.getByRole("option", { name: label, exact: true }).click()
@@ -592,22 +599,22 @@ test("CEL-188: the Agents page's Display menu sorts the rows: Project goes by th
   }
 
   await page.goto("/agents")
-  await caption(page, "Three agents, in the order they started: Zeta, Alpha, Mid")
-  await expectOrder([0, 1, 2])
+  await caption(page, "Three agents, in the order they started: Zeta (with its builder), Alpha, Mid")
+  await expectOrder([0, 3, 1, 2])
   await expect(display).toHaveText("Display")
 
-  await caption(page, "Display, Sort by Project: Alpha, Mid, Zeta")
+  await caption(page, "Sort by Project: Alpha, Mid, then Zeta, its builder still under it")
   await pickSort("Project")
-  await expectOrder([1, 2, 0])
+  await expectOrder([1, 2, 0, 3])
   await expect(display).toContainText(/Display\s*· Project/)
 
   await captionWithUrl(page, "Reload: the sort stays on this device")
   await page.reload()
-  await expectOrder([1, 2, 0])
+  await expectOrder([1, 2, 0, 3])
   await expect(display).toContainText(/Display\s*· Project/)
 
   await caption(page, "Sort by Started: the order they began is back")
   await pickSort("Started")
-  await expectOrder([0, 1, 2])
+  await expectOrder([0, 3, 1, 2])
   await expect(display).toHaveText("Display")
 })

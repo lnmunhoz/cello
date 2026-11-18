@@ -682,9 +682,14 @@ for (const theme of ["light", "dark"] as const) {
     await expect(chip(nameA, 1)).toHaveAttribute("aria-checked", "true")
     await expect(shown).toHaveCount(1)
 
-    await caption(page, "All: everything is back")
-    await all.click()
-    await expect(two.header).toBeVisible()
+    await caption(page, `Approve ${keyA}-2, the last one for ${nameA}: nothing is left for it`)
+    await two.article.locator('[data-decide="approved"]').click()
+    await expect(two.article).toHaveCount(0)
+    await expect(page.locator(`[data-nothing-for="${keyA}"]`)).toContainText(`Nothing for ${nameA} right now`)
+    await expect(shown).toHaveCount(0)
+
+    await caption(page, "Show all: everything else is back")
+    await page.getByRole("button", { name: "Show all" }).click()
     await expect(beta1.header).toBeVisible()
     await expect(all).toHaveAttribute("aria-checked", "true")
     for (const { dir } of [alpha, beta]) fs.rmSync(dir, { recursive: true, force: true })
