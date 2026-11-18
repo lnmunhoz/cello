@@ -11,8 +11,6 @@ import {
   openNewWorkspace,
   projectLink,
   projectLinks,
-  seedLabels,
-  seedProject,
   sidebarSettings,
   switchWorkspace,
   test,
@@ -81,46 +79,13 @@ test("hidden columns: hide a status in settings; it folds into the strip, and a 
   await expect(strip.getByRole("button", { name: /In Review/ })).toBeVisible()
 })
 
-test("settings: create, rename and archive a project's label; the changes survive a reload; another project's labels are its own (CEL-80)", async ({ page, cello }) => {
-  const key = uniqueKey("LBST")
-  const otherKey = uniqueKey("LBSO")
-  await seedProject(cello, "Label owner A", key)
-  const other = await seedProject(cello, "Label owner B", otherKey)
-  await seedLabels(cello, other.id, [{ name: `Theirs ${key}`, color: "#8d7b68" }])
-  const labels = page.getByRole("list", { name: "Labels" }).locator(`[data-label-row$="${key}"]`)
-  await page.goto(`/settings?project=${key}`)
-  await expect(page.getByRole("combobox", { name: "Labels of project" })).toContainText(`Label owner A (${key})`)
-  await expect(page.locator(`[data-label-row="Theirs ${key}"]`)).toHaveCount(0)
-
-  await caption(page, "Create the labels Design and Docs")
-  for (const name of [`Design ${key}`, `Docs ${key}`]) {
-    await page.getByLabel("New label name").fill(name)
-    await page.getByRole("button", { name: "Add label" }).click()
-    await expect(page.locator(`[data-label-row="${name}"]`)).toBeVisible()
-  }
-
-  await caption(page, "Rename Design to Design system")
-  const name = page.getByLabel(`Design ${key} name`)
-  await name.fill(`Design system ${key}`)
-  await name.press("Enter")
-  await expect(page.locator(`[data-label-row="Design system ${key}"]`)).toBeVisible()
-
-  await caption(page, "Archive Docs")
-  await page.getByRole("button", { name: `Archive Docs ${key}` }).click()
-  await expect(page.locator(`[data-label-row="Docs ${key}"]`)).toHaveCount(0)
-
-  await caption(page, "Reload: Design system is listed, Docs is gone")
-  await page.reload()
-  await expect(page.locator(`[data-label-row="Design system ${key}"]`)).toBeVisible()
-  await expect(labels).toHaveCount(1)
-
-  await caption(page, "The other project lists its own label, not this one's")
-  await page.getByRole("combobox", { name: "Labels of project" }).click()
-  await page.getByRole("option", { name: `Label owner B (${otherKey})` }).click()
-  await expect(page).toHaveURL(new RegExp(`project=${otherKey}`))
-  await expect(page.locator(`[data-label-row="Theirs ${key}"]`)).toBeVisible()
-  await expect(labels).toHaveCount(1)
-  await expect(page.locator(`[data-label-row="Design system ${key}"]`)).toHaveCount(0)
+test("CEL-164: the main Settings has only global things", async ({ page }) => {
+  await page.goto("/settings")
+  await caption(page, "Statuses, Workspaces, Search and Builds: nothing per project")
+  for (const name of ["Statuses", "Workspaces", "Search", "Builds"]) await expect(page.getByRole("region", { name, exact: true })).toBeVisible()
+  // Each project's own, on its Settings tab (CEL-164).
+  for (const name of ["Labels", "Testing", "Waking agents", "Merging"]) await expect(page.getByRole("region", { name, exact: true })).toHaveCount(0)
+  await expect(page.getByRole("combobox", { name: /of project$/ })).toHaveCount(0)
 })
 
 test("workspaces: create a second workspace and switch; each lists its own projects", async ({ page }) => {
