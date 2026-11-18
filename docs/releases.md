@@ -5,10 +5,10 @@ summary: Every deploy of Cello is a release. One command, bun run release, check
 
 ## Every deploy is a release
 
-Cello ships when the orchestrator merges a task (step ⑦ in [How a feature is built](feature-lifecycle.md)). That merge step is one command, run on `main` in the main checkout:
+Cello ships **only when Lucas says so** (Nov 18). Merging a task doesn't release it (step ⑦ in [How a feature is built](feature-lifecycle.md)); a release ships everything merged since the last one. It's one command, run on `main` in the main checkout:
 
 ```bash
-bun run release                 # patch: 0.3.0 -> 0.3.1, the default for every merge
+bun run release                 # patch: 0.3.0 -> 0.3.1, the default
 bun run release -- minor        # 0.3.1 -> 0.4.0, when Lucas says so
 bun run release -- major        # 0.4.0 -> 1.0.0, when Lucas says so
 bun run release -- --dry-run    # preview everything; writes, pushes and deploys nothing

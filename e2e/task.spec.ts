@@ -2,7 +2,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import type { Browser } from "@playwright/test"
 import { addTasks, caption, captionWithUrl, card, column, createProject, expect, taskPanel, test, uniqueKey } from "./fixtures.ts"
-import { celloAs, expectOneColumn, expectTwoColumns, packetDrawn, SHOTS, submitDiagramPacket, WEB_URL } from "./packets.ts"
+import { celloAs, expectLeftAligned, expectOneColumn, expectTwoColumns, packetDrawn, SHOTS, submitDiagramPacket, WEB_URL } from "./packets.ts"
 import { isReview } from "./recording.ts"
 
 /** `key`'s task page as a full page in its own unrecorded window, saved to e2e/videos/task-full-<width>x<height>-<scheme>.png. */
@@ -50,6 +50,13 @@ test("CEL-39: the task panel's expand button opens the task as a full page (?vie
   expect(area.width).toBeGreaterThan(main.width - 4)
   expect(packet.x).toBeGreaterThan(area.x)
   expect(packet.x + packet.width).toBeLessThan(area.x + area.width)
+  // Aligned left (CEL-163), here and at a mid width, where the column no longer fills the page: it doesn't move to the middle.
+  await expectLeftAligned(panel, pinned)
+  await page.setViewportSize({ width: 1100, height: 900 })
+  await expectOneColumn(pinned)
+  await expectLeftAligned(panel, pinned)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expectTwoColumns(pinned)
 
   await captionWithUrl(page, "Reload: still a full page")
   await page.reload()
@@ -95,6 +102,35 @@ test("CEL-39: the task panel's expand button opens the task as a full page (?vie
   await expect(pinned).toBeHidden()
   await caption(page, "Expand to read a packet at full width; Esc or collapse goes back")
   fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test("CEL-163: a task opened full page without a packet keeps its column on the left, at a wide and a mid width", async ({ page, browser }) => {
+  const key = uniqueKey("LEF")
+  await createProject(page, "Left aligned test", key)
+  await addTasks(page, "Todo", ["A plain task"])
+
+  await captionWithUrl(page, "Open the Todo task as a full page: nothing in review, the column starts at the left edge")
+  await page.goto(`/${key}/1?view=full`)
+  const panel = taskPanel(page, `${key}-1`)
+  const title = panel.getByLabel("Title")
+  await expect(title).toHaveValue("A plain task")
+  await expectLeftAligned(panel, title)
+
+  await caption(page, "A narrower window, 1100 px: the same left edge")
+  await page.setViewportSize({ width: 1100, height: 900 })
+  await expectLeftAligned(panel, title)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expectLeftAligned(panel, title)
+
+  // Stills for the report, without the test's overlay: 1440 px, both themes.
+  for (const colorScheme of ["light", "dark"] as const) {
+    const context = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height: 900 }, colorScheme })
+    const shot = await context.newPage()
+    await shot.goto(`/${key}/1?view=full`)
+    await expect(taskPanel(shot, `${key}-1`).getByLabel("Title")).toHaveValue("A plain task")
+    await shot.screenshot({ path: path.join(SHOTS, `task-full-plain-1440x900-${colorScheme}.png`) })
+    await context.close()
+  }
 })
 
 test("18: create a task with a column's +, edit it in the panel, add a comment, reload: everything is still there", async ({ page }) => {

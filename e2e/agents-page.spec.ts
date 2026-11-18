@@ -11,7 +11,7 @@ import * as path from "node:path"
 import type { Locator, Page } from "@playwright/test"
 import { animationsSettled, caption, captionWithUrl, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, test } from "./fixtures.ts"
 import { celloIn, claudeHooks } from "./claudeHooks.ts"
-import { SHOTS } from "./packets.ts"
+import { expectLeftAligned, SHOTS } from "./packets.ts"
 import { openClient } from "../packages/client/test/support/promiseClient.ts"
 
 const ORCHESTRATOR = "2fd0505c-417a-4167-acfe-2d66080fcae0"
@@ -355,4 +355,26 @@ test("CEL-65: on the rail, the bot opens the Agents page too", async ({ page }) 
   await expect(page).toHaveURL(/\/agents$/)
   await expect(rail).toHaveAttribute("data-status", "active")
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Agents working")
+})
+
+test("CEL-163: the Agents page keeps its content aligned left at a wide, a mid and a narrow width, not centred", async ({ page, cello }) => {
+  const project = await seedProject(cello, "Aligned", "ALN")
+  const { statuses } = await defaultWorkspace(cello)
+  await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title: "Keep the column on the left", statusId: statuses.Todo!.id }))
+  cli(QUIET)("task", "claim", "ALN-1")
+
+  await page.goto("/agents")
+  const row = page.locator("[data-agent-row]").first()
+  await expect(row).toBeVisible()
+  const scroller = page.locator("[data-agents-scroller]")
+  const heading = page.getByRole("heading", { level: 1 })
+  // The page's scroll area is 240 px narrower than the window (the sidebar): 1440 is wide (1152+), 1100 and 900 are not.
+  for (const width of [1440, 1100, 900]) {
+    await captionWithUrl(page, `${width} px wide: the heading and the rows start at the left edge, the same as at any width`)
+    await page.setViewportSize({ width, height: 900 })
+    await expectLeftAligned(scroller, heading)
+    await expectLeftAligned(scroller, row)
+  }
+  await shoot(page, "left-aligned-mid")
+  cli(QUIET)("task", "release", "ALN-1")
 })
