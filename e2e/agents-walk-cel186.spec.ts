@@ -2,6 +2,10 @@
 // (the same walk runs on the base commit, where rows still re-sort on every call). It asserts nothing
 // about order, so it runs on both; the behaviour is tested in agents-page.spec.ts. Runs only in review
 // mode (CELLO_E2E_REVIEW=1, which Docker passes through), so the suite never runs it.
+import * as fs from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
+import { celloIn } from "./claudeHooks.ts"
 import { agentAs, animationsSettled, caption, defaultWorkspace, expect, newCommandId, seedProject, test } from "./fixtures.ts"
 
 test.skip(process.env["CELLO_E2E_REVIEW"] !== "1", "evidence walk: runs in review mode only (CELLO_E2E_REVIEW=1)")
@@ -48,14 +52,11 @@ for (const theme of ["light", "dark"] as const) {
     await agents[1]!.run((c) => c["task.release"]({ commandId: newCommandId(), key: `${key}-2` }))
     await animationsSettled(page)
 
-    await caption(page, "Agent 3's card moves to Needs input: it goes to Waiting on you")
-    const third = snapshot.tasks.find((t) => t.key === `${key}-3`)!
-    await cello.run((c) => c["task.move"]({ commandId: newCommandId(), id: third.id, statusId: statuses["Needs input"]!.id }))
+    await caption(page, "Agent 3 asks you something: it goes to Waiting on you")
+    const file = path.join(os.tmpdir(), `cel186-ask-${theme}.yaml`)
+    fs.writeFileSync(file, ["title: How loud", "questions:", "  - prompt: Which volume?", "    options:", "      - label: Loud", "        recommended: true", "        because: It's simpler", "      - label: Louder"].join("\n"))
+    celloIn(os.tmpdir())(`c186${theme}2-walk-session`)("task", "ask", `${key}-3`, "--file", file)
     await expect(page.locator('section[data-agents-group="waiting"]')).toBeVisible()
-    await animationsSettled(page)
-    await caption(page, "Back to In Progress: it returns to Working, in its place")
-    await cello.run((c) => c["task.move"]({ commandId: newCommandId(), id: third.id, statusId: statuses["In Progress"]!.id }))
-    await expect(page.locator('section[data-agents-group="waiting"]')).toHaveCount(0)
     await animationsSettled(page)
     await caption(page, "The page is idle")
 

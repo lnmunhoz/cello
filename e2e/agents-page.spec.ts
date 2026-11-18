@@ -451,9 +451,8 @@ test("CEL-186: rows keep their place while agents work: a call pulses its row in
   await expect(rowOf(second)).toHaveCount(0)
   expect(await order("working")).toEqual([mine[0], mine[2]])
 
-  await caption(page, "The third agent's card moves to Needs input: its row slides up to Waiting on you")
-  const third3 = (await cello.run((c) => c["snapshot.get"]({}))).tasks.find((t) => t.key === "STD-3")!
-  await cello.run((c) => c["task.move"]({ commandId: newCommandId(), id: third3.id, statusId: statuses["Needs input"]!.id }))
+  await caption(page, "The third agent asks you something: its row slides up to Waiting on you")
+  cli(externals[2])("task", "ask", "STD-3", "--file", askFile("How loud", "Which volume?"))
   await expect.poll(() => order("waiting")).toEqual([mine[2]])
   expect(await order("working")).toEqual([mine[0]])
   await animationsSettled(page)
