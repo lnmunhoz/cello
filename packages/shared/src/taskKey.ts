@@ -62,6 +62,26 @@ export const parseTaskKey = (key: string): { projectKey: string; number: number 
   return { projectKey: match[1]!, number: Number(match[2]) }
 }
 
+const BARE_NUMBER = /^#?([1-9][0-9]*)$/
+const SPACED_KEY = /^([A-Za-z][A-Za-z0-9]{1,9})\s+#?([1-9][0-9]*)$/
+
+/**
+ * The task a search names (⌘K, CEL-162): `CEL-147` or `cel 147` (a project key, then the number),
+ * or a bare `147` / `#147` (a number, in no project yet: projectKey null). The space form needs
+ * a key in `projectKeys`, so "video 2" stays a word search. Null when the query is only words.
+ */
+export const parseTaskQuery = (query: string, projectKeys: ReadonlyArray<string>): { projectKey: string | null; number: number } | null => {
+  const text = query.trim()
+  const bare = BARE_NUMBER.exec(text)
+  if (bare) return { projectKey: null, number: Number(bare[1]) }
+  const spaced = SPACED_KEY.exec(text)
+  if (spaced) {
+    const projectKey = spaced[1]!.toUpperCase()
+    return projectKeys.includes(projectKey) ? { projectKey, number: Number(spaced[2]) } : null
+  }
+  return parseTaskKey(text)
+}
+
 /**
  * The task keys a piece of text mentions ("building CEL-55, after CEL-35"), each once, in the order
  * they first appear. Only upper-case keys on word edges count, so "cel-55" or "XCEL-055x" don't.
