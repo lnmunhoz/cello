@@ -448,6 +448,12 @@ export const CelloRpcs = RpcGroup.make(
        * older Claude Code) means unknown: the stop finishes it.
        */
       running: Schema.optionalKey(Schema.Array(Schema.String)),
+      /**
+       * On `stopped` (CEL-160): the start of the subagent's last reply (SubagentStop's
+       * `last_assistant_message`, cut to 500 characters). Only a reviewer's verdict is read from it
+       * (`verdictOf`); the text itself is never stored.
+       */
+      lastMessage: Schema.optionalKey(Schema.String),
     },
     success: Schema.NullOr(SessionAgent),
   }),

@@ -28,7 +28,7 @@ describe("migration 0019_agent_logs", () => {
       yield* Migrations.run
       // 0022 (CEL-119) adds the model and effort after it, 0023 (CEL-124) orchestrating on sessions, 0025 (CEL-133) activity,
       // 0026 (CEL-137) the terminal app.
-      const strip = ({ transcript_path, current_step, current_step_at, model, effort, orchestrating, background_json, tests_json, waiting_json, terminal, ...rest }: Record<string, unknown>) =>
+      const strip = ({ transcript_path, current_step, current_step_at, model, effort, orchestrating, background_json, tests_json, waiting_json, terminal, verdict, ...rest }: Record<string, unknown>) =>
         rest
       const sessionsAfter = yield* sql<Record<string, unknown>>`SELECT * FROM agent_sessions ORDER BY id`
       const agentsAfter = yield* sql<Record<string, unknown>>`SELECT * FROM session_agents ORDER BY agent_id`

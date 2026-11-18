@@ -64,3 +64,48 @@ export const stageStatus = <S extends StatusLike>(statuses: ReadonlyArray<S>): S
 
 /** Where a task sent back goes: the first started status, back to work. */
 export const sendBackTarget = stageStatus
+
+/** What a reviewer's reply concluded (CEL-160): `fix_first` needs changes, `ask` is a question for the human. */
+export type ReviewVerdict = "merge" | "fix_first" | "ask"
+
+/** Reviewers: the agent types whose last reply leads with a verdict (`cello-code-reviewer`, `cello:reviewer`, `cello-data-reviewer`). */
+export const isReviewerType = (agentType: string | null | undefined): boolean => agentType != null && agentType.toLowerCase().endsWith("reviewer")
+
+const VERDICT_WORDS: ReadonlyArray<readonly [RegExp, ReviewVerdict]> = [
+  [/^merge/, "merge"],
+  [/^fix[ _-]?first/, "fix_first"],
+  [/^ask(?: lucas| the person| you)?/, "ask"],
+]
+
+const markup = (line: string): string =>
+  line.replace(/[*#`>]/g, "").replace(/^[\s_]+|[\s_]+$/g, "").replace(/\s+/g, " ").toLowerCase()
+
+/**
+ * The verdict a reviewer's reply leads with, or null (CEL-160): reviewers open with **merge**, **fix first**
+ * or **ask Lucas** (`.claude/agents/cello-code-reviewer.md`). Reads the first three non-empty lines,
+ * ignoring markdown and a "Verdict:" label (or a "Verdict" heading above the word). Without a label the word
+ * must stand alone or be followed by punctuation, so prose ("Merge looks fine", "I'll merge…") isn't one.
+ * Only the word is kept; the server never stores the reply.
+ */
+export const verdictOf = (text: string): ReviewVerdict | null => {
+  const lines = text.split("\n").map(markup).filter((l) => l !== "").slice(0, 3)
+  let labelled = false
+  for (const line of lines) {
+    let rest = line
+    const label = /^verdict\b[:\s.,—–-]*/.exec(rest)
+    if (label) {
+      rest = rest.slice(label[0].length)
+      labelled = true
+      if (rest === "") continue
+    }
+    for (const [pattern, verdict] of VERDICT_WORDS) {
+      const m = pattern.exec(rest)
+      if (!m) continue
+      const after = rest.slice(m[0].length)
+      const wholeWord = !/^[a-z0-9]/.test(after)
+      if (wholeWord && (labelled || after === "" || /^\s*[:.,;—–(-]/.test(after))) return verdict
+    }
+    return null
+  }
+  return null
+}

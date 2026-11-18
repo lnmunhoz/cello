@@ -3,7 +3,7 @@
 // task's wake or a woken run read as `other` instead, which the board shows generically.
 import * as Schema from "effect/Schema"
 import { describe, expect, it } from "vitest"
-import { SessionRun, TaskWake } from "./entities.ts"
+import { SessionAgent, SessionRun, TaskWake } from "./entities.ts"
 import { NOT_WOKEN_TEXT, WAKE_WHY_TEXT } from "./wake.ts"
 
 const run = {
@@ -26,5 +26,21 @@ describe("wake reasons a newer server added", () => {
     expect(wake).toMatchObject({ why: "other", reason: "other" })
     expect(WAKE_WHY_TEXT.other).toBe("something this version of Cello doesn't know yet")
     expect(NOT_WOKEN_TEXT.other).toBe("a reason this version of Cello doesn't know yet")
+  })
+})
+
+// CEL-160: a reviewer's verdict on its agent row; a build that doesn't know a verdict reads it as other.
+describe("a subagent's verdict", () => {
+  const agent = { sessionId: "s1", agentId: "a1", agentType: "cello-code-reviewer", taskId: "t1", description: null, startedAt: 1, lastSeenAt: 2, endedAt: 3 }
+
+  it("decodes without one (events stored before CEL-160), and as the stored word", () => {
+    expect(Schema.decodeUnknownSync(SessionAgent)(agent).verdict).toBeUndefined()
+    expect(Schema.decodeUnknownSync(SessionAgent)({ ...agent, verdict: null }).verdict).toBeNull()
+    expect(Schema.decodeUnknownSync(SessionAgent)({ ...agent, verdict: "fix_first" }).verdict).toBe("fix_first")
+    expect(Schema.encodeSync(SessionAgent)({ ...agent, verdict: "merge" } as SessionAgent).verdict).toBe("merge")
+  })
+
+  it("a verdict a newer server added reads as other", () => {
+    expect(Schema.decodeUnknownSync(SessionAgent)({ ...agent, verdict: "test.from-a-newer-build" }).verdict).toBe("other")
   })
 })
