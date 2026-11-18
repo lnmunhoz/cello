@@ -44,13 +44,13 @@ const doerTitle = (board: BoardState, line: TimelineLine): string | undefined =>
 }
 
 /** One line: its icon, its words, and when it happened. A change's doer is in the hover. */
-export function TimelineLineRow({ board, line, nested = false }: { board: BoardState; line: TimelineLine; nested?: boolean }) {
+export function TimelineLineRow({ board, line }: { board: BoardState; line: TimelineLine }) {
   return (
     <li
       data-timeline-line={line.kind}
       data-timeline-id={line.id}
       title={doerTitle(board, line)}
-      className={`flex min-w-0 items-center gap-2 text-xs leading-5 text-muted ${nested ? "pl-8" : "px-3"}`}
+      className="flex min-w-0 items-center gap-2 px-3 text-xs leading-5 text-muted"
     >
       <LineBody board={board} line={line} />
       <span className="shrink-0 text-faint">{relativeTime(line.ts)}</span>
@@ -129,7 +129,7 @@ function RunBody({ board, line, text }: { board: BoardState; line: Extract<Timel
       <span className="min-w-0 truncate" data-agent={line.agentId}>
         <span className="font-medium text-ink">{name}</span>
         {text.slice(name.length)}
-        {line.model ? <span className="text-faint"> · {line.model}</span> : null}
+        {line.kind === "run_start" && line.model ? <span className="text-faint"> · {line.model}</span> : null}
       </span>
       {working ? (
         <span className="shrink-0 font-medium text-ink" data-timeline-working>

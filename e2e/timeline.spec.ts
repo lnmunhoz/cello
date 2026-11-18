@@ -127,8 +127,8 @@ test("CEL-160: comments, stages, status moves, every subagent's start and finish
   await caption(page, "A builder is on it: the thread says it started, and that it's working")
   await expect(panel.locator('[data-timeline-line="run_start"]')).toContainText("cello-builder started · Sonnet 5.5, high")
   await expect(panel.locator("[data-timeline-working]")).toHaveText("working")
-  // Lucas's comment sits above what came after it: the claim's move to In Progress, the stage, the builder.
-  expect(await threadOf(panel)).toEqual(["comment", "line:status", "line:stage", "line:run_start"])
+  // Lucas's comment sits above what came after it: the stage, then the builder (a claim isn't a line).
+  expect(await threadOf(panel)).toEqual(["comment", "line:stage", "line:run_start"])
   await shoot(page, "working")
 
   await caption(page, "The builder finishes: its line appears by itself, \"working\" goes")
@@ -165,8 +165,8 @@ test("CEL-160: comments, stages, status moves, every subagent's start and finish
   await expect(panel.locator("[data-comment-id]")).toHaveCount(2)
   await expect(panel.locator("[data-timeline-fold]")).toHaveCount(2)
   expect(await threadOf(panel)).toEqual(["comment", "fold", "comment", "fold"])
-  await caption(page, "?fold=count: each run between two comments is one row, \"5 changes · show\" and \"9 changes · show\"")
-  await expect(panel.locator("[data-timeline-fold]").first()).toContainText("5 changes · show")
+  await caption(page, "?fold=count: each run between two comments is one row, \"4 changes · show\" and \"9 changes · show\"")
+  await expect(panel.locator("[data-timeline-fold]").first()).toContainText("4 changes · show")
   await expect(panel.locator("[data-timeline-fold]").last()).toContainText("9 changes · show")
   await shoot(page, "fold-count-folded")
 
@@ -176,7 +176,7 @@ test("CEL-160: comments, stages, status moves, every subagent's start and finish
   }
   expect(await threadOf(panel)).toEqual([
     "comment",
-    "fold", "line:status", "line:stage", "line:run_start", "line:run_end", "line:stage",
+    "fold", "line:stage", "line:run_start", "line:run_end", "line:stage",
     "comment",
     "fold", "line:run_start", "line:run_end", "line:stage", "line:run_start", "line:run_end", "line:run_start", "line:run_end", "line:merge", "line:status",
   ])
@@ -198,7 +198,7 @@ test("CEL-160: comments, stages, status moves, every subagent's start and finish
   await showThread(panel)
   await expect(panel.locator("[data-comment-id]")).toHaveCount(2)
   await expect(panel.locator("[data-timeline-fold]")).toHaveCount(1)
-  await expect(panel.locator("[data-timeline-fold]")).toContainText("4 earlier · show")
+  await expect(panel.locator("[data-timeline-fold]")).toContainText("3 earlier · show")
   expect(await threadOf(panel)).toEqual([
     "comment", "fold", "line:stage",
     "comment",
@@ -207,7 +207,7 @@ test("CEL-160: comments, stages, status moves, every subagent's start and finish
   await shoot(page, "fold-latest-folded")
   await panel.locator("[data-timeline-fold]").getByRole("button").click()
   await expect(panel.locator("[data-timeline-fold]")).toHaveAttribute("data-open", "")
-  await expect(panel.locator("[data-timeline-line]")).toHaveCount(14)
+  await expect(panel.locator("[data-timeline-line]")).toHaveCount(13)
   await shoot(page, "fold-latest-open")
 
   // The thread is the same wherever Comments is: the full-page task view, and the Review page's packet.
@@ -257,8 +257,9 @@ test("CEL-160: the release that took a task live is a line in its thread, linkin
   await caption(page, "Deploy build B, whose changes name CEL-1: the release is a line after the comment")
   await stop(a)
   await startCello(B, port, dataDir)
-  await expect(page.locator("[data-reload-bar]")).toHaveAttribute("data-reload-bar", "reload")
-  await page.waitForEvent("load", { timeout: 15_000 })
+  // The page offers to reload into the new build; the thread's release line is there once it has.
+  await expect(page.locator("[data-reload-bar]")).toBeVisible()
+  await page.reload()
   await expect(panel).toBeVisible()
   const release = panel.locator('[data-timeline-line="release"]')
   await expect(release).toHaveCount(1)
