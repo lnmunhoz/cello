@@ -17,7 +17,9 @@ flowchart TD
     S -->|yes| SC["③ UI scope<br/>real screens, Lucas approves"]
     S -->|no| C
     SC --> C["④ Claim and plan<br/>the orchestrator claims; a planner agent writes the plan"]
-    C --> BU["⑤ Build<br/>builder agent, own worktree, test first"]
+    C --> PA{"Lucas reviews the plan<br/>on the card"}
+    PA -->|"change it"| C
+    PA -->|approve| BU["⑤ Build<br/>builder agent, own worktree, test first"]
     BU --> RV["⑥ Review<br/>a fresh reviewer agent"]
     RV -->|findings| BU
     RV -->|clean| P["⑦ Submit<br/>review packet with videos: In Review,<br/>not merged yet"]
@@ -75,8 +77,9 @@ Making the scope is work on the task, so the task is claimed (In Progress) while
 The orchestrator claims the task, sets the stage to `planning` and starts a `cello-planner` agent. The planner reads the task, the rules and the code, and returns a plan: the goal in Lucas's words, what exists (`file:line`), ordered steps each with its failing test first, the files to touch and to stay out of, the risks (`risk: data` brings in the data reviewer), the checks and evidence to record, and open questions.
 
 - The orchestrator publishes the plan on the task as a spec (`cello doc publish plan.md --task CEL-n --kind spec`), so Lucas can read it.
-- **Open questions go on the card** with `cello task ask` before any code: the task waits in Needs input until Lucas answers.
-- The builder's brief and the reviewer's both get the plan.
+- **Lucas reviews the plan before any code** (Nov 18). The orchestrator asks on the card with `cello task ask`: "Approve the plan?" (Approve / Change it, with notes), plus the plan's open questions, with the plan page linked. The task waits in Needs input.
+- **Change it:** his notes go back to the same planner, which revises the plan; the orchestrator publishes the new version and asks again.
+- **Approve:** only then does a builder start. The builder's brief and the reviewer's both get the approved plan.
 
 ## ⑤ Build
 

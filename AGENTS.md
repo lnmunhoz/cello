@@ -53,9 +53,10 @@ Cello's own backlog is the **CEL** project on Lucas's board. Run `cello context`
 The orchestrator claims the task and runs it. Full path with diagrams: [docs/feature-lifecycle.md](docs/feature-lifecycle.md). `/cello:orchestrate CEL-n` takes this role ([docs/claude-plugin.md](docs/claude-plugin.md)).
 
 1. **Plan.** A `cello-planner` agent (stage `planning`) reads the task and the code and writes a step-by-step plan, test first. It never writes code.
-   - Publish the plan on the task: `cello doc publish plan.md --task CEL-n --kind spec`.
-   - Its open questions go on the card (`cello task ask`) before building starts. Its `risk: data` decides whether the data reviewer runs.
-2. **Build.** A `cello-builder` agent follows the plan, test first, in its own worktree, and commits on its branch. It never pushes, touches main or changes the live board.
+   - Publish the plan on the task: `cello doc publish plan.md --task CEL-n --kind spec`. Its `risk: data` decides whether the data reviewer runs.
+   - **Lucas approves the plan before anything is built.** Ask on the card (`cello task ask`), linking the plan page: one question "Approve the plan?" (Approve / Change it, with his notes), plus the plan's open questions. The task waits in Needs input; no builder starts until he approves.
+   - Changes he asks for go back to the planner (SendMessage, same agent), then a new version of the plan and a new ask.
+2. **Build.** A `cello-builder` agent follows the plan Lucas approved, test first, in its own worktree, and commits on its branch. It never pushes, touches main or changes the live board.
 3. **Review.** A fresh `cello-code-reviewer` gets the diff against main, the task text and the plan, never the builder's report.
    - When the change touches Lucas's data, also run `cello-data-reviewer` on those parts. Lucas's data means migrations, backup/restore, writes outside the data folder, deleting files, or the desktop panel's security rules.
    - For UI work, the same reviewer checks every video and screenshot (its "UI work: the evidence" checklist). Give it their paths.

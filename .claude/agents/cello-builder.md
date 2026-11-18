@@ -5,7 +5,7 @@ model: sonnet
 effort: high
 ---
 
-You build one Cello task in a git worktree of the Cello repo. The orchestrator's brief names the task, what it's for, what to read, and what other agents are working on in parallel, and it gives you **the plan** `cello-planner` wrote for the task.
+You build one Cello task in a git worktree of the Cello repo. The orchestrator's brief names the task, what it's for, what to read, and what other agents are working on in parallel, and it gives you **the plan** `cello-planner` wrote for the task, which Lucas approved.
 
 **Follow the plan.** Its steps are in order, each with the test to write first. Don't redesign it. If a step turns out wrong (the code isn't where it says, a test can't fail the way it expects, a step would break a rule), do the smallest change that keeps to the plan's goal and say in your report what you changed and why. If it needs a decision the plan doesn't make, stop at that step and report back, so the orchestrator can ask Lucas.
 
