@@ -15,7 +15,15 @@ const B = { commit: "bbbbbbb", dir: path.join(work, "web-b") }
 const B_CHANGES = ["merge: open tabs notice a new Cello build and offer a reload (CEL-1)", "docs: what each column means"]
 /** A third build, for a tab two builds behind (CEL-148). */
 const C = { commit: "ccccccc", dir: path.join(work, "web-c") }
-const C_CHANGES = ["merge: the update notice expands to show what's in the new build (CEL-1)"]
+const C_CHANGES = [
+  // One line, with no task key (a key's status could take a second line).
+  "fix(web): a typo in the notice",
+  // Longer than the notice is wide: it wraps, and the notice keeps its width.
+  "merge: a change whose subject runs long enough that one line can't hold it, so it has to wrap inside the notice instead of widening it (CEL-1)",
+]
+
+/** The update notice's width on screen. */
+const widthOf = async (bar: import("@playwright/test").Locator) => (await bar.boundingBox())!.width
 
 const seed = (port: number) => seedBoard(port, "Ship the reload bar")
 
@@ -167,36 +175,46 @@ test("CEL-148: a tab two builds behind expands the notice to see both builds' ch
   await caption(page, "The notice is small by default: a chevron beside Reload opens what's in the build")
   await expect(toggle).toHaveAttribute("aria-expanded", "false")
   await expect(bar.getByRole("list")).toHaveCount(0)
+  const collapsed = await widthOf(bar)
   await still(page, "update-notice-collapsed")
 
-  await caption(page, "Open it: every build since the one this tab runs, newest first, one line per merge")
+  await caption(page, "Open it: every build since the one this tab runs, newest first, one line per merge. The notice keeps its width")
   await toggle.click()
   await expect(toggle).toHaveAttribute("aria-expanded", "true")
   const builds = bar.locator("[data-new-build]")
   await expect(builds).toHaveCount(2)
+  expect(await widthOf(bar)).toBe(collapsed)
   await expect(builds.nth(0)).toHaveAttribute("data-new-build", "3")
   await expect(builds.nth(0)).toContainText("#3 · build ccccccc")
   await expect(builds.nth(1)).toHaveAttribute("data-new-build", "2")
   await expect(builds.nth(1)).toContainText("#2 · build bbbbbbb")
   const newest = bar.getByRole("list", { name: "Changes in build 3" })
-  await expect(newest.getByRole("listitem")).toHaveCount(1)
-  await expect(newest.getByRole("listitem")).toContainText("merge: the update notice expands to show what's in the new build")
+  await expect(newest.getByRole("listitem")).toHaveCount(2)
+  await expect(newest.getByRole("listitem").first()).toContainText("fix(web): a typo in the notice")
+
+  await caption(page, "A change too long for one line wraps inside the notice instead of widening it")
+  const short = (await newest.getByRole("listitem").first().boundingBox())!
+  const long = (await newest.getByRole("listitem").nth(1).boundingBox())!
+  const box = (await bar.boundingBox())!
+  expect(long.height).toBeGreaterThan(short.height * 1.5)
+  expect(long.x + long.width).toBeLessThanOrEqual(box.x + box.width)
   const before = bar.getByRole("list", { name: "Changes in build 2" })
   await expect(before.getByRole("listitem")).toHaveCount(2)
   await expect(before.getByRole("listitem").first()).toContainText("merge: open tabs notice a new Cello build and offer a reload")
   await expect(before.getByRole("listitem").nth(1)).toContainText("docs: what each column means")
 
   await caption(page, "Task keys are links to their tasks")
-  const key = newest.getByRole("link", { name: /CEL-1/ })
+  const key = newest.getByRole("link", { name: /CEL-1/ }).first()
   await expect(key).toBeVisible()
   await expect(key).toHaveAttribute("href", /\/CEL\/1$/)
   await key.hover()
   await still(page, "update-notice-expanded")
 
-  await caption(page, "Collapse it again: the notice is back to one line")
+  await caption(page, "Collapse it again: the notice is back to one line, still the same width")
   await toggle.click()
   await expect(toggle).toHaveAttribute("aria-expanded", "false")
   await expect(builds).toHaveCount(0)
+  expect(await widthOf(bar)).toBe(collapsed)
 
   await caption(page, "Reload works the same either way: the tab loads build ccccccc")
   const reloaded = page.waitForEvent("load")
@@ -221,12 +239,15 @@ test("CEL-148: opening the list while the notice counts down stops the countdown
   await stop(a)
   await startCello(B, port, dataDir)
   await expect(bar).toHaveAttribute("data-reload-bar", "reload")
+  await expect(bar).toContainText(/reloading in \d s/)
+  const counting = await widthOf(bar)
   await bar.getByRole("button", { name: "What's in this build" }).click()
 
-  await caption(page, "The countdown stops and Reload waits for you, with build #2's changes listed")
+  await caption(page, "The countdown stops and Reload waits for you, with build #2's changes listed; the notice's width stays put")
   await expect(bar).toHaveAttribute("data-reload-bar", "offer")
   await expect(bar).not.toContainText("reloading in")
   await expect(bar.locator("[data-new-build]")).toHaveCount(1)
+  expect(await widthOf(bar)).toBe(counting)
   const changes = bar.getByRole("list", { name: "Changes in build 2" })
   await expect(changes.getByRole("listitem")).toHaveCount(2)
   await expect(changes.getByRole("link", { name: /CEL-1/ })).toBeVisible()

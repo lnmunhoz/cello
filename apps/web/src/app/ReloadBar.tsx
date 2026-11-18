@@ -1,6 +1,7 @@
 import type { WebBuild } from "@cello/contract/build"
 import { buildsSinceLoaded, reloadAction, shortCommit, type BuildStamp, type ListedBuild, type ReloadAction } from "@cello/shared/build"
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react"
+import * as Option from "effect/Option"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { ChevronDownIcon, RefreshCwIcon } from "lucide-react"
 import { useEffect, useId, useState } from "react"
@@ -88,16 +89,14 @@ function UpdateNotice({ action, left, loaded, served, onOpen }: {
 }) {
   const [open, setOpen] = useState(false)
   const detailsId = useId()
-  // The Builds page's first page: the same request, asked again when the server's build changes.
-  const history = useAtomValue(buildsFamily(BUILDS_PAGE))
-  const { builds, missed } = buildsSinceLoaded({
-    loaded,
-    served,
-    history: AsyncResult.isSuccess(history) ? history.value.builds : null,
-  })
+  // The Builds page's first page: the same request, asked again when the server's build changes. The
+  // last answer stays while it's asked again (a reconnect), so the list doesn't flicker.
+  const history = Option.getOrNull(AsyncResult.value(useAtomValue(buildsFamily(BUILDS_PAGE))))
+  const { builds, missed } = buildsSinceLoaded({ loaded, served, history: history?.builds ?? null })
   return (
     <NoticeBar
       data-reload-bar={action}
+      size="wide"
       details={
         open ? (
           <div id={detailsId} className="flex max-h-80 flex-col gap-3 overflow-y-auto px-3 py-2.5 whitespace-normal">
