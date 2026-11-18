@@ -493,11 +493,14 @@ const byIds = (names: {
   },
 })
 
+/** A reviewer's verdict (CEL-160) as `cello task get` says it. */
+const VERDICT_WORDS = { merge: "merge", fix_first: "fix first", ask: "ask" } as const
+
 /**
  * The agents on a task (CEL-55), freshest first: "cello-builder · a13bfb89 (under Claude Code session
  * 2fd0505c): working, seen 1m ago", "…: running tests (web e2e 7 of 13 · 3m12s), seen just now" (CEL-134),
  * "…: waiting on its background work (Bash · bun run test:e2e), seen 4m
- * ago" (CEL-133) or "…: finished 2h ago".
+ * ago" (CEL-133) or "…: finished 2h ago", with "· verdict: merge" after a reviewer's finish (CEL-160).
  */
 const agentLines = (detail: TaskDetail, now: number) =>
   (detail.agents ?? [])
@@ -505,7 +508,7 @@ const agentLines = (detail: TaskDetail, now: number) =>
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
     .map((a) => {
       const state = a.endedAt !== null
-        ? `finished ${ago(a.endedAt, now)}`
+        ? `finished ${ago(a.endedAt, now)}${a.verdict && a.verdict !== "other" ? ` · verdict: ${VERDICT_WORDS[a.verdict]}` : ""}`
         : isRunning(a.tests, now)
         ? `running tests (${testRunWords(a.tests!, now)}), seen ${ago(a.lastSeenAt, now)}`
         : a.waitingOn
@@ -2053,11 +2056,15 @@ const toolFailed = Effect.gen(function* () {
   yield* followTests(parseHookInput(yield* Effect.promise(readStdin)), "post-tool-use-failure")
 })
 
+/** How much of a subagent's last reply a stop sends: the verdict leads it (CEL-160). */
+const LAST_MESSAGE_CHARS = 500
+
 /**
  * SubagentStart and SubagentStop (CEL-55): a subagent of the session started (or was resumed) or
  * finished. Start first prints the context that tells it its --agent (no server needed), then
  * both tell the board, as the session. A stop also says which background work the session still runs
- * (CEL-133): a subagent whose own work is among it is waiting on it, not finished.
+ * (CEL-133): a subagent whose own work is among it is waiting on it, not finished, and the start of its
+ * last reply (CEL-160), where a reviewer's verdict is read.
  */
 const subagentHook = (state: "started" | "stopped") =>
   Effect.gen(function* () {
@@ -2071,6 +2078,8 @@ const subagentHook = (state: "started" | "stopped") =>
     // The subagent's own transcript (CEL-106): its log on the Agents page.
     const transcriptPath = transcriptOf(hook)
     const running = state === "stopped" && hook.backgroundTasks !== null ? hook.backgroundTasks.map((task) => task.id) : null
+    // The start of its last reply (CEL-160): the server reads a reviewer's verdict from it and keeps only the word.
+    const lastMessage = state === "stopped" ? hook.lastMessage?.slice(0, LAST_MESSAGE_CHARS) ?? null : null
     yield* withClient((client) =>
       client["agent.report"]({
         agentId: agent.id,
@@ -2078,6 +2087,7 @@ const subagentHook = (state: "started" | "stopped") =>
         state,
         ...(transcriptPath ? { transcriptPath } : {}),
         ...(running ? { running } : {}),
+        ...(lastMessage ? { lastMessage } : {}),
       }), {
       headers: identityHeaders(session, hook.cwd ?? cwd),
     })
@@ -2132,7 +2142,9 @@ const hookClaude = Command.make("claude", {
       "post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start " +
       "prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished, or " +
       "waiting on background work while a test command it ran with run_in_background or a Monitor it started is still among Claude Code's " +
-      "background_tasks (post-tool-use remembers the background work each call starts). " +
+      "background_tasks (post-tool-use remembers the background work each call starts); subagent-stop also sends the first 500 characters of " +
+      "the subagent's last reply (Claude Code's last_assistant_message), from which the server reads a reviewer's verdict (merge, fix first, ask) " +
+      "and keeps only that word. " +
       "Test runs: pre-tool-use on a Bash command that runs tests (bun run test, test:e2e, test:docker*, scripts/test-in-docker.ts, " +
       "vitest, playwright test, …) marks its agent Running tests; its post-tool-use ends a foreground run passed, post-tool-use-failure " +
       "failed, and stop ends a run the main conversation's turn leaves behind unless it runs in the background. " +

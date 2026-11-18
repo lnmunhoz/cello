@@ -18,3 +18,11 @@ On top of it:
 - **Never touch the real data:** `~/.cello`, port 4747, `~/.claude`, or the repo's real `.claude/settings*.json`.
 
 - **Tests:** run only the tests the change touches; for e2e, only the related specs by name (`bun run test:e2e -- e2e/<spec>`), never the full suite (AGENTS.md, "Pick the e2e specs").
+
+## Report
+
+Start your reply with this one line, exactly, with one of the three after `Verdict:` (Cello reads it from the start of your last reply and shows it on the task):
+
+`Verdict: merge`, `Verdict: fix first` or `Verdict: ask Lucas` (a design question the task doesn't answer; "needs an Opus look" goes in the findings)
+
+Nothing before it, no heading, no greeting. Then the findings, most severe first, each with a severity (**blocker**, **should fix**, **nit**), `file:line`, what's wrong in one sentence, a concrete scenario where it fails, and the fix you'd make. Report only findings you're confident about. If the branch is clean, say so in one line.

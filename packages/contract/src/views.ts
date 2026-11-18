@@ -1,7 +1,8 @@
 // Read models for the CLI (and later MCP): one RPC returns everything a command prints.
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { Actor, AgentSession, Ask, Comment, DeliveryVia, DocumentSummary, InboxItems, Label, Milestone, Millis, Project, Review, SessionAgent, Status, Task, TestingProfile } from "./entities.ts"
+import { BuildRecord } from "./build.ts"
+import { Actor, AgentSession, Ask, Comment, DeliveryVia, DocumentSummary, Id, InboxItems, Label, Milestone, Millis, Project, Review, ReviewVerdictSeen, SessionAgent, Status, Task, TestingProfile } from "./entities.ts"
 import { CelloEvent, StreamedEvent } from "./events.ts"
 
 /**
@@ -128,6 +129,34 @@ export type TaskList = typeof TaskList.Type
  */
 export const TaskHistory = Schema.Array(StreamedEvent)
 export type TaskHistory = typeof TaskHistory.Type
+
+/**
+ * One run of a subagent on a task (CEL-160): it started, and finished or didn't yet. A subagent that
+ * finished and was resumed has one run each time; a reviewer's `verdict` is the one it left at the end of
+ * the run, null when it left none or hasn't finished. `model` and `effort` are the agent's latest.
+ */
+export const AgentRun = Schema.Struct({
+  sessionId: Id,
+  agentId: Schema.String,
+  agentType: Schema.NullOr(Schema.String),
+  model: Schema.NullOr(Schema.String),
+  effort: Schema.NullOr(Schema.String),
+  startedAt: Millis,
+  endedAt: Schema.NullOr(Millis),
+  verdict: Schema.NullOr(ReviewVerdictSeen),
+})
+export type AgentRun = typeof AgentRun.Type
+
+/**
+ * What happened on a task beyond its own events (CEL-160): `task.timeline`. Every run of every subagent
+ * on it, oldest first, and the builds that name it in their changes (the release that took it live, and
+ * any that shipped a fix later), oldest first. The comment thread weaves these between its comments.
+ */
+export const TaskTimeline = Schema.Struct({
+  runs: Schema.Array(AgentRun),
+  releases: Schema.Array(BuildRecord),
+})
+export type TaskTimeline = typeof TaskTimeline.Type
 
 export const TaskDetail = Schema.Struct({
   ...projectFields,

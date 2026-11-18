@@ -139,6 +139,10 @@ export const AgentSession = Schema.Struct({
 })
 export type AgentSession = typeof AgentSession.Type
 
+/** What a reviewer's last reply concluded (CEL-160); a word a newer server adds reads as `other`. */
+export const ReviewVerdictSeen = orOther(["merge", "fix_first", "ask"])
+export type ReviewVerdictSeen = typeof ReviewVerdictSeen.Type
+
 /**
  * A subagent working under an agent session (CEL-55): Claude Code's Agent tool runs builders and
  * reviewers inside the orchestrator's conversation, with its session id. `agentId` is the host's id for
@@ -182,6 +186,12 @@ export const SessionAgent = Schema.Struct({
   waitingOn: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String))),
   /** Its test run, running or the last one (CEL-134). Null or absent: none seen. */
   tests: Schema.optionalKey(Schema.NullOr(TestRun)),
+  /**
+   * A reviewer's verdict (CEL-160), read from the start of its last reply when it finished: the word only,
+   * never the reply. Null when it isn't a reviewer, hasn't finished, or its reply led with none; a resume
+   * clears it. Absent in events stored before CEL-160.
+   */
+  verdict: Schema.optionalKey(Schema.NullOr(ReviewVerdictSeen)),
 })
 export type SessionAgent = typeof SessionAgent.Type
 

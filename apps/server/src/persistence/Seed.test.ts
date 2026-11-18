@@ -86,6 +86,7 @@ describe("Migrations", () => {
         { migration_id: 25, name: "agent_activity" },
         { migration_id: 26, name: "session_terminal" },
         { migration_id: 27, name: "merge_after_approval" },
+        { migration_id: 28, name: "agent_verdict" },
       ])
     }).pipe(Effect.provide(db)))
 })

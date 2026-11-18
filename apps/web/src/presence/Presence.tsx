@@ -36,7 +36,7 @@ import {
 } from "./model.ts"
 import { useNow } from "./useNow.ts"
 
-const STAGE_ICONS: Record<string, LucideIcon> = {
+export const STAGE_ICONS: Record<string, LucideIcon> = {
   "list-checks": ListChecksIcon,
   hammer: HammerIcon,
   "scan-eye": ScanEyeIcon,

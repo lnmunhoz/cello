@@ -1,4 +1,5 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
+import { foldRuns, timelineOf } from "@cello/client/timeline"
 import type { Comment, Task } from "@cello/contract/entities"
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
@@ -8,7 +9,7 @@ import { Button } from "../components/ui/Button.tsx"
 import { Textarea } from "../components/ui/Input.tsx"
 import { Markdown } from "../components/ui/Markdown.tsx"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "../components/ui/Menu.tsx"
-import { commands, commentsFamily, wakeSettingsFamily } from "../lib/cello.ts"
+import { commands, commentsFamily, historyFamily, timelineFamily, wakeSettingsFamily } from "../lib/cello.ts"
 import { relativeTime } from "../lib/format.ts"
 import { Author } from "../presence/Author.tsx"
 import { useNow } from "../presence/useNow.ts"
@@ -20,6 +21,7 @@ import { addScreenshot, removeScreenshot, toComment, useCommentDraft } from "./c
 import { Reactions } from "./Reactions.tsx"
 import { CommentStatusRow, ReceiptTicks } from "./Receipt.tsx"
 import { reopenOf, reopenWords, statusCommentId, wakeHintOf, wakeHintWords } from "./receipts.ts"
+import { TimelineFoldRow, TimelineLineRow } from "./TimelineEvents.tsx"
 
 interface CommentsProps {
   readonly board: BoardState
@@ -32,6 +34,11 @@ interface CommentsProps {
    * board it's the task's `?comment=<id>`; in another page's side panel, the panel's own address's (CEL-144).
    */
   readonly target?: string | undefined
+  /**
+   * Whether one-line events (stages, status moves, subagents starting and finishing, the merge, the release)
+   * sit between the comments (CEL-160). On by default; `false` leaves a plain list of comments.
+   */
+  readonly events?: boolean | undefined
 }
 
 /**
@@ -41,8 +48,12 @@ interface CommentsProps {
  * and Approve read it too). Lucas's comments carry their receipts, and his latest, until it's answered,
  * a status row in the thread saying where it stands (CEL-76). On a task nobody holds that an agent worked
  * on, a line by the Comment button says the comment reopens it and goes to that agent (CEL-110).
+ *
+ * Between the comments, in time order, one line for each thing that happened (CEL-160): the stage and
+ * status changes, each subagent starting and finishing (a reviewer's verdict on its finish), the merge and
+ * the release; three or more lines in a row fold, leaving the newest, except after the newest comment.
  */
-export function Comments({ board, task, placeholder = "Leave a comment…", actions, target }: CommentsProps) {
+export function Comments({ board, task, placeholder = "Leave a comment…", actions, target, events = true }: CommentsProps) {
   const result = useAtomValue(commentsFamily(task.id))
   const add = useAtomSet(commands.addComment, { mode: "promiseExit" })
   const { draft, update, clear } = useCommentDraft(task.id)
@@ -51,6 +62,16 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
   const headingId = useId()
   const comments = AsyncResult.isSuccess(result) ? result.value.filter((c) => c.deletedAt === null) : []
   const statusAfter = statusCommentId(comments)
+  const history = useAtomValue(historyFamily(task.id))
+  const timeline = useAtomValue(timelineFamily(task.id))
+  const thread = foldRuns(
+    timelineOf({
+      comments,
+      history: events && AsyncResult.isSuccess(history) ? history.value : [],
+      timeline: events && AsyncResult.isSuccess(timeline) ? timeline.value : { runs: [], releases: [] },
+      statuses: board.statuses,
+    }),
+  )
   // On a task nobody holds, a comment goes to the agent that last worked on it and reopens it (CEL-110).
   const reopen = reopenOf(board, task)
   // A comment that will wake that session, or the holder's, says so beforehand (CEL-136).
@@ -71,19 +92,25 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
       </h3>
       {AsyncResult.isInitial(result) ? <p className="text-xs text-faint">Loading comments…</p> : null}
       <ul className="flex flex-col gap-2">
-        {comments.map((c) => (
-          <Fragment key={c.id}>
-            <CommentItem
-              board={board}
-              task={task}
-              comment={c}
-              comments={comments}
-              author={whoOf(board, c.actorId, c.sessionId, c.agentId, c)}
-              target={c.id === target}
-            />
-            {c.id === statusAfter ? <CommentStatusRow board={board} task={task} comment={c} comments={comments} /> : null}
-          </Fragment>
-        ))}
+        {thread.map((item) =>
+          item.kind === "comment" ? (
+            <Fragment key={item.id}>
+              <CommentItem
+                board={board}
+                task={task}
+                comment={item.comment}
+                comments={comments}
+                author={whoOf(board, item.comment.actorId, item.comment.sessionId, item.comment.agentId, item.comment)}
+                target={item.id === target}
+              />
+              {item.id === statusAfter ? <CommentStatusRow board={board} task={task} comment={item.comment} comments={comments} /> : null}
+            </Fragment>
+          ) : item.kind === "fold" ? (
+            <TimelineFoldRow key={item.id} board={board} fold={item} />
+          ) : (
+            <TimelineLineRow key={item.id} board={board} line={item.line} />
+          ),
+        )}
       </ul>
       <div className="flex flex-col gap-2">
         <ScreenshotBox

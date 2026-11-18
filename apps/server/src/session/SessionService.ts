@@ -102,7 +102,7 @@ export const touchAgent = (
   sql`INSERT INTO session_agents (session_id, agent_id, agent_type, started_at, last_seen_at, transcript_path, current_step, current_step_at)
     VALUES (${sessionId}, ${agentId}, ${agentType}, ${now}, ${now}, ${log.transcript}, ${log.step}, ${log.step === null ? null : now})
     ON CONFLICT (session_id, agent_id) DO UPDATE SET
-      last_seen_at = excluded.last_seen_at, ended_at = NULL, waiting_json = NULL, agent_type = COALESCE(excluded.agent_type, agent_type),
+      last_seen_at = excluded.last_seen_at, ended_at = NULL, waiting_json = NULL, verdict = NULL, agent_type = COALESCE(excluded.agent_type, agent_type),
       transcript_path = COALESCE(excluded.transcript_path, transcript_path),
       current_step = COALESCE(excluded.current_step, current_step),
       current_step_at = COALESCE(excluded.current_step_at, current_step_at)`

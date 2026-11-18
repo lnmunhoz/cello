@@ -328,3 +328,76 @@ describe("a subagent waiting on its own background work", () => {
       yield* asHuman(activity.report(e2e))
     })))
 })
+
+// CEL-160: a reviewer's last reply leads with its verdict; the server keeps that word and never the reply.
+describe("a reviewer's verdict at its stop", () => {
+  it.effect("is read from the start of a reviewer's last reply, kept on its row and told to boards; a resume clears it", () =>
+    run(Effect.gen(function* () {
+      const { first } = yield* board
+      const agents = yield* AgentService
+      yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "launched", description: first.key }))
+      const stopped = yield* asAgent(orchestrator)(agents.report({
+        agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped", lastMessage: "**Verdict: fix first**\nTwo findings, see below.",
+      }))
+      expect(stopped).toMatchObject({ verdict: "fix_first", endedAt: 0 })
+      expect((yield* agentSeen).at(-1)?.agent).toMatchObject({ verdict: "fix_first", endedAt: 0 })
+      // The reply itself is nowhere in the row.
+      const sql = yield* SqlClient.SqlClient
+      expect(JSON.stringify(yield* sql`SELECT * FROM session_agents`)).not.toContain("Two findings")
+      // Nor in the events boards and history read: only the word travels.
+      expect(JSON.stringify(yield* sql`SELECT * FROM events`)).not.toContain("Two findings")
+
+      // Resumed (SubagentStart again): not finished, so no verdict.
+      yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "started" }))
+      expect((yield* agentSeen).at(-1)?.agent).toMatchObject({ verdict: null, endedAt: null })
+      const merged = yield* asAgent(orchestrator)(agents.report({
+        agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped", lastMessage: "Verdict: merge\nNo findings.",
+      }))
+      expect(merged).toMatchObject({ verdict: "merge" })
+    })))
+
+  it.effect("reads only the opening lines, and only for reviewers: a builder's reply, or a stop with no reply, is no verdict", () =>
+    run(Effect.gen(function* () {
+      const { first } = yield* board
+      const agents = yield* AgentService
+      yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "launched", description: first.key }))
+      const built = yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "stopped", lastMessage: "Merge looks fine" }))
+      expect(built).toMatchObject({ verdict: null, endedAt: 0 })
+
+      yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "launched", description: first.key }))
+      const bare = yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped" }))
+      expect(bare).toMatchObject({ verdict: null })
+      const prose = yield* asAgent(orchestrator)(agents.report({
+        agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped", lastMessage: "I read the diff.\nIt is long.\nIt has notes.\n**Verdict: merge**",
+      }))
+      expect(prose).toMatchObject({ verdict: null })
+    })))
+
+  it.effect("a second stop on a reviewer that already finished, with no reply, keeps its verdict and its end; one with a reply replaces them", () =>
+    run(Effect.gen(function* () {
+      const { first } = yield* board
+      const agents = yield* AgentService
+      yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "launched", description: first.key }))
+      yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped", lastMessage: "Verdict: fix first" }))
+      yield* TestClock.adjust("10 seconds")
+      const again = yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped" }))
+      expect(again).toMatchObject({ verdict: "fix_first", endedAt: 0 })
+      const replaced = yield* asAgent(orchestrator)(agents.report({
+        agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped", lastMessage: "Verdict: merge",
+      }))
+      expect(replaced).toMatchObject({ verdict: "merge", endedAt: 10_000 })
+    })))
+
+  it.effect("a stop that only waits on its background work has no verdict yet", () =>
+    run(Effect.gen(function* () {
+      const { first } = yield* board
+      const agents = yield* AgentService
+      const activity = yield* ActivityService
+      yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "launched", description: first.key }))
+      yield* asAgent(reviewer)(activity.report({ kind: "background", id: "bpz2edzeb", label: "Bash · bun run test", toolUseId: "toolu_1", waits: true }))
+      const waiting = yield* asAgent(orchestrator)(agents.report({
+        agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped", running: ["bpz2edzeb"], lastMessage: "Verdict: merge",
+      }))
+      expect(waiting).toMatchObject({ endedAt: null, verdict: null })
+    })))
+})

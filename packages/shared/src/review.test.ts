@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { approveTarget, awaitsMerge, holdsPacket, isReviewStatus, reviewTarget, sendBackTarget, stageStatus } from "./review.ts"
+import { approveTarget, awaitsMerge, holdsPacket, isReviewStatus, isReviewerType, reviewTarget, sendBackTarget, stageStatus, verdictOf } from "./review.ts"
 
 const status = (id: string, name: string, category: string, position: string) => ({ id, name, category, position })
 
@@ -72,5 +72,33 @@ describe("a task approved and waiting to be merged", () => {
     expect(awaitsMerge({ stage: null }, { name: "In Review" })).toBe(false)
     expect(awaitsMerge({ stage: "building" }, { name: "In Progress" })).toBe(false)
     expect(awaitsMerge({ stage: "merging" }, undefined)).toBe(false)
+  })
+})
+
+// CEL-160: a reviewer leads its last reply with the verdict; the server stores only that word.
+describe("a reviewer's verdict", () => {
+  it("is read from the first lines of its reply, whatever the markdown around it", () => {
+    expect(verdictOf("**Verdict: fix first** — two findings")).toBe("fix_first")
+    expect(verdictOf("Verdict: merge")).toBe("merge")
+    expect(verdictOf("## Verdict\n**merge**")).toBe("merge")
+    expect(verdictOf("**Ask Lucas**: the task doesn't say which way")).toBe("ask")
+    expect(verdictOf("\n\n**Verdict: ask the person**")).toBe("ask")
+    expect(verdictOf("**merge**\n\nNo findings.")).toBe("merge")
+    expect(verdictOf("**Fix first**, two blockers")).toBe("fix_first")
+  })
+
+  it("is null for prose, an empty reply, or a word that only appears further down", () => {
+    expect(verdictOf("I'll merge this once the tests pass")).toBeNull()
+    expect(verdictOf("Merge looks fine to me")).toBeNull()
+    expect(verdictOf("")).toBeNull()
+    expect(verdictOf("Reviewed the diff.\nTwo files.\nThree notes.\n**Verdict: merge**")).toBeNull()
+  })
+
+  it("belongs to reviewers: agent types ending in reviewer", () => {
+    expect(isReviewerType("cello-code-reviewer")).toBe(true)
+    expect(isReviewerType("cello:reviewer")).toBe(true)
+    expect(isReviewerType("cello-data-reviewer")).toBe(true)
+    expect(isReviewerType("cello-builder")).toBe(false)
+    expect(isReviewerType(null)).toBe(false)
   })
 })

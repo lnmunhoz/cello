@@ -81,6 +81,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "task.archive": (input) => tasks.archive(input),
     "task.unarchive": (input) => tasks.unarchive(input),
     "task.history": ({ id }) => tasks.history(id),
+    "task.timeline": ({ id }) => context.taskTimeline(id),
     "whoami": ({ project }) => context.whoami(project),
     "context": ({ project }) => context.context(project),
     "task.list": (query) => context.taskList(query),

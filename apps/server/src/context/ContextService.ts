@@ -4,12 +4,13 @@ import type { Actor, AgentSession, Milestone, Project, ProjectRef, Task } from "
 import { Invalid, NotFound } from "@cello/contract/errors"
 import type { CelloEvent } from "@cello/contract/events"
 import { Caller } from "@cello/contract/rpcs"
-import type { Activity, LabelList, MilestoneDetail, MilestoneList, MilestoneSummary, ProjectContext, TaskDetail, TaskList, Whoami } from "@cello/contract/views"
+import type { Activity, LabelList, MilestoneDetail, MilestoneList, MilestoneSummary, ProjectContext, TaskDetail, TaskList, TaskTimeline, Whoami } from "@cello/contract/views"
 import { findMilestone, milestoneProgress } from "@cello/shared/milestone"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
+import { buildsNaming } from "../build/BuildHistory.ts"
 import * as CommentService from "../comment/CommentService.ts"
 import * as DocumentService from "../document/DocumentService.ts"
 import * as EventStore from "../events/EventStore.ts"
@@ -17,6 +18,7 @@ import * as InboxService from "../inbox/InboxService.ts"
 import { selectActors, selectAsks, selectLabels, selectMilestones, selectProjects, selectReviews, selectStatuses, selectTasks } from "../persistence/rows.ts"
 import * as ProfileService from "../profile/ProfileService.ts"
 import * as ProjectService from "../project/ProjectService.ts"
+import { agentRuns } from "../session/agentRuns.ts"
 import { type AgentRef, AgentService } from "../session/AgentService.ts"
 import { SessionService } from "../session/SessionService.ts"
 import * as TaskService from "../task/TaskService.ts"
@@ -35,6 +37,8 @@ export class ContextService extends Context.Service<ContextService, {
   readonly context: (ref: ProjectRef) => Effect.Effect<ProjectContext, NotFound | Invalid, Caller>
   readonly taskList: (query: TaskListQuery) => Effect.Effect<TaskList, NotFound | Invalid, Caller>
   readonly taskDetail: (key: string) => Effect.Effect<TaskDetail, NotFound>
+  /** Every run of every subagent on the task, and the builds that name it (CEL-160), oldest first. */
+  readonly taskTimeline: (id: string) => Effect.Effect<TaskTimeline, NotFound>
   readonly labelList: (ref: ProjectRef) => Effect.Effect<LabelList, NotFound | Invalid>
   /** The project's milestones in order, closed ones too, each with its progress (CEL-113). */
   readonly milestoneList: (ref: ProjectRef) => Effect.Effect<MilestoneList, NotFound | Invalid>
@@ -259,6 +263,26 @@ const make = Effect.gen(function* () {
     return { ...names, task, comments: list, reviews, asks, documents: yield* documents.ofTask(task.id), history }
   }, Effect.catchTag("SqlError", Effect.die))
 
+  const taskTimeline = Effect.fn("ContextService.taskTimeline")(function* (id: string) {
+    const [task] = yield* selectTasks(sql, sql`t.id = ${id}`)
+    if (!task) return yield* Effect.fail(new NotFound({ entity: "task", id }))
+    const runs = []
+    for (const agent of yield* agents.onTask(id)) {
+      const seen = (yield* store.history(`${agent.sessionId}/${agent.agentId}`)).flatMap((e) => (e.type === "agent.seen" ? [{ ts: e.ts, agent: e.agent }] : []))
+      for (const run of agentRuns(agent, seen)) {
+        runs.push({
+          sessionId: agent.sessionId,
+          agentId: agent.agentId,
+          agentType: agent.agentType,
+          model: agent.model ?? null,
+          effort: agent.effort ?? null,
+          ...run,
+        })
+      }
+    }
+    return { runs: runs.sort((a, b) => a.startedAt - b.startedAt), releases: yield* buildsNaming(sql, task.key) }
+  }, Effect.catchTag("SqlError", Effect.die))
+
   const labelList = Effect.fn("ContextService.labelList")(function* (ref: ProjectRef) {
     const project = yield* projects.resolve(ref)
     const labels = yield* selectLabels(sql, sql`l.project_id = ${project.id}`)
@@ -291,7 +315,7 @@ const make = Effect.gen(function* () {
     }
   }, Effect.catchTag("SqlError", Effect.die))
 
-  return ContextService.of({ whoami, context, taskList, taskDetail, labelList, milestoneList, milestoneDetail })
+  return ContextService.of({ whoami, context, taskList, taskDetail, taskTimeline, labelList, milestoneList, milestoneDetail })
 })
 
 export const layer = Layer.effect(ContextService, make)
