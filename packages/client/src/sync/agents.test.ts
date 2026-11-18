@@ -1,6 +1,6 @@
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { finishedAgents, startOfDay, workingAgents } from "./agents.ts"
+import { byStart, finishedAgents, startOfDay, workingAgents } from "./agents.ts"
 import type { BoardState } from "./applyEvents.ts"
 
 const MIN = 60_000
@@ -46,7 +46,7 @@ const board = (tasks: Task[], sessions: AgentSession[], agents: SessionAgent[] =
 const held = (id: string, sessionId: string, extra: Partial<Task> = {}) => task(id, { assigneeActorId: "claude", assigneeSessionId: sessionId, ...extra })
 
 describe("workingAgents", () => {
-  it("each session working in the workspace, active first, with its tasks and its subagents still working, freshest first", () => {
+  it("each session working in the workspace, with its tasks and its subagents still working", () => {
     const state = board(
       [held("1", "s1"), held("2", "s2"), task("3"), task("9", { projectId: "p2" })],
       [session("s1", { lastSeenAt: now - 20 * MIN }), session("s2")],
@@ -58,9 +58,41 @@ describe("workingAgents", () => {
       ],
     )
     expect(workingAgents(state, "w1", now).map((w) => [w.session.id, w.presence, w.tasks.map((t) => t.key), w.agents.map((a) => a.agent.agentId)])).toEqual([
+      ["s1", "idle", ["CEL-1"], ["a1", "a2"]],
       ["s2", "active", ["CEL-2"], []],
-      ["s1", "idle", ["CEL-1"], ["a2", "a1"]],
     ])
+  })
+
+  // CEL-186: every `cello` call bumps lastSeenAt; ordering by it made rows swap places while Lucas watched.
+  it("in the order they started, oldest first, then by id: a call (lastSeenAt) or a change of presence never moves one", () => {
+    const sessions = [
+      session("s3", { startedAt: now - 10 * MIN }),
+      session("s1", { startedAt: now - 50 * MIN }),
+      session("s2", { startedAt: now - 50 * MIN }),
+    ]
+    const agents = [
+      agent("s1", "a2", { taskId: "1", startedAt: now - 5 * MIN }),
+      agent("s1", "a1", { taskId: "1", startedAt: now - 20 * MIN }),
+      agent("s1", "a0", { taskId: "1", startedAt: now - 5 * MIN }),
+    ]
+    const order = (b: BoardState) => workingAgents(b, "w1", now).map((w) => [w.session.id, w.agents.map((a) => a.agent.agentId)])
+    const tasks = [held("1", "s1"), held("2", "s2"), held("3", "s3")]
+    const before = order(board(tasks, sessions, agents))
+    expect(before).toEqual([["s1", ["a1", "a0", "a2"]], ["s2", []], ["s3", []]])
+    // s3 and a2 make a call now, s1 went quiet 20 minutes ago: nothing moves.
+    const after = order(board(
+      tasks,
+      sessions.map((s) => (s.id === "s3" ? { ...s, lastSeenAt: now } : s.id === "s1" ? { ...s, lastSeenAt: now - 20 * MIN } : s)),
+      agents.map((a) => (a.agentId === "a2" ? { ...a, lastSeenAt: now } : { ...a, lastSeenAt: now - 20 * MIN })),
+    ))
+    expect(after).toEqual(before)
+  })
+})
+
+describe("byStart", () => {
+  it("oldest start first, ties by id", () => {
+    const rows = [{ id: "b", startedAt: 2 }, { id: "c", startedAt: 1 }, { id: "a", startedAt: 2 }]
+    expect([...rows].sort(byStart).map((r) => r.id)).toEqual(["c", "a", "b"])
   })
 })
 
