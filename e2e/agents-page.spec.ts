@@ -472,3 +472,77 @@ for (const theme of ["light", "dark"] as const) {
     await agents[2]!.run((c) => c["task.release"]({ commandId: newCommandId(), key: `${key}-3` }))
   })
 }
+
+for (const theme of ["light", "dark"] as const) {
+  test(`CEL-188 (${theme}): the Agents page narrows to a project: chips with counts, ↓ and j walk only the shown rows, the pick survives a reload, All brings everything back`, async ({ page, cello, baseURL }) => {
+    const [keyA, keyB] = theme === "light" ? ["CAL", "CBL"] : ["CAD", "CBD"]
+    const nameA = `Chips Alpha ${theme}`
+    const nameB = `Chips Beta ${theme}`
+    const [projectA, projectB] = [await seedProject(cello, nameA, keyA), await seedProject(cello, nameB, keyB)]
+    const { statuses } = await defaultWorkspace(cello)
+    for (const [project, titles] of [
+      [projectA, ["Make the timer louder", "Add a dark icon"]],
+      [projectB, ["Sync the presets"]],
+    ] as const) {
+      for (const title of titles) {
+        await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title, statusId: statuses.Todo!.id }))
+      }
+    }
+    // Three agents, one after another (this test's process is alive, so they stay working): two on Alpha, one on Beta.
+    const externals = [`c188${theme}1-first-session`, `c188${theme}2-second-session`, `c188${theme}3-third-session`] as const
+    const claims = [`${keyA}-1`, `${keyA}-2`, `${keyB}-1`] as const
+    for (const [i, external] of externals.entries()) {
+      const agent = await agentAs(baseURL!, external, process.pid)
+      await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: claims[i]! }))
+    }
+    const [first, second, third] = (await Promise.all(externals.map((e) => sessionId(cello, e)))).map((id) => page.locator(`[data-agent-row="session:${id}"]`)) as [Locator, Locator, Locator]
+    // Every row the page shows: with a pick, only that project's (another test's agents are on other projects).
+    const mine = page.locator("[data-agent-row]")
+    const chip = (name: string, count: number) => page.getByRole("radio", { name: `${name} ${count}` })
+
+    await page.addInitScript((t) => localStorage.setItem("cello:theme", t), theme)
+    await page.goto("/agents")
+    await caption(page, "Agents on All: three agents, on two projects")
+    await expect(first).toBeVisible()
+    await expect(second).toBeVisible()
+    await expect(third).toBeVisible()
+    await expect(chip(nameA, 2)).toBeVisible()
+    await expect(chip(nameB, 1)).toBeVisible()
+    await expect(page.getByRole("radio", { name: /^All \d+$/ })).toHaveAttribute("aria-checked", "true")
+
+    await caption(page, `Pick ${nameA}: only its two agents stay, and the page count follows`)
+    await chip(nameA, 2).click()
+    await expect(mine).toHaveCount(2)
+    await expect(first).toBeVisible()
+    await expect(second).toBeVisible()
+    await expect(third).toHaveCount(0)
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Agents working 2")
+
+    await caption(page, "↓ and j move between the shown rows only, and stop at the last one")
+    await first.getByRole("button").first().focus()
+    await page.keyboard.press("ArrowDown")
+    await expect(second.getByRole("button").first()).toBeFocused()
+    await page.keyboard.press("j")
+    await expect(second.getByRole("button").first()).toBeFocused()
+    await page.keyboard.press("k")
+    await expect(first.getByRole("button").first()).toBeFocused()
+
+    await captionWithUrl(page, "Reload: the pick stays on this device")
+    await page.reload()
+    await expect(chip(nameA, 2)).toHaveAttribute("aria-checked", "true")
+    await expect(mine).toHaveCount(2)
+
+    await caption(page, `Pick ${nameB}: the other agent shows alone`)
+    await chip(nameB, 1).click()
+    await expect(mine).toHaveCount(1)
+    await expect(third).toBeVisible()
+    await expect(first).toHaveCount(0)
+
+    await caption(page, "All: everything is back")
+    await page.getByRole("radio", { name: /^All \d+$/ }).click()
+    await expect(first).toBeVisible()
+    await expect(second).toBeVisible()
+    await expect(third).toBeVisible()
+    await expect(page.getByRole("radio", { name: /^All \d+$/ })).toHaveAttribute("aria-checked", "true")
+  })
+}

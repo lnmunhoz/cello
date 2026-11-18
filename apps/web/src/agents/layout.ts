@@ -209,5 +209,31 @@ export const stateTaskOf = (
   statuses: Readonly<Record<string, { readonly name: string; readonly category: string }>>,
 ): Task | undefined => waitingTaskOf(row, statuses) ?? row.tasks[0]
 
+/**
+ * The project a row belongs to when the page is narrowed to one (CEL-188): a session's is the one its
+ * row shows (stateTaskOf), else its first subagent's task; a subagent under its session shares it, so a
+ * family is never split. A finished row stands on its own. Null: no task, so it shows under All only.
+ */
+export const homeProjectOf = (
+  row: AgentRow,
+  rows: ReadonlyArray<AgentRow>,
+  statuses: Readonly<Record<string, { readonly name: string; readonly category: string }>>,
+): string | null => {
+  if (row.kind === "agent") {
+    const session = row.parent === null ? undefined : rows.find((r) => r.kind === "session" && r.session.id === row.session.id)
+    return session ? homeProjectOf(session, rows, statuses) : (stateTaskOf(row, statuses)?.projectId ?? null)
+  }
+  const own = stateTaskOf(row, statuses)
+  if (own) return own.projectId
+  return rows.find((r) => r.kind === "agent" && r.session.id === row.session.id && r.tasks.length > 0)?.tasks[0]?.projectId ?? null
+}
+
+/** The rows of `projectId` (null: all of them), each family whole. */
+export const filterAgentRows = (
+  rows: ReadonlyArray<AgentRow>,
+  projectId: string | null,
+  statuses: Readonly<Record<string, { readonly name: string; readonly category: string }>>,
+): AgentRow[] => (projectId === null ? [...rows] : rows.filter((r) => homeProjectOf(r, rows, statuses) === projectId))
+
 /** "1 subagent", "3 subagents". */
 export const subagentsLabel = (n: number): string => `${n} ${n === 1 ? "subagent" : "subagents"}`

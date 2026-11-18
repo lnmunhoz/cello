@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { allLeft, type DecisionState, decisionStep, type Held, holdStep, IDLE, nextAfterDecision, parseReviewSearch, decisionNote, rowKey, syncHeld, withHeld } from "./queue.ts"
+import { allLeft, type DecisionState, decisionStep, filterQueue, type Held, holdStep, IDLE, nextAfterDecision, parseReviewSearch, decisionNote, rowKey, syncHeld, withHeld } from "./queue.ts"
 
 describe("decisionStep: what a row shows from the click on Approve or Send back until it has left (CEL-187)", () => {
   const pending: DecisionState = { phase: "pending", decision: "approved" }
@@ -133,6 +133,24 @@ describe("nextAfterDecision: after Approve or Send back, the next row opens", ()
   })
   it("none for a row that isn't in the queue any more", () => {
     expect(nextAfterDecision(keys, "CEL-99")).toBeUndefined()
+  })
+})
+
+describe("filterQueue: the Review page narrowed to a project (CEL-188)", () => {
+  const item = (key: string, project: string) => ({ task: { key }, project: { id: project } })
+  const items = [item("A-1", "pa"), item("B-1", "pb"), item("A-2", "pa")]
+
+  it("keeps the project's rows in order; All keeps every row", () => {
+    expect(filterQueue(items, "pa").map((i) => i.task.key)).toEqual(["A-1", "A-2"])
+    expect(filterQueue(items, null).map((i) => i.task.key)).toEqual(["A-1", "B-1", "A-2"])
+  })
+
+  it("keeps a row with a decision in flight whatever its project, so it can say so and fold away", () => {
+    expect(filterQueue(items, "pa", new Set(["B-1"])).map((i) => i.task.key)).toEqual(["A-1", "B-1", "A-2"])
+  })
+
+  it("a project with no rows has none", () => {
+    expect(filterQueue(items, "pc")).toEqual([])
   })
 })
 

@@ -1,7 +1,8 @@
 import { currentStepOf } from "@cello/client/sync/agentLog"
 import { finishedAgents, startOfDay } from "@cello/client/sync/agents"
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import type { Task } from "@cello/contract/entities"
+import { projectsOf } from "@cello/client/sync/selectors"
+import type { Project, Task } from "@cello/contract/entities"
 import { stageInfo } from "@cello/contract/stages"
 import { isNeedsInputStatus } from "@cello/shared/ask"
 import { modelName } from "@cello/shared/model"
@@ -17,15 +18,18 @@ import { Centered } from "../app/Home.tsx"
 import { CardBody } from "../board/Card.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
-import { layoutTransition } from "../lib/motion.ts"
+import { instant as motionInstant, layoutTransition } from "../lib/motion.ts"
 import { Author } from "../presence/Author.tsx"
 import { OriginBadge } from "../presence/OriginBadge.tsx"
 import { agentsWorkingCount, workingSessions } from "../presence/model.ts"
 import { AgentMarkOf, presenceSubjectOf, StageWord } from "../presence/Presence.tsx"
 import { TestRunFacts, TestRunLine, testRunOf } from "../presence/TestRun.tsx"
 import { useNow } from "../presence/useNow.ts"
+import { NothingFor, ProjectChips } from "../review/ProjectChips.tsx"
 import { QueueRow, type QueueRowState } from "../review/QueueRow.tsx"
+import { projectChips } from "../review/queueView.ts"
 import { useQueue } from "../review/useQueue.ts"
+import { useQueueView } from "../review/useQueueView.ts"
 import { TaskLink } from "../task/TaskKey.tsx"
 import { keepViewer } from "../viewer/search.ts"
 import { AgentLog } from "./AgentLog.tsx"
@@ -35,8 +39,10 @@ import {
   agentGroups,
   agentRows,
   directTasks,
+  filterAgentRows,
   finishedRows,
   groupOf,
+  homeProjectOf,
   pulseKeyOf,
   rowKeysOf,
   stateTaskOf,
@@ -46,13 +52,27 @@ import {
 
 /** How a row moves to its new group, or out (CEL-186): the board's spring. */
 
+/** AnimatePresence's custom for a row: the rows on the page now, and whether the human just changed the view (CEL-188). */
+interface Leave {
+  readonly keys: ReadonlyArray<string>
+  readonly instant: boolean
+}
+
 /**
  * How a row leaves its group: one that left the page fades out; one that moved to another group (still in
- * `keys`, AnimatePresence's custom) leaves its old place at once, while its copy there slides in.
+ * `keys`, AnimatePresence's custom) leaves its old place at once, while its copy there slides in. A row
+ * the human's pick took off the page goes at once too.
  */
 const exitOf = (id: string) => ({
-  gone: (keys: ReadonlyArray<string> | undefined) => ({ opacity: 0, height: 0, transition: keys?.includes(id) ? { duration: 0 } : LEAVE }),
+  gone: (leave: Leave | undefined) => ({
+    opacity: 0,
+    height: 0,
+    transition: leave?.instant || leave?.keys.includes(id) ? motionInstant : LEAVE,
+  }),
 })
+
+/** How a group leaves: it folds away, or at once when the human's pick took it off the page. */
+const groupGone = { gone: (instant: boolean | undefined) => ({ opacity: 0, height: 0, transition: instant ? motionInstant : LEAVE }) }
 
 /** How long a row or an emptied group takes to fold away: its height closes, so what's under it follows. */
 const LEAVE = { duration: 0.2, ease: "easeOut" } as const
@@ -79,15 +99,32 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const { open } = useSearch({ from: "/agents" })
   const navigate = useNavigate({ from: "/agents" })
   const now = useNow()
-  const sessions = workingSessions(board, workspaceId, now)
-  const rows = agentRows(sessions)
-  const finished = finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now)))
+  const projects = projectsOf(board, workspaceId)
+  const { picked, pick, instant } = useQueueView("agents", projects)
+  const projectId = picked?.id ?? null
+  const allSessions = workingSessions(board, workspaceId, now)
+  const allRows = agentRows(allSessions)
+  const allFinished = finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now)))
+  // The chips count the whole list, so rows stay put while you filter; a family is never split by a pick.
+  const chips = projectChips(allRows.map((r) => homeProjectOf(r, allRows, board.statuses)), projects, picked)
+  const rows = filterAgentRows(allRows, projectId, board.statuses)
+  const finished = filterAgentRows(allFinished, projectId, board.statuses)
+  const sessions = allSessions.filter((s) => rows.some((r) => r.id === `session:${s.session.id}`))
   const groups = agentGroups(rows, finished)
   const keys = rowKeysOf(groups)
+  const leave: Leave = { keys, instant }
   const layoutKey = groups.map((g) => `${g.id}:${g.rows.map((r) => r.id).join(",")}`).join(";")
   const placement = new Map(groups.flatMap((g) => g.rows.map((r) => [r.id, g.id] as const)))
   const openId = open !== undefined && keys.includes(open) ? open : null
-  const queue = useQueue({ keys, open: openId, setOpen: (id) => void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(id === null ? {} : { open: id }) }), replace: true }) })
+  const setOpen = (id: string | null) => void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(id === null ? {} : { open: id }) }), replace: true })
+  const queue = useQueue({ keys, open: openId, setOpen })
+  /** A pick that hides the open row closes it, so it doesn't spring open when the project comes back. */
+  const onPick = (next: Project | null) => {
+    pick(next)
+    if (open === undefined || next === null) return
+    const shown = [...filterAgentRows(allRows, next.id, board.statuses), ...filterAgentRows(allFinished, next.id, board.statuses)]
+    if (!shown.some((r) => r.id === open)) setOpen(null)
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -104,7 +141,9 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
               that finished today last. Open one to see what it was asked and its log. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
             </p>
           </header>
-          {rows.length === 0 ? (
+          <ProjectChips chips={chips} picked={picked} onPick={onPick} />
+          {rows.length === 0 && picked !== null ? <NothingFor project={picked} onShowAll={() => onPick(null)} /> : null}
+          {rows.length === 0 && picked === null ? (
             <div className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-line px-6 py-14 text-center text-[13px] text-muted">
               <p className="text-[15px] font-medium text-ink">No agent is working</p>
               <p>When an agent claims a task, or a subagent starts on one, it shows up here.</p>
@@ -116,21 +155,23 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                 <LayoutGroup>
                   <div {...queue.list} className="flex flex-col gap-6">
                     {/* A group that empties stays while its last row leaves, then folds away, instead of the page jumping. */}
-                    <AnimatePresence initial={false}>
+                    <AnimatePresence initial={false} custom={instant}>
                       {groups.map((group) => (
                         <motion.section
                           key={group.id}
                           aria-labelledby={`agents-${group.id}`}
                           data-agents-group={group.id}
                           className="flex flex-col gap-2"
-                          exit={{ opacity: 0, height: 0, transition: LEAVE }}
+                          variants={groupGone}
+                          custom={instant}
+                          exit="gone"
                         >
                           {/* The heading slides with the rows when a group above appears or goes; the rows (z-10) pass over it. */}
                           <motion.h2
                             id={`agents-${group.id}`}
                             layout="position"
                             layoutDependency={layoutKey}
-                            transition={layoutTransition}
+                            transition={instant ? motionInstant : layoutTransition}
                             className="flex items-center gap-2 text-[13px] font-semibold text-ink"
                           >
                             {group.id === "waiting" ? <i aria-hidden className="size-1.5 rounded-full bg-accent" /> : null}
@@ -138,7 +179,7 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                           </motion.h2>
                           <ul aria-label={group.label} className="flex flex-col gap-2">
                             {/* custom: the rows on the page now, so a row that left this group for another goes at once (the copy there slides in). */}
-                            <AnimatePresence initial={false} custom={keys}>
+                            <AnimatePresence initial={false} custom={leave}>
                               {group.rows.map((row) => {
                                 // A subagent sits under its session, always in the same group (CEL-104); finished ones stand on their own.
                                 const under = row.kind === "agent" && group.id !== "finished"
@@ -151,8 +192,8 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                                     layoutId={row.id}
                                     layout="position"
                                     layoutDependency={layoutKey}
-                                    transition={layoutTransition}
-                                    custom={keys}
+                                    transition={instant ? motionInstant : layoutTransition}
+                                    custom={leave}
                                     variants={exitOf(row.id)}
                                     exit="gone"
                                     className={under ? "relative z-10 pl-6" : "relative z-10"}

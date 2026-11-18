@@ -147,3 +147,14 @@ export const withHeld = <Item>(queue: ReadonlyArray<Item>, keyOf: (item: Item) =
   }
   return rows
 }
+
+/**
+ * The rows of `projectId` (null: all of them), in their order (CEL-188). The rows in `keep` (a decision
+ * pending or just made) stay whatever their project, so a pick never takes away a row that is saying what
+ * was decided: it folds away as usual.
+ */
+export const filterQueue = <Item extends { readonly task: { readonly key: string }; readonly project: { readonly id: string } }>(
+  items: ReadonlyArray<Item>,
+  projectId: string | null,
+  keep: ReadonlySet<string> = new Set(),
+): Item[] => (projectId === null ? [...items] : items.filter((item) => item.project.id === projectId || keep.has(item.task.key)))

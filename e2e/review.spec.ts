@@ -626,3 +626,67 @@ test("CEL-71: an agent moves its task out of In Review with `cello task move`: t
   await caption(page, `Withdrawn: ${key}-1 is being worked on again, and the Review page shows only what waits on Lucas`)
   fs.rmSync(dir, { recursive: true, force: true })
 })
+
+for (const theme of ["light", "dark"] as const) {
+  test(`CEL-188 (${theme}): the Review page narrows to a project: chips with counts, j and ↓ walk only the shown rows, a packet approved while filtered folds and the next shown row opens, the pick survives a reload`, async ({ page }) => {
+    await page.addInitScript((t) => localStorage.setItem("cello:theme", t), theme)
+    const nameA = `Chips Alpha ${theme}`
+    const nameB = `Chips Beta ${theme}`
+    const keyA = uniqueKey(theme === "light" ? "CAL" : "CAD")
+    await createProject(page, nameA, keyA)
+    const alpha = await submitPackets(page, keyA, ["Alpha one", "Alpha two"])
+    const keyB = uniqueKey(theme === "light" ? "CBL" : "CBD")
+    await createProject(page, nameB, keyB)
+    const beta = await submitPackets(page, keyB, ["Beta one"])
+    const [one, two] = [1, 2].map((n) => rowOf(page, `${keyA}-${n}`)) as [ReturnType<typeof rowOf>, ReturnType<typeof rowOf>]
+    const beta1 = rowOf(page, `${keyB}-1`)
+    const chip = (name: string, count: number) => page.getByRole("radio", { name: `${name} ${count}` })
+    const all = page.getByRole("radio", { name: /^All \d+$/ })
+    // Every row the page shows: with a pick, only that project's (another test's packets are in other projects).
+    const shown = page.locator("[data-review-task]")
+
+    await page.goto("/review")
+    await caption(page, "Review on All: packets from two projects")
+    await expect(beta1.header).toBeVisible()
+    await expect(one.header).toBeVisible()
+    await expect(chip(nameA, 2)).toBeVisible()
+    await expect(chip(nameB, 1)).toBeVisible()
+    await expect(all).toHaveAttribute("aria-checked", "true")
+
+    await caption(page, `Pick ${nameA}: only its two packets stay, and the page count follows`)
+    await chip(nameA, 2).click()
+    await expect(shown).toHaveCount(2)
+    await expect(beta1.article).toHaveCount(0)
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Review 2")
+
+    await caption(page, "j and ↓ move between the shown rows only, and stop at the last one")
+    await one.header.focus()
+    await page.keyboard.press("j")
+    await expect(two.header).toBeFocused()
+    await page.keyboard.press("ArrowDown")
+    await expect(two.header).toBeFocused()
+    await page.keyboard.press("k")
+    await expect(one.header).toBeFocused()
+
+    await captionWithUrl(page, "Reload: the pick stays on this device")
+    await page.reload()
+    await expect(chip(nameA, 2)).toHaveAttribute("aria-checked", "true")
+    await expect(shown).toHaveCount(2)
+
+    await caption(page, `Open ${keyA}-1 and approve it: it says Approved, folds away, and ${keyA}-2 opens`)
+    await one.header.click()
+    await expect(one.header).toHaveAttribute("aria-expanded", "true")
+    await one.article.locator('[data-decide="approved"]').click()
+    await expect(one.article).toHaveCount(0)
+    await expect(two.header).toHaveAttribute("aria-expanded", "true")
+    await expect(chip(nameA, 1)).toHaveAttribute("aria-checked", "true")
+    await expect(shown).toHaveCount(1)
+
+    await caption(page, "All: everything is back")
+    await all.click()
+    await expect(two.header).toBeVisible()
+    await expect(beta1.header).toBeVisible()
+    await expect(all).toHaveAttribute("aria-checked", "true")
+    for (const { dir } of [alpha, beta]) fs.rmSync(dir, { recursive: true, force: true })
+  })
+}

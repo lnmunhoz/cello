@@ -6,8 +6,10 @@ import {
   agentGroups,
   agentRows,
   directTasks,
+  filterAgentRows,
   finishedRows,
   groupOf,
+  homeProjectOf,
   logLinkOf,
   parseAgentsSearch,
   pulseKeyOf,
@@ -260,5 +262,40 @@ describe("pulseKeyOf (CEL-186)", () => {
     expect(pulseKeyOf(sessionRow2!)).toBe(pulseKeyOf(sessionRow!))
     const [sessionRow3] = agentRows([working({ ...s, lastSeenAt: s.lastSeenAt + 1000 }, { agents: [a] })])
     expect(pulseKeyOf(sessionRow3!)).not.toBe(pulseKeyOf(sessionRow!))
+  })
+})
+
+describe("homeProjectOf and filterAgentRows: the Agents page narrowed to a project (CEL-188)", () => {
+  const statuses = { prog: { name: "In Progress", category: "started" } }
+  const inProject = (t: Task, projectId: string): Task => ({ ...t, projectId })
+
+  it("a session's project is the task its row shows; with none, its first subagent's task; with no task at all, none", () => {
+    const a = session("sa")
+    const b = session("sb")
+    const c = session("sc")
+    const rows = agentRows([
+      working(a, { tasks: [inProject(task("t1", "A-1"), "pa")] }),
+      working(b, { agents: [sub(b, "b1", inProject(task("t2", "B-1"), "pb"))] }),
+      working(c),
+    ])
+    expect(rows.map((r) => homeProjectOf(r, rows, statuses))).toEqual(["pa", "pb", "pb", null])
+  })
+
+  it("a subagent on another project stays under its session's project: a family is never split", () => {
+    const a = session("sa")
+    const rows = agentRows([working(a, { tasks: [inProject(task("t1", "A-1"), "pa")], agents: [sub(a, "a1", inProject(task("t2", "B-1"), "pb"))] })])
+    expect(filterAgentRows(rows, "pa", statuses).map((r) => r.id)).toEqual(["session:sa", "agent:sa/a1"])
+    expect(filterAgentRows(rows, "pb", statuses)).toEqual([])
+  })
+
+  it("All keeps every row, rows with no project too; a project drops them", () => {
+    const rows = agentRows([working(session("sa"), { tasks: [inProject(task("t1", "A-1"), "pa")] }), working(session("sb"))])
+    expect(filterAgentRows(rows, null, statuses).map((r) => r.id)).toEqual(["session:sa", "session:sb"])
+    expect(filterAgentRows(rows, "pa", statuses).map((r) => r.id)).toEqual(["session:sa"])
+  })
+
+  it("a finished row stands on its own: its own task's project", () => {
+    const [row] = finishedRows(EMPTY_BOARD, [{ session: session("sf"), agent: null, tasks: [inProject(task("t1", "A-1"), "pa")], endedAt: now }])
+    expect(homeProjectOf(row!, [], statuses)).toBe("pa")
   })
 })
