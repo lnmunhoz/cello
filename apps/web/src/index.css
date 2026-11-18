@@ -18,6 +18,21 @@
   }
 }
 
+/*
+ * The content column of a page that is a packet container (Review, Agents, a task opened full page while
+ * it is in review): 3xl (768 px) of content, 1536 px once `packet-wide:` applies, and the page's 2rem of
+ * padding on each side. It is never centred (CEL-163): it keeps the same left edge at every width, so it
+ * doesn't jump to the middle when a side panel narrows the page below the `packet-wide:` width.
+ */
+@utility packet-column {
+  box-sizing: content-box;
+  max-width: var(--container-3xl);
+  padding-inline: --spacing(8);
+  @variant packet-wide {
+    max-width: 1536px;
+  }
+}
+
 /* Colors are tokens; both themes redefine them. Components use the utilities below (bg-surface, text-muted…). */
 :root {
   --canvas: #f4f4f5;

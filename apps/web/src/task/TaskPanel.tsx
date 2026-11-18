@@ -234,7 +234,7 @@ function TaskMenu({ task, onArchived }: { task: Task; onArchived: () => void }) 
 
 /**
  * The task's fields, packet, pages, comments and history. As a full page the scroll area is a packet
- * container (index.css): the column is centred, and widens for an open packet so it can split in two,
+ * container (index.css): the column is aligned left (`packet-column`), and widens for an open packet so it can split in two,
  * while the rest keeps a readable width, aligned with the packet's left edge. `comment`: the comment
  * it was opened at, scrolled to and flashed once.
  */
@@ -263,9 +263,9 @@ function TaskDetails({ board, project, task, full, comment }: { board: BoardStat
   }
 
   return (
-    // A full page is a block, so the centred column below fills it up to its max width.
+    // A full page is a block, so the left-aligned column below fills it up to its max width.
     <div ref={scroller} data-side-scroll="" className={`min-h-0 flex-1 overflow-y-auto ${full ? "@container/packet block" : "flex flex-col"}`}>
-      <div className={full ? `mx-auto box-content max-w-3xl px-8 ${reviewing ? "packet-wide:max-w-[1536px]" : ""}` : "contents"}>
+      <div className={full ? (reviewing ? "packet-column" : "box-content max-w-3xl px-8") : "contents"}>
       <div className={`flex flex-col gap-4 pt-5 pb-6 ${full ? "" : "px-6"}`}>
         <PinnedAsk board={board} task={task} />
         <PinnedReview board={board} task={task} />

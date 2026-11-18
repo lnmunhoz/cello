@@ -2,7 +2,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import type { Browser } from "@playwright/test"
 import { addTasks, caption, captionWithUrl, card, column, createProject, expect, taskPanel, test, uniqueKey } from "./fixtures.ts"
-import { celloAs, expectOneColumn, expectTwoColumns, packetDrawn, SHOTS, submitDiagramPacket, WEB_URL } from "./packets.ts"
+import { celloAs, expectLeftAligned, expectOneColumn, expectTwoColumns, packetDrawn, SHOTS, submitDiagramPacket, WEB_URL } from "./packets.ts"
 import { isReview } from "./recording.ts"
 
 /** `key`'s task page as a full page in its own unrecorded window, saved to e2e/videos/task-full-<width>x<height>-<scheme>.png. */
@@ -50,6 +50,13 @@ test("CEL-39: the task panel's expand button opens the task as a full page (?vie
   expect(area.width).toBeGreaterThan(main.width - 4)
   expect(packet.x).toBeGreaterThan(area.x)
   expect(packet.x + packet.width).toBeLessThan(area.x + area.width)
+  // Aligned left (CEL-163), here and at a mid width, where the column no longer fills the page: it doesn't move to the middle.
+  await expectLeftAligned(panel, pinned)
+  await page.setViewportSize({ width: 1100, height: 900 })
+  await expectOneColumn(pinned)
+  await expectLeftAligned(panel, pinned)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expectTwoColumns(pinned)
 
   await captionWithUrl(page, "Reload: still a full page")
   await page.reload()

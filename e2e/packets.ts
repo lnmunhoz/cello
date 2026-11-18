@@ -251,3 +251,12 @@ export async function submitDiagramPacket(page: Page, key: string, title: string
   expect(out).toContain(`Submitted ${key}-1 for review  In Progress → In Review`)
   return { dir }
 }
+
+/**
+ * CEL-163: a page's content column starts at its scroll area's left edge plus the page padding (`px-8`, 32 px), at every
+ * width: it never centres when the area is narrower than the column's cap.
+ */
+export async function expectLeftAligned(scroller: Locator, content: Locator) {
+  const [area, list] = [(await scroller.boundingBox())!, (await content.boundingBox())!]
+  expect(list.x - area.x).toBe(32)
+}
