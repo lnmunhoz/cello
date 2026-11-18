@@ -104,8 +104,12 @@ test("CEL-107: the task panel's Log opens the builder's log on the Agents page; 
   await logLink.click()
   await expect(page).toHaveURL(new RegExp(`/agents\\?open=${encodeURIComponent(rowId)}`))
   await expect(row).toHaveAttribute("data-agent-group", "working")
-  await expect(log.locator('[data-log-step="toolu_test"]')).toHaveAttribute("data-log-status", "error")
-  await expect(log.locator('[data-log-step="toolu_edit"]')).toHaveAttribute("data-log-status", "ok")
+  // The log opens on Story (CEL-170): the builder's two calls are one row, the failed one counted.
+  const group = log.locator("[data-log-group]")
+  const turn = log.locator("[data-log-turn]")
+  await expect(group).toHaveAttribute("data-log-status", "error")
+  await expect(group.locator("[data-log-summary]")).toHaveText("Ran 1 command, edited 1 file")
+  await expect(turn).toHaveCount(0)
 
   await caption(page, "The builder writes its last step and finishes")
   fs.appendFileSync(builderFile, said("The timer beeps after 4 minutes. Done."))
@@ -119,6 +123,10 @@ test("CEL-107: the task panel's Log opens the builder's log on the Agents page; 
   await expect(row).toHaveAttribute("data-agent-group", "finished")
   await expect(row.locator("[data-agent-presence]").first()).toHaveText(/finished (just now|\d+m ago)/)
   await expect(log.locator('[data-log-kind="message"]').last()).toHaveText(/Done\./)
+  // Its turn is over: the work folds under "Worked for…", and the last message stays open (CEL-170).
+  await expect(turn).toBeVisible()
+  await expect(turn.locator("[data-log-toggle]").first()).toContainText("Worked for")
+  await expect(group).toHaveCount(0)
   // The orchestrator is still working, in its group above.
   await expect(page.locator(`[data-agent-row="session:${sessionId}"]`)).not.toHaveAttribute("data-agent-group", "finished")
   await shoot(page, "finished")
@@ -127,8 +135,10 @@ test("CEL-107: the task panel's Log opens the builder's log on the Agents page; 
   await page.goto("/agents")
   await expect(finished.locator(`[data-agent-row="${rowId}"]`)).toBeVisible()
   await row.getByRole("button").first().click()
-  await expect(log.locator('[data-log-step="toolu_test"]')).toBeVisible()
+  await expect(turn).toBeVisible()
   await expect(log.locator('[data-log-kind="message"]').last()).toHaveText(/Done\./)
+  await turn.locator("[data-log-toggle]").first().click()
+  await expect(group).toBeVisible()
 
   await caption(page, "Back on the task: the builder finished, so Working on it is the session again, and Log opens its log")
   await page.goto(`/${key}/1`)

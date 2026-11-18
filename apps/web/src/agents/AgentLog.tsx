@@ -50,7 +50,8 @@ export function AgentLog({ board, row }: { readonly board: BoardState; readonly 
   const live = row.presence !== "ended" && (row.agent ? row.agent.endedAt : row.session.endedAt) === null
   const working = row.presence === "active"
   const flat = log && show !== "story" ? filterSteps(log.steps, show, thinking) : []
-  const items = log && show === "story" ? storyOf(log.steps, { thinking, live: working }) : []
+  // The agent still has a process (`live`), not just a check-in in the last 5 minutes: a long command makes it quiet for longer, and its running call must not fold away.
+  const items = log && show === "story" ? storyOf(log.steps, { thinking, live }) : []
   const empty = show === "story" ? items.length === 0 : flat.length === 0
   const masked = log?.steps.some((s) => s.masked) ?? false
   const note = thinking && log ? thinkingNote(log) : null
