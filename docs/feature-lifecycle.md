@@ -20,10 +20,10 @@ flowchart TD
     C --> BU["⑤ Build<br/>builder agent, own worktree, test first"]
     BU --> RV["⑥ Review<br/>a fresh reviewer agent"]
     RV -->|findings| BU
-    RV -->|clean| M["⑦ Merge<br/>into main, related tests;<br/>released only when Lucas says"]
-    M --> P["⑧ Submit<br/>review packet with videos: In Review"]
-    P --> L{"⑨ Lucas on the Review page"}
-    L -->|Approve| D(["Done"])
+    RV -->|clean| P["⑦ Submit<br/>review packet with videos: In Review,<br/>not merged yet"]
+    P --> L{"⑧ Lucas on the Review page"}
+    L -->|"Approve and merge"| M["⑨ Merge<br/>into main, related tests;<br/>released only when Lucas says"]
+    M --> D(["Done"])
     L -->|"Send back + note"| BU
 ```
 
@@ -33,10 +33,11 @@ flowchart TD
 | --- | --- | --- |
 | **Todo** | Nowhere yet | No |
 | **In Progress** | In an agent's worktree: being built, reviewed or fixed | No |
-| **In Review** | **Merged into main**, not released yet | **After the next release**: you say when (below). Until then, the packet's videos and screenshots |
-| **Done** | Same as In Review; you signed it off | After the next release |
+| **In Review** | **Still on the agent's branch**: Cello merges after you approve (below) | From the packet's videos and screenshots |
+| **Approved · merging** | Being merged into main after your Approve | Not yet |
+| **Done** | **Merged into main**, not released yet | **After the next release**: you say when (below) |
 
-**Releases happen only when you say so** (Nov 18): agents merge into main and submit, and nothing goes live on your board until you ask for a release. Then everything merged since the last one goes out together. After that, two parts update differently:
+**Cello merges after you approve** (Settings → the project → "Merge after I approve", on since Nov 18; `cello context` prints it): agents submit before they merge, and your "Approve and merge" tells them to merge. **Releases happen only when you say so** (Nov 18): nothing goes live on your board until you ask for a release. Then everything merged since the last one goes out together. After that, two parts update differently:
 
 - **The board, the Review page, every screen** come from the server. After a deploy, open tabs and the desktop app notice the new build when they reconnect: "Cello was updated · Reload", and they reload by themselves after 5 seconds unless you're typing (CEL-37). The sidebar's footer shows the build you're running ("Cello 0.2.0 · build c602f25 · live since 18:19"); a click lists what that build changed.
 - **The desktop app's own shell** (its icon, the side panel's browser) only changes when the app is repackaged. That happens only for desktop changes, and the packet says so.
@@ -133,9 +134,50 @@ flowchart TD
 - For UI work it also checks the **videos and screenshots** frame by frame: does the evidence, on its own, show the task is done?
 - This is where the expensive mistakes get caught. This week reviews found a settings write that could be cut short, a comment delivered three times, and a restore that failed silently.
 
-## ⑦ Merge
+## ⑦ Submit the review packet
 
-The orchestrator merges the branch into main (`cello task stage CEL-n merged`) with a `merge: <what> (CEL-n)` subject (that's the task's line in the changelog), and runs **the related e2e specs** only (AGENTS.md, "Pick the e2e specs"). The full Docker run (`bun run test:docker`) only before a minor or major release, when the change touches what every screen shares, or when Lucas asks. Then it submits the packet. **No release.**
+```bash
+cello task submit CEL-n --summary "…" --step "…" \
+  --attach test-results/docker/latest/web/videos/<test>.mp4 --caption "…" \
+  --attach shots/after-dark.png --caption "…"
+```
+
+The packet moves the task to **In Review**. It holds:
+
+- **A summary:** what changed and why, what the review found and what was fixed, which models built and reviewed it.
+- **Steps** Lucas can follow to check it himself.
+- **Evidence:** videos recorded once, at the end, in review mode (each step held about 1.5 s, the cursor and clicks drawn), screenshots in light and dark, or a terminal transcript for CLI work. How they're made: *How evidence videos and screenshots are made*.
+
+## ⑧ Lucas decides
+
+```mermaid
+flowchart TD
+    A["Review page<br/>one packet open at a time"] --> B{"Lucas"}
+    B -->|"Approve and merge"| D["Approved · merging<br/>the orchestrator merges,<br/>then cello task done: Done"]
+    B -->|"Send back + a note,<br/>or feedback in chat"| C["Task back to In Progress<br/>the note becomes a comment"]
+    C --> E["The note reaches the agent's session<br/>through the Claude Code hook (CEL-15)"]
+    E --> F["Fix, test, review"]
+    F --> G["Submit again"]
+    G --> A
+```
+
+**Feedback in chat works the same as Send back.** If Lucas reviews a task in the conversation instead of on the Review page, the orchestrator puts his words on the card as a comment ("Lucas, in chat (review): …"), moves the task back to In Progress, and the fix goes through build, review and a new packet like any Send back.
+
+**Approve is the gate:** nothing reaches main before it. Each project chooses (Settings → the project → "Merge after I approve", CEL-143), and Cello's own has it on. The packet comes before the merge, with the PR link when the project uses PRs, and Approve is the gate: the button reads "Approve and merge", the card stays in In Review as **Approved · merging**, and the orchestrator's session is told to merge. It merges, then `cello task done CEL-n` moves the task to Done. With the setting off (some other projects), the order is reversed: the orchestrator merges before it submits, and Approve only moves the task to Done.
+
+```mermaid
+flowchart TD
+    A["Review clean"] --> B["Submit, with the PR link<br/>cello task submit: In Review"]
+    B --> C{"Lucas"}
+    C -->|"Approve and merge"| D["Approved · merging<br/>the claim stays; the session is told to merge"]
+    D --> E["Merge"]
+    E --> F(["cello task done: Done<br/>the claim ends"])
+    C -->|"Send back + a note"| G["Back to In Progress"]
+```
+
+## ⑨ Merge, after Lucas approves
+
+His "Approve and merge" reaches the orchestrator's session (the card shows **Approved · merging**). Only then the orchestrator merges the branch into main (`cello task stage CEL-n merged`) with a `merge: <what> (CEL-n)` subject (that's the task's line in the changelog), and runs **the related e2e specs** only (AGENTS.md, "Pick the e2e specs"). The full Docker run (`bun run test:docker`) only before a minor or major release, when the change touches what every screen shares, or when Lucas asks. Then `cello task done CEL-n` moves the task to Done and ends the claim. A merge that fails: stage `fixing` and a comment on the card. **No release.**
 
 ### Releasing, only when Lucas says
 
@@ -151,49 +193,6 @@ Lucas decides when a release goes out (Nov 18: "We only release when I say so").
 - **deploys to Lucas's board:** `cello backup`, then the new `cello` goes live, then `cello service restart`. A database migration runs at that restart, which is why the backup comes first.
 
 `bun run release -- --dry-run` previews all of it without changing anything. The steps, the flags, what to do when a step fails and how to roll back: [Releases](releases.md).
-
-## ⑧ Submit the review packet
-
-```bash
-cello task submit CEL-n --summary "…" --step "…" \
-  --attach test-results/docker/latest/web/videos/<test>.mp4 --caption "…" \
-  --attach shots/after-dark.png --caption "…"
-```
-
-The packet moves the task to **In Review**. It holds:
-
-- **A summary:** what changed and why, what the review found and what was fixed, which models built and reviewed it.
-- **Steps** Lucas can follow to check it himself.
-- **Evidence:** videos recorded once, at the end, in review mode (each step held about 1.5 s, the cursor and clicks drawn), screenshots in light and dark, or a terminal transcript for CLI work. How they're made: *How evidence videos and screenshots are made*.
-
-## ⑨ Lucas decides
-
-```mermaid
-flowchart TD
-    A["Review page<br/>one packet open at a time"] --> B{"Lucas"}
-    B -->|Approve| D(["Done<br/>the claim ends"])
-    B -->|"Send back + a note,<br/>or feedback in chat"| C["Task back to In Progress<br/>the note becomes a comment"]
-    C --> E["The note reaches the agent's session<br/>through the Claude Code hook (CEL-15)"]
-    E --> F["Fix, test, merge"]
-    F --> G["Submit again"]
-    G --> A
-```
-
-**Feedback in chat works the same as Send back.** If Lucas reviews a task in the conversation instead of on the Review page, the orchestrator puts his words on the card as a comment ("Lucas, in chat (review): …"), moves the task back to In Progress, and the fix goes through build, review and a new packet like any Send back.
-
-Approve is sign-off, not a gate: the code is already merged and tested. It moves the task to Done.
-
-**That's Cello's own project, which merges before review.** Each project chooses (Settings → the project → "Merge after I approve", CEL-143). With it on, the packet comes before the merge, with the PR link when the project uses PRs, and Approve is the gate: the button reads "Approve and merge", the card stays in In Review as **Approved · merging**, and the orchestrator's session is told to merge. It merges, then `cello task done CEL-n` moves the task to Done.
-
-```mermaid
-flowchart TD
-    A["Review clean"] --> B["Submit, with the PR link<br/>cello task submit: In Review"]
-    B --> C{"Lucas"}
-    C -->|"Approve and merge"| D["Approved · merging<br/>the claim stays; the session is told to merge"]
-    D --> E["Merge"]
-    E --> F(["cello task done: Done<br/>the claim ends"])
-    C -->|"Send back + a note"| G["Back to In Progress"]
-```
 
 ## Where everything lives
 

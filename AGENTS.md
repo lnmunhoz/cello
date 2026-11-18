@@ -60,17 +60,16 @@ The orchestrator claims the task and runs it. Full path with diagrams: [docs/fea
    - When the change touches Lucas's data, also run `cello-data-reviewer` on those parts. Lucas's data means migrations, backup/restore, writes outside the data folder, deleting files, or the desktop panel's security rules.
    - For UI work, the same reviewer checks every video and screenshot (its "UI work: the evidence" checklist). Give it their paths.
 4. **Fix.** Findings go back to the same builder. If a blocker survives one round, or it's a design question, ask on the card.
-5. **Merge.** Merge as `merge: <what> (CEL-n)`, which becomes the changelog line, so write it for Lucas. Run the related e2e specs.
-   - **No release.** Releases happen only when Lucas says so ("release", "ship it"), never as a step of a task: then `bun run release` on main ([docs/releases.md](docs/releases.md)). `-- minor`/`-- major` only when he says.
-   - Never rebuild or restart the live board by hand, and never bump versions by hand.
-6. **Submit right after the merge.** Don't batch merges or hold packets. The packet says what review found and fixed, which models built and reviewed it, and that it's merged into main and not released yet, so it's live only after the next release.
+5. **Submit, not merged yet.** Right after the review is clean: don't hold packets. The packet says what review found and fixed, which models planned, built and reviewed it, and the branch. Keep the claim and run `cello inbox --wait` in the background.
+6. **Merge only after Lucas approves.** Cello merges after approval (`cello context`: "Merge after approval  on"; CEL-143). **Never merge before his "Approve and merge".** When it reaches your session (the card shows Approved · merging):
+   - merge as `merge: <what> (CEL-n)`, which becomes the changelog line, so write it for Lucas, and run the related e2e specs
+   - then `cello task done CEL-n`. A failed merge: stage `fixing` and a comment on the card
+   - a Send back instead: fix, review, submit again
+7. **No release.** Releases happen only when Lucas says so ("release", "ship it"), never as a step of a task: then `bun run release` on main ([docs/releases.md](docs/releases.md)). `-- minor`/`-- major` only when he says. Never rebuild or restart the live board by hand, and never bump versions by hand.
 
 Small changes (docs, a one-line fix) skip steps 1–4, still test first.
 
-**When the merge happens is a per-project setting, "Merge after I approve"** (`cello context` prints it; CEL-143):
-
-- **off** (Cello's own project): the steps above. Lucas reviews what's merged into main, and Approve moves the task to Done.
-- **on** (new projects with a repository): build → review → submit (with the PR link when the project uses PRs) → wait for Lucas's "Approve and merge" (`cello inbox --wait`) → merge → `cello task done CEL-n`. A failed merge: stage `fixing` and a comment. Details: docs/cli.md, "Merge after I approve".
+**The setting decides, not this file.** "Merge after I approve" is per project (`cello context` prints it). Check it at the start of a session. It's **on** for Cello: the steps above. If it ever shows **off**, merge (step 6) before you submit, and Approve only moves the task to Done. Details: docs/cli.md, "Merge after I approve".
 
 **Models and effort.** Each agent definition in `.claude/agents/` pins its model and effort. Pass the same values when starting one another way. Effort is never below medium. Why, and when to change: [docs/models.md](docs/models.md). Change the table and that page together.
 
