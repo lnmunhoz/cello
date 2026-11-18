@@ -3,6 +3,12 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.4.15](https://github.com/lnmunhoz/cello/compare/v0.4.14...v0.4.15) (2026-11-18)
+
+### Other changes
+
+- **agents:** a cello-planner (Opus 5.5, high) plans every build first; builders move to Sonnet 5.5, high (CEL-158) ([f6df271](https://github.com/lnmunhoz/cello/commit/f6df271429395a9d3d29062d3e7940a04c3e8c20))
+
 ## [0.4.14](https://github.com/lnmunhoz/cello/compare/v0.4.13...v0.4.14) (2026-11-18)
 
 ### Other changes
