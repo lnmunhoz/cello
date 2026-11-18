@@ -7,7 +7,7 @@ import { NotFound } from "../app/NotFound.tsx"
 import { useBoard } from "../lib/hooks.ts"
 import { ProjectLabels } from "./Labels.tsx"
 import { MergeSettings } from "./MergeSettings.tsx"
-import { Section } from "./Section.tsx"
+import { Section, SettingsColumn } from "./Section.tsx"
 import { TestingProfile } from "./TestingProfile.tsx"
 import { WakeSettings } from "./WakeSettings.tsx"
 
@@ -19,27 +19,25 @@ export function ProjectSettings() {
   if (!project) return <NotFound title={`No project with the key ${projectKey.toUpperCase()}`} />
   return (
     // Keyed on the project, so a draft (a half-typed label, a profile field) never carries to another project's page.
-    <div key={project.key} className="flex-1 overflow-y-auto px-8 py-6">
-      <div className="mx-auto flex max-w-2xl flex-col gap-10">
-        <Section title="Labels" description="This project's labels: its kinds, areas and milestones.">
-          <ProjectLabels project={project} />
-        </Section>
-        <Section
-          title="Testing"
-          description="How agents test this project and collect evidence for review. cello init drafts it from the repo and agents fix it when the repo changes; what you set here, agents can't change."
-        >
-          <TestingProfile projectKey={project.key} />
-        </Section>
-        <Section
-          title="Waking agents"
-          description="Whether Cello starts this project's agent sessions by itself when you act on a task they claimed and nothing of them is running."
-        >
-          <WakeSettings projectKey={project.key} />
-        </Section>
-        <Section title="Merging" description="When this project's agents merge their work: before you review it, or after you approve it.">
-          <MergeSettings project={project} />
-        </Section>
-      </div>
-    </div>
+    <SettingsColumn key={project.key}>
+      <Section title="Labels" description="This project's labels: its kinds, areas and milestones.">
+        <ProjectLabels project={project} />
+      </Section>
+      <Section
+        title="Testing"
+        description="How agents test this project and collect evidence for review. cello init drafts it from the repo and agents fix it when the repo changes; what you set here, agents can't change."
+      >
+        <TestingProfile projectKey={project.key} />
+      </Section>
+      <Section
+        title="Waking agents"
+        description="Whether Cello starts this project's agent sessions by itself when you act on a task they claimed and nothing of them is running."
+      >
+        <WakeSettings projectKey={project.key} />
+      </Section>
+      <Section title="Merging" description="When this project's agents merge their work: before you review it, or after you approve it.">
+        <MergeSettings project={project} />
+      </Section>
+    </SettingsColumn>
   )
 }

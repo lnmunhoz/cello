@@ -1,4 +1,4 @@
-import { createRootRoute, createRoute, createRouter, Navigate, notFound, retainSearchParams, useParams } from "@tanstack/react-router"
+import { createRootRoute, createRoute, createRouter, Navigate, notFound, redirect, retainSearchParams, useParams } from "@tanstack/react-router"
 import { AgentsPage } from "../agents/AgentsPage.tsx"
 import { parseAgentsSearch } from "../agents/layout.ts"
 import { DocsPage } from "../docs/DocsPage.tsx"
@@ -16,7 +16,8 @@ import { parseReviewSearch } from "../review/queue.ts"
 import { ReviewPage } from "../review/ReviewPage.tsx"
 import { BuildsPage } from "../settings/BuildsPage.tsx"
 import { ProjectSettings } from "../settings/ProjectSettings.tsx"
-import { parseSettingsSearch, Settings } from "../settings/Settings.tsx"
+import { parseSettingsSearch } from "../settings/search.ts"
+import { Settings } from "../settings/Settings.tsx"
 import { parseTaskSearch } from "../task/view.ts"
 import { ReleaseNotesPage, ReleasesPage } from "../updates/ReleasesPage.tsx"
 import { parseViewerSearch } from "../viewer/search.ts"
@@ -36,7 +37,16 @@ const root = createRootRoute({
 })
 
 const home = createRoute({ getParentRoute: () => root, path: "/", component: Home })
-const settings = createRoute({ getParentRoute: () => root, path: "/settings", component: Settings, validateSearch: parseSettingsSearch })
+// `?project=KEY` is the old address of a project's settings: they're on its Settings tab now (CEL-164).
+const settings = createRoute({
+  getParentRoute: () => root,
+  path: "/settings",
+  component: Settings,
+  validateSearch: parseSettingsSearch,
+  beforeLoad: ({ search }) => {
+    if (search.project) throw redirect({ to: "/$projectKey/settings", params: { projectKey: search.project }, replace: true })
+  },
+})
 // Settings → Builds (CEL-50). Static routes win over `$projectKey`; each top-level word is reserved as a
 // project key (reservedKeyProblem in packages/shared/src/taskKey.ts).
 const builds = createRoute({ getParentRoute: () => root, path: "/builds", component: BuildsPage })

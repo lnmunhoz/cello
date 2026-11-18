@@ -16,6 +16,7 @@ import {
   test,
   uniqueKey,
 } from "./fixtures.ts"
+import { expectLeftAligned } from "./packets.ts"
 
 const statusRows = (page: Page) => page.getByRole("list", { name: "Statuses" }).locator("[data-status-row]")
 const columnHeadings = (page: Page) => page.locator("section[data-column] h2")
@@ -86,6 +87,17 @@ test("CEL-164: the main Settings has only global things", async ({ page }) => {
   // Each project's own, on its Settings tab (CEL-164).
   for (const name of ["Labels", "Testing", "Waking agents", "Merging"]) await expect(page.getByRole("region", { name, exact: true })).toHaveCount(0)
   await expect(page.getByRole("combobox", { name: /of project$/ })).toHaveCount(0)
+})
+
+test("CEL-164: the main Settings column starts at the left edge, at any width", async ({ page }) => {
+  await page.goto("/settings")
+  const scroller = page.locator("[data-settings-scroller]")
+  const first = page.getByRole("region", { name: "Statuses", exact: true })
+  for (const width of [1440, 1100, 900]) {
+    await caption(page, `${width} px wide: Settings starts at the left edge`)
+    await page.setViewportSize({ width, height: 900 })
+    await expectLeftAligned(scroller, first)
+  }
 })
 
 test("workspaces: create a second workspace and switch; each lists its own projects", async ({ page }) => {

@@ -1,4 +1,4 @@
-// CEL-89: a project's testing profile in Settings. `cello init` detected some fields and an agent fixed
+// CEL-89: a project's testing profile on its Settings tab. `cello init` detected some fields and an agent fixed
 // one; Lucas sees where each value came from, edits fields (his source wins), switches where UI tests
 // run and adds an e2e surface; an agent trying to change a field he set is refused and told to ask on
 // the card; everything survives a reload. Stills (light and dark) go to e2e/videos/cel-89-*.png.
@@ -32,7 +32,7 @@ async function screenshots(browser: Browser, key: string) {
   for (const colorScheme of ["light", "dark"] as const) {
     const context = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height: 1400 }, colorScheme })
     const page = await context.newPage()
-    await page.goto(`/settings?project=${key}`)
+    await page.goto(`/${key}/settings`)
     await expect(row(page, "e2e.desktop.run")).toContainText("You")
     await section(page).scrollIntoViewIfNeeded()
     await section(page).screenshot({ path: path.join(SHOTS, `cel-89-testing-${colorScheme}.png`), animations: "disabled" })
@@ -63,10 +63,9 @@ test("CEL-89: the testing profile in Settings shows where each field came from; 
   )
   const agent = celloAs(SESSION)
 
-  await caption(page, "Settings shows the project's testing profile: each field with where it came from")
-  await page.goto(`/settings?project=${key}`)
+  await caption(page, "The project's Settings tab shows its testing profile: each field with where it came from")
+  await page.goto(`/${key}/settings`)
   await section(page).scrollIntoViewIfNeeded()
-  await expect(page.getByRole("combobox", { name: "Testing profile of project" })).toContainText(`Shop (${key})`)
   await expect(row(page, "install")).toContainText("Detected")
   await expect(row(page, "install").getByRole("textbox")).toHaveValue("bun install")
   await expect(row(page, "typecheck").getByRole("textbox")).toHaveValue("")

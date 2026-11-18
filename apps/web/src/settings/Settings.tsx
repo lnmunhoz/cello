@@ -20,19 +20,10 @@ import { BAR_LAYOUT_KEY, LAYOUT_NAMES, useBarLayout } from "../search/layout.ts"
 import { useUpdateState } from "../updates/updates.ts"
 import { BoardSettings, useDesktopBoard } from "./BoardSettings.tsx"
 import { NameField } from "./NameField.tsx"
-import { Section } from "./Section.tsx"
+import { Section, SettingsColumn } from "./Section.tsx"
 import { UpdateSettings } from "./UpdateSettings.tsx"
 
-/** `/settings?project=THAI`: whose labels the Labels section shows (CEL-80). */
-export interface SettingsSearch {
-  readonly project?: string
-}
-
-export const parseSettingsSearch = (search: Record<string, unknown>): SettingsSearch => {
-  const project = search["project"]
-  return typeof project === "string" && project.trim() !== "" ? { project: project.trim().toUpperCase() } : {}
-}
-
+/** The settings that aren't a project's: its own are on the project's Settings tab (ProjectSettings). */
 export function Settings() {
   const board = useBoard()
   const workspaceId = useWorkspaceId()
@@ -44,37 +35,35 @@ export function Settings() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <Breadcrumb crumbs={[{ label: board.workspaces[workspaceId]?.name ?? "Workspace" }, { label: "Settings" }]} />
-      <div className="flex-1 overflow-y-auto px-8 py-6">
-        <div className="mx-auto flex max-w-2xl flex-col gap-10">
-          {/* First: which board this is. A switch lands here, on the board it switched to. */}
-          {desktopBoard ? (
-            <Section title="Board" description="The data folder and port this app's server uses. Kept in the app, not in the board.">
-              <BoardSettings key={`${desktopBoard.dataDir}:${desktopBoard.port}`} state={desktopBoard} />
-            </Section>
-          ) : null}
-          <Section title="Statuses" description="The board's columns, shared by every project in this workspace.">
-            <ul aria-label="Statuses" className="divide-y divide-line rounded-lg border border-line">
-              {statuses.map((s, i) => (
-                <StatusRow key={s.id} status={s} statuses={statuses} index={i} />
-              ))}
-            </ul>
+      <SettingsColumn>
+        {/* First: which board this is. A switch lands here, on the board it switched to. */}
+        {desktopBoard ? (
+          <Section title="Board" description="The data folder and port this app's server uses. Kept in the app, not in the board.">
+            <BoardSettings key={`${desktopBoard.dataDir}:${desktopBoard.port}`} state={desktopBoard} />
           </Section>
-          <Section title="Workspaces" description="A second workspace adds a switcher at the top of the sidebar.">
-            <NewWorkspace />
+        ) : null}
+        <Section title="Statuses" description="The board's columns, shared by every project in this workspace.">
+          <ul aria-label="Statuses" className="divide-y divide-line rounded-lg border border-line">
+            {statuses.map((s, i) => (
+              <StatusRow key={s.id} status={s} statuses={statuses} index={i} />
+            ))}
+          </ul>
+        </Section>
+        <Section title="Workspaces" description="A second workspace adds a switcher at the top of the sidebar.">
+          <NewWorkspace />
+        </Section>
+        <Section title="Search" description="How the ⌘K bar shows results on this device. Peek previews the highlighted result beside the list; in a narrow window it shows as Palette.">
+          <SearchLayout />
+        </Section>
+        {updates ? (
+          <Section title="Updates" description="How the Cello app finds new versions on GitHub, and which ones it offers.">
+            <UpdateSettings state={updates} />
           </Section>
-          <Section title="Search" description="How the ⌘K bar shows results on this device. Peek previews the highlighted result beside the list; in a narrow window it shows as Palette.">
-            <SearchLayout />
-          </Section>
-          {updates ? (
-            <Section title="Updates" description="How the Cello app finds new versions on GitHub, and which ones it offers.">
-              <UpdateSettings state={updates} />
-            </Section>
-          ) : null}
-          <Section title="Builds" description="Which build of Cello is running, and every build before it with what changed.">
-            <RunningBuild />
-          </Section>
-        </div>
-      </div>
+        ) : null}
+        <Section title="Builds" description="Which build of Cello is running, and every build before it with what changed.">
+          <RunningBuild />
+        </Section>
+      </SettingsColumn>
     </div>
   )
 }

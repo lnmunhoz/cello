@@ -4,7 +4,7 @@
 import * as path from "node:path"
 import type { Page } from "@playwright/test"
 import { caption, expect, seedLabels, seedProject, test, uniqueKey } from "./fixtures.ts"
-import { SHOTS } from "./packets.ts"
+import { expectLeftAligned, SHOTS } from "./packets.ts"
 
 /** Light and dark stills of the whole window, without the video's cursor and captions. */
 async function stills(page: Page, name: string) {
@@ -73,6 +73,33 @@ test("CEL-164: a project's Settings tab, after Activity, holds its Labels, Testi
   await expect(page.locator(`[data-label-row="Theirs ${key}"]`)).toBeVisible()
   await expect(labels).toHaveCount(1)
   await expect(page.locator(`[data-label-row="Design system ${key}"]`)).toHaveCount(0)
+})
+
+test("CEL-164: a project's Settings column starts at the left edge, at any width", async ({ page, cello }) => {
+  const key = uniqueKey("PSF")
+  await seedProject(cello, "Left aligned", key)
+  await page.goto(`/${key}/settings`)
+  const scroller = page.locator("[data-settings-scroller]")
+  const first = page.getByRole("region", { name: "Labels", exact: true })
+  for (const width of [1440, 1100, 900]) {
+    await caption(page, `${width} px wide: the sections start at the left edge`)
+    await page.setViewportSize({ width, height: 900 })
+    await expectLeftAligned(scroller, first)
+  }
+})
+
+test("CEL-164: the old address /settings?project=KEY redirects to the project's Settings tab", async ({ page, cello }) => {
+  const key = uniqueKey("PSR")
+  await seedProject(cello, "Old address", key)
+  await caption(page, "An old link, /settings?project=…, lands on the project's own Settings tab")
+  await page.goto(`/settings?project=${key.toLowerCase()}`)
+  await expect(page).toHaveURL(new RegExp(`/${key}/settings$`))
+  await expect(page.getByRole("region", { name: "Merging" })).toBeVisible()
+  await expect(page.getByRole("region", { name: "Statuses" })).toHaveCount(0)
+  await caption(page, "Without ?project the main Settings stays as it is")
+  await page.goto("/settings")
+  await expect(page).toHaveURL(/\/settings$/)
+  await expect(page.getByRole("region", { name: "Statuses" })).toBeVisible()
 })
 
 test("CEL-164: a draft in one project's Settings doesn't carry to another's", async ({ page, cello }) => {

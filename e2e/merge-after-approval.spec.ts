@@ -1,4 +1,4 @@
-// CEL-143: Merge after I approve. Lucas turns the setting on in Settings → Merging; an agent hands in a
+// CEL-143: Merge after I approve. Lucas turns the setting on in the project's Settings tab → Merging; an agent hands in a
 // packet through the real `cello` CLI; on the Review page the button reads "Approve and merge"; after it
 // the task leaves the Review page and its card stays in In Review as "Approved · merging", still the
 // agent's, with Send back in the task panel; the agent's `cello inbox` says to merge it now; its
@@ -30,8 +30,8 @@ test("CEL-143: with Merge after I approve on, Approve and merge leaves the card 
   const key = uniqueKey("MRG")
   await createProject(page, "Merge after approval", key)
 
-  await caption(page, "Settings → Merging: turn on “Merge after I approve” for this project")
-  await page.goto(`/settings?project=${key}`)
+  await caption(page, "The project's Settings tab → Merging: turn on “Merge after I approve” for this project")
+  await page.goto(`/${key}/settings`)
   const merging = page.getByRole("region", { name: "Merging" })
   const toggle = merging.getByRole("switch")
   await expect(toggle).not.toBeChecked()
@@ -39,7 +39,7 @@ test("CEL-143: with Merge after I approve on, Approve and merge leaves the card 
   await toggle.click()
   await expect(toggle).toBeChecked()
   await expect(merging).toContainText("Approve and merge tells the agent to merge it now")
-  await still(browser, `/settings?project=${key}`, "merge-settings", async (p) => {
+  await still(browser, `/${key}/settings`, "merge-settings", async (p) => {
     const section = p.getByRole("region", { name: "Merging" })
     await expect(section.getByRole("switch")).toBeChecked()
     await section.scrollIntoViewIfNeeded()

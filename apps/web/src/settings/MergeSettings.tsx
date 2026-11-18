@@ -1,4 +1,4 @@
-// Settings' Merging section (CEL-143): whether a project's agents merge before you review (Approve moves
+// The project's Settings tab, Merging section (CEL-143): whether a project's agents merge before you review (Approve moves
 // the task to Done) or after you approve (Approve tells the agent to merge; the task shows Approved ·
 // merging until the agent's `cello task done`). On for new projects with a repository.
 import type { Project } from "@cello/contract/entities"
