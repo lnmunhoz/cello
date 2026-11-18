@@ -400,7 +400,7 @@ test("CEL-186: rows keep their place while agents work: a call pulses its row in
   }
   // Three agents start one after another (this test's process is alive, so they stay working).
   const externals = ["c186e2e1-first-session", "c186e2e2-second-session", "c186e2e3-third-session"] as const
-  const agents = []
+  const agents: Array<Awaited<ReturnType<typeof agentAs>>> = []
   for (const [i, external] of externals.entries()) {
     const agent = await agentAs(baseURL!, external, process.pid)
     await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: `STD-${i + 1}` }))
@@ -420,10 +420,19 @@ test("CEL-186: rows keep their place while agents work: a call pulses its row in
   await expect.poll(() => order("working")).toEqual(mine)
   await expect(page.locator("[data-agent-pulse]")).toHaveCount(0)
 
-  await caption(page, "The third agent makes a call, then the first: each row pulses where it is, and nothing moves")
+  // A board hears an agent check in at most once a minute while it makes calls (PRESENCE_EVERY_MS); a
+  // wait that hands it a comment is heard at once: that's the check-in this test can make happen now.
+  const checkIn = async (i: 0 | 2, key: string, body: string) => {
+    const wait = agents[i]!.run((c) => c["inbox.wait"]({}))
+    const task = (await cello.run((c) => c["snapshot.get"]({}))).tasks.find((t) => t.key === key)!
+    await cello.run((c) => c["comment.add"]({ commandId: newCommandId(), taskId: task.id, body }))
+    await wait
+  }
+  await caption(page, "The third agent checks in, then the first: each row pulses where it is, and nothing moves")
   await agents[2]!.run((c) => c["task.stage"]({ commandId: newCommandId(), key: "STD-3", stage: "building" }))
+  await checkIn(2, "STD-3", "Louder, please.")
   await expect(rowOf(third).locator("[data-agent-pulse]")).toHaveCount(1)
-  await agents[0]!.run((c) => c["task.stage"]({ commandId: newCommandId(), key: "STD-1", stage: "building" }))
+  await checkIn(0, "STD-1", "Ship it when green.")
   await expect(rowOf(first).locator("[data-agent-pulse]")).toHaveCount(1)
   expect(await order("working")).toEqual(mine)
 
