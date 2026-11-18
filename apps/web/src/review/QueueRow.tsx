@@ -1,6 +1,7 @@
 import { ChevronRightIcon } from "lucide-react"
 import { motion, useReducedMotion } from "motion/react"
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react"
+import { spring } from "../lib/motion.ts"
 
 /** What useQueue hands each row: whether it's open, the keys, the focus. */
 export interface QueueRowState {
@@ -23,9 +24,8 @@ export interface QueueRowState {
   readonly unfold?: boolean | undefined
 }
 
-// CEL-189: replace with lib/motion.ts tokens at integration
-/** The spring a row folds and unfolds with: the board's card spring (board/BoardPage.tsx `layoutTransition`). */
-export const FOLD_SPRING = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 } as const
+/** The spring a row folds and unfolds with: the app's one spring (lib/motion.ts). */
+export const FOLD_SPRING = spring
 
 const FOLDED = { height: 0, opacity: 0 } as const
 
