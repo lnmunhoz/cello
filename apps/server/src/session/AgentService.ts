@@ -19,7 +19,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as Commands from "../commands/Commands.ts"
-import { parseBackground, parseRuns, parseWaiting, stopOutcome, stored, testsOf, testsTurnEnded } from "./activity.ts"
+import { parseBackground, parseRuns, parseWaiting, runsOf, stopOutcome, stored, testsOf, testsTurnEnded } from "./activity.ts"
+import { recordFinished } from "./testOutcomes.ts"
 import { cleanAgentText, cleanTranscript, CONTROL_CHARACTERS, MAX_AGENT_TEXT, PRESENCE_EVERY_MS, touchAgent } from "./SessionService.ts"
 
 /** What a hook says happened to a subagent of the caller's session. */
@@ -96,6 +97,7 @@ export const toAgent = (r: AgentRow): SessionAgent => ({
   effort: r.effort ?? null,
   waitingOn: parseWaiting(r.waiting_json),
   tests: testsOf(r.tests_json),
+  runs: runsOf(r.tests_json),
   verdict: (r.verdict ?? null) as SessionAgent["verdict"],
 })
 
@@ -197,26 +199,34 @@ const make = Effect.gen(function* () {
     const ref = { sessionId: caller.sessionId, agentId }
     const transcript = cleanTranscript(input.transcriptPath)
     if (input.state === "stopped") {
-      // Claude Code's own helpers (prompt suggestions, /btw) stop without ever starting here: not recorded.
-      const [row] = yield* sql<Pick<AgentRow, "agent_type" | "background_json" | "tests_json" | "ended_at" | "verdict">>`
-        SELECT agent_type, background_json, tests_json, ended_at, verdict FROM session_agents WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
-      if (!row) return null
-      // Background work it started is still running (CEL-133): it waits on it, and Claude Code resumes it after.
-      const outcome = stopOutcome(parseBackground(row.background_json), input.running)
-      // A test run its turn leaves behind is over, unless it runs on in the background (CEL-134).
-      const tests = stored(parseRuns(row.tests_json).map((run) => testsTurnEnded(run, input.running, now)))
-      // A reviewer that finished leaves its verdict, read from the start of its last reply; the reply is never kept (CEL-160).
-      // A second stop of one that already finished, with no reply, changes neither its end nor its verdict.
-      const again = outcome.finished && row.ended_at !== null && !input.lastMessage
-      const verdict = again
-        ? row.verdict ?? null
-        : outcome.finished && isReviewerType(row.agent_type ?? agentType)
-          ? verdictOf((input.lastMessage ?? "").slice(0, MAX_LAST_MESSAGE))
-          : null
-      const endedAt = outcome.finished ? (again ? row.ended_at : now) : null
-      yield* sql`UPDATE session_agents SET ended_at = ${endedAt}, waiting_json = ${stored(outcome.waitingOn)},
-          background_json = ${stored(outcome.background)}, tests_json = ${tests}, verdict = ${verdict}, transcript_path = COALESCE(${transcript}, transcript_path)
-        WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
+      // One command (CEL-181): the stop, and `tests.finished` for each test run it ends, commit together.
+      const { result: known } = yield* commands.write({ commandId: crypto.randomUUID(), rpc: "agent.report", receipt: false }, ({ emit }) =>
+        Effect.gen(function* () {
+          // Claude Code's own helpers (prompt suggestions, /btw) stop without ever starting here: not recorded.
+          const [row] = yield* sql<Pick<AgentRow, "agent_type" | "background_json" | "tests_json" | "ended_at" | "verdict">>`
+            SELECT agent_type, background_json, tests_json, ended_at, verdict FROM session_agents WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
+          if (!row) return false
+          // Background work it started is still running (CEL-133): it waits on it, and Claude Code resumes it after.
+          const outcome = stopOutcome(parseBackground(row.background_json), input.running)
+          // A test run its turn leaves behind is over, unless it runs on in the background (CEL-134).
+          const runs = parseRuns(row.tests_json)
+          const ended = runs.map((run) => testsTurnEnded(run, input.running, now))
+          const tests = stored(yield* recordFinished(sql, emit, runs, ended, { sessionId: ref.sessionId, agentId }))
+          // A reviewer that finished leaves its verdict, read from the start of its last reply; the reply is never kept (CEL-160).
+          // A second stop of one that already finished, with no reply, changes neither its end nor its verdict.
+          const again = outcome.finished && row.ended_at !== null && !input.lastMessage
+          const verdict = again
+            ? row.verdict ?? null
+            : outcome.finished && isReviewerType(row.agent_type ?? agentType)
+              ? verdictOf((input.lastMessage ?? "").slice(0, MAX_LAST_MESSAGE))
+              : null
+          const endedAt = outcome.finished ? (again ? row.ended_at : now) : null
+          yield* sql`UPDATE session_agents SET ended_at = ${endedAt}, waiting_json = ${stored(outcome.waitingOn)},
+              background_json = ${stored(outcome.background)}, tests_json = ${tests}, verdict = ${verdict}, transcript_path = COALESCE(${transcript}, transcript_path)
+            WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
+          return true
+        }))
+      if (!known) return null
     } else if (input.state === "started") {
       // SubagentStart: a new agent, or a resumed one (live again).
       yield* touchAgent(sql, ref.sessionId, agentId, agentType, now, { transcript, step: null })

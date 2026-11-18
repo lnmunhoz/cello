@@ -262,3 +262,152 @@ describe("ActivityService: test runs (CEL-134)", () => {
       expect(stopped).toMatchObject({ endedAt: 3000, tests: { endedAt: 3000, outcome: "ended" } })
     })))
 })
+
+// CEL-181: a run that ends is kept on its task. `tests.finished` is written in the same command that ends
+// the run on its agent's row, by whichever way it ends, once; the task itself doesn't change.
+describe("CEL-181: a finished run is kept on its task", () => {
+  const finished = Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient
+    const rows = yield* sql<{ entity_id: string; entity_type: string; project_id: string | null; session_id: string | null; agent_id: string | null; ts: number; payload: string }>`
+      SELECT entity_id, entity_type, project_id, session_id, agent_id, ts, payload FROM events WHERE type = 'tests.finished' ORDER BY seq`
+    return rows.map((r) => ({ ...r, run: JSON.parse(r.payload).run as Record<string, any>, taskId: JSON.parse(r.payload).taskId as string }))
+  }).pipe(Effect.orDie)
+
+  const stored = (agent: string | null) =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      const rows = agent === null
+        ? yield* sql<{ tests_json: string }>`SELECT tests_json FROM agent_sessions WHERE external_id = ${orchestrator.session}`
+        : yield* sql<{ tests_json: string }>`SELECT tests_json FROM session_agents WHERE agent_id = ${agent}`
+      return JSON.parse(rows[0]!.tests_json) as ReadonlyArray<Record<string, any>>
+    })
+
+  it.effect("a builder's foreground run that ends with a failed call writes one tests.finished on its task, as the builder", () =>
+    run(Effect.gen(function* () {
+      const { task, activity } = yield* board
+      yield* TestClock.adjust("1 second")
+      yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_1", command: "bun run test -- apps/server", cwd: "/repo/wt" }))
+      // Started, not finished: nothing kept yet, and the run knows its task.
+      expect(yield* finished).toEqual([])
+      expect((yield* stored(builder.agent))[0]).toMatchObject({ taskId: task.id, endedAt: null })
+      yield* TestClock.adjust("80 seconds")
+      yield* asAgent(builder)(activity.report({ kind: "tool-finished", toolUseId: "toolu_1", failed: true }))
+      const [event, ...rest] = yield* finished
+      expect(rest).toEqual([])
+      expect(event).toMatchObject({
+        entity_type: "tests", entity_id: task.id, taskId: task.id, project_id: task.projectId, agent_id: builder.agent, ts: 81_000,
+        run: { label: "unit tests", outcome: "failed", startedAt: 1000, endedAt: 81_000, taskId: task.id },
+      })
+      expect(event?.session_id).not.toBeNull()
+      expect(event?.run).not.toHaveProperty("runId")
+      expect(event?.run).not.toHaveProperty("cwd")
+    })))
+
+  it.effect("a background Docker run ended by the runner's last report writes outcome, counts, failures and folder, as the subagent whose run it was", () =>
+    run(Effect.gen(function* () {
+      const { task, activity } = yield* board
+      const worktree = "/repo/.claude/worktrees/agent-a13b"
+      const command = "bun run test:docker:e2e -- e2e/pages.spec.ts"
+      yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_b", command, cwd: worktree }))
+      yield* asAgent(builder)(activity.report({ kind: "background", id: "blo3xolgq", label: `Bash · ${command}`, toolUseId: "toolu_b", waits: true }))
+      const runner = asAgent(orchestrator)
+      yield* runner(activity.progress(worktree, progress({ passed: 1 })))
+      expect(yield* finished).toEqual([])
+      yield* TestClock.adjust("1 minute")
+      const folder = `${worktree}/test-results/docker/2026-11-18_100000-e2e-1`
+      yield* runner(activity.progress(worktree, progress({ passed: 2, failed: 1, total: 3, failures: ["e2e/pages.spec.ts:40 › opens"], done: true, outcome: "failed", folder })))
+      const events = yield* finished
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({
+        taskId: task.id, agent_id: builder.agent,
+        run: { label: "web e2e", command, outcome: "failed", background: true, endedAt: 60_000, taskId: task.id, progress: { passed: 2, failed: 1, total: 3, failures: ["e2e/pages.spec.ts:40 › opens"], folder } },
+      })
+      // The runner's late report after the end writes nothing more.
+      yield* runner(activity.progress(worktree, progress({ passed: 3, done: true, outcome: "passed", folder })))
+      expect(yield* finished).toHaveLength(1)
+    })))
+
+  it.effect("a turn that leaves a run behind writes it as ended; a second turn-ended writes nothing more", () =>
+    run(Effect.gen(function* () {
+      const { task, activity } = yield* board
+      yield* asAgent(orchestrator)(activity.report({ kind: "tests-started", toolUseId: "toolu_s", command: "bun run test", cwd: "/repo" }))
+      yield* TestClock.adjust("5 seconds")
+      yield* asAgent(orchestrator)(activity.report({ kind: "turn-ended", running: [] }))
+      expect(yield* finished).toMatchObject([{ taskId: task.id, agent_id: null, run: { outcome: "ended", endedAt: 5000 } }])
+      yield* asAgent(orchestrator)(activity.report({ kind: "turn-ended", running: [] }))
+      yield* asAgent(orchestrator)(activity.report({ kind: "tool-finished", toolUseId: "toolu_s", failed: false }))
+      expect(yield* finished).toHaveLength(1)
+    })))
+
+  it.effect("a subagent's stop that ends its run writes one, as that subagent; a stop that leaves a background run running writes none", () =>
+    run(Effect.gen(function* () {
+      const { task, activity } = yield* board
+      const agents = yield* AgentService
+      yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_b", command: "bun run test:e2e", cwd: "/repo/wt" }))
+      yield* asAgent(builder)(activity.report({ kind: "background", id: "blo3xolgq", label: "Bash · bun run test:e2e", toolUseId: "toolu_b", waits: true }))
+      yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "stopped", running: ["blo3xolgq"] }))
+      expect(yield* finished).toEqual([])
+
+      yield* asAgent(reviewer)(activity.report({ kind: "tests-started", toolUseId: "toolu_r", command: "bun run test", cwd: "/repo/wt2" }))
+      yield* TestClock.adjust("3 seconds")
+      yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped", running: ["blo3xolgq"] }))
+      expect(yield* finished).toMatchObject([{ taskId: task.id, agent_id: reviewer.agent, run: { outcome: "ended", endedAt: 3000 } }])
+      // Stopping it again changes nothing.
+      yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped", running: ["blo3xolgq"] }))
+      expect(yield* finished).toHaveLength(1)
+      // The builder's background run later ends once it's no longer listed: now it's written.
+      yield* asAgent(orchestrator)(agents.report({ agentId: builder.agent, agentType: "cello-builder", state: "stopped", running: [] }))
+      expect((yield* finished).map((e) => e.agent_id)).toEqual([reviewer.agent, builder.agent])
+    })))
+
+  it.effect("a run with no task writes no event, and still ends on its agent's row as before", () =>
+    run(Effect.gen(function* () {
+      const { activity } = yield* board
+      const loner = { session: "9f9f9f9f-0001", client: "Claude Code", pid: 4343, cwd: "/elsewhere" }
+      yield* asAgent(loner)(activity.report({ kind: "tests-started", toolUseId: "toolu_x", command: "bun run test", cwd: "/elsewhere" }))
+      yield* asAgent(loner)(activity.report({ kind: "tool-finished", toolUseId: "toolu_x", failed: false }))
+      expect(yield* finished).toEqual([])
+      const sql = yield* SqlClient.SqlClient
+      const [row] = yield* sql<{ tests_json: string }>`SELECT tests_json FROM agent_sessions WHERE external_id = ${loner.session}`
+      expect(JSON.parse(row!.tests_json)[0]).toMatchObject({ outcome: "passed" })
+    })))
+
+  it.effect("the run's task is the one picked when it started: the claims change before it ends, and the event goes to the first task", () =>
+    run(Effect.gen(function* () {
+      const { task, activity } = yield* board
+      const tasks = yield* TaskService.TaskService
+      const { result: other } = yield* asHuman(tasks.create({ commandId: cmd(), projectId: task.projectId, title: "Another" }))
+      yield* asAgent(orchestrator)(activity.report({ kind: "tests-started", toolUseId: "toolu_s", command: "bun run test", cwd: "/repo" }))
+      yield* asAgent(orchestrator)(tasks.release({ commandId: cmd(), key: task.key }))
+      yield* asAgent(orchestrator)(tasks.claim({ commandId: cmd(), key: other.key }))
+      yield* asAgent(orchestrator)(activity.report({ kind: "tool-finished", toolUseId: "toolu_s", failed: false }))
+      expect(yield* finished).toMatchObject([{ taskId: task.id }])
+    })))
+
+  it.effect("a run stored without a task (before this change) is given the session's task when it ends, and kept on the run", () =>
+    run(Effect.gen(function* () {
+      const { task, activity } = yield* board
+      const sql = yield* SqlClient.SqlClient
+      yield* asAgent(orchestrator)(activity.report({ kind: "tests-started", toolUseId: "toolu_s", command: "bun run test", cwd: "/repo" }))
+      // As if stored before CEL-181: no taskId key at all.
+      const [row] = yield* sql<{ tests_json: string }>`SELECT tests_json FROM agent_sessions WHERE external_id = ${orchestrator.session}`
+      const old = JSON.parse(row!.tests_json).map(({ taskId: _t, ...run }: Record<string, unknown>) => run)
+      yield* sql`UPDATE agent_sessions SET tests_json = ${JSON.stringify(old)} WHERE external_id = ${orchestrator.session}`
+      yield* asAgent(orchestrator)(activity.report({ kind: "tool-finished", toolUseId: "toolu_s", failed: false }))
+      expect(yield* finished).toMatchObject([{ taskId: task.id, run: { outcome: "passed", taskId: task.id } }])
+      expect((yield* stored(null))[0]).toMatchObject({ taskId: task.id, outcome: "passed" })
+    })))
+
+  it.effect("writing it changes nothing on the task: version, updatedAt and claim stay", () =>
+    run(Effect.gen(function* () {
+      const { task, activity } = yield* board
+      const sql = yield* SqlClient.SqlClient
+      const snapshot = sql<{ version: number; updated_at: number; assignee_session_id: string | null }>`SELECT version, updated_at, assignee_session_id FROM tasks WHERE id = ${task.id}`
+      const before = yield* snapshot
+      yield* TestClock.adjust("1 minute")
+      yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_1", command: "bun run test", cwd: "/repo/wt" }))
+      yield* asAgent(builder)(activity.report({ kind: "tool-finished", toolUseId: "toolu_1", failed: false }))
+      expect(yield* finished).toHaveLength(1)
+      expect(yield* snapshot).toEqual(before)
+    })))
+})

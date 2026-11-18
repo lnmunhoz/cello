@@ -25,7 +25,11 @@ export interface WriteContext {
   /** Appends an event in this command's transaction. */
   readonly emit: (
     body: EventBody,
-    where: { readonly workspaceId: string; readonly projectId: string | null },
+    /**
+     * `agentId` (CEL-181) credits the event to that subagent of the caller's session instead of the caller's
+     * own agent: a test runner reports as its session, for a run that was a subagent's. Left out, the caller's.
+     */
+    where: { readonly workspaceId: string; readonly projectId: string | null; readonly agentId?: string | null },
   ) => Effect.Effect<CelloEvent, SqlError>
 }
 
@@ -81,7 +85,7 @@ const make = Effect.gen(function* () {
             commandId: command.commandId,
             actorId: caller.actorId,
             sessionId: caller.sessionId,
-            agentId: caller.agentId ?? null,
+            agentId: where.agentId === undefined ? caller.agentId ?? null : where.agentId,
             model: caller.model ?? null,
             effort: caller.effort ?? null,
             workspaceId: where.workspaceId,

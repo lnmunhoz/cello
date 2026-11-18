@@ -4,6 +4,8 @@
 // SessionService each end runs and all need them.
 import * as Effect from "effect/Effect"
 import type * as SqlClient from "effect/sql/SqlClient"
+import type * as Commands from "../commands/Commands.ts"
+import { endedNow, publicRun, type StoredTestRun } from "./activity.ts"
 
 /** Whose runs: the session's own (`agentId` null), or one of its subagents'. */
 export interface RunActor {
@@ -49,4 +51,39 @@ export const runTask = (sql: SqlClient.SqlClient, actor: RunActor) =>
     // Ties (two touches in one millisecond) go to the later id, which is the same every time.
     const [picked] = [...ids].sort((x, y) => (last.get(y) ?? 0) - (last.get(x) ?? 0) || (y < x ? -1 : y > x ? 1 : 0))
     return picked ?? null
+  })
+
+/** The task's place in the event log: its workspace and project. Null when the task isn't there. */
+const placeOf = (sql: SqlClient.SqlClient, taskId: string) =>
+  sql<{ workspace_id: string; project_id: string }>`
+    SELECT p.workspace_id, p.id AS project_id FROM tasks t JOIN projects p ON p.id = t.project_id WHERE t.id = ${taskId}`.pipe(
+    Effect.map((rows) => rows[0] ?? null),
+  )
+
+/**
+ * Keeps the runs a change just ended (CEL-181): for each run in `after` that was open in `before` (endedNow), a
+ * `tests.finished` on its task, emitted in the caller's command so it commits with the run's end and is never
+ * written twice (a run that's ended already isn't "ended now"). A run stored before the task was recorded
+ * (`taskId` absent) gets its task now, from the actor's claims; one that had none at its start (null) gets
+ * no event. Credited to `actor`'s agent, whoever is calling (a runner reports as its session). Returns
+ * `after` with each such run's task filled in, to store in place of it.
+ */
+export const recordFinished = (
+  sql: SqlClient.SqlClient,
+  emit: Commands.WriteContext["emit"],
+  before: ReadonlyArray<StoredTestRun>,
+  after: ReadonlyArray<StoredTestRun>,
+  actor: RunActor,
+) =>
+  Effect.gen(function* () {
+    const resolved = new Map<string, StoredTestRun>()
+    for (const run of endedNow(before, after)) {
+      const taskId = run.taskId === undefined ? yield* runTask(sql, actor) : run.taskId
+      const kept = { ...run, taskId }
+      resolved.set(run.runId, kept)
+      const place = taskId === null ? null : yield* placeOf(sql, taskId)
+      if (taskId === null || place === null) continue
+      yield* emit({ type: "tests.finished", taskId, run: publicRun(kept) }, { workspaceId: place.workspace_id, projectId: place.project_id, agentId: actor.agentId })
+    }
+    return after.map((run) => resolved.get(run.runId) ?? run)
   })

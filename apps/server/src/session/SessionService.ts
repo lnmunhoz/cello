@@ -19,7 +19,7 @@ import * as Commands from "../commands/Commands.ts"
 import { newId } from "../persistence/ids.ts"
 import * as Seed from "../persistence/Seed.ts"
 import { isAlive } from "../process/isAlive.ts"
-import { testsOf } from "./activity.ts"
+import { runsOf, testsOf } from "./activity.ts"
 
 /** What a request says about its caller, decoded from the identity headers. */
 export interface Identity {
@@ -227,6 +227,7 @@ export const toSession = (r: SessionRow): AgentSession => ({
   effort: r.effort ?? null,
   orchestrating: r.orchestrating === 1,
   tests: testsOf(r.tests_json),
+  runs: runsOf(r.tests_json),
   terminal: r.terminal ?? null,
 })
 
