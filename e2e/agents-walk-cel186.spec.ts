@@ -26,8 +26,6 @@ for (const theme of ["light", "dark"] as const) {
       await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: `${key}-${i + 1}` }))
       agents.push(agent)
     }
-    const start = Date.now()
-    await page.clock.setFixedTime(start)
     await page.goto("/agents")
     await page.evaluate((dark) => document.documentElement.classList.toggle("dark", dark), theme === "dark")
     await expect(page.locator("[data-agent-row]").first()).toBeVisible()
@@ -50,13 +48,14 @@ for (const theme of ["light", "dark"] as const) {
     await agents[1]!.run((c) => c["task.release"]({ commandId: newCommandId(), key: `${key}-2` }))
     await animationsSettled(page)
 
-    await caption(page, "Six minutes on, the others go quiet")
-    await page.clock.setFixedTime(start + 6 * 60_000)
-    await expect(page.locator('section[data-agents-group="quiet"]')).toBeVisible()
+    await caption(page, "Agent 3's card moves to Needs input: it goes to Waiting on you")
+    const third = snapshot.tasks.find((t) => t.key === `${key}-3`)!
+    await cello.run((c) => c["task.move"]({ commandId: newCommandId(), id: third.id, statusId: statuses["Needs input"]!.id }))
+    await expect(page.locator('section[data-agents-group="waiting"]')).toBeVisible()
     await animationsSettled(page)
-    await caption(page, "Agent 3 makes a call: it is working again")
-    await agents[2]!.run((c) => c["task.stage"]({ commandId: newCommandId(), key: `${key}-3`, stage: "building" }))
-    await page.clock.setFixedTime(Date.now())
+    await caption(page, "Back to In Progress: it returns to Working, in its place")
+    await cello.run((c) => c["task.move"]({ commandId: newCommandId(), id: third.id, statusId: statuses["In Progress"]!.id }))
+    await expect(page.locator('section[data-agents-group="waiting"]')).toHaveCount(0)
     await animationsSettled(page)
     await caption(page, "The page is idle")
 
