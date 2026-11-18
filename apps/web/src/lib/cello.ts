@@ -29,6 +29,7 @@ export const {
   profileFamily,
   wakeSettingsFamily,
   historyFamily,
+  timelineFamily,
   pageFamily,
   documentHistoryFamily,
   searchFamily,

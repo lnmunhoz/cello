@@ -139,6 +139,64 @@ describe("command atoms", () => {
     expect(fetches).toBe(2)
   })
 
+  // CEL-160: the comment thread's runs and releases come from task.timeline, fetched again when an agent on
+  // the task starts, finishes or leaves a verdict, not on every check-in.
+  it("fetch a task's timeline again when an agent on it finishes or leaves a verdict, not on a check-in or another task's agent", async () => {
+    const events = Effect.runSync(Queue.unbounded<CelloEvent>())
+    let fetches = 0
+    const fake = {
+      "snapshot.get": () => Effect.succeed(snapshot),
+      "events.subscribe": () => Stream.fromQueue(events),
+      "task.timeline": () => Effect.sync(() => (fetches++, { runs: [], releases: [] })),
+    } as unknown as CelloClient["Service"]
+    const atoms = makeCelloAtoms(Atom.runtime(Layer.succeed(CelloClient, fake)))
+    const registry = AtomRegistry.make()
+    registry.mount(atoms.boardAtom)
+    await Effect.runPromise(AtomRegistry.getResult(registry, atoms.boardAtom))
+    registry.mount(atoms.timelineFamily("t1"))
+    await Effect.runPromise(AtomRegistry.getResult(registry, atoms.timelineFamily("t1")))
+    expect(fetches).toBe(1)
+
+    const envelope = { ts: 6, actorId: "me", sessionId: null, workspaceId: "w1", projectId: null, schemaVersion: 1 }
+    const agent = (taskId: string | null, over: Record<string, unknown> = {}) => ({
+      sessionId: "s1", agentId: "a1", agentType: "cello-code-reviewer", taskId, description: null, startedAt: 1, lastSeenAt: 1, endedAt: null, verdict: null, ...over,
+    })
+    let seq = 5
+    const seen = async (body: unknown) => {
+      seq += 1
+      Effect.runSync(Queue.offer(events, { ...envelope, seq, commandId: `c${seq}`, type: "agent.seen", agent: body } as unknown as CelloEvent))
+      await Effect.runPromise(AtomRegistry.toStreamResult(registry, atoms.syncedAtom).pipe(Stream.filter((s) => s.state.seq >= seq), Stream.runHead))
+      await Effect.runPromise(AtomRegistry.getResult(registry, atoms.timelineFamily("t1")))
+    }
+
+    // An agent that joins the task is news; so is its finish, with the verdict.
+    await seen(agent("t1"))
+    expect(fetches).toBe(2)
+    // A check-in that only moves lastSeenAt, and another task's agent, are not.
+    await seen(agent("t1", { lastSeenAt: 50 }))
+    await seen(agent("t2", { agentId: "a2", endedAt: 9, verdict: "merge" }))
+    expect(fetches).toBe(2)
+    await seen(agent("t1", { lastSeenAt: 90, endedAt: 90, verdict: "fix_first" }))
+    expect(fetches).toBe(3)
+    // Resumed: endedAt clears.
+    await seen(agent("t1", { lastSeenAt: 120 }))
+    expect(fetches).toBe(4)
+  })
+
+  it("an old server without task.timeline gives a thread with no runs or releases, not an error", async () => {
+    const fake = {
+      "snapshot.get": () => Effect.succeed(snapshot),
+      "events.subscribe": () => Stream.never,
+      "task.timeline": () => Effect.die(new Error("Unknown request task.timeline")),
+    } as unknown as CelloClient["Service"]
+    const atoms = makeCelloAtoms(Atom.runtime(Layer.succeed(CelloClient, fake)))
+    const registry = AtomRegistry.make()
+    registry.mount(atoms.boardAtom)
+    await Effect.runPromise(AtomRegistry.getResult(registry, atoms.boardAtom))
+    registry.mount(atoms.timelineFamily("t1"))
+    expect(await Effect.runPromise(AtomRegistry.getResult(registry, atoms.timelineFamily("t1")))).toEqual({ runs: [], releases: [] })
+  })
+
   it("fetch a page's body again when it gets a new version, not when another document changes", async () => {
     const events = Effect.runSync(Queue.unbounded<CelloEvent>())
     const project = { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", color: "#000", description: "", repoPath: null, createdAt: 1, updatedAt: 1, archivedAt: null }

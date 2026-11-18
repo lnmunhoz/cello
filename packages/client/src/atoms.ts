@@ -4,6 +4,7 @@ import type { Ask, Comment, Document, DocumentVersion, LabelGroup, Priority, Rev
 import type { AnswerInput } from "@cello/contract/rpcs"
 import type { CelloEvent } from "@cello/contract/events"
 import type { SearchResults } from "@cello/contract/search"
+import type { TaskTimeline } from "@cello/contract/views"
 import type { LogUpdate } from "@cello/contract/agentLog"
 import * as Cause from "effect/Cause"
 import * as Duration from "effect/Duration"
@@ -488,6 +489,40 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     }),
   )
 
+  /**
+   * What of a task's subagents a timeline depends on (CEL-160): each one's id, when it finished and its
+   * verdict. A check-in that only moves `lastSeenAt` leaves it alone, so the timeline isn't fetched on every
+   * tool call of a working agent.
+   */
+  const syncedAgentsOnTaskFamily = Atom.family((taskId: string) =>
+    Atom.make((get) => {
+      const synced = get(syncedAtom)
+      if (!AsyncResult.isSuccess(synced)) return ""
+      return Object.values(synced.value.state.agents)
+        .filter((a) => a.taskId === taskId)
+        .map((a) => `${a.sessionId}/${a.agentId}:${a.endedAt}:${a.verdict ?? ""}`)
+        .sort()
+        .join(",")
+    }))
+
+  /**
+   * A task's subagent runs and the builds that name it (CEL-160), fetched again when an agent on the task
+   * starts, finishes or leaves a verdict. A server without `task.timeline` (older than this build) has
+   * none: the thread then shows comments and history lines only.
+   */
+  const timelineFamily = Atom.family((taskId: string) =>
+    runtime.atom((get) => {
+      const agents = get(syncedAgentsOnTaskFamily(taskId))
+      return Effect.gen(function* () {
+        void agents
+        const client = yield* CelloClient
+        return yield* client["task.timeline"]({ id: taskId }).pipe(
+          Effect.catchCause(() => Effect.succeed({ runs: [], releases: [] } satisfies TaskTimeline)),
+        )
+      })
+    }),
+  )
+
   /** The version of a document the server has, by id or by `KEY/slug`; changes when it's republished. */
   const documentVersionFamily = Atom.family((ref: string) =>
     Atom.make((get) => {
@@ -594,6 +629,7 @@ export const makeCelloAtoms = (runtime: Atom.AtomRuntime<CelloClient, any>, opti
     profileFamily,
     wakeSettingsFamily,
     historyFamily,
+    timelineFamily,
     pageFamily,
     documentHistoryFamily,
     searchFamily,
