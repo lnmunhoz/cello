@@ -198,3 +198,22 @@ describe("listing builds", () => {
       expect((yield* Effect.flip(list({ before: 1.5 })))).toMatchObject({ _tag: "Invalid", field: "before" })
     }).pipe(Effect.provide(layer(between))))
 })
+
+// CEL-160: the release that took a task live is the build whose changes name its key.
+describe("the builds that name a task", () => {
+  const naming = (key: string) => Effect.flatMap(Effect.service(SqlClient.SqlClient), (sql) => BuildHistory.buildsNaming(sql, key))
+  const merged = (commit: string, builtAt: number, startedAt: number, changes: ReadonlyArray<string>) =>
+    record(serverBuild(commit, builtAt, startedAt, changes))
+
+  it.effect("returns builds whose changes name the key, oldest first; a longer or shorter key doesn't match; a fix that shipped later is a second build", () =>
+    Effect.gen(function* () {
+      yield* merged("aaaaaaa", 1_000, 5_000, ["merge: the bar (CEL-1600)", "docs: notes (CEL-16)"])
+      yield* merged("bbbbbbb", 2_000, 6_000, ["merge: one timeline of comments and events (CEL-160)", "fix: the bar (CEL-1)"])
+      yield* merged("ccccccc", 3_000, 7_000, ["merge: something else (CEL-17)"])
+      yield* merged("ddddddd", 4_000, 8_000, ["fix(web): the fold of the timeline (CEL-160)"])
+      const builds = yield* naming("CEL-160")
+      expect(builds.map((b) => [b.number, b.commit, b.liveUntil])).toEqual([[2, "bbbbbbb", 7_000], [4, "ddddddd", null]])
+      expect((yield* naming("CEL-16")).map((b) => b.number)).toEqual([1])
+      expect(yield* naming("CEL-9")).toEqual([])
+    }).pipe(Effect.provide(layer())))
+})

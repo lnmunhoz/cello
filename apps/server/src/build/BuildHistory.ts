@@ -7,6 +7,7 @@ import type { BuildPage, BuildRecord, ServerBuild } from "@cello/contract/build"
 import { Invalid } from "@cello/contract/errors"
 import { Caller } from "@cello/contract/rpcs"
 import { buildKey } from "@cello/shared/build"
+import { taskKeysIn } from "@cello/shared/taskKey"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -76,6 +77,21 @@ const fromRow = (row: BuildRow): BuildRecord => ({
 
 const isWhole = (n: number) => Number.isInteger(n)
 
+/** When the next build went live: the end of this one's time live. */
+const liveUntilOf = (sql: SqlClient.SqlClient) =>
+  sql`(SELECT n.started_at FROM builds n WHERE n.number > b.number ORDER BY n.number LIMIT 1) AS live_until`
+
+/**
+ * The builds whose changes name task `key` (CEL-160), oldest first: the first is the release that took it
+ * live, a later one a fix that shipped after. A change names it when `taskKeysIn` finds it there, so CEL-16
+ * and CEL-1600 are not CEL-160; the LIKE only narrows what is parsed.
+ */
+export const buildsNaming = (sql: SqlClient.SqlClient, key: string) =>
+  sql<BuildRow>`SELECT b.*, ${liveUntilOf(sql)} FROM builds b WHERE b.changes LIKE ${`%${key}%`} ORDER BY b.number`.pipe(
+    Effect.map((rows) => rows.map(fromRow).filter((build) => build.changes.some((change) => taskKeysIn(change).includes(key)))),
+    Effect.orDie,
+  )
+
 export const layer = (options: BuildHistoryOptions = {}) =>
   Layer.effect(BuildHistory, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
@@ -83,8 +99,7 @@ export const layer = (options: BuildHistoryOptions = {}) =>
     // The build this server runs, once it's recorded.
     let running: string | null = null
 
-    // When the next build went live: the end of this one's time live.
-    const liveUntil = () => sql`(SELECT n.started_at FROM builds n WHERE n.number > b.number ORDER BY n.number LIMIT 1) AS live_until`
+    const liveUntil = () => liveUntilOf(sql)
 
     const byId = (id: string) =>
       Effect.map(sql<BuildRow>`SELECT b.*, ${liveUntil()} FROM builds b WHERE b.id = ${id}`, (rows) => (rows[0] ? fromRow(rows[0]) : null))
