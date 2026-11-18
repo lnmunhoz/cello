@@ -12,8 +12,8 @@
 // The parser is pure and keeps the open tool calls, so a result found later updates its call.
 import type { LogStep, ToolCall } from "@cello/contract/agentLog"
 import { MAX_COMMAND_CHARS, MAX_OUTPUT_CHARS, MAX_OUTPUT_LINES } from "@cello/contract/agentLog"
-import { redact } from "@cello/shared/redact"
-import { stepLine, toolCommand } from "@cello/shared/toolSummary"
+import { redact } from "@cello/text/redact"
+import { stepLine, toolCommand } from "@cello/text/toolSummary"
 
 type Json = Readonly<Record<string, unknown>>
 

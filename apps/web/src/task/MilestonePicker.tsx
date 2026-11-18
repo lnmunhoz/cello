@@ -1,6 +1,6 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Task } from "@cello/contract/entities"
-import { byPosition } from "@cello/shared/milestone"
+import { byPosition } from "@cello/domain/milestone"
 import { useAtomSet } from "@effect/atom-react"
 import { MilestoneIcon, PlusIcon } from "lucide-react"
 import { useState } from "react"

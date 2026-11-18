@@ -5,7 +5,7 @@ import { spawn, type ChildProcess } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { isAlive } from "@cello/server/process/isAlive"
-import { rotateLog } from "@cello/shared/logRotation"
+import { rotateLog } from "@cello/host/logRotation"
 import { isAlreadyRunning, LOCK_FILE, parseBanner, parseLock, planServer, serverUrl, type ServerSurvey, takenPortMessage } from "./plan.ts"
 
 export interface Server {

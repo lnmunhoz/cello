@@ -1,4 +1,4 @@
-import { linkify } from "@cello/shared/linkify"
+import { linkify } from "@cello/text/linkify"
 import type { ReactNode } from "react"
 import { openInPanel } from "../lib/desktop.ts"
 import { useProjectKeys } from "../lib/hooks.ts"

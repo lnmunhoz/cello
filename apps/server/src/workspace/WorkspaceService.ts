@@ -2,7 +2,7 @@
 import type { Workspace } from "@cello/contract/entities"
 import { Invalid, NotFound } from "@cello/contract/errors"
 import type { Caller } from "@cello/contract/rpcs"
-import { positionBetween } from "@cello/shared/position"
+import { positionBetween } from "@cello/domain/position"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"

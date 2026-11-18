@@ -1,8 +1,8 @@
 // `cello service` (CEL-81), the pure part: the launchctl steps for install, restart and uninstall,
 // reading `launchctl print`, and the words each command prints. launchd.ts carries the steps out.
-// The plist itself is packages/shared/src/launchAgent.ts, which the desktop app reads too.
-import { SERVICE_LABEL, serviceTarget } from "@cello/shared/launchAgent"
-import { shortCommit } from "@cello/shared/build"
+// The plist itself is packages/host/src/launchAgent.ts, which the desktop app reads too.
+import { SERVICE_LABEL, serviceTarget } from "@cello/host/launchAgent"
+import { shortCommit } from "@cello/release/build"
 import { columns } from "./format.ts"
 
 /** One `launchctl` call. An optional step's failure is ignored (unloading what isn't loaded, say). */

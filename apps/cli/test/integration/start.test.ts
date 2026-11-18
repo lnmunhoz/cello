@@ -19,7 +19,7 @@ import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
-import { APP_VERSION } from "@cello/shared/version"
+import { APP_VERSION } from "@cello/release/version"
 import { connect } from "../../../server/test/integration/harness.ts"
 import { readUntil, spawnStart, startProcess } from "./cli.ts"
 

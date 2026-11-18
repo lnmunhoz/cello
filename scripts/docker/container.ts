@@ -4,14 +4,14 @@
 import { createHash } from "node:crypto"
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { DOCKER_STEPS, type DockerMode } from "../../packages/shared/src/testRun.ts"
+import { DOCKER_STEPS, type DockerMode } from "../../packages/domain/src/testRun.ts"
 import { IN_CONTAINER } from "./guard.ts"
 
 export type Mode = DockerMode
 
 /**
  * The steps each mode runs, in order. `install` comes first and stops the run when it fails. Kept in
- * @cello/shared, where the server tells two runs apart by the stage their reports name (CEL-147).
+ * @cello/domain (testRun), where the server tells two runs apart by the stage their reports name (CEL-147).
  */
 export const MODE_STEPS = DOCKER_STEPS
 

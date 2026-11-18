@@ -15,8 +15,11 @@
     "test:e2e:local": "bun scripts/build.ts && playwright test -c playwright.config.ts"
   },
   "devDependencies": {
+    "@cello/domain": "workspace:*",
+    "@cello/host": "workspace:*",
+    "@cello/release": "workspace:*",
     "@cello/server": "workspace:*",
-    "@cello/shared": "workspace:*",
+    "@cello/text": "workspace:*",
     "effect": "4.1.4",
     "electron": "44.10.1",
     "electron-builder": "26.16.1"

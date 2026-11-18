@@ -1,6 +1,6 @@
 // The statuses every new workspace starts with (first start and workspace.create).
 import type { StatusCategory } from "@cello/contract/entities"
-import { positionsAfter } from "@cello/shared/position"
+import { positionsAfter } from "@cello/domain/position"
 import * as Effect from "effect/Effect"
 import type * as SqlClient from "effect/sql/SqlClient"
 import { newId } from "../persistence/ids.ts"

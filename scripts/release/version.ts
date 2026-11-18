@@ -1,12 +1,12 @@
 // Cello's one version (CEL-36). The root package.json is the source of truth; a release writes the new
-// version to every other place it lives: APP_VERSION in packages/shared/src/version.ts (what `cello
+// version to every other place it lives: APP_VERSION in packages/release/src/version.ts (what `cello
 // --version`, the server's build and backup manifests report) and each workspace package.json that carries
 // a "version" (apps/desktop's, which electron-builder stamps into Cello.app), the Claude Code plugin's
 // plugin.json (the plugin the cello binary carries; the bump hook then regenerates its embedded copy with
 // `bun run docs:cli`), and bun.lock's record of those workspace versions. version.test.ts checks they agree.
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { compareVersions, parseVersion } from "../../packages/shared/src/updates.ts"
+import { compareVersions, parseVersion } from "../../packages/release/src/updates.ts"
 
 export type Increment = "patch" | "minor" | "major" | "prepatch" | "preminor" | "premajor" | "prerelease"
 
@@ -63,7 +63,7 @@ export const nextVersion = (current: string, increment: string, preid: string = 
   return increment.replace(/^v/, "")
 }
 
-const SHARED_VERSION = "packages/shared/src/version.ts"
+const SHARED_VERSION = "packages/release/src/version.ts"
 const APP_VERSION = /(export const APP_VERSION = ")([^"]*)(")/
 
 const PACKAGE_VERSION = /^(\s*"version":\s*")([^"]*)(")/m

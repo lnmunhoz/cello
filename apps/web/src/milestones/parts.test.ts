@@ -1,6 +1,6 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Milestone, Status } from "@cello/contract/entities"
-import { localDay, milestoneProgress } from "@cello/shared/milestone"
+import { localDay, milestoneProgress } from "@cello/domain/milestone"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"

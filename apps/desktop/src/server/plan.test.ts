@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { renderPlist } from "@cello/shared/launchAgent"
+import { renderPlist } from "@cello/host/launchAgent"
 import { celloCommand, isAlreadyRunning, isBoardTooNew, parseBanner, parseLock, planServer, serviceFor, serviceInstaller, takenPortMessage } from "./plan.ts"
 
 describe("planServer", () => {

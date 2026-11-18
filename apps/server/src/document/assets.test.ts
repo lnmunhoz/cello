@@ -1,4 +1,4 @@
-import { mapLinkTargets } from "@cello/shared/document"
+import { mapLinkTargets } from "@cello/text/document"
 import { describe, expect, it } from "vitest"
 import { assetResolver } from "./assets.ts"
 

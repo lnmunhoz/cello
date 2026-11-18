@@ -6,10 +6,10 @@ import { doingNowOf, durationWords, previewOf, thinkingNote } from "@cello/clien
 import type { FinishedAgent, WorkingSessionOf } from "@cello/client/sync/agents"
 import type { LogStep, LogUpdate } from "@cello/contract/agentLog"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
-import { modelLabel } from "@cello/shared/model"
-import { originText } from "@cello/shared/origin"
-import { shortSession } from "@cello/shared/session"
-import { presenceWords } from "@cello/shared/presence"
+import { modelLabel } from "@cello/domain/model"
+import { originText } from "@cello/domain/origin"
+import { shortSession } from "@cello/domain/session"
+import { presenceWords } from "@cello/domain/presence"
 import { columns, plural, sessionName } from "./format.ts"
 
 /** A subagent as --agent and `cello agents log` take it: "cello-builder/a13bfb89". */

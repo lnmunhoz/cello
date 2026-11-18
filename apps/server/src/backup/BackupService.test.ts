@@ -3,7 +3,7 @@
 import { Database } from "bun:sqlite"
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { APP_VERSION } from "@cello/shared/version"
+import { APP_VERSION } from "@cello/release/version"
 import { describe, expect, it } from "@effect/vitest"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"

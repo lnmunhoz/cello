@@ -2,7 +2,7 @@
 import * as os from "node:os"
 import * as path from "node:path"
 import type { WebFiles } from "@cello/server/web/WebFiles"
-import type { Flavor } from "@cello/shared/flavor"
+import type { Flavor } from "@cello/release/flavor"
 import * as Context from "effect/Context"
 import type { Env } from "./identity.ts"
 

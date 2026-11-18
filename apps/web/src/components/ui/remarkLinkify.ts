@@ -1,8 +1,8 @@
 // A remark plugin: bare web addresses in markdown text become links (react-markdown only links
 // `<https://…>` and `[text](url)` on its own), and so do the task keys `isTask` accepts, as links to the
 // task marked `data-task-link` (LiveTaskKey renders them). Code and existing links are left alone.
-import { linkify, type LinkifyOptions } from "@cello/shared/linkify"
-import { taskPath } from "@cello/shared/taskKey"
+import { linkify, type LinkifyOptions } from "@cello/text/linkify"
+import { taskPath } from "@cello/domain/taskKey"
 
 /** The bits of an mdast node this plugin reads and writes. */
 export interface MdNode {

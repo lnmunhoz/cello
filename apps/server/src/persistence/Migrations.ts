@@ -2,7 +2,7 @@
 // migration this build doesn't know was opened by a newer Cello (CEL-149): it's refused before anything
 // runs, so an older download never writes to a board a newer build already migrated.
 import * as SqliteMigrator from "@effect/sql-sqlite-bun/SqliteMigrator"
-import { APP_VERSION } from "@cello/shared/version"
+import { APP_VERSION } from "@cello/release/version"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"

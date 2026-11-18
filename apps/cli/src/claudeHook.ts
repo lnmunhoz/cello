@@ -27,8 +27,8 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import type { ActivityReport } from "@cello/contract/rpcs"
-import { commandWords, isTestCommand } from "@cello/shared/testRun"
-import { stepLine } from "@cello/shared/toolSummary"
+import { commandWords, isTestCommand } from "@cello/domain/testRun"
+import { stepLine } from "@cello/text/toolSummary"
 import { isObject } from "./claudeSettings.ts"
 import { andList } from "./format.ts"
 import { agentVariable, type Env } from "./identity.ts"
@@ -275,7 +275,7 @@ export const hookAction = (input: HookInput, env: Env): "deliver" | "check-in" |
   hookSession(input, env) === null ? "nothing" : input.inSubagent ? "check-in" : "deliver"
 
 // ── test runs (CEL-134) ─────────────────────────────────────────────────────────────────────────
-// A Bash call that runs a test command (@cello/shared/testRun) marks its agent Running tests: PreToolUse
+// A Bash call that runs a test command (@cello/domain/testRun) marks its agent Running tests: PreToolUse
 // says it starts (PostToolUse would be too late: for a foreground call it fires when the tests are done),
 // PostToolUse or PostToolUseFailure says a foreground run ended, passed or failed. A run started in the
 // background goes on: PostToolUse's background report (startedBackground) says so, and the runner's own

@@ -14,7 +14,7 @@
 import type { Synced } from "@cello/client/sync/follow"
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { type AgentSession, agentKey, type SessionAgent } from "@cello/contract/entities"
-import { AGENT_COLORS, colorFromSeed } from "@cello/shared/color"
+import { AGENT_COLORS, colorFromSeed } from "@cello/domain/color"
 import { animate, type AnimationPlaybackControls } from "motion"
 import { useSyncExternalStore } from "react"
 import { cssString, stylesFor } from "./css.ts"

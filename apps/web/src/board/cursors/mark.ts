@@ -1,7 +1,7 @@
-// What an agent cursor looks like: the teardrop agent from Cello's icon (@cello/shared/agentMark), in
+// What an agent cursor looks like: the teardrop agent from Cello's icon (apps/web/src/lib/agentMark), in
 // the session's colour, its tip on the cursor's point. Pure markup and keyframes; the animator draws
 // and plays them.
-import { AGENT_SQUASH, agentMarkBox, agentMarkSvg } from "@cello/shared/agentMark"
+import { AGENT_SQUASH, agentMarkBox, agentMarkSvg } from "../../lib/agentMark.ts"
 
 /** The mark's width in px. */
 export const CURSOR_WIDTH = 26

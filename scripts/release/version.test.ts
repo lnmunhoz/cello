@@ -22,7 +22,7 @@ const fixture = (name: string, version = "0.2.0") => {
   write(root, "package.json", json({ name: "cello", version, private: true, workspaces: ["packages/*", "apps/*"] }))
   write(root, "apps/desktop/package.json", json({ name: "@cello/desktop", private: true, version: "0.1.0", main: "x.cjs" }))
   write(root, "apps/cli/package.json", json({ name: "@cello/cli", private: true }))
-  write(root, "packages/shared/package.json", json({ name: "@cello/shared", private: true }))
+  write(root, "packages/release/package.json", json({ name: "@cello/release", private: true }))
   // The Claude Code plugin the cello binary carries says which Cello it came with.
   write(root, "apps/cli/claude-plugin/cello/.claude-plugin/plugin.json", json({ name: "cello", displayName: "Cello", version, description: "x" }))
   // bun.lock records each workspace's version: a release that left it stale would dirty the tree at the
@@ -57,7 +57,7 @@ const fixture = (name: string, version = "0.2.0") => {
   )
   write(
     root,
-    "packages/shared/src/version.ts",
+    "packages/release/src/version.ts",
     `// Cello's version.\nexport const APP_VERSION = "${version}"\n`,
   )
   return root
@@ -122,7 +122,7 @@ describe("readVersions", () => {
     const root = fixture("read")
     expect(readVersions(root)).toEqual([
       { file: "package.json", version: "0.2.0" },
-      { file: "packages/shared/src/version.ts", version: "0.2.0" },
+      { file: "packages/release/src/version.ts", version: "0.2.0" },
       { file: "apps/desktop/package.json", version: "0.1.0" },
       { file: "apps/cli/claude-plugin/cello/.claude-plugin/plugin.json", version: "0.2.0" },
       { file: "bun.lock (apps/desktop)", version: "0.1.0" },
@@ -134,7 +134,7 @@ describe("syncVersion", () => {
   it("writes the new version everywhere it lives and leaves the rest of each file alone", () => {
     const root = fixture("sync")
     const written = syncVersion(root, "0.3.0")
-    expect(written).toEqual(["package.json", "packages/shared/src/version.ts", "apps/desktop/package.json", "apps/cli/claude-plugin/cello/.claude-plugin/plugin.json", "bun.lock"])
+    expect(written).toEqual(["package.json", "packages/release/src/version.ts", "apps/desktop/package.json", "apps/cli/claude-plugin/cello/.claude-plugin/plugin.json", "bun.lock"])
     expect(readVersions(root).map((v) => v.version)).toEqual(["0.3.0", "0.3.0", "0.3.0", "0.3.0", "0.3.0"])
     const lock = fs.readFileSync(path.join(root, "bun.lock"), "utf8")
     expect(lock).toContain('"@cello/desktop",\n      "version": "0.3.0",')
@@ -145,7 +145,7 @@ describe("syncVersion", () => {
       version: "0.3.0",
       main: "x.cjs",
     })
-    expect(fs.readFileSync(path.join(root, "packages/shared/src/version.ts"), "utf8")).toBe(
+    expect(fs.readFileSync(path.join(root, "packages/release/src/version.ts"), "utf8")).toBe(
       `// Cello's version.\nexport const APP_VERSION = "0.3.0"\n`,
     )
     // Unversioned packages stay unversioned.
@@ -156,7 +156,7 @@ describe("syncVersion", () => {
     const root = fixture("dry")
     expect(syncVersion(root, "0.3.0", { dryRun: true })).toEqual([
       "package.json",
-      "packages/shared/src/version.ts",
+      "packages/release/src/version.ts",
       "apps/desktop/package.json",
       "apps/cli/claude-plugin/cello/.claude-plugin/plugin.json",
       "bun.lock",
@@ -173,7 +173,7 @@ describe("syncVersion", () => {
 
   it("refuses a version.ts it can't find APP_VERSION in, before writing anything", () => {
     const root = fixture("broken")
-    write(root, "packages/shared/src/version.ts", "export const VERSION = 1\n")
+    write(root, "packages/release/src/version.ts", "export const VERSION = 1\n")
     expect(() => syncVersion(root, "0.3.0")).toThrow(/APP_VERSION/)
     expect(JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version).toBe("0.2.0")
   })
@@ -182,7 +182,7 @@ describe("syncVersion", () => {
 describe("this repository", () => {
   it("has one version everywhere: root package.json, APP_VERSION, every versioned package.json and bun.lock agree", () => {
     const versions = readVersions(repoRoot)
-    expect(versions.map((v) => v.file)).toContain("packages/shared/src/version.ts")
+    expect(versions.map((v) => v.file)).toContain("packages/release/src/version.ts")
     expect(versions.map((v) => v.file)).toContain("apps/desktop/package.json")
     expect(versions.map((v) => v.file)).toContain("bun.lock (apps/desktop)")
     const root = versions[0]!

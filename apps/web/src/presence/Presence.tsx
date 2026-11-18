@@ -1,12 +1,12 @@
 // Who made a task, who's on it and where it is inside In Progress (CEL-5, CEL-35), in words: the
 // card's work and provenance lines, the list row's, the task panel's header and properties, and the
 // sidebar's "Agents working". A subagent (CEL-55) is named on its own, its session in the hover and in
-// the panel. The model is ./model.ts; presence is @cello/shared/presence.
+// the panel. The model is ./model.ts; presence is @cello/domain/presence.
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import type { StageInfo } from "@cello/contract/stages"
-import { modelName } from "@cello/shared/model"
-import { agoShort, type Presence, presenceOf, presenceWords, type SessionLike } from "@cello/shared/presence"
+import { modelName } from "@cello/domain/model"
+import { agoShort, type Presence, presenceOf, presenceWords, type SessionLike } from "@cello/domain/presence"
 import { ActivityIcon, BotIcon, CircleDotIcon, GitMergeIcon, GitPullRequestArrowIcon, HammerIcon, ListChecksIcon, type LucideIcon, ScanEyeIcon, WrenchIcon } from "lucide-react"
 import { type ReactNode, useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"

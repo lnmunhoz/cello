@@ -1,5 +1,5 @@
 // The build this tab was loaded with (CEL-37), and reloading into the server's.
-import { buildKey, type BuildStamp, type RunningBuild } from "@cello/shared/build"
+import { buildKey, type BuildStamp, type RunningBuild } from "@cello/release/build"
 import * as Option from "effect/Option"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { useAtomValue } from "@effect/atom-react"

@@ -18,13 +18,13 @@ describe("reading a repo for detection (CEL-89)", () => {
   it("reports marker files, every package.json (workspace members too) and the config files' text", () => {
     const root = fs.mkdtempSync(path.join(base, "repo-"))
     write(root, {
-      "package.json": JSON.stringify({ workspaces: ["apps/*", "packages/shared"], scripts: { test: "vitest run" } }),
+      "package.json": JSON.stringify({ workspaces: ["apps/*", "packages/client"], scripts: { test: "vitest run" } }),
       "bun.lock": "",
       "playwright.config.ts": "export default {}",
       "apps/web/package.json": JSON.stringify({ devDependencies: { vite: "7" } }),
       "apps/web/vite.config.ts": "server: { port: 5199 }",
       "apps/notes/README.md": "no package here",
-      "packages/shared/package.json": "{ not json",
+      "packages/client/package.json": "{ not json",
       ".maestro/flow.yaml": "",
     })
     const facts = readRepoFacts(root)

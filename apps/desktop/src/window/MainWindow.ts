@@ -3,8 +3,8 @@
 // window-state.json; the panel's URL lives only as long as the app runs.
 import * as fs from "node:fs"
 import { BaseWindow, nativeTheme, screen, shell, webContents, WebContentsView, type WebContents } from "electron"
-import type { DesktopBoardState } from "@cello/shared/desktopBoard"
-import type { UpdateState } from "@cello/shared/updates"
+import type { DesktopBoardState } from "@cello/domain/desktopBoard"
+import type { UpdateState } from "@cello/release/updates"
 import { APP_NOTICE, APP_RESTART, BOARD_COMMAND, BOARD_OPEN, BOARD_OPEN_TASK, BOARD_STATE, PANEL_CLOSE, PANEL_OPEN, UPDATE_COMMAND, UPDATE_STATE } from "../ipc.ts"
 import { Panel } from "../panel/Panel.ts"
 import { boardNavigationAction, boardWindowOpenAction } from "../panel/urls.ts"

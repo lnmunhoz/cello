@@ -2,7 +2,7 @@
 import type { Project, ProjectRef } from "@cello/contract/entities"
 import { HumanOnly, Invalid, KeyTaken, NotFound } from "@cello/contract/errors"
 import { Caller } from "@cello/contract/rpcs"
-import { freeProjectKey, isValidProjectKey, reservedKeyProblem } from "@cello/shared/taskKey"
+import { freeProjectKey, isValidProjectKey, reservedKeyProblem } from "@cello/domain/taskKey"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"

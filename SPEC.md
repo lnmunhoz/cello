@@ -766,7 +766,11 @@ Shared logic exists in exactly one place, with its own unit tests, and every cal
 
 - **Where shared code lives:**
   - `packages/contract`: schemas and the small pure helpers that belong to them (task-key parsing, event type guards)
-  - `packages/shared`: pure helpers used by more than one package (fractional positions, markdown section extraction for the page reader, relative-time labels, session-color hashing)
+  - `packages/domain`: the board's pure rules, used by more than one package (fractional positions, asks, reviews, milestones, session-color hashing)
+  - `packages/text`: markdown, diffs, links and redaction (markdown section extraction for the page reader)
+  - `packages/release`: build stamps, versions and update channels
+  - `packages/host`: Node and macOS code only; the web app never imports it
+  - `scripts/boundaries.test.ts` checks who may import what
   - the owning service: domain rules (claiming, moving, publishing), which every entry point reaches through the service
 - **Before writing a helper, search for one.** The second time the same logic is needed, it moves to a shared module with tests, and the first copy is deleted.
 - **Shared functions are unit tested where they live**, so their callers can rely on them without re-testing them.
@@ -845,7 +849,7 @@ Proposed; Lucas to confirm.
 7. The API is an Effect RPC contract (Effect Schema) in `packages/contract`. Every feature is an Effect service; the RPC handlers, the CLI and a later MCP server are thin layers over the services. One client (`packages/client`) serves the web app and the CLI.
 8. In the browser, server data lives in Effect atoms fed by a snapshot and the event stream through pure reducers, with command atoms for optimistic writes. Zustand holds screen-only state.
 9. Test first. Unit tests sit next to the code in each domain module; integration tests in `test/integration/` run real pieces together; end-to-end tests in `e2e/` run the built binary with a real browser and record videos.
-10. Write a function once. Shared logic lives in one module (`packages/shared`, `packages/contract` or the owning service) with its own unit tests, and every caller uses it.
+10. Write a function once. Shared logic lives in one module (`packages/domain`, `packages/text`, `packages/release`, `packages/host`, `packages/contract` or the owning service) with its own unit tests, and every caller uses it.
 11. v1 is M0 to M3 plus search and a basic list; everything else waits for two weeks of real use. Pages come first after v1. No two-way folder sync: `cello export` is the way out.
 12. Decisions that are Lucas's are asked on the card (`cello task ask`, the Needs input column) and answered in Cello, next to the evidence, never in the terminal. The answer reaches the agent the way a Send back does.
 

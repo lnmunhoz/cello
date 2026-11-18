@@ -64,7 +64,7 @@ How a task goes from Todo to Done is in [LIFECYCLE.md](LIFECYCLE.md): its workfl
 - **Keep docs/cli.md current, in the same commit,** for any change to what agents do with Cello.
   - The command reference is generated: describe each flag in `apps/cli/src/cli.ts`, then run `bun run docs:cli`. `apps/cli/src/reference.test.ts` enforces it.
   - The hand-written sections are your job.
-- **Write it once.** Look for a helper before writing one. Shared pure logic goes in `packages/shared` or `packages/contract`; domain rules live in the owning service. When a second copy appears, move it to a shared module and delete the first.
+- **Write it once.** Look for a helper before writing one. Shared logic goes in the package for its job: `packages/domain` (the board's rules), `packages/text` (markdown and text), `packages/release` (builds and versions) or `packages/host` (Node and macOS only), or in `packages/contract`. `scripts/boundaries.test.ts` says who may import what. A rule only one service needs lives in that service. When a second copy appears, move it to a shared module and delete the first.
 - **Errors:** storage failures are defects (`Effect.orDie` at the service edge). API errors are only the tagged errors in `packages/contract/src/errors.ts`.
 - **Effect style** follows T3 Code (`~/projects/t3code`): `Context.Service` classes, layers, and `Effect.fn("Service.method")`. Effect's source is in `~/projects/t3code/.repos/effect`.
 - **UI:**

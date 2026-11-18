@@ -5,7 +5,7 @@
 // own working loop is CEL-69's), and reduced motion keeps only the edge (index.css).
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Task } from "@cello/contract/entities"
-import { presenceOf } from "@cello/shared/presence"
+import { presenceOf } from "@cello/domain/presence"
 import { useState } from "react"
 import { agentColor, agentMood, agentOn, agentPresenceSubject, sessionColor } from "./model.ts"
 import { useNow } from "./useNow.ts"

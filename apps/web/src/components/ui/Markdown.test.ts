@@ -1,5 +1,5 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import { DIFF_BLOCK, DIFF_BLOCK_COMMENT, DIFF_BLOCK_PATHS, HEADERLESS_BLOCK_COMMENT } from "@cello/shared/diff.fixture"
+import { DIFF_BLOCK, DIFF_BLOCK_COMMENT, DIFF_BLOCK_PATHS, HEADERLESS_BLOCK_COMMENT } from "@cello/text/diff.fixture"
 import { RegistryProvider } from "@effect/atom-react"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { createElement } from "react"

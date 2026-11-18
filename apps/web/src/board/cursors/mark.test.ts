@@ -1,4 +1,4 @@
-import { AGENT_SQUASH, AGENT_TIP, agentMarkBox } from "@cello/shared/agentMark"
+import { AGENT_SQUASH, AGENT_TIP, agentMarkBox } from "../../lib/agentMark.ts"
 import { describe, expect, it } from "vitest"
 import { BLINK_DELAY, BLINK_MS, CURSOR_WIDTH, cursorMark, SQUASH } from "./mark.ts"
 import { PACING } from "./pacing.ts"

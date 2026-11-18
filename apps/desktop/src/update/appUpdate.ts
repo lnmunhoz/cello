@@ -6,7 +6,7 @@
 // web app reloads into a new server build by itself (CEL-37's ReloadBar); this is the same idea for the
 // app around it. The build stamp (`build.json`, written by scripts/build.ts) tells builds apart.
 import * as path from "node:path"
-import { linkFlavor } from "@cello/shared/celloLink"
+import { linkFlavor } from "@cello/release/celloLink"
 import type { DesktopAppNotice } from "../../../web/src/lib/desktop.ts"
 
 /** The build stamp scripts/build.ts writes into dist-electron/, also copied beside app.asar. */

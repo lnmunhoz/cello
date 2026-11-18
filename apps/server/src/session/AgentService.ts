@@ -11,8 +11,8 @@
 // - Claims and inbox delivery stay on the session (CEL-15): nothing here touches them.
 import type { SessionAgent } from "@cello/contract/entities"
 import { type AgentReportState, Caller } from "@cello/contract/rpcs"
-import { isReviewerType, verdictOf } from "@cello/shared/review"
-import { parseTaskKey, taskKeysIn } from "@cello/shared/taskKey"
+import { isReviewerType, verdictOf } from "@cello/domain/review"
+import { parseTaskKey, taskKeysIn } from "@cello/domain/taskKey"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"

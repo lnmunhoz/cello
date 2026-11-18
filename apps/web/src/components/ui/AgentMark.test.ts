@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { AGENT_BODY, AGENT_CENTER, AGENT_HAPPY_EYES, AGENT_SPINNER_BODY, agentFramePoint } from "@cello/shared/agentMark"
+import { AGENT_BODY, AGENT_CENTER, AGENT_HAPPY_EYES, AGENT_SPINNER_BODY, agentFramePoint } from "../../lib/agentMark.ts"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"

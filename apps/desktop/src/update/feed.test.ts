@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { RELEASE_URL_PREFIX } from "@cello/shared/updates"
+import { RELEASE_URL_PREFIX } from "@cello/release/updates"
 import { feedFor, githubFeed, RELEASES_URL } from "./feed.ts"
 
 type Call = { url: string; headers: Record<string, string> }

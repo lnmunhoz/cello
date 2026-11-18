@@ -1,11 +1,11 @@
 // `cello://` links: `cello://CEL-3` opens that task on the board, `cello://open?url=<encoded>` opens
 // a page: one on the board in the board's side panel, another site in the browser panel. macOS hands
 // them to `open-url`; a second launch passes them in argv. The link format is shared with the CLI,
-// which makes them (@cello/shared/celloLink, CEL-88); this file decides what the app lets them open.
+// which makes them (@cello/release/celloLink, CEL-88); this file decides what the app lets them open.
 // Each app follows only its own flavor's scheme (CEL-149): Cello Dev `cello-dev://`, Cello `cello://`.
-import { linkFlavor, parseCelloLink as parseLinkTarget } from "@cello/shared/celloLink"
-import type { Flavor } from "@cello/shared/flavor"
-import { taskPath } from "@cello/shared/taskKey"
+import { linkFlavor, parseCelloLink as parseLinkTarget } from "@cello/release/celloLink"
+import type { Flavor } from "@cello/release/flavor"
+import { taskPath } from "@cello/domain/taskKey"
 import { panelUrl } from "../panel/urls.ts"
 
 export type CelloLink =

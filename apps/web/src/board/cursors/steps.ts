@@ -1,7 +1,7 @@
 // Which board events get an agent cursor, and what kind of step each one plays. Pure.
 import { agentKey } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
-import { commentGist } from "@cello/shared/comment"
+import { commentGist } from "@cello/domain/comment"
 import type { StepKind } from "./pacing.ts"
 
 /** What an agent session did to a card, before the board decides how to show it. */

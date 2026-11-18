@@ -2,7 +2,7 @@
 // reading the changes, matching names (with close matches for a typo), label groups (CEL-52) and the list's text.
 import { type Label, LABEL_GROUP_NAMES, LABEL_GROUPS, type LabelGroup } from "@cello/contract/entities"
 import type { LabelList } from "@cello/contract/views"
-import { closeMatches } from "@cello/shared/words"
+import { closeMatches } from "@cello/domain/words"
 import { andList, columns, plural } from "./format.ts"
 
 const FLAGS = new Set(["--json", "--help", "-h"])

@@ -2,7 +2,7 @@
 // day each went live. The running one is marked; a row opens to list the commits merged since the
 // previous build, with their task keys linked and showing each task's live status.
 import type { BuildPage, BuildRecord } from "@cello/contract/build"
-import { byDay, liveFor, liveSince, shortCommit } from "@cello/shared/build"
+import { byDay, liveFor, liveSince, shortCommit } from "@cello/release/build"
 import { useAtomValue } from "@effect/atom-react"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { ChevronRightIcon } from "lucide-react"

@@ -1,4 +1,4 @@
-import { DIFF_BLOCK, HEADERLESS_BLOCK } from "@cello/shared/diff.fixture"
+import { DIFF_BLOCK, HEADERLESS_BLOCK } from "@cello/text/diff.fixture"
 import { createElement } from "react"
 import { describe, expect, it } from "vitest"
 import { blockView, codeBlockOf } from "./codeBlock.ts"

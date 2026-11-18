@@ -1,7 +1,7 @@
 // What Settings' Testing section lists (CEL-89): every fixed field, set or not, then each e2e surface's
 // fields, so Lucas sees what's missing and can fill it in.
 import type { ProfileField, ProfileSource } from "@cello/contract/entities"
-import { E2E_PARTS, type E2EPart, e2eField, e2eSurfaces, fieldLabel, PROFILE_FIELDS } from "@cello/shared/testingProfile"
+import { E2E_PARTS, type E2EPart, e2eField, e2eSurfaces, fieldLabel, PROFILE_FIELDS } from "@cello/domain/testingProfile"
 import { relativeTime } from "../lib/format.ts"
 
 const PART_NAMES: Record<E2EPart, string> = { run: "Run", videos: "Videos folder", screenshots: "Screenshots folder" }

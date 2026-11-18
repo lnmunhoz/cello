@@ -6,7 +6,7 @@ import * as fs from "node:fs"
 import { expect, test as base, type Page, type Video } from "@playwright/test"
 import type { Label, Project, Status } from "../packages/contract/src/entities.ts"
 import { defaultWorkspaceId } from "../packages/client/src/sync/follow.ts"
-import { AGENT_SQUASH, agentMarkBox, agentMarkSvg } from "../packages/shared/src/agentMark.ts"
+import { AGENT_SQUASH, agentMarkBox, agentMarkSvg } from "../apps/web/src/lib/agentMark.ts"
 import { newCommandId, openClient, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
 import { cropFor, holdMs, videoSizeOf } from "./recording.ts"
 

@@ -1,4 +1,4 @@
-import { isValidProjectKey, reservedKeyProblem } from "@cello/shared/taskKey"
+import { isValidProjectKey, reservedKeyProblem } from "@cello/domain/taskKey"
 
 /** Why a key can't be used, or null when it can. */
 export const keyProblem = (key: string, taken: ReadonlyMap<string, string>): string | null => {

@@ -1,4 +1,4 @@
-// The teardrop agent from Cello's icon (@cello/shared/agentMark), alive (CEL-69): one mark with a mood
+// The teardrop agent from Cello's icon (apps/web/src/lib/agentMark), alive (CEL-69): one mark with a mood
 // that says what its agent is doing. Two colours, both CSS variables, so the same mark draws in a
 // session's colour, the brand orange with ink eyes, or ink on light. The motion is ./AgentMark.css.
 import {
@@ -10,7 +10,7 @@ import {
   AGENT_HAPPY_STROKE,
   AGENT_RADIUS,
   AGENT_SPINNER_BODY,
-} from "@cello/shared/agentMark"
+} from "../../lib/agentMark.ts"
 import type { AnimationEvent, CSSProperties } from "react"
 import "./AgentMark.css"
 

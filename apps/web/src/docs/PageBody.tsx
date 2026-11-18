@@ -1,5 +1,5 @@
 import type { DocumentFile } from "@cello/contract/entities"
-import { referenceDefinitions, splitSections } from "@cello/shared/document"
+import { referenceDefinitions, splitSections } from "@cello/text/document"
 import { Prose } from "./Prose.tsx"
 
 /** Sections a republish changed, flashed in the publisher's color until their animation ends. */

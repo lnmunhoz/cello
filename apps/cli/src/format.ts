@@ -3,8 +3,8 @@ import { describeEvent, type HistoryNames } from "@cello/client/history"
 import type { AgentSession, SessionAgent, Status } from "@cello/contract/entities"
 import { isReadable, type StreamedEvent } from "@cello/contract/events"
 import type { Activity } from "@cello/contract/views"
-import { modelLabel } from "@cello/shared/model"
-import { sessionLabel } from "@cello/shared/session"
+import { modelLabel } from "@cello/domain/model"
+import { sessionLabel } from "@cello/domain/session"
 
 /** "just now", "3m ago", "2h ago", "4d ago". */
 export const ago = (ts: number, now: number): string => {
@@ -43,7 +43,7 @@ export const agentName = (
   return `${agent.agentType ?? "agent"} · ${agent.agentId.slice(0, 8)}${notes.length ? ` (${notes.join("; ")})` : ""}`
 }
 
-export { andList, plural } from "@cello/shared/words"
+export { andList, plural } from "@cello/domain/words"
 
 /** Pads each column but the last to its widest cell. */
 export const columns = (rows: ReadonlyArray<ReadonlyArray<string>>): string[] => {

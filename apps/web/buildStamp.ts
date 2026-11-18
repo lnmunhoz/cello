@@ -1,7 +1,7 @@
 // Stamps each web build (CEL-37): the bundle gets `__CELLO_BUILD__` (version, commit, build time), and
 // the same stamp, plus the commits merged since the build that was in the output folder before, goes
 // into build.json beside index.html. The server reads build.json and reports it; an open tab compares
-// it with its own `__CELLO_BUILD__` each time it connects (packages/shared/src/build.ts).
+// it with its own `__CELLO_BUILD__` each time it connects (packages/release/src/build.ts).
 import * as fs from "node:fs"
 import * as path from "node:path"
 import type { Plugin } from "vite"

@@ -3,7 +3,7 @@
 // come grouped by kind, best first, with the matched words as ranges. The index follows every write
 // path in the same transaction: creates, edits, deletes, archives and resubmits.
 import type { SearchHit, SearchResults } from "@cello/contract/search"
-import { segments } from "@cello/shared/search"
+import { segments } from "@cello/text/search"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as CommentService from "../comment/CommentService.ts"

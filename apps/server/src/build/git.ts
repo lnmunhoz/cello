@@ -5,7 +5,7 @@
 // stays because both runtimes have it.
 import { spawnSync } from "node:child_process"
 import type { WebBuild } from "@cello/contract/build"
-import { APP_VERSION } from "@cello/shared/version"
+import { APP_VERSION } from "@cello/release/version"
 
 /** A full or abbreviated commit hash, the only thing that reaches git from build.json or the environment. */
 export const isCommit = (value: string): boolean => /^[0-9a-f]{7,40}$/.test(value)

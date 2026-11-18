@@ -3,7 +3,7 @@
 // its own server there with the `cello` inside it, empty like a new user's. Pure: main.ts reads and writes the
 // file (board.json in the app's state folder, never in a board's data folder) and carries the switch out.
 import * as path from "node:path"
-import type { DesktopBoardState } from "@cello/shared/desktopBoard"
+import type { DesktopBoardState } from "@cello/domain/desktopBoard"
 import { DEFAULT_PORT } from "./plan.ts"
 
 /** Where the choice is kept, in the app's user data folder. */

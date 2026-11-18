@@ -6,7 +6,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Task } from "@cello/contract/entities"
 import { NOT_WOKEN_TEXT, RUN_END_TEXT, runLength } from "@cello/contract/wake"
-import { agoShort } from "@cello/shared/presence"
+import { agoShort } from "@cello/domain/presence"
 
 export type WakeLine =
   | { readonly kind: "scheduled"; readonly text: string; readonly at: number }

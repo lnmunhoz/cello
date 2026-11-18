@@ -13,7 +13,7 @@ import {
   type DiffHunk,
   type DiffLine,
   type ParsedDiff,
-} from "@cello/shared/diff"
+} from "@cello/text/diff"
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react"
 import { useState, type ReactNode } from "react"
 import { Button } from "../components/ui/Button.tsx"

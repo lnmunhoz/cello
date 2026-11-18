@@ -20,8 +20,8 @@ import {
   renderPlist,
   serviceLogPath,
   servicePathVariable,
-} from "@cello/shared/launchAgent"
-import { rotateLog } from "@cello/shared/logRotation"
+} from "@cello/host/launchAgent"
+import { rotateLog } from "@cello/host/logRotation"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import { CliEnv, dataDirOf } from "./env.ts"

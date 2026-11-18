@@ -1,10 +1,10 @@
-// What a review or a page may carry: the file types in @cello/shared/attachment, up to 50 MB, and
+// What a review or a page may carry: the file types in @cello/text/attachment, up to 50 MB, and
 // (reviews) http(s) links.
 import * as path from "node:path"
 import type { AttachmentKind } from "@cello/contract/entities"
 import { Invalid } from "@cello/contract/errors"
 import type { EvidenceFile } from "@cello/contract/rpcs"
-import { ACCEPTED, classify, MAX_ATTACHMENT_BYTES } from "@cello/shared/attachment"
+import { ACCEPTED, classify, MAX_ATTACHMENT_BYTES } from "@cello/text/attachment"
 import * as Effect from "effect/Effect"
 
 export { ACCEPTED, classify, MAX_ATTACHMENT_BYTES }

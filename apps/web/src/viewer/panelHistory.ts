@@ -4,7 +4,7 @@
 // get a Back control. `recordMove` keeps, per history entry, the spot it was reached from by a hop, and
 // the panel shows Back while the current entry has one. Pure, so the rules are tested once here;
 // panelBack.ts feeds it the router's history.
-import { parseTaskPath } from "@cello/shared/taskKey"
+import { parseTaskPath } from "@cello/domain/taskKey"
 import { withoutViewer } from "./search.ts"
 
 /** A place in the app: its path and its (parsed) search params. */

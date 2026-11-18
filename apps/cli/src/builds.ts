@@ -1,7 +1,7 @@
 // `cello builds` as text (CEL-50): each build on one line, newest first, the running one marked, and
 // the commits merged since the build before it indented under it.
 import type { BuildPage } from "@cello/contract/build"
-import { liveFor, shortCommit } from "@cello/shared/build"
+import { liveFor, shortCommit } from "@cello/release/build"
 import { columns, localTime } from "./format.ts"
 
 export const buildsText = (page: BuildPage, now: number): string => {

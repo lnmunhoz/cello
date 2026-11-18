@@ -3,7 +3,7 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { describe, expect, it } from "@effect/vitest"
-import { APP_VERSION } from "@cello/shared/version"
+import { APP_VERSION } from "@cello/release/version"
 import * as Effect from "effect/Effect"
 import * as WebFiles from "../../src/web/WebFiles.ts"
 import { connect, startServer, tempDataDir } from "./harness.ts"

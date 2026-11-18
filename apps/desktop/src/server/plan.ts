@@ -5,7 +5,7 @@
 // its pid and port before opening the database (apps/server/src/server/ServerLock.ts), so the app
 // never starts a second one against a folder a live server holds; it joins that server instead.
 import * as path from "node:path"
-import { parsePlist } from "@cello/shared/launchAgent"
+import { parsePlist } from "@cello/host/launchAgent"
 
 export const DEFAULT_PORT = 4747
 /** The lock file `cello start` keeps in its data folder (apps/server/src/server/ServerLock.ts). */

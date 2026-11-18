@@ -3,7 +3,7 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test"
-import { parsePlist } from "@cello/shared/launchAgent"
+import { parsePlist } from "@cello/host/launchAgent"
 import { writeFakeLaunchctl } from "../../cli/test/fakeLaunchctl.ts"
 import { recordWindow, screenshotWindow, type Recording } from "./recorder.ts"
 import {

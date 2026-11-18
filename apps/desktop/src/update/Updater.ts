@@ -1,5 +1,5 @@
 // Cello.app's update check (CEL-140), in the main process: asks the release feed at launch, every 4 hours
-// and on Check now; keeps an `UpdateState` (packages/shared/src/updates.ts) and tells the board each
+// and on Check now; keeps an `UpdateState` (packages/release/src/updates.ts) and tells the board each
 // change (main.ts sends it through the preload bridge); downloads the new release's DMG into Downloads,
 // in the background when "Download updates automatically" is on; and on Download hands the DMG to the
 // installer.
@@ -24,7 +24,7 @@ import {
   type UpdateEvent,
   type UpdateState,
   updateReducer,
-} from "@cello/shared/updates"
+} from "@cello/release/updates"
 import type { ReleaseFeed } from "./feed.ts"
 
 /** How often the app asks for releases, besides at launch and on Check now. */

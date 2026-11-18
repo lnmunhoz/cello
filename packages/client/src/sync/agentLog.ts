@@ -3,9 +3,9 @@
 // filter shows; and the words both the Agents page and `cello agents log` (CEL-107) use.
 import type { LogStep, LogUnavailable, LogUpdate } from "@cello/contract/agentLog"
 import type { AgentSession, SessionAgent } from "@cello/contract/entities"
-import type { Presence } from "@cello/shared/presence"
-import { isRunning, testRunWords } from "@cello/shared/testRun"
-import { plural } from "@cello/shared/words"
+import type { Presence } from "@cello/domain/presence"
+import { isRunning, testRunWords } from "@cello/domain/testRun"
+import { plural } from "@cello/domain/words"
 
 export interface LogView {
   /** `loading` until the first update; `unavailable` with its reason when there's no log. */

@@ -7,7 +7,7 @@
 // Cello Dev.app bundles) makes `cello-dev://` links; the release (the download GitHub Actions builds) `cello://`.
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { flavorArg } from "@cello/shared/flavor"
+import { flavorArg } from "@cello/release/flavor"
 import { buildCommit } from "../../server/src/build/git.ts"
 
 const cli = path.join(import.meta.dir, "..")

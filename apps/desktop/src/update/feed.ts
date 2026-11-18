@@ -3,7 +3,7 @@
 // it got (a 304 doesn't count against the limit), and after a rate-limit answer doesn't ask again until
 // GitHub says it may.
 
-import { RELEASE_URL_PREFIX } from "@cello/shared/updates"
+import { RELEASE_URL_PREFIX } from "@cello/release/updates"
 
 /** What the updater reads releases from; the e2e tests serve a fake one (CELLO_UPDATE_FEED). */
 export interface ReleaseFeed {

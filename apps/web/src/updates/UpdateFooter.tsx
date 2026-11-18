@@ -1,4 +1,4 @@
-import { updateLine } from "@cello/shared/updates"
+import { updateLine } from "@cello/release/updates"
 import { Link } from "@tanstack/react-router"
 import { useUpdateState } from "./updates.ts"
 

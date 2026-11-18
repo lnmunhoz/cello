@@ -1,4 +1,4 @@
-import { detectRepo } from "@cello/shared/detect"
+import { detectRepo } from "@cello/host/detect"
 import { describe, expect, it } from "vitest"
 import { contextProfileLines, profileLines, readinessLines, wroteLines } from "./profile.ts"
 

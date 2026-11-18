@@ -14,7 +14,7 @@
 //   - `--flavor release|dev` (CEL-149): which app it is. electron-builder.json is the release, Cello; dev is Cello Dev,
 //     with its own name, bundle id, `cello-dev://` scheme and DEV icon (src/flavor.ts). A package made on the Mac
 //     is dev unless it says otherwise; `--artifacts` (the downloads) is the release.
-import { flavorArg, type Flavor } from "@cello/shared/flavor"
+import { flavorArg, type Flavor } from "@cello/release/flavor"
 import { appIdentity } from "../flavor.ts"
 
 type Resource = { readonly from: string; readonly to: string }

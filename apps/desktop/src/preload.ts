@@ -1,8 +1,8 @@
 // The board's preload (sandboxed, context-isolated): exposes `window.celloDesktop` so the web app
 // can open pages in the side panel. The main process accepts only http(s) URLs from it.
 import { contextBridge, ipcRenderer } from "electron"
-import type { DesktopBoardState } from "@cello/shared/desktopBoard"
-import type { UpdateState } from "@cello/shared/updates"
+import type { DesktopBoardState } from "@cello/domain/desktopBoard"
+import type { UpdateState } from "@cello/release/updates"
 import type { CelloDesktop, DesktopAppNotice, OpenMessage } from "../../web/src/lib/desktop.ts"
 import type { OpenTaskMessage } from "../../web/src/viewer/viewer.ts"
 import {

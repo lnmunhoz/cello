@@ -1,6 +1,6 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { Attachment, Task } from "@cello/contract/entities"
-import { awaitsMerge } from "@cello/shared/review"
+import { awaitsMerge } from "@cello/domain/review"
 import { useAtomSet } from "@effect/atom-react"
 import { CheckIcon, CornerUpLeftIcon } from "lucide-react"
 import { useState } from "react"

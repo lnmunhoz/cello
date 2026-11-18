@@ -1,8 +1,8 @@
 // What the CLI prints about a project's testing profile (CEL-89): `cello profile`, its part of
 // `cello context`, and `cello init`'s readiness report.
 import type { ProfileField, TestingProfile } from "@cello/contract/entities"
-import type { Detection } from "@cello/shared/detect"
-import { missingFields } from "@cello/shared/testingProfile"
+import type { Detection } from "@cello/host/detect"
+import { missingFields } from "@cello/domain/testingProfile"
 import { ago, andList } from "./format.ts"
 
 /** "install          bun install  (detected, 2m ago)"; the time only when `now` is given. */

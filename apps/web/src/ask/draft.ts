@@ -5,7 +5,7 @@
 // keeps their attachments.
 import type { AskQuestion, Attachment } from "@cello/contract/entities"
 import type { AnswerInput } from "@cello/contract/rpcs"
-import { recommendedPicks, unanswered } from "@cello/shared/ask"
+import { recommendedPicks, unanswered } from "@cello/domain/ask"
 import { attachmentsIn, isRecord } from "../screenshots/screenshots.ts"
 
 export interface DraftAnswer {

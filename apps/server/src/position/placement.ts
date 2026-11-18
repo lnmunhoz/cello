@@ -1,6 +1,6 @@
 // Where an item lands among its siblings (tasks in a column, statuses in a workspace), given the ids
 // of the neighbor that should come before it and the one after it. Pure; callers load the group.
-import { positionBetween } from "@cello/shared/position"
+import { positionBetween } from "@cello/domain/position"
 
 export interface Placed {
   readonly id: string

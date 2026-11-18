@@ -1,16 +1,16 @@
 // Who made a task, who changed it last (CEL-5), who's on it right now and where it is inside In
 // Progress (CEL-35), and which subagent of a session did it (CEL-55): read from board state, so the
 // card, the list row, the task panel and the sidebar all say the same thing. Presence itself (active,
-// idle, ended) is @cello/shared/presence.
+// idle, ended) is @cello/domain/presence.
 import { agentPresence, agentPresenceSubject, workingAgents } from "@cello/client/sync/agents"
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { type AgentSession, agentKey, type SessionAgent, type Task } from "@cello/contract/entities"
 import { type StageInfo, stageInfo } from "@cello/contract/stages"
-import { isNeedsInputStatus } from "@cello/shared/ask"
-import { colorFromSeed } from "@cello/shared/color"
-import { modelName } from "@cello/shared/model"
-import { agoShort, type Presence, presenceOf } from "@cello/shared/presence"
-import { isReviewStatus, stageStatus } from "@cello/shared/review"
+import { isNeedsInputStatus } from "@cello/domain/ask"
+import { colorFromSeed } from "@cello/domain/color"
+import { modelName } from "@cello/domain/model"
+import { agoShort, type Presence, presenceOf } from "@cello/domain/presence"
+import { isReviewStatus, stageStatus } from "@cello/domain/review"
 import type { AgentMood } from "../components/ui/AgentMark.tsx"
 import { formatDay } from "../lib/format.ts"
 
