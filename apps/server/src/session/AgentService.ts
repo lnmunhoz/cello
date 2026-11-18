@@ -11,6 +11,7 @@
 // - Claims and inbox delivery stay on the session (CEL-15): nothing here touches them.
 import type { SessionAgent } from "@cello/contract/entities"
 import { type AgentReportState, Caller } from "@cello/contract/rpcs"
+import { isReviewerType, verdictOf } from "@cello/shared/review"
 import { parseTaskKey, taskKeysIn } from "@cello/shared/taskKey"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
@@ -32,7 +33,12 @@ export interface AgentReport {
   readonly transcriptPath?: string | undefined
   /** On a stop (CEL-133): the ids of the session's background work still running; absent when unknown. */
   readonly running?: ReadonlyArray<string> | undefined
+  /** On a stop (CEL-160): the start of its last reply, for a reviewer's verdict; the text is never kept. */
+  readonly lastMessage?: string | undefined
 }
+
+/** How much of a subagent's last reply the server reads for a verdict (CEL-160). */
+const MAX_LAST_MESSAGE = 500
 
 /** One agent, by its session and host id. */
 export interface AgentRef {
@@ -70,6 +76,8 @@ interface AgentRow {
   waiting_json?: string | null
   /** CEL-134; left out by selects that don't need it. */
   tests_json?: string | null
+  /** CEL-160; left out by selects that don't need it. */
+  verdict?: string | null
 }
 
 export const toAgent = (r: AgentRow): SessionAgent => ({
@@ -88,6 +96,7 @@ export const toAgent = (r: AgentRow): SessionAgent => ({
   effort: r.effort ?? null,
   waitingOn: parseWaiting(r.waiting_json),
   tests: testsOf(r.tests_json),
+  verdict: (r.verdict ?? null) as SessionAgent["verdict"],
 })
 
 export class AgentService extends Context.Service<AgentService, {
@@ -189,15 +198,19 @@ const make = Effect.gen(function* () {
     const transcript = cleanTranscript(input.transcriptPath)
     if (input.state === "stopped") {
       // Claude Code's own helpers (prompt suggestions, /btw) stop without ever starting here: not recorded.
-      const [row] = yield* sql<Pick<AgentRow, "background_json" | "tests_json">>`
-        SELECT background_json, tests_json FROM session_agents WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
+      const [row] = yield* sql<Pick<AgentRow, "agent_type" | "background_json" | "tests_json">>`
+        SELECT agent_type, background_json, tests_json FROM session_agents WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
       if (!row) return null
       // Background work it started is still running (CEL-133): it waits on it, and Claude Code resumes it after.
       const outcome = stopOutcome(parseBackground(row.background_json), input.running)
       // A test run its turn leaves behind is over, unless it runs on in the background (CEL-134).
       const tests = stored(parseRuns(row.tests_json).map((run) => testsTurnEnded(run, input.running, now)))
+      // A reviewer that finished leaves its verdict, read from the start of its last reply; the reply is never kept (CEL-160).
+      const verdict = outcome.finished && isReviewerType(row.agent_type ?? agentType)
+        ? verdictOf((input.lastMessage ?? "").slice(0, MAX_LAST_MESSAGE))
+        : null
       yield* sql`UPDATE session_agents SET ended_at = ${outcome.finished ? now : null}, waiting_json = ${stored(outcome.waitingOn)},
-          background_json = ${stored(outcome.background)}, tests_json = ${tests}, transcript_path = COALESCE(${transcript}, transcript_path)
+          background_json = ${stored(outcome.background)}, tests_json = ${tests}, verdict = ${verdict}, transcript_path = COALESCE(${transcript}, transcript_path)
         WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
     } else if (input.state === "started") {
       // SubagentStart: a new agent, or a resumed one (live again).
