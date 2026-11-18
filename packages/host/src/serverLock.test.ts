@@ -47,4 +47,16 @@ describe("readLock", () => {
     fs.writeFileSync(lockPath(dir), "{")
     expect(readLock(lockPath(dir))).toBeNull()
   })
+
+  it("is null when a folder stands where the lock file should be", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cello-lock-"))
+    fs.mkdirSync(lockPath(dir))
+    expect(readLock(lockPath(dir))).toBeNull()
+  })
+
+  it.skipIf(process.getuid?.() === 0)("is null when the lock file can't be read", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cello-lock-"))
+    fs.writeFileSync(lockPath(dir), JSON.stringify({ pid: 7, port: 4748 }), { mode: 0o000 })
+    expect(readLock(lockPath(dir))).toBeNull()
+  })
 })

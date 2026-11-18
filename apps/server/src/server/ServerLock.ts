@@ -8,7 +8,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import { DB_FILE, LOCK_FILE, readLock } from "@cello/host/serverLock"
+import { DB_FILE, lockPath, readLock } from "@cello/host/serverLock"
 import { isAlive } from "../process/isAlive.ts"
 
 export class ServerAlreadyRunning extends Schema.TaggedError<ServerAlreadyRunning>()("ServerAlreadyRunning", {
@@ -55,7 +55,7 @@ const tryAcquire = (dataDir: string, file: string, port: number): Effect.Effect<
 export const layer = (options: { readonly dataDir: string; readonly port: number }) =>
   Layer.effect(ServerLock, Effect.gen(function* () {
     const dataDir = path.resolve(options.dataDir)
-    const file = path.join(dataDir, LOCK_FILE)
+    const file = lockPath(dataDir)
     yield* Effect.acquireRelease(
       tryAcquire(dataDir, file, options.port),
       () => Effect.sync(() => {
