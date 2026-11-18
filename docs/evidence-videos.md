@@ -5,7 +5,7 @@ summary: Every video in a review packet comes from a real test run against a rea
 
 ## The short version
 
-The videos and screenshots in review packets aren't screen recordings of someone's desktop. They come from **automated end-to-end tests**: a headless browser (or the desktop app) drives the real Cello against a real server with a throwaway data folder, and records what it sees. The tests run in a **throwaway Linux container** (Docker, through OrbStack), so nothing opens a window on Lucas's Mac. ffmpeg turns the recording into an MP4 that plays everywhere, and the agent attaches it to the task with `cello task submit`.
+The videos and screenshots in review packets aren't screen recordings of someone's desktop. They come from **automated end-to-end tests**: a headless browser (or the desktop app) drives the real Cello against a real server with a throwaway data folder, and records what it sees. The tests run in a **throwaway Linux container** (Docker, through OrbStack), so nothing opens a window on the human's Mac. ffmpeg turns the recording into an MP4 that plays everywhere, and the agent attaches it to the task with `cello task submit`.
 
 ```mermaid
 flowchart TD
@@ -123,7 +123,7 @@ Videos and screenshots from the container are drawn by Chromium on Linux, so the
 - **Scrollbars:** none, where the Mac shows overlay scrollbars while scrolling.
 - **Keys:** Ctrl where the Mac has ⌘, in desktop videos and captions.
 
-Checks that only macOS can do (the Dock icon, `cello://` through LaunchServices, the app menu) aren't in the e2e suite; `CELLO_ALLOW_LOCAL_DESKTOP=1` runs the desktop tests on the Mac for one, only when Lucas asks.
+Checks that only macOS can do (the Dock icon, `cello://` through LaunchServices, the app menu) aren't in the e2e suite; `CELLO_ALLOW_LOCAL_DESKTOP=1` runs the desktop tests on the Mac for one, only when the human asks.
 
 ## Known limits
 

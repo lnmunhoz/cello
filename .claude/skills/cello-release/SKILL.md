@@ -1,6 +1,6 @@
 ---
 name: cello-release
-description: Release a new version of Cello from this repo (or a preview for the app's Preview channel, v0.6.0-beta.1). Previews it, asks Lucas which version, runs `bun run release` (checks, version bump, changelog, tag, push, deploy; GitHub Actions then builds the downloads and the GitHub release), then makes sure the live board at 127.0.0.1:4747 runs the new build and the Actions run published the release, and reports. Use when Lucas asks to release, ship or cut a version of Cello, or to publish the latest updates.
+description: Release a new version of Cello from this repo (or a preview for the app's Preview channel, v0.6.0-beta.1). Previews it, asks the human which version, runs `bun run release` (checks, version bump, changelog, tag, push, deploy; GitHub Actions then builds the downloads and the GitHub release), then makes sure the live board at 127.0.0.1:4747 runs the new build and the Actions run published the release, and reports. Use when the human asks to release, ship or cut a version of Cello, or to publish the latest updates.
 ---
 
 # Release Cello
@@ -26,22 +26,22 @@ Read two things in its output:
 
 The dry run doesn't touch GitHub. When main changed the release workflow or the build scripts since the last release, test them first with a build-only run of main, which publishes nothing: `gh workflow run release.yml -f tag=v0.4.0 -f ref=main` (`tag` is the latest release tag; `ref=main` builds main's own code instead of that tag's). Wait for it with `gh run watch <id> --exit-status` in the background; release once it's green.
 
-## 3. Ask Lucas the version
+## 3. Ask the human the version
 
-The version is Lucas's call. The release picks one from what ships (CEL-174): **minor** when any merged task is a feature (a `feat` commit on its branch), else **patch**. The dry run's first line says which and why: recommend that. **major** only when he says so.
+The version is the human's call. The release picks one from what ships (CEL-174): **minor** when any merged task is a feature (a `feat` commit on its branch), else **patch**. The dry run's first line says which and why: recommend that. **major** only when they say so.
 
-- He's chatting in this session (not orchestrating): ask with `AskUserQuestion`, one question with these options:
+- They're chatting in this session (not orchestrating): ask with `AskUserQuestion`, one question with these options:
   - the dry run's pick first, with "(Recommended)" and its reason ("it ships 2 features")
   - the other bump
   - "Not yet"
-- Say in the question what a release does: it pushes main and the tag to GitHub (where GitHub Actions builds Cello.app and `cello` for Apple silicon and Intel and publishes the GitHub release), and deploys to his board.
+- Say in the question what a release does: it pushes main and the tag to GitHub (where GitHub Actions builds Cello.app and `cello` for Apple silicon and Intel and publishes the GitHub release), and deploys to their board.
 - In an orchestrating session, ask on a task with `cello task ask` instead. Create a "Release vX.Y.Z" task if none fits.
 
-A release is outward-facing (GitHub). Never run it without his answer in this conversation.
+A release is outward-facing (GitHub). Never run it without their answer in this conversation.
 
 ### Preview releases (the app's Preview channel)
 
-A **preview** is a version like `v0.6.0-beta.1`: GitHub publishes it as a **prerelease**, and only Cello.app's **Preview** channel offers it (Settings → Updates; Stable never sees it). Offer it only when Lucas asks for a preview, beta or prerelease; never as a default.
+A **preview** is a version like `v0.6.0-beta.1`: GitHub publishes it as a **prerelease**, and only Cello.app's **Preview** channel offers it (Settings → Updates; Stable never sees it). Offer it only when the human asks for a preview, beta or prerelease; never as a default.
 
 ```bash
 bun run release -- preminor --preid beta   # 0.5.1 -> 0.6.0-beta.1 (prepatch: 0.5.2-beta.1, premajor: 1.0.0-beta.1)
@@ -49,21 +49,21 @@ bun run release -- prerelease              # the next preview: 0.6.0-beta.1 -> 0
 bun run release -- minor                   # from a preview, releases what it previewed: 0.6.0-beta.2 -> 0.6.0
 ```
 
-Everything else is the same: the checks, the changelog section (a preview's covers what came since the last tag; the stable release after it covers everything since the last stable one), the tag, the deploy to his board, and GitHub Actions building the downloads. In step 6 check that the release says **Pre-release** on GitHub (`gh release view vX.Y.Z --json isPrerelease`). How the app picks it up: docs/releases.md, "How the app updates".
+Everything else is the same: the checks, the changelog section (a preview's covers what came since the last tag; the stable release after it covers everything since the last stable one), the tag, the deploy to their board, and GitHub Actions building the downloads. In step 6 check that the release says **Pre-release** on GitHub (`gh release view vX.Y.Z --json isPrerelease`). How the app picks it up: docs/releases.md, "How the app updates".
 
 ## 4. Release
 
 ```bash
-bun run release            # the picked version; add -- patch / minor / major when he picked another
+bun run release            # the picked version; add -- patch / minor / major when they picked another
 ```
 
 Run it in the background (the Bash tool with `run_in_background: true`; the tests take most of it, the rest about a minute). It runs typecheck and the full unit and integration suite first, then bumps, tags, builds this Mac's own `cello` into `release/stage`, pushes, prints the **GitHub Actions run** link, and deploys. It no longer builds Cello.app or creates the GitHub release: the pushed tag starts the Release workflow, which does both for Apple silicon and Intel in about 10 to 15 minutes.
 
-Two apps (CEL-149): what GitHub builds is **Cello** (the download, `cello://` links, updates from GitHub); what Lucas runs from this repo is **Cello Dev** (`/Applications/Cello Dev.app`, `cello-dev://` links, a DEV badge on its icon, no update checks). The `cello` this release deploys is Cello Dev's, so its links open Cello Dev. Cello Dev's board updates with the deploy (reload it); its app shell only when Lucas runs `bun run package -- --install` in apps/desktop, which never touches `/Applications/Cello.app`.
+Two apps (CEL-149): what GitHub builds is **Cello** (the download, `cello://` links, updates from GitHub); what the human runs from this repo is **Cello Dev** (`/Applications/Cello Dev.app`, `cello-dev://` links, a DEV badge on its icon, no update checks). The `cello` this release deploys is Cello Dev's, so its links open Cello Dev. Cello Dev's board updates with the deploy (reload it); its app shell only when the human runs `bun run package -- --install` in apps/desktop, which never touches `/Applications/Cello.app`.
 
 - **A test fails before anything is written:** nothing changed. Run the failing test file alone. If it passes alone and the machine was busy, it's load: run the release again. If it fails alone, it's a real bug. Fix it as a task, then release.
 - **It stops after tagging but before pushing** (a build failed): the commit and tag are local only. docs/releases.md has the `git tag -d` / `git reset --hard HEAD~1` that undo it.
-- **GitHub Actions is down** (or the workflow is broken and Lucas wants the release out anyway): `bun run release -- --local-artifacts` builds the Apple silicon downloads on the Mac and creates the GitHub release from here, as releases used to.
+- **GitHub Actions is down** (or the workflow is broken and the human wants the release out anyway): `bun run release -- --local-artifacts` builds the Apple silicon downloads on the Mac and creates the GitHub release from here, as releases used to.
 
 ## 5. Make sure the live board runs it
 
@@ -88,12 +88,12 @@ The deploy doesn't wait for GitHub. Once the board is fine, follow the run the r
 - the run is green: both build jobs (macOS arm64 and x64) and Publish
 - `gh release view vX.Y.Z --json name,url,assets --jq '.name, .url, (.assets[].name)'` names `Cello vX.Y.Z` and lists **6 files**: `cello-vX.Y.Z-darwin-arm64.zip`, `cello-vX.Y.Z-darwin-x64.zip`, `Cello-vX.Y.Z-mac-arm64.dmg`, `Cello-vX.Y.Z-mac-x64.dmg`, `Cello-vX.Y.Z-mac-arm64.zip`, `Cello-vX.Y.Z-mac-x64.zip`
 
-If a job failed, read its log (`gh run view <id> --log-failed`). The release is cut and the board runs it; only the downloads are missing. "Re-run failed jobs" (`gh run rerun <id> --failed`) when it was a flake; otherwise fix it as a task, check the fix with `gh workflow run release.yml -f tag=vX.Y.Z -f ref=main`, and docs/releases.md ("The GitHub Actions run failed") says what can still be rebuilt for that tag. Tell Lucas either way.
+If a job failed, read its log (`gh run view <id> --log-failed`). The release is cut and the board runs it; only the downloads are missing. "Re-run failed jobs" (`gh run rerun <id> --failed`) when it was a flake; otherwise fix it as a task, check the fix with `gh workflow run release.yml -f tag=vX.Y.Z -f ref=main`, and docs/releases.md ("The GitHub Actions run failed") says what can still be rebuilt for that tag. Tell the human either way.
 
-## 7. Report to Lucas
+## 7. Report to the human
 
-Follow "Talking to Lucas" in the global instructions:
-- One line: the version is out and live, and whether he needs to do anything.
+Follow the global instructions on how to report:
+- One line: the version is out and live, and whether they need to do anything.
 - The GitHub release link, and that its downloads (Apple silicon and Intel) were built by GitHub Actions; or, if the run isn't done or failed, say so and give the run's link.
 - What shipped: the changelog's Features and Fixes, as short bullets.
 - The backup the deploy took (`~/.cello/backups/<id>`), and that `cello restore <id>` with no server running undoes the deploy.
@@ -103,5 +103,5 @@ Follow "Talking to Lucas" in the global instructions:
 
 - Bump the version by hand, or edit CHANGELOG.md by hand before a release. The release refuses a version that doesn't match the latest tag.
 - Push main or tags yourself outside the release (except when docs/releases.md says how to finish a half-pushed one).
-- Run the desktop app or Cello.app on Lucas's Mac to "check the build". It's packaged, never opened (AGENTS.md).
+- Run the desktop app or Cello.app on the human's Mac to "check the build". It's packaged, never opened (AGENTS.md).
 - Touch `~/.cello` except through the `cello` CLI.

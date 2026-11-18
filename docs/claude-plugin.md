@@ -18,7 +18,7 @@ It's on **per project** by default, since not every project uses Cello. `cello i
 
 ## Each project has its own lifecycle: LIFECYCLE.md
 
-**How a task goes from Todo to Done is the project's, not the plugin's** (CEL-168). Cello builds each task in a worktree and merges the branch after Lucas approves; ThaiLookup works on `develop` in the main checkout and commits only after he approves. And within one repo, a one-line fix shouldn't go through the same steps as a feature. So each repo writes its flows in **`LIFECYCLE.md` at its root**: a few named **workflows**, one per kind of task, and the parts they share:
+**How a task goes from Todo to Done is the project's, not the plugin's** (CEL-168). Cello builds each task in a worktree and merges the branch after the human approves; ThaiLookup works on `develop` in the main checkout and commits only after they approve. And within one repo, a one-line fix shouldn't go through the same steps as a feature. So each repo writes its flows in **`LIFECYCLE.md` at its root**: a few named **workflows**, one per kind of task, and the parts they share:
 
 | Section | What it says |
 | --- | --- |
@@ -66,7 +66,7 @@ In this repo, the path is *How a feature is built, end to end*, written as instr
 
 ### Why there's no /cello:work any more
 
-It did one task in the thread, with the steps written into the command: a second copy of the lifecycle that couldn't follow a project's `LIFECYCLE.md`, and Lucas never used it. It was removed in CEL-168; installing a newer `cello` deletes it from the plugin folder. A session doing one task by itself follows the `cello` skill and `LIFECYCLE.md`.
+It did one task in the thread, with the steps written into the command: a second copy of the lifecycle that couldn't follow a project's `LIFECYCLE.md`, and the human never used it. It was removed in CEL-168; installing a newer `cello` deletes it from the plugin folder. A session doing one task by itself follows the `cello` skill and `LIFECYCLE.md`.
 
 ## How it gets installed
 

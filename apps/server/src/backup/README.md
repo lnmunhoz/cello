@@ -26,5 +26,5 @@ The command reference is in `docs/cli.md`.
 
 ## Rules
 
-- Agents run `cello restore` only when Lucas asks.
+- Agents run `cello restore` only when the human asks.
 - Tests start servers with `autoBackup` off (`startServer`). The schedule is tested with TestClock.
