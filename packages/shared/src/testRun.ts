@@ -104,10 +104,20 @@ export const testRunLabel = (command: string): string => {
  * gives `["e2e/a.spec.ts"]`, a bare `bun run test` none. A target is a word with a `/` or a file extension
  * that isn't a flag, a `VAR=x`, the Docker runner's own script, or a quoted phrase (`-t "a name"`).
  */
-export const testRunTargets = (command: string): ReadonlyArray<string> =>
-  testWords(command)
-    .slice(1)
-    .filter((word) => !word.startsWith("-") && !/\s/.test(word) && !word.endsWith("test-in-docker.ts") && (word.includes("/") || /\.\w+$/.test(word)))
+export const testRunTargets = (command: string): ReadonlyArray<string> => {
+  const targets: string[] = []
+  const words = testWords(command).slice(1)
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i]!
+    // A flag that takes a value (`-t foo.bar`, `--grep x/y`) leaves that value alone; `--x=y` carries its own.
+    if (VALUE_FLAGS.has(word)) i++
+    else if (!word.startsWith("-") && !/\s/.test(word) && !word.endsWith("test-in-docker.ts") && (word.includes("/") || /\.\w+$/.test(word))) targets.push(word)
+  }
+  return targets
+}
+
+/** The test runners' flags that take their value as the next word. */
+const VALUE_FLAGS: ReadonlySet<string> = new Set(["-t", "--testNamePattern", "--grep", "-g", "--project", "--reporter", "--config", "-c"])
 
 /** The one id of a run, shared by its live row and its finished line (CEL-181): `tests:<session>:<agent or ->:<startedAt>`. */
 export const testRunKey = (sessionId: string, agentId: string | null, startedAt: number): string => `tests:${sessionId}:${agentId ?? "-"}:${startedAt}`

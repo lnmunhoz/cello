@@ -167,6 +167,18 @@ describe("the run in words", () => {
     expect(testRunTargets("echo hi")).toEqual([])
   })
 
+  it("testRunTargets: the value after a flag that takes one is not a target", () => {
+    expect(testRunTargets("bun run test -- -t foo.bar apps/server")).toEqual(["apps/server"])
+    expect(testRunTargets("bun run test -- --grep foo.bar")).toEqual([])
+    expect(testRunTargets("bun run test:e2e -- -g x/y e2e/a.spec.ts")).toEqual(["e2e/a.spec.ts"])
+    expect(testRunTargets("bun run test -- --testNamePattern a.b")).toEqual([])
+    expect(testRunTargets("bunx playwright test --project web e2e/a.spec.ts --reporter ./r.ts")).toEqual(["e2e/a.spec.ts"])
+    expect(testRunTargets("bunx vitest run -c ./vitest.config.ts src/a.test.ts")).toEqual(["src/a.test.ts"])
+    expect(testRunTargets("bunx vitest run --config ./vitest.config.ts src/a.test.ts")).toEqual(["src/a.test.ts"])
+    // `--x=y` carries its value; a flag that takes none leaves the next word alone.
+    expect(testRunTargets("bun run test -- --reporter=./r.ts --run apps/web/src/a.test.ts")).toEqual(["apps/web/src/a.test.ts"])
+  })
+
   it("testRunWords with targets: up to two after the label, \"+N more\" for the rest, running and finished", () => {
     const named = (command: string, extra: Partial<TestRunLike> = {}) => run({ command, ...extra })
     const one = "bun run test:e2e -- e2e/pages.spec.ts"

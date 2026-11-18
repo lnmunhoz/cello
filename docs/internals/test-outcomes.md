@@ -39,6 +39,10 @@ Decided **when the run starts** (`testOutcomes.runTask`), and kept on the run:
 
 A session whose process is gone left its runs open (only the 3-hour stale rule hid them). Now `SessionService.sweep` ends them, and those of its subagents that haven't stopped, as `ended`, with their events, in the command that ends the session.
 
+The `session.seen` the sweep sends carries those runs as ended, so a board's live row and the Agents page stop showing "running" at once.
+
+**Trade-off:** a run the sweep ended as `ended` is final. A detached runner that outlives its session and reports later is dropped (`testsProgressed` ignores an ended run). It is rare: the session's process dies, the runner survives. The alternative, reopening a run on a late report, would write a second `tests.finished` for it.
+
 ## Out of scope
 
 Typecheck and build outcomes (tests only for now), and counts for a quick local `bun run test` (CEL-183).

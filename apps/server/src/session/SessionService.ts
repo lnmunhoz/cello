@@ -360,13 +360,17 @@ const make = Effect.gen(function* () {
     session: AgentSession,
     workspaceIds: ReadonlyArray<string>,
     now: number,
-    first: (context: Commands.WriteContext) => Effect.Effect<boolean, SqlError> = () => Effect.succeed(true),
+    first?: (context: Commands.WriteContext) => Effect.Effect<boolean, SqlError>,
   ) =>
     commands.write({ commandId: crypto.randomUUID(), rpc: "session.seen", receipt: false }, (context) =>
       Effect.gen(function* () {
         const { emit } = context
-        if (!(yield* first(context))) return false
-        yield* Effect.forEach(workspaceIds, (workspaceId) => emit({ type: "session.seen", session }, { workspaceId, projectId: null }), {
+        if (first !== undefined && !(yield* first(context))) return false
+        // What `first` changed (the sweep ends the session's test runs, CEL-181) is what boards are told:
+        // the runs as they are now, not as they were read before.
+        const [row] = first === undefined ? [] : yield* sql<SessionRow>`SELECT * FROM agent_sessions WHERE id = ${session.id}`
+        const told: AgentSession = row === undefined ? session : { ...session, tests: toSession(row).tests, runs: toSession(row).runs }
+        yield* Effect.forEach(workspaceIds, (workspaceId) => emit({ type: "session.seen", session: told }, { workspaceId, projectId: null }), {
           discard: true,
         })
         for (const id of workspaceIds) heard.set(`${session.id} ${id}`, now)

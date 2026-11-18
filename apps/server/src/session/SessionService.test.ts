@@ -326,6 +326,21 @@ describe("SessionService.checkIn", () => {
         expect(yield* finishedEvents).toHaveLength(3)
       })))
 
+    it.effect("the session.seen the sweep sends carries the runs as ended, not as they were before", () =>
+      run(Effect.gen(function* () {
+        const sessions = yield* SessionService
+        const activity = yield* ActivityService
+        const gone = { ...claude, pid: Bun.spawnSync(["true"]).pid }
+        yield* claimed(gone)
+        yield* asAgent(gone)(activity.report({ kind: "tests-started", toolUseId: "toolu_s", command: "bun run test", cwd: "/repo" }))
+        yield* TestClock.adjust("10 seconds")
+        expect(yield* sessions.sweep).toBe(1)
+        const last = (yield* seenEvents).at(-1)!.session as { endedAt: number | null; tests?: { endedAt: number | null; outcome: string | null } | null; runs?: ReadonlyArray<{ endedAt: number | null; outcome: string | null }> }
+        expect(last.endedAt).toBe(10_000)
+        expect(last.tests).toMatchObject({ endedAt: 10_000, outcome: "ended" })
+        expect(last.runs).toMatchObject([{ endedAt: 10_000, outcome: "ended" }])
+      })))
+
     it.effect("a sweep that loses the race (the session checked in since) ends no run and writes nothing", () =>
       run(Effect.gen(function* () {
         const sessions = yield* SessionService
