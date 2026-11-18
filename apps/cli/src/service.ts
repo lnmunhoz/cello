@@ -2,6 +2,7 @@
 // reading `launchctl print`, and the words each command prints. launchd.ts carries the steps out.
 // The plist itself is packages/host/src/launchAgent.ts, which the desktop app reads too.
 import { SERVICE_LABEL, serviceTarget } from "@cello/host/launchAgent"
+import { lockPath, serverUrl } from "@cello/host/serverLock"
 import { shortCommit } from "@cello/release/build"
 import { columns } from "./format.ts"
 
@@ -80,7 +81,6 @@ export interface ServiceStatus {
   readonly holder: Holder | null
 }
 
-const serverUrl = (port: number) => `http://127.0.0.1:${port}`
 
 export const staleProgram = (program: ReadonlyArray<string>) =>
   `The service's program ${program.slice(0, -1).join(" ")} doesn't exist any more (the repo moved, or the build was deleted). ` +
@@ -126,16 +126,14 @@ export const refusalText = (dataDir: string, holder: Holder): string =>
   "Stop it first (Ctrl-C in its terminal, or quit the desktop app and pick Stop), or run `cello service install --replace` " +
   `to stop pid ${holder.pid} and install the service in its place.`
 
-const lockFile = (dataDir: string) => `${dataDir}/server.lock`
-
 /** A lock naming a pid that can't be another server (0, 1, negative, or the installer itself). */
 export const invalidLockText = (dataDir: string, pid: number): string =>
-  `${lockFile(dataDir)} names pid ${pid}, which can't be another Cello server, so nothing was stopped. ` +
+  `${lockPath(dataDir)} names pid ${pid}, which can't be another Cello server, so nothing was stopped. ` +
   `If no Cello server runs for ${dataDir}, delete that file, then install again.`
 
 /** A lock whose pid runs but isn't a Cello server answering on the lock's port: never signalled. */
 export const staleLockText = (dataDir: string, holder: Holder): string =>
-  `${lockFile(dataDir)} names pid ${holder.pid}, which is running but isn't a Cello server answering on ${serverUrl(holder.port)}: ` +
+  `${lockPath(dataDir)} names pid ${holder.pid}, which is running but isn't a Cello server answering on ${serverUrl(holder.port)}: ` +
   "probably a lock left by a server that died, its pid since taken by another program. Nothing was stopped. " +
   `If no Cello server runs for ${dataDir}, delete that file, then install again.`
 

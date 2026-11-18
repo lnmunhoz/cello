@@ -6,7 +6,8 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import { isAlive } from "@cello/server/process/isAlive"
 import { rotateLog } from "@cello/host/logRotation"
-import { isAlreadyRunning, LOCK_FILE, parseBanner, parseLock, planServer, serverUrl, type ServerSurvey, takenPortMessage } from "./plan.ts"
+import { lockPath, readLock, serverUrl } from "@cello/host/serverLock"
+import { isAlreadyRunning, parseBanner, planServer, type ServerSurvey, takenPortMessage } from "./plan.ts"
 
 export interface Server {
   readonly url: string
@@ -58,8 +59,7 @@ export const probe = async (url: string): Promise<boolean> => {
 
 /** Looks at CELLO_PORT and the data folder's server lock. */
 export const survey = async (port: number, dataDir: string, facts: { readonly service: boolean; readonly defaultBoard: boolean }): Promise<ServerSurvey> => {
-  const lockPath = path.join(dataDir, LOCK_FILE)
-  const lock = fs.existsSync(lockPath) ? parseLock(fs.readFileSync(lockPath, "utf8")) : null
+  const lock = readLock(lockPath(dataDir))
   const [portAnswers, lockAnswers] = await Promise.all([
     port > 0 ? probe(serverUrl(port)) : false,
     lock && lock.port > 0 && lock.port !== port ? probe(serverUrl(lock.port)) : undefined,
@@ -75,8 +75,7 @@ export const survey = async (port: number, dataDir: string, facts: { readonly se
 
 /** The pid in the data folder's server lock, when that process is alive. */
 export const lockHolder = (dataDir: string): number | null => {
-  const lockPath = path.join(dataDir, LOCK_FILE)
-  const lock = fs.existsSync(lockPath) ? parseLock(fs.readFileSync(lockPath, "utf8")) : null
+  const lock = readLock(lockPath(dataDir))
   return lock && isAlive(lock.pid) ? lock.pid : null
 }
 

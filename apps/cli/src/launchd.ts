@@ -10,7 +10,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { isAlive } from "@cello/server/process/isAlive"
-import { LOCK_FILE, type LockInfo, readLock } from "@cello/server/server/ServerLock"
+import { DEFAULT_PORT, type LockInfo, lockPath, readLock } from "@cello/host/serverLock"
 import {
   type InstalledService,
   type JobState,
@@ -105,7 +105,7 @@ const readInstalled = (plist: string): InstalledService | null => {
   }
 }
 
-const lockOf = (dataDir: string): LockInfo | null => readLock(path.join(dataDir, LOCK_FILE))
+const lockOf = (dataDir: string): LockInfo | null => readLock(lockPath(dataDir))
 
 /** A pid that can't be another Cello server: 0, 1 and negative ones signal groups of processes. */
 const impossiblePid = (pid: number) => pid <= 1 || pid === process.pid
@@ -215,7 +215,7 @@ const desired = Effect.gen(function* () {
   if (!path.isAbsolute(home)) {
     return yield* fail(`HOME is "${home}", which isn't an absolute path, so there's no LaunchAgents folder to put the service in.`)
   }
-  const rawPort = env.CELLO_PORT || "4747"
+  const rawPort = env.CELLO_PORT || String(DEFAULT_PORT)
   const port = Number(rawPort)
   if (!/^\d+$/.test(rawPort) || port < 1 || port > 65535) {
     return yield* fail(`CELLO_PORT is "${rawPort}", which isn't a port (1 to 65535), so the service couldn't listen on it.`)
@@ -295,7 +295,7 @@ export const serviceStatus = <R>(serverBuild: ServerBuild<R>) =>
     const plist = plistPath(homeOf(env))
     const installed = readInstalled(plist)
     const dataDir = installed?.dataDir ?? dataDirOf(env)
-    const port = installed?.port ?? Number(env.CELLO_PORT || 4747)
+    const port = installed?.port ?? Number(env.CELLO_PORT || DEFAULT_PORT)
     const logPath = installed?.logPath ?? serviceLogPath(dataDir)
     const base = { plist, dataDir, port, logPath, holder: holderOf(dataDir) }
     if (!installed) {
@@ -343,7 +343,7 @@ export const restartService = <R>(serverBuild: ServerBuild<R>) =>
     const bin = yield* launchctl(env)
     const job = yield* jobState(bin, env)
     if (!job) return yield* fail("The background service is installed but not loaded in launchd. Run `cello service install` to load it again.")
-    const port = installed.port ?? Number(env.CELLO_PORT || 4747)
+    const port = installed.port ?? Number(env.CELLO_PORT || DEFAULT_PORT)
     if (installed.logPath) rotateLog(installed.logPath)
     yield* runOrFail(bin, env, restartSteps(uid(), { running: job.pid !== null }))
     if (job.pid !== null) yield* exited(job.pid)

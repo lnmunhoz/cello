@@ -25,6 +25,7 @@ import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import * as Sqlite from "../persistence/Sqlite.ts"
 import * as AssetStore from "../review/AssetStore.ts"
+import { DB_FILE } from "@cello/host/serverLock"
 import * as ServerLock from "../server/ServerLock.ts"
 import { BACKUPS_DIR, BackupService, type CreateBackup, layer as backupLayer } from "./BackupService.ts"
 import { checkDatabase, latestSchemaLevel } from "./database.ts"
@@ -97,7 +98,7 @@ export interface Restored {
 export const reasonOf = (defect: unknown): string =>
   Predicate.hasProperty(defect, "message") && typeof defect.message === "string" ? defect.message : String(defect)
 
-const dbPathOf = (dataDir: string) => path.join(dataDir, ServerLock.DB_FILE)
+const dbPathOf = (dataDir: string) => path.join(dataDir, DB_FILE)
 
 /** Does `dir` hold anything? When it can't be read, assume it does: that's the side that keeps data. */
 const holdsFiles = (dir: string): boolean => {
@@ -177,8 +178,8 @@ export const restore = Effect.fn("offline.restore")(function* (options: RestoreO
     let keepStaging = false
     return yield* Effect.gen(function* () {
       fs.mkdirSync(staging)
-      const stagedDb = path.join(staging, ServerLock.DB_FILE)
-      fs.copyFileSync(path.join(backup.path, ServerLock.DB_FILE), stagedDb)
+      const stagedDb = path.join(staging, DB_FILE)
+      fs.copyFileSync(path.join(backup.path, DB_FILE), stagedDb)
       const check = checkDatabase(stagedDb)
       if (!check.ok) return yield* new BackupDamaged({ id, problems: check.problems.join("; ") })
       const assets = yield* Effect.promise(() =>

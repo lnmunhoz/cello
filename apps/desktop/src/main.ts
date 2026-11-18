@@ -28,7 +28,8 @@ import {
   readBoardFile,
   type SavedBoard,
 } from "./server/board.ts"
-import { celloCommand, DB_FILE, isBoardTooNew, planServer, serviceFor, serviceInstaller, takenPortMessage } from "./server/plan.ts"
+import { DB_FILE } from "@cello/host/serverLock"
+import { celloCommand, isBoardTooNew, planServer, serviceFor, serviceInstaller, takenPortMessage } from "./server/plan.ts"
 import { answerOf, parseQuitChoice, planQuit, QUIT_CHOICE_FILE, QUIT_QUESTION, type QuitAnswer, type QuitChoice, serverStatusLabel } from "./server/quit.ts"
 import { connectServer, installService, lockHolder, type Server, startDetached, survey } from "./server/sidecar.ts"
 import { appNotice, boardNotice, bundleOf, relaunchOptions, restartTarget, stampFile, type AppNotice } from "./update/appUpdate.ts"

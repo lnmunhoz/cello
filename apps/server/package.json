@@ -13,6 +13,7 @@
     "@cello/client": "workspace:*",
     "@cello/contract": "workspace:*",
     "@cello/domain": "workspace:*",
+    "@cello/host": "workspace:*",
     "@cello/release": "workspace:*",
     "@cello/text": "workspace:*",
     "@effect/platform-bun": "4.1.4",

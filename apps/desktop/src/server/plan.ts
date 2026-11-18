@@ -2,21 +2,11 @@
 // processes; sidecar.ts gathers the facts and carries the plan out.
 //
 // The rule (SPEC "Desktop app"): one server per data folder. The server writes `server.lock` with
-// its pid and port before opening the database (apps/server/src/server/ServerLock.ts), so the app
+// its pid and port before opening the database (@cello/host/serverLock), so the app
 // never starts a second one against a folder a live server holds; it joins that server instead.
 import * as path from "node:path"
 import { parsePlist } from "@cello/host/launchAgent"
-
-export const DEFAULT_PORT = 4747
-/** The lock file `cello start` keeps in its data folder (apps/server/src/server/ServerLock.ts). */
-export const LOCK_FILE = "server.lock"
-/** The database `cello start` keeps in its data folder (ServerLock.ts' DB_FILE): a folder with it is a board. */
-export const DB_FILE = "cello.db"
-
-export interface LockInfo {
-  readonly pid: number
-  readonly port: number
-}
+import { type LockInfo, serverUrl } from "@cello/host/serverLock"
 
 /** What a launch finds: does CELLO_PORT answer, and who holds the data folder's server lock. */
 export interface ServerSurvey {
@@ -41,8 +31,6 @@ export type ServerPlan =
   /** Something answers on the port, but this folder holds no live lock for it: another board's server, or another program. */
   | { readonly kind: "taken"; readonly port: number }
 
-export const serverUrl = (port: number): string => `http://127.0.0.1:${port}`
-
 /** Why the app won't use a port: what Settings → Board and the launch dialog say. */
 export const takenPortMessage = (port: number): string =>
   `Port ${port} is already used by another Cello board or another program; pick another port for this board.`
@@ -62,16 +50,6 @@ export const planServer = (survey: ServerSurvey): ServerPlan => {
   // With the service installed, a server of the app's own would hold the folder and keep the service out.
   if (survey.service) return { kind: "service", url: serverUrl(survey.port) }
   return { kind: "start" }
-}
-
-/** Same reading as the server's own: a lock without a numeric pid is no lock. */
-export const parseLock = (text: string): LockInfo | null => {
-  try {
-    const info = JSON.parse(text) as Partial<LockInfo>
-    return typeof info.pid === "number" ? { pid: info.pid, port: typeof info.port === "number" ? info.port : 0 } : null
-  } catch {
-    return null
-  }
 }
 
 /** `cello start` prints "Cello is running at http://127.0.0.1:<port> (data in …)" once it listens. */

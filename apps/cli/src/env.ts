@@ -1,6 +1,7 @@
 // Everything a command reads from the outside world, as a service, so tests run commands in-process.
 import * as os from "node:os"
 import * as path from "node:path"
+import { DEFAULT_PORT, defaultDataDir } from "@cello/host/serverLock"
 import type { WebFiles } from "@cello/server/web/WebFiles"
 import type { Flavor } from "@cello/release/flavor"
 import * as Context from "effect/Context"
@@ -53,7 +54,7 @@ export class CliEnv extends Context.Service<CliEnv, {
 }>()("cello/CliEnv") {}
 
 /** The server's port: CELLO_PORT, else 4747. */
-export const portOf = (env: Env): number => Number(env.CELLO_PORT || 4747)
+export const portOf = (env: Env): number => Number(env.CELLO_PORT || DEFAULT_PORT)
 
 /** The data folder `cello start` serves: CELLO_DATA_DIR, else ~/.cello. */
-export const dataDirOf = (env: Env): string => path.resolve(env.CELLO_DATA_DIR || path.join(env.HOME || os.homedir(), ".cello"))
+export const dataDirOf = (env: Env): string => path.resolve(env.CELLO_DATA_DIR || defaultDataDir(env.HOME || os.homedir()))

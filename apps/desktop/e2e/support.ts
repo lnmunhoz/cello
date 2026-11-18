@@ -12,7 +12,8 @@ import { assertDesktopE2eAllowed, IN_CONTAINER } from "../../../scripts/docker/g
 import { celloScheme } from "@cello/release/celloLink"
 import { plistPath, renderPlist, serviceLogPath } from "@cello/host/launchAgent"
 import { isAlive } from "../../server/src/process/isAlive.ts"
-import { LOCK_FILE, parseBanner, parseLock, type LockInfo } from "../src/server/plan.ts"
+import { lockPath, readLock as readLockFile, type LockInfo } from "@cello/host/serverLock"
+import { parseBanner } from "../src/server/plan.ts"
 
 // Every test that launches Electron imports this file, so the Mac is refused here too, whichever
 // config ran the tests (`-c apps/desktop/e2e` uses Playwright's default one and skips ours).
@@ -454,10 +455,7 @@ export const pressKey = (app: ElectronApplication, view: number, keyCode: string
     contents.sendInputEvent({ type: "keyUp", keyCode: key.keyCode, modifiers: [...key.modifiers] })
   }, { view, keyCode, modifiers })
 
-export const readLock = (dataDir: string): LockInfo | null => {
-  const file = path.join(dataDir, LOCK_FILE)
-  return fs.existsSync(file) ? parseLock(fs.readFileSync(file, "utf8")) : null
-}
+export const readLock = (dataDir: string): LockInfo | null => readLockFile(lockPath(dataDir))
 
 /** Runs the app binary a second time with `args`; it should hand them to the running app and exit. */
 export const secondLaunch = (env: AppEnv, args: ReadonlyArray<string>) =>
