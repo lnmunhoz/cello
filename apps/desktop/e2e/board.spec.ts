@@ -20,6 +20,7 @@ import {
   makeBoard,
   nextDialogShown,
   pickFolderNext,
+  sidebarSettings,
   quitQuestions,
   readLock,
   SCREENSHOTS_DIR,
@@ -63,7 +64,7 @@ const boardSection = (board: Page) => board.getByRole("region", { name: "Board" 
 const openSettings = async (board: Page) => {
   // A dialog still closing (New project's) would take the click.
   await expect(board.getByRole("dialog")).toHaveCount(0)
-    await board.getByRole("link", { name: "Settings" }).first().click()
+  await sidebarSettings(board).click()
   await expect(boardSection(board)).toBeVisible()
 }
 

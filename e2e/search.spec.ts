@@ -10,7 +10,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import type { Browser, Page } from "@playwright/test"
 import { openClient, type PromiseClient } from "../packages/client/test/support/promiseClient.ts"
-import { caption, card, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, taskPanel, test } from "./fixtures.ts"
+import { caption, card, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, sidebarSettings, taskPanel, test, uniqueKey } from "./fixtures.ts"
 import { SHOTS, WEB_URL } from "./packets.ts"
 
 const OUT = path.join(SHOTS, "search")
@@ -355,7 +355,7 @@ test("⌘K: the footer switches to Palette, remembered after a reload; Settings 
   await expect(bar(page)).toBeHidden()
 
   await caption(page, "Settings → Search shows the choice, and switches back to Peek")
-  await page.getByRole("link", { name: "Settings" }).click()
+  await sidebarSettings(page).click()
   const setting = page.getByRole("radiogroup", { name: "Search layout" })
   await expect(setting.getByRole("radio", { name: "Palette" })).toBeChecked()
   await setting.getByRole("radio", { name: "Peek" }).click()
@@ -461,4 +461,33 @@ test("⌘K: screenshots of both layouts, and of a comment opened beside the Revi
     for (const scheme of ["light", "dark"] as const) await shots(browser, layout, scheme)
   }
   for (const scheme of ["light", "dark"] as const) await besideShot(browser, scheme)
+})
+
+test("CEL-164: ⌘K: a label opens its project's Settings tab, and Go to <project> settings goes there too", async ({ cello, page }) => {
+  const key = uniqueKey("SKL")
+  const project = await seedProject(cello, "Label finder", key)
+  const label = `quokka${key.toLowerCase()}`
+  await seedLabels(cello, project.id, [{ name: label, color: "#8d7b68" }])
+  await page.goto(`/${key}/issues`)
+  await openBar(page)
+
+  await caption(page, "Search a label: its preview says Enter opens the project's settings")
+  await field(page).fill(label)
+  // The Create task action carries what's typed too: take the label's own row (“Label · KEY”).
+  const row = option(page, new RegExp(`${label} Label ·`))
+  await expect(row).toBeVisible()
+  await highlight(page, row)
+  await expect(preview(page)).toContainText("Open the project's settings")
+  await page.keyboard.press("Enter")
+  await expect(page).toHaveURL(new RegExp(`/${key}/settings$`))
+  await expect(page.locator(`[data-label-row="${label}"]`)).toBeVisible()
+
+  await caption(page, "From the project's board, the action “Go to Label finder settings” opens the same tab")
+  await page.goto(`/${key}/issues`)
+  await openBar(page)
+  await field(page).fill(">settings")
+  await expect(option(page, "Go to Label finder settings")).toBeVisible()
+  await expect(option(page, "Open settings")).toBeVisible()
+  await option(page, "Go to Label finder settings").click()
+  await expect(page).toHaveURL(new RegExp(`/${key}/settings$`))
 })

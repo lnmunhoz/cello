@@ -109,6 +109,9 @@ export function ProjectLayout() {
         <TabLink to="/$projectKey/activity" params={{ projectKey: project.key }}>
           Activity
         </TabLink>
+        <TabLink to="/$projectKey/settings" params={{ projectKey: project.key }}>
+          Settings
+        </TabLink>
         </div>
         {onIssues ? (
           <span className="shrink-0">

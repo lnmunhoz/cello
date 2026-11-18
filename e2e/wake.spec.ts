@@ -1,5 +1,5 @@
 // CEL-92: Cello wakes an agent's session by itself when Lucas acts on its claimed task and the session's
-// process is gone. Settings has the per-project switch (off by default) and the cap; the task panel's
+// process is gone. The project's Settings tab has the switch (off by default) and the cap; the task panel's
 // Working on it row says what Cello is doing: a wake due with Don't wake, a woken run with Stop and Log,
 // how it ended, or why it didn't wake. The woken "Claude Code" is e2e/stub-bin/claude (the server has
 // it first on its PATH): it takes the comment with `cello inbox` and answers on the card as the session.
@@ -86,12 +86,12 @@ async function say(page: Page, key: string, text: string) {
   await expect(thread.getByLabel("New comment")).toHaveValue("")
 }
 
-test("CEL-92: Settings turns waking on per project (off by default) and sets the cap", async ({ page, cello }) => {
+test("CEL-92: the project's Settings tab turns waking on (off by default) and sets the cap", async ({ page, cello }) => {
   const key = uniqueKey("WAKE")
   await seedProject(cello, "Wake settings", key)
-  await page.goto(`/settings?project=${key}`)
+  await page.goto(`/${key}/settings`)
   const section = page.getByRole("region", { name: "Waking agents" })
-  await caption(page, "Settings → Waking agents: off until Lucas turns it on, 3 wakes per task per hour")
+  await caption(page, "The project's Settings tab → Waking agents: off until Lucas turns it on, 3 wakes per task per hour")
   await section.scrollIntoViewIfNeeded()
   const toggle = section.getByRole("switch")
   await expect(toggle).not.toBeChecked()

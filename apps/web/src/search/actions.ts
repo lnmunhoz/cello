@@ -11,6 +11,7 @@ import {
   PanelLeftIcon,
   PanelRightIcon,
   PlusIcon,
+  Settings2Icon,
   SettingsIcon,
   SunIcon,
   type LucideIcon,
@@ -23,6 +24,7 @@ export type ActionId =
   | "review"
   | "issues"
   | "docs"
+  | "project-settings"
   | "switch-project"
   | "switch-workspace"
   | "sidebar"
@@ -75,6 +77,7 @@ export const actionSpecs = (ctx: ActionContext): ActionSpec[] => {
       ? [
         { id: "issues" as const, label: `Go to ${ctx.project.name} issues`, icon: LayoutGridIcon, keywords: ["board", "list", "tasks"] },
         { id: "docs" as const, label: `Go to ${ctx.project.name} docs`, icon: BookOpenIcon, keywords: ["pages", "specs", "documents"] },
+        { id: "project-settings" as const, label: `Go to ${ctx.project.name} settings`, icon: Settings2Icon, keywords: ["preferences", "labels", "testing", "profile", "waking", "merging"] },
       ]
       : []),
     { id: "switch-project", label: "Switch project…", icon: FolderIcon, keywords: ["open", "project", "go"], opensList: true },
@@ -87,7 +90,7 @@ export const actionSpecs = (ctx: ActionContext): ActionSpec[] => {
       icon: other === "peek" ? PanelRightIcon : LayoutListIcon,
       keywords: ["layout", "search", "bar", "preview", "palette", "peek"],
     },
-    { id: "settings", label: "Open settings", icon: SettingsIcon, keywords: ["preferences", "statuses", "labels"] },
+    { id: "settings", label: "Open settings", icon: SettingsIcon, keywords: ["preferences", "statuses"] },
   ]
 }
 

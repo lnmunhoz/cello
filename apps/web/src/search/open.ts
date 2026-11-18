@@ -14,13 +14,13 @@ export type Target =
   | { readonly to: "review"; readonly key: string }
   | { readonly to: "page"; readonly projectKey: string; readonly slug: string }
   | { readonly to: "issues"; readonly projectKey: string }
-  /** Settings, on a label's project's labels (CEL-80). */
-  | { readonly to: "settings"; readonly projectKey?: string }
+  /** A label's project's Settings tab, where its labels live (CEL-80, CEL-164). */
+  | { readonly to: "projectSettings"; readonly projectKey: string }
 
 /**
  * Enter opens a hit; ⌘Enter (`board`) goes to its task's board, as ⌘-click on a task link does
  * (CEL-144). A comment opens its task at the comment; a packet still waiting for Lucas opens on the
- * Review page; a label opens Settings, where labels live, on its project's labels.
+ * Review page; a label opens its project's Settings tab, where labels live.
  */
 export const targetOf = (hit: SearchHit, board: boolean): Target | null => {
   const key = hit.taskKey ? parseTaskKey(hit.taskKey) : null
@@ -37,7 +37,7 @@ export const targetOf = (hit: SearchHit, board: boolean): Target | null => {
     case "project":
       return { to: "issues", projectKey: hit.projectKey }
     case "label":
-      return { to: "settings", projectKey: hit.projectKey }
+      return { to: "projectSettings", projectKey: hit.projectKey }
   }
 }
 
@@ -61,7 +61,7 @@ export const recentOf = (target: Target): RecentItem | null => {
       return { kind: "document", projectKey: target.projectKey, slug: target.slug }
     case "issues":
       return { kind: "project", projectKey: target.projectKey }
-    case "settings":
+    case "projectSettings":
       return null
   }
 }
