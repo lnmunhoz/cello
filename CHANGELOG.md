@@ -3,6 +3,24 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.7.0](https://github.com/lnmunhoz/cello/compare/v0.6.0...v0.7.0) (2026-11-18)
+
+### Features
+
+- a test run an agent starts shows in the task's thread under the comment that announced it: live with its progress, then passed, failed or ended in the same place; repeats collapse, folds keep results (CEL-181) ([e75ecc0](https://github.com/lnmunhoz/cello/commit/e75ecc0e0c8b7a4673a18a1ac19c526402c1f5e5))
+- a diff written in a comment, packet, ask or page shows as the diff view, inline, with Copy and Show as; bare hunks get colours too; agents are told to show changes as a diff block (CEL-176) ([18a3be1](https://github.com/lnmunhoz/cello/commit/18a3be1b3fe5f3a39110af0356e80106e7974b5f))
+
+### Fixes
+
+- cello context reads recent activity and lost claims that hold an event type this version doesn't know, showing "A change this version of Cello can't show" (CEL-150) ([4b1c598](https://github.com/lnmunhoz/cello/commit/4b1c5982a0813171facc87ee3f0dc1b911d783c2))
+- a hostile line in a page can no longer freeze the server at publish: link labels are read in one pass (CodeQL js/redos); a test no longer builds a regex from a name (CEL-100) ([2fdf8cd](https://github.com/lnmunhoz/cello/commit/2fdf8cdfff2860f680887b4842f4c26dfb3eef99))
+- builds and releases no longer depend on the shell's Node: Vite runs under Bun, so bun run release works under Node 22.17 (CEL-175) ([c07309d](https://github.com/lnmunhoz/cello/commit/c07309d71dda037578d1dff6812d5cde818113f9))
+
+### Other changes
+
+- agents call the board's user "the human" instead of a hard-coded Lucas, and a board with no git user name names them Human (CEL-182) ([f0403ab](https://github.com/lnmunhoz/cello/commit/f0403abb2c4e2eb23a3f34c1306f37450f970a5b))
+- the pages e2e test expects a task chip on a page to open the task in the page's side panel, as it has since CEL-141 (CEL-177) ([362fda9](https://github.com/lnmunhoz/cello/commit/362fda961bb5430cd6f020280a4050444c822b7d))
+
 ## [0.6.0](https://github.com/lnmunhoz/cello/compare/v0.5.0...v0.6.0) (2026-11-18)
 
 ### Features
