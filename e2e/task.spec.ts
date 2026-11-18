@@ -104,6 +104,35 @@ test("CEL-39: the task panel's expand button opens the task as a full page (?vie
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
+test("CEL-163: a task opened full page without a packet keeps its column on the left, at a wide and a mid width", async ({ page, browser }) => {
+  const key = uniqueKey("LEF")
+  await createProject(page, "Left aligned test", key)
+  await addTasks(page, "Todo", ["A plain task"])
+
+  await captionWithUrl(page, "Open the Todo task as a full page: nothing in review, the column starts at the left edge")
+  await page.goto(`/${key}/1?view=full`)
+  const panel = taskPanel(page, `${key}-1`)
+  const title = panel.getByLabel("Title")
+  await expect(title).toHaveValue("A plain task")
+  await expectLeftAligned(panel, title)
+
+  await caption(page, "A narrower window, 1100 px: the same left edge")
+  await page.setViewportSize({ width: 1100, height: 900 })
+  await expectLeftAligned(panel, title)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expectLeftAligned(panel, title)
+
+  // Stills for the report, without the test's overlay: 1440 px, both themes.
+  for (const colorScheme of ["light", "dark"] as const) {
+    const context = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height: 900 }, colorScheme })
+    const shot = await context.newPage()
+    await shot.goto(`/${key}/1?view=full`)
+    await expect(taskPanel(shot, `${key}-1`).getByLabel("Title")).toHaveValue("A plain task")
+    await shot.screenshot({ path: path.join(SHOTS, `task-full-plain-1440x900-${colorScheme}.png`) })
+    await context.close()
+  }
+})
+
 test("18: create a task with a column's +, edit it in the panel, add a comment, reload: everything is still there", async ({ page }) => {
   const key = uniqueKey("TASK")
   await createProject(page, "Panel test", key)

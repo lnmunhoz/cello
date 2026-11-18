@@ -265,6 +265,7 @@ function TaskDetails({ board, project, task, full, comment }: { board: BoardStat
   return (
     // A full page is a block, so the left-aligned column below fills it up to its max width.
     <div ref={scroller} data-side-scroll="" className={`min-h-0 flex-1 overflow-y-auto ${full ? "@container/packet block" : "flex flex-col"}`}>
+      {/* Without a packet the column stays 3xl: `packet-column` widens to 1536 px on a wide page, which would stretch the fields. */}
       <div className={full ? (reviewing ? "packet-column" : "box-content max-w-3xl px-8") : "contents"}>
       <div className={`flex flex-col gap-4 pt-5 pb-6 ${full ? "" : "px-6"}`}>
         <PinnedAsk board={board} task={task} />
