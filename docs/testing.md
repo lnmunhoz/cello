@@ -19,7 +19,7 @@ Each behavior is tested once, at the lowest layer that can fail:
 
 Await the event, drain the worker, or advance the test clock.
 
-**One exception (Lucas, Nov 17, CEL-121):** a test whose point is launching a real OS process may take `UNDER_LOAD`, a 30 s limit defined in `apps/cli/test/integration/cli.ts`. Examples: the CLI as Claude Code runs it, or a real `cello start`. Add a comment giving the test's measured time idle and under load. Anything else that's slow under load gets less work instead: a shared server or repo per file, smaller tests, calls in process.
+**One exception (Lucas, Nov 17, CEL-121):** a test whose point is launching a real OS process may take `UNDER_LOAD`, a 30 s limit defined in `apps/cli/test/integration/underLoad.ts` (`cli.ts` re-exports it). Examples: the CLI as Claude Code runs it, or a real `cello start`. Add a comment giving the test's measured time idle and under load. Anything else that's slow under load gets less work instead: a shared server or repo per file, smaller tests, calls in process.
 
 ## Pick the e2e specs
 
