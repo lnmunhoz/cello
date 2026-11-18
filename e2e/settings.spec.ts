@@ -13,6 +13,7 @@ import {
   projectLinks,
   seedLabels,
   seedProject,
+  sidebarSettings,
   switchWorkspace,
   test,
   uniqueKey,
@@ -26,7 +27,7 @@ test("settings: rename, reorder and hide a status; the board's columns follow", 
   await page.goto("/")
   await openNewWorkspace(page, `Statuses ${key}`)
   await createProjectHere(page, "Status test", key)
-  await page.getByRole("link", { name: "Settings" }).click()
+  await sidebarSettings(page).click()
 
   await caption(page, "Rename In Review to Reviewing")
   const name = page.getByLabel("In Review name")
@@ -59,7 +60,7 @@ test("hidden columns: hide a status in settings; it folds into the strip, and a 
   await addTasks(page, "In Review", ["Check the release notes"])
 
   await caption(page, "Hide In Review in settings")
-  await page.getByRole("link", { name: "Settings" }).click()
+  await sidebarSettings(page).click()
   await page.getByRole("button", { name: "Hide In Review" }).click()
   await expect(page.locator('[data-status-row="In Review"]')).toContainText("Hidden")
 
