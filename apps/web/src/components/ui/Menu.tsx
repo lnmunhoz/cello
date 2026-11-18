@@ -29,7 +29,7 @@ export function MenuTrigger({ variant, ...props }: Omit<ComponentProps<typeof Ba
 }
 
 export const popupLook =
-  "min-w-44 rounded-lg border border-line bg-raised p-1 text-[13px] text-ink shadow-pop outline-none transition-[opacity,scale] duration-100 origin-(--transform-origin) data-starting-style:scale-97 data-starting-style:opacity-0 data-ending-style:opacity-0 motion-reduce:transition-none"
+  "min-w-44 rounded-lg border border-line bg-raised p-1 text-[13px] text-ink shadow-pop outline-none transition-[opacity,scale] duration-(--motion-fast) ease-motion-out origin-(--transform-origin) data-starting-style:scale-97 data-starting-style:opacity-0 data-ending-style:scale-97 data-ending-style:opacity-0 motion-reduce:transition-none"
 
 export function MenuContent(props: Omit<ComponentProps<typeof BaseContent>, "className">) {
   return <BaseContent sideOffset={4} align="start" {...props} className={popupLook} />
