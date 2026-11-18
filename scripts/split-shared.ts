@@ -7,6 +7,11 @@
 // `@cello/shared/<x>` imports (or a new file in packages/shared/src) it moves and rewrites just those. Then run
 // `bun install` so Bun links the new packages and rewrites bun.lock.
 //
+// It rewrites files in place, so it refuses a working tree with uncommitted changes (`--allow-dirty` overrides). It
+// checks everything that can fail (a module the MAP doesn't name, a dependency with no version) before the first
+// file moves, and it takes only packages/shared's package.json and its empty folders away: anything else a
+// branch keeps there is listed, not deleted.
+//
 // What it does, in order:
 //   1. `git mv`s every module in packages/shared/src, with its test and fixtures, to the package the MAP names.
 //   2. Rewrites `./x` imports between moved files that now live in different packages to `@cello/<package>/x`.
@@ -137,15 +142,23 @@ const writeIfChanged = (root: string, file: string, content: string): boolean =>
 /** Which module a file in packages/shared/src is: `ask.test.ts` and `ask.ts` are both `ask`; `diff.fixture.ts` is `diff.fixture`. */
 const moduleOfFile = (file: string): string => file.replace(/\.test\.ts$/, "").replace(/\.ts$/, "")
 
-const moveModules = (root: string, report: Report): void => {
+const sharedFiles = (root: string): ReadonlyArray<string> => {
   const sourceDir = path.join(root, "packages/shared/src")
-  if (!fs.existsSync(sourceDir)) return
-  const files = fs.readdirSync(sourceDir).filter((file) => fs.statSync(path.join(sourceDir, file)).isFile())
+  if (!fs.existsSync(sourceDir)) return []
+  return fs.readdirSync(sourceDir).filter((file) => fs.statSync(path.join(sourceDir, file)).isFile())
+}
+
+/** Stops before anything changes when packages/shared/src holds a file the MAP doesn't name, or one that would overwrite another. */
+const checkUnmapped = (root: string): void => {
+  const files = sharedFiles(root)
   const unmapped = files.filter((file) => !TARGETS.has(moduleOfFile(file)))
   if (unmapped.length > 0) throw new Error(`packages/shared/src has files the MAP in scripts/split-shared.ts doesn't name: ${unmapped.join(", ")}. Add each module to the package it belongs to.`)
   const clashes = files.filter((file) => fs.existsSync(path.join(root, TARGETS.get(moduleOfFile(file))!.dir, file)))
   if (clashes.length > 0) throw new Error(`These files exist both in packages/shared/src and where the MAP sends them: ${clashes.join(", ")}. Resolve by hand.`)
-  for (const file of files) {
+}
+
+const moveModules = (root: string, report: Report): void => {
+  for (const file of sharedFiles(root)) {
     const to = `${TARGETS.get(moduleOfFile(file))!.dir}/${file}`
     fs.mkdirSync(path.dirname(path.join(root, to)), { recursive: true })
     // A file git doesn't know yet (not added or committed on this branch) is moved on disk.
@@ -250,14 +263,70 @@ const writePackageJsons = (root: string, report: Report): void => {
 
 // --- the end ----------------------------------------------------------------------------------------------------------
 
+/** Removes empty folders under `dir`, deepest first, `dir` itself last. Returns what is left (files, or folders holding them). */
+const removeEmptyFolders = (dir: string): ReadonlyArray<string> => {
+  const left: string[] = []
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory() && entry.name === "node_modules") fs.rmSync(full, { recursive: true, force: true })
+    else if (entry.isDirectory()) left.push(...removeEmptyFolders(full))
+    else left.push(full)
+  }
+  if (left.length === 0) fs.rmdirSync(dir)
+  return left
+}
+
+/**
+ * Takes packages/shared away only as far as it is empty: its package.json goes, then every folder that is left
+ * empty (and the node_modules Bun linked into it). Anything else a branch put there stays, and is listed.
+ */
 const removeShared = (root: string, report: Report): void => {
   const dir = path.join(root, "packages/shared")
   if (!fs.existsSync(dir)) return
   const src = path.join(dir, "src")
-  if (fs.existsSync(src) && fs.readdirSync(src).length > 0) return
-  if (fs.existsSync(path.join(dir, "package.json"))) git(root, ["rm", "-q", "-f", "packages/shared/package.json"])
-  fs.rmSync(dir, { recursive: true, force: true })
-  report.removed.push("packages/shared")
+  if (fs.existsSync(src) && fs.readdirSync(src).some((entry) => entry !== "node_modules")) {
+    for (const left of removeEmptyFolders(src)) report.leftovers.push(`${path.relative(root, left)}: still in packages/shared, not moved by the MAP`)
+    return
+  }
+  const manifest = path.join(dir, "package.json")
+  if (fs.existsSync(manifest)) {
+    const tracked = spawnSync("git", ["ls-files", "--error-unmatch", "packages/shared/package.json"], { cwd: root, encoding: "utf8" }).status === 0
+    if (tracked) git(root, ["rm", "-q", "-f", "packages/shared/package.json"])
+    else fs.rmSync(manifest)
+  }
+  const left = removeEmptyFolders(dir)
+  if (left.length > 0) {
+    for (const file of left) report.leftovers.push(`${path.relative(root, file)}: still in packages/shared, which was not removed`)
+    report.removed.push("packages/shared/package.json")
+  } else report.removed.push("packages/shared")
+}
+
+/** Stops before anything changes when a new package would import something EXTERNAL_VERSIONS has no version for. */
+const checkExternals = (root: string): void => {
+  const missing = new Set<string>()
+  for (const file of sourceFiles(root)) {
+    const shared = /^packages\/shared\/src\/([^/]+)$/.exec(file)
+    const owner = shared ? (() => {
+      const target = TARGETS.get(moduleOfFile(shared[1]!))
+      return target === undefined || target.group === "web" ? null : `packages/${target.group}`
+    })() : ownerOf(file)
+    if (owner === null || !PACKAGES.some((name) => owner === `packages/${name}`)) continue
+    const manifest = readJson(root, `${owner}/package.json`)
+    const listed = new Set([...Object.keys((manifest?.["dependencies"] as object | undefined) ?? {}), ...Object.keys((manifest?.["devDependencies"] as object | undefined) ?? {})])
+    for (const specifier of importsOf(fs.readFileSync(path.join(root, file), "utf8"))) {
+      if (specifier.startsWith(".") || specifier.startsWith("node:") || celloPackageOf(specifier) !== null) continue
+      const name = externalName(specifier)
+      if (!UNLISTED.has(name) && !listed.has(name) && EXTERNAL_VERSIONS[name] === undefined) missing.add(`${name} (${file})`)
+    }
+  }
+  if (missing.size > 0) throw new Error(`No version in EXTERNAL_VERSIONS in scripts/split-shared.ts for: ${[...missing].join(", ")}. Add each one, then run again.`)
+}
+
+const checkClean = (root: string): void => {
+  const dirty = git(root, ["status", "--porcelain"]).trim()
+  if (dirty !== "") {
+    throw new Error(`The working tree has uncommitted changes, and this script rewrites files in place:\n${dirty.split("\n").slice(0, 10).join("\n")}\nCommit or stash them, or pass --allow-dirty.`)
+  }
 }
 
 const findLeftovers = (root: string, report: Report): void => {
@@ -269,8 +338,12 @@ const findLeftovers = (root: string, report: Report): void => {
   }
 }
 
-export const splitShared = (root: string): Report => {
+export const splitShared = (root: string, options: { readonly allowDirty?: boolean } = {}): Report => {
   const report: Report = { moved: [], rewritten: [], packageJson: [], removed: [], leftovers: [] }
+  // Everything that can fail is checked before the first file moves, so a stop leaves the tree as it was.
+  if (!options.allowDirty) checkClean(root)
+  checkUnmapped(root)
+  checkExternals(root)
   moveModules(root, report)
   rewriteEverything(root, report)
   writePackageJsons(root, report)
@@ -281,7 +354,7 @@ export const splitShared = (root: string): Report => {
 
 if (import.meta.main) {
   const root = path.resolve(import.meta.dirname, "..")
-  const report = splitShared(root)
+  const report = splitShared(root, { allowDirty: process.argv.includes("--allow-dirty") })
   const line = (label: string, items: ReadonlyArray<string>) => console.log(`${label}: ${items.length}`)
   line("moved", report.moved)
   line("rewritten", report.rewritten)

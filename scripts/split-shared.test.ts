@@ -73,7 +73,12 @@ describe("splitShared on a small repo", () => {
     write(root, "apps/desktop/package.json", JSON.stringify({ name: "@cello/desktop", devDependencies: { "@cello/server": "workspace:*", "@cello/shared": "workspace:*" } }))
     write(root, "apps/desktop/src/b.ts", `import { key } from "@cello/shared/taskKey"\n`)
     git(root, "add", "-A")
+    commit(root)
     return root
+  }
+  const commit = (root: string) => {
+    git(root, "add", "-A")
+    git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x")
   }
 
   it("moves, rewrites, writes the package.json files, and changes nothing the second time", () => {
@@ -89,12 +94,43 @@ describe("splitShared on a small repo", () => {
     expect(JSON.parse(read(root, "apps/web/package.json")).dependencies).toEqual({ "@cello/text": "workspace:*", react: "1" })
     expect(JSON.parse(read(root, "apps/desktop/package.json")).devDependencies).toEqual({ "@cello/domain": "workspace:*", "@cello/server": "workspace:*" })
 
-    git(root, "add", "-A")
-    const before = git(root, "status", "--short")
+    commit(root)
     const second = splitShared(root)
     expect([second.moved, second.rewritten, second.packageJson, second.removed]).toEqual([[], [], [], []])
-    git(root, "add", "-A")
-    expect(git(root, "status", "--short")).toBe(before)
+    expect(git(root, "status", "--short")).toBe("")
+  })
+
+  it("refuses a working tree with uncommitted changes, unless told otherwise", () => {
+    const root = repo()
+    write(root, "apps/web/src/a.ts", `import { link } from "@cello/shared/linkify"\nconst edited = 1\n`)
+    expect(() => splitShared(root)).toThrow("uncommitted changes")
+    expect(fs.existsSync(path.join(root, "packages/shared/src/taskKey.ts"))).toBe(true)
+    expect(splitShared(root, { allowDirty: true }).moved).toHaveLength(4)
+  })
+
+  it("stops before moving anything when a new package would import a dependency with no version", () => {
+    const root = repo()
+    write(root, "packages/shared/src/search.ts", `import { x } from "some-new-library"\n`)
+    commit(root)
+    expect(() => splitShared(root)).toThrow("some-new-library")
+    expect(fs.existsSync(path.join(root, "packages/shared/src/taskKey.ts"))).toBe(true)
+    expect(fs.existsSync(path.join(root, "packages/text"))).toBe(false)
+    expect(git(root, "status", "--short")).toBe("")
+  })
+
+  it("deletes only packages/shared's package.json and its empty folders, and lists what else a branch put there", () => {
+    const root = repo()
+    write(root, "packages/shared/test/helper.ts", "export const h = 1\n")
+    write(root, "packages/shared/README.md", "kept\n")
+    commit(root)
+    const report = splitShared(root)
+    expect(fs.existsSync(path.join(root, "packages/shared/package.json"))).toBe(false)
+    expect(fs.existsSync(path.join(root, "packages/shared/src"))).toBe(false)
+    expect(read(root, "packages/shared/test/helper.ts")).toBe("export const h = 1\n")
+    expect(read(root, "packages/shared/README.md")).toBe("kept\n")
+    expect(report.removed).toEqual(["packages/shared/package.json"])
+    expect(report.leftovers.join("\n")).toContain("packages/shared/README.md")
+    expect(report.leftovers.join("\n")).toContain("packages/shared/test/helper.ts")
   })
 
   it("rewrites only the new imports when a branch adds them after the split", () => {
@@ -103,7 +139,7 @@ describe("splitShared on a small repo", () => {
     write(root, "apps/cli/package.json", JSON.stringify({ name: "@cello/cli", dependencies: { "@cello/client": "workspace:*" } }))
     write(root, "apps/cli/src/c.ts", `import { key } from "@cello/shared/taskKey"\nimport { link } from "@cello/text/linkify"\n`)
     write(root, "packages/shared/src/detect.ts", "export const detect = 1\n")
-    const again = splitShared(root)
+    const again = splitShared(root, { allowDirty: true })
     expect(again.moved).toEqual(["detect.ts -> packages/host/src/detect.ts"])
     expect(read(root, "apps/cli/src/c.ts")).toBe(`import { key } from "@cello/domain/taskKey"\nimport { link } from "@cello/text/linkify"\n`)
     expect(JSON.parse(read(root, "apps/cli/package.json")).dependencies).toEqual({ "@cello/client": "workspace:*", "@cello/domain": "workspace:*", "@cello/text": "workspace:*" })
@@ -113,7 +149,7 @@ describe("splitShared on a small repo", () => {
   it("stops before changing anything when a module isn't in the map", () => {
     const root = repo()
     write(root, "packages/shared/src/brandNew.ts", "export const x = 1\n")
-    expect(() => splitShared(root)).toThrow("brandNew.ts")
+    expect(() => splitShared(root, { allowDirty: true })).toThrow("brandNew.ts")
     expect(fs.existsSync(path.join(root, "packages/shared/src/taskKey.ts"))).toBe(true)
   })
 })
