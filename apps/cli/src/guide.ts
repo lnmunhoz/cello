@@ -1020,7 +1020,7 @@ cello task submit CEL-22 \\
 - **\`--link\`** adds a URL: a PR, or a page you published.
 - **\`--caption\`** describes the \`--attach\` or \`--link\` right before it.
 - **Submitting again** while a packet is still open replaces it.
-- **A packet waits on the human only while its task is in In Review** (or in Needs input, when you asked from In Review). Approve and Send back close it with their decision. Any other move closes it as **withdrawn**: you or the human moving the task back to In Progress, to Todo or anywhere else, and their answers to an ask you made from In Review, which bring the task back to In Progress. A withdrawn packet leaves the Review page; it stays in the task's list, where \`cello task get\` shows it:
+- **A packet waits on the human only while its task is in In Review** (or in Needs input, when you asked from In Review). Approve (the human's, or their approval relayed from chat with \`cello task approve\`) and Send back close it with their decision. Any other move closes it as **withdrawn**: you or the human moving the task back to In Progress, to Todo or anywhere else, and their answers to an ask you made from In Review, which bring the task back to In Progress. A withdrawn packet leaves the Review page; it stays in the task's list, where \`cello task get\` shows it:
 
   \`\`\`
   Reviews (1)

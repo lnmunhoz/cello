@@ -11,18 +11,27 @@ import { relativeTime } from "../lib/format.ts"
 import { ReviewActions } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
 
+/** "Claude Code session 2fd0505c": a review's relayer, named the way the CLI does. */
+const relayerName = (relayedBy: NonNullable<Review["relayedBy"]>) =>
+  `${relayedBy.name} session ${(relayedBy.session ?? "").slice(0, 8)}`.trim()
+
 /**
  * The open packet, pinned at the top of the task panel with Approve and Send back. A task Lucas approved
- * that waits for its agent to merge it (Approved · merging, CEL-143) shows that instead, with Send back.
+ * that waits for its agent to merge it (Approved · merging, CEL-143) shows that instead, with Send back; when
+ * he approved in the agent's chat, it says so and who passed it on (CEL-169).
  */
 export function PinnedReview({ board, task }: { board: BoardState; task: Task }) {
+  const result = useAtomValue(reviewsFamily(task.id))
   const review = openReviewOf(board, task.id)
   if (!review && awaitsMerge(task, board.statuses[task.statusId])) {
+    const approved = AsyncResult.isSuccess(result) ? [...result.value].reverse().find((r) => r.decision === "approved") : undefined
+    const relayedBy = approved?.relayedBy ?? null
     return (
       <section aria-label="Approved, merging" className="flex flex-col gap-3 rounded-lg border border-line bg-sunken p-4">
         <h3 className="text-[13px] font-semibold">Approved · merging</h3>
         <p className="text-[13px] text-muted">
-          You approved it. Its agent merges it now, then moves it to Done. If the merge goes wrong, send it back with a note.
+          {relayedBy ? `You approved it in chat; ${relayerName(relayedBy)} passed it on. ` : "You approved it. "}
+          Its agent merges it now, then moves it to Done. If the merge goes wrong, send it back with a note.
         </p>
         <div className="flex justify-end">
           <ReviewActions task={task} />
@@ -74,8 +83,9 @@ function EarlierReview({ task, review }: { task: Task; review: Review }) {
         className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
       >
         <ChevronRightIcon aria-hidden className={`size-3.5 shrink-0 text-faint transition-transform ${open ? "rotate-90" : ""}`} />
-        <span className="font-medium text-ink">{DECISIONS[review.decision!]}</span>
+        <span className="font-medium text-ink">{review.relayedBy ? "Approved in chat" : DECISIONS[review.decision!]}</span>
         <span className="text-faint">· {relativeTime(review.decidedAt ?? review.createdAt)}</span>
+        {review.relayedBy ? <span className="text-faint">· relayed by {relayerName(review.relayedBy)}</span> : null}
         {review.decisionNote ? <span className="min-w-0 truncate text-muted">“{review.decisionNote}”</span> : null}
       </button>
       {open ? (
