@@ -287,7 +287,7 @@ export interface Working {
 }
 
 /**
- * The agent sessions working in a workspace, active first (workingAgents, shared with `cello agents`),
+ * The agent sessions working in a workspace, in the order they started (workingAgents, shared with `cello agents`),
  * each with who it is and its mark, and its subagents' too.
  */
 export const workingSessions = (board: BoardState, workspaceId: string, now: number): Working[] =>

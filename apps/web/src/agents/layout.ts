@@ -42,7 +42,7 @@ export interface AgentRow {
   readonly endedAt: number | null
 }
 
-/** Each session still working, then its subagents, in workingSessions' order (active first, freshest first). */
+/** Each session still working, then its subagents, in workingSessions' order: when each started (byStart, CEL-186). */
 export const agentRows = (sessions: ReadonlyArray<Working>): AgentRow[] =>
   sessions
     .filter((s) => s.presence !== "ended")
@@ -85,6 +85,12 @@ export const directTasks = (row: AgentRow, rows: ReadonlyArray<AgentRow>): Reado
   row.kind === "agent"
     ? row.tasks
     : row.tasks.filter((t) => !rows.some((r) => r.parent?.session.id === row.session.id && r.tasks.some((rt) => rt.id === t.id)))
+
+/**
+ * What makes a row pulse once (CEL-186): its own last call. A call shows on the row where it is,
+ * instead of moving it; a session's row pulses for its own calls, not its subagents'.
+ */
+export const pulseKeyOf = (row: AgentRow): number => (row.agent ?? row.session).lastSeenAt
 
 /** The row of an agent's log on the Agents page: `agent:<session>/<agent>`, or `session:<session>`. */
 const rowIdOf = (session: AgentSession, agent: SessionAgent | null) => (agent ? `agent:${session.id}/${agent.agentId}` : `session:${session.id}`)
