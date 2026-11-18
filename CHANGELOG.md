@@ -3,6 +3,25 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.4.16](https://github.com/lnmunhoz/cello/compare/v0.4.15...v0.4.16) (2026-11-18)
+
+### Features
+
+- /cello:orchestrate follows each project's LIFECYCLE.md, picks a workflow per task (feature, fix, docs…) and drafts the file with you when it's missing; /cello:work is gone (CEL-168) ([2d4d2c0](https://github.com/lnmunhoz/cello/commit/2d4d2c0520d597dfd055a12072ff2fd7e6ac3a38))
+- a task's comments show what happened after each one: stages, agents and their review verdicts, the merge and the release (CEL-160) ([87b6ad0](https://github.com/lnmunhoz/cello/commit/87b6ad0dfd1dc49356e4785524908a6057d849e4))
+- each project has its own Settings tab; the main Settings keeps only global things (CEL-164) ([75888c2](https://github.com/lnmunhoz/cello/commit/75888c22c19f553c82500403b9674eb1e1495652))
+
+### Fixes
+
+- typing a task's number in ⌘K finds it: 147, #147, cel 147 (CEL-162) ([a2ed5b8](https://github.com/lnmunhoz/cello/commit/a2ed5b83f33f3354d94c51259cb1f68fab27407f))
+- the Review page, the Agents page and a full-page task stay aligned left at every width (CEL-163) ([6a7dbd4](https://github.com/lnmunhoz/cello/commit/6a7dbd4bf4e6bfaa2342138c0b5ac8515dc41142))
+
+### Other changes
+
+- Lucas approves the plan on the card before any builder starts (CEL-165) ([0992ae7](https://github.com/lnmunhoz/cello/commit/0992ae75b252d809372a85ce55f6ea7f9ad9a77c))
+- Cello merges only after Lucas approves; agents follow the Merge after I approve setting (CEL-161) ([5170578](https://github.com/lnmunhoz/cello/commit/5170578d42d189f3cdc44e7d2f1bca07dd367313))
+- **agents:** release only when Lucas says; merging a task no longer releases it (CEL-159) ([ab012e7](https://github.com/lnmunhoz/cello/commit/ab012e79a3bf3322b15ca327d87fb27fb3eaac28))
+
 ## [0.4.15](https://github.com/lnmunhoz/cello/compare/v0.4.14...v0.4.15) (2026-11-18)
 
 ### Other changes
