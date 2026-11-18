@@ -1012,7 +1012,13 @@ cello task submit CEL-22 \
 
 - **`--summary`** says what changed and why, in markdown. Use `--summary-file -` for a long one from stdin.
 - **`--step`** says how the human checks it, one step per flag, in order.
-- **`--attach`** takes images, videos (MP4, WebM, MOV) and text files (txt, log, md, json, cast), up to 50 MB each.
+- **`--attach`** takes images, videos (MP4, WebM, MOV) and text files (txt, log, md, json, cast, diff, patch), up to 50 MB each.
+  - **A diff opens as a diff.** The human's viewer shows a unified diff (the output of `git diff`, `git format-patch` or `diff -u`) as a diff view: one section per file with its status and +/- counts, hunk headers, old and new line numbers, added lines green and removed lines red, and a **Show as** choice of Unified, Split (old on the left, new on the right, offered when the panel is wide) and Raw. It does so for a `.diff` or `.patch` file and for a `.txt` or `.log` whose text is a diff, so attach the diff as `<task key>-diff.diff`, or any name that ends in `.diff`:
+
+    ```
+    git diff main...HEAD > CEL-173.diff
+    cello task submit CEL-173 --summary "…" --attach CEL-173.diff --caption "The diff"
+    ```
   - Paths are relative to your working folder.
   - The server copies each file into `~/.cello/assets`, so you can delete the original afterwards (in a worktree, say).
 - **`--link`** adds a URL: a PR, or a page you published.
@@ -1260,7 +1266,7 @@ cello doc archive billing-audit      # hidden from the Docs tab; the link keeps 
 - **The summary** is the frontmatter `summary:`, the first paragraph, or `--summary`.
 - **What renders:** `##` and `###` headings become the page's section list. Tables, code blocks, ```` ```mermaid ```` diagrams and images all render. A linked video plays inline, whether it's linked as an image (`![The demo](demo.mp4)`) or a plain link (`[demo.mp4](demo.mp4)`); its link text is its caption.
 - **Task keys** (e.g. CEL-12) link to the task, with its live status, so a progress table never goes stale. Keys of unknown tasks, and keys in backticks or code blocks, stay plain.
-- **Files go up with the page:** every file the markdown links by a path (relative to the markdown file, or absolute) goes up with it, as an image or a plain link: images, videos (MP4, WebM, MOV) and text files (txt, log, md, csv, json, cast). `--asset` uploads a file the markdown doesn't link.
+- **Files go up with the page:** every file the markdown links by a path (relative to the markdown file, or absolute) goes up with it, as an image or a plain link: images, videos (MP4, WebM, MOV) and text files (txt, log, md, csv, json, cast, diff, patch; a linked `.diff` or `.patch` opens as a diff view, see `cello task submit`). `--asset` uploads a file the markdown doesn't link.
 - **A linked file that can't go up** (it isn't there, or it's a type Cello doesn't store, like a PDF) gets a warning, and the page still publishes. The page shows that link as a missing file instead of following it, so fix the path and publish again:
 
   ```
