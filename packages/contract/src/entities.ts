@@ -599,6 +599,12 @@ export const Review = Schema.Struct({
   decidedAt: Schema.NullOr(Millis),
   decision: Schema.NullOr(ReviewDecision),
   decisionNote: Schema.NullOr(Schema.String),
+  /**
+   * Who passed on the human's approval from chat (CEL-169): the agent session that ran `cello task approve`
+   * with their words, which are the `decisionNote`. Null when they decided on the board themselves. Absent
+   * from an older server's reviews.
+   */
+  relayedBy: Schema.optionalKey(Schema.NullOr(ReviewAuthor)),
 })
 export type Review = typeof Review.Type
 

@@ -36,7 +36,7 @@ export const TASK_STAGES = [
     label: "Approved · merging",
     icon: "git-pull-request-arrow",
     color: "#22C55E",
-    when: "set by the human's Approve in a project that merges after approval (the task stays in In Review); merge and deploy, then `cello task done`",
+    when: "set by the human's Approve (on the Review page, or relayed from their chat with `cello task approve`) in a project that merges after approval (the task stays in In Review); merge and deploy, then `cello task done`",
   },
 ] as const satisfies ReadonlyArray<StageInfo>
 
@@ -44,7 +44,7 @@ export type TaskStage = (typeof TASK_STAGES)[number]["id"]
 
 export const STAGE_IDS: ReadonlyArray<TaskStage> = TASK_STAGES.map((s) => s.id)
 
-/** The stages an agent sets with `cello task stage`: all but `merging`, which only the human's Approve sets (CEL-143). */
+/** The stages an agent sets with `cello task stage`: all but `merging`, which only the human's Approve sets, or an approval relayed from their chat (CEL-143, CEL-169). */
 export const AGENT_STAGE_IDS: ReadonlyArray<TaskStage> = STAGE_IDS.filter((id) => id !== "merging")
 
 /**

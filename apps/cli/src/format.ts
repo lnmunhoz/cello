@@ -1,6 +1,7 @@
 // Small text helpers shared by the commands' output.
 import type { AgentSession, SessionAgent } from "@cello/contract/entities"
 import { modelLabel } from "@cello/shared/model"
+import { sessionLabel } from "@cello/shared/session"
 
 /** "just now", "3m ago", "2h ago", "4d ago". */
 export const ago = (ts: number, now: number): string => {
@@ -13,9 +14,6 @@ export const ago = (ts: number, now: number): string => {
   return `${Math.round(hours / 24)}d ago`
 }
 
-/** The first 8 characters of a host session id, enough to recognise it ("2fd0505c"). */
-export const shortSession = (id: string): string => id.slice(0, 8)
-
 /** The model and effort something was written with (CEL-119): a comment's, an event's, or an agent's current ones. */
 export interface WrittenWith {
   readonly model?: string | null | undefined
@@ -25,7 +23,7 @@ export interface WrittenWith {
 /** "Claude Code session 2fd0505c", and "(Opus 5.5, high)" after it when `written` names a model (CEL-119). */
 export const sessionName = (session: Pick<AgentSession, "clientName" | "externalId" | "id">, written?: WrittenWith): string => {
   const model = modelLabel(written?.model, written?.effort)
-  return `${session.clientName} session ${shortSession(session.externalId ?? session.id)}${model ? ` (${model})` : ""}`
+  return `${sessionLabel(session.clientName, session.externalId ?? session.id)}${model ? ` (${model})` : ""}`
 }
 
 /**

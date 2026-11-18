@@ -161,7 +161,7 @@ export const applyReviewEvents = (
     if (e.type === "review.submitted" && e.review.taskId === taskId && !next.some((r) => r.id === e.review.id)) {
       next = [...next, e.review]
     } else if (e.type === "review.decided" && e.taskId === taskId) {
-      next = next.map((r) => (r.id === e.id ? { ...r, decision: e.decision, decisionNote: e.note, decidedAt: e.ts } : r))
+      next = next.map((r) => (r.id === e.id ? { ...r, decision: e.decision, decisionNote: e.note, decidedAt: e.ts, ...(e.relayedBy ? { relayedBy: e.relayedBy } : {}) } : r))
     } else if (e.type === "review.withdrawn" && e.taskId === taskId) {
       next = next.map((r) => (r.id === e.id ? { ...r, decision: "withdrawn", decisionNote: null, decidedAt: e.ts } : r))
     }

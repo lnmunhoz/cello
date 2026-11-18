@@ -99,6 +99,7 @@ export const layer = CelloRpcs.toLayer(Effect.gen(function* () {
     "agent.log": (input) => agentLogs.log(input),
     "review.submit": (input) => reviews.submit(input),
     "review.approve": (input) => reviews.approve(input),
+    "review.relayApproval": (input) => reviews.relayApproval(input),
     "review.sendBack": (input) => reviews.sendBack(input),
     "review.list": ({ taskId }) => reviews.list(taskId),
     "ask.create": (input) => asks.create(input),

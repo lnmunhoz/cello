@@ -35,6 +35,7 @@ Cello's own backlog is the **CEL** project on Lucas's board. Run `cello context`
 - **Feedback Lucas gives in chat is a review too.**
   - Put it on the task in his words: `**Lucas, in chat (review):** "…"`.
   - If the task is In Review or Done, move it back to In Progress before fixing, then submit a new packet.
+  - His approval in chat goes to the card with `cello task approve CEL-n --quote "<his words>"` (after `cello task submit` if no packet is open), then land it; never on your own judgement.
 - **Lucas's decisions are asked on the card, never in the terminal** (design options, stages, wording):
   - use `cello task ask CEL-n --file ask.yaml --wait` in the background, with a recommended option and its `because`, plus the evidence
   - scopes attach their screenshots and link the scope page

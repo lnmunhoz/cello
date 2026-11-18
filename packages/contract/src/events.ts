@@ -20,6 +20,7 @@ import {
   Project,
   Reaction,
   Review,
+  ReviewAuthor,
   ReviewDecision,
   SessionAgent,
   SessionRun,
@@ -174,8 +175,16 @@ export const CelloEvent = Schema.Union([
   event("reaction.removed", { reaction: Reaction }),
   // A review packet with its attachments. The same command then moves the task (task.moved).
   event("review.submitted", { review: Review }),
-  // Approved, sent back, or superseded by a newer review. `ts` is when.
-  event("review.decided", { id: Id, taskId: Id, decision: ReviewDecision, note: Schema.NullOr(Schema.String) }),
+  // Approved, sent back, or superseded by a newer review. `ts` is when. `relayedBy` (CEL-169): an approval
+  // an agent passed on from the human's chat, with their words as the note; absent when they decided
+  // on the board themselves.
+  event("review.decided", {
+    id: Id,
+    taskId: Id,
+    decision: ReviewDecision,
+    note: Schema.NullOr(Schema.String),
+    relayedBy: Schema.optionalKey(ReviewAuthor),
+  }),
   // The task left In Review by a plain move (an agent's `cello task move`, Lucas dragging the card), so
   // its open packet closed undecided (decision `withdrawn`, CEL-71). `to` is the status it was moved to;
   // the envelope says who moved it. The same command then moves the task (task.moved).

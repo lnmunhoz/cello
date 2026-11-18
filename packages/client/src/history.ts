@@ -121,8 +121,14 @@ export const describeEvent = (e: StreamedEvent, state: HistoryNames, name?: stri
     }
     case "review.submitted":
       return `${who} submitted a review`
-    case "review.decided":
+    case "review.decided": {
+      // Only a session can relay, and only an approval (CEL-169): the human's words, passed on by the agent.
+      if (e.decision === "approved" && e.sessionId !== null) {
+        const human = Object.values(state.actors).find((a) => a.kind === "human")
+        return `${human?.name ?? "The human"} approved in chat, relayed by ${plain}`
+      }
       return `${who} ${DECIDED[e.decision]}`
+    }
     case "review.withdrawn":
       return `${who} moved it to ${status(e.to)}, withdrawing the open review`
     case "ask.created": {

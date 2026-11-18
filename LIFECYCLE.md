@@ -53,7 +53,7 @@ Each builder in its own git worktree (`isolation: "worktree"`, under `.claude/wo
 
 ## How work lands
 
-A merge of the task's branch into main, after Lucas's "Approve and merge" (`cello context`: "Merge after approval  on"; CEL-143). **Never merge before it.** When it reaches your session (the card shows Approved · merging):
+A merge of the task's branch into main, after Lucas's "Approve and merge" (`cello context`: "Merge after approval  on"; CEL-143). **Never merge before it.** When it reaches your session (the card shows Approved · merging), or he approves in chat (pass it on first with `cello task approve CEL-n --quote "<his words>"`, after `cello task submit` if no packet is open):
 
 - merge as `merge: <what> (CEL-n)`, which becomes the changelog line, so write it for Lucas
 - then `cello task done CEL-n`. A failed merge: stage `fixing` and a comment on the card

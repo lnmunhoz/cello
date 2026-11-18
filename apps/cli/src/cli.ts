@@ -48,6 +48,7 @@ import { findMilestone, progressText } from "@cello/shared/milestone"
 import { missingFields } from "@cello/shared/testingProfile"
 import { isRunning, testRunWords } from "@cello/shared/testRun"
 import { shortCommit } from "@cello/shared/build"
+import { sessionLabel } from "@cello/shared/session"
 import { APP_VERSION } from "@cello/shared/version"
 import * as Console from "effect/Console"
 import * as Context from "effect/Context"
@@ -348,6 +349,12 @@ const withdrawal = (
   return move ? `: ${author(names, move.actorId, move.sessionId)} moved it to ${statusName(names, move.to.statusId)}` : ""
 }
 
+/** Who passed on an approval from chat: "Claude Code session 2fd0505c", from the sessions the task's detail knows, else from the review. */
+const relayer = (names: Names, relayedBy: { readonly name: string; readonly session: string | null }) => {
+  const known = names.sessions.find((s) => s.externalId === relayedBy.session)
+  return known ? sessionName(known) : sessionLabel(relayedBy.name, relayedBy.session)
+}
+
 /** One review in `task get`: state, who submitted it, summary, steps, evidence and Lucas's note. */
 const reviewLines = (
   names: Names & { readonly actors: ReadonlyArray<Actor> },
@@ -355,13 +362,17 @@ const reviewLines = (
   history: ReadonlyArray<StreamedEvent>,
   now: number,
 ): string[] => {
+  const relayedBy = review.relayedBy ?? null
+  // An approval the human gave in an agent's chat (CEL-169): their words as the note, and who passed them on.
   const state = review.decision === null
     ? "open"
+    : relayedBy !== null
+    ? `approved in chat ${ago(review.decidedAt!, now)}, relayed by ${relayer(names, relayedBy)}`
     : `${DECISIONS[review.decision]} ${ago(review.decidedAt!, now)}${review.decision === "withdrawn" ? withdrawal(names, review, history) : ""}`
   const indent = (text: string) => text.split("\n").map((l) => `    ${l}`)
   return [
     `  Review (${state}), submitted by ${author(names, review.actorId, review.sessionId)}, ${ago(review.createdAt, now)}`,
-    ...(review.decisionNote ? indent(`Note: ${review.decisionNote}`) : []),
+    ...(review.decisionNote ? indent(relayedBy !== null ? `In chat: "${review.decisionNote}"` : `Note: ${review.decisionNote}`) : []),
     ...indent(review.summary.trim()),
     "    How to check:",
     ...review.steps.map((step, i) => `    ${i + 1}. ${step}`),
@@ -609,7 +620,7 @@ const get = Command.make("get", { key, json }, (input) =>
     // An event this build can't read (a newer server's, CEL-135) has no author to name; its line says so.
     lines.push(...columns(detail.history.map((e) => [
       e.ts === undefined ? "" : ago(e.ts, now),
-      describeEvent(e, { ...byIds(detail), actors: {} }, isReadable(e) ? author(detail, e.actorId, e.sessionId, e.agentId, e) : undefined),
+      describeEvent(e, { ...byIds(detail), actors: Object.fromEntries(detail.actors.map((a) => [a.id, a])) }, isReadable(e) ? author(detail, e.actorId, e.sessionId, e.agentId, e) : undefined),
     ]))
       .map((l) => `  ${l}`))
     yield* print(lines.join("\n"))
@@ -707,6 +718,43 @@ const done = Command.make("done", { key, json }, (input) =>
       "it moves to Done and your claim ends. Only the session holding the claim, only after the approval (`cello inbox` hands it to you).",
   ))
 
+const approve = Command.make("approve", {
+  key,
+  quote: Flag.String("quote").pipe(
+    Flag.optional,
+    Flag.withDescription("The human's words approving it, as they said them in your chat; shown on the card as theirs, relayed by you."),
+  ),
+  json,
+}, (input) =>
+  Effect.gen(function* () {
+    const quote = Option.getOrUndefined(input.quote)?.trim()
+    if (!quote) {
+      return yield* new CliFailure({
+        message: `Say what they said: cello task approve ${input.key.toUpperCase()} --quote "<their words>". Only the human's own words from your chat.`,
+      })
+    }
+    const written = yield* withClient((client) =>
+      Effect.gen(function* () {
+        const before = yield* client["task.get"]({ key: input.key })
+        const response = yield* client["review.relayApproval"]({ commandId: newCommandId(), key: input.key, quote })
+        return { response, before }
+      })
+    )
+    if (input.json) return yield* printJson(written.response)
+    const { before, response } = written
+    const task = response.result
+    const from = statusName(before, before.task.statusId)
+    const moved = task.stage === "merging" ? `${from} · ${stageInfo("merging")!.label}` : `${from} → ${statusName(before, task.statusId)}`
+    yield* print([
+      `Approved ${task.key} for ${humanName(before.actors)}, relayed from chat  ${moved}  ${task.title}`,
+      task.stage === "merging" ? `  Merge it now, then \`cello task done ${task.key}\`.` : "  Your claim on it ended.",
+    ].join("\n"))
+  })).pipe(Command.withDescription(
+    "Pass on the human's approval from your chat (\"Approved, commit\"): does what their Approve on the Review page does. " +
+      "In a project that merges after approval the task becomes Approved · merging (merge it, then `cello task done`); otherwise it moves to Done and your claim ends. " +
+      "Only their own words in the chat you're in, never your own judgement; only the session holding the claim, never a subagent, on a task with a packet waiting (`cello task submit` first).",
+  ))
+
 const STAGE_NAMES = andList(AGENT_STAGE_IDS.map(String)).replace(" and ", " or ")
 
 const stage = Command.make("stage", {
@@ -742,7 +790,7 @@ const stage = Command.make("stage", {
     `Say where your claimed task is inside In Progress, so the board shows it: ${TASK_STAGES.map((s) => s.label.toLowerCase()).join(", ")}. ` +
       "Every session holding a claim sets it: on your own, planning (only when the task needs a decision before code), then building, then merged; an orchestrator, building, review, fixing, merged. " +
       "Only the session holding the claim (or the human), only in In Progress. Asking the human (Needs input) keeps it; any other move out of In Progress, or submitting it, clears it. " +
-      "In a project that merges after approval, the human's Approve sets approved · merging on the task in In Review; there you may set fixing (the merge failed) or merged until `cello task done`.",
+      "In a project that merges after approval, the human's Approve (or `cello task approve`, relaying theirs from chat) sets approved · merging on the task in In Review; there you may set fixing (the merge failed) or merged until `cello task done`.",
   ))
 
 const move = Command.make("move", {
@@ -2891,8 +2939,8 @@ const guide = Command.make("guide", {}, () => print(GUIDE)).pipe(
 )
 
 const task = Command.make("task").pipe(
-  Command.withDescription("Tasks: list, get, create, claim, release, stage, move, label, comment, react, submit, done, ask, answers."),
-  Command.withSubcommands([list, get, create, edit, claim, release, stage, move, taskLabel, comment, react, submit, done, ask, answers]),
+  Command.withDescription("Tasks: list, get, create, claim, release, stage, move, label, comment, react, submit, approve, done, ask, answers."),
+  Command.withSubcommands([list, get, create, edit, claim, release, stage, move, taskLabel, comment, react, submit, approve, done, ask, answers]),
 )
 
 const startCommand = Command.make("start", {}, () => start).pipe(
