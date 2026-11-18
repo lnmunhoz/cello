@@ -121,8 +121,9 @@ export function ReviewActions({ task, onDecision, typed = "", screenshots = [], 
     return false
   }
 
+  // On a line of its own under the buttons (the rows that hold them wrap), so nothing moves under the pointer.
   const alert = failure === null ? null : (
-    <p role="alert" data-decision-failed="" className="min-w-0 text-xs text-danger">
+    <p role="alert" data-decision-failed="" className="order-last min-w-0 basis-full text-right text-xs text-danger">
       {failure}. Try again.
     </p>
   )
@@ -145,67 +146,69 @@ export function ReviewActions({ task, onDecision, typed = "", screenshots = [], 
   )
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-      {asking ? null : alert}
-      <Button
-        variant="secondary"
-        size="md"
-        data-decide="sent_back"
-        disabled={waiting}
-        aria-busy={pending === "sent_back"}
-        onClick={async () => {
-          if (typedNote === null) return setAsking(true)
-          if (await run("sent_back", () => sendBackWith(typedNote))) onNoteSent?.(true)
-        }}
-      >
-        {pending === "sent_back" ? <PendingIcon /> : <CornerUpLeftIcon aria-hidden className="size-3.5" />}
-        {pending === "sent_back" ? "Sending back…" : "Send back"}
-      </Button>
-      {merging ? null : mergeAfter ? (
-        <Tooltip>
-          <TooltipTrigger render={approveButton} />
-          <TooltipContent side="top">{MERGE_HINT}</TooltipContent>
-        </Tooltip>
-      ) : approveButton}
-      <Dialog open={asking} onOpenChange={setAsking}>
-        <DialogContent size="md">
-          <div className="flex flex-col gap-1">
-            <DialogTitle>Send {task.key} back</DialogTitle>
-            <DialogDescription>Say what to change. The note reaches the agent as a comment, and the task goes back to In Progress.</DialogDescription>
-          </div>
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={async (e) => {
-              e.preventDefault()
-              if (note.trim() === "" || waiting) return
-              if (await run("sent_back", () => sendBackWith(note.trim()))) {
-                setAsking(false)
-                setNote("")
-                if (attachmentIds.length) onNoteSent?.(true)
-              }
-            }}
-          >
-            <Textarea
-              aria-label="Note"
-              autoFocus
-              placeholder="The poster frame is black; grab one later in the video."
-              value={note}
-              onChange={(e) => setNote(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit()
-              }}
-            />
-            {alert}
-            <div className="flex justify-end gap-2">
-              <DialogClose>Cancel</DialogClose>
-              <Button type="submit" variant="primary" disabled={waiting || note.trim() === ""} aria-busy={pending === "sent_back"}>
-                {pending === "sent_back" ? <PendingIcon /> : null}
-                {pending === "sent_back" ? "Sending back…" : "Send back"}
-              </Button>
+    <>
+      <div className="flex shrink-0 items-center gap-2">
+        <Button
+          variant="secondary"
+          size="md"
+          data-decide="sent_back"
+          disabled={waiting}
+          aria-busy={pending === "sent_back"}
+          onClick={async () => {
+            if (typedNote === null) return setAsking(true)
+            if (await run("sent_back", () => sendBackWith(typedNote))) onNoteSent?.(true)
+          }}
+        >
+          {pending === "sent_back" ? <PendingIcon /> : <CornerUpLeftIcon aria-hidden className="size-3.5" />}
+          {pending === "sent_back" ? "Sending back…" : "Send back"}
+        </Button>
+        {merging ? null : mergeAfter ? (
+          <Tooltip>
+            <TooltipTrigger render={approveButton} />
+            <TooltipContent side="top">{MERGE_HINT}</TooltipContent>
+          </Tooltip>
+        ) : approveButton}
+        <Dialog open={asking} onOpenChange={setAsking}>
+          <DialogContent size="md">
+            <div className="flex flex-col gap-1">
+              <DialogTitle>Send {task.key} back</DialogTitle>
+              <DialogDescription>Say what to change. The note reaches the agent as a comment, and the task goes back to In Progress.</DialogDescription>
             </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
+            <form
+              className="flex flex-col gap-4"
+              onSubmit={async (e) => {
+                e.preventDefault()
+                if (note.trim() === "" || waiting) return
+                if (await run("sent_back", () => sendBackWith(note.trim()))) {
+                  setAsking(false)
+                  setNote("")
+                  if (attachmentIds.length) onNoteSent?.(true)
+                }
+              }}
+            >
+              <Textarea
+                aria-label="Note"
+                autoFocus
+                placeholder="The poster frame is black; grab one later in the video."
+                value={note}
+                onChange={(e) => setNote(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit()
+                }}
+              />
+              {alert}
+              <div className="flex justify-end gap-2">
+                <DialogClose>Cancel</DialogClose>
+                <Button type="submit" variant="primary" disabled={waiting || note.trim() === ""} aria-busy={pending === "sent_back"}>
+                  {pending === "sent_back" ? <PendingIcon /> : null}
+                  {pending === "sent_back" ? "Sending back…" : "Send back"}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+      {asking ? null : alert}
+    </>
   )
 }
