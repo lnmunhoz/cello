@@ -4,6 +4,7 @@ import type { SearchHit, SearchResults } from "@cello/contract/search"
 import { describe, expect, it } from "vitest"
 import { actionSpecs, isActionsOnly, matchActions, type ActionContext } from "./actions.ts"
 import { readBarLayout, shownLayout } from "./layout.ts"
+import { jumpKeys, withoutTasks } from "./jumps.ts"
 import { MAX_RECENT, readRecent, recentOf, targetOf, withRecent } from "./open.ts"
 import { scopeCounts, sectionsOf } from "./sections.ts"
 
@@ -153,5 +154,37 @@ describe("what the bar lists for a search", () => {
     expect(sectionsOf(byKey, "peek", "all")).toEqual([expect.objectContaining({ id: "mentions", label: "Mentions CEL-15", total: 3 })])
     expect(sectionsOf(results({ key: "CEL-9", terms: [] }), "peek", "all")).toEqual([])
     expect(sectionsOf(null, "peek", "all")).toEqual([])
+  })
+})
+
+describe("the Go to rows for a task's number or key", () => {
+  const projects = ["CEL", "THAI", "ZED"]
+
+  it("a bare number is every project's task with it, the current project's first", () => {
+    expect(jumpKeys({ projectKey: null, number: 3 }, projects, "THAI")).toEqual(["THAI-3", "CEL-3", "ZED-3"])
+    expect(jumpKeys({ projectKey: null, number: 3 }, projects, "CEL")).toEqual(["CEL-3", "THAI-3", "ZED-3"])
+    expect(jumpKeys({ projectKey: null, number: 3 }, projects, null)).toEqual(["CEL-3", "THAI-3", "ZED-3"])
+  })
+
+  it("a key is its own task, and no query is none", () => {
+    expect(jumpKeys({ projectKey: "THAI", number: 3 }, projects, "CEL")).toEqual(["THAI-3"])
+    expect(jumpKeys(null, projects, "CEL")).toEqual([])
+  })
+
+  it("a task that has its Go to row isn't listed again under Tasks, and the counts follow", () => {
+    const found = results({
+      groups: [
+        { kind: "task", total: 3, hits: [hit({ kind: "task", id: "a" }), hit({ kind: "task", id: "b" }), hit({ kind: "task", id: "c" })] },
+        { kind: "comment", total: 1, hits: many("comment", 1) },
+      ],
+    })
+    const rest = withoutTasks(found, new Set(["b"]))
+    expect(rest?.groups.map((g) => [g.kind, g.total, g.hits.map((h) => h.id)])).toEqual([["task", 2, ["a", "c"]], ["comment", 1, ["comment0"]]])
+    expect(scopeCounts(rest).task).toBe(2)
+    // A group left with nothing goes, so no empty tab or section.
+    const alone = results({ groups: [{ kind: "task", total: 1, hits: [hit({ kind: "task", id: "b" })] }] })
+    expect(withoutTasks(alone, new Set(["b"]))?.groups).toEqual([])
+    expect(withoutTasks(found, new Set())).toBe(found)
+    expect(withoutTasks(null, new Set(["b"]))).toBeNull()
   })
 })

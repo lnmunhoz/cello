@@ -53,7 +53,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
       {/* A packet container (index.css), measured on the whole panel, so the padding sits inside: on a
           wide panel the rows widen and the open packet splits in two. */}
       <div data-review-scroller="" className="@container/packet flex-1 overflow-y-auto py-6">
-        <div className="mx-auto box-content flex max-w-3xl flex-col gap-6 px-8 packet-wide:max-w-[1536px]">
+        <div className="packet-column flex flex-col gap-6">
           <header className="flex flex-col gap-0.5">
             <h1 className="text-[17px] font-semibold">
               Review <span className="font-normal text-muted tabular-nums">{asked.length + queue.length}</span>

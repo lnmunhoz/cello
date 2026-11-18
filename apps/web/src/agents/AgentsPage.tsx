@@ -72,7 +72,7 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
       <Breadcrumb crumbs={[{ label: board.workspaces[workspaceId]?.name ?? "Workspace" }, { label: "Agents working" }]} />
       {/* A packet container, like the Review page's: on a wide panel an open row splits in two. */}
       <div data-agents-scroller="" className="@container/packet flex-1 overflow-y-auto py-6">
-        <div className="mx-auto box-content flex max-w-3xl flex-col gap-6 px-8 packet-wide:max-w-[1536px]">
+        <div className="packet-column flex flex-col gap-6">
           <header className="flex flex-col gap-0.5">
             <h1 className="text-[17px] font-semibold">
               Agents working <span className="font-normal text-muted tabular-nums">{agentsWorkingCount(sessions)}</span>

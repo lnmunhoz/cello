@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatTaskKey, freeProjectKey, isValidProjectKey, parseTaskKey, parseTaskPath, reservedKeyProblem, suggestProjectKey, taskKeysIn, taskPath } from "./taskKey.ts"
+import { formatTaskKey, freeProjectKey, isValidProjectKey, parseTaskKey, parseTaskPath, parseTaskQuery, reservedKeyProblem, suggestProjectKey, taskKeysIn, taskPath } from "./taskKey.ts"
 
 describe("project keys", () => {
   it.each([
@@ -59,6 +59,32 @@ describe("task keys", () => {
     for (const bad of ["THAI", "THAI-", "THAI-0", "THAI-1.5", "-12", "TH AI-1"]) {
       expect(parseTaskKey(bad)).toBeNull()
     }
+  })
+})
+
+describe("a search that names a task", () => {
+  const projects = ["CEL", "THAI"]
+
+  it("a bare number names a number, in no project yet", () => {
+    for (const q of ["147", "#147", " 147 ", " #147"]) expect(parseTaskQuery(q, projects)).toEqual({ projectKey: null, number: 147 })
+  })
+
+  it("a key names its task, with a hyphen or a space, whatever the case", () => {
+    for (const q of ["CEL-147", "cel-147", "cel 147", "CEL  #147", "Cel #147", " cel 147 "]) expect(parseTaskQuery(q, projects)).toEqual({ projectKey: "CEL", number: 147 })
+  })
+
+  it("a hyphenated key needs no known project, as before", () => {
+    expect(parseTaskQuery("ZZZ-3", projects)).toEqual({ projectKey: "ZZZ", number: 3 })
+  })
+
+  it("the space form needs a known project, so “video 2” stays a word search", () => {
+    expect(parseTaskQuery("video 2", projects)).toBeNull()
+    expect(parseTaskQuery("cel 147", [])).toBeNull()
+    expect(parseTaskQuery("cel 147", ["THAI"])).toBeNull()
+  })
+
+  it("anything else is words", () => {
+    for (const q of ["", "0", "#0", "147a", "1 2", "cel147", "cel", "#", "-5", "cel 0", "cel 1.5", "cel 147 x"]) expect(parseTaskQuery(q, projects)).toBeNull()
   })
 })
 

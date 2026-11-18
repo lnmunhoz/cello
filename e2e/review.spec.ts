@@ -10,6 +10,7 @@ import type { Browser, Page } from "@playwright/test"
 import { caption, captionWithUrl, card, column, createProject, expect, projectLink, test, uniqueKey } from "./fixtures.ts"
 import {
   cello,
+  expectLeftAligned,
   expectOneColumn,
   expectTwoColumns,
   packetDrawn,
@@ -298,6 +299,20 @@ async function screenshotWide(browser: Browser, key: string, viewport: { width: 
   await context.close()
 }
 
+/** The Review page at a mid width: `key` open, and its video open in the viewer beside it. Saved to e2e/videos/review-mid-<scheme>.png. */
+async function screenshotMid(browser: Browser, key: string, colorScheme: "light" | "dark") {
+  const context = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height: 900 }, colorScheme })
+  const page = await context.newPage()
+  await page.goto(`/review?open=${key}`)
+  const item = page.getByRole("article", { name: new RegExp(`${key}\\b`) })
+  await packetDrawn(item)
+  await item.getByRole("button", { name: "Open The whole flow in the viewer" }).click()
+  await expect(page.getByRole("complementary", { name: "Viewer" }).getByRole("heading", { name: "The whole flow" })).toBeVisible()
+  await expectOneColumn(item)
+  await page.screenshot({ path: path.join(SHOTS, `review-mid-${colorScheme}.png`) })
+  await context.close()
+}
+
 test("CEL-38: a wide Review page opens the packet in two columns, evidence on the right and sticky; a narrow panel and the task panel keep one column", async ({ page, browser }) => {
   const key = uniqueKey("WID")
   await createProject(page, "Wide review test", key)
@@ -328,14 +343,21 @@ test("CEL-38: a wide Review page opens the packet in two columns, evidence on th
   await caption(page, "A narrower window, 1100 px: too narrow for two columns, so one column as before")
   await page.setViewportSize({ width: 1100, height: 900 })
   await expectOneColumn(item)
+  // Narrower than the column's cap, it still starts at the left edge (CEL-163), not in the middle.
+  const reviewList = page.getByRole("list", { name: "Waiting for review" })
+  const scroller = page.locator("[data-review-scroller]")
+  await expectLeftAligned(scroller, reviewList)
 
   await caption(page, "Back to 1440 px, then open the video in the viewer: the panel narrows, so one column again")
   await page.setViewportSize({ width: 1440, height: 900 })
   await expectTwoColumns(item)
+  await expectLeftAligned(scroller, reviewList)
   await item.getByRole("button", { name: "Open The whole flow in the viewer" }).click()
   const viewer = page.getByRole("complementary", { name: "Viewer" })
   await expect(viewer.getByRole("heading", { name: "The whole flow" })).toBeVisible()
   await expectOneColumn(item)
+  // The side panel narrows the page to a mid width: the list keeps its left edge.
+  await expectLeftAligned(scroller, reviewList)
   await caption(page, "Close the viewer: two columns again")
   await viewer.getByRole("button", { name: "Close viewer" }).click()
   await expect(viewer).toBeHidden()
@@ -347,6 +369,7 @@ test("CEL-38: a wide Review page opens the packet in two columns, evidence on th
     await screenshotWide(browser, `${key}-1`, { width: 1440, height: 900 }, colorScheme)
   }
   await screenshotWide(browser, `${key}-1`, { width: 1100, height: 900 }, "light")
+  for (const colorScheme of ["light", "dark"] as const) await screenshotMid(browser, `${key}-1`, colorScheme)
 
   // On a 2560 px screen the rows and the packet grow, but stop well short of the edges.
   const wide = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 2560, height: 1440 } })
@@ -358,8 +381,9 @@ test("CEL-38: a wide Review page opens the packet in two columns, evidence on th
   const scrollArea = (await widePage.locator("[data-review-scroller]").boundingBox())!
   expect(list.width).toBeGreaterThan(1400)
   expect(list.width).toBeLessThanOrEqual(1536)
-  // Centred in the panel.
-  expect(Math.abs(list.x - scrollArea.x - (scrollArea.x + scrollArea.width - list.x - list.width))).toBeLessThan(2)
+  // Aligned left, like at any other width (CEL-163): the same edge, not centred in the panel.
+  expect(scrollArea.width).toBeGreaterThan(list.width)
+  await expectLeftAligned(widePage.locator("[data-review-scroller]"), widePage.getByRole("list", { name: "Waiting for review" }))
   const at = await expectTwoColumns(wideItem)
   // The text column keeps a readable line length.
   expect(at.steps.width).toBeLessThan(720)
