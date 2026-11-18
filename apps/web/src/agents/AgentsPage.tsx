@@ -168,9 +168,10 @@ function Leaving({ id, children }: { id: string; children: ReactNode }) {
   const [present, safeToRemove] = usePresence()
   const onPage = useContext(PageRows)
   const moved = !present && onPage.includes(id)
+  // Done here either way: a row that left the page goes when its li's fade ends (AnimatePresence waits for both).
   useEffect(() => {
-    if (moved) safeToRemove?.()
-  }, [moved, safeToRemove])
+    if (!present) safeToRemove?.()
+  }, [present, safeToRemove])
   return moved ? null : children
 }
 
