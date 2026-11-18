@@ -29,9 +29,9 @@ import * as path from "node:path"
 import type { ActivityReport } from "@cello/contract/rpcs"
 import { commandWords, isTestCommand } from "@cello/domain/testRun"
 import { stepLine } from "@cello/text/toolSummary"
-import { isObject } from "./claudeSettings.ts"
 import { andList } from "./format.ts"
 import { agentVariable, type Env } from "./identity.ts"
+import { isRecord } from "@cello/domain/record"
 
 export const HOOK_EVENTS = ["stop", "post-tool-use", "pre-tool-use", "post-tool-use-failure", "subagent-start", "subagent-stop"] as const
 export type HookEvent = (typeof HOOK_EVENTS)[number]
@@ -125,7 +125,7 @@ const DEFAULT_AGENT_TYPE = "general-purpose"
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value.trim() : null)
 
-const record = (value: unknown) => (isObject(value) ? value : null)
+const record = (value: unknown) => (isRecord(value) ? value : null)
 
 const launchOf = (toolName: string | null, toolInput: Readonly<Record<string, unknown>> | null, toolResponse: unknown): Launch | null => {
   const agentId = text(record(toolResponse)?.agentId)

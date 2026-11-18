@@ -8,6 +8,7 @@ import type { AskQuestionInput, EvidenceFile, EvidenceLink } from "@cello/contra
 import type { AnswersDelivered } from "@cello/contract/views"
 import { roundLabel } from "@cello/client/sync/asks"
 import { ago } from "./format.ts"
+import { isRecord } from "@cello/domain/record"
 
 export interface AskSpec {
   readonly title: string | null
@@ -19,7 +20,6 @@ export interface AskSpec {
 
 type Parsed = AskSpec | { readonly error: string }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v)
 const KINDS = ["one", "any", "text"] as const
 
 /**
