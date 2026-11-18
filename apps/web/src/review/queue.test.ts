@@ -1,5 +1,67 @@
 import { describe, expect, it } from "vitest"
-import { nextAfterDecision, parseReviewSearch, decisionNote, rowKey } from "./queue.ts"
+import { type DecisionState, decisionStep, IDLE, nextAfterDecision, parseReviewSearch, decisionNote, rowKey, withHeld } from "./queue.ts"
+
+describe("decisionStep: what a row shows from the click on Approve or Send back until it has left (CEL-187)", () => {
+  const pending: DecisionState = { phase: "pending", decision: "approved" }
+  const failed: DecisionState = { phase: "failed", decision: "sent_back", message: "Can't reach the Cello server" }
+
+  it("a click is pending until the server answers", () => {
+    expect(decisionStep(IDLE, { type: "clicked", decision: "approved" })).toEqual(pending)
+    expect(decisionStep(IDLE, { type: "clicked", decision: "sent_back" })).toEqual({ phase: "pending", decision: "sent_back" })
+  })
+
+  it("the server took it: the row says so for a moment, then leaves, then is gone", () => {
+    const decided = decisionStep(pending, { type: "taken" })
+    expect(decided).toEqual({ phase: "decided", decision: "approved" })
+    const leaving = decisionStep(decided, { type: "shown" })
+    expect(leaving).toEqual({ phase: "leaving", decision: "approved" })
+    expect(decisionStep(leaving, { type: "left" })).toEqual({ phase: "gone" })
+  })
+
+  it("it failed: the row keeps the message, and a second click tries again", () => {
+    const refused = decisionStep({ phase: "pending", decision: "sent_back" }, { type: "refused", message: "Can't reach the Cello server" })
+    expect(refused).toEqual(failed)
+    expect(decisionStep(failed, { type: "clicked", decision: "approved" })).toEqual(pending)
+  })
+
+  it("anything out of turn changes nothing: a second click while pending doesn't decide twice", () => {
+    expect(decisionStep(pending, { type: "clicked", decision: "sent_back" })).toBe(pending)
+    expect(decisionStep(IDLE, { type: "taken" })).toBe(IDLE)
+    expect(decisionStep(IDLE, { type: "shown" })).toBe(IDLE)
+    expect(decisionStep(failed, { type: "left" })).toBe(failed)
+    const decided: DecisionState = { phase: "decided", decision: "approved" }
+    expect(decisionStep(decided, { type: "left" })).toBe(decided)
+    expect(decisionStep(decided, { type: "clicked", decision: "sent_back" })).toBe(decided)
+  })
+})
+
+describe("withHeld: a decided row stays where it was until it has left, though the events took it off the queue (CEL-187)", () => {
+  const keyOf = (key: string) => key
+  const held = (key: string, at: number, phase: "decided" | "leaving") => ({ key, item: key, at, state: { phase, decision: "approved" } as const })
+
+  it("the queue as it is, with nothing decided", () => {
+    expect(withHeld(["CEL-3", "CEL-7"], keyOf, [])).toEqual(["CEL-3", "CEL-7"])
+  })
+
+  it("a decided row the queue dropped is still shown, in its place", () => {
+    expect(withHeld(["CEL-3", "THAI-2"], keyOf, [held("CEL-7", 1, "decided")])).toEqual(["CEL-3", "CEL-7", "THAI-2"])
+    expect(withHeld(["CEL-7", "THAI-2"], keyOf, [held("CEL-3", 0, "decided")])).toEqual(["CEL-3", "CEL-7", "THAI-2"])
+    expect(withHeld([], keyOf, [held("CEL-3", 4, "decided")])).toEqual(["CEL-3"])
+  })
+
+  it("two rows decided one after the other both keep their place", () => {
+    expect(withHeld(["THAI-2"], keyOf, [held("CEL-7", 1, "decided"), held("CEL-3", 0, "decided")])).toEqual(["CEL-3", "CEL-7", "THAI-2"])
+  })
+
+  it("a row the queue still lists (its events haven't arrived) is shown once", () => {
+    expect(withHeld(["CEL-3", "CEL-7"], keyOf, [held("CEL-7", 1, "decided")])).toEqual(["CEL-3", "CEL-7"])
+  })
+
+  it("a leaving row is out of the list, so it can fold away, even while the queue still lists it", () => {
+    expect(withHeld(["CEL-3", "THAI-2"], keyOf, [held("CEL-7", 1, "leaving")])).toEqual(["CEL-3", "THAI-2"])
+    expect(withHeld(["CEL-3", "CEL-7"], keyOf, [held("CEL-7", 1, "leaving")])).toEqual(["CEL-3"])
+  })
+})
 
 describe("parseReviewSearch: the open row lives in the URL", () => {
   it("keeps a task key, uppercased", () => {
