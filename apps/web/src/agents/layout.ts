@@ -235,6 +235,16 @@ export const filterAgentRows = (
   statuses: Readonly<Record<string, { readonly name: string; readonly category: string }>>,
 ): AgentRow[] => (projectId === null ? [...rows] : rows.filter((r) => homeProjectOf(r, rows, statuses) === projectId))
 
+/**
+ * The project of every row the page lists, working and finished today, for the chips (null: none): the
+ * same `homeProjectOf` the filter uses, each list on its own, so a chip's count is what its pick shows.
+ */
+export const agentProjectIds = (
+  rows: ReadonlyArray<AgentRow>,
+  finished: ReadonlyArray<AgentRow>,
+  statuses: Readonly<Record<string, { readonly name: string; readonly category: string }>>,
+): Array<string | null> => [...rows.map((r) => homeProjectOf(r, rows, statuses)), ...finished.map((r) => homeProjectOf(r, finished, statuses))]
+
 /** How the Agents page orders the families in each group (CEL-188); Started, when they began, is the default. */
 export const AGENT_SORTS = ["started", "active", "project", "task"] as const
 export type AgentSort = (typeof AGENT_SORTS)[number]

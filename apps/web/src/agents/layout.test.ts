@@ -7,6 +7,7 @@ import {
   type AgentSort,
   agentGroups,
   agentRows,
+  agentProjectIds,
   directTasks,
   filterAgentRows,
   finishedRows,
@@ -329,6 +330,14 @@ describe("homeProjectOf and filterAgentRows: the Agents page narrowed to a proje
     const rows = agentRows([working(session("sa"), { tasks: [inProject(task("t1", "A-1"), "pa")] }), working(session("sb"))])
     expect(filterAgentRows(rows, null, statuses).map((r) => r.id)).toEqual(["session:sa", "session:sb"])
     expect(filterAgentRows(rows, "pa", statuses).map((r) => r.id)).toEqual(["session:sa"])
+  })
+
+  it("agentProjectIds counts the finished rows too, so a project whose only agents finished today still has its chip", () => {
+    const live = agentRows([working(session("sa"), { tasks: [inProject(task("t1", "A-1"), "pa")] })])
+    const finished = finishedRows(EMPTY_BOARD, [{ session: session("sf"), agent: null, tasks: [inProject(task("t9", "B-1"), "pb")], endedAt: now }])
+    expect(agentProjectIds(live, finished, statuses)).toEqual(["pa", "pb"])
+    // The same ids the filter uses: picking pb shows the finished row.
+    expect(filterAgentRows(finished, "pb", statuses).map((r) => r.id)).toEqual(["session:sf"])
   })
 
   it("a finished row stands on its own: its own task's project", () => {

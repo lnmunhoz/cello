@@ -20,7 +20,7 @@ import { FOLD_SPRING, QueueRow, type QueueRowState } from "./QueueRow.tsx"
 import { allLeft, type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, filterQueue, type Held, holdStep, IDLE, REVIEW_SORT_LABELS, REVIEW_SORTS, sortQueue, syncHeld, withHeld } from "./queue.ts"
 import { NothingFor, QueueToolbar } from "./ProjectChips.tsx"
 import { projectChips } from "./queueView.ts"
-import { useQueueView } from "./useQueueView.ts"
+import { useJustChanged, useQueueView } from "./useQueueView.ts"
 import { CommentOrDecide } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
 import { useQueue } from "./useQueue.ts"
@@ -48,7 +48,9 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   const navigate = useNavigate({ from: "/review" })
 
   const projects = projectsOf(board, workspaceId)
-  const { picked, pick, sort, pickSort, instant } = useQueueView("review", projects, REVIEW_SORTS)
+  const { picked, pick, sort, pickSort, view } = useQueueView("review", projects, REVIEW_SORTS)
+  // The human's own pick folds rows at once; an event's fold springs.
+  const instant = useJustChanged(view)
   const projectId = picked?.id ?? null
   // Asks first (an agent is waiting on them), then packets; a task is in one group only. The chips count
   // all of them, so rows stay put while you filter (CEL-188).

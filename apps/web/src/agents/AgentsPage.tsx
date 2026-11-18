@@ -44,7 +44,7 @@ import {
   filterAgentRows,
   finishedRows,
   groupOf,
-  homeProjectOf,
+  agentProjectIds,
   pulseKeyOf,
   rowKeysOf,
   sortFamilies,
@@ -89,13 +89,15 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const navigate = useNavigate({ from: "/agents" })
   const now = useNow()
   const projects = projectsOf(board, workspaceId)
-  const { picked, pick, sort, pickSort } = useQueueView("agents", projects, AGENT_SORTS)
+  const { picked, pick, sort, pickSort, view } = useQueueView("agents", projects, AGENT_SORTS)
   const projectId = picked?.id ?? null
   const allSessions = workingSessions(board, workspaceId, now)
   const allRows = agentRows(allSessions)
   const allFinished = finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now)))
-  // The chips count the whole list, so rows stay put while you filter; a family is never split by a pick.
-  const chips = projectChips(allRows.map((r) => homeProjectOf(r, allRows, board.statuses)), projects, picked)
+  // The chips count the whole list, Finished today too (the pick filters it), so rows stay put while you filter;
+  // a family is never split by a pick. All N is every row listed. The header's number stays the sidebar's: agents
+  // working now, of the rows shown.
+  const chips = projectChips(agentProjectIds(allRows, allFinished, board.statuses), projects, picked)
   const nameOf = (id: string) => board.projects[id]?.name ?? ""
   const rows = sortFamilies(filterAgentRows(allRows, projectId, board.statuses), sort, nameOf, board.statuses)
   const finished = filterAgentRows(allFinished, projectId, board.statuses)
@@ -104,7 +106,6 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const keys = rowKeysOf(groups)
   // A pick or a new sort starts the list afresh (the LayoutGroup's key, and its id, so no row's layoutId reaches back to
   // where the same row was before): no row glides or folds to its new place, since the human asked for it; events still do.
-  const view = `${picked?.key ?? "all"}/${sort}`
   const layoutKey = groups.map((g) => `${g.id}:${g.rows.map((r) => r.id).join(",")}`).join(";")
   const placement = new Map(groups.flatMap((g) => g.rows.map((r) => [r.id, g.id] as const)))
   const openId = open !== undefined && keys.includes(open) ? open : null
