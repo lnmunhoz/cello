@@ -3,6 +3,13 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.6.0](https://github.com/lnmunhoz/cello/compare/v0.5.0...v0.6.0) (2026-11-18)
+
+### Features
+
+- evidence that is a diff opens in a real diff view: files with their status and +/− counts, coloured lines with old and new numbers, Unified, Split when the panel is wide, and Raw; big diffs start folded (CEL-173) ([9fb1883](https://github.com/lnmunhoz/cello/commit/9fb188321d0fb032074d046d2a4a4d6e8ad71b2c))
+- bun run release picks the version from what ships: minor when any merged task is a feature, else patch, and says why on its first line (CEL-174) ([9f2e5f3](https://github.com/lnmunhoz/cello/commit/9f2e5f38732ce4fe6e23091bcae1a623924cd147))
+
 ## [0.5.0](https://github.com/lnmunhoz/cello/compare/v0.4.17...v0.5.0) (2026-11-18)
 
 ### Features
