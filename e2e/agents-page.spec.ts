@@ -418,7 +418,7 @@ for (const theme of ["light", "dark"] as const) {
     const rowOf = (id: string) => page.locator(`li:has([data-agent-row="session:${id}"])`)
     /** Nothing on the page is running but the working agents' marks (they loop by design, CEL-69), and no row is mid-move. */
     const expectIdle = async () => {
-      expect(await contentAnimations(page, "[data-agent-mark]")).toBe(0)
+      expect(await contentAnimations(page, ".agent-mark")).toBe(0)
       await expect(page.locator("main li[style*='transform']:not([style*='none'])")).toHaveCount(0)
     }
     /** A pulse that shows: its wash and ring come up past half (a span left at opacity 0 fails this). */

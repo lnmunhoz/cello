@@ -272,7 +272,7 @@ export const animationsSettled = (page: Page): Promise<void> =>
  * running. The sidebar is left out: its Agents working list shows every active agent in the workspace,
  * and their marks loop while they work (CEL-69), so on the shared test server another spec's agent can
  * be working there. An idle page asserts this is 0. `except` leaves out what loops by design inside
- * <main> too, by selector: a working agent's mark on the Agents page (`[data-agent-mark]`).
+ * <main> too, by selector: a working agent's mark on the Agents page (`.agent-mark`, components/ui/AgentMark.tsx).
  */
 export const contentAnimations = (page: Page, except?: string): Promise<number> =>
   page.evaluate(
