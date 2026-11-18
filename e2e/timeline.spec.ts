@@ -69,13 +69,13 @@ const threadOf = (root: Locator) =>
       el.hasAttribute("data-comment-id") ? "comment" : el.hasAttribute("data-timeline-fold") ? "fold" : `line:${el.getAttribute("data-timeline-line")}`
     ))
 
-/** Stills of `page` in light and dark: e2e/videos/evidence/cel-160-<name>-light.png and -dark. */
-async function shoot(page: Page, name: string) {
+/** Stills of `page` in light and dark: e2e/videos/evidence/<prefix>-<name>-light.png and -dark (CEL-160's by default). */
+async function shoot(page: Page, name: string, prefix = "cel-160") {
   await page.mouse.move(1430, 890)
   for (const theme of ["light", "dark"] as const) {
     await page.evaluate((dark) => document.documentElement.classList.toggle("dark", dark), theme === "dark")
     await animationsSettled(page)
-    await still(page, `cel-160-${name}-${theme}`)
+    await still(page, `${prefix}-${name}-${theme}`)
   }
   await page.evaluate(() => document.documentElement.classList.remove("dark"))
 }
@@ -269,5 +269,168 @@ test("CEL-160: the release that took a task live is a line in its thread, linkin
   await expect(connecting).toHaveCount(0)
   // The video ends on the loaded page: the caption holds it on screen before and after (review mode).
   await caption(page, "The Builds page has build #2, with what changed in it")
+  await hold(page)
+})
+
+// CEL-181: the thread says how a test run turned out. An agent comments "Running the spec in Docker now.";
+// the run shows live right under it, and when it ends the same row turns into its outcome. Seeded through the
+// real `cello` CLI and its Claude Code hooks, as a builder and an orchestrator run them: a background Docker
+// run reporting through `cello test progress`, and foreground unit runs ending with their call. Stills in light
+// and dark go to e2e/videos/evidence/ (cel-181-*.png).
+const SESSION2 = "7a1c9e30-2b4d-4f61-8e5a-3d9b0c7f1e24"
+const BUILDER2 = "d4e5f6a7b8c9d0e1f"
+
+test("CEL-181: a test run shows live under the comment that announced it, then how it ended; repeated runs collapse, a failed run is red, a fold keeps the results", async ({ page, cello }) => {
+  test.setTimeout(300_000)
+  const key = uniqueKey("TST")
+  const project = await seedProject(cello, "Test outcomes", key)
+  const { statuses } = await defaultWorkspace(cello)
+  for (const title of ["A test run shows live, then how it ended", "Repeated runs, a failed run, and a fold"]) {
+    await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title, priority: 2, statusId: statuses.Todo!.id }))
+  }
+  const [one, two] = [`${key}-1`, `${key}-2`]
+  const orchestrator = celloIn(cwd)(SESSION2)
+  const progressFile = path.join(work, "progress-181.json")
+  /** The runner's report, as scripts/test-in-docker.ts sends it: in the repo, as the session. */
+  const report = (extra: Record<string, unknown>) => {
+    fs.writeFileSync(progressFile, JSON.stringify({
+      stage: "web-e2e", passed: 0, failed: 0, skipped: 0, total: 3, current: null, failures: [], done: false, outcome: null, folder: null, ...extra,
+    }))
+    orchestrator("test", "progress", "--file", progressFile)
+  }
+  /** A Bash call of the orchestrator (or, with `agent`, of the builder): the hook's input for it. */
+  const call = (id: string, command: string, options: { background?: boolean; agent?: boolean } = {}) => ({
+    session_id: SESSION2, tool_name: "Bash", tool_use_id: id,
+    ...(options.agent ? { agent_id: BUILDER2, agent_type: BUILDER_TYPE } : {}),
+    tool_input: { command, ...(options.background ? { run_in_background: true } : {}) },
+  })
+  /** A foreground run of the builder: it starts, and ends with its call. */
+  const foreground = (id: string, command: string, outcome: "passed" | "failed") => ({
+    start: () => hooks.hook("pre-tool-use", { ...call(id, command, { agent: true }), hook_event_name: "PreToolUse" }),
+    end: () =>
+      outcome === "passed"
+        ? hooks.hook("post-tool-use", { ...call(id, command, { agent: true }), hook_event_name: "PostToolUse", tool_response: { stdout: "ok" } })
+        : hooks.hook("post-tool-use-failure", { ...call(id, command, { agent: true }), hook_event_name: "PostToolUseFailure", error: "Exit code 1" }),
+  })
+
+  // ── 1. The announced run, live, then its outcome in the same row ─────────────────────────────────
+  orchestrator("task", "claim", one)
+  await page.goto(`/${key}/1`)
+  const panel = taskPanel(page, one)
+  await expect(panel).toBeVisible()
+  await showThread(panel)
+
+  await caption(page, "The orchestrator says it's running the spec in Docker")
+  orchestrator("task", "comment", one, "Running the spec in Docker now.")
+  await expect(panel.locator("[data-comment-id]")).toHaveCount(1)
+
+  await caption(page, "It starts the run in the background: a live row appears right under the comment")
+  const docker = call("toolu_d1", "bun run test:docker:e2e -- e2e/pages.spec.ts", { background: true })
+  hooks.hook("pre-tool-use", { ...docker, hook_event_name: "PreToolUse" })
+  hooks.hook("post-tool-use", { ...docker, hook_event_name: "PostToolUse", tool_response: { stdout: "", backgroundTaskId: "bdock0001" } })
+  const live = panel.locator('[data-timeline-line="tests_live"]')
+  await expect(live).toHaveCount(1)
+  await expect(live).toContainText("Running web e2e · e2e/pages.spec.ts")
+  expect(await threadOf(panel)).toEqual(["comment", "line:tests_live"])
+  const id = (await live.getAttribute("data-timeline-id"))!
+
+  await caption(page, "The runner reports as it goes: 1 of 3")
+  report({ passed: 1, current: "e2e/pages.spec.ts" })
+  await expect(live).toContainText("1 of 3")
+  await shoot(page, "live", "cel-181")
+
+  // From here, a page-side record of the row: its <li> must never be removed or doubled while it turns into its outcome.
+  await page.evaluate((rowId) => {
+    const li = document.querySelector(`[data-timeline-id="${rowId}"]`)!
+    const record = { removed: 0, duplicates: 0, li }
+    ;(window as unknown as { __swap: typeof record }).__swap = record
+    new MutationObserver((changes) => {
+      for (const change of changes) {
+        change.removedNodes.forEach((node) => { if (node === li) record.removed++ })
+        change.addedNodes.forEach((node) => { if (node !== li && node instanceof Element && node.getAttribute("data-timeline-id") === rowId) record.duplicates++ })
+      }
+      if (document.querySelectorAll(`[data-timeline-id="${rowId}"]`).length > 1) record.duplicates++
+    }).observe(li.parentElement!, { childList: true, subtree: true })
+  }, id)
+
+  await caption(page, "The run ends, passed 3 of 3: the same row turns into its outcome")
+  report({ passed: 3, done: true, outcome: "passed", folder: path.join(cwd, "test-results/docker/2026-11-18_100000-e2e-1") })
+  const row = panel.locator(`[data-timeline-id="${id}"]`)
+  await expect(row).toHaveAttribute("data-timeline-line", "tests")
+  await expect(row).toContainText("web e2e passed · e2e/pages.spec.ts · 3 of 3")
+  // The history has it too (a refetch after the board heard the run end): the row didn't flash or double on the way.
+  await expect(panel.locator('[data-history-event="tests.finished"]')).toContainText("ran web e2e: passed · e2e/pages.spec.ts · 3 of 3")
+  await expect(row).toHaveCount(1)
+  expect(await page.evaluate(() => {
+    const swap = (window as unknown as { __swap: { removed: number; duplicates: number; li: Element } }).__swap
+    return { removed: swap.removed, duplicates: swap.duplicates, sameElement: document.querySelector(`[data-timeline-line="tests"]`) === swap.li }
+  })).toEqual({ removed: 0, duplicates: 0, sameElement: true })
+  await shoot(page, "passed", "cel-181")
+
+  await caption(page, "Submitted for review: the thread reads comment, how the run went, then the status move")
+  orchestrator("task", "submit", one, "--summary", "The run's outcome is in the thread.", "--step", "Open the task and read the thread", "--link", "https://github.com/lnmunhoz/cello/pull/181", "--caption", "The PR")
+  await expect(panel.locator('[data-timeline-line="status"]')).toHaveText(/In Progress → In Review/)
+  expect(await threadOf(panel)).toEqual(["comment", "line:tests", "line:status"])
+  await shoot(page, "submitted", "cel-181")
+
+  // ── 2. Two runs at once, repeated runs, a failed run, and a fold ─────────────────────────────────
+  orchestrator("task", "claim", two)
+  hooks.launch(SESSION2, BUILDER2, BUILDER_TYPE, `${two} repeated runs and a fold`)
+  await page.goto(`/${key}/2`)
+  const panel2 = taskPanel(page, two)
+  await expect(panel2).toBeVisible()
+  await showThread(panel2)
+  await caption(page, "A second task: the orchestrator announces the Docker run, and the builder runs unit tests meanwhile")
+  orchestrator("task", "comment", two, "Running the spec in Docker, and the builder's unit tests.")
+  await expect(panel2.locator("[data-comment-id]")).toHaveCount(1)
+  const docker2 = call("toolu_d2", "bun run test:docker:e2e -- e2e/pages.spec.ts", { background: true })
+  hooks.hook("pre-tool-use", { ...docker2, hook_event_name: "PreToolUse" })
+  hooks.hook("post-tool-use", { ...docker2, hook_event_name: "PostToolUse", tool_response: { stdout: "", backgroundTaskId: "bdock0002" } })
+  const first = foreground("toolu_u1", "bun run test -- apps/server", "failed")
+  first.start()
+  const lives = panel2.locator('[data-timeline-line="tests_live"]')
+  await expect(lives).toHaveCount(2)
+  await expect(lives.nth(0)).toContainText("Running web e2e")
+  await expect(lives.nth(1)).toContainText("Running unit tests · apps/server")
+  await shoot(page, "two-live", "cel-181")
+
+  await caption(page, "The builder's unit runs fail twice and pass: they collapse into one line, the Docker run still live")
+  first.end()
+  for (const [id2, outcome] of [["toolu_u2", "failed"], ["toolu_u3", "passed"]] as const) {
+    const next = foreground(id2, "bun run test -- apps/server", outcome)
+    next.start()
+    next.end()
+  }
+  const collapsed = panel2.locator('[data-timeline-line="tests"]')
+  await expect(collapsed).toHaveCount(1)
+  await expect(collapsed).toContainText(/unit tests passed · apps\/server · \d+s · 3 runs/)
+  await expect(collapsed).toHaveAttribute("title", /Earlier: unit tests failed/)
+  await expect(lives).toHaveCount(1)
+  await shoot(page, "collapsed", "cel-181")
+
+  await caption(page, "The Docker run fails: its row turns red, the failure in its hover")
+  report({ passed: 2, failed: 1, failures: ["e2e/pages.spec.ts:40 › opens the page"], done: true, outcome: "failed", folder: path.join(cwd, "test-results/docker/2026-11-18_100500-e2e-2") })
+  const failed = panel2.locator('[data-timeline-line="tests"][data-outcome="failed"]')
+  await expect(failed).toHaveCount(1)
+  await expect(failed).toContainText("web e2e failed · e2e/pages.spec.ts · 1 failed of 3")
+  await expect(failed).toHaveAttribute("title", /✘ e2e\/pages\.spec\.ts:40 › opens the page/)
+  await expect(lives).toHaveCount(0)
+  await shoot(page, "failed", "cel-181")
+
+  await caption(page, "A later comment folds the stretch before it, and the results stay visible")
+  orchestrator("task", "stage", two, "fixing")
+  hooks.stop(SESSION2, BUILDER2, BUILDER_TYPE)
+  await expect(panel2.locator('[data-timeline-line="run_end"]')).toHaveCount(1)
+  orchestrator("task", "comment", two, "Fixing the failing spec.")
+  await expect(panel2.locator("[data-comment-id]")).toHaveCount(2)
+  const fold = panel2.locator("[data-timeline-fold]")
+  await expect(fold).toHaveCount(1)
+  await expect(fold).toContainText(/\d+ earlier · show/)
+  // Closed, both results still show beside the button; the hidden lines are the ones that aren't results.
+  await expect(panel2.locator('[data-timeline-line="tests"]')).toHaveCount(2)
+  await shoot(page, "folded", "cel-181")
+  await fold.getByRole("button").click()
+  await expect(fold).toHaveAttribute("data-open", "")
+  await expect(panel2.locator('[data-timeline-line="tests"]')).toHaveCount(2)
   await hold(page)
 })
