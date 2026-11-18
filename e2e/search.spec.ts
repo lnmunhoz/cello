@@ -289,6 +289,51 @@ test("⌘K on the Review page: Enter on a task opens it in the side panel and Re
   await expect(card(page, "CEL-1")).toBeVisible()
 })
 
+const jumpRows = (page: Page) => bar(page).locator('[data-section="jump"] [role="option"]')
+
+test("⌘K: a task's number alone, or with its project (3, #9, cel 9), lists the Go to rows, the current project's first; Enter opens the task (CEL-162)", async ({ cello, page, baseURL }) => {
+  await seed(cello, baseURL!)
+  await boardOf(page, "CEL")
+  await caption(page, "On Cello's board: ⌘K, just “3”: CEL-3 first, then ThaiLookup's THAI-3")
+  await openBar(page)
+  await field(page).pressSequentially("3", { delay: 60 })
+  await expect(jumpRows(page)).toHaveCount(2)
+  await expect(jumpRows(page).nth(0)).toContainText("CEL-3")
+  await expect(jumpRows(page).nth(0)).toContainText("cello task claim for agents")
+  await expect(jumpRows(page).nth(1)).toContainText("THAI-3")
+  // A task that has its Go to row isn't listed again under Tasks.
+  await expect(bar(page).locator('[data-section="task"] [role="option"]').filter({ hasText: /^(CEL|THAI)-3\b/ })).toHaveCount(0)
+
+  await caption(page, "On ThaiLookup's board the same “3” puts THAI-3 first")
+  await page.keyboard.press("Escape")
+  await boardOf(page, "THAI")
+  await openBar(page)
+  await field(page).pressSequentially("3", { delay: 60 })
+  await expect(jumpRows(page)).toHaveCount(2)
+  await expect(jumpRows(page).nth(0)).toContainText("THAI-3")
+  await expect(jumpRows(page).nth(1)).toContainText("CEL-3")
+
+  await caption(page, "“cel 9” (a space, no hyphen) and “#9” find CEL-9; Enter opens it")
+  await field(page).fill("cel 9")
+  await expect(jumpRows(page)).toHaveCount(1)
+  await expect(jumpRows(page).first()).toContainText("CEL-9")
+  await field(page).fill("#9")
+  await expect(jumpRows(page)).toHaveCount(1)
+  await expect(jumpRows(page).first()).toContainText("CEL-9")
+  await page.keyboard.press("Enter")
+  await expect(bar(page)).toBeHidden()
+  await expect(page).toHaveURL(showsBeside("/THAI/issues", "CEL-9"))
+
+  await caption(page, "“evidence 2” is still a word search: no Go to row")
+  await openBar(page)
+  await field(page).pressSequentially("evidence 2", { delay: 40 })
+  await expect(bar(page).getByText("Go to", { exact: true })).toHaveCount(0)
+  await field(page).fill("cel 2")
+  await expect(jumpRows(page)).toHaveCount(1)
+  await field(page).fill("cel2")
+  await expect(jumpRows(page)).toHaveCount(0)
+})
+
 test("⌘K: the footer switches to Palette, remembered after a reload; Settings shows and changes it; a narrow window shows Palette", async ({ cello, page, baseURL }) => {
   await seed(cello, baseURL!)
   await boardOf(page, "CEL")
@@ -389,6 +434,9 @@ async function shots(browser: Browser, layout: "peek" | "palette", scheme: "ligh
   await field(page).fill(">")
   await expect(option(page, /Go to Review/)).toBeVisible()
   await page.screenshot({ path: name("4-actions") })
+  await field(page).fill("3")
+  await expect(bar(page).locator('[data-section="jump"] [role="option"]')).toHaveCount(2)
+  await page.screenshot({ path: name("5-number") })
   await context.close()
 }
 

@@ -6,7 +6,7 @@ import type { BoardState } from "@cello/client/sync/applyEvents"
 import { byPosition, projectsOf, taskOfKey } from "@cello/client/sync/selectors"
 import type { SearchHit, SearchResults } from "@cello/contract/search"
 import { matchesAll, searchTerms, wordPrefixRanges } from "@cello/shared/search"
-import { formatTaskKey, parseTaskKey } from "@cello/shared/taskKey"
+import { formatTaskKey, parseTaskQuery } from "@cello/shared/taskKey"
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { useNavigate, useRouter } from "@tanstack/react-router"
 import { formatShortcut } from "@ui-sdk/react/shortcuts"
@@ -26,6 +26,7 @@ import { relativeTime } from "../lib/format.ts"
 import { useBoard, useMediaQuery, useWorkspaceId } from "../lib/hooks.ts"
 import { readStored, writeStored } from "../lib/storage.ts"
 import { isActionsOnly, matchActions } from "./actions.ts"
+import { jumpKeys, withoutTasks } from "./jumps.ts"
 import { BAR_LAYOUT_KEY, LAYOUT_NAMES, PEEK_MIN_WIDTH, shownLayout, useBarLayout, type BarLayout } from "./layout.ts"
 import { readRecent, RECENT_KEY, recentOf, targetOf, withRecent, type RecentItem, type Target } from "./open.ts"
 import { ActionPreview, DECISION_LABELS, Marked, Preview } from "./Preview.tsx"
@@ -82,35 +83,43 @@ function Bar({ chosen, layout, onClose, onToggleSidebar }: { chosen: BarLayout; 
   const typed = page === null && !actionsOnly ? query.trim() : ""
   const actions = useActions({ board, workspaceId, layout: chosen, typed: page === "new-task" ? query.trim() : typed, onToggleSidebar })
 
+  // A task's key in any form (CEL-147, cel 147) is asked as the key, so the server's key mode answers;
+  // a bare number (147, #147) is asked as typed, and its Go to rows come from the board (CEL-162).
+  const projects = board && workspaceId ? projectsOf(board, workspaceId) : []
+  const parsed = parseTaskQuery(typed, projects.map((p) => p.key))
+  const key = parsed?.projectKey ? formatTaskKey(parsed.projectKey, parsed.number) : null
+  const asked = key ?? typed
+
   // The server's answer for what's typed (nothing is asked while it's empty); the last one stays on
   // screen while the next loads.
-  const result = useAtomValue(searchFamily(JSON.stringify({ query: workspaceId ? typed : "", workspaceId, limit: LIMIT })))
+  const result = useAtomValue(searchFamily(JSON.stringify({ query: workspaceId ? asked : "", workspaceId, limit: LIMIT })))
   const fresh = AsyncResult.isSuccess(result) ? result.value : null
   const [last, setLast] = useState<SearchResults | null>(null)
   if (fresh !== null && fresh !== last) setLast(fresh)
   // Only an answer of the same kind as what's typed: words for words, this key for a key.
-  const parsed = parseTaskKey(typed)
-  const key = parsed ? formatTaskKey(parsed.projectKey, parsed.number) : null
   const answer = typed === "" ? null : (fresh ?? last)
   const results = answer && answer.key === key ? answer : null
 
-  // A key jumps at once from the board, before the server answers.
-  const jump = (board && key ? jumpHit(board, key) : null) ?? results?.jump ?? null
-  const sections: Section[] = page === null ? sectionsOf(results, layout, scope) : []
+  // A key jumps at once from the board, before the server answers; a bare number jumps to each
+  // project's task with it, the current project's first.
+  const fromBoard = board ? jumpKeys(parsed, projects.map((p) => p.key), actions.project?.key ?? null).flatMap((k) => jumpHit(board, k) ?? []) : []
+  const jumps = fromBoard.length > 0 ? fromBoard : results?.jump ? [results.jump] : []
+  // A task with a Go to row isn't listed again under Tasks.
+  const listed = withoutTasks(results, new Set(jumps.map((j) => j.id)))
+  const sections: Section[] = page === null ? sectionsOf(listed, layout, scope) : []
   const recent = page === null && query.trim() === "" && board && workspaceId ? recentHits(board, workspaceId) : []
   const matched = page === null ? matchActions(actions.specs, query) : []
   const shownActions = page !== null ? [] : actionsOnly ? matched : typed !== "" ? (peek && scope !== "all" ? [] : matched.slice(0, 4)) : matched.slice(0, 6)
-  const counts = scopeCounts(results)
+  const counts = scopeCounts(listed)
 
   const rows: Row[] = [
-    ...(jump ? [{ value: `jump:${jump.id}`, hit: jump, look: "jump" as const }] : []),
+    ...jumps.map((jump) => ({ value: `jump:${jump.id}`, hit: jump, look: "jump" as const })),
     ...recent.map((hit) => ({ value: `recent:${hitValue(hit)}`, hit })),
     ...sections.flatMap((s) => s.hits.map((hit) => ({ value: hitValue(hit), hit }))),
   ]
   const rowByValue = new Map(rows.map((r) => [r.value, r]))
   const actionByValue = new Map(shownActions.map((a) => [`action:${a.id}`, a]))
 
-  const projects = board && workspaceId ? projectsOf(board, workspaceId) : []
   const workspaces = board ? byPosition(Object.values(board.workspaces).filter((w) => w.archivedAt === null)) : []
   const terms = searchTerms(query)
 
@@ -210,12 +219,14 @@ function Bar({ chosen, layout, onClose, onToggleSidebar }: { chosen: BarLayout; 
         </CommandGroup>
       ) : (
         <>
-          {jump ? (
-            <CommandGroup>
+          {jumps.length > 0 ? (
+            <CommandGroup data-section="jump">
               <CommandGroupLabel>Go to</CommandGroupLabel>
-              <CommandItem value={`jump:${jump.id}`}>
-                <HitRow hit={jump} board={board} compact={peek} jump />
-              </CommandItem>
+              {jumps.map((jump) => (
+                <CommandItem key={jump.id} value={`jump:${jump.id}`}>
+                  <HitRow hit={jump} board={board} compact={peek} jump />
+                </CommandItem>
+              ))}
             </CommandGroup>
           ) : null}
           {recent.length > 0 ? (
@@ -298,7 +309,7 @@ function Bar({ chosen, layout, onClose, onToggleSidebar }: { chosen: BarLayout; 
         />
         <Kbd>esc</Kbd>
       </div>
-      {peek && typed !== "" && page === null && results && results.key === null ? (
+      {peek && typed !== "" && page === null && results && results.key === null && counts.all > 0 ? (
         <div className="flex items-center gap-1 border-b border-line px-3 py-1.5">
           <Tabs value={scope} onValueChange={(value) => value && setScope(value as Scope)}>
             <TabsList aria-label="Search in">
