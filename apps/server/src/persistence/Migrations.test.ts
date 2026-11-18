@@ -408,7 +408,8 @@ const allRows = Effect.gen(function* () {
  * 0024's `milestones` table and `tasks.milestone_id` (CEL-113, empty and null where no Milestone label was),
  * 0026's `agent_sessions.terminal` (CEL-137, null on every row it finds),
  * 0027's `projects.merge_after_approval` (CEL-143, 0 on every row it finds),
- * and 0028's `session_agents.verdict` (CEL-160, null on every row it finds).
+ * 0028's `session_agents.verdict` (CEL-160, null on every row it finds),
+ * and 0029's `reviews.relayed_session_id` (CEL-169, null on every row it finds).
  */
 const withoutLaterAdditions = (rows: Record<string, unknown>): Record<string, unknown> => {
   const { profile_fields: _profiles, session_runs: _runs, wake_settings: _wake, milestones: _milestones, ...rest } = rows
@@ -430,6 +431,9 @@ const withoutLaterAdditions = (rows: Record<string, unknown>): Record<string, un
           ({ transcript_path: _path, current_step: _step, current_step_at: _at, model: _m, effort: _e, orchestrating: _o, background_json: _bg, tests_json: _t, waiting_json: _w, verdict: _v, ...row }) => row,
         ),
       }
+      : {}),
+    ...("reviews" in rows
+      ? { reviews: (rows["reviews"] as ReadonlyArray<Record<string, unknown>>).map(({ relayed_session_id: _relayed, ...row }) => row) }
       : {}),
     ...("projects" in rows
       ? { projects: (rows["projects"] as ReadonlyArray<Record<string, unknown>>).map(({ merge_after_approval: _merge, ...row }) => row) }
@@ -518,6 +522,8 @@ describe("migration 0011_agents", () => {
         // 0022's model and effort (CEL-119): nothing written before it has one.
         comments: strip(strip(strip(after.comments, "agent_id"), "model"), "effort"),
         events: strip(strip(strip(after.events, "agent_id"), "model"), "effort"),
+        // 0029's relayed session (CEL-169): approvals decided before it were all the human's own.
+        reviews: strip(after.reviews, "relayed_session_id"),
       }).toEqual(before)
       expect(yield* sql`SELECT * FROM session_agents`).toEqual([])
 
