@@ -223,6 +223,13 @@ export const storyOf = (steps: ReadonlyArray<LogStep>, options: { readonly think
   })
 }
 
+/**
+ * Whether a group opens as soon as it appears: when a call the human had opened is in it (`opened`: the
+ * ids of the steps they opened). A lone call becomes a group when a second one arrives, under a new id,
+ * and without this the call they were reading would fold shut.
+ */
+export const groupStartsOpen = (steps: ReadonlyArray<LogStep>, opened: ReadonlySet<string>): boolean => steps.some((step) => opened.has(step.id))
+
 /** The item's key: its step's id, or its group's or turn's. */
 export const storyKey = (item: StoryItem): string => (item._tag === "group" || item._tag === "turn" ? item.id : item.step.id)
 

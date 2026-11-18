@@ -1,6 +1,17 @@
 import type { SessionRun, TaskWake } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { atBottom, runsOf } from "./log.ts"
+import { atBottom, codeParts, runsOf } from "./log.ts"
+
+describe("codeParts", () => {
+  it("splits text on its backticks: what's between a pair is code (CEL-170)", () => {
+    expect(codeParts("Turn on `showThinkingSummaries` in ~/.claude/settings.json: now.")).toEqual([
+      { text: "Turn on ", code: false },
+      { text: "showThinkingSummaries", code: true },
+      { text: " in ~/.claude/settings.json: now.", code: false },
+    ])
+    expect(codeParts("no code here")).toEqual([{ text: "no code here", code: false }])
+  })
+})
 
 describe("runsOf", () => {
   const run = (id: string, sessionId: string, startedAt: number): SessionRun => ({

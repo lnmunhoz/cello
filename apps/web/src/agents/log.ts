@@ -13,6 +13,10 @@ export const runsOf = (wakes: Readonly<Record<string, TaskWake>>, sessionId: str
 export const runLabel = (run: SessionRun): string =>
   `Woken run · ${new Date(run.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${run.outcome}`
 
+/** Text split on its backticks, so what's between a pair can show as code. */
+export const codeParts = (text: string): ReadonlyArray<{ readonly text: string; readonly code: boolean }> =>
+  text.split("`").map((part, i) => ({ text: part, code: i % 2 === 1 })).filter((part) => part.text !== "")
+
 /** Within this many pixels of the end, the log counts as scrolled to the bottom: it follows new steps. */
 export const BOTTOM_SLACK = 24
 

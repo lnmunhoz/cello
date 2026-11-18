@@ -8,6 +8,7 @@ import {
   durationWords,
   EMPTY_LOG,
   filterSteps,
+  groupStartsOpen,
   logKey,
   parseLogKey,
   previewOf,
@@ -344,5 +345,16 @@ describe("storyOf", () => {
     expect(storySteps(group!).map((s) => s.id)).toEqual(["c1", "c2"])
     const [, turn] = storyOf([...calls, said("m", "Done.", 3, true)], open)
     expect(storySteps(turn!).map((s) => s.id)).toEqual(["c1", "c2"])
+  })
+
+  it("a group that forms around a call the human had opened starts open, so that call stays open (CEL-170)", () => {
+    const lone = [prompt("u", "Go"), call("c1", "Bash", "Run", 1)]
+    // The lone call is a row of its own; with a second call it's inside a group with another id.
+    expect(shape(storyOf(lone, open))).toEqual(["u", "c1"])
+    const group = storyOf([...lone, call("c2", "Bash", "Run", 2)], open).find((item) => item._tag === "group")!
+    const steps = storySteps(group)
+    expect(groupStartsOpen(steps, new Set(["c1"]))).toBe(true)
+    expect(groupStartsOpen(steps, new Set(["elsewhere"]))).toBe(false)
+    expect(groupStartsOpen(steps, new Set())).toBe(false)
   })
 })

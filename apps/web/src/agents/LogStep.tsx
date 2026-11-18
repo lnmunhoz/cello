@@ -34,6 +34,7 @@ export function Step({
   working,
   arrived,
   shown,
+  opened,
   live = false,
 }: {
   readonly step: LogStep
@@ -41,6 +42,8 @@ export function Step({
   readonly working: boolean
   readonly arrived: boolean
   readonly shown: Set<string>
+  /** The ids of the calls the human opened, so one that is remounted (it joined a group) stays open. */
+  readonly opened: Set<string>
   readonly live?: boolean
 }) {
   const fades = useFades(step.id, arrived, shown)
@@ -56,7 +59,7 @@ export function Step({
   if (step.kind === "tool" || step.kind === "agent" || step.kind === "thinking") {
     return (
       <li {...data} className={fade}>
-        <Folded step={step} row={row} working={working} time={time} />
+        <Folded step={step} row={row} working={working} time={time} opened={opened} />
       </li>
     )
   }
@@ -111,8 +114,20 @@ export function ToggleRow({
 }
 
 /** A tool call, a launch or a thought: one line, opened by a click to its command and result, or its words. */
-export function Folded({ step, row, working, time }: { readonly step: LogStep; readonly row: AgentRow; readonly working: boolean; readonly time: string | undefined }) {
-  const [open, setOpen] = useState(false)
+export function Folded({
+  step,
+  row,
+  working,
+  time,
+  opened,
+}: {
+  readonly step: LogStep
+  readonly row: AgentRow
+  readonly working: boolean
+  readonly time: string | undefined
+  readonly opened: Set<string>
+}) {
+  const [open, setOpen] = useState(() => opened.has(step.id))
   const [all, setAll] = useState(false)
   const tool = step.tool
   const body = tool ? tool.output : step.text
@@ -123,7 +138,11 @@ export function Folded({ step, row, working, time }: { readonly step: LogStep; r
     <div className="flex flex-col">
       <ToggleRow
         open={open}
-        onToggle={() => setOpen(!open)}
+        onToggle={() => {
+          if (open) opened.delete(step.id)
+          else opened.add(step.id)
+          setOpen(!open)
+        }}
         title={time}
         mark={<StatusMark step={step} working={working} />}
         label={<span className={`truncate ${step.kind === "thinking" ? "text-muted italic" : "font-mono text-[12px] text-ink"}`}>{label}</span>}

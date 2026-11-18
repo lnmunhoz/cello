@@ -11,7 +11,7 @@ import { Select } from "../components/ui/Select.tsx"
 import { Switch } from "../components/ui/Switch.tsx"
 import { agentLogFamily } from "../lib/cello.ts"
 import type { AgentRow } from "./layout.ts"
-import { atBottom, runLabel, runsOf } from "./log.ts"
+import { atBottom, codeParts, runLabel, runsOf } from "./log.ts"
 import { Step } from "./LogStep.tsx"
 import { StoryList } from "./LogStory.tsx"
 
@@ -30,8 +30,9 @@ const TRANSCRIPT = "transcript"
  * An agent's live log (CEL-106), the open row's right column on the Agents page: what it says, each tool
  * it calls (folded to one line, a click opens its command and result), the subagents it launches, and its
  * thinking behind the Thinking switch, newest at the bottom. It opens on Story (CEL-170): calls grouped,
- * the one running now on its own, a finished turn folded; Everything lists every step, Errors the failed calls. It follows new steps as they arrive; scrolling up
- * pauses that, and "Jump to live" brings it back. Keys are masked; the human can show them.
+ * the one running now on its own, a finished turn folded; Everything lists every step, Errors the failed
+ * calls. It follows new steps as they arrive; scrolling up pauses that, and "Jump to live" brings it
+ * back. Keys are masked; the human can show them.
  */
 export function AgentLog({ board, row }: { readonly board: BoardState; readonly row: AgentRow }) {
   const [reveal, setReveal] = useState(false)
@@ -44,6 +45,8 @@ export function AgentLog({ board, row }: { readonly board: BoardState; readonly 
   const scroller = useRef<HTMLDivElement>(null)
   // Everything this log has put on screen (CEL-107): a row shown again after a view or the Thinking switch never fades in twice.
   const [shown] = useState(() => new Set<string>())
+  // The calls and groups the human opened (CEL-170): a call that turns into part of a group is remounted, and stays open.
+  const [opened] = useState(() => new Set<string>())
   const key = logKey({ sessionId: row.session.id, agentId: row.agent?.agentId, runId: runId ?? undefined, reveal })
   const result = useAtomValue(agentLogFamily(key))
   const log = AsyncResult.isSuccess(result) ? result.value : null
@@ -116,7 +119,7 @@ export function AgentLog({ board, row }: { readonly board: BoardState; readonly 
       </header>
       {note ? (
         <p data-log-thinking-note className="px-1 text-xs text-muted">
-          {note}
+          {codeParts(note).map((part, i) => (part.code ? <code key={i} className="rounded-sm bg-raised px-1 font-mono text-[11px] text-ink">{part.text}</code> : part.text))}
         </p>
       ) : null}
       <div className="relative">
@@ -146,9 +149,9 @@ export function AgentLog({ board, row }: { readonly board: BoardState; readonly 
               ) : null}
               {/* A running call pulses only while the agent is working right now; a row that just arrived fades in (CEL-107). */}
               {show === "story" ? (
-                <StoryList items={items} context={{ row, working, arrived: log.arrived, shown }} />
+                <StoryList items={items} context={{ row, working, arrived: log.arrived, shown, opened }} />
               ) : (
-                flat.map((step) => <Step key={step.id} step={step} row={row} working={working} arrived={log.arrived.includes(step.id)} shown={shown} />)
+                flat.map((step) => <Step key={step.id} step={step} row={row} working={working} arrived={log.arrived.includes(step.id)} shown={shown} opened={opened} />)
               )}
             </ol>
           )}

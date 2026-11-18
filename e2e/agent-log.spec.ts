@@ -250,7 +250,7 @@ test("CEL-106: open an agent on the Agents page and follow its live log: steps, 
   await expect(output).not.toContainText(KEY)
   await caption(page, "Show secrets: the key as it was")
   await log.locator("[data-log-reveal]").click()
-  await step("toolu_test").locator("[data-log-toggle]").click()
+  // The log is read again with the keys shown; the call the human opened is still open (CEL-170), its result folded again.
   await step("toolu_test").locator("[data-log-show-all]").click()
   await expect(step("toolu_test").locator("[data-log-output] pre:not([data-log-command])")).toContainText(KEY)
   await log.locator("[data-log-reveal]").click()
@@ -364,12 +364,17 @@ test("CEL-170: the log tells the story: calls fold into a group, the running cal
   await expect(live).toHaveAttribute("data-log-status", "running")
   await expect(summary).toHaveText("Ran 3 commands, read 2 files")
   await shootAs(page, "cel-170-live")
+  // The human opens the running call; it stays open when its result lands and it moves into the group.
+  await toggle(live).click()
+  await expect(live.locator("[data-log-output]")).toContainText("No result yet.")
 
   await caption(page, "Its result lands: the row joins the group, which stays open")
   fs.appendFileSync(storyBuilderFile, result("toolu_s6", "1 passed", 1.5))
   await expect(live).toHaveCount(0)
   await expect(summary).toHaveText("Ran 4 commands, read 2 files")
   await expect(step("toolu_s6")).toContainText("Bash · Run the syrup test")
+  await expect(step("toolu_s6").locator("[data-log-command]")).toHaveText("$ bun run test src/syrup.test.ts")
+  await expect(step("toolu_s6").locator("[data-log-output]")).toContainText("1 passed")
 
   await caption(page, "The agent answers and its turn ends: the work folds under Worked for, the answer stays open")
   fs.appendFileSync(storyBuilderFile, finalSaid("The syrup timer pours for 3 seconds. The tests pass."))

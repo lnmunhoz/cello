@@ -1,4 +1,4 @@
-import { durationWords, type StoryItem, storyKey, storySteps, workedWords } from "@cello/client/sync/agentLog"
+import { durationWords, groupStartsOpen, type StoryItem, storyKey, storySteps, workedWords } from "@cello/client/sync/agentLog"
 import { CheckIcon, XIcon } from "lucide-react"
 import { useState } from "react"
 import type { AgentRow } from "./layout.ts"
@@ -10,6 +10,8 @@ export interface StoryContext {
   readonly working: boolean
   readonly arrived: ReadonlyArray<string>
   readonly shown: Set<string>
+  /** The ids of the calls the human opened. */
+  readonly opened: Set<string>
 }
 
 /**
@@ -25,13 +27,14 @@ export function StoryList({ items, context }: { readonly items: ReadonlyArray<St
 function StoryRow({ item, context }: { readonly item: StoryItem; readonly context: StoryContext }) {
   if (item._tag === "group") return <Group item={item} context={context} />
   if (item._tag === "turn") return <Turn item={item} context={context} />
-  const { row, working, arrived, shown } = context
-  return <Step step={item.step} row={row} working={working} arrived={arrived.includes(item.step.id)} shown={shown} live={item._tag === "live"} />
+  const { row, working, arrived, shown, opened } = context
+  return <Step step={item.step} row={row} working={working} arrived={arrived.includes(item.step.id)} shown={shown} opened={opened} live={item._tag === "live"} />
 }
 
 function Group({ item, context }: { readonly item: Extract<StoryItem, { _tag: "group" }>; readonly context: StoryContext }) {
-  const [open, setOpen] = useState(false)
-  const { row, working, arrived, shown } = context
+  const { row, working, arrived, shown, opened } = context
+  // A group formed around a call the human had opened (it was a row of its own until a second call came) starts open.
+  const [open, setOpen] = useState(() => groupStartsOpen(item.steps, opened))
   const fades = useFades(item.id, item.steps.some((step) => arrived.includes(step.id)), shown)
   const failed = item.failed > 0
   return (
@@ -56,7 +59,7 @@ function Group({ item, context }: { readonly item: Extract<StoryItem, { _tag: "g
       {open ? (
         <ol aria-label="Calls" className="ml-[22px] flex flex-col gap-px">
           {item.steps.map((step) => (
-            <Step key={step.id} step={step} row={row} working={working} arrived={arrived.includes(step.id)} shown={shown} />
+            <Step key={step.id} step={step} row={row} working={working} arrived={arrived.includes(step.id)} shown={shown} opened={opened} />
           ))}
         </ol>
       ) : null}
