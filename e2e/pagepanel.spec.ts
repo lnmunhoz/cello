@@ -5,7 +5,7 @@
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import type { Browser, Page } from "@playwright/test"
+import type { Browser, Locator, Page } from "@playwright/test"
 import { caption, captionWithUrl, card, createProject, expect, taskPanel, test, uniqueKey } from "./fixtures.ts"
 import { cello, SHOTS, WEB_URL } from "./packets.ts"
 
@@ -254,6 +254,338 @@ test("CEL-60: a packet's text evidence (a terminal transcript, markdown) opens i
     await still(browser, key, "transcript", scheme, async (p) => {
       await taskPanel(p, `${key}-1`).getByRole("region", { name: "Review packet" }).getByRole("link", { name: "Open transcript.txt" }).click()
       await expect(viewerOf(p).locator("pre[data-text-view=plain]")).toContainText("56 passed")
+    })
+  }
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+// CEL-173: a unified diff opens in the side panel as a diff view (unified or split), not plain text.
+
+const LONG_URL = `https://example.com/${"a".repeat(120)}`
+
+/** What an agent attaches as `thai-138-diff.txt`: a note on the first line, six files, the last hunk ending without a newline. */
+const THAI_138_DIFF = [
+  "The diff (the AGENTS.md hunk at the end is THAI-137's, not this task's)",
+  "",
+  "diff --git a/LIFECYCLE.md b/LIFECYCLE.md",
+  "index 3f2a9c1..8b7d4e0 100644",
+  "--- a/LIFECYCLE.md",
+  "+++ b/LIFECYCLE.md",
+  "@@ -18,3 +18,3 @@ ## Workflows",
+  " A task goes from Todo to Done.",
+  "-Each task is built in a worktree.",
+  "+Each task is built in its own worktree.",
+  " The reviewer reads the diff.",
+  "@@ -23,3 +23,6 @@ ## Landing",
+  " Work lands on main.",
+  "+Merging needs the human's approval.",
+  "+A release is never cut unprompted.",
+  `+See ${LONG_URL}`,
+  " The branch is deleted after.",
+  " Nothing is pushed.",
+  "diff --git a/docs/old-dev.md b/docs/dev-server.md",
+  "similarity index 91%",
+  "rename from docs/old-dev.md",
+  "rename to docs/dev-server.md",
+  "index 1111111..2222222 100644",
+  "--- a/docs/old-dev.md",
+  "+++ b/docs/dev-server.md",
+  "@@ -1,2 +1,2 @@",
+  " # Dev server",
+  "-The server listens on 4748.",
+  "+The server listens on 4748, the web app on 5199.",
+  "diff --git a/docs/previews.md b/docs/previews.md",
+  "new file mode 100644",
+  "index 0000000..3333333",
+  "--- /dev/null",
+  "+++ b/docs/previews.md",
+  "@@ -0,0 +1,3 @@",
+  "+# Previews",
+  "+",
+  "+A preview build has its own channel.",
+  "diff --git a/notes/todo.md b/notes/todo.md",
+  "deleted file mode 100644",
+  "index 4444444..0000000",
+  "--- a/notes/todo.md",
+  "+++ /dev/null",
+  "@@ -1,2 +0,0 @@",
+  "-- find a name",
+  "-- ship it",
+  "diff --git a/art/logo.png b/art/logo.png",
+  "index 5555555..6666666 100644",
+  "Binary files a/art/logo.png and b/art/logo.png differ",
+  "diff --git a/AGENTS.md b/AGENTS.md",
+  "index 7777777..8888888 100644",
+  "--- a/AGENTS.md",
+  "+++ b/AGENTS.md",
+  "@@ -40,2 +40,3 @@ ## Commands",
+  " Docker runs need OrbStack.",
+  "-Versions are pinned.",
+  "\\ No newline at end of file",
+  "+Versions are pinned: Bun 1.4.4.",
+  "+Effect 4.1.4.",
+  "\\ No newline at end of file",
+  "",
+].join("\n")
+
+/** A `git format-patch` email: header, message, stat block, one file, the signature. */
+const PATCH = [
+  "From 1234567890abcdef1234567890abcdef12345678 Mon Sep 17 00:00:00 2001",
+  "From: Ada Lovelace <ada@example.com>",
+  "Date: Tue, 18 Nov 2026 10:00:00 +0000",
+  "Subject: [PATCH] Fix the thing",
+  "",
+  "The thing was broken.",
+  "---",
+  " a.txt | 2 +-",
+  " 1 file changed, 1 insertion(+), 1 deletion(-)",
+  "",
+  "diff --git a/a.txt b/a.txt",
+  "index 1111111..2222222 100644",
+  "--- a/a.txt",
+  "+++ b/a.txt",
+  "@@ -1,2 +1,2 @@",
+  " same",
+  "-broken",
+  "+fixed",
+  "-- ",
+  "2.43.0",
+  "",
+].join("\n")
+
+/** One new file of 3,000 lines: over the 1,500 a diff shows at first. */
+const BIG_DIFF = [
+  "diff --git a/big.txt b/big.txt",
+  "new file mode 100644",
+  "--- /dev/null",
+  "+++ b/big.txt",
+  "@@ -0,0 +1,3000 @@",
+  ...Array.from({ length: 3000 }, (_, i) => `+row ${i + 1}`),
+  "",
+].join("\n")
+
+/** A task with a packet whose evidence is `thai-138-diff.txt`, opened from the task panel's packet list. Returns the temp folder to remove. */
+function submitDiffPacket(key: string) {
+  cello("task", "create", "Diff evidence in the side panel", "--project", key)
+  cello("task", "claim", `${key}-1`)
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-diff-"))
+  const file = path.join(dir, "thai-138-diff.txt")
+  fs.writeFileSync(file, THAI_138_DIFF)
+  cello("task", "submit", `${key}-1`, "--summary", "A diff as evidence.", "--step", "Open the diff from the packet", "--attach", file, "--caption", "The diff")
+  return dir
+}
+
+const openDiff = (page: Page, key: string) =>
+  taskPanel(page, `${key}-1`).getByRole("region", { name: "Review packet" }).getByRole("link", { name: "Open thai-138-diff.txt" }).click()
+
+const showAs = (page: Page, name: "Unified" | "Split" | "Raw") => viewerOf(page).getByRole("radio", { name })
+
+const background = (locator: Locator) => locator.evaluate((el) => getComputedStyle(el).backgroundColor)
+
+test("CEL-173: a diff in a packet opens as a diff view: files with their status and counts, hunks, line numbers, red and green lines; Raw shows the text; it wraps at the narrowest width", async ({ page, browser }) => {
+  const key = uniqueKey("DIF")
+  await createProject(page, "Diff evidence", key)
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+
+  await caption(page, "An agent submits a packet whose evidence is a git diff, saved as thai-138-diff.txt")
+  const dir = submitDiffPacket(key)
+  await caption(page, "Open the task and click the diff in its packet")
+  await card(page, `${key}-1`).click()
+  await openDiff(page, key)
+  const viewer = viewerOf(page)
+
+  await caption(page, "It opens as a diff: a summary, then one section per file with its status and counts")
+  await expect(viewer.locator("[data-diff-summary]")).toContainText("6 files changed · +10 −5")
+  const files = viewer.locator("section[data-diff-file]")
+  await expect(files).toHaveCount(6)
+  expect(await files.evaluateAll((els) => els.map((el) => el.getAttribute("data-diff-file")))).toEqual(["modified", "renamed", "added", "deleted", "modified", "modified"])
+  await expect(viewer.getByRole("region", { name: "docs/dev-server.md" })).toContainText("docs/old-dev.md → docs/dev-server.md")
+  await expect(viewer.getByRole("region", { name: "docs/previews.md" })).toContainText("Added")
+  await expect(viewer.getByRole("region", { name: "notes/todo.md" })).toContainText("Deleted")
+  await expect(viewer.getByRole("region", { name: "art/logo.png" })).toContainText("Binary file, not shown")
+  await expect(viewer.locator("[data-diff-text]").first()).toContainText("The diff (the AGENTS.md hunk at the end is THAI-137's, not this task's)")
+
+  await caption(page, "Each hunk has its header and old and new line numbers; added lines are green, removed lines red")
+  const lifecycle = viewer.getByRole("region", { name: "LIFECYCLE.md" })
+  await expect(lifecycle.locator("[data-diff-hunk]").first()).toContainText("@@ -18,3 +18,3 @@")
+  const added = lifecycle.locator("[data-diff-line=add]").first()
+  await expect(added.locator("[data-new-line]")).toHaveAttribute("data-new-line", "19")
+  await expect(added.locator("[data-old-line]")).toHaveText("")
+  await expect(added).toContainText("Each task is built in its own worktree.")
+  await expect(lifecycle.locator("[data-diff-line=remove]").first().locator("[data-old-line]")).toHaveAttribute("data-old-line", "19")
+  const addedBackground = await background(added)
+  expect(addedBackground).not.toBe(await background(lifecycle.locator("[data-diff-line=context]").first()))
+  expect(addedBackground).not.toBe(await background(lifecycle.locator("[data-diff-line=remove]").first()))
+  await expect(viewer.getByRole("region", { name: "AGENTS.md" }).locator("[data-diff-noeol]")).toHaveCount(2)
+  await expect(showAs(page, "Unified")).toBeChecked()
+  await expect(showAs(page, "Split")).toHaveCount(0)
+
+  await caption(page, "Raw shows the file's own text; Copy and Download keep it whole")
+  await showAs(page, "Raw").click()
+  await expect(viewer.locator("pre[data-text-view=plain]")).toContainText("diff --git a/LIFECYCLE.md b/LIFECYCLE.md")
+  await viewer.getByRole("button", { name: "Copy" }).click()
+  await expect(page.getByRole("region", { name: "Notifications" }).getByText("Copied")).toBeVisible()
+  const copied = await page.evaluate(() => navigator.clipboard.readText())
+  expect(copied).toContain("The diff (the AGENTS.md hunk at the end is THAI-137's, not this task's)")
+  expect(copied).toContain("@@ -23,3 +23,6 @@")
+  const download = page.waitForEvent("download")
+  await viewer.getByRole("link", { name: "Download" }).click()
+  expect((await download).suggestedFilename()).toBe("thai-138-diff.txt")
+  await showAs(page, "Unified").click()
+  const view = viewer.locator("[data-text-view=diff]")
+  await expect(view).toBeVisible()
+
+  await caption(page, "Drag the panel to its narrowest: the lines wrap, nothing scrolls sideways")
+  await dragEdge(page, 600)
+  expect(await width(page)).toBeLessThan(400)
+  await expect(view.getByText(LONG_URL.slice(0, 40))).toBeVisible()
+  expect(await view.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+
+  await caption(page, "Drag it wide: the diff still reads")
+  await dragEdge(page, -900)
+  expect(await width(page)).toBeGreaterThan(720)
+  await expect(viewer.locator("[data-diff-summary]")).toContainText("6 files changed")
+  await expect(showAs(page, "Split")).toBeVisible()
+
+  await caption(page, "A diff in a packet opens in the side panel as a diff, not as plain text")
+
+  for (const scheme of ["light", "dark"] as const) {
+    await still(browser, key, "diff", scheme, async (p) => {
+      await openDiff(p, key)
+      await expect(viewerOf(p).locator("[data-diff-summary]")).toContainText("6 files changed")
+    })
+    await still(browser, key, "diff-wide", scheme, async (p) => {
+      await openDiff(p, key)
+      await dragEdge(p, -500)
+      await expect(showAs(p, "Split")).toBeVisible()
+    })
+    await still(browser, key, "diff-narrow", scheme, async (p) => {
+      await openDiff(p, key)
+      await dragEdge(p, 600)
+      await expect(viewerOf(p).locator("[data-diff-summary]")).toContainText("6 files changed")
+    })
+    await still(browser, key, "diff-raw", scheme, async (p) => {
+      await openDiff(p, key)
+      await showAs(p, "Raw").click()
+      await expect(viewerOf(p).locator("pre[data-text-view=plain]")).toContainText("diff --git a/LIFECYCLE.md")
+    })
+  }
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test("CEL-173: Split puts the old lines on the left and the new on the right, row by row; it is offered only when the panel is wide, and falls back to Unified when it is narrow again", async ({ page, browser }) => {
+  const key = uniqueKey("SPL")
+  await createProject(page, "Split diff", key)
+
+  await caption(page, "The same diff as packet evidence")
+  const dir = submitDiffPacket(key)
+  await card(page, `${key}-1`).click()
+  await openDiff(page, key)
+  const viewer = viewerOf(page)
+  const view = viewer.locator("[data-text-view=diff]")
+
+  await caption(page, "At the default width there is no Split: two columns would be too narrow to read")
+  await expect(view).toHaveAttribute("data-diff-mode", "unified")
+  await expect(showAs(page, "Split")).toHaveCount(0)
+
+  await caption(page, "Drag the panel wide: Split appears; pick it")
+  await dragEdge(page, -300)
+  await showAs(page, "Split").click()
+  await expect(view).toHaveAttribute("data-diff-mode", "split")
+  await expect(showAs(page, "Split")).toBeChecked()
+
+  await caption(page, "A removed line on the left, the line that replaced it on the right, in the same row")
+  const lifecycle = viewer.getByRole("region", { name: "LIFECYCLE.md" })
+  const changed = lifecycle.locator("[data-diff-row]").filter({ has: page.locator("[data-diff-side=old]", { hasText: "built in a worktree" }) })
+  await expect(changed).toHaveCount(1)
+  const left = changed.locator("[data-diff-side=old]")
+  const right = changed.locator("[data-diff-side=new]")
+  await expect(left).toHaveAttribute("data-diff-line", "remove")
+  await expect(right).toHaveAttribute("data-diff-line", "add")
+  await expect(right).toContainText("built in its own worktree")
+  await expect(left.locator("[data-old-line]")).toHaveAttribute("data-old-line", "19")
+  await expect(right.locator("[data-new-line]")).toHaveAttribute("data-new-line", "19")
+  const [l, r] = [(await left.boundingBox())!, (await right.boundingBox())!]
+  expect(Math.abs(l.y - r.y)).toBeLessThanOrEqual(1)
+  expect(r.x).toBeGreaterThan(l.x + l.width - 2)
+  expect(Math.abs(l.width - r.width)).toBeLessThanOrEqual(2)
+
+  await caption(page, "Added lines with nothing to pair with face an empty cell; context sits on both sides")
+  const unpaired = lifecycle.locator("[data-diff-row]").filter({ has: page.locator("[data-diff-side=new]", { hasText: "A release is never cut unprompted." }) })
+  await expect(unpaired.locator("[data-diff-empty]")).toHaveCount(1)
+  await expect(unpaired.locator("[data-diff-side=old]")).toHaveCount(0)
+  const context = lifecycle.locator("[data-diff-row]").filter({ hasText: "The reviewer reads the diff." })
+  await expect(context.locator("[data-diff-line=context]")).toHaveCount(2)
+  await expect(lifecycle.locator("[data-diff-hunk]").first()).toContainText("@@ -18,3 +18,3 @@")
+  expect(await view.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+
+  await caption(page, "Drag the panel narrow: Split is no longer offered and the diff shows Unified")
+  await dragEdge(page, 700)
+  await expect(showAs(page, "Split")).toHaveCount(0)
+  await expect(view).toHaveAttribute("data-diff-mode", "unified")
+  await expect(showAs(page, "Unified")).toBeChecked()
+
+  await caption(page, "Wide again: Split is back, and it is the choice it was")
+  await dragEdge(page, -700)
+  await expect(showAs(page, "Split")).toBeChecked()
+  await expect(view).toHaveAttribute("data-diff-mode", "split")
+  await caption(page, "Split is for a wide panel; the narrow one keeps Unified")
+
+  for (const scheme of ["light", "dark"] as const) {
+    await still(browser, key, "diff-split", scheme, async (p) => {
+      await openDiff(p, key)
+      await dragEdge(p, -500)
+      await showAs(p, "Split").click()
+      await expect(viewerOf(p).locator("[data-text-view=diff]")).toHaveAttribute("data-diff-mode", "split")
+    })
+  }
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test("CEL-173: a page's .patch file opens as a diff (its email header and signature stay text, not changes); a large diff starts folded until Show it", async ({ page, browser }) => {
+  const key = uniqueKey("PAT")
+  await createProject(page, "Patch files", key)
+
+  await caption(page, "An agent publishes a page that links a git format-patch file and a 3,000-line diff")
+  cello("task", "create", "Patch files in the side panel", "--project", key)
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cello-e2e-patch-"))
+  fs.writeFileSync(path.join(dir, "fix.patch"), PATCH)
+  fs.writeFileSync(path.join(dir, "big.diff"), BIG_DIFF)
+  const file = path.join(dir, "patches.md")
+  fs.writeFileSync(file, "# Patches\n\nThe fix is in [the patch](fix.patch). The big one is [the big diff](big.diff).\n")
+  cello("doc", "publish", file, "--project", key, "--task", `${key}-1`)
+
+  await caption(page, "Open the task, then its page, then the patch")
+  await card(page, `${key}-1`).click()
+  const panel = taskPanel(page, `${key}-1`)
+  const viewer = viewerOf(page)
+  await panel.getByRole("region", { name: "Pages" }).getByRole("link", { name: /Patches/ }).click()
+  await viewer.getByRole("link", { name: "the patch" }).click()
+
+  await caption(page, "The patch is a diff: its email header and its signature show as text, and are not counted as changes")
+  await expect(viewer.locator("[data-diff-summary]")).toContainText("1 file changed · +1 −1")
+  const texts = viewer.locator("[data-diff-text]")
+  await expect(texts.first()).toContainText("Subject: [PATCH] Fix the thing")
+  await expect(texts.last()).toHaveText("-- \n2.43.0")
+  await expect(viewer.locator("[data-diff-line=remove]")).toHaveCount(1)
+  await expect(viewer.locator("[data-diff-line=add]")).toHaveCount(1)
+
+  await caption(page, "The 3,000-line diff starts folded: a note and no rows; Show it opens it")
+  await viewer.getByRole("button", { name: "Close viewer" }).click()
+  await panel.getByRole("region", { name: "Pages" }).getByRole("link", { name: /Patches/ }).click()
+  await viewer.getByRole("link", { name: "the big diff" }).click()
+  await expect(viewer.locator("[data-diff-folded]")).toContainText("Large diff · 3,000 lines")
+  await expect(viewer.locator("[data-diff-line]")).toHaveCount(0)
+  await viewer.getByRole("button", { name: "Show it" }).click()
+  await expect(viewer.locator("[data-diff-line=add]")).toHaveCount(3000)
+  await expect(viewer.locator("[data-diff-folded]")).toHaveCount(0)
+  await caption(page, "Big diffs stay light until you ask for them")
+
+  for (const scheme of ["light", "dark"] as const) {
+    await still(browser, key, "diff-large", scheme, async (p) => {
+      await taskPanel(p, `${key}-1`).getByRole("region", { name: "Pages" }).getByRole("link", { name: /Patches/ }).click()
+      await viewerOf(p).getByRole("link", { name: "the big diff" }).click()
+      await expect(viewerOf(p).locator("[data-diff-folded]")).toContainText("Large diff")
     })
   }
   fs.rmSync(dir, { recursive: true, force: true })

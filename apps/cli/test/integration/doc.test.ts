@@ -139,7 +139,7 @@ describe("cello doc", () => {
         failure: null,
         err: [
           `Warning: demo.mp4 isn't there (${path.join(reports, "demo.mp4")}), so the page shows that link as a missing file.`,
-          "Warning: design.pdf can't go up with the page (Cello stores png, jpg, jpeg, gif, webp, avif, mp4, m4v, webm, mov, txt, log, out, md, csv, json, cast), so the page shows that link as a missing file.",
+          "Warning: design.pdf can't go up with the page (Cello stores png, jpg, jpeg, gif, webp, avif, mp4, m4v, webm, mov, txt, log, out, md, csv, json, cast, diff, patch), so the page shows that link as a missing file.",
         ].join("\n"),
       })
 

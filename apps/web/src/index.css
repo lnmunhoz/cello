@@ -54,6 +54,12 @@
   /* A comment its agent answered (CEL-76): the receipt's ✓✓. */
   --answered: #0f9d76;
   --ring: #5e6ad2;
+  /* The diff view (CEL-173): added and removed lines (the row tint, and the stronger ink for signs and counts), and hunk headers. */
+  --diff-add: #e6f6ec;
+  --diff-add-ink: #1a7f37;
+  --diff-remove: #fdecec;
+  --diff-remove-ink: #c9302c;
+  --diff-hunk: #eef0fb;
   --shadow: 0 1px 2px rgb(16 16 20 / 0.06), 0 0 0 1px rgb(16 16 20 / 0.04);
   --shadow-pop: 0 8px 28px rgb(16 16 20 / 0.14), 0 0 0 1px rgb(16 16 20 / 0.06);
   color-scheme: light;
@@ -77,6 +83,11 @@
   --idle: #f59e0b;
   --answered: #34d399;
   --ring: #7c85e8;
+  --diff-add: rgb(46 160 67 / 0.16);
+  --diff-add-ink: #56d364;
+  --diff-remove: rgb(248 81 73 / 0.15);
+  --diff-remove-ink: #f47067;
+  --diff-hunk: rgb(124 133 232 / 0.12);
   --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 0 0 1px rgb(255 255 255 / 0.04);
   --shadow-pop: 0 10px 30px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.06);
   color-scheme: dark;
@@ -100,6 +111,11 @@
   --color-idle: var(--idle);
   --color-answered: var(--answered);
   --color-ring: var(--ring);
+  --color-diff-add: var(--diff-add);
+  --color-diff-add-ink: var(--diff-add-ink);
+  --color-diff-remove: var(--diff-remove);
+  --color-diff-remove-ink: var(--diff-remove-ink);
+  --color-diff-hunk: var(--diff-hunk);
   --shadow-card: var(--shadow);
   --shadow-pop: var(--shadow-pop);
   --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;

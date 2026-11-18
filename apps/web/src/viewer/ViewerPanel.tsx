@@ -23,6 +23,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type SyntheticEvent } fro
 import { Button, ButtonLink } from "../components/ui/Button.tsx"
 import { ResizeHandle, useStoredWidth } from "../components/ui/ResizeHandle.tsx"
 import { copyText } from "../lib/clipboard.ts"
+import type { ParsedDiff } from "@cello/shared/diff"
+import { DiffText } from "../diff/DiffText.tsx"
 import { PageBody } from "../docs/PageBody.tsx"
 import { DocumentReader } from "../docs/PageReader.tsx"
 import { openInPanel, type OpenMessage } from "../lib/desktop.ts"
@@ -37,7 +39,7 @@ import { markPanelClick, routerViewerDriver, useBackTarget } from "./panelBack.t
 import { sideOf, type Spot } from "./panelHistory.ts"
 import { viewerItemOf, type ViewerSearch } from "./search.ts"
 import { closeViewer, setViewerDriver, showInViewer, useViewerItem } from "./store.ts"
-import { downloadName, MAX_SHOWN_LABEL, readShown, shownText, textFormat } from "./text.ts"
+import { asDiff, downloadName, MAX_SHOWN_LABEL, readShown, shownText, textFormat } from "./text.ts"
 import {
   FRAME_TIMEOUT_MS,
   fullPageHref,
@@ -359,17 +361,22 @@ function PageView({ item }: { item: ViewerItem }) {
   return <iframe title={item.title} src={embedUrl(item.url, location.origin)} onLoad={closeOnEscapeIn} className="min-h-0 w-full flex-1 border-0 bg-surface" />
 }
 
+/** A text file's own name, else its address's last part: what its format is read from. */
+const nameOf = (item: ViewerItem) => item.name ?? URL.parse(item.url)?.pathname
+
 type TextFile =
   | { readonly state: "loading" }
   | { readonly state: "failed" }
-  | { readonly state: "shown"; readonly text: string; readonly mime: string | null; readonly clipped: boolean }
+  | { readonly state: "shown"; readonly text: string; readonly mime: string | null; readonly clipped: boolean; readonly diff: ParsedDiff | null }
 
 /**
  * A text file on the board (a terminal transcript, a test log, markdown, JSON, CSV), fetched and shown
  * natively (CEL-60): markdown in the page's prose, anything else in monospace, wrapped, without ANSI
  * codes. Copy and Download sit above it. Only the first MAX_SHOWN_BYTES are read and shown (a note
  * says so, and Copy copies just that); Download has all of it. A stored file that turns out to be an
- * image or a video (a link nothing described) shows as one instead.
+ * image or a video (a link nothing described) shows as one instead. A unified diff (a `.diff` or
+ * `.patch`, or any text that parses as one, CEL-173) shows as a diff view, with a Show as choice:
+ * Unified, Split or Raw (the monospace text, as any other file).
  */
 function TextView({ item }: { item: ViewerItem }) {
   const [file, setFile] = useState<TextFile>({ state: "loading" })
@@ -384,7 +391,8 @@ function TextView({ item }: { item: ViewerItem }) {
         const media = mime?.startsWith("image/") ? "image" : mime?.startsWith("video/") ? "video" : null
         if (media) return showInViewer({ ...item, kind: media }, { replace: true })
         const read = response.body ? await readShown(response.body) : { text: await response.text(), clipped: false }
-        setFile({ state: "shown", ...read, mime })
+        const diff = asDiff(textFormat(mime, nameOf(item)), read.text)
+        setFile({ state: "shown", ...read, mime, diff })
       })
       .catch(() => {
         if (!request.signal.aborted) setFile({ state: "failed" })
@@ -393,9 +401,22 @@ function TextView({ item }: { item: ViewerItem }) {
     // The item is read from the URL on each render; it's the same file while these are.
   }, [item.url, item.kind, item.name, item.title])
 
-  const format = file.state === "shown" ? textFormat(file.mime, item.name ?? URL.parse(item.url)?.pathname) : "plain"
+  // A `.diff` that doesn't parse is plain text, as any other file.
+  const textKind = file.state === "shown" ? textFormat(file.mime, nameOf(item)) : "plain"
+  const format = textKind === "diff" ? "plain" : textKind
+  const diff = file.state === "shown" ? file.diff : null
   const shown = file.state !== "shown" ? "" : format === "markdown" ? file.text : shownText(file.text, format)
   const clipped = file.state === "shown" && file.clipped
+  const raw = (
+    <pre
+      data-text-view={format}
+      tabIndex={0}
+      aria-label={item.title}
+      className="min-h-0 flex-1 overflow-auto bg-surface px-4 py-3 font-mono text-[12.5px] leading-relaxed break-words whitespace-pre-wrap text-ink outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+    >
+      {shown}
+    </pre>
+  )
   return (
     <>
       <p className="flex shrink-0 items-center gap-2 border-b border-line bg-sunken py-1.5 pr-2 pl-4 text-xs text-muted">
@@ -432,15 +453,10 @@ function TextView({ item }: { item: ViewerItem }) {
             <PageBody content={shown} flash={null} onFlashEnd={() => {}} projectKeys={projectKeys} />
           </article>
         </div>
+      ) : diff ? (
+        <DiffText diff={diff} label={item.title} raw={raw} />
       ) : (
-        <pre
-          data-text-view={format}
-          tabIndex={0}
-          aria-label={item.title}
-          className="min-h-0 flex-1 overflow-auto bg-surface px-4 py-3 font-mono text-[12.5px] leading-relaxed break-words whitespace-pre-wrap text-ink outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-        >
-          {shown}
-        </pre>
+        raw
       )}
     </>
   )
