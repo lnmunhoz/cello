@@ -158,7 +158,7 @@ The packet moves the task to **In Review**. It holds:
 ```mermaid
 flowchart TD
     A["Review page<br/>one packet open at a time"] --> B{"Lucas"}
-    B -->|"Approve and merge"| D["Approved · merging<br/>the orchestrator merges,<br/>then cello task done: Done"]
+    B -->|"Approve and merge,<br/>or approval in chat"| D["Approved · merging<br/>the orchestrator merges,<br/>then cello task done: Done"]
     B -->|"Send back + a note,<br/>or feedback in chat"| C["Task back to In Progress<br/>the note becomes a comment"]
     C --> E["The note reaches the agent's session<br/>through the Claude Code hook (CEL-15)"]
     E --> F["Fix, test, review"]
@@ -166,7 +166,7 @@ flowchart TD
     G --> A
 ```
 
-**Feedback in chat works the same as Send back.** If Lucas reviews a task in the conversation instead of on the Review page, the orchestrator puts his words on the card as a comment ("Lucas, in chat (review): …"), moves the task back to In Progress, and the fix goes through build, review and a new packet like any Send back.
+**Feedback in chat works the same as Send back.** If Lucas reviews a task in the conversation instead of on the Review page, the orchestrator puts his words on the card as a comment ("Lucas, in chat (review): …"), moves the task back to In Progress, and the fix goes through build, review and a new packet like any Send back. **His approval in chat counts as an Approve:** the orchestrator passes it on with `cello task approve CEL-n --quote "<his words>"` (after `cello task submit` if no packet is open), the card shows it as his, relayed by the session, and it lands as the setting says. Never on the orchestrator's own judgement, and never from a subagent.
 
 **Approve is the gate:** nothing reaches main before it. Each project chooses (the project's Settings tab → "Merge after I approve", CEL-143), and Cello's own has it on. The packet comes before the merge, with the PR link when the project uses PRs, and Approve is the gate: the button reads "Approve and merge", the card stays in In Review as **Approved · merging**, and the orchestrator's session is told to merge. It merges, then `cello task done CEL-n` moves the task to Done. With the setting off (some other projects), the order is reversed: the orchestrator merges before it submits, and Approve only moves the task to Done.
 
@@ -174,7 +174,7 @@ flowchart TD
 flowchart TD
     A["Review clean"] --> B["Submit, with the PR link<br/>cello task submit: In Review"]
     B --> C{"Lucas"}
-    C -->|"Approve and merge"| D["Approved · merging<br/>the claim stays; the session is told to merge"]
+    C -->|"Approve and merge,<br/>or approval in chat"| D["Approved · merging<br/>the claim stays; the session is told to merge,<br/>or passes the approval on itself"]
     D --> E["Merge"]
     E --> F(["cello task done: Done<br/>the claim ends"])
     C -->|"Send back + a note"| G["Back to In Progress"]

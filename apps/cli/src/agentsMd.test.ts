@@ -280,16 +280,18 @@ describe("addAgentsSection", () => {
     const current = agentsSection(GUIDE, "THAI")
     expect(old).not.toContain("testing profile")
     const added = current.split("\n").filter((line) => !old.split("\n").includes(line))
-    expect(added).toHaveLength(1)
-    expect(added[0]).toContain("testing profile")
-    for (const words of ["`cello context`", "`cello profile set`", "`cello task ask`"]) expect(added[0]).toContain(words)
+    // Two lines are new since: the testing profile's (CEL-96) and the human's verdict in chat (CEL-169).
+    expect(added).toHaveLength(2)
+    const profile = added.find((line) => line.includes("testing profile"))!
+    expect(added.find((line) => line !== profile)).toContain("`cello task approve THAI-n --quote")
+    for (const words of ["`cello context`", "`cello profile set`", "`cello task ask`"]) expect(profile).toContain(words)
 
     // Between the markers, untouched since that run: updated, no .bak, and only that line is new.
     const checkout = fs.mkdtempSync(path.join(base, "co-"))
     const file = path.join(checkout, "AGENTS.md")
     fs.writeFileSync(file, `# Repo\n\n${agentsBlock(old)}\n\n## Ours\n`)
     const updated = addAgentsSection(checkout, GUIDE, "THAI")
-    expect(updated).toMatchObject({ file, changed: true, change: "updated", backup: null, diff: [`+ ${added[0]}`] })
+    expect(updated).toMatchObject({ file, changed: true, change: "updated", backup: null, diff: added.map((line) => `+ ${line}`) })
     expect(fs.readFileSync(file, "utf8")).toBe(`# Repo\n\n${agentsBlock(current)}\n\n## Ours\n`)
 
     // Without markers (copied by hand): every line is one Cello's snippet had, so it's replaced, with a .bak.
