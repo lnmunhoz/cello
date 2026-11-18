@@ -31,6 +31,9 @@ const TYPES: Record<string, { readonly kind: FileKind; readonly mime: string }> 
   md: { kind: "file", mime: "text/markdown; charset=utf-8" },
   csv: { kind: "file", mime: "text/csv; charset=utf-8" },
   json: { kind: "file", mime: "application/json" },
+  // Plain text, so "Open in new tab" shows the file; the side panel opens a unified diff as a diff view (CEL-173).
+  diff: { kind: "file", mime: TEXT },
+  patch: { kind: "file", mime: TEXT },
   cast: { kind: "file", mime: "application/x-asciicast" },
 }
 

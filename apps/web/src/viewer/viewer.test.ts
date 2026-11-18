@@ -48,7 +48,15 @@ describe("toViewerItem: what a URL is, for the viewer", () => {
   })
 
   it("a text file on the board's origin by its extension: logs, transcripts, markdown, JSON, CSV", () => {
-    for (const ext of ["txt", "log", "out", "md", "json", "csv", "cast"]) expect(toViewerItem({ url: `/files/run.${ext}` }, ORIGIN)?.kind).toBe("text")
+    for (const ext of ["txt", "log", "out", "md", "json", "csv", "cast", "diff", "patch"]) expect(toViewerItem({ url: `/files/run.${ext}` }, ORIGIN)?.kind).toBe("text")
+  })
+
+  it("a diff or a patch file is text too, by whatever the shared attachment table accepts (case and encoded names included)", () => {
+    expect(toViewerItem({ url: "/files/x.diff" }, ORIGIN)?.kind).toBe("text")
+    expect(toViewerItem({ url: "/files/fix.patch" }, ORIGIN)?.kind).toBe("text")
+    expect(toViewerItem({ url: "/files/Fix.PATCH" }, ORIGIN)?.kind).toBe("text")
+    expect(toViewerItem({ url: "/files/thai-138%20changes.diff" }, ORIGIN)?.kind).toBe("text")
+    expect(toViewerItem({ url: "/files/x.diff.exe" }, ORIGIN)?.kind).toBe("page")
   })
 
   it("a text file on another site is just a site (it can't be read from here)", () => {

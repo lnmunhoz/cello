@@ -2,7 +2,7 @@
 // site), where an "open" goes (`openRoute`: the image modal, the side panel, the desktop app's native
 // browser, or the board's window), which document a Cello page shows, and the panel's width rule.
 // Pure, so the rules are tested once here; the components only map a decision to the DOM.
-import { attachmentIdOf } from "@cello/shared/attachment"
+import { attachmentIdOf, classify } from "@cello/shared/attachment"
 import { shortUrl } from "@cello/shared/linkify"
 import { parseTaskKey, parseTaskPath, taskPath } from "@cello/shared/taskKey"
 import { parseVersion } from "@cello/shared/updates"
@@ -39,8 +39,15 @@ export interface OpenTarget {
 
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|svg)$/i
 const VIDEO = /\.(mp4|webm|mov|m4v|ogv)$/i
-/** The text files the server stores (packages/shared/src/attachment.ts), by extension. */
-const TEXT = /\.(txt|log|out|md|csv|json|cast)$/i
+/** A text file the server stores (packages/shared/src/attachment.ts), by its name's extension. */
+const isTextFile = (pathname: string): boolean => {
+  const name = pathname.split("/").at(-1) ?? ""
+  try {
+    return classify(decodeURIComponent(name))?.kind === "file"
+  } catch {
+    return classify(name)?.kind === "file"
+  }
+}
 
 const resolve = (url: string, origin: string): URL | null => {
   if (url.trim() === "" || url.startsWith("#")) return null
@@ -65,7 +72,7 @@ export const toViewerItem = (target: OpenTarget, origin: string): ViewerItem | n
         ? "video"
         : !onBoard
           ? "external"
-          : attachmentIdOf(url.pathname) !== null || TEXT.test(url.pathname)
+          : attachmentIdOf(url.pathname) !== null || isTextFile(url.pathname)
             ? "text"
             : "page")
   const name = target.name?.trim()

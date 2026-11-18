@@ -16,6 +16,8 @@ describe("classify", () => {
     ["notes.md", "file", "text/markdown; charset=utf-8"],
     ["session.cast", "file", "application/x-asciicast"],
     ["report.json", "file", "application/json"],
+    ["changes.diff", "file", "text/plain; charset=utf-8"],
+    ["Fix.PATCH", "file", "text/plain; charset=utf-8"],
   ])("%s is %s (%s)", (name, kind, mime) => {
     expect(classify(name)).toEqual({ kind, mime })
   })

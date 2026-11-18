@@ -1,6 +1,8 @@
 // The side panel's text view (CEL-60): how a text file on the board shows. Markdown through the page
 // reader; JSON indented; everything else (terminal transcripts, test logs, CSV, casts) in monospace,
-// wrapped, without the ANSI codes a terminal recording carries. Pure, so the rules are tested here.
+// wrapped, without the ANSI codes a terminal recording carries; a unified diff (CEL-173) as a diff view.
+// Pure, so the rules are tested here.
+import { parseUnifiedDiff, type ParsedDiff } from "@cello/shared/diff"
 
 /**
  * ANSI escape sequences: CSI (colours, cursor moves, line clears: ESC [ … letter), OSC (window titles,
@@ -11,7 +13,7 @@ const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b
 /** `text` without its ANSI escape codes. */
 export const stripAnsi = (text: string): string => text.replace(ANSI, "")
 
-export type TextFormat = "markdown" | "json" | "plain"
+export type TextFormat = "markdown" | "json" | "diff" | "plain"
 
 const typeOf = (mime: string | null) => (mime ?? "").split(";")[0]!.trim().toLowerCase()
 
@@ -21,7 +23,19 @@ export const textFormat = (mime: string | null, name: string | undefined): TextF
   const ext = name?.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1]
   if (type === "text/markdown" || ext === "md") return "markdown"
   if (type === "application/json" || ext === "json") return "json"
+  if (type === "text/x-diff" || type === "text/x-patch" || ext === "diff" || ext === "patch") return "diff"
   return "plain"
+}
+
+/**
+ * The diff view's model, when the text is a unified diff: a `.diff`/`.patch` file, or a `.txt` or
+ * `.log` (the plain format) whose content parses as one, so an agent's `git diff > x.txt` opens as a
+ * diff. Colour codes (`git diff --color`) are stripped first. Null when there's no file in it.
+ */
+export const asDiff = (format: TextFormat, text: string): ParsedDiff | null => {
+  if (format !== "diff" && format !== "plain") return null
+  const parsed = parseUnifiedDiff(stripAnsi(text))
+  return parsed.files.length > 0 ? parsed : null
 }
 
 /** What the monospace view shows: JSON indented when it parses, anything else without its ANSI codes. */
