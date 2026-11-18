@@ -6,7 +6,7 @@ import * as path from "node:path"
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test"
 import { startFakeReleaseFeed, type FakeRelease } from "../test/fakeReleaseFeed.ts"
 import { recordWindow, screenshotWindow, type Recording } from "./recorder.ts"
-import { appPages, cleanup, launchApp, quitApp, SCREENSHOTS_DIR, slug, startCello, tempDir, VIDEOS_DIR } from "./support.ts"
+import { appPages, cleanup, launchApp, quitApp, SCREENSHOTS_DIR, sidebarSettings, slug, startCello, tempDir, VIDEOS_DIR } from "./support.ts"
 
 let recording: Recording | null = null
 const record = (app: ElectronApplication, title: string) => {
@@ -167,7 +167,7 @@ test("CEL-140: Settings → Updates: switching to Preview offers the newer prere
   await expect(board.locator("li", { hasText: "is available" })).toHaveCount(0)
 
   await video.caption("Settings → Updates: the channel, Check now, automatic downloads and when it last checked")
-  await board.getByRole("link", { name: "Settings" }).click()
+  await sidebarSettings(board).click()
   const section = board.getByRole("region", { name: "Updates" })
   await section.scrollIntoViewIfNeeded()
   await expect(section.locator("[data-update-line]")).toHaveText("Cello 0.5.1 · Stable · up to date")
@@ -197,7 +197,7 @@ test("CEL-140: Settings → Updates: switching to Preview offers the newer prere
   await expect(board.locator('[data-release="0.5.1"]')).toHaveAttribute("data-release-mark", "running")
 
   await video.caption("Back to Stable: up to date again")
-  await board.getByRole("link", { name: "Settings" }).first().click()
+  await sidebarSettings(board).click()
   await board.getByRole("region", { name: "Updates" }).getByRole("radio", { name: "Stable" }).click()
   await expect(footer).toHaveText("Cello 0.5.1 · Stable · up to date")
 })
