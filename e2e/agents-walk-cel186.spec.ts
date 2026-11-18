@@ -1,10 +1,10 @@
 // CEL-186 evidence only: a walk of the Agents page while three agents work, for before-and-after videos
 // (the same walk runs on the base commit, where rows still re-sort on every call). It asserts nothing
-// about order, so it runs on both; the behaviour is tested in agents-page.spec.ts. Skipped unless
-// CELLO_E2E_WALK=1, so the suite never runs it.
+// about order, so it runs on both; the behaviour is tested in agents-page.spec.ts. Runs only in review
+// mode (CELLO_E2E_REVIEW=1, which Docker passes through), so the suite never runs it.
 import { agentAs, animationsSettled, caption, defaultWorkspace, expect, newCommandId, seedProject, test } from "./fixtures.ts"
 
-test.skip(process.env["CELLO_E2E_WALK"] !== "1", "evidence walk: CELLO_E2E_WALK=1 runs it")
+test.skip(process.env["CELLO_E2E_REVIEW"] !== "1", "evidence walk: runs in review mode only (CELLO_E2E_REVIEW=1)")
 
 test.beforeEach(async ({ context }) => {
   await context.addInitScript(() => {
