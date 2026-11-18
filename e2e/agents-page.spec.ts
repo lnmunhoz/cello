@@ -14,7 +14,6 @@ import {
   animationsSettled,
   caption,
   captionWithUrl,
-  contentAnimations,
   defaultWorkspace,
   expect,
   newCommandId,
@@ -412,6 +411,15 @@ test("CEL-186: rows keep their place while agents work: a call pulses its row in
   const order = (id: "working" | "quiet") =>
     rowsIn(page, id).evaluateAll((rows, ids) => rows.map((r) => r.getAttribute("data-agent-row") ?? "").filter((r) => ids.includes(r)), mine)
   const rowOf = (id: string) => page.locator(`li:has([data-agent-row="session:${id}"])`)
+  /** Nothing the page runs once is still running (a working agent's mark loops by design, CEL-69), and no row is mid-move. */
+  const expectIdle = async () => {
+    expect(await page.evaluate(() =>
+      document.getAnimations().filter((a) => {
+        const target = a.effect instanceof KeyframeEffect ? a.effect.target : null
+        return a.effect?.getComputedTiming().iterations !== Infinity && (target === null || target.closest("main") !== null)
+      }).length)).toBe(0)
+    await expect(page.locator("main li[style*='transform']:not([style*='none'])")).toHaveCount(0)
+  }
   const start = Date.now()
   await page.clock.setFixedTime(start)
 
@@ -436,9 +444,10 @@ test("CEL-186: rows keep their place while agents work: a call pulses its row in
   await expect(rowOf(first).locator("[data-agent-pulse]")).toHaveCount(1)
   expect(await order("working")).toEqual(mine)
 
-  await caption(page, "Once the pulses end, the idle page runs no animation")
+  // Working agents' marks loop by design (CEL-69); what this page adds (pulses, moves) ends.
+  await caption(page, "Once the pulses end, nothing on the page is left running but the working agents' marks")
   await animationsSettled(page)
-  expect(await contentAnimations(page)).toBe(0)
+  await expectIdle()
 
   await caption(page, "The second agent lets its task go: its row leaves, and the others close the gap")
   await agents[1]!.run((c) => c["task.release"]({ commandId: newCommandId(), key: "STD-2" }))
@@ -449,7 +458,7 @@ test("CEL-186: rows keep their place while agents work: a call pulses its row in
   await page.clock.setFixedTime(start + 6 * 60_000)
   await expect.poll(() => order("quiet")).toEqual([mine[0], mine[2]])
   await animationsSettled(page)
-  expect(await contentAnimations(page)).toBe(0)
+  await expectIdle()
 
   await agents[0]!.run((c) => c["task.release"]({ commandId: newCommandId(), key: "STD-1" }))
   await agents[2]!.run((c) => c["task.release"]({ commandId: newCommandId(), key: "STD-3" }))

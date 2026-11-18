@@ -10,8 +10,8 @@ import { agoShort, presenceWords } from "@cello/shared/presence"
 import { isRunning } from "@cello/shared/testRun"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { FolderIcon, HourglassIcon } from "lucide-react"
-import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react"
-import { useState } from "react"
+import { AnimatePresence, LayoutGroup, MotionConfig, motion, usePresence } from "motion/react"
+import { createContext, type ReactNode, useContext, useEffect, useState } from "react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
 import { Centered } from "../app/Home.tsx"
 import { CardBody } from "../board/Card.tsx"
@@ -108,6 +108,7 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
           ) : null}
           {groups.length === 0 ? null : (
             <MotionConfig reducedMotion="user">
+              <PageRows.Provider value={keys}>
               <LayoutGroup>
             <div {...queue.list} className="flex flex-col gap-6">
               {groups.map((group) => (
@@ -136,8 +137,10 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                             exit="gone"
                             className={under ? "relative pl-6" : "relative"}
                           >
-                            <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
-                            <Pulse at={pulseKeyOf(row)} under={under} />
+                            <Leaving id={row.id}>
+                              <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
+                              <Pulse at={pulseKeyOf(row)} under={under} />
+                            </Leaving>
                           </motion.li>
                         )
                       })}
@@ -147,6 +150,7 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
               ))}
             </div>
               </LayoutGroup>
+              </PageRows.Provider>
             </MotionConfig>
           )}
         </div>
@@ -154,6 +158,24 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
     </div>
   )
 }
+
+/**
+ * A row's content while AnimatePresence lets it go. One that moved to another group (its id still on the
+ * page: the copy there slides in from here, layoutId) is gone at once, so the page never shows it twice;
+ * one that left the page stays while it fades. The rows come from context: an exiting row keeps its last props.
+ */
+function Leaving({ id, children }: { id: string; children: ReactNode }) {
+  const [present, safeToRemove] = usePresence()
+  const onPage = useContext(PageRows)
+  const moved = !present && onPage.includes(id)
+  useEffect(() => {
+    if (moved) safeToRemove?.()
+  }, [moved, safeToRemove])
+  return moved ? null : children
+}
+
+/** The rows on the page now, for an exiting row (whose props are stale) to tell a move from a leave. */
+const PageRows = createContext<ReadonlyArray<string>>([])
 
 /**
  * One short pulse over a row each time the board hears its agent check in (CEL-186; at most once a minute
