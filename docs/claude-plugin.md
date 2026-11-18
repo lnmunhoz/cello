@@ -1,21 +1,37 @@
 ---
 title: The Claude Code plugin, and the orchestrator thread
-summary: How Cello teaches Claude Code to work with the board. `cello install claude` turns on a plugin that gives a session /cello:orchestrate (run tasks through builder and reviewer agents), /cello:work (one task in this thread), the cello skill and two generic agents. What each piece does, how it gets installed and updated, and how to change it.
+summary: How Cello teaches Claude Code to work with the board. `cello install claude` turns on a plugin that gives a session /cello:orchestrate (run tasks the way the repo's LIFECYCLE.md says), the cello skill and two generic agents. What each piece does, where a project's own lifecycle lives, how it gets installed and updated, and how to change it.
 ---
 
 ## The short version
 
-**`cello install claude` turns on a Claude Code plugin called `cello` in the project.** A new Claude Code session there knows how to work with the board without being told: it has two commands you type, a skill it loads by itself, and two agents the orchestrator starts.
+**`cello install claude` turns on a Claude Code plugin called `cello` in the project.** A new Claude Code session there knows how to work with the board without being told: it has a command you type, a skill it loads by itself, and two agents the orchestrator can start.
 
 | Piece | Who uses it | What it does |
 | --- | --- | --- |
-| **`/cello:orchestrate [keys, or a goal]`** | You, at the start of a thread | Makes the thread the **orchestrator**: it plans and hands the work to agents, and doesn't write the feature code itself |
-| **`/cello:work <key, or what to do>`** | You | One task, done in this thread from claim to review packet |
+| **`/cello:orchestrate [keys, or a goal]`** | You, at the start of a thread | Makes the thread the **orchestrator**: it reads the repo's `LIFECYCLE.md`, hands the work to agents the way it says, and doesn't write the feature code itself |
 | **The `cello` skill** | Claude, by itself, in a Cello repo | The board's rules in a few lines, and "read `cello guide`" |
-| **`cello:builder`** | The orchestrator | Builds one task in its own git worktree, test first, never pushes |
-| **`cello:reviewer`** | The orchestrator | Reads the diff and the task text (never the builder's report) and gives a verdict |
+| **`cello:builder`** | The orchestrator, when `LIFECYCLE.md` names it | Builds one task test first, where the brief says (its own worktree, or the main checkout), never pushes |
+| **`cello:reviewer`** | The orchestrator, when `LIFECYCLE.md` names it | Reads the change (a branch's diff, or the working-tree diff of the task's files) and the task text, never the builder's report, and gives a verdict |
 
 It's on **per project** by default, since not every project uses Cello. `cello install claude --user` turns it on everywhere.
+
+## Each project has its own lifecycle: LIFECYCLE.md
+
+**How a task goes from Todo to Done is the project's, not the plugin's** (CEL-168). Cello builds each task in a worktree and merges the branch after Lucas approves; ThaiLookup works on `develop` in the main checkout and commits only after he approves. And within one repo, a one-line fix shouldn't go through the same steps as a feature. So each repo writes its flows in **`LIFECYCLE.md` at its root**: a few named **workflows**, one per kind of task, and the parts they share:
+
+| Section | What it says |
+| --- | --- |
+| **Workflows** | One per kind of task (`feature`, `fix`, `docs`, `data`…): when to use it, its steps in order, the stage and agent of each, where you approve before the next one |
+| **Agents** | Who runs each step: the repo's own agents (`.claude/agents/`) or the plugin's `cello:builder` and `cello:reviewer`, with model and effort |
+| **Where agents work** | A worktree per task on its own branch, or the main checkout shared with other sessions |
+| **How work lands** | A merge, a PR, or a commit straight to a branch; what's never done |
+| **After it lands** | Tests, deploys, migrations, and which wait for your yes |
+| **Releases** | How and when one goes out |
+
+**The orchestrator picks the workflow per task** from each one's "Use it when" line, and comments which and why on the card ("Workflow: `small`, because it's a docs fix"). Reply with another workflow's name to change it; when none fits, it asks you on the card. Cello's own [LIFECYCLE.md](../LIFECYCLE.md) has two: `feature` (planner, your plan approval, builder, reviewers) and `small` (docs or a one-line fix, made directly). The template lives in the plugin's `commands/orchestrate.md`.
+
+**The plugin keeps only the board's mechanics**, the same in every project: orchestrate mode, claims, stages, asking on the card, comments and the inbox, `cello task submit` and `cello task done`. **When** work lands is still the project's "Merge after I approve" setting; `LIFECYCLE.md` says **how**.
 
 ## What an orchestrator thread does
 
@@ -23,27 +39,34 @@ You type `/cello:orchestrate CEL-12 CEL-14`, or a goal like `/cello:orchestrate 
 
 ```mermaid
 flowchart TD
-    A["You type /cello:orchestrate<br/>with task keys, or a goal"] --> B["① Get the tasks ready<br/>cello context · tasks from the goal · claim each"]
-    B --> C["② Build<br/>stage: building<br/>one builder agent per task, each in its own worktree"]
-    C --> D["③ Review<br/>stage: review<br/>a fresh reviewer: the diff and the task text, nothing else"]
-    D -->|findings| E["④ Fix<br/>stage: fixing<br/>back to the same builder, so it keeps its context"]
-    E --> D
-    D -->|clean| F["⑤ Merge<br/>stage: merged<br/>tests, release and deploy<br/>as the project's AGENTS.md says"]
-    F --> G(["⑥ Submit right away<br/>cello task submit: In Review"])
-    D -.->|"a question only you can answer"| Q["cello task ask<br/>the card waits in Needs input"]
-    Q -.-> E
+    A["You type /cello:orchestrate<br/>with task keys, or a goal"] --> B{"LIFECYCLE.md<br/>at the repo root?"}
+    B -->|no| D["① Draft one from the repo<br/>a few workflows, from AGENTS.md, branches, CI,<br/>cello context, .claude/agents/; guesses marked"]
+    D --> Q["Ask you on the card<br/>Use this lifecycle? Use it / Change it"]
+    Q -->|Change it| D
+    Q -->|Use it| W["Write LIFECYCLE.md<br/>uncommitted, lands with the first task"]
+    W --> C
+    B -->|yes| C["② Get the tasks ready<br/>cello context · tasks from the goal · claim each"]
+    C --> P["③ Pick each task's workflow<br/>feature, fix, docs…<br/>say which and why on the card"]
+    P --> S["④ That workflow's steps, in order<br/>its agents, where LIFECYCLE.md says they work<br/>cello task stage at each"]
+    S --> M{"Merge after I approve?"}
+    M -->|off| L1["Land it as LIFECYCLE.md says<br/>then submit"]
+    M -->|on| L2["Submit, wait for your Approve<br/>then land it, cello task done"]
 ```
 
 The rules it follows for the whole run:
 
-- **It doesn't write the feature itself.** It writes briefs, starts agents, reads their reports, merges and submits. Only tiny changes (docs, a one-line fix) it makes directly.
-- **Independent tasks run at the same time; tasks that touch the same files run one after another.** Each builder's brief says what the others are changing, so they stay out of each other's files.
+- **It doesn't write the feature itself.** It writes briefs, starts agents, reads their reports, lands the work and submits. Only tiny changes (docs, a one-line fix) it makes directly.
+- **It follows `LIFECYCLE.md`, one workflow per task, and never guesses one.** Without the file it drafts it from the repo and asks you on the card before running any task. When the file looks out of date, it asks before changing it.
+- **Independent tasks run at the same time; tasks that touch the same files run one after another.** Each agent's brief says what the others are changing, so they stay out of each other's files. In a shared checkout no two agents edit the same file.
 - **The card always says where the work is**, through `cello task stage`. Submitting clears it.
 - **Your decisions are asked on the card**, never in the terminal. Your comments reach the thread by themselves through the hooks, and it answers on the card.
 - **The claim belongs to the orchestrator.** Subagents run inside its session, so builders and reviewers never claim, comment, stage, submit or read the inbox.
-- **It uses the project's own agents when there are any.** In this repo that's `cello-builder`, `cello-code-reviewer` and the others in `.claude/agents/`; in a repo without its own, it's `cello:builder` and `cello:reviewer`.
 
-This is the same path as *How a feature is built, end to end*, written as instructions for the thread.
+In this repo, the path is *How a feature is built, end to end*, written as instructions in LIFECYCLE.md.
+
+### Why there's no /cello:work any more
+
+It did one task in the thread, with the steps written into the command: a second copy of the lifecycle that couldn't follow a project's `LIFECYCLE.md`, and Lucas never used it. It was removed in CEL-168; installing a newer `cello` deletes it from the plugin folder. A session doing one task by itself follows the `cello` skill and `LIFECYCLE.md`.
 
 ## How it gets installed
 
@@ -79,13 +102,13 @@ flowchart TD
 ```
 
 - **Source:** `apps/cli/claude-plugin/` is a local marketplace with one plugin, `cello/`:
-  - `commands/orchestrate.md` and `commands/work.md`
+  - `commands/orchestrate.md`, which also holds the `LIFECYCLE.md` template
   - `skills/cello/SKILL.md`
   - `agents/builder.md` and `agents/reviewer.md`
   - `.claude-plugin/plugin.json`, whose version must match Cello's (a test checks it)
 - **Embedding:** `bun run docs:cli` turns the folder into `apps/cli/src/claudePluginFiles.ts`, the same way it generates `cello guide`. `bun apps/cli/scripts/docs.ts --check` and a unit test both fail when they drift.
 - **Install code:** `apps/cli/src/claudePlugin.ts` writes the folder; `apps/cli/src/claudeSettings.ts` adds and removes the settings entries; `installHooks` in `apps/cli/src/cli.ts` runs both.
-- **Keep it project-neutral.** The plugin runs in every repo tracked in Cello, so it names commands, not this repo's agents or paths. Point to `cello guide` instead of copying flags, so it can't drift from the CLI.
+- **Keep it project-neutral.** The plugin runs in every repo tracked in Cello, so it names commands, not this repo's agents or paths. Anything that differs per project (steps, agents, worktrees, how work lands) belongs in that project's `LIFECYCLE.md`, never in the plugin. Point to `cello guide` instead of copying flags, so it can't drift from the CLI.
 - **Keep the skill short.** It's loaded into every session in the project (about 260 tokens for the whole plugin).
 
 The agent-facing details (every edge case of install and uninstall) are in *The cello CLI, for agents*, section "The Claude Code plugin".

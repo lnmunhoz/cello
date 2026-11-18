@@ -199,7 +199,7 @@ describe("cello init", () => {
           "Agents here can't publish Claude artifacts: they're told to publish a Cello page instead. Start Claude Code with CELLO_ALLOW_ARTIFACTS=1 when you want one.",
           "Orchestrating sessions, subagents and runs Cello woke can't ask you questions in Claude's own window, where nobody watches: they're told to ask on the card, where the task waits in Needs input. A session you chat with keeps the dialog. \"/cello:orchestrate off\" gives an orchestrating session it back; CELLO_ALLOW_ASK_USER=1 lets every session use it.",
           "Agents here can't edit files in the repo until their session has claimed a Cello task: they're told to create or claim one first. Start Claude Code with CELLO_ALLOW_UNTRACKED=1 to turn that off.",
-          "The plugin gives new sessions /cello:orchestrate (run tasks through builder and reviewer agents), /cello:work (do one task in this thread) and the cello skill.",
+          "The plugin gives new sessions /cello:orchestrate (run tasks the way the project's LIFECYCLE.md says, through builder and reviewer agents) and the cello skill.",
           "New Claude Code sessions pick them up.",
         ].join("\n"),
         failure: null,

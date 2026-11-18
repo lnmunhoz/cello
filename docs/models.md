@@ -100,7 +100,7 @@ Each review packet says which models built and reviewed the work, so these patte
 
 - **Agent definitions:** `model:` and `effort:` in the frontmatter of `.claude/agents/cello-planner.md`, `cello-builder.md`, `cello-code-reviewer.md` and `cello-data-reviewer.md`. Claude Code reads these when a session starts.
 - **When starting an agent another way** (a general-purpose agent, or `Explore`), the orchestrator passes the same model and effort.
-- **AGENTS.md** has the table under "How a task flows". This page explains it; change both together.
+- **LIFECYCLE.md** has the table under "Agents". This page explains it; change both together.
 
 ## Sources
 

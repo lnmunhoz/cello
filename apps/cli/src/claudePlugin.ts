@@ -1,5 +1,5 @@
-// The Claude Code plugin `cello install claude` installs (CEL-64): /cello:orchestrate, /cello:work, the
-// cello skill and the builder and reviewer agents. Its source is apps/cli/claude-plugin/, a local
+// The Claude Code plugin `cello install claude` installs (CEL-64): /cello:orchestrate, the cello
+// skill and the builder and reviewer agents. Its source is apps/cli/claude-plugin/, a local
 // marketplace holding one plugin. `bun run docs:cli` copies those files into claudePluginFiles.ts, so
 // the compiled binary carries them and running from source reads the same list; a test fails when the
 // two differ.

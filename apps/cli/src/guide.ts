@@ -77,7 +77,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    - If the key is taken, it says which project has it: pick another, or leave \`--key\` out and Cello picks a free one (CEL, then CELL, CELLO, CEL2…).
    - \`--workspace Work\` puts it in another workspace, by name; the default is the first one.
    - Running it again in a linked repo inspects again: new detected values fill fields that are empty or were detected before, a value found again unchanged is left as it is, and fields an agent or the human set are kept (the report says which). A field that was detected before and isn't found this time (the repo changed, or an earlier version of Cello wrote a value it now leaves out) is cleared, and the report ends with \`Cleared app.url and e2e.web.videos: detected before, not found this time.\` A field an agent or the human set is never cleared. When it finds nothing at all (a worktree on a branch without the repo's files, a sparse or fresh checkout), it clears nothing and says \`Found nothing to detect here; kept the testing profile as it is.\` \`--skip-detect\` leaves the inspection out.
-4. **Hooks, so the human's comments reach your session.** Run \`cello install claude\` (or \`cello init --hooks\`, which does the same). It writes this machine's \`.claude/settings.local.json\` and makes sure git ignores it. It keeps a \`.bak\` of the old file; ignore that too if the repo's \`.gitignore\` doesn't cover it. Run it again any time; it changes nothing the second time. The same command adds two guards: in this project, Claude artifact publishes are turned away with a pointer to \`cello doc publish\` (see "Showing things to the human"), and an agent's edits in the repo are turned away until its session has claimed a task (see "Edits need a claimed task"). It also installs Cello's Claude Code plugin, which gives new sessions \`/cello:orchestrate\`, \`/cello:work\` and the \`cello\` skill (see "The Claude Code plugin"), and allows \`cello\` commands in Claude Code, so a permission check that fails can't cut agents off the board (see "\`cello\` commands skip Claude Code's permission check" below).
+4. **Hooks, so the human's comments reach your session.** Run \`cello install claude\` (or \`cello init --hooks\`, which does the same). It writes this machine's \`.claude/settings.local.json\` and makes sure git ignores it. It keeps a \`.bak\` of the old file; ignore that too if the repo's \`.gitignore\` doesn't cover it. Run it again any time; it changes nothing the second time. The same command adds two guards: in this project, Claude artifact publishes are turned away with a pointer to \`cello doc publish\` (see "Showing things to the human"), and an agent's edits in the repo are turned away until its session has claimed a task (see "Edits need a claimed task"). It also installs Cello's Claude Code plugin, which gives new sessions \`/cello:orchestrate\` and the \`cello\` skill (see "The Claude Code plugin"), and allows \`cello\` commands in Claude Code, so a permission check that fails can't cut agents off the board (see "\`cello\` commands skip Claude Code's permission check" below).
 5. **Tell the repo's agents.** \`cello init --agents-md\` adds this section, with the project's key in place of \`KEY\`, to the end of the AGENTS.md in the checkout you're in, or to CLAUDE.md if there's no AGENTS.md (creating it), between two markers: \`<!-- cello:agents-md:start sha256:… -->\` (a fingerprint of the text it wrote) and \`<!-- cello:agents-md:end -->\`. Run it again whenever Cello's text changes: it puts the current text between the markers and prints the lines that changed, or says it's already current. It changes nothing else in the file.
    - **Everything between the markers is Cello's and gets rewritten.** Put the repo's own notes outside them (above the start marker or below the end one). If the text between them isn't exactly what Cello wrote (someone added a note, or it names another project's key), the command still rewrites it, but keeps the old file as \`AGENTS.md.bak\` first and says so.
    - **A section from before the markers** (a "Tracking work in Cello" heading that mentions \`cello guide\` or \`cello context\`) runs up to the next heading of any level, a setext heading or a \`---\` rule, so what follows it is never touched. What happens to it depends on whether anyone changed it:
@@ -292,7 +292,7 @@ The fields:
 
    Then fix, and submit a new packet. The same goes for feedback on a task in Done: comment it, and move it back to In Progress, or open a new task if it's a new request.
 7. **Mark each step with \`cello task stage\`** (see Stages), so the card says where the work is. Every session holding a claim does this, not only orchestrators:
-   - **Working by yourself:** \`planning\` only when the task needs a decision before code: a spec to write, a scope with options for the human to pick, or a question to ask them. It stays in \`planning\` until that's settled. A clear task (you know what to build) goes straight to \`building\`. Then \`building\` while you write the code, and \`merged\` once it's merged, just before you submit. If building runs into a design question, go back to \`planning\` until it's answered. \`/cello:work APP-12\` sets a Claude Code session up for this.
+   - **Working by yourself:** \`planning\` only when the task needs a decision before code: a spec to write, a scope with options for the human to pick, or a question to ask them. It stays in \`planning\` until that's settled. A clear task (you know what to build) goes straight to \`building\`. Then \`building\` while you write the code, and \`merged\` once it's merged, just before you submit. If building runs into a design question, go back to \`planning\` until it's answered.
    - **Running a feature through builder and reviewer agents** (the orchestrator): \`building\`, \`review\`, \`fixing\`, \`merged\` at each step. \`/cello:orchestrate APP-12 APP-14\` sets a Claude Code session up for this (see "The Claude Code plugin").
 8. **In Progress means someone is working on it right now.** When work stops before you submit, don't leave the card there: the board would show it as being built when nobody is on it.
    - **Waiting on the human** (a scope's options, a design choice, any decision that's theirs): ask on the card with \`cello task ask\` (see Questions for the human). The task moves to Needs input, your claim stays, and it comes back to In Progress when they answer.
@@ -935,10 +935,9 @@ cello agents log cello-builder/a13bfb89
 
 | What | How you use it | What it does |
 | --- | --- | --- |
-| \`/cello:orchestrate [task keys, or a goal]\` | You type it at the start of a thread; \`/cello:orchestrate off\` to stop | Makes this thread the **orchestrator**: it puts the session in orchestrate mode (\`cello sessions orchestrate on\`, so Claude's question dialog is turned away and questions go on the card; \`off\` gives it back), claims the tasks (or creates them from a goal), then runs each one through a builder agent in its own worktree, a fresh reviewer, fixes, merge and \`cello task submit\`, marking each step with \`cello task stage\`. It doesn't write the feature code itself. |
-| \`/cello:work <task key, or what to do>\` | You type it | Does one task in this thread: find or create it, claim, mark it \`planning\` when it needs a decision first, \`building\` once the code starts, test first, comment progress, submit with evidence. |
+| \`/cello:orchestrate [task keys, or a goal]\` | You type it at the start of a thread; \`/cello:orchestrate off\` to stop | Makes this thread the **orchestrator**: it puts the session in orchestrate mode (\`cello sessions orchestrate on\`, so Claude's question dialog is turned away and questions go on the card; \`off\` gives it back), reads the repo's \`LIFECYCLE.md\` (below), claims the tasks (or creates them from a goal), then runs each one through the steps and agents \`LIFECYCLE.md\` names, marking each step with \`cello task stage\`, submitting with \`cello task submit\` and landing the work when the Merge after approval setting says. It doesn't write the feature code itself. |
 | The \`cello\` skill | Claude loads it by itself in a repo tracked in Cello | The core rules in a few lines (a task before work, claim, ask on the card, submit), and a pointer to \`cello guide\`. |
-| \`cello:builder\` and \`cello:reviewer\` agents | The orchestrator starts them | A builder that works test first in its own worktree and never pushes or touches the live board; a read-only reviewer that judges the diff against the task text and gives a verdict. When the repo has its own agents in \`.claude/agents/\` (named like \`*-builder\`, \`*-reviewer\`), the orchestrator uses those instead. |
+| \`cello:builder\` and \`cello:reviewer\` agents | The orchestrator starts them, when \`LIFECYCLE.md\` names them | A builder that works test first where the brief says (its own worktree, or the main checkout) and never pushes or touches the live board; a read-only reviewer that judges the change (a branch's diff, or the working-tree diff of the task's files) against the task text and gives a verdict. A repo's own agents in \`.claude/agents/\` take their place when \`LIFECYCLE.md\` names those. |
 
 \`\`\`
 $ cello install claude
@@ -947,21 +946,40 @@ Installed Cello's Claude Code hooks in /Users/lnmunhoz/projects/app/.claude/sett
 Enabled Cello's Claude Code plugin in /Users/lnmunhoz/projects/app/.claude/settings.local.json; its files are in /Users/lnmunhoz/.local/share/cello/claude-plugin.
 Allowed \`cello\` commands in /Users/lnmunhoz/projects/app/.claude/settings.local.json ("Bash(cello:*)" in permissions.allow), so …
 …
-The plugin gives new sessions /cello:orchestrate (run tasks through builder and reviewer agents), /cello:work (do one task in this thread) and the cello skill.
+The plugin gives new sessions /cello:orchestrate (run tasks the way the project's LIFECYCLE.md says, through builder and reviewer agents) and the cello skill.
 New Claude Code sessions pick them up.
 \`\`\`
 
-What \`/cello:orchestrate\` does, per task:
+### LIFECYCLE.md: the project's own flow
+
+**How a task goes from Todo to Done differs per project**, so the plugin doesn't decide it. One repo builds in worktrees and merges branches; another works in the main checkout on \`develop\` and commits only after the human approves. Each repo says how in **\`LIFECYCLE.md\` at its root**: a few named **workflows** (one per kind of task) and the parts they share, in six sections:
+
+| Section | What it says |
+| --- | --- |
+| \`## Workflows\` | One \`### <name>\` per kind of task (\`feature\`, \`fix\`, \`docs\`, \`data\`…), each with a \`Use it when:\` line and its steps in order (plan, build, review, fix, submit…): the stage each sets, its agent, and where the human approves before the next one |
+| \`## Agents\` | Which agent runs each step: the repo's own in \`.claude/agents/\`, or the plugin's \`cello:builder\` and \`cello:reviewer\`; their model and effort |
+| \`## Where agents work\` | A git worktree per task on its own branch, or the main checkout shared with other sessions |
+| \`## How work lands\` | A merge, a PR or a commit straight to a branch, and its message; what's never done |
+| \`## After it lands\` | Tests to run, deploys, migrations, and which wait for the human's yes |
+| \`## Releases\` | How and when a release goes out, or "only when the human says" |
+
+\`/cello:orchestrate\` reads it before it claims anything. **For each task it picks one workflow** from the \`Use it when:\` lines and comments which and why on the card ("Workflow: \`fix\`, because …"); the human changes it by replying with another workflow's name. When none fits, or two fit equally, it asks on the card. The plugin keeps only what's the same everywhere: orchestrate mode, claims, stages, asking on the card, comments and the inbox, \`cello task submit\`, \`cello task done\`. **When work lands is still the Merge after approval setting** (see "Merge after I approve"): the setting decides the order, \`LIFECYCLE.md\` says how. When the two disagree, the orchestrator follows the setting and says so on the card.
 
 \`\`\`mermaid
 flowchart TD
-    A["Claim<br/>cello task claim"] --> B["Build: cello task stage KEY building<br/>a builder agent in its own worktree"]
-    B --> C["Review: stage review<br/>a fresh reviewer gets the diff and the task text"]
-    C -->|findings| D["Fix: stage fixing<br/>back to the same builder"]
-    D --> C
-    C -->|clean| E["Merge: stage merged<br/>whole test suite"]
-    E --> F(["Submit right away<br/>cello task submit: In Review"])
+    A["/cello:orchestrate KEY"] --> B{"LIFECYCLE.md<br/>at the repo root?"}
+    B -->|yes| R["Read it, claim the task"]
+    B -->|no| D["Draft one from the repo:<br/>AGENTS.md, branches, CI,<br/>cello context, .claude/agents/"]
+    D --> Q["Ask on the card<br/>cello task ask: Use this lifecycle?"]
+    Q -->|Change it| D
+    Q -->|Use it| W["Write LIFECYCLE.md"]
+    W --> R
+    R --> P["Pick the task's workflow<br/>from its Use it when line,<br/>say which and why on the card"]
+    P --> S["That workflow's steps and agents,<br/>where LIFECYCLE.md says they work<br/>cello task stage at each"]
+    S --> L(["Submit and land<br/>in the order Merge after approval says"])
 \`\`\`
+
+**No \`LIFECYCLE.md\` yet?** The orchestrator doesn't guess. It drafts one from what the repo shows (AGENTS.md or CLAUDE.md, the branches and recent merges, CI and release workflows, the testing profile, \`.claude/agents/\`), with a few workflows for the kinds of task the repo has, marks what it guessed, publishes the draft and asks the human on the card to use it or change it. Once they say use it, it writes the file at the repo root, leaves it uncommitted (it lands with the first task's work), and carries on with the tasks. The template it starts from is in the plugin's \`commands/orchestrate.md\`.
 
 - **Where the files go.** The plugin's files are written to \`$XDG_DATA_HOME/cello/claude-plugin\` (by default \`~/.local/share/cello/claude-plugin\`), a folder of Cello's own, never inside the repo or \`~/.cello\`. Every install rewrites what changed there, so updating \`cello\` and running \`cello install claude\` again updates the plugin. Cello only ever removes files it wrote there itself, and refuses to write through a symlinked folder inside it.
 - **Don't edit the plugin's files there:** the next install puts Cello's text back. Put your own commands in the project's \`.claude/commands/\` (or skills in \`.claude/skills/\`) instead.
@@ -972,7 +990,7 @@ flowchart TD
 - **A plugin you turned off stays off.** If the settings file says \`"cello@cello": false\`, install leaves it and says so; set it to \`true\`, or delete the line, to turn it on.
 - **Another marketplace called \`cello\`** in the settings file (one that isn't Cello's folder) is never replaced: install refuses with a sentence and changes nothing, and uninstall leaves it and the \`cello@cello\` it enables alone. With \`--shared\`, both files are checked before either is written.
 - **Removing it:** \`cello uninstall claude\` takes the plugin out of all three settings files with the hooks. The folder stays, since other projects may still enable it; delete it yourself when none do.
-- **Check it:** in a new session, typing \`/cello:\` lists the two commands. From a shell in the project, \`claude plugin details cello@cello\` shows its commands, skill and agents once a session has started there. \`claude plugin list\` doesn't list it: that shows only plugins added with \`claude plugin install\`, which Cello doesn't run because it rewrites the whole settings file.
+- **Check it:** in a new session, typing \`/cello:\` lists \`/cello:orchestrate\`. From a shell in the project, \`claude plugin details cello@cello\` shows its commands, skill and agents once a session has started there. \`claude plugin list\` doesn't list it: that shows only plugins added with \`claude plugin install\`, which Cello doesn't run because it rewrites the whole settings file.
 
 ## Review packets
 
@@ -2139,7 +2157,7 @@ cello guide [flags]
 
 ### cello install claude
 
-Connect Claude Code to Cello. Adds hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), and one that turns Claude artifact publishes away in favour of Cello pages, AskUserQuestion away in favour of \`cello task ask\` on the card where nobody watches the window (orchestrating sessions, subagents, woken runs), and edits away until the session has claimed a task (PreToolUse on Artifact, AskUserQuestion, Edit, Write and NotebookEdit; not with --user), all running \`cello hook claude\`. Installs Cello's Claude Code plugin too (/cello:orchestrate, /cello:work, the cello skill, and builder and reviewer agents): writes its files to $XDG_DATA_HOME/cello/claude-plugin (default ~/.local/share/cello/claude-plugin), rewritten on every run so a new Cello updates it, and enables it. Adds Bash(cello:*) to permissions.allow, so \`cello\` commands run without Claude Code's permission check and a check that fails can't cut agents off the board. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main checkout's), merged with what's already there; running it again changes nothing. The old file is kept as .bak.
+Connect Claude Code to Cello. Adds hooks that deliver new comments into the agent session holding the task (Stop and PostToolUse), and one that turns Claude artifact publishes away in favour of Cello pages, AskUserQuestion away in favour of \`cello task ask\` on the card where nobody watches the window (orchestrating sessions, subagents, woken runs), and edits away until the session has claimed a task (PreToolUse on Artifact, AskUserQuestion, Edit, Write and NotebookEdit; not with --user), all running \`cello hook claude\`. Installs Cello's Claude Code plugin too (/cello:orchestrate, the cello skill, and builder and reviewer agents): writes its files to $XDG_DATA_HOME/cello/claude-plugin (default ~/.local/share/cello/claude-plugin), rewritten on every run so a new Cello updates it, and enables it. Adds Bash(cello:*) to permissions.allow, so \`cello\` commands run without Claude Code's permission check and a check that fails can't cut agents off the board. Writes this project's .claude/settings.local.json (this machine, git-ignored; from a worktree, the main checkout's), merged with what's already there; running it again changes nothing. The old file is kept as .bak.
 
 \`\`\`
 cello install claude [flags]

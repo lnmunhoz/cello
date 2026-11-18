@@ -7,6 +7,8 @@ summary: The full life of a Cello feature, from an idea in chat to Done on the b
 
 Every feature goes through the same path. **Lucas says what he wants, agents build and review it, and Lucas decides on the Review page.** Nothing reaches him without tests and visual evidence, and nothing reaches main without a review.
 
+**The steps are written down in [LIFECYCLE.md](../LIFECYCLE.md)** at the repo root, as instructions, in two workflows: `feature` (this page) and `small` (docs or a one-line fix, which skips the plan, the build agent and the review). `/cello:orchestrate` reads it first, picks a task's workflow and follows it (CEL-168). This page explains `feature` with diagrams. Change both together.
+
 ```mermaid
 flowchart TD
     A["① Idea<br/>Lucas, in chat or a comment"] --> B{"Ready to build?"}
@@ -108,7 +110,7 @@ flowchart TD
 
 Submitting the packet (or moving the task out of In Progress) clears it. Builders and reviewers never run it: they don't hold the claim.
 
-Rules the builder follows (from AGENTS.md):
+Rules the builder follows (from AGENTS.md and LIFECYCLE.md):
 
 - **Its own worktree, its own branch.** It never pushes, never touches main, and never changes the live board. Several builders work at once without stepping on each other.
 - **Never touches Lucas's data.** Tests use temp folders and their own ports, never `~/.cello` or port 4747.
@@ -206,7 +208,7 @@ Lucas decides when a release goes out (Nov 18: "We only release when I say so").
 | End-to-end test runs, videos | Docker containers; results in `test-results/docker/latest` |
 | Evidence after submit | Copied into `~/.cello/assets`, backed up daily (CEL-23) |
 | The code | `main` on GitHub |
-| The rules | AGENTS.md, `.claude/agents/`, `docs/cli.md`, `docs/models.md` |
+| The rules | AGENTS.md, LIFECYCLE.md (the steps), `.claude/agents/`, `docs/cli.md`, `docs/models.md` |
 
 ## A real example: CEL-23, backups
 
