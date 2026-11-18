@@ -73,22 +73,15 @@ export type TimelineItem<C> =
   | { readonly kind: "comment"; readonly id: string; readonly ts: number; readonly comment: C }
   | { readonly kind: "line"; readonly id: string; readonly ts: number; readonly line: TimelineLine }
 
-/** A run of lines folded into one row. `shown` is the newest of them when the variant keeps it visible. */
+/** A run of lines folded into one row: `lines` is all of them in order, `newest` the last, which stays visible. */
 export interface TimelineFold {
   readonly kind: "fold"
   readonly id: string
   readonly lines: ReadonlyArray<TimelineLine>
-  readonly shown: TimelineLine | null
+  readonly newest: TimelineLine
 }
 
 export type ThreadItem<C> = TimelineItem<C> | TimelineFold
-
-/**
- * Which way a run of lines folds (CEL-160; Lucas picks one, then this goes). `count`: two or more fold into
- * "N changes". `latest`: three or more fold, the folded row keeps the newest line visible, and the run
- * after the newest comment stays open.
- */
-export type FoldVariant = "count" | "latest"
 
 const doerOf = (e: CelloEvent): LineDoer => ({ actorId: e.actorId, sessionId: e.sessionId ?? null, agentId: e.agentId ?? null })
 
@@ -153,20 +146,21 @@ export const timelineOf = <C extends { readonly id: string; readonly createdAt: 
   return items.sort((a, b) => a.ts - b.ts)
 }
 
-const MIN_TO_FOLD: Record<FoldVariant, number> = { count: 2, latest: 3 }
+/** Lines in a row it takes to fold them (Lucas picked three, CEL-160). */
+const MIN_TO_FOLD = 3
 
 /**
- * Folds each run of lines between two comments (or before the first, or after the last) into one row,
- * as `variant` says. Comments never fold.
+ * Folds each run of lines before a comment (or before the first one) into one row that keeps its newest
+ * line visible, when it has three or more. The run after the newest comment stays open: it's what just
+ * happened. Comments never fold.
  */
-export const foldRuns = <C>(items: ReadonlyArray<TimelineItem<C>>, variant: FoldVariant): ReadonlyArray<ThreadItem<C>> => {
+export const foldRuns = <C>(items: ReadonlyArray<TimelineItem<C>>): ReadonlyArray<ThreadItem<C>> => {
   const out: Array<ThreadItem<C>> = []
   let run: Array<Extract<TimelineItem<C>, { kind: "line" }>> = []
   const flush = (trailing: boolean) => {
-    const open = variant === "latest" && trailing
-    if (run.length >= MIN_TO_FOLD[variant] && !open) {
+    if (run.length >= MIN_TO_FOLD && !trailing) {
       const lines = run.map((r) => r.line)
-      out.push({ kind: "fold", id: `fold:${lines[0]!.id}`, lines, shown: variant === "latest" ? lines[lines.length - 1]! : null })
+      out.push({ kind: "fold", id: `fold:${lines[0]!.id}`, lines, newest: lines[lines.length - 1]! })
     } else {
       out.push(...run)
     }
@@ -183,9 +177,8 @@ export const foldRuns = <C>(items: ReadonlyArray<TimelineItem<C>>, variant: Fold
   return out
 }
 
-/** "4 changes" for a fold; with its newest line showing, "3 earlier". */
-export const foldText = (fold: TimelineFold): string =>
-  fold.shown === null ? `${fold.lines.length} changes` : `${fold.lines.length - 1} earlier`
+/** "3 earlier": how many lines the fold holds besides its newest, which shows. */
+export const foldText = (fold: TimelineFold): string => `${fold.lines.length - 1} earlier`
 
 const agentName = (agentType: string | null): string => agentType ?? "A subagent"
 

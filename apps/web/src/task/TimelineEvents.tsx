@@ -148,8 +148,8 @@ function RunBody({ board, line, text }: { board: BoardState; line: Extract<Timel
 }
 
 /**
- * A run of lines folded into one row: "4 changes · show", or with its newest line showing, that line and
- * "+2 earlier · show". Open, every line is listed in order, and the row says "hide".
+ * A run of lines folded into one row: "3 earlier · show", then its newest line, which stays visible.
+ * Open, every line is listed in order, and the row says "hide".
  */
 export function TimelineFoldRow({ board, fold }: { board: BoardState; fold: TimelineFold }) {
   const [open, setOpen] = useState(false)
@@ -161,8 +161,7 @@ export function TimelineFoldRow({ board, fold }: { board: BoardState; fold: Time
           {open ? "Hide" : `${foldText(fold)} · show`}
         </Button>
       </li>
-      {open ? fold.lines.map((line) => <TimelineLineRow key={line.id} board={board} line={line} />) : null}
-      {!open && fold.shown ? <TimelineLineRow board={board} line={fold.shown} /> : null}
+      {open ? fold.lines.map((line) => <TimelineLineRow key={line.id} board={board} line={line} />) : <TimelineLineRow board={board} line={fold.newest} />}
     </Fragment>
   )
 }

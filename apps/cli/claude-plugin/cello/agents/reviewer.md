@@ -27,7 +27,11 @@ You review one task's branch before it's merged into the default branch (usually
 
 ## Report
 
-Lead with the verdict: **merge**, **fix first**, or **ask the person** (a design question the task doesn't answer).
+Start your reply with this one line, exactly, with one of the three after `Verdict:` (Cello reads it from the start of your last reply and shows it on the task):
+
+`Verdict: merge`, `Verdict: fix first` or `Verdict: ask the person` (a design question the task doesn't answer)
+
+Nothing before it, no heading, no greeting. Add a few words after it if they help ("Verdict: fix first, two blockers").
 
 Then the findings, most severe first. Each one has:
 

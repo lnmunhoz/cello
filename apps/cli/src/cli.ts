@@ -493,11 +493,14 @@ const byIds = (names: {
   },
 })
 
+/** A reviewer's verdict (CEL-160) as `cello task get` says it. */
+const VERDICT_WORDS = { merge: "merge", fix_first: "fix first", ask: "ask" } as const
+
 /**
  * The agents on a task (CEL-55), freshest first: "cello-builder · a13bfb89 (under Claude Code session
  * 2fd0505c): working, seen 1m ago", "…: running tests (web e2e 7 of 13 · 3m12s), seen just now" (CEL-134),
  * "…: waiting on its background work (Bash · bun run test:e2e), seen 4m
- * ago" (CEL-133) or "…: finished 2h ago".
+ * ago" (CEL-133) or "…: finished 2h ago", with "· verdict: merge" after a reviewer's finish (CEL-160).
  */
 const agentLines = (detail: TaskDetail, now: number) =>
   (detail.agents ?? [])
@@ -505,7 +508,7 @@ const agentLines = (detail: TaskDetail, now: number) =>
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
     .map((a) => {
       const state = a.endedAt !== null
-        ? `finished ${ago(a.endedAt, now)}`
+        ? `finished ${ago(a.endedAt, now)}${a.verdict && a.verdict !== "other" ? ` · verdict: ${VERDICT_WORDS[a.verdict]}` : ""}`
         : isRunning(a.tests, now)
         ? `running tests (${testRunWords(a.tests!, now)}), seen ${ago(a.lastSeenAt, now)}`
         : a.waitingOn
@@ -2139,7 +2142,9 @@ const hookClaude = Command.make("claude", {
       "post-tool-use on the Agent tool tells the board which subagent was launched and the task its description names; subagent-start " +
       "prints context telling the new subagent to give its cello commands --agent <type>/<id>, and subagent-stop marks it finished, or " +
       "waiting on background work while a test command it ran with run_in_background or a Monitor it started is still among Claude Code's " +
-      "background_tasks (post-tool-use remembers the background work each call starts). " +
+      "background_tasks (post-tool-use remembers the background work each call starts); subagent-stop also sends the first 500 characters of " +
+      "the subagent's last reply (Claude Code's last_assistant_message), from which the server reads a reviewer's verdict (merge, fix first, ask) " +
+      "and keeps only that word. " +
       "Test runs: pre-tool-use on a Bash command that runs tests (bun run test, test:e2e, test:docker*, scripts/test-in-docker.ts, " +
       "vitest, playwright test, …) marks its agent Running tests; its post-tool-use ends a foreground run passed, post-tool-use-failure " +
       "failed, and stop ends a run the main conversation's turn leaves behind unless it runs in the background. " +

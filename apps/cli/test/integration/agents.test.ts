@@ -110,6 +110,10 @@ describe("subagents through the hooks", () => {
       })
       const detail = JSON.parse((yield* x("task", "get", "CEL-1", "--json")).out) as { agents: ReadonlyArray<{ agentId: string; verdict: string | null }> }
       expect(detail.agents.map((a) => [a.agentId, a.verdict])).toEqual([[REVIEWER, "merge"], [BUILDER, null]])
+      // `cello task get` says it on the finished reviewer's line, and only there.
+      const shown = (yield* x("task", "get", "CEL-1")).out
+      expect(shown).toMatch(/cello-code-reviewer · b77d0e11 \(under Claude Code session 2fd0505c\): finished just now · verdict: merge/)
+      expect(shown).toMatch(/cello-builder · a13bfb89 \(under Claude Code session 2fd0505c\): finished just now\n/)
     }).pipe(Effect.scoped))
 
   it.live("a hook event this cello doesn't know (a newer settings file, an older binary) exits 0 and prints nothing, so Claude Code shows no hook error", () =>

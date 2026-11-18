@@ -5,7 +5,7 @@ import type { BuildRecord } from "@cello/contract/build"
 import type { EventBody, StreamedEvent } from "@cello/contract/events"
 import type { AgentRun, TaskTimeline } from "@cello/contract/views"
 import { describe, expect, it } from "vitest"
-import { foldRuns, foldText, timelineLineText, timelineOf, verdictLabel, type FoldVariant, type TimelineItem } from "./timeline.ts"
+import { foldRuns, foldText, timelineLineText, timelineOf, verdictLabel, type TimelineItem } from "./timeline.ts"
 
 const statuses = {
   doing: { name: "In Progress" },
@@ -115,45 +115,43 @@ describe("timelineOf", () => {
 const stages = (n: number, from = 10) =>
   Array.from({ length: n }, (_, i) => stage(100 + from + i, from + i, null, "building"))
 
-const folded = (variant: FoldVariant, items: ReadonlyArray<TimelineItem<{ id: string }>>) =>
-  foldRuns(items, variant).map((i) => (i.kind === "comment" ? `comment ${i.comment.id}` : i.kind === "fold" ? `fold ${i.lines.length}${i.shown ? ` shows @${i.shown.ts}` : ""}` : `line @${i.line.ts}`))
+const folded = (items: ReadonlyArray<TimelineItem<{ id: string }>>) =>
+  foldRuns(items).map((i) => (i.kind === "comment" ? `comment ${i.comment.id}` : i.kind === "fold" ? `fold ${i.lines.length} newest @${i.newest.ts}` : `line @${i.line.ts}`))
 
+// Lucas picked this fold (Nov 18): three or more lines in a row fold, the newest stays visible, and the run
+// after the newest comment stays open.
 describe("foldRuns", () => {
-  // Between c1 and c2: 1 line. Between c2 and c3: 2. After c3: 4 (the run after the newest comment).
-  const items = timelineOf(input({
-    comments: [comment("c1", 1), comment("c2", 100), comment("c3", 200)],
-    history: [...stages(1, 10), ...stages(2, 110), ...stages(4, 210)],
-  }))
-
-  it("count: two or more lines in a row fold into one; a lone line stays", () => {
-    expect(folded("count", items)).toEqual(["comment c1", "line @10", "comment c2", "fold 2", "comment c3", "fold 4"])
-  })
-
-  it("latest: three or more fold, the folded line keeps the newest one, and the run after the newest comment stays open", () => {
-    const more = timelineOf(input({
-      comments: [comment("c1", 1), comment("c2", 100), comment("c3", 200)],
-      history: [...stages(3, 10), ...stages(2, 110), ...stages(4, 210)],
+  const thread = (...runs: number[]) =>
+    timelineOf(input({
+      comments: runs.map((_, i) => comment(`c${i + 1}`, 1 + i * 100)),
+      history: runs.flatMap((n, i) => stages(n, 10 + i * 100)),
     }))
-    expect(folded("latest", more)).toEqual(["comment c1", "fold 3 shows @12", "comment c2", "line @110", "line @111", "comment c3", "line @210", "line @211", "line @212", "line @213"])
+
+  it("folds a run of three or more into one row that keeps its newest line; one or two lines stay", () => {
+    expect(folded(thread(3, 2, 4))).toEqual(["comment c1", "fold 3 newest @12", "comment c2", "line @110", "line @111", "comment c3", "line @210", "line @211", "line @212", "line @213"])
+    expect(folded(thread(1, 2))).toEqual(["comment c1", "line @10", "comment c2", "line @110", "line @111"])
   })
 
-  it("lines before the first comment fold like any run; with no comment the one run is the newest, so latest leaves it open", () => {
-    const bare = timelineOf(input({ history: stages(4) }))
-    expect(folded("count", bare)).toEqual(["fold 4"])
-    expect(folded("latest", bare)).toEqual(["line @10", "line @11", "line @12", "line @13"])
+  it("the run after the newest comment stays open however long; with no comment at all the one run is the newest", () => {
+    expect(folded(timelineOf(input({ history: stages(4) })))).toEqual(["line @10", "line @11", "line @12", "line @13"])
+    expect(folded(thread(5))).toEqual(["comment c1", "line @10", "line @11", "line @12", "line @13", "line @14"])
+  })
+
+  it("lines before the first comment fold like any run", () => {
+    const items = timelineOf(input({ comments: [comment("c1", 500)], history: stages(3, 10) }))
+    expect(folded(items)).toEqual(["fold 3 newest @12", "comment c1"])
   })
 
   it("a newest comment with nothing after it leaves every earlier run folded", () => {
     const done = timelineOf(input({ comments: [comment("c1", 1), comment("c2", 500)], history: stages(3, 10) }))
-    expect(folded("latest", done)).toEqual(["comment c1", "fold 3 shows @12", "comment c2"])
+    expect(folded(done)).toEqual(["comment c1", "fold 3 newest @12", "comment c2"])
   })
 
-  it("a fold carries its lines in order and says how many: N changes, or N earlier when its newest line shows", () => {
-    const fold = foldRuns(items, "count").find((i) => i.kind === "fold")
-    expect(fold && fold.kind === "fold" && fold.lines.map((l) => l.ts)).toEqual([110, 111])
-    expect(fold && fold.kind === "fold" && foldText(fold)).toBe("2 changes")
-    const earlier = foldRuns(timelineOf(input({ comments: [comment("c1", 1), comment("c2", 500)], history: stages(4, 10) })), "latest")[1]
-    expect(earlier && earlier.kind === "fold" && foldText(earlier)).toBe("3 earlier")
+  it("a fold carries all its lines in order, and says how many came before the newest", () => {
+    const fold = foldRuns(timelineOf(input({ comments: [comment("c1", 1), comment("c2", 500)], history: stages(4, 10) }))).find((i) => i.kind === "fold")
+    expect(fold && fold.kind === "fold" && fold.lines.map((l) => l.ts)).toEqual([10, 11, 12, 13])
+    expect(fold && fold.kind === "fold" && fold.newest.ts).toBe(13)
+    expect(fold && fold.kind === "fold" && foldText(fold)).toBe("3 earlier")
   })
 })
 

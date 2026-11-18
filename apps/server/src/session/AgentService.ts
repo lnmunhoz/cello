@@ -198,18 +198,23 @@ const make = Effect.gen(function* () {
     const transcript = cleanTranscript(input.transcriptPath)
     if (input.state === "stopped") {
       // Claude Code's own helpers (prompt suggestions, /btw) stop without ever starting here: not recorded.
-      const [row] = yield* sql<Pick<AgentRow, "agent_type" | "background_json" | "tests_json">>`
-        SELECT agent_type, background_json, tests_json FROM session_agents WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
+      const [row] = yield* sql<Pick<AgentRow, "agent_type" | "background_json" | "tests_json" | "ended_at" | "verdict">>`
+        SELECT agent_type, background_json, tests_json, ended_at, verdict FROM session_agents WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
       if (!row) return null
       // Background work it started is still running (CEL-133): it waits on it, and Claude Code resumes it after.
       const outcome = stopOutcome(parseBackground(row.background_json), input.running)
       // A test run its turn leaves behind is over, unless it runs on in the background (CEL-134).
       const tests = stored(parseRuns(row.tests_json).map((run) => testsTurnEnded(run, input.running, now)))
       // A reviewer that finished leaves its verdict, read from the start of its last reply; the reply is never kept (CEL-160).
-      const verdict = outcome.finished && isReviewerType(row.agent_type ?? agentType)
-        ? verdictOf((input.lastMessage ?? "").slice(0, MAX_LAST_MESSAGE))
-        : null
-      yield* sql`UPDATE session_agents SET ended_at = ${outcome.finished ? now : null}, waiting_json = ${stored(outcome.waitingOn)},
+      // A second stop of one that already finished, with no reply, changes neither its end nor its verdict.
+      const again = outcome.finished && row.ended_at !== null && !input.lastMessage
+      const verdict = again
+        ? row.verdict ?? null
+        : outcome.finished && isReviewerType(row.agent_type ?? agentType)
+          ? verdictOf((input.lastMessage ?? "").slice(0, MAX_LAST_MESSAGE))
+          : null
+      const endedAt = outcome.finished ? (again ? row.ended_at : now) : null
+      yield* sql`UPDATE session_agents SET ended_at = ${endedAt}, waiting_json = ${stored(outcome.waitingOn)},
           background_json = ${stored(outcome.background)}, tests_json = ${tests}, verdict = ${verdict}, transcript_path = COALESCE(${transcript}, transcript_path)
         WHERE session_id = ${ref.sessionId} AND agent_id = ${agentId}`
     } else if (input.state === "started") {

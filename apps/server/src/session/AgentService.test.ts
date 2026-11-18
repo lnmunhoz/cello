@@ -344,6 +344,8 @@ describe("a reviewer's verdict at its stop", () => {
       // The reply itself is nowhere in the row.
       const sql = yield* SqlClient.SqlClient
       expect(JSON.stringify(yield* sql`SELECT * FROM session_agents`)).not.toContain("Two findings")
+      // Nor in the events boards and history read: only the word travels.
+      expect(JSON.stringify(yield* sql`SELECT * FROM events`)).not.toContain("Two findings")
 
       // Resumed (SubagentStart again): not finished, so no verdict.
       yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "started" }))
@@ -369,6 +371,21 @@ describe("a reviewer's verdict at its stop", () => {
         agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped", lastMessage: "I read the diff.\nIt is long.\nIt has notes.\n**Verdict: merge**",
       }))
       expect(prose).toMatchObject({ verdict: null })
+    })))
+
+  it.effect("a second stop on a reviewer that already finished, with no reply, keeps its verdict and its end; one with a reply replaces them", () =>
+    run(Effect.gen(function* () {
+      const { first } = yield* board
+      const agents = yield* AgentService
+      yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "launched", description: first.key }))
+      yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped", lastMessage: "Verdict: fix first" }))
+      yield* TestClock.adjust("10 seconds")
+      const again = yield* asAgent(orchestrator)(agents.report({ agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped" }))
+      expect(again).toMatchObject({ verdict: "fix_first", endedAt: 0 })
+      const replaced = yield* asAgent(orchestrator)(agents.report({
+        agentId: reviewer.agent, agentType: "cello-code-reviewer", state: "stopped", lastMessage: "Verdict: merge",
+      }))
+      expect(replaced).toMatchObject({ verdict: "merge", endedAt: 10_000 })
     })))
 
   it.effect("a stop that only waits on its background work has no verdict yet", () =>

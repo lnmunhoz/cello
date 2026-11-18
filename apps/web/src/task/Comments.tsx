@@ -1,5 +1,5 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import { type FoldVariant, foldRuns, timelineOf } from "@cello/client/timeline"
+import { foldRuns, timelineOf } from "@cello/client/timeline"
 import type { Comment, Task } from "@cello/contract/entities"
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
@@ -51,7 +51,7 @@ interface CommentsProps {
  *
  * Between the comments, in time order, one line for each thing that happened (CEL-160): the stage and
  * status changes, each subagent starting and finishing (a reviewer's verdict on its finish), the merge and
- * the release; runs of lines fold (the scope's `?fold=count|latest` picks how, until Lucas has).
+ * the release; three or more lines in a row fold, leaving the newest, except after the newest comment.
  */
 export function Comments({ board, task, placeholder = "Leave a comment…", actions, target, events = true }: CommentsProps) {
   const result = useAtomValue(commentsFamily(task.id))
@@ -71,7 +71,6 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
       timeline: events && AsyncResult.isSuccess(timeline) ? timeline.value : { runs: [], releases: [] },
       statuses: board.statuses,
     }),
-    foldVariant(),
   )
   // On a task nobody holds, a comment goes to the agent that last worked on it and reopens it (CEL-110).
   const reopen = reopenOf(board, task)
@@ -156,12 +155,6 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
     </section>
   )
 }
-
-/**
- * How runs of lines fold (CEL-160). Lucas picks between two for the scope, by `?fold=count|latest` on the
- * address; the pick replaces this with one behaviour.
- */
-const foldVariant = (): FoldVariant => (new URLSearchParams(window.location.search).get("fold") === "latest" ? "latest" : "count")
 
 /** The project's wake settings (CEL-92), once they've loaded; null before, or without a project. */
 function useWakeSettings(projectKey: string | undefined) {

@@ -70,7 +70,11 @@ The task touches Lucas's live data or files outside the repo. Check these too, a
 
 ## Report
 
-Lead with the verdict: **merge**, **fix first**, or **ask Lucas** (a design question the task doesn't answer).
+Start your reply with this one line, exactly, with one of the three after `Verdict:` (Cello reads it from the start of your last reply and shows it on the task):
+
+`Verdict: merge`, `Verdict: fix first` or `Verdict: ask Lucas` (a design question the task doesn't answer)
+
+Nothing before it, no heading, no greeting. Add a few words after it if they help ("Verdict: fix first, two blockers").
 
 Then list findings, most severe first. Each finding has:
 
