@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { BuildRecord } from "./build.ts"
 import { Actor, AgentSession, Ask, Comment, DeliveryVia, DocumentSummary, Id, InboxItems, Label, Milestone, Millis, Project, Review, ReviewVerdictSeen, SessionAgent, Status, Task, TestingProfile } from "./entities.ts"
-import { CelloEvent, StreamedEvent } from "./events.ts"
+import { StreamedEvent } from "./events.ts"
 
 /**
  * Who the server sees: the actor, its agent session (null for the human), the session's subagent making
@@ -49,8 +49,12 @@ export type MilestoneProgress = typeof MilestoneProgress.Type
 export const MilestoneSummary = Schema.Struct({ milestone: Milestone, progress: MilestoneProgress })
 export type MilestoneSummary = typeof MilestoneSummary.Type
 
-/** An event with the key of the task it's about (null for non-task events). */
-export const Activity = Schema.Struct({ event: CelloEvent, taskKey: Schema.NullOr(Schema.String) })
+/**
+ * An event with the key of the task it's about (null for non-task events). The event decodes leniently,
+ * like the event stream (CEL-131) and a task's history (CEL-135): an event type a newer server added reads
+ * as `unreadable` instead of failing the whole context reply. Narrow with `isReadable`.
+ */
+export const Activity = Schema.Struct({ event: StreamedEvent, taskKey: Schema.NullOr(Schema.String) })
 export type Activity = typeof Activity.Type
 
 export const ProjectContext = Schema.Struct({

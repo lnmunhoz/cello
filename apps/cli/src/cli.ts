@@ -6,7 +6,6 @@ import * as os from "node:os"
 import * as path from "node:path"
 import * as BunSocket from "@effect/platform-bun/BunSocket"
 import { CelloClient, makeClientLayer, newCommandId } from "@cello/client/client"
-import { describeEvent } from "@cello/client/history"
 import { unavailableWords } from "@cello/client/sync/agentLog"
 import { finishedAgents, startOfDay, workingAgents } from "@cello/client/sync/agents"
 import { type BoardState, fromSnapshot } from "@cello/client/sync/applyEvents"
@@ -26,12 +25,11 @@ import {
   type Priority,
   type ProjectRef,
   type Review,
-  type SessionAgent,
   type Status,
   type Task,
   TestProgress,
 } from "@cello/contract/entities"
-import { type EventOf, isReadable, type StreamedEvent } from "@cello/contract/events"
+import { type EventOf, type StreamedEvent } from "@cello/contract/events"
 import { type ActivityReport, HUMAN_SESSION, IDENTITY_HEADERS, type ProfileWrite } from "@cello/contract/rpcs"
 import { BACKUPS_DIR } from "@cello/server/backup/BackupService"
 import { isAlive } from "@cello/server/process/isAlive"
@@ -115,7 +113,7 @@ import { CliEnv, dataDirOf, flavorOf, portOf } from "./env.ts"
 import { CliFailure, explain } from "./errors.ts"
 import { editFields, priorityOf } from "./edit.ts"
 import { evidenceFromArgs } from "./evidence.ts"
-import { agentName, ago, andList, columns, localTime, plural, sessionName, type WrittenWith } from "./format.ts"
+import { agentName, ago, andList, author, columns, eventCells, localTime, lostClaimLine, type Names, plural, sessionName } from "./format.ts"
 import { GUIDE } from "./guide.ts"
 import { type Env, IDENTITY_VARIABLES, identityHeaders, parseAgent } from "./identity.ts"
 import { askScreenshots, commentScreenshots, commentStart, commentText, deliveryText, inboxEntries, inboxScreenshots, type ScreenshotFile } from "./inbox.ts"
@@ -271,13 +269,6 @@ const PRIORITY_NAMES = ["None", "Urgent", "High", "Medium", "Low"]
 
 // ── formatting ──────────────────────────────────────────────────────────────────────────────────
 
-interface Names {
-  readonly statuses: ReadonlyArray<Status>
-  readonly sessions: ReadonlyArray<AgentSession>
-  /** The subagents the rows name (CEL-55). */
-  readonly agents?: ReadonlyArray<SessionAgent>
-}
-
 const statusName = (names: Names, id: string) => names.statuses.find((s) => s.id === id)?.name ?? "?"
 
 /** "Claude Code session 2fd0505c", or null when the task has no agent claim. */
@@ -299,27 +290,6 @@ const taskRows = (names: Names, tasks: ReadonlyArray<Task>) =>
   }))
 
 const taskLine = (names: Names, task: Task) => `${task.key}  ${statusWithStage(names, task)}  ${task.title}`
-
-/**
- * Who did something: "Claude Code session 2fd0505c", a subagent under it ("cello-builder · a13bfb89
- * (under Claude Code session 2fd0505c)", CEL-55), or the actor's name. `written`: the model and effort a
- * comment or an event was written with, named when known ("Claude Code session 2fd0505c (Opus 5.5, high)",
- * CEL-119); never the agent's current model, which may have changed since.
- */
-const author = (
-  names: Names & { readonly actors: ReadonlyArray<{ readonly id: string; readonly name: string }> },
-  actorId: string,
-  sessionId: string | null,
-  agentId?: string | null,
-  written?: WrittenWith,
-) => {
-  const session = names.sessions.find((s) => s.id === sessionId)
-  if (sessionId !== null && agentId) {
-    return agentName(names.agents?.find((a) => a.sessionId === sessionId && a.agentId === agentId) ?? { agentId, agentType: null }, session, written)
-  }
-  return session ? sessionName(session, written) : names.actors.find((a) => a.id === actorId)?.name ?? "Someone"
-}
-
 
 const EVIDENCE_WORDS = { video: "video", image: "screenshot", file: "file", link: "link" } as const
 
@@ -463,18 +433,13 @@ const context = Command.make("context", { project, json }, (input) =>
     )
     if (ctx.lostClaims.length) {
       lines.push("", "Claims you lost")
-      for (const { event, taskKey } of ctx.lostClaims) {
-        const who = author(ctx, event.actorId, event.sessionId, event.agentId, event)
-        const how = event.type === "task.claim_ended" ? `ended when ${who} changed it` : `taken over by ${who}`
-        lines.push(`  ${taskKey ?? "?"}  ${how}, ${ago(event.ts, now)}`)
-      }
+      for (const claim of ctx.lostClaims) lines.push(lostClaimLine(claim, now, ctx, { ...byIds(ctx), actors: {} }))
     }
     lines.push("", "Recent activity")
-    lines.push(...columns(ctx.recent.map(({ event, taskKey }) => [
-      ago(event.ts, now),
-      taskKey ?? "",
-      describeEvent(event, { ...byIds(ctx), actors: {} }, author(ctx, event.actorId, event.sessionId, event.agentId, event)),
-    ])).map((l) => `  ${l}`))
+    lines.push(...columns(ctx.recent.map(({ event, taskKey }) => {
+      const [when, text] = eventCells(event, now, ctx, { ...byIds(ctx), actors: {} })
+      return [when, taskKey ?? "", text]
+    })).map((l) => `  ${l}`))
     if (ctx.recent.length === 0) lines.push("  none yet")
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription("Start here: the project, its statuses, labels and open milestones, new comments for you, your claims and recent activity."))
@@ -617,12 +582,8 @@ const get = Command.make("get", { key, json }, (input) =>
       }
     }
     lines.push("", "History")
-    // An event this build can't read (a newer server's, CEL-135) has no author to name; its line says so.
-    lines.push(...columns(detail.history.map((e) => [
-      e.ts === undefined ? "" : ago(e.ts, now),
-      describeEvent(e, { ...byIds(detail), actors: Object.fromEntries(detail.actors.map((a) => [a.id, a])) }, isReadable(e) ? author(detail, e.actorId, e.sessionId, e.agentId, e) : undefined),
-    ]))
-      .map((l) => `  ${l}`))
+    const historyNames = { ...byIds(detail), actors: Object.fromEntries(detail.actors.map((a) => [a.id, a])) }
+    lines.push(...columns(detail.history.map((e) => eventCells(e, now, detail, historyNames))).map((l) => `  ${l}`))
     yield* print(lines.join("\n"))
   })).pipe(Command.withDescription("One task in full: description, labels, milestone, claim, pages, review packets with the human's notes, comments, history."))
 
