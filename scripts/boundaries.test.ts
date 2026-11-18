@@ -20,7 +20,7 @@ const pkg = (deps: ReadonlyArray<string>): string => JSON.stringify({ dependenci
 const rulesOf = (files: Record<string, string>): ReadonlyArray<string> => checkBoundaries(tree(files)).map((violation) => `${violation.file} ${violation.rule}`)
 
 describe("importsOf", () => {
-  it("reads from, side-effect, dynamic and require imports, and skips comments", () => {
+  it("reads from, side-effect, type-only, dynamic and require imports, and skips comments and strings", () => {
     const source = [
       `import { a } from "@cello/domain/ask"`,
       `import type { B } from "./b.ts"`,
@@ -28,12 +28,50 @@ describe("importsOf", () => {
       `const c = await import("node:fs")`,
       `const d = require("effect")`,
       `export { e } from "../e.ts"`,
+      `export type { F } from "../f.ts"`,
       `// import { x } from "@cello/shared/commented"`,
+      `/**`,
       ` * import { y } from "@cello/shared/doc"`,
+      ` */`,
       "const fixture = `import { _electron } from \"@playwright/test\"`",
       `const other = 'from "@cello/shared/quoted"'`,
     ].join("\n")
-    expect(importsOf(source)).toEqual(["@cello/domain/ask", "./b.ts", "./side.css", "node:fs", "effect", "../e.ts"])
+    expect([...importsOf(source)].sort()).toEqual(["../e.ts", "../f.ts", "./b.ts", "./side.css", "@cello/domain/ask", "effect", "node:fs"])
+  })
+
+  it("finds imports the line-by-line reading missed", () => {
+    const source = [
+      `const next = await import(`,
+      `  "next-line"`,
+      `)`,
+      "const template = await import(`template-specifier`)",
+      `const text = "it's"; const afterApostrophe = await import("after-apostrophe")`,
+      `/* a comment */ const afterComment = await import("after-comment")`,
+      `import type {`,
+      `  Many,`,
+      `  Names,`,
+      `} from "multi-line-type"`,
+      `import {`,
+      `  Value`,
+      `} from`,
+      `  "from-on-next-line"`,
+    ].join("\n")
+    expect([...importsOf(source)].sort()).toEqual(["after-apostrophe", "after-comment", "from-on-next-line", "multi-line-type", "next-line", "template-specifier"])
+  })
+
+  it("doesn't count text that only looks like an import", () => {
+    const source = [
+      "const a = `import { x } from \"in-template\"`",
+      `const b = "import('in-string')"`,
+      `const c = 'require("in-quotes")'`,
+      `/* import { y } from "in-block-comment" */`,
+      `export const d = "not-a-specifier"`,
+    ].join("\n")
+    expect(importsOf(source)).toEqual([])
+  })
+
+  it("reads JSX files", () => {
+    expect(importsOf(`import { A } from "a"\nexport const x = <A prop="b">don't</A>\n`, "x.tsx")).toEqual(["a"])
   })
 })
 
@@ -55,6 +93,28 @@ describe("the boundary rules, on small trees", () => {
         "packages/client/src/b.ts": `import * as path from "node:path"\n`,
       }),
     ).toEqual(["apps/web/src/a.ts browser-no-host", "apps/web/src/a.ts browser-no-node", "packages/client/src/b.ts browser-no-node"])
+  })
+
+  // A violation hides in any way of importing, not only `import x from "y"`.
+  const FORMS: ReadonlyArray<readonly [string, (specifier: string) => string]> = [
+    ["a dynamic import()", (x) => `const m = await import("${x}")\n`],
+    ["a dynamic import() on the next line", (x) => `const m = await import(\n  "${x}"\n)\n`],
+    ["require()", (x) => `const m = require("${x}")\n`],
+    ["export ... from", (x) => `export { m } from "${x}"\n`],
+    ["a side-effect import", (x) => `import "${x}"\n`],
+    ["a type-only import", (x) => `import type { M } from "${x}"\n`],
+    ["an import after a string with an apostrophe", (x) => `const s = "it's"; const m = await import("${x}")\n`],
+  ]
+
+  it.each(FORMS)("1: the web app can't import @cello/host or node: with %s", (_, form) => {
+    expect(rulesOf({ "apps/web/package.json": pkg(["@cello/host"]), "apps/web/src/a.ts": form("@cello/host/serverLock") })).toEqual(["apps/web/src/a.ts browser-no-host"])
+    expect(rulesOf({ "apps/web/package.json": pkg([]), "apps/web/src/a.ts": form("node:fs") })).toEqual(["apps/web/src/a.ts browser-no-node"])
+  })
+
+  it.each(FORMS)("2: domain can't import a @cello package, node: or another library with %s", (_, form) => {
+    expect(rulesOf({ "packages/domain/package.json": pkg(["@cello/text"]), "packages/domain/src/a.ts": form("@cello/text/words") })).toEqual(["packages/domain/src/a.ts pure-imports"])
+    expect(rulesOf({ "packages/domain/package.json": pkg([]), "packages/domain/src/a.ts": form("node:fs") })).toEqual(["packages/domain/src/a.ts pure-no-node"])
+    expect(rulesOf({ "packages/domain/package.json": pkg([]), "packages/domain/src/a.ts": form("react") })).toEqual(["packages/domain/src/a.ts pure-imports"])
   })
 
   it("1: a web test may read files with node:", () => {

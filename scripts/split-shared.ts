@@ -201,7 +201,7 @@ const importsByOwner = (root: string): Map<string, { cello: Set<string>; externa
     if (owner === null) continue
     const entry = byOwner.get(owner) ?? { cello: new Set<string>(), external: new Set<string>() }
     byOwner.set(owner, entry)
-    for (const specifier of importsOf(fs.readFileSync(path.join(root, file), "utf8"))) {
+    for (const specifier of importsOf(fs.readFileSync(path.join(root, file), "utf8"), file)) {
       const cello = celloPackageOf(specifier)
       if (cello !== null) entry.cello.add(cello)
       else if (!specifier.startsWith(".") && !specifier.startsWith("node:")) entry.external.add(externalName(specifier))
@@ -313,7 +313,7 @@ const checkExternals = (root: string): void => {
     if (owner === null || !PACKAGES.some((name) => owner === `packages/${name}`)) continue
     const manifest = readJson(root, `${owner}/package.json`)
     const listed = new Set([...Object.keys((manifest?.["dependencies"] as object | undefined) ?? {}), ...Object.keys((manifest?.["devDependencies"] as object | undefined) ?? {})])
-    for (const specifier of importsOf(fs.readFileSync(path.join(root, file), "utf8"))) {
+    for (const specifier of importsOf(fs.readFileSync(path.join(root, file), "utf8"), file)) {
       if (specifier.startsWith(".") || specifier.startsWith("node:") || celloPackageOf(specifier) !== null) continue
       const name = externalName(specifier)
       if (!UNLISTED.has(name) && !listed.has(name) && EXTERNAL_VERSIONS[name] === undefined) missing.add(`${name} (${file})`)

@@ -46,23 +46,38 @@ export const sourceFiles = (root: string): ReadonlyArray<string> => {
     .sort()
 }
 
-const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)(["'])([^"'\n]+)\1/g
+/**
+ * Statement-level imports and re-exports, with their specifier on the same line or a later one:
+ * `import type { A } from "x"`, `export { b } from "x"`, `import "x"`. Anchored to a line start, so one written inside
+ * a string or after code on the same line is not counted. Bun's scanner leaves out type-only ones, which count here.
+ */
+const STATEMENT_FROM = /^[ \t]*(?:import|export)\b(?!\s*\()[^;"'`]*?\bfrom\s*(["'])([^"'\n]+)\1/gm
+const SIDE_EFFECT = /^[ \t]*import\s*(["'])([^"'\n]+)\1/gm
 
-/** The module names a file imports (`from "x"`, `import "x"`, `import("x")`, `require("x")`), comments left out. */
-export const importsOf = (source: string): ReadonlyArray<string> => {
-  const found: string[] = []
-  for (const line of source.split("\n")) {
-    const trimmed = line.trimStart()
-    if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue
-    for (const match of line.matchAll(SPECIFIER)) {
-      if (!insideString(line.slice(0, match.index))) found.push(match[2]!)
-    }
+/**
+ * The module names a file imports, from Bun's own parser (every `import` and `export … from`, dynamic `import()` with a
+ * string or template specifier, `require()`; strings, comments and templates that only look like imports are not
+ * counted, wherever they sit on a line) plus the type-only imports it drops. `file` picks the parser: .tsx for JSX.
+ */
+export const importsOf = (source: string, file = "x.ts"): ReadonlyArray<string> => {
+  const transpiler = new Bun.Transpiler({ loader: file.endsWith("x") ? "tsx" : "ts" })
+  const found = new Set<string>()
+  let scanned: ReadonlyArray<{ readonly kind: string; readonly path: string }>
+  try {
+    scanned = transpiler.scanImports(source)
+  } catch (error) {
+    throw new Error(`${file} can't be parsed: ${error instanceof Error ? error.message : String(error)}`)
   }
-  return found
+  for (const { kind, path: specifier } of scanned) {
+    // The JSX runtime Bun adds to a .tsx file's imports is not something the file wrote.
+    if (kind === "require-call" && JSX_RUNTIME.has(specifier) && !source.includes(`require("${specifier}")`)) continue
+    found.add(specifier)
+  }
+  for (const pattern of [STATEMENT_FROM, SIDE_EFFECT]) for (const match of source.matchAll(pattern)) found.add(match[2]!)
+  return [...found]
 }
 
-/** An import written inside a string (a test's fixture) has an open quote before it; a real one doesn't. */
-const insideString = (before: string): boolean => ["\"", "'", "`"].some((quote) => before.split(`\\${quote}`).join("").split(quote).length % 2 === 0)
+const JSX_RUNTIME = new Set(["react", "react/jsx-runtime", "react/jsx-dev-runtime"])
 
 /** The package or app a file belongs to: `packages/domain/src/x.ts` is "packages/domain". Null for e2e and scripts. */
 export const ownerOf = (file: string): string | null => {
@@ -105,7 +120,7 @@ export const checkBoundaries = (root: string): ReadonlyArray<Violation> => {
     const owner = ownerOf(file)
     const isTest = TEST.test(file)
     const add = (rule: string, message: string) => violations.push({ file, rule, message })
-    for (const specifier of importsOf(fs.readFileSync(path.join(root, file), "utf8"))) {
+    for (const specifier of importsOf(fs.readFileSync(path.join(root, file), "utf8"), file)) {
       const cello = celloPackageOf(specifier)
 
       // 5. @cello/shared is gone, with no shim.
