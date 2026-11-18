@@ -9,11 +9,13 @@ import * as Schema from "effect/Schema"
  * - `resultPreviewLines`: a tool result opens to this many lines, then "Show all"; folded to one line before that
  * - `thinking`: the agent's thinking is hidden until the "Thinking" switch shows it, folded like a result
  * - `finishedLogs`: an agent that finished still opens its log, while its transcript is on disk
+ * - `show`: the log opens on its Story view (calls grouped, finished turns folded), not on every call (the human's answer on CEL-170, Nov 18)
  */
 export const LOG_DEFAULTS = {
   resultPreviewLines: 200,
   thinking: false,
   finishedLogs: true,
+  show: "story",
 } as const
 
 /**
@@ -33,6 +35,8 @@ export const ToolCall = Schema.Struct({
   status: ToolStatus,
   /** From the call's timestamp to its result's; null when either is unknown. */
   durationMs: Schema.NullOr(Schema.Number),
+  /** The command a Bash or Monitor call ran, keys masked, up to MAX_COMMAND_CHARS; its line shows Claude's description instead (CEL-170). */
+  command: Schema.optionalKey(Schema.String),
   /** The result's text, up to MAX_OUTPUT_LINES lines and MAX_OUTPUT_CHARS characters. */
   output: Schema.String,
   /** How many lines the whole result had. */
@@ -55,6 +59,8 @@ export const LogStep = Schema.Struct({
   agentId: Schema.optionalKey(Schema.NullOr(Schema.String)),
   /** Something in it looked like a key or token and is masked; the human can ask to see it. */
   masked: Schema.optionalKey(Schema.Boolean),
+  /** A message that ended the agent's turn (Claude Code's `stop_reason: end_turn`): its answer before it waits (CEL-170). */
+  endsTurn: Schema.optionalKey(Schema.Boolean),
 })
 export type LogStep = typeof LogStep.Type
 
@@ -79,6 +85,8 @@ export const LogUpdate = Schema.Union([
     reset: Schema.Boolean,
     skipped: Schema.Number,
     older: Schema.optionalKey(Schema.Boolean),
+    /** How many thoughts so far Claude Code wrote without their words (only a signature: its `showThinkingSummaries` setting was off); absent when none (CEL-170). */
+    unsavedThinking: Schema.optionalKey(Schema.Number),
   }),
   Schema.TaggedStruct("unavailable", { reason: LogUnavailable }),
 ])
@@ -88,5 +96,7 @@ export type LogUpdate = typeof LogUpdate.Type
 export const MAX_OUTPUT_LINES = 400
 /** The most characters of a tool result the stream carries. */
 export const MAX_OUTPUT_CHARS = 40_000
+/** The most characters of a Bash command the stream carries. */
+export const MAX_COMMAND_CHARS = 4_000
 /** The first batch sends at most this many of the newest steps. */
 export const MAX_FIRST_STEPS = 300

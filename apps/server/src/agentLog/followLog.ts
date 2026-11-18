@@ -94,6 +94,8 @@ export const followLog = (options: FollowOptions): Stream.Stream<LogUpdate> =>
       let tail: FileTail | null = null
       let tailFile = ""
       let parser = transcriptParser()
+      /** The unsaved-thinking count last sent, so a thought with no step to send still reaches the page (CEL-170). */
+      let unsavedSent = 0
       let missingSent = false
       let ended = false
 
@@ -122,8 +124,13 @@ export const followLog = (options: FollowOptions): Stream.Stream<LogUpdate> =>
         if (read._tag === "unreadable") return (end("unreadable"), false)
         if (read._tag === "missing") return (missing(), false)
         missingSent = false
-        if (read.reset) parser = transcriptParser()
+        if (read.reset) {
+          parser = transcriptParser()
+          unsavedSent = 0
+        }
         const steps = latest(read.lines.flatMap((line) => parser.push(line)))
+        const unsaved = parser.unsavedThinking()
+        const unsavedKey = unsaved > 0 ? { unsavedThinking: unsaved } : {}
         // Only what's sent is masked: the first batch keeps its newest steps first.
         if (read.reset) {
           const skipped = Math.max(0, steps.length - MAX_FIRST_STEPS)
@@ -133,9 +140,12 @@ export const followLog = (options: FollowOptions): Stream.Stream<LogUpdate> =>
             reset: true,
             skipped,
             ...(read.older ? { older: true } : {}),
+            ...unsavedKey,
           })
-        } else if (steps.length > 0) {
-          Queue.offerUnsafe(queue, { _tag: "steps", steps: steps.map((step) => redactStep(step, options.reveal)), reset: false, skipped: 0 })
+          unsavedSent = unsaved
+        } else if (steps.length > 0 || unsaved !== unsavedSent) {
+          Queue.offerUnsafe(queue, { _tag: "steps", steps: steps.map((step) => redactStep(step, options.reveal)), reset: false, skipped: 0, ...unsavedKey })
+          unsavedSent = unsaved
         }
         return read.more
       }

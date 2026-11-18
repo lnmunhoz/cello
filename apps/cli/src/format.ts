@@ -40,10 +40,7 @@ export const agentName = (
   return `${agent.agentType ?? "agent"} · ${agent.agentId.slice(0, 8)}${notes.length ? ` (${notes.join("; ")})` : ""}`
 }
 
-/** "1 task", "3 tasks". */
-export const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? "" : "s"}`
-
-export { andList } from "@cello/shared/words"
+export { andList, plural } from "@cello/shared/words"
 
 /** Pads each column but the last to its widest cell. */
 export const columns = (rows: ReadonlyArray<ReadonlyArray<string>>): string[] => {

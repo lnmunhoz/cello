@@ -30,8 +30,9 @@ const host = (value: unknown): string => {
 export const toolTarget = (name: string, input: Readonly<Record<string, unknown>> | null): string => {
   const i = input ?? {}
   switch (name) {
+    // Claude writes a short description for each command ("Show working tree status"); it reads better than the command (CEL-170).
     case "Bash":
-      return oneLine(text(i.command))
+      return oneLine(text(i.description).trim() || text(i.command))
     case "Edit":
     case "MultiEdit":
     case "Write":
@@ -62,7 +63,13 @@ export const toolTarget = (name: string, input: Readonly<Record<string, unknown>
   }
 }
 
-/** "Bash · bun run test", or the tool's name alone when it has no target. */
+/** The command a Bash or Monitor call ran, as written: the line shows Claude's description of it (CEL-170), the opened call shows this. Null for other tools. */
+export const toolCommand = (name: string, input: Readonly<Record<string, unknown>> | null): string | null => {
+  if (name !== "Bash" && name !== "Monitor") return null
+  return text(input?.command) || null
+}
+
+/** "Bash · Run the tests" (Claude's description; the command when it gave none), or the tool's name alone when it has no target. */
 export const stepLine = (name: string, input: Readonly<Record<string, unknown>> | null): string => {
   const target = toolTarget(name, input)
   return target ? `${name} · ${target}` : name

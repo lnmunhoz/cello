@@ -111,6 +111,46 @@ describe("followLog", () => {
       expect(JSON.stringify(done)).not.toContain("I9j0K1l2")
     }).pipe(Effect.scoped))
 
+  it.effect("tells how many thoughts Claude Code saved without their words: with the first batch, and again when more arrive with no step to send (CEL-170)", () =>
+    Effect.gen(function* () {
+      const file = tempFile()
+      const emptyThought = (uuid: string) =>
+        line({ type: "assistant", uuid, timestamp: "2026-11-16T09:00:00.000Z", message: { id: uuid, content: [{ type: "thinking", thinking: "", signature: "c2ln" }] } })
+      fs.writeFileSync(file, emptyThought("t1"))
+      const { next, state } = yield* follow(file)
+      expect(yield* next).toEqual({ _tag: "steps", reset: true, skipped: 0, steps: [], unsavedThinking: 1 })
+      fs.appendFileSync(file, emptyThought("t2"))
+      state.fire()
+      expect(yield* next).toEqual({ _tag: "steps", reset: false, skipped: 0, steps: [], unsavedThinking: 2 })
+      // A step arriving later carries the count too, so a log that reset keeps it.
+      fs.appendFileSync(file, said("m1", "Done thinking."))
+      state.fire()
+      expect(yield* next).toMatchObject({ _tag: "steps", reset: false, steps: [{ text: "Done thinking." }], unsavedThinking: 2 })
+    }).pipe(Effect.scoped))
+
+  it.effect("sends a command with its call, masked, and marks the message that ended the turn (CEL-170)", () =>
+    Effect.gen(function* () {
+      const file = tempFile()
+      fs.writeFileSync(
+        file,
+        line({
+          type: "assistant",
+          uuid: "m1",
+          timestamp: "2026-11-16T09:00:01.000Z",
+          message: {
+            id: "m1",
+            stop_reason: "tool_use",
+            content: [{ type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "git push https://ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8@x.com", description: "Push the branch" } }],
+          },
+        }) + line({ type: "assistant", uuid: "m2", timestamp: "2026-11-16T09:00:05.000Z", message: { id: "m2", stop_reason: "end_turn", content: [{ type: "text", text: "Pushed." }] } }),
+      )
+      const { next } = yield* follow(file)
+      const first = yield* next
+      expect(first).toMatchObject({ steps: [{ text: "Bash · Push the branch", masked: true }, { text: "Pushed.", endsTurn: true }] })
+      expect(JSON.stringify(first)).not.toContain("I9j0K1l2")
+      expect(first).not.toHaveProperty("unsavedThinking")
+    }).pipe(Effect.scoped))
+
   it.effect("the human can see what was masked", () =>
     Effect.gen(function* () {
       const file = tempFile()
