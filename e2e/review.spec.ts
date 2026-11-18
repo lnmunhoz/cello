@@ -328,7 +328,8 @@ async function decideOnTheRow(page: Page) {
   await expect(one.article.getByRole("alert")).toHaveCount(0)
   // The task is already Done on the board (its events arrived), and the row is still here, in its place.
   await expect(one.steps.locator(`[data-task-link="${key}-1"] [data-task-status]`)).toHaveText("Done")
-  await expect(page.getByRole("list", { name: "Waiting for review" }).getByRole("article").first()).toHaveAttribute("data-review-task", `${key}-1`)
+  const mine = page.getByRole("list", { name: "Waiting for review" }).locator(`[data-review-task^="${key}-"]`)
+  expect(await mine.evaluateAll((rows) => rows.map((row) => row.getAttribute("data-review-task")))).toEqual([`${key}-1`, `${key}-2`, `${key}-3`])
 
   await captionWithUrl(page, `The server took it: the row says Approved, folds away, and ${key}-2 opens`)
   decisions.release()
