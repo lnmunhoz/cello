@@ -13,8 +13,12 @@ import { selectWorkspaces } from "../persistence/rows.ts"
 import { insertDefaultStatuses } from "../status/defaults.ts"
 import { requireText } from "../validation.ts"
 
-/** Lowercase words joined by dashes; "workspace" when nothing is left. */
-export const slugify = (name: string): string =>
+/**
+ * A workspace's slug: lowercase words joined by dashes; "workspace" when nothing is left. Not @cello/text/document's
+ * `slugify` (a page's slug): that one drops accents ("Café" is "cafe"), apostrophes and anything past 80 characters,
+ * and may be empty. This one keeps the rules existing workspaces were named with, so their slugs don't change.
+ */
+export const workspaceSlug = (name: string): string =>
   name.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "workspace"
 
 export class WorkspaceService extends Context.Service<WorkspaceService, {
@@ -43,7 +47,7 @@ const make = Effect.gen(function* () {
     const name = yield* requireText("name", input.name)
     return yield* commands.write({ commandId: input.commandId, rpc: "workspace.create" }, ({ now, emit }) =>
       Effect.gen(function* () {
-        const base = slugify(name)
+        const base = workspaceSlug(name)
         const taken = new Set(
           (yield* sql<{ slug: string }>`SELECT slug FROM workspaces WHERE slug = ${base} OR slug LIKE ${base + "-%"}`)
             .map((r) => r.slug),

@@ -8,10 +8,10 @@ import * as WorkspaceService from "./WorkspaceService.ts"
 
 const run = <A, E>(effect: Effect.Effect<A, E, any>) => asHuman(effect).pipe(Effect.provide(services())) as Effect.Effect<A, E>
 
-describe("slugify", () => {
+describe("workspaceSlug", () => {
   it("lowercases and dashes words", () => {
-    expect(WorkspaceService.slugify("My Side Projects!")).toBe("my-side-projects")
-    expect(WorkspaceService.slugify("???")).toBe("workspace")
+    expect(WorkspaceService.workspaceSlug("My Side Projects!")).toBe("my-side-projects")
+    expect(WorkspaceService.workspaceSlug("???")).toBe("workspace")
   })
 })
 
