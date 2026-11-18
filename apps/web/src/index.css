@@ -62,7 +62,22 @@
   --diff-hunk: #eef0fb;
   --shadow: 0 1px 2px rgb(16 16 20 / 0.06), 0 0 0 1px rgb(16 16 20 / 0.04);
   --shadow-pop: 0 8px 28px rgb(16 16 20 / 0.14), 0 0 0 1px rgb(16 16 20 / 0.06);
+  /* Motion tokens (CEL-189): the same values as lib/motion.ts, which motion.test.ts checks. */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 240ms;
+  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   color-scheme: light;
+}
+
+/* Reduced motion keeps every state change and drops the movement: each transition takes no time. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+  }
 }
 
 .dark {
@@ -118,6 +133,9 @@
   --color-diff-hunk: var(--diff-hunk);
   --shadow-card: var(--shadow);
   --shadow-pop: var(--shadow-pop);
+  /* `ease-motion-out` and `ease-motion-in-out` utilities; durations are `duration-(--motion-fast)` and so on. */
+  --ease-motion-out: var(--motion-ease-out);
+  --ease-motion-in-out: var(--motion-ease-in-out);
   --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
