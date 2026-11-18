@@ -23,6 +23,7 @@ import { commands } from "../lib/cello.ts"
 import { copyText } from "../lib/clipboard.ts"
 import { SAVES_ON_BLUR } from "../lib/editing.ts"
 import { useBoard, useMediaQuery } from "../lib/hooks.ts"
+import { exitMotion } from "../lib/motion.ts"
 import { EarlierReviews, PinnedReview } from "../review/TaskReviews.tsx"
 import { AskThread, PinnedAsk } from "../ask/TaskAsks.tsx"
 import { useRestoredSideScroll } from "../viewer/panelBack.ts"
@@ -95,7 +96,8 @@ export function TaskPanel({
     else void navigate({ to: "/$projectKey/milestones/$milestoneId", params: { projectKey: project.key, milestoneId } })
   }
   // The close button and Escape slide the panel out, then leave (CEL-189). It's the task being closed, so
-  // opening another one mid-slide keeps that one open. With reduced motion it leaves at once.
+  // opening another one mid-slide keeps that one open. With reduced motion, or while the panel is covered,
+  // it leaves at once; a slide cut short (the panel hidden mid-slide) leaves too, so it can't stick.
   const [closing, setClosing] = useState<number | null>(null)
   const [slidesIn] = useState(() => loadedAt !== location.pathname)
   useEffect(() => {
@@ -103,9 +105,23 @@ export function TaskPanel({
   }, [])
   const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)")
   const close = () => {
-    if (reduceMotion) leave()
+    if (exitMotion({ reduceMotion, shown: placement !== "covered" }) === "leave") leave()
     else setClosing(number)
   }
+  const aside = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const el = aside.current
+    if (!el || closing !== number) return
+    if (placement === "covered") {
+      leave()
+      return
+    }
+    const cut = (e: AnimationEvent) => {
+      if (e.target === el && e.animationName === "task-panel-out") leave()
+    }
+    el.addEventListener("animationcancel", cut)
+    return () => el.removeEventListener("animationcancel", cut)
+  })
   // Expand from the panel; collapse from the main area, closing the viewer beside it. It stays on the
   // page it was opened from (the Issues tab, a milestone's page).
   const toggle = () => {
@@ -119,6 +135,7 @@ export function TaskPanel({
   useShortcut(task ? COPY_KEY_SHORTCUT : null, () => task && copyKey(task), { description: "Copy the open task's key" })
   return (
     <aside
+      ref={aside}
       hidden={placement === "covered"}
       aria-label={task ? `${task.key} details` : "Task details"}
       data-view={view}

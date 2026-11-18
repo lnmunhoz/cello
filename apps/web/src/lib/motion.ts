@@ -26,3 +26,11 @@ export const spring = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 }
 
 /** The transition `motion`'s `layout` animations use: the spring. */
 export const layoutTransition = spring
+
+/**
+ * How a panel leaves when the human closes it: it slides out when it is on screen and motion is allowed,
+ * and leaves at once otherwise. A hidden panel's slide is cancelled and never ends, so waiting on it
+ * would leave the panel stuck closing.
+ */
+export const exitMotion = ({ reduceMotion, shown }: { reduceMotion: boolean; shown: boolean }): "slide" | "leave" =>
+  reduceMotion || !shown ? "leave" : "slide"

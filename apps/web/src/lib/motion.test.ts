@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
-import { cssEasing, duration, easing, layoutTransition, spring } from "./motion.ts"
+import { cssEasing, duration, easing, exitMotion, layoutTransition, spring } from "./motion.ts"
 
 const css = readFileSync(new URL("../index.css", import.meta.url), "utf8")
 
@@ -39,5 +39,24 @@ describe("motion tokens", () => {
   it("keeps the board's spring, and the layout transition is that spring", () => {
     expect(spring).toEqual({ type: "spring", stiffness: 520, damping: 42, mass: 0.7 })
     expect(layoutTransition).toBe(spring)
+  })
+})
+
+describe("exitMotion", () => {
+  it("slides out a panel that is on screen", () => {
+    expect(exitMotion({ reduceMotion: false, shown: true })).toBe("slide")
+  })
+
+  it("leaves at once with reduced motion, or when the panel is covered and its slide could never end", () => {
+    expect(exitMotion({ reduceMotion: true, shown: true })).toBe("leave")
+    expect(exitMotion({ reduceMotion: false, shown: false })).toBe("leave")
+  })
+})
+
+describe("the default transition", () => {
+  it("is the fast token on the out easing, so a bare `transition-colors` follows the tokens and reduced motion", () => {
+    const theme = /@theme inline \{([^}]*)\}/.exec(css)?.[1] ?? ""
+    expect(theme).toMatch(/--default-transition-duration:\s*var\(--motion-fast\);/)
+    expect(theme).toMatch(/--default-transition-timing-function:\s*var\(--motion-ease-out\);/)
   })
 })
