@@ -5,16 +5,16 @@ summary: Every deploy of Cello is a release. One command, bun run release, check
 
 ## Every deploy is a release
 
-Cello ships **only when Lucas says so** (Nov 18). Merging a task doesn't release it (step ⑦ in [How a feature is built](feature-lifecycle.md)); a release ships everything merged since the last one. It's one command, run on `main` in the main checkout:
+Cello ships **only when the human says so** (Nov 18). Merging a task doesn't release it (step ⑦ in [How a feature is built](feature-lifecycle.md)); a release ships everything merged since the last one. It's one command, run on `main` in the main checkout:
 
 ```bash
 bun run release                 # picks the version from what ships: minor with any feature, else patch
 bun run release -- patch        # or minor: override what it picked
-bun run release -- major        # 0.4.0 -> 1.0.0, when Lucas says so
+bun run release -- major        # 0.4.0 -> 1.0.0, when the human says so
 bun run release -- --dry-run    # preview everything; writes, pushes and deploys nothing
 ```
 
-**The version follows the commits** (CEL-174; Lucas: "if there is any feat we should bump the minor"). With no version given, the release reads the changelog section it's about to write: any line under Features (a merged task whose branch has a `feat` commit, or a direct `feat:` commit) makes it a **minor**; only Fixes and Other changes make it a **patch**. The first release is always minor. Its first line says what it picked and why: `Cello release: 0.4.17 -> 0.5.0 (minor: it ships 1 feature)`. A version you name wins.
+**The version follows the commits** (CEL-174; the human: "if there is any feat we should bump the minor"). With no version given, the release reads the changelog section it's about to write: any line under Features (a merged task whose branch has a `feat` commit, or a direct `feat:` commit) makes it a **minor**; only Fixes and Other changes make it a **patch**. The first release is always minor. Its first line says what it picked and why: `Cello release: 0.4.17 -> 0.5.0 (minor: it ships 1 feature)`. A version you name wins.
 
 It uses [release-it](https://github.com/release-it/release-it) (pinned in the root package.json, configured in `.release-it.json`); the steps that are ours are small TypeScript modules with tests in `scripts/release/`.
 
@@ -48,7 +48,7 @@ flowchart TD
 ## Two flavors: Cello and Cello Dev
 
 Every build of Cello is one of two flavors, set when it's built (`--flavor release|dev`, CEL-149), so the Cello
-people download and the one built from this repo live side by side on Lucas's Mac:
+people download and the one built from this repo live side by side on the human's Mac:
 
 | | **Cello** (`release`) | **Cello Dev** (`dev`) |
 | --- | --- | --- |
@@ -70,7 +70,7 @@ people download and the one built from this repo live side by side on Lucas's Ma
   it writes anything: "This board (…) was opened by a newer Cello (migration 0028_x); this cello is v0.4.2. Update
   Cello, or use another board. Nothing was changed." The app shows it in its window with Try Again, Use Another
   Board… and Quit.
-- **Once, on Lucas's Mac:** `bun run package -- --install` in apps/desktop installs `/Applications/Cello Dev.app` (it refuses `--install` for the release flavor, so it can never replace the downloaded Cello.app).
+- **Once, on the human's Mac:** `bun run package -- --install` in apps/desktop installs `/Applications/Cello Dev.app` (it refuses `--install` for the release flavor, so it can never replace the downloaded Cello.app).
   The `/Applications/Cello.app` an earlier local install left (v0.1.0) stays; nothing deletes an app. Drag it to
   the Trash, then install the downloaded Cello.app from a release's DMG if you want it.
 
@@ -168,7 +168,7 @@ With all five, each build job signs Cello.app with the Developer ID and the hard
 - Release commits and merges of main into a branch are left out. Subjects keep their own words and CEL keys; each line links its commit on GitHub, and the heading links the compare view from the previous tag.
 - The first release, v0.3.0 (`bun run release -- minor`, from 0.2.0), covers the whole history since the first commit (Nov 14): it's only days old, so there's nothing to cut off. Builds before it said 0.1.0 (the desktop app) or 0.2.0 (the CLI) and weren't tagged.
 
-Write subjects for the reader of the changelog: the merge subject is the line Lucas reads. The GitHub release's notes are the same section, read back from CHANGELOG.md at the tag.
+Write subjects for the reader of the changelog: the merge subject is the line the human reads. The GitHub release's notes are the same section, read back from CHANGELOG.md at the tag.
 
 ## Previewing: the dry run
 
@@ -185,8 +185,8 @@ Apart from that fetch, it writes, commits, tags, pushes, releases and deploys no
 
 | Flag | What it does |
 | --- | --- |
-| `patch` / `minor` / `major` / `1.2.3` | The new version. Without one, the release picks minor when any feature ships, else patch (above); give one to override it. Major only when Lucas asks. |
-| `prepatch` / `preminor` / `premajor` / `prerelease`, `--preid <id>` | A preview release (`0.6.0-beta.1`), published as a GitHub prerelease for the app's Preview channel; see [Preview releases](#preview-releases). Only when Lucas asks. |
+| `patch` / `minor` / `major` / `1.2.3` | The new version. Without one, the release picks minor when any feature ships, else patch (above); give one to override it. Major only when the human asks. |
+| `prepatch` / `preminor` / `premajor` / `prerelease`, `--preid <id>` | A preview release (`0.6.0-beta.1`), published as a GitHub prerelease for the app's Preview channel; see [Preview releases](#preview-releases). Only when the human asks. |
 | `--dry-run`, `-d` | The preview above. |
 | `--no-deploy` | Release (tag, push; GitHub Actions still builds and publishes) but leave the live board alone: no backup, `apps/cli/dist/cello` untouched, no restart. The build waits in `release/stage/cello`; `bun scripts/release/deploy.ts` deploys it later (backup, rename, restart). Tests and builder agents never deploy. |
 | `--local-artifacts` | For when GitHub Actions is down or broken: this Mac builds the downloads itself (the `cello` zip, Cello.app's DMG and zip, Apple silicon only, the release flavor; the `cello` it deploys stays Cello Dev's) into `release/` and creates the GitHub release with them (`bun scripts/release/publish.ts`, with gh, which must be logged in; gh uses a `GH_TOKEN` or `GITHUB_TOKEN` in the environment first, when one is set, before its own login, so unset a stale one). The tag still starts the workflow; if it runs later, it adds the Intel files and replaces the Apple silicon ones with its own. |
@@ -208,7 +208,7 @@ When release-it fails, `bun run release` looks at how far it got (the release co
 To go back to an earlier release, say v0.3.0 after v0.3.1 misbehaved:
 
 1. **Put the old binary back.** Either download `cello-v0.3.0-darwin-arm64.zip` from the GitHub release and unzip it over `apps/cli/dist/cello` in the main checkout (the service and `~/.local/bin/cello` run that file), or rebuild it: `git checkout v0.3.0 && (cd apps/cli && bun run build) && git checkout main`.
-2. **If the bad release ran a migration, or wrote data the old build doesn't know, restore the backup; don't just swap the binary back.** The old binary can't read the new database, and data the new build wrote can break it even without a migration: after CEL-143, once an approval exists (an `approved` inbox item, a run woken for an approval, a project switched to merge after approval), an older `cello` fails on it and an older board loses its snapshot. Restore the backup the release took right before it went live: stop the server (`cello service uninstall` stops it and removes the plist; data and log stay), `cello backup list` (the manual backup taken at the release), `cello restore <id>` (it takes a safety backup first), then `cello service install` again with `~/.local/bin/cello`. Agents run `cello restore` only when Lucas asks.
+2. **If the bad release ran a migration, or wrote data the old build doesn't know, restore the backup; don't just swap the binary back.** The old binary can't read the new database, and data the new build wrote can break it even without a migration: after CEL-143, once an approval exists (an `approved` inbox item, a run woken for an approval, a project switched to merge after approval), an older `cello` fails on it and an older board loses its snapshot. Restore the backup the release took right before it went live: stop the server (`cello service uninstall` stops it and removes the plist; data and log stay), `cello backup list` (the manual backup taken at the release), `cello restore <id>` (it takes a safety backup first), then `cello service install` again with `~/.local/bin/cello`. Agents run `cello restore` only when the human asks.
 3. **Restart** (if you didn't reinstall the service in step 2): `cello service restart`, and check `cello --version` says 0.3.0.
 4. Fix forward: the next `bun run release` ships the fix as a new patch. Tags and GitHub releases are never deleted or reused.
 
@@ -216,7 +216,7 @@ Cello.app is rolled back the same way: open `Cello-v0.3.0-mac-arm64.dmg` (or `-x
 
 ## Preview releases
 
-A **preview** is a version like `v0.6.0-beta.1`, for trying the next version before it's a release. Cut one only when Lucas asks for a preview (or beta):
+A **preview** is a version like `v0.6.0-beta.1`, for trying the next version before it's a release. Cut one only when the human asks for a preview (or beta):
 
 ```bash
 bun run release -- preminor --preid beta   # 0.5.1 -> 0.6.0-beta.1   (prepatch: 0.5.2-beta.1, premajor: 1.0.0-beta.1)
@@ -262,7 +262,7 @@ flowchart TD
 
 **Download** opens the downloaded DMG in Finder (downloading it first when automatic downloads are off); you drag Cello onto Applications, over the old one. A release without a DMG for this Mac opens its GitHub page instead. The app keeps its choices in `~/Library/Application Support/Cello/updates.json` (the channel, automatic downloads, which version's toast was shown, the version that ran last).
 
-**The one-click install waits.** Installing in place (quit, swap the app, reopen) needs one of two routes, Lucas's pick:
+**The one-click install waits.** Installing in place (quit, swap the app, reopen) needs one of two routes, the human's pick:
 
 - **A Developer ID** (the five signing secrets above): then electron-updater's `quitAndInstall` can install an update, since macOS only installs an update signed by the same developer. The release workflow would also publish the app zip's update files (`latest-mac.yml`).
 - **Cello's own swap**: unzip the release's app zip beside `/Applications/Cello.app`, quit, move it over, relaunch. Works with ad hoc signing.

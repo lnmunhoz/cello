@@ -67,7 +67,7 @@ bun run test:e2e   # Playwright's Electron tests, in Docker (same as test:docker
     folder on a free port, never 4747, 4748, 5199 or `~/.cello`.
   - `playwright.config.ts` refuses to run on macOS. `CELLO_ALLOW_LOCAL_DESKTOP=1 bun run
     test:e2e:local` is the rare exception, for a check only macOS can do (Dock, `cello://`
-    through LaunchServices, the app menu), and only when Lucas asks for one.
+    through LaunchServices, the app menu), and only when the human asks for one.
   - On Linux the keys are Ctrl where macOS has ⌘ (Electron's CommandOrControl; the tests' helpers
     pick the right one). In the container Electron gets `--no-sandbox` (it runs as root),
     `--force-device-scale-factor=2` (Retina-sharp screenshots) and `--hide-scrollbars`

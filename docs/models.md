@@ -19,15 +19,15 @@ In Cello every agent has both pinned in its definition (`.claude/agents/*.md`), 
 | `cello-data-reviewer` | Sonnet 5.5 | high | Only the risky part (migrations, deletes, settings writes): it reproduces failure cases; Opus takes a second look only at a blocker it can't settle |
 | `cello-code-reviewer` | Sonnet 5.5 | medium | Checks a diff against the task and the rules, and for UI work every video and screenshot |
 | Search and exploration (`Explore`) | Haiku 5.5 | medium | Finds files and code, fast and cheap |
-| Fable 5.2 | only when Lucas asks | | For the hardest open-ended problems |
+| Fable 5.2 | only when the human asks | | For the hardest open-ended problems |
 
-**Opus plans, Sonnet builds (Nov 18, CEL-158).** Lucas moved the hard thinking to a planner on Opus 5.5 at high, and builders to Sonnet 5.5 at high. A builder with a step-by-step plan is doing well-specified terminal work, where Sonnet matches Opus at half the price. The planner never writes code; the orchestrator publishes its plan on the task, and the reviewer checks the branch against it.
+**Opus plans, Sonnet builds (Nov 18, CEL-158).** The human moved the hard thinking to a planner on Opus 5.5 at high, and builders to Sonnet 5.5 at high. A builder with a step-by-step plan is doing well-specified terminal work, where Sonnet matches Opus at half the price. The planner never writes code; the orchestrator publishes its plan on the task, and the reviewer checks the branch against it.
 
-**Effort is never below medium.** Lucas decided this on Nov 15: low effort saves little on short jobs and risks sloppy work.
+**Effort is never below medium.** The human decided this on Nov 15: low effort saves little on short jobs and risks sloppy work.
 
 **One reviewer checks the code and the evidence (Nov 18).** The code reviewer already did the visual checks, following the visual reviewer's checklist, so that checklist now lives in `cello-code-reviewer.md` and the separate `cello-visual-reviewer` agent is gone (CEL-157). It looks at every video and every light and dark screenshot, not a sample.
 
-**Data reviews moved from Opus to Sonnet (Nov 15).** Lucas asked for leaner reviews. The data reviewer now checks only the risky part of a branch and reproduces its failure cases, which is terminal work where Sonnet is as strong as Opus at half the price. Opus is asked only for a second opinion on a blocker Sonnet can't settle.
+**Data reviews moved from Opus to Sonnet (Nov 15).** The human asked for leaner reviews. The data reviewer now checks only the risky part of a branch and reproduces its failure cases, which is terminal work where Sonnet is as strong as Opus at half the price. Opus is asked only for a second opinion on a blocker Sonnet can't settle.
 
 ## Which model for which work
 
@@ -37,7 +37,7 @@ flowchart TD
     P -->|yes| O1["Opus 5.5, high<br/>cello-planner, first for every build"]
     P -->|no| B{"Does it write the code?"}
     B -->|yes| SB["Sonnet 5.5, high<br/>cello-builder, following the plan"]
-    B -->|no| C{"Could it hurt Lucas's data?<br/>migrations, backups, restore,<br/>settings files, deleting files,<br/>the desktop panel's security"}
+    B -->|no| C{"Could it hurt the human's data?<br/>migrations, backups, restore,<br/>settings files, deleting files,<br/>the desktop panel's security"}
     C -->|yes| O2["Sonnet 5.5, high<br/>cello-data-reviewer: the data paths only<br/>(Opus only for a blocker it can't settle)"]
     C -->|no| D{"Reviewing a diff, or checking<br/>videos and screenshots?"}
     D -->|yes| S["Sonnet 5.5, medium<br/>cello-code-reviewer"]
@@ -67,11 +67,11 @@ What the numbers mean for Cello:
 
 | Effort | What it does | When to use it in Cello |
 | --- | --- | --- |
-| low | Fewest tokens, terse, fewer tool calls | Never (Lucas's rule) |
+| low | Fewest tokens, terse, fewer tool calls | Never (the human's rule) |
 | medium | The default for Opus, Sonnet and Haiku in Claude Code | Reviews, visual checks, search |
 | high | Thinks longer before and between steps | Every plan and build, and data-risk reviews |
 | xhigh | Longer still; the best setting for long agentic coding runs on some models | A build that keeps failing review at high, or a large refactor |
-| max | The ceiling: maximum thinking, maximum tokens | Only when Lucas asks, for a problem where correctness matters more than cost |
+| max | The ceiling: maximum thinking, maximum tokens | Only when the human asks, for a problem where correctness matters more than cost |
 
 Two things to know:
 
