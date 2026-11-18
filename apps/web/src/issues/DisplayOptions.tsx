@@ -31,46 +31,46 @@ export function DisplayOptions() {
 
   return (
     <DisplayMenu note={ordering === "manual" ? null : ORDERING_LABELS[ordering]}>
-          <SegmentedControl aria-label="Layout" value={layout} onValueChange={(value) => value && pickLayout(value as Layout)}>
-            <SegmentedControlItem value="list">
-              <ListIcon aria-hidden className="size-3.5" />
-              List
-            </SegmentedControlItem>
-            <SegmentedControlItem value="board">
-              <KanbanIcon aria-hidden className="size-3.5" />
-              Board
-            </SegmentedControlItem>
-          </SegmentedControl>
-          <DisplayFields>
-            <DisplayField label="Grouping">
-              {/* Milestone (CEL-132): swimlanes on the board; the list keeps its status groups. */}
-              <Select
-                variant="chip"
-                label="Grouping"
-                value={grouping}
-                options={layout === "board" ? groupingOptions : groupingOptions.slice(0, 1)}
-                onValueChange={(value) => {
-                  if (value === "status" || value === "milestone") void navigate({ to: ".", search: (prev) => ({ ...prev, ...groupSearch(value) }) })
-                }}
-              />
-            </DisplayField>
-            <DisplayField label="Ordering">
-              <Select
-                variant="chip"
-                label="Ordering"
-                value={ordering}
-                options={orderingOptions}
-                onValueChange={(value) => {
-                  const next = parseOrdering(value)
-                  if (next) pick(next)
-                }}
-              />
-            </DisplayField>
-          </DisplayFields>
-          <NeedsInputColumnRow />
-          <StageLanesRow />
-          <CardMilestoneRow />
-          <AgentCursorsRow />
+      <SegmentedControl aria-label="Layout" value={layout} onValueChange={(value) => value && pickLayout(value as Layout)}>
+        <SegmentedControlItem value="list">
+          <ListIcon aria-hidden className="size-3.5" />
+          List
+        </SegmentedControlItem>
+        <SegmentedControlItem value="board">
+          <KanbanIcon aria-hidden className="size-3.5" />
+          Board
+        </SegmentedControlItem>
+      </SegmentedControl>
+      <DisplayFields>
+        <DisplayField label="Grouping">
+          {/* Milestone (CEL-132): swimlanes on the board; the list keeps its status groups. */}
+          <Select
+            variant="chip"
+            label="Grouping"
+            value={grouping}
+            options={layout === "board" ? groupingOptions : groupingOptions.slice(0, 1)}
+            onValueChange={(value) => {
+              if (value === "status" || value === "milestone") void navigate({ to: ".", search: (prev) => ({ ...prev, ...groupSearch(value) }) })
+            }}
+          />
+        </DisplayField>
+        <DisplayField label="Ordering">
+          <Select
+            variant="chip"
+            label="Ordering"
+            value={ordering}
+            options={orderingOptions}
+            onValueChange={(value) => {
+              const next = parseOrdering(value)
+              if (next) pick(next)
+            }}
+          />
+        </DisplayField>
+      </DisplayFields>
+      <NeedsInputColumnRow />
+      <StageLanesRow />
+      <CardMilestoneRow />
+      <AgentCursorsRow />
     </DisplayMenu>
   )
 }
