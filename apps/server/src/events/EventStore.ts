@@ -89,6 +89,8 @@ export const entityOf = (body: EventBody): { readonly type: string; readonly id:
     // A wake is part of its task's history (CEL-92).
     case "session.wake_scheduled":
     case "session.not_woken":
+    // A finished test run is part of its task's history too (CEL-181).
+    case "tests.finished":
       return { type, id: body.taskId }
     case "session.run_started":
     case "session.run_ended":

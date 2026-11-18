@@ -9,6 +9,20 @@ const context = (commandId: string, ts: number): EventStore.EventContext => ({
   ts, commandId, actorId: "human", sessionId: null, agentId: null, model: null, effort: null, workspaceId: "w", projectId: "p",
 })
 
+describe("tests.finished (CEL-181)", () => {
+  const run = { label: "unit tests", command: "bun run test", startedAt: 1, endedAt: 9, outcome: "failed" as const, background: false, progress: null }
+
+  it.effect("belongs to its task's history as entity `tests`, and stays out of Recent activity", () =>
+    Effect.gen(function* () {
+      const store = yield* EventStore.EventStore
+      expect(EventStore.entityOf({ type: "tests.finished", taskId: "t1", run })).toEqual({ type: "tests", id: "t1" })
+      yield* store.append({ type: "task.archived", id: "t1", version: 2 }, context("cmd-1", 1))
+      yield* store.append({ type: "tests.finished", taskId: "t1", run }, context("cmd-2", 2))
+      expect((yield* store.history("t1")).map((e) => e.type)).toEqual(["task.archived", "tests.finished"])
+      expect((yield* store.recent("p", 10)).map((e) => e.type)).toEqual(["task.archived"])
+    }).pipe(Effect.provide(EventStore.layer.pipe(Layer.provideMerge(database())))))
+})
+
 describe("EventStore.recent", () => {
   it.effect("leaves out the events a migration wrote (CEL-113), so they don't fill Recent activity right after a deploy", () =>
     Effect.gen(function* () {

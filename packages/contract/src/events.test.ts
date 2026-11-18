@@ -214,6 +214,17 @@ describe("decodeEvent", () => {
     expect(() => decodeEvent({ ...envelope, schemaVersion: 1, type: "ask.withdrawn", id: "k-1", taskId: "t-1", reason: "bored" })).toThrow()
   })
 
+  it("decodes a finished test run on a task (CEL-181), with or without the run's task, and refuses one with no run", () => {
+    const run = { label: "web e2e", command: "bun run test:e2e -- e2e/pages.spec.ts", startedAt: 1, endedAt: 9, outcome: "passed", background: true, progress: null }
+    const event = decodeEvent({ ...envelope, schemaVersion: 1, type: "tests.finished", taskId: "t-1", run })
+    expect(event.type === "tests.finished" && event.run.outcome).toBe("passed")
+    expect(event.type === "tests.finished" && event.run.taskId).toBeUndefined()
+    expect(decodeEvent({ ...envelope, schemaVersion: 1, type: "tests.finished", taskId: "t-1", run: { ...run, taskId: "t-1" } })).toMatchObject({ run: { taskId: "t-1" } })
+    // It round-trips: what a store writes is what a client reads.
+    expect(Schema.encodeSync(CelloEvent)(event as never)).toMatchObject({ type: "tests.finished", taskId: "t-1", run: { label: "web e2e" } })
+    expect(() => decodeEvent({ ...envelope, schemaVersion: 1, type: "tests.finished", taskId: "t-1" })).toThrow()
+  })
+
   it("fails loudly on an unknown schema version", () => {
     expect(() => decodeEvent({ ...envelope, schemaVersion: 99, type: "task.archived", id: "t-1", version: 3 })).toThrow(
       UnknownSchemaVersion,
