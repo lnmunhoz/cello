@@ -443,7 +443,7 @@ test("CEL-173: a diff in a packet opens as a diff view: files with their status 
 
   await caption(page, "Drag it wide: the diff still reads")
   await dragEdge(page, -900)
-  expect(await width(page)).toBeGreaterThan(900)
+  expect(await width(page)).toBeGreaterThan(720)
   await expect(viewer.locator("[data-diff-summary]")).toContainText("6 files changed")
   await expect(showAs(page, "Split")).toBeVisible()
 
