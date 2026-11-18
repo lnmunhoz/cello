@@ -280,7 +280,7 @@ export interface Working {
   readonly presence: Presence
   /** The tasks the session holds. */
   readonly tasks: ReadonlyArray<Task>
-  /** Its subagents still working (active or quiet, not stopped), the freshest first (CEL-55). */
+  /** Its subagents still working (active or quiet, not stopped), in the order they started (CEL-186). */
   readonly agents: ReadonlyArray<WorkingAgent>
   /** Its mark: from the tasks whose cards show the session itself, not a subagent of it. */
   readonly mark: WorkingMark
