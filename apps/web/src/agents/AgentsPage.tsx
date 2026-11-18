@@ -42,17 +42,6 @@ import {
   waitingTaskOf,
 } from "./layout.ts"
 
-/**
- * The Agents page (CEL-65), opened from the sidebar's "Agents working": every agent session and subagent
- * working in the workspace, with the card each is on, laid out like the Review page. Agents waiting on
- * the human come first, then the ones working, then the quiet ones; subagents sit under their session. One
- * row is open at a time (`?open=`): what the agent was asked and its card on the left, and on the right
- * its live log (CEL-106, AgentLog.tsx). Rows keep their place, in the order the agents started (CEL-186):
- * a call an agent makes pulses its row once; a row animates when it changes group (an agent starts, waits,
- * goes quiet or finishes) or leaves, and nothing animates while nothing happens (spike-board-ui point 6);
- * the ones that finished today fold into "Finished today" at the bottom, newest first, their logs still
- * a click away while Claude Code keeps the transcript (CEL-107).
- */
 /** How a row moves to its new group, or out (CEL-186): the board's spring. */
 // CEL-189: replace with lib/motion.ts tokens at integration
 const layoutTransition = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 } as const
@@ -65,6 +54,17 @@ const exitOf = (id: string) => ({
   gone: (keys: ReadonlyArray<string> | undefined) => ({ opacity: 0, transition: { duration: keys?.includes(id) ? 0 : 0.15 } }),
 })
 
+/**
+ * The Agents page (CEL-65), opened from the sidebar's "Agents working": every agent session and subagent
+ * working in the workspace, with the card each is on, laid out like the Review page. Agents waiting on
+ * the human come first, then the ones working, then the quiet ones; subagents sit under their session. One
+ * row is open at a time (`?open=`): what the agent was asked and its card on the left, and on the right
+ * its live log (CEL-106, AgentLog.tsx). Rows keep their place, in the order the agents started (CEL-186):
+ * a call an agent makes pulses its row once; a row animates when it changes group (an agent starts, waits,
+ * goes quiet or finishes) or leaves, and nothing animates while nothing happens (spike-board-ui point 6);
+ * the ones that finished today fold into "Finished today" at the bottom, newest first, their logs still
+ * a click away while Claude Code keeps the transcript (CEL-107).
+ */
 export function AgentsPage() {
   const board = useBoard()
   const workspaceId = useWorkspaceId()
@@ -109,47 +109,47 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
           {groups.length === 0 ? null : (
             <MotionConfig reducedMotion="user">
               <PageRows.Provider value={keys}>
-              <LayoutGroup>
-            <div {...queue.list} className="flex flex-col gap-6">
-              {groups.map((group) => (
-                <section key={group.id} aria-labelledby={`agents-${group.id}`} data-agents-group={group.id} className="flex flex-col gap-2">
-                  <h2 id={`agents-${group.id}`} className="flex items-center gap-2 text-[13px] font-semibold text-ink">
-                    {group.id === "waiting" ? <i aria-hidden className="size-1.5 rounded-full bg-accent" /> : null}
-                    {group.label} <span className="font-normal text-muted tabular-nums">{group.rows.length}</span>
-                  </h2>
-                  <ul aria-label={group.label} className="flex flex-col gap-2">
-                    {/* custom: the rows on the page now, so a row that left this group for another goes at once (the copy there slides in). */}
-                    <AnimatePresence initial={false} custom={keys}>
-                      {group.rows.map((row) => {
-                        // A subagent sits under its session, always in the same group (CEL-104); finished ones stand on their own.
-                        const under = row.kind === "agent" && group.id !== "finished"
-                        return (
-                          // layoutId: a row that changes group slides there from where it was, instead of jumping (CEL-186).
-                          // layoutDependency: only a change of rows animates, not a row opening above it.
-                          <motion.li
-                            key={row.id}
-                            layoutId={row.id}
-                            layout="position"
-                            layoutDependency={layoutKey}
-                            transition={layoutTransition}
-                            custom={keys}
-                            variants={exitOf(row.id)}
-                            exit="gone"
-                            className={under ? "relative pl-6" : "relative"}
-                          >
-                            <Leaving id={row.id}>
-                              <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
-                              <Pulse at={pulseKeyOf(row)} under={under} />
-                            </Leaving>
-                          </motion.li>
-                        )
-                      })}
-                    </AnimatePresence>
-                  </ul>
-                </section>
-              ))}
-            </div>
-              </LayoutGroup>
+                <LayoutGroup>
+                  <div {...queue.list} className="flex flex-col gap-6">
+                    {groups.map((group) => (
+                      <section key={group.id} aria-labelledby={`agents-${group.id}`} data-agents-group={group.id} className="flex flex-col gap-2">
+                        <h2 id={`agents-${group.id}`} className="flex items-center gap-2 text-[13px] font-semibold text-ink">
+                          {group.id === "waiting" ? <i aria-hidden className="size-1.5 rounded-full bg-accent" /> : null}
+                          {group.label} <span className="font-normal text-muted tabular-nums">{group.rows.length}</span>
+                        </h2>
+                        <ul aria-label={group.label} className="flex flex-col gap-2">
+                          {/* custom: the rows on the page now, so a row that left this group for another goes at once (the copy there slides in). */}
+                          <AnimatePresence initial={false} custom={keys}>
+                            {group.rows.map((row) => {
+                              // A subagent sits under its session, always in the same group (CEL-104); finished ones stand on their own.
+                              const under = row.kind === "agent" && group.id !== "finished"
+                              return (
+                                // layoutId: a row that changes group slides there from where it was, instead of jumping (CEL-186).
+                                // layoutDependency: only a change of rows animates, not a row opening above it.
+                                <motion.li
+                                  key={row.id}
+                                  layoutId={row.id}
+                                  layout="position"
+                                  layoutDependency={layoutKey}
+                                  transition={layoutTransition}
+                                  custom={keys}
+                                  variants={exitOf(row.id)}
+                                  exit="gone"
+                                  className={under ? "relative pl-6" : "relative"}
+                                >
+                                  <Leaving id={row.id}>
+                                    <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
+                                    <Pulse at={pulseKeyOf(row)} under={under} />
+                                  </Leaving>
+                                </motion.li>
+                              )
+                            })}
+                          </AnimatePresence>
+                        </ul>
+                      </section>
+                    ))}
+                  </div>
+                </LayoutGroup>
               </PageRows.Provider>
             </MotionConfig>
           )}
