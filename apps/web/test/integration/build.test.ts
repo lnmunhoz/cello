@@ -18,7 +18,8 @@ afterEach(() => {
 })
 
 // A real `bun run build` is a real OS process, so it takes UNDER_LOAD (docs/testing.md). Measured for
-// CEL-175: 0.6-0.9 s on a 10-core Mac at load average ~15-22, 1.2 s with 60 extra busy loops on top, 0.4 s at load average ~185 (the build is mostly one Bun process).
+// CEL-175: 0.6-0.9 s on a 10-core Mac at load average ~15-22, 1.2 s with 60 extra busy loops on top,
+// 0.4 s at load average ~185 (the build is mostly one Bun process).
 it("builds with `bun run build` while `node` on PATH fails", UNDER_LOAD, () => {
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cello-web-build-")))
   dirs.push(tmp)
