@@ -3,6 +3,12 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.5.0](https://github.com/lnmunhoz/cello/compare/v0.4.17...v0.5.0) (2026-11-18)
+
+### Features
+
+- the Agents page's live log tells the story: calls fold into one row by Claude's descriptions, a live row for the running call, finished turns fold under "Worked for", and the Thinking switch says when Claude Code didn't save it (CEL-170) ([9a9b6ba](https://github.com/lnmunhoz/cello/commit/9a9b6bac9430b3cdcc0db2929f29d90878fc5b74))
+
 ## [0.4.17](https://github.com/lnmunhoz/cello/compare/v0.4.16...v0.4.17) (2026-11-18)
 
 ### Features
