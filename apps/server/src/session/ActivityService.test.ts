@@ -411,3 +411,49 @@ describe("CEL-181: a finished run is kept on its task", () => {
       expect(yield* snapshot).toEqual(before)
     })))
 })
+
+// CEL-181: presence carries every run an agent keeps, each with its task, so a task's thread can show a live
+// row; `tests` stays the one run shown on the Agents page.
+describe("CEL-181: presence carries every run with its task", () => {
+  const lastSeen = (who: string | null) =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      const rows = yield* sql<{ type: string; payload: string }>`SELECT type, payload FROM events WHERE type IN ('agent.seen', 'session.seen') ORDER BY seq`
+      const mine = rows.map((r) => JSON.parse(r.payload)).map((p) => p.agent ?? p.session).filter((p) => (who === null ? p.id !== undefined : p.agentId === who))
+      return mine.at(-1) as { tests: Record<string, any> | null; runs?: ReadonlyArray<Record<string, any>> }
+    }).pipe(Effect.orDie)
+
+  it.effect("a started run is in `runs` with its task and no end; the main session's goes out as session.seen", () =>
+    run(Effect.gen(function* () {
+      const { task, activity } = yield* board
+      yield* TestClock.adjust("1 second")
+      yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_1", command: "bun run test -- apps/server", cwd: "/repo/wt" }))
+      expect((yield* lastSeen(builder.agent)).runs).toMatchObject([{ label: "unit tests", taskId: task.id, endedAt: null, startedAt: 1000 }])
+      expect((yield* lastSeen(builder.agent)).runs?.[0]).not.toHaveProperty("runId")
+      yield* asAgent(orchestrator)(activity.report({ kind: "tests-started", toolUseId: "toolu_s", command: "bun run test:docker", cwd: "/repo" }))
+      expect((yield* lastSeen(null)).runs).toMatchObject([{ label: "Docker tests", taskId: task.id, endedAt: null }])
+    })))
+
+  it.effect("a background Docker run and a foreground unit run at once are both in `runs`; `tests` is still the one shown", () =>
+    run(Effect.gen(function* () {
+      const { task, activity } = yield* board
+      yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_d", command: "bun run test:docker:e2e", cwd: "/repo/wt" }))
+      yield* asAgent(builder)(activity.report({ kind: "background", id: "blo3xolgq", label: "Bash · bun run test:docker:e2e", toolUseId: "toolu_d", waits: true }))
+      yield* TestClock.adjust("1 second")
+      yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_u", command: "bun run test", cwd: "/repo/wt" }))
+      const seenNow = yield* lastSeen(builder.agent)
+      expect(seenNow.runs?.map((r) => r.label)).toEqual(["web e2e", "unit tests"])
+      expect(seenNow.runs?.every((r) => r.taskId === task.id)).toBe(true)
+      expect(seenNow.tests).toMatchObject({ label: "unit tests" })
+    })))
+
+  it.effect("after the end, `runs` has the run ended, with its outcome and the same start", () =>
+    run(Effect.gen(function* () {
+      const { activity } = yield* board
+      yield* TestClock.adjust("1 second")
+      yield* asAgent(builder)(activity.report({ kind: "tests-started", toolUseId: "toolu_1", command: "bun run test", cwd: "/repo/wt" }))
+      yield* TestClock.adjust("30 seconds")
+      yield* asAgent(builder)(activity.report({ kind: "tool-finished", toolUseId: "toolu_1", failed: true }))
+      expect((yield* lastSeen(builder.agent)).runs).toMatchObject([{ startedAt: 1000, endedAt: 31_000, outcome: "failed" }])
+    })))
+})
