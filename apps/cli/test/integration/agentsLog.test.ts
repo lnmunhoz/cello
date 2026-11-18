@@ -23,8 +23,13 @@ const KEY = "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
 const line = (value: object) => `${JSON.stringify(value)}\n`
 const said = (uuid: string, text: string, second = 0) =>
   line({ type: "assistant", uuid, timestamp: `2026-11-16T09:00:${String(second).padStart(2, "0")}.000Z`, message: { id: uuid, content: [{ type: "text", text }] } })
-const call = (uuid: string, id: string, command: string, second: number) =>
-  line({ type: "assistant", uuid, timestamp: `2026-11-16T09:00:${String(second).padStart(2, "0")}.000Z`, message: { id: uuid, content: [{ type: "tool_use", id, name: "Bash", input: { command } }] } })
+const call = (uuid: string, id: string, command: string, second: number, description?: string) =>
+  line({
+    type: "assistant",
+    uuid,
+    timestamp: `2026-11-16T09:00:${String(second).padStart(2, "0")}.000Z`,
+    message: { id: uuid, content: [{ type: "tool_use", id, name: "Bash", input: { command, ...(description ? { description } : {}) } }] },
+  })
 const result = (uuid: string, id: string, content: string, second: number, isError = false) =>
   line({ type: "user", uuid, timestamp: `2026-11-16T09:00:${String(second).padStart(2, "0")}.000Z`, message: { content: [{ type: "tool_result", tool_use_id: id, content, is_error: isError }] } })
 
@@ -70,7 +75,7 @@ const seed = Effect.gen(function* () {
   fs.writeFileSync(builderFile, [
     line({ type: "user", uuid: "b0", timestamp: "2026-11-16T09:00:00.000Z", message: { role: "user", content: "Build CEL-1, test first." } }),
     said("b1", "Reading AGENTS.md first.", 1),
-    call("b2", "toolu_1", "bun run test", 2),
+    call("b2", "toolu_1", "bun run test", 2, "Run the tests"),
     result("b3", "toolu_1", ["FAIL src/timer.test.ts", "  flips after 90 seconds", "    at step 1", "    at step 2", `export GITHUB_TOKEN=${KEY}`].join("\n"), 4, true),
   ].join(""))
 
@@ -151,14 +156,17 @@ describe("cello agents log (CEL-107)", () => {
       expect(lines).toEqual([
         "HH:MM:SS  Prompt  Build CEL-1, test first.",
         "HH:MM:SS  Said    Reading AGENTS.md first.",
-        "HH:MM:SS  ✗ Bash · bun run test  2.0 s",
+        // Claude's description of the command, not the command (CEL-170).
+        "HH:MM:SS  ✗ Bash · Run the tests  2.0 s",
         "            FAIL src/timer.test.ts",
         "              flips after 90 seconds",
         "                at step 1",
         "            … 2 more lines (--full shows them)",
       ])
-      // The same agent by its type and id; --full shows the whole result, the key masked.
+      // The same agent by its type and id; --full shows the whole result, the key masked, and the command above it.
       const full = yield* me("agents", "log", "cello-builder/a13bfb89", "--full")
+      expect(full.out).toContain("  ✗ Bash · Run the tests  2.0 s\n            $ bun run test\n            FAIL src/timer.test.ts")
+      expect(printed.out).not.toContain("$ bun run test")
       expect(full.out).toContain("GITHUB_TOKEN=ghp_••••••••")
       expect(full.out).not.toContain(KEY)
       // The human may ask to see it; an agent asking still gets it masked.
@@ -186,7 +194,7 @@ describe("cello agents log (CEL-107)", () => {
     Effect.gen(function* () {
       const { start, builderFile } = yield* setup
       const follow = yield* start(["agents", "log", "a13bfb89", "--follow"])
-      yield* follow.out.printed("✗ Bash · bun run test")
+      yield* follow.out.printed("✗ Bash · Run the tests")
       fs.appendFileSync(builderFile, call("b4", "toolu_2", "bun run test src/timer.test.ts", 6))
       yield* follow.out.printed("▸ Bash · bun run test src/timer.test.ts  (running)")
       fs.appendFileSync(builderFile, result("b5", "toolu_2", "1 passed", 8))
@@ -199,7 +207,7 @@ describe("cello agents log (CEL-107)", () => {
     Effect.gen(function* () {
       const { start, builderFile, stopServer, restart, port } = yield* setup
       const follow = yield* start(["agents", "log", "a13bfb89", "--follow"])
-      yield* follow.out.printed("✗ Bash · bun run test")
+      yield* follow.out.printed("✗ Bash · Run the tests")
       yield* stopServer
       yield* follow.wentAway
       yield* restart
@@ -208,7 +216,7 @@ describe("cello agents log (CEL-107)", () => {
       yield* Fiber.interrupt(follow.fiber)
       // Each step once, though the new server sent the whole log again.
       expect(follow.out.lines.filter((l) => l.includes("Reading AGENTS.md first."))).toHaveLength(1)
-      expect(follow.out.lines.filter((l) => l.includes("✗ Bash · bun run test"))).toHaveLength(1)
+      expect(follow.out.lines.filter((l) => l.includes("✗ Bash · Run the tests"))).toHaveLength(1)
       expect(port).toBeGreaterThan(0)
     }).pipe(Effect.scoped))
 })

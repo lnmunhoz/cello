@@ -157,6 +157,9 @@ describe("background work (CEL-133)", () => {
     expect(bash.toolUseId).toBe("toolu_9")
     const monitor = post("Monitor", { description: "review-mode e2e run finishing", command: "until …" }, { taskId: "bpz2edzeb", timeoutMs: 1800000, persistent: false })
     expect(monitor.startedBackground).toEqual({ id: "bpz2edzeb", label: "Monitor · review-mode e2e run finishing", waits: true })
+    // A background command is labelled by Claude's description of it, like its step (CEL-170).
+    expect(post("Bash", { command: "bun run test:e2e", description: "Run the web e2e", run_in_background: true }, { backgroundTaskId: "bdesc" }).startedBackground)
+      .toEqual({ id: "bdesc", label: "Bash · Run the web e2e", waits: true })
     // A dev server left running isn't work its agent waits for (review S3): it would never finish.
     expect(post("Bash", { command: "bun run dev", run_in_background: true }, { backgroundTaskId: "bdev" }).startedBackground)
       .toEqual({ id: "bdev", label: "Bash · bun run dev", waits: false })
@@ -372,6 +375,11 @@ describe("hookIdentity and subagentContext", () => {
       CELLO_TRANSCRIPT: "/h/.claude/projects/-repo/2fd0505c.jsonl",
       CELLO_STEP: "Bash · bun run test",
     })
+    // A Bash call with Claude's description: that, not the command (CEL-170).
+    const described = parseHookInput(JSON.stringify({
+      session_id: "2fd0505c", tool_name: "Bash", tool_input: { command: "git status --short", description: "Show working tree status" },
+    }))
+    expect(hookIdentity(described, {})).toMatchObject({ CELLO_STEP: "Bash · Show working tree status" })
     // Inside a subagent: the subagent's own file, next to the session's.
     const sub = parseHookInput(JSON.stringify({
       session_id: "2fd0505c", agent_id: "a13b", agent_type: "cello-builder", transcript_path: "/h/.claude/projects/-repo/2fd0505c.jsonl",
