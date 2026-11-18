@@ -17,6 +17,7 @@ import { Centered } from "../app/Home.tsx"
 import { CardBody } from "../board/Card.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
+import { layoutTransition } from "../lib/motion.ts"
 import { Author } from "../presence/Author.tsx"
 import { OriginBadge } from "../presence/OriginBadge.tsx"
 import { agentsWorkingCount, workingSessions } from "../presence/model.ts"
@@ -44,8 +45,6 @@ import {
 } from "./layout.ts"
 
 /** How a row moves to its new group, or out (CEL-186): the board's spring. */
-// CEL-189: replace with lib/motion.ts tokens at integration
-const layoutTransition = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 } as const
 
 /**
  * How a row leaves its group: one that left the page fades out; one that moved to another group (still in
