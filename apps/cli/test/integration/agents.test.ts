@@ -227,7 +227,7 @@ describe("a cello command carrying CELLO_AGENT", () => {
       expect(shown).toContain("Claimed by: Claude Code session 2fd0505c")
       expect(shown).toContain(`Last changed by ${by}`)
       expect(shown).toContain(`Subagents on it (1)\n  ${by}: working`)
-      expect(shown).toMatch(new RegExp(`Comments \\(1\\)\\n  ${by.replace(/[()]/g, "\\$&")} · just now · id \\w+\\n    Built; tests pass`))
+      expect(shown.replace(/ · id \w+\n/g, " · id <id>\n")).toContain(`Comments (1)\n  ${by} · just now · id <id>\n    Built; tests pass`)
       expect(shown).toContain(`${by} set the stage to Agent review`)
 
       // The session still holds it: the orchestrator's own call (no CELLO_AGENT) sees it as its claim.
@@ -253,7 +253,7 @@ describe("cello --agent", () => {
       const by = `cello-builder · ${BUILDER.slice(0, 8)} (under Claude Code session 2fd0505c)`
       expect(shown).toContain("Claimed by: Claude Code session 2fd0505c")
       expect(shown).toContain(`Last changed by ${by}`)
-      expect(shown).toMatch(new RegExp(`Comments \\(1\\)\\n  ${by.replace(/[()]/g, "\\$&")} · just now · id \\w+\\n    Built; tests pass`))
+      expect(shown.replace(/ · id \w+\n/g, " · id <id>\n")).toContain(`Comments (1)\n  ${by} · just now · id <id>\n    Built; tests pass`)
       expect(shown).toContain(`${by} set the stage to Agent review`)
 
       const who = JSON.parse((yield* flagged("whoami")).out)
