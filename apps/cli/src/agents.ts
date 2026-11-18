@@ -2,7 +2,7 @@
 // ones that finished today), which one an id means, and an agent's log as plain text, the same steps the
 // Agents page shows. Which agents count, and the log's words, are shared with the page
 // (@cello/client/sync/agents, @cello/client/sync/agentLog).
-import { doingNowOf, durationWords, previewOf } from "@cello/client/sync/agentLog"
+import { doingNowOf, durationWords, previewOf, thinkingNote } from "@cello/client/sync/agentLog"
 import type { FinishedAgent, WorkingSessionOf } from "@cello/client/sync/agents"
 import type { LogStep, LogUpdate } from "@cello/contract/agentLog"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
@@ -163,6 +163,12 @@ const body = (text: string, options: LogTextOptions, cut: { readonly lines: numb
   ]
 }
 
+/** A call's command under its line (--full): after its `$`, a multi-line one indented under it. */
+const commandLines = (command: string): string[] => {
+  const [first = "", ...rest] = command.split("\n")
+  return [`${INDENT}$ ${first}`, ...rest.map((line) => `${INDENT}  ${line}`)].map((line) => line.trimEnd())
+}
+
 const MARK = { ok: "✓", error: "✗", running: "▸" } as const
 
 /** One step as the terminal prints it: its time, then what it is; nothing for thinking without --thinking. */
@@ -175,7 +181,8 @@ export const stepLines = (step: LogStep, options: LogTextOptions): string[] => {
     const after = status === "running" ? "(running)" : durationWords(tool?.durationMs ?? null)
     const launched = step.kind === "agent" && step.agentId ? `→ ${step.agentId.slice(0, 8)}` : ""
     const line = [`${time}  ${MARK[status]} ${step.text}`, after, launched].filter((part) => part !== "").join("  ")
-    return [line, ...(tool && status !== "running" ? body(tool.output, options, tool.cut ? tool : null) : [])]
+    if (!tool || status === "running") return [line]
+    return [line, ...(options.full && tool.command ? commandLines(tool.command) : []), ...body(tool.output, options, tool.cut ? tool : null)]
   }
   const [first = "", ...rest] = step.text.split("\n")
   const pad = " ".repeat(TIME_WIDTH + 2 + LABEL_WIDTH + 2)
@@ -190,6 +197,8 @@ export const logPrinter = (options: LogTextOptions) => {
   /** Each step printed, and the status it was printed with. */
   const printed = new Map<string, string>()
   let noted = false
+  let sawThought = false
+  let thinkingNoted = false
   return {
     steps: (update: Extract<LogUpdate, { _tag: "steps" }>): string[] => {
       const lines: string[] = []
@@ -206,6 +215,13 @@ export const logPrinter = (options: LogTextOptions) => {
         if (shown.length === 0) continue
         printed.set(step.id, status)
         lines.push(...shown)
+      }
+      sawThought ||= update.steps.some((step) => step.kind === "thinking")
+      // Once: Claude Code saved the thoughts without their words, so --thinking has nothing to print (CEL-170).
+      const unsaved = sawThought ? null : thinkingNote({ unsavedThinking: update.unsavedThinking ?? 0, steps: [] })
+      if (options.thinking && !thinkingNoted && unsaved !== null) {
+        thinkingNoted = true
+        lines.push(`(${unsaved})`)
       }
       return lines
     },

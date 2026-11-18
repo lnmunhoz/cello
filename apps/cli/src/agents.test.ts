@@ -1,6 +1,7 @@
 import type { LogStep } from "@cello/contract/agentLog"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
+import { thinkingNote } from "@cello/client/sync/agentLog"
 import { agentId, agentsText, findAgent, logPrinter, stepLines } from "./agents.ts"
 
 const MIN = 60_000
@@ -83,6 +84,24 @@ describe("stepLines: one step of the log, as the terminal prints it", () => {
     expect(stepLines(long, { ...opts, full: true }).at(-1)).toBe("            (cut at 4 of 900 lines; the rest is in the transcript)")
   })
 
+  it("a Bash call prints Claude's description, and --full the command above its result, a long one under its $ (CEL-170)", () => {
+    const run = tool("t1", "error", "FAIL a.test.ts", { text: "Bash · Run the tests" })
+    const withCommand = (command: string): LogStep => ({ ...run, tool: { ...run.tool!, command } })
+    expect(stepLines(withCommand("bun run test"), opts)).toEqual(["09:00:04  ✗ Bash · Run the tests  2.5 s", "            FAIL a.test.ts"])
+    expect(stepLines(withCommand("bun run test"), { ...opts, full: true })).toEqual([
+      "09:00:04  ✗ Bash · Run the tests  2.5 s",
+      "            $ bun run test",
+      "            FAIL a.test.ts",
+    ])
+    expect(stepLines(withCommand("cd /repo &&\n  bun run test"), { ...opts, full: true }).slice(1, 4)).toEqual([
+      "            $ cd /repo &&",
+      "                bun run test",
+      "            FAIL a.test.ts",
+    ])
+    // A call without one prints as before.
+    expect(stepLines(tool("t2", "ok", "1 passed"), { ...opts, full: true })).toEqual(["09:00:04  ✓ Bash · bun run test  2.5 s", "            1 passed"])
+  })
+
   it("a call still running, a launch with its subagent, messages and prompts, a note; a step with no time leaves the time blank", () => {
     expect(stepLines(tool("t1", "running"), opts)).toEqual(["09:00:04  ▸ Bash · bun run test  (running)"])
     const launch: LogStep = { ...tool("l1", "ok", "Built it."), kind: "agent", text: "Agent · cello-builder: PAN-1", agentId: "a13bfb89c0de1234f" }
@@ -125,6 +144,19 @@ describe("logPrinter: the log as it arrives, each step printed once", () => {
     expect(printer.steps({ _tag: "steps", reset: true, skipped: 0, steps: [said, tool("t1", "ok", "1 passed"), next] })).toEqual([
       "09:01:00  Said    Committing.",
     ])
+  })
+
+  it("says once, with --thinking, that Claude Code didn't save the thinking; never without it, never when a thought shows (CEL-170)", () => {
+    const said: LogStep = { id: "m1", kind: "message", at: at(9, 0), text: "Hi." }
+    const printer = logPrinter({ full: false, thinking: true })
+    const first = printer.steps({ _tag: "steps", reset: true, skipped: 0, steps: [said], unsavedThinking: 3 })
+    expect(first).toEqual(["09:00:00  Said    Hi.", `(${thinkingNote({ unsavedThinking: 3, steps: [] })})`])
+    expect(first.at(-1)).toContain("showThinkingSummaries")
+    expect(printer.steps({ _tag: "steps", reset: false, skipped: 0, steps: [], unsavedThinking: 4 })).toEqual([])
+    expect(logPrinter(opts()).steps({ _tag: "steps", reset: true, skipped: 0, steps: [said], unsavedThinking: 3 })).toEqual(["09:00:00  Said    Hi."])
+    const thought: LogStep = { id: "th", kind: "thinking", at: at(9, 0, 2), text: "A saved thought." }
+    const withThought = logPrinter({ full: false, thinking: true }).steps({ _tag: "steps", reset: true, skipped: 0, steps: [thought], unsavedThinking: 1 })
+    expect(withThought.join("\n")).not.toContain("showThinkingSummaries")
   })
 
   it("says once when earlier steps were left out", () => {

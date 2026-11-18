@@ -4,6 +4,9 @@
 export const andList = (items: ReadonlyArray<string>): string =>
   items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`
 
+/** "1 task", "3 tasks". */
+export const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? "" : "s"}`
+
 /** Edit distance between two strings (insertions, deletions, substitutions). */
 const distance = (a: string, b: string): number => {
   let previous = Array.from({ length: b.length + 1 }, (_, j) => j)

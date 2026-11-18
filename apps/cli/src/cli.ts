@@ -2176,7 +2176,7 @@ const hookClaude = Command.make("claude", {
       "holds a claim going once to start `cello inbox --wait` in the background, unless one is running for it (its lock file, or Claude Code's background_tasks) " +
       "or Claude is already continuing because of a Stop hook (stop_hook_active), and never in a run Cello woke (CELLO_WOKEN=1). Every run passes the session's " +
       "permission_mode on to the server, so a run Cello wakes uses the same mode, and its Claude Code transcript_path (inside a subagent, the subagent's own " +
-      "file) with, after a tool call, that call in one line (\"Bash · bun run test\"), so the Agents page shows its live log and current step. pre-tool-use turns a Claude artifact publish " +
+      "file) with, after a tool call, that call in one line (Claude's description of a command: \"Bash · Run the tests\"), so the Agents page shows its live log and current step. pre-tool-use turns a Claude artifact publish " +
       "away with a pointer to `cello doc publish`, and lets every other Artifact call through (all of them with CELLO_ALLOW_ARTIFACTS=1); " +
       "this artifact guard needs no server. It denies AskUserQuestion (Claude's own question dialog, which blocks the session) where " +
       "nobody watches the window, with a pointer to `cello task ask`, and to `cello task create` when no open task the session holds fits: " +
@@ -2847,8 +2847,11 @@ const agentsLog = Command.make("log", {
     Flag.withDefault(false),
     Flag.withDescription("Keep printing new steps as the agent works, until Ctrl-C. Rides out a server restart (reconnects for up to 2 minutes)."),
   ),
-  full: Flag.Boolean("full").pipe(Flag.withDefault(false), Flag.withDescription("Print each result whole, instead of its first 3 lines.")),
-  thinking: Flag.Boolean("thinking").pipe(Flag.withDefault(false), Flag.withDescription("Also print the agent's thinking (hidden by default, as on the Agents page).")),
+  full: Flag.Boolean("full").pipe(Flag.withDefault(false), Flag.withDescription("Print each result whole, instead of its first 3 lines, and each command's whole text.")),
+  thinking: Flag.Boolean("thinking").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Also print the agent's thinking (hidden by default, as on the Agents page); says so when Claude Code didn't save it."),
+  ),
   showSecrets: Flag.Boolean("show-secrets").pipe(
     Flag.withDefault(false),
     Flag.withDescription("Print keys and tokens as they are instead of masked. For the human only: when an agent asks, they stay masked."),
@@ -2922,7 +2925,8 @@ const agentsLog = Command.make("log", {
   })).pipe(
     Command.withDescription(
       "Print an agent's log: the same steps as its log on the Agents page, read from its Claude Code transcript. Its prompt, what it said, " +
-        "each tool call with ✓ or ✗ and how long it took, its result folded to the first lines. Keys and tokens are masked. With --follow it " +
+        "each tool call with ✓ or ✗ and how long it took (a command by Claude's description of it; --full adds the command), its result folded to the first lines. " +
+        "Keys and tokens are masked. With --follow it " +
         "keeps printing new steps: how an orchestrator watches a builder from the terminal.",
     ),
     Command.withExamples([

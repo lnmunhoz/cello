@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { andList, closeMatches } from "./words.ts"
+import { andList, closeMatches, plural } from "./words.ts"
 
 describe("andList", () => {
   it.each([
@@ -9,6 +9,14 @@ describe("andList", () => {
     [["a", "b", "c"], "a, b and c"],
   ])("%j reads %j", (items, text) => {
     expect(andList(items)).toBe(text)
+  })
+})
+
+describe("plural", () => {
+  it("counts with the word, adding an s unless there is exactly one", () => {
+    expect(plural(1, "file")).toBe("1 file")
+    expect(plural(3, "command")).toBe("3 commands")
+    expect(plural(0, "file")).toBe("0 files")
   })
 })
 

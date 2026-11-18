@@ -11,9 +11,9 @@
 // A user line with `isMeta` is context Claude Code added (reminders, skills), never what anyone typed.
 // The parser is pure and keeps the open tool calls, so a result found later updates its call.
 import type { LogStep, ToolCall } from "@cello/contract/agentLog"
-import { MAX_OUTPUT_CHARS, MAX_OUTPUT_LINES } from "@cello/contract/agentLog"
+import { MAX_COMMAND_CHARS, MAX_OUTPUT_CHARS, MAX_OUTPUT_LINES } from "@cello/contract/agentLog"
 import { redact } from "@cello/shared/redact"
-import { stepLine } from "@cello/shared/toolSummary"
+import { stepLine, toolCommand } from "@cello/shared/toolSummary"
 
 type Json = Readonly<Record<string, unknown>>
 
@@ -76,6 +76,11 @@ const timeOf = (line: Json): number | null => {
 export interface TranscriptParser {
   /** One line of the file: the steps it adds, and the steps it changes (a call whose result it holds), each whole. */
   readonly push: (line: string) => ReadonlyArray<LogStep>
+  /**
+   * How many thoughts so far Claude Code wrote without their words (CEL-170): a thinking block with only a
+   * signature, or a redacted one. It saves them empty unless its `showThinkingSummaries` setting is on.
+   */
+  readonly unsavedThinking: () => number
 }
 
 export const transcriptParser = (): TranscriptParser => {
@@ -83,27 +88,35 @@ export const transcriptParser = (): TranscriptParser => {
   const calls = new Map<string, LogStep>()
   /** For lines without a uuid (a run's stream): a counter. */
   let n = 0
+  let unsaved = 0
 
   const assistant = (line: Json, message: Json): LogStep[] => {
     const content = Array.isArray(message.content) ? message.content : []
     const base = str(line.uuid) || `${str(message.id) || "m"}-${n++}`
     const at = timeOf(line)
+    // The line's last words before the agent waits (CEL-170); every other line says `tool_use`.
+    const endsTurn = message.stop_reason === "end_turn"
     const steps: LogStep[] = []
     content.forEach((block, i) => {
       if (!isObject(block)) return
       const id = `${base}:${i}`
-      if (block.type === "text" && str(block.text).trim()) steps.push({ id, kind: "message", at, text: str(block.text).trim() })
-      else if (block.type === "thinking" && str(block.thinking).trim()) steps.push({ id, kind: "thinking", at, text: str(block.thinking).trim() })
+      if (block.type === "text" && str(block.text).trim()) {
+        steps.push({ id, kind: "message", at, text: str(block.text).trim(), ...(endsTurn ? { endsTurn: true } : {}) })
+      } else if (block.type === "thinking") {
+        if (str(block.thinking).trim()) steps.push({ id, kind: "thinking", at, text: str(block.thinking).trim() })
+        else unsaved++
+      } else if (block.type === "redacted_thinking") unsaved++
       else if (block.type === "tool_use") {
         const name = str(block.name) || "Tool"
         const input = isObject(block.input) ? block.input : null
+        const command = toolCommand(name, input)
         const launch = AGENT_TOOLS.has(name)
         const step: LogStep = {
           id: str(block.id) || id,
           kind: launch ? "agent" : "tool",
           at,
           text: stepLine(name, input),
-          tool: { name, status: "running", durationMs: null, output: "", lines: 0, cut: false },
+          tool: { name, status: "running", durationMs: null, output: "", lines: 0, cut: false, ...(command === null ? {} : { command }) },
           ...(launch ? { agentId: null } : {}),
         }
         calls.set(step.id, step)
@@ -181,22 +194,31 @@ export const transcriptParser = (): TranscriptParser => {
       if (line.type === "user") return user(line, message)
       return []
     },
+    unsavedThinking: () => unsaved,
   }
 }
 
+/** A command as the stream carries it: at most MAX_COMMAND_CHARS characters, "…" last when cut. */
+const capCommand = (command: string): string => (command.length > MAX_COMMAND_CHARS ? `${command.slice(0, MAX_COMMAND_CHARS - 1)}…` : command)
+
 /**
- * A step as it leaves the server: keys and tokens in its text and output masked, and `masked` set when
- * anything was, unless `reveal` (the human asked to see them).
+ * A step as it leaves the server: keys and tokens in its text, command and output masked, and `masked` set
+ * when anything was, unless `reveal` (the human asked to see them). A command is cut either way, after the
+ * masking, so a key cut in half can't slip through.
  */
 export const redactStep = (step: LogStep, reveal: boolean): LogStep => {
-  if (reveal) return step
+  const tool = step.tool
+  const command = tool?.command === undefined ? null : reveal ? { text: tool.command, masked: false } : redact(tool.command)
+  const capped = command === null ? null : capCommand(command.text)
+  const withCommand = (base: LogStep): LogStep => (capped === null || !base.tool ? base : { ...base, tool: { ...base.tool, command: capped } })
+  if (reveal) return withCommand(step)
   const text = redact(step.text)
-  const output = step.tool ? redact(step.tool.output) : null
-  if (!text.masked && !output?.masked) return step
-  return {
+  const output = tool ? redact(tool.output) : null
+  if (!text.masked && !output?.masked && !command?.masked) return withCommand(step)
+  return withCommand({
     ...step,
     text: text.text,
-    ...(step.tool && output ? { tool: { ...step.tool, output: output.text } } : {}),
+    ...(tool && output ? { tool: { ...tool, output: output.text } } : {}),
     masked: true,
-  }
+  })
 }
