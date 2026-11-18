@@ -1,21 +1,39 @@
 import type { ComponentProps, ReactNode } from "react"
+import { variants, type VariantProps } from "./variants.ts"
+
+const notice = variants(
+  "pointer-events-auto flex flex-col border border-line bg-raised text-[13px] text-ink shadow-pop",
+  {
+    size: {
+      /** As wide as its line: a pill. */
+      fit: "rounded-full",
+      /**
+       * One fixed width, open or closed (CEL-148): wide enough for "Cello was updated · build ccccccc ·
+       * reloading in 5 s" with its buttons, and for `details` to wrap in, so opening them never moves it.
+       */
+      wide: "w-[32rem] max-w-[calc(100vw-2rem)] rounded-2xl",
+    },
+  },
+  { size: "fit" },
+)
 
 /**
  * A pill that says something changed and offers what to do about it: "Cello was updated · Reload"
  * (CEL-37), "The Cello app was updated · Restart" (CEL-75). Its `NoticeStack` places it.
  *
- * `details` opens more under the line (what's in a new build, CEL-148): the pill becomes a card, the
- * line stays where it was, and the same elements stay mounted, so a toggle in the line keeps its focus.
+ * `details` opens more under the line (what's in a new build, CEL-148), in a notice of `size="wide"`:
+ * the line stays where it was, the width stays the same, and the same elements stay mounted, so a
+ * toggle in the line keeps its focus.
  */
-export function NoticeBar({ children, details, ...props }: Omit<ComponentProps<"div">, "className" | "style"> & { details?: ReactNode }) {
+export function NoticeBar({
+  children,
+  details,
+  size,
+  ...props
+}: Omit<ComponentProps<"div">, "className" | "style"> & VariantProps<typeof notice> & { details?: ReactNode }) {
   const open = details !== undefined && details !== null && details !== false
   return (
-    <div
-      {...props}
-      className={`pointer-events-auto flex flex-col border border-line bg-raised text-[13px] text-ink shadow-pop ${
-        open ? "w-[28rem] max-w-[calc(100vw-2rem)] rounded-xl" : "rounded-full"
-      }`}
-    >
+    <div {...props} className={notice({ size })}>
       <div role="status" className="flex items-center gap-2 py-1 pr-1 pl-3 whitespace-nowrap">
         {children}
       </div>
