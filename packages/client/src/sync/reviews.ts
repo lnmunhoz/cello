@@ -31,7 +31,7 @@ export const openReviewOf = (state: BoardState, taskId: string): Review | undefi
 
 /**
  * Every packet waiting on Lucas in a workspace: tasks with an open review (oldest packet first), then
- * tasks sitting in In Review without one. Archived tasks and projects are left out, and so are tasks
+ * tasks sitting in In Review without one (oldest task first). Neither order changes while a row waits. Archived tasks and projects are left out, and so are tasks
  * waiting on his answers to an ask (CEL-47): the Needs input group shows those first. So are tasks he
  * approved that wait for their agent to merge them (Approved · merging, CEL-143): they wait on the agent.
  */
@@ -55,7 +55,9 @@ export const reviewQueue = (state: BoardState, workspaceId: string): ReviewItem[
       const status = state.statuses[t.statusId]
       return t.archivedAt === null && !reviewed.has(t.id) && isReviewStatus(status?.name ?? "") && !awaitsMerge(t, status)
     })
-    .sort((a, b) => a.updatedAt - b.updatedAt || a.number - b.number)
+    // By nothing that changes while they wait (CEL-187): `updatedAt` moved a row on every comment or
+    // label. The board state doesn't hold when a task entered In Review, so: oldest task first.
+    .sort((a, b) => a.createdAt - b.createdAt || a.number - b.number || (a.id < b.id ? -1 : 1))
     .flatMap((task) => {
       const project = projectOf(task)
       return project ? [{ task, project, review: null }] : []
