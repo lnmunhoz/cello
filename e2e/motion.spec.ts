@@ -17,7 +17,9 @@ const recordMotion = (page: Page) =>
   page.evaluate(() => {
     const log: string[] = []
     window.__motion = log
-    const name = (el: Element) => el.getAttribute("data-side-panel") ?? el.getAttribute("role") ?? el.tagName.toLowerCase()
+    // A select's popup holds its listbox; the popup is what moves.
+    const name = (el: Element) =>
+      el.getAttribute("data-side-panel") ?? el.getAttribute("role") ?? (el.querySelector("[role=listbox]") ? "listbox" : el.tagName.toLowerCase())
     const phase = (el: Element) => (el.hasAttribute("data-ending-style") || el.hasAttribute("data-closing") ? "closing" : "open")
     document.addEventListener("transitionrun", (e) => {
       if (e.target instanceof Element) log.push(`${name(e.target)} ${phase(e.target)} ${e.propertyName}`)
@@ -35,8 +37,13 @@ const motionSince = (page: Page) =>
     return log
   })
 
-/** The transition duration an open popup computes: the token it reads. */
-const durationOf = (page: Page, role: string) => page.getByRole(role as "menu").evaluate((el) => getComputedStyle(el).transitionDuration)
+/** The transition duration an open popup computes (the role's element, or the popup around it): the token it reads. */
+const durationOf = (page: Page, role: "menu" | "listbox") =>
+  page.getByRole(role).evaluate((el) => {
+    let at: Element | null = el
+    while (at && getComputedStyle(at).transitionDuration === "0s" && at !== document.body) at = at.parentElement
+    return at ? getComputedStyle(at).transitionDuration : "0s"
+  })
 
 for (const colorScheme of ["light", "dark"] as const) {
   test.describe(colorScheme, () => {
