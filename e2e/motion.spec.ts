@@ -49,7 +49,7 @@ for (const colorScheme of ["light", "dark"] as const) {
   test.describe(colorScheme, () => {
     test.use({ colorScheme })
 
-    test(`menus, selects, the ⌘K bar and tabs open and close smoothly; the task panel slides in and out; an idle page runs nothing (${colorScheme})`, async ({ page }) => {
+    test(`${colorScheme}: menus, selects, the ⌘K bar and tabs open and close smoothly; the task panel slides in and out; an idle page runs nothing`, async ({ page }) => {
       const key = uniqueKey("MOTN")
       await createProject(page, "Motion", key)
       await addTasks(page, "Todo", ["Smooth the menus", "Slide the panel"])
