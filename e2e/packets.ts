@@ -260,3 +260,86 @@ export async function expectLeftAligned(scroller: Locator, content: Locator) {
   const [area, list] = [(await scroller.boundingBox())!, (await content.boundingBox())!]
   expect(list.x - area.x).toBe(32)
 }
+
+type RpcMessage = {
+  readonly _tag?: string
+  readonly id?: string | number
+  readonly tag?: string
+  readonly requestId?: string | number
+  readonly payload?: Record<string, unknown>
+}
+
+/** Each frame of the page's /rpc socket carries one protocol message or a batch of them. */
+const rpcMessagesIn = (frame: string | Buffer): RpcMessage[] => {
+  const parsed = JSON.parse(typeof frame === "string" ? frame : frame.toString("utf8")) as RpcMessage | RpcMessage[]
+  return Array.isArray(parsed) ? parsed : [parsed]
+}
+const rpcFrame = (messages: ReadonlyArray<RpcMessage>) => JSON.stringify(messages.length === 1 ? messages[0] : messages)
+
+const DECISIONS = new Set(["review.approve", "review.sendBack"])
+
+/**
+ * CEL-187: the page's Approve and Send back commands go through the test, so it can look at the page
+ * while one runs and when one fails, without waiting on time. Call it before the page loads.
+ * `holdNext()`: the server's answer to the next decision waits for `release()` (its events still arrive).
+ * `failNext()`: the next decision reaches the server about a task that doesn't exist, so the server refuses it.
+ */
+export async function decisionsThroughTest(page: Page) {
+  let hold = false
+  let fail = false
+  const held = new Set<string>()
+  const waiting: Array<() => void> = []
+  await page.routeWebSocket(/\/rpc$/, (ws) => {
+    const server = ws.connectToServer()
+    ws.onMessage((frame) => {
+      const messages = rpcMessagesIn(frame).map((m) => {
+        if (m._tag !== "Request" || !DECISIONS.has(m.tag ?? "")) return m
+        if (fail) {
+          fail = false
+          return { ...m, payload: { ...m.payload, key: "GONE-404" } }
+        }
+        if (hold) {
+          hold = false
+          held.add(String(m.id))
+        }
+        return m
+      })
+      server.send(rpcFrame(messages))
+    })
+    server.onMessage((frame) => {
+      const messages = rpcMessagesIn(frame)
+      const isHeld = (m: RpcMessage) => m._tag === "Exit" && held.has(String(m.requestId))
+      const now = messages.filter((m) => !isHeld(m))
+      if (now.length > 0) ws.send(rpcFrame(now))
+      for (const m of messages.filter(isHeld)) waiting.push(() => ws.send(rpcFrame([m])))
+    })
+  })
+  return {
+    holdNext: () => void (hold = true),
+    failNext: () => void (fail = true),
+    /** The held answers reach the page. */
+    release: () => {
+      held.clear()
+      for (const send of waiting.splice(0)) send()
+    },
+  }
+}
+
+/**
+ * CEL-187: from now on, every "Approved" or "Sent back" a Review row shows is noted, as "KEY-1: Approved".
+ * The words stay on the row only for a moment, so a test reads them back with `decidedSeen` afterwards
+ * instead of racing them.
+ */
+export const watchDecided = (page: Page) =>
+  page.evaluate(() => {
+    const seen: string[] = []
+    Object.assign(window, { __decidedSeen: seen })
+    new MutationObserver(() => {
+      for (const mark of document.querySelectorAll("[data-decided]")) {
+        const words = `${mark.closest("[data-review-task]")?.getAttribute("data-review-task")}: ${mark.textContent}`
+        if (!seen.includes(words)) seen.push(words)
+      }
+    }).observe(document.body, { childList: true, subtree: true })
+  })
+
+export const decidedSeen = (page: Page): Promise<string[]> => page.evaluate(() => (window as unknown as { __decidedSeen: string[] }).__decidedSeen)

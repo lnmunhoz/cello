@@ -71,6 +71,20 @@ describe("the review queue", () => {
     ])
   })
 
+  // CEL-187: rows moved while Lucas looked, because tasks without a packet were ordered by `updatedAt`,
+  // which every comment, label or stage change bumps.
+  it("keeps tasks without a packet where they are when they change: oldest task first, never by updatedAt", () => {
+    const waiting = (tasks: BoardState["tasks"]) => reviewQueue({ ...state, reviews: {}, tasks }, "w1").map((i) => i.task.id)
+    const tasks = {
+      a: task("a", "review", { number: 3, createdAt: 10, updatedAt: 50 }),
+      b: task("b", "review", { number: 4, createdAt: 20, updatedAt: 40 }),
+      c: task("c", "review", { number: 2, createdAt: 20, updatedAt: 30 }),
+    }
+    expect(waiting(tasks)).toEqual(["a", "c", "b"])
+    // A comment lands on the first one, and the last one is edited.
+    expect(waiting({ ...tasks, a: { ...tasks.a, updatedAt: 99, commentCount: 1 }, c: { ...tasks.c, updatedAt: 5 } })).toEqual(["a", "c", "b"])
+  })
+
   // CEL-71: CEL-52 went back to In Progress by a plain move while its packet stayed undecided, and the
   // Review page kept listing it. A packet is listed only while its task is in In Review.
   it("leaves out a packet whose task has moved on, though the packet was never decided", () => {

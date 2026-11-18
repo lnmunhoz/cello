@@ -1,5 +1,114 @@
 import { describe, expect, it } from "vitest"
-import { nextAfterDecision, parseReviewSearch, decisionNote, rowKey } from "./queue.ts"
+import { allLeft, type DecisionState, decisionStep, type Held, holdStep, IDLE, nextAfterDecision, parseReviewSearch, decisionNote, rowKey, syncHeld, withHeld } from "./queue.ts"
+
+describe("decisionStep: what a row shows from the click on Approve or Send back until it has left (CEL-187)", () => {
+  const pending: DecisionState = { phase: "pending", decision: "approved" }
+  const failed: DecisionState = { phase: "failed", decision: "sent_back", message: "Can't reach the Cello server" }
+
+  it("a click is pending until the server answers", () => {
+    expect(decisionStep(IDLE, { type: "clicked", decision: "approved" })).toEqual(pending)
+    expect(decisionStep(IDLE, { type: "clicked", decision: "sent_back" })).toEqual({ phase: "pending", decision: "sent_back" })
+  })
+
+  it("the server took it: the row says so for a moment, then leaves, then is gone", () => {
+    const decided = decisionStep(pending, { type: "taken" })
+    expect(decided).toEqual({ phase: "decided", decision: "approved" })
+    const leaving = decisionStep(decided, { type: "shown" })
+    expect(leaving).toEqual({ phase: "leaving", decision: "approved" })
+    expect(decisionStep(leaving, { type: "left" })).toEqual({ phase: "gone" })
+  })
+
+  it("it failed: the row keeps the message, and a second click tries again", () => {
+    const refused = decisionStep({ phase: "pending", decision: "sent_back" }, { type: "refused", message: "Can't reach the Cello server" })
+    expect(refused).toEqual(failed)
+    expect(decisionStep(failed, { type: "clicked", decision: "approved" })).toEqual(pending)
+  })
+
+  it("anything out of turn changes nothing: a second click while pending doesn't decide twice", () => {
+    expect(decisionStep(pending, { type: "clicked", decision: "sent_back" })).toBe(pending)
+    expect(decisionStep(IDLE, { type: "taken" })).toBe(IDLE)
+    expect(decisionStep(IDLE, { type: "shown" })).toBe(IDLE)
+    expect(decisionStep(failed, { type: "left" })).toBe(failed)
+    const decided: DecisionState = { phase: "decided", decision: "approved" }
+    expect(decisionStep(decided, { type: "left" })).toBe(decided)
+    expect(decisionStep(decided, { type: "clicked", decision: "sent_back" })).toBe(decided)
+  })
+})
+
+describe("withHeld: a decided row stays where it was until it has left, though the events took it off the queue (CEL-187)", () => {
+  const keyOf = (key: string) => key
+  /** `dropped`: the queue has stopped listing the row since the click (the decision's events arrived). */
+  const held = (key: string, at: number, phase: "pending" | "decided" | "leaving" | "gone", dropped = false): Held<string> => ({
+    key, item: key, at, dropped, state: phase === "gone" ? { phase } : { phase, decision: "approved" },
+  })
+
+  it("the queue as it is, with nothing decided", () => {
+    expect(withHeld(["CEL-3", "CEL-7"], keyOf, [])).toEqual(["CEL-3", "CEL-7"])
+  })
+
+  it("a pending row stays too: the decision's events can arrive before the command's answer", () => {
+    expect(withHeld(["CEL-3", "THAI-2"], keyOf, [held("CEL-7", 1, "pending")])).toEqual(["CEL-3", "CEL-7", "THAI-2"])
+  })
+
+  it("holdStep moves one held row on, and lets go of a row whose decision failed or that has left", () => {
+    const rows = [held("CEL-3", 0, "pending"), held("CEL-7", 1, "leaving")]
+    expect(holdStep(rows, "CEL-3", { type: "taken" })).toEqual([held("CEL-3", 0, "decided"), held("CEL-7", 1, "leaving")])
+    expect(holdStep(rows, "CEL-3", { type: "refused", message: "Can't reach the Cello server" })).toEqual([held("CEL-7", 1, "leaving")])
+    expect(holdStep(rows, "CEL-9", { type: "taken" })).toEqual(rows)
+    // It has left: let go once the queue has dropped it.
+    expect(holdStep([held("CEL-3", 0, "pending"), held("CEL-7", 1, "leaving", true)], "CEL-7", { type: "left" })).toEqual([held("CEL-3", 0, "pending")])
+  })
+
+  it("a row that folded away before its events arrived stays out of the list until the queue drops it: it doesn't pop back", () => {
+    const folded = holdStep([held("CEL-7", 1, "leaving")], "CEL-7", { type: "left" })
+    expect(folded).toEqual([held("CEL-7", 1, "gone")])
+    expect(withHeld(["CEL-3", "CEL-7"], keyOf, folded)).toEqual(["CEL-3"])
+    // The events arrive: the queue drops it, and the hold is let go.
+    expect(syncHeld(folded, ["CEL-3"])).toEqual([])
+  })
+
+  it("allLeft: every leaving row has left, whether the fold's end or the fallback timer says so; the others stay", () => {
+    const rows = [held("CEL-3", 0, "decided", true), held("CEL-7", 1, "leaving", true), held("THAI-2", 2, "leaving")]
+    expect(allLeft(rows)).toEqual([held("CEL-3", 0, "decided", true), held("THAI-2", 2, "gone")])
+    expect(allLeft(allLeft(rows))).toEqual(allLeft(rows))
+  })
+
+  it("syncHeld notes when the queue drops a held row, and changes nothing otherwise", () => {
+    const rows = [held("CEL-3", 0, "pending"), held("CEL-7", 1, "decided")]
+    expect(syncHeld(rows, ["CEL-3", "CEL-7"])).toBe(rows)
+    const dropped = syncHeld(rows, ["CEL-3"])
+    expect(dropped).toEqual([held("CEL-3", 0, "pending"), held("CEL-7", 1, "decided", true)])
+    expect(syncHeld(dropped, ["CEL-3"])).toBe(dropped)
+  })
+
+  it("a row the queue lists again after dropping it (a new packet came in) is let go and shows, in any phase", () => {
+    for (const phase of ["pending", "decided", "leaving"] as const) {
+      const rows = [held("CEL-7", 1, phase, true)]
+      expect(syncHeld(rows, ["CEL-3", "CEL-7"])).toEqual([])
+      // Even before the hold is let go, the list shows it: a leaving key isn't hidden once it's back.
+      expect(withHeld(["CEL-3", "CEL-7"], keyOf, rows)).toEqual(["CEL-3", "CEL-7"])
+    }
+  })
+
+  it("a decided row the queue dropped is still shown, in its place", () => {
+    expect(withHeld(["CEL-3", "THAI-2"], keyOf, [held("CEL-7", 1, "decided")])).toEqual(["CEL-3", "CEL-7", "THAI-2"])
+    expect(withHeld(["CEL-7", "THAI-2"], keyOf, [held("CEL-3", 0, "decided")])).toEqual(["CEL-3", "CEL-7", "THAI-2"])
+    expect(withHeld([], keyOf, [held("CEL-3", 4, "decided")])).toEqual(["CEL-3"])
+  })
+
+  it("two rows decided one after the other both keep their place", () => {
+    expect(withHeld(["THAI-2"], keyOf, [held("CEL-7", 1, "decided"), held("CEL-3", 0, "decided")])).toEqual(["CEL-3", "CEL-7", "THAI-2"])
+  })
+
+  it("a row the queue still lists (its events haven't arrived) is shown once", () => {
+    expect(withHeld(["CEL-3", "CEL-7"], keyOf, [held("CEL-7", 1, "decided")])).toEqual(["CEL-3", "CEL-7"])
+  })
+
+  it("a leaving row is out of the list, so it can fold away, even while the queue still lists it (its events haven't arrived)", () => {
+    expect(withHeld(["CEL-3", "THAI-2"], keyOf, [held("CEL-7", 1, "leaving", true)])).toEqual(["CEL-3", "THAI-2"])
+    expect(withHeld(["CEL-3", "CEL-7"], keyOf, [held("CEL-7", 1, "leaving")])).toEqual(["CEL-3"])
+  })
+})
 
 describe("parseReviewSearch: the open row lives in the URL", () => {
   it("keeps a task key, uppercased", () => {

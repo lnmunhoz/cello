@@ -1,5 +1,6 @@
 import { ChevronRightIcon } from "lucide-react"
-import type { KeyboardEvent, ReactNode } from "react"
+import { motion, useReducedMotion } from "motion/react"
+import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react"
 
 /** What useQueue hands each row: whether it's open, the keys, the focus. */
 export interface QueueRowState {
@@ -13,7 +14,20 @@ export interface QueueRowState {
   readonly onToggle: () => void
   readonly onFocus: () => void
   readonly onKeyDown: (e: KeyboardEvent<HTMLButtonElement>) => void
+  /**
+   * What was just decided on this row (CEL-187), shown in the badge's place: the row folds shut under
+   * it and comes into view, so the words are seen before the row leaves.
+   */
+  readonly confirmation?: ReactNode | undefined
+  /** This row opened because the one before it was decided: it unfolds instead of popping open. */
+  readonly unfold?: boolean | undefined
 }
+
+// CEL-189: replace with lib/motion.ts tokens at integration
+/** The spring a row folds and unfolds with: the board's card spring (board/BoardPage.tsx `layoutTransition`). */
+export const FOLD_SPRING = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 } as const
+
+const FOLDED = { height: 0, opacity: 0 } as const
 
 /**
  * One row of a queue page, the Review page's and the Agents page's (CEL-65): collapsed, a chevron, an
@@ -29,6 +43,8 @@ export function QueueRow({
   onToggle,
   onFocus,
   onKeyDown,
+  confirmation,
+  unfold = false,
   headingId,
   bodyId,
   lead,
@@ -49,44 +65,75 @@ export function QueueRow({
   readonly buttonData?: Readonly<Record<`data-${string}`, string>>
   readonly children: ReactNode
 }) {
+  const decided = confirmation !== undefined
+  const expanded = open && !decided
+  const reduced = useReducedMotion() === true
+  const heading = useRef<HTMLHeadingElement>(null)
+  // Approve sits at the foot of a long packet: the row's head, which now says what was decided, comes into view.
+  useEffect(() => {
+    if (decided) heading.current?.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" })
+  }, [decided, reduced])
   return (
     <article
       {...data}
       aria-labelledby={headingId}
       data-queue-item={id}
-      data-open={open ? "" : undefined}
+      data-open={expanded ? "" : undefined}
       className="scroll-my-4 rounded-lg border border-line bg-raised shadow-card data-open:border-line-strong"
     >
-      <h2 id={headingId} className="text-[13px]">
+      <h2 ref={heading} id={headingId} className="scroll-my-4 text-[13px]">
         <button
           {...buttonData}
           type="button"
           data-queue-row={id}
-          aria-expanded={open}
-          aria-controls={open ? bodyId : undefined}
+          aria-expanded={expanded}
+          aria-controls={expanded ? bodyId : undefined}
           tabIndex={tabbable ? 0 : -1}
           onClick={onToggle}
           onFocus={onFocus}
           onKeyDown={onKeyDown}
-          className={`flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring ${hover ? "hover:bg-hover" : ""} ${open ? "rounded-t-lg" : "rounded-lg"}`}
+          className={`flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring ${hover ? "hover:bg-hover" : ""} ${expanded ? "rounded-t-lg" : "rounded-lg"}`}
         >
           <ChevronRightIcon
             aria-hidden
-            className={`size-3.5 shrink-0 text-faint transition-transform duration-150 motion-reduce:transition-none ${open ? "rotate-90" : ""}`}
+            className={`size-3.5 shrink-0 text-faint transition-transform duration-150 motion-reduce:transition-none ${expanded ? "rotate-90" : ""}`}
           />
           {lead}
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="flex min-w-0 items-baseline gap-2">{title}</span>
             <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted">{subtitle}</span>
           </span>
-          {badge}
+          {confirmation ?? badge}
         </button>
       </h2>
       {open ? (
-        <div id={bodyId} className="flex flex-col gap-4 border-t border-line px-5 py-4">
+        <QueueRowBody id={bodyId} unfold={unfold && !reduced} folded={decided} reduced={reduced}>
           {children}
-        </div>
+        </QueueRowBody>
       ) : null}
     </article>
+  )
+}
+
+/**
+ * An open row's body. A click opens and closes it at once. It moves only for a decision (CEL-187):
+ * decided, it folds shut (`folded`) while the row says so; the next row's unfolds (`unfold`). It clips
+ * only while it moves: a packet's evidence column is sticky, which a clipping parent would stop.
+ */
+function QueueRowBody({ id, unfold, folded, reduced, children }: { id: string; unfold: boolean; folded: boolean; reduced: boolean; children: ReactNode }) {
+  const [unfolding, setUnfolding] = useState(unfold)
+  return (
+    <motion.div
+      initial={unfolding ? FOLDED : false}
+      animate={folded ? FOLDED : { height: "auto", opacity: 1 }}
+      transition={reduced ? { duration: 0 } : FOLD_SPRING}
+      onAnimationComplete={() => setUnfolding(false)}
+      inert={folded}
+      className={unfolding || folded ? "overflow-hidden" : undefined}
+    >
+      <div id={id} className="flex flex-col gap-4 border-t border-line px-5 py-4">
+        {children}
+      </div>
+    </motion.div>
   )
 }
