@@ -38,4 +38,6 @@ export const PAST_SNIPPET_LINES: ReadonlyArray<string> = [
   "- The human's verdict in your chat goes on the card. Feedback is a Send back: quote it with `cello task comment` and move the task back to In Progress. An approval in their own words: `cello task approve KEY-n --quote \"<their words>\"` (submit first if no packet is open). Never approve on your own judgement.",
   // CEL-96: the project's testing profile.
   "- This project has a testing profile: how to install, test, start the app and record evidence here. Read it in `cello context` and use its commands for your tests and evidence. When a field is wrong, fix it with `cello profile set` and say so in your packet; a field the human set is theirs, so ask on the card with `cello task ask`.",
+  // CEL-176: show a change as a diff block.
+  "- To show the human a change, put `git diff` output in a code block marked `diff` (keep its `diff --git`, `---` and `+++` lines) in your comment, packet summary or page: Cello draws it as a diff view. Over about 200 lines, attach it as a `.diff` file instead.",
 ]

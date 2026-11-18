@@ -105,6 +105,7 @@ Steps 3 to 5 in one go: \`cello init --hooks --agents-md\`.
    - When you end a turn while holding a claimed task, start \`cello inbox --wait\` in the background so the human's comments wake you.
    - When a decision is the human's (a design option, a scope, wording), ask on the card with \`cello task ask\` (options, one recommended with a reason, the screenshots and page to decide from), never in the terminal. Their answers come back to your session.
    - Show the human reports, plans and evidence as Cello pages (\`cello doc publish page.md --task KEY-n\`), opened in Cello's panel with \`cello open <slug>\`. In replies, link a page with the \`cello://\` link those commands print, never its http address (that one opens Claude's browser, not Cello). Never as Claude artifacts or other outside pages, even if your global instructions say so: \`cello install claude\` enforces it with a hook that turns artifact publishes away.
+   - To show the human a change, put \`git diff\` output in a code block marked \`diff\` (keep its \`diff --git\`, \`---\` and \`+++\` lines) in your comment, packet summary or page: Cello draws it as a diff view. Over about 200 lines, attach it as a \`.diff\` file instead.
    \`\`\`
    <!-- agents-md:end -->
 
@@ -587,7 +588,7 @@ cello task comment CEL-12 "The empty state, built" --attach empty-state.png --at
 # Commented on CEL-12 with 2 images
 \`\`\`
 
-Comments are GitHub-flavored markdown, rendered on the card: tables, task lists (\`- [x] done\`), ~~strikethrough~~ and bare addresses work, as they do in task descriptions, review packet summaries, asks' intros and pages. Links in them can be clicked. Task keys (e.g. CEL-12) link to the task, with its live status; keys of unknown tasks, and keys in backticks or code blocks, stay plain. Answer the human's comments and Send back notes on the card, so the conversation stays with the task. Their comments come to your session by themselves (next section).
+Comments are GitHub-flavored markdown, rendered on the card: tables, task lists (\`- [x] done\`), ~~strikethrough~~ and bare addresses work, as they do in task descriptions, review packet summaries, asks' intros and pages, and so does a \`\`\`\` \`\`\`diff \`\`\`\` block, which shows as a diff view (see Showing a change). Links in them can be clicked. Task keys (e.g. CEL-12) link to the task, with its live status; keys of unknown tasks, and keys in backticks or code blocks, stay plain. Answer the human's comments and Send back notes on the card, so the conversation stays with the task. Their comments come to your session by themselves (next section).
 
 **Screenshots in comments.** \`--attach\` takes an image (PNG, JPEG, GIF, WebP or AVIF, up to 50 MB), relative to the folder you run it in; repeat it for more. A comment with screenshots needs no text. Anything else is refused ("notes.txt isn't an image (PNG, JPEG, GIF, WebP or AVIF)"): test output and videos go in a review packet. The human pastes (⌘V) or drops screenshots into the comment box in the task panel and on the Review page; they reach you as files (next section). \`cello task get CEL-12\` saves every comment's screenshots to temp files and prints their paths under the comment's text (\`Screenshot: /var/folders/…/T/cello-comments/<comment id>/1.png\`); \`--json\` has them as each comment's \`attachments\`.
 
@@ -1020,7 +1021,7 @@ cello task submit CEL-22 \\
   --link http://127.0.0.1:4747/CEL/pages/review-rows --caption "The report"
 \`\`\`
 
-- **\`--summary\`** says what changed and why, in markdown. Use \`--summary-file -\` for a long one from stdin.
+- **\`--summary\`** says what changed and why, in markdown. Use \`--summary-file -\` for a long one from stdin. To show the change itself, put it in a \`\`\`\` \`\`\`diff \`\`\`\` block in the summary (see Showing a change); a long one goes in as a \`.diff\` with \`--attach\`.
 - **\`--step\`** says how the human checks it, one step per flag, in order.
 - **\`--attach\`** takes images, videos (MP4, WebM, MOV) and text files (txt, log, md, json, cast, diff, patch), up to 50 MB each.
   - **A diff opens as a diff.** The human's viewer shows a unified diff (the output of \`git diff\`, \`git format-patch\` or \`diff -u\`) as a diff view: one section per file with its status and +/- counts, hunk headers, old and new line numbers, added lines green and removed lines red, and a **Show as** choice of Unified, Split (old on the left, new on the right, offered when the panel is wide) and Raw. It does so for a \`.diff\` or \`.patch\` file and for a \`.txt\` or \`.log\` whose text is a diff, so attach the diff as \`<task key>-diff.diff\`, or any name that ends in \`.diff\`:
@@ -1029,6 +1030,8 @@ cello task submit CEL-22 \\
     git diff main...HEAD > CEL-173.diff
     cello task submit CEL-173 --summary "…" --attach CEL-173.diff --caption "The diff"
     \`\`\`
+
+    A short diff can sit in the summary instead, as a \`\`\`\` \`\`\`diff \`\`\`\` block (see Showing a change).
   - Paths are relative to your working folder.
   - The server copies each file into \`~/.cello/assets\`, so you can delete the original afterwards (in a worktree, say).
 - **\`--link\`** adds a URL: a PR, or a page you published.
@@ -1274,7 +1277,7 @@ cello doc archive billing-audit      # hidden from the Docs tab; the link keeps 
 - **Which kind?** A page is about a moment, a doc is about the system, and a spec is a plan.
 - **The title** is the frontmatter \`title:\`, the first \`#\` heading, or \`--title\`.
 - **The summary** is the frontmatter \`summary:\`, the first paragraph, or \`--summary\`.
-- **What renders:** \`##\` and \`###\` headings become the page's section list. Tables, code blocks, \`\`\`\` \`\`\`mermaid \`\`\`\` diagrams and images all render. A linked video plays inline, whether it's linked as an image (\`![The demo](demo.mp4)\`) or a plain link (\`[demo.mp4](demo.mp4)\`); its link text is its caption.
+- **What renders:** \`##\` and \`###\` headings become the page's section list. Tables, code blocks, \`\`\`\` \`\`\`mermaid \`\`\`\` diagrams, \`\`\`\` \`\`\`diff \`\`\`\` blocks (as diff views, see Showing a change) and images all render. A linked video plays inline, whether it's linked as an image (\`![The demo](demo.mp4)\`) or a plain link (\`[demo.mp4](demo.mp4)\`); its link text is its caption.
 - **Task keys** (e.g. CEL-12) link to the task, with its live status, so a progress table never goes stale. Keys of unknown tasks, and keys in backticks or code blocks, stay plain.
 - **Files go up with the page:** every file the markdown links by a path (relative to the markdown file, or absolute) goes up with it, as an image or a plain link: images, videos (MP4, WebM, MOV) and text files (txt, log, md, csv, json, cast, diff, patch; a linked \`.diff\` or \`.patch\` opens as a diff view, see \`cello task submit\`). \`--asset\` uploads a file the markdown doesn't link.
 - **A linked file that can't go up** (it isn't there, or it's a type Cello doesn't store, like a PDF) gets a warning, and the page still publishes. The page shows that link as a missing file instead of following it, so fix the path and publish again:
@@ -1338,6 +1341,33 @@ This project uses Cello. Show it as a Cello page: \`cello doc publish page.md --
 - The hook needs no server, and anything it can't read (broken input, another tool) goes through, so it never gets in the way of other work.
 - **\`CELLO_ALLOW_ARTIFACTS=1\`** in Claude Code's environment lets every artifact call through. It's for when the human explicitly asks for a claude.ai artifact; they set it by starting Claude Code with it (\`CELLO_ALLOW_ARTIFACTS=1 claude\`). Agents never set it on their own, nor work around the hook any other way.
 - \`cello uninstall claude\` takes it out with the other hooks.
+
+### Showing a change
+
+When the human asks what you changed, or a comment, packet summary, ask or page needs the code itself, show it as a diff: put the output of \`git diff\` in a \`\`\`\` \`\`\`diff \`\`\`\` block (\`\`\`\` \`\`\`patch \`\`\`\` works too). Cello draws it as a diff view, the one attached \`.diff\` files get: a section per file with its +/- counts, added lines green and removed lines red, old and new line numbers, long lines wrapped, a **Show as** choice of Unified, Split (when there's room) and Raw, and a Copy button.
+
+\`\`\`\`bash
+cello task comment CEL-12 --body-file - <<'EOF'
+Moved the empty state into its own component. The diff:
+
+\`\`\`diff
+diff --git a/apps/web/src/board/Column.tsx b/apps/web/src/board/Column.tsx
+index 3f2a9c1..8b7d4e0 100644
+--- a/apps/web/src/board/Column.tsx
++++ b/apps/web/src/board/Column.tsx
+@@ -40,3 +40,3 @@ export function Column({ status }: Props) {
+   const tasks = useTasks(status)
+-  if (tasks.length === 0) return <p>Nothing here</p>
++  if (tasks.length === 0) return <EmptyState status={status} />
+   return <List tasks={tasks} />
+\`\`\`
+EOF
+\`\`\`\`
+
+- **Keep git's file headers** (\`diff --git\`, \`---\`, \`+++\`): each file gets its own section, named, with its counts. Paste what git prints; to show only some files, \`git diff -- <path>\`. Don't retype hunks.
+- **A hunk alone works too** (only \`@@\` lines, or bare \`+\`/\`-\` lines): it's coloured, with line numbers when an \`@@\` line gives them, but it has no file name. Use it for a few lines in passing.
+- **Long diffs go in a file.** Over about 200 lines, attach it as a \`.diff\` (\`git diff main...HEAD > CEL-12.diff\`, then \`--attach CEL-12.diff\` on \`cello task submit\`, or link it from a page) and show only the hunk that matters inline.
+- **Only \`\`\`\` \`\`\`diff \`\`\`\` and \`\`\`\` \`\`\`patch \`\`\`\` blocks** become diff views, plus a block with no language whose text is a whole \`git diff\`. A \`\`\`\` \`\`\`ts \`\`\`\` or \`\`\`\` \`\`\`text \`\`\`\` block stays code, even when a diff is in it.
 
 ## The background service
 

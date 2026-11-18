@@ -280,10 +280,12 @@ describe("addAgentsSection", () => {
     const current = agentsSection(GUIDE, "THAI")
     expect(old).not.toContain("testing profile")
     const added = current.split("\n").filter((line) => !old.split("\n").includes(line))
-    // Two lines are new since: the testing profile's (CEL-96) and the human's verdict in chat (CEL-169).
-    expect(added).toHaveLength(2)
+    // Three lines are new since: the testing profile's (CEL-96), the human's verdict in chat (CEL-169) and how to show a change (CEL-176).
+    expect(added).toHaveLength(3)
     const profile = added.find((line) => line.includes("testing profile"))!
-    expect(added.find((line) => line !== profile)).toContain("`cello task approve THAI-n --quote")
+    expect(added.find((line) => line.includes("`cello task approve THAI-n --quote"))).toBeDefined()
+    // The snippet has no triple backticks (a fence inside a fence), so it says "a code block marked `diff`".
+    expect(added.find((line) => line.includes("marked `diff`"))).toContain("`.diff` file")
     for (const words of ["`cello context`", "`cello profile set`", "`cello task ask`"]) expect(profile).toContain(words)
 
     // Between the markers, untouched since that run: updated, no .bak, and only that line is new.
