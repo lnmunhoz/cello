@@ -41,9 +41,9 @@ export function QueueToolbar<S extends string>({
   const box = useRef<HTMLInputElement>(null)
   // `/` anywhere on the page, off a field or a popup, puts the cursor in the box.
   const onKey = useEffectEvent((e: KeyboardEvent) => {
-    const { key, metaKey, ctrlKey, altKey, shiftKey, repeat, defaultPrevented } = e
+    const { key, metaKey, ctrlKey, altKey, shiftKey, repeat, defaultPrevented, isComposing } = e
     const target = e.target instanceof HTMLElement ? e.target : null
-    if (!isSearchKey({ key, metaKey, ctrlKey, altKey, shiftKey, repeat, defaultPrevented, target }, popupTakesEscape(document))) return
+    if (!isSearchKey({ key, metaKey, ctrlKey, altKey, shiftKey, repeat, defaultPrevented, isComposing, target }, popupTakesEscape(document))) return
     e.preventDefault()
     box.current?.focus()
   })
@@ -130,4 +130,4 @@ export function NothingMatching({ query, onClear }: { query: string; onClear: ()
   )
 }
 
-const Count =({ n }: { n: number }) => <span className="font-normal tabular-nums text-faint">{n}</span>
+const Count = ({ n }: { n: number }) => <span className="font-normal tabular-nums text-faint">{n}</span>

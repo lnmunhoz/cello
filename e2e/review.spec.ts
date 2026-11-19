@@ -16,6 +16,7 @@ import {
   expectOneColumn,
   expectTwoColumns,
   packetDrawn,
+  reviewAges,
   packetLayout,
   SHOTS,
   submitDiagramPacket,
@@ -746,7 +747,9 @@ for (const theme of ["light", "dark"] as const) {
     await page.addInitScript((t) => localStorage.setItem("cello:theme", t), theme)
     const key = uniqueKey(theme === "light" ? "WTL" : "WTD")
     await createProject(page, `Waiting ${theme}`, key)
-    const { dir } = await submitPackets(page, key, ["Handed in first", "Handed in second", "Handed in third"])
+    // The page reads the three packets as handed in 3 days, 5 hours and 25 minutes ago.
+    await reviewAges(page, { "Handed in long ago": 3 * 86_400_000, "Handed in this morning": 5 * 3_600_000, "Handed in a moment ago": 25 * 60_000 })
+    const { dir } = await submitPackets(page, key, ["Handed in long ago", "Handed in this morning", "Handed in a moment ago"])
     const [one, two, three] = [1, 2, 3].map((n) => rowOf(page, `${key}-${n}`)) as [ReturnType<typeof rowOf>, ReturnType<typeof rowOf>, ReturnType<typeof rowOf>]
     const waiting = (row: ReturnType<typeof rowOf>) => row.header.locator("[data-waiting]")
 
@@ -754,23 +757,23 @@ for (const theme of ["light", "dark"] as const) {
     // The oldest is the oldest of the rows shown: search for this test's task keys, since other tests' packets may share the page.
     await page.getByRole("searchbox", { name: "Search" }).fill(`${key}-`)
     await expect(page.locator("[data-review-task]")).toHaveCount(3)
-    await caption(page, "Three packets: each row says how long it has waited")
-    for (const row of [one, two, three]) await expect(waiting(row)).toHaveText(/^waiting (<1 min|\d+ min)$/)
+    await caption(page, "Three packets handed in at different times: each row says how long it has waited")
+    await expect(waiting(one)).toHaveText("waiting 3 d · oldest")
+    await expect(waiting(two)).toHaveText("waiting 5 h")
+    await expect(waiting(three)).toHaveText("waiting 25 min")
 
-    await caption(page, `${key}-1 was handed in first: its wait is darker and bolder than the others`)
+    await caption(page, `${key}-1 has waited longest: its wait is a solid chip that says so`)
     await expect(waiting(one)).toHaveAttribute("data-oldest", "")
-    await expect(waiting(two)).not.toHaveAttribute("data-oldest")
-    await expect(waiting(three)).not.toHaveAttribute("data-oldest")
     await expect(page.locator(`[data-review-task^="${key}-"] [data-oldest]`)).toHaveCount(1)
-    await expect(waiting(one)).toHaveCSS("font-weight", "500")
+    await expect(waiting(one)).toHaveCSS("font-weight", "600")
     await expect(waiting(two)).toHaveCSS("font-weight", "400")
 
-    await caption(page, `Approve ${key}-1: the next oldest takes its place`)
+    await caption(page, `Approve ${key}-1: the next longest wait takes the chip`)
     await one.header.click()
     await one.article.locator('[data-decide="approved"]').click()
     await expect(one.article).toHaveCount(0)
-    await expect(waiting(two)).toHaveAttribute("data-oldest", "")
-    await expect(waiting(three)).not.toHaveAttribute("data-oldest")
+    await expect(waiting(two)).toHaveText("waiting 5 h · oldest")
+    await expect(waiting(three)).toHaveText("waiting 25 min")
     fs.rmSync(dir, { recursive: true, force: true })
   })
 }
@@ -858,6 +861,40 @@ for (const theme of ["light", "dark"] as const) {
     fs.rmSync(dir, { recursive: true, force: true })
   })
 }
+
+test("CEL-190: with a task open in the viewer panel beside the Review list, A and S do nothing while the focus is in the panel, and work again from the list", async ({ page }) => {
+  const decisions = await decisionsThroughTest(page)
+  const key = uniqueKey("APN")
+  await createProject(page, "Panel keys test", key)
+  const { dir } = await submitPackets(page, key, ["Packet beside the panel"])
+  const one = rowOf(page, `${key}-1`)
+  const approve = one.article.locator('[data-decide="approved"]')
+  const viewer = page.getByRole("complementary", { name: "Viewer" })
+
+  await page.goto(`/review?open=${key}-1`)
+  await expect(one.header).toHaveAttribute("aria-expanded", "true")
+  await caption(page, `Open ${key}-1 from its row: the task opens in the panel beside the list`)
+  await one.article.getByRole("link", { name: `Open ${key}-1` }).click()
+  await expect(viewer).toBeVisible()
+
+  await caption(page, "A and S with the focus in the panel: nothing is approved, and the note box gets no cursor")
+  // A held answer makes an approval that did start stay visible as "Approving…".
+  decisions.holdNext()
+  await viewer.getByRole("button", { name: "Open in board" }).focus()
+  await page.keyboard.press("a")
+  await page.keyboard.press("s")
+  await expect(approve).toHaveAttribute("aria-busy", "false")
+  await expect(approve).toBeEnabled()
+  await expect(one.article.getByLabel("New comment")).not.toBeFocused()
+
+  await caption(page, "Back in the list: A approves again")
+  await one.header.focus()
+  await page.keyboard.press("a")
+  await expect(approve).toHaveAttribute("aria-busy", "true")
+  decisions.release()
+  await expect(one.article).toHaveCount(0)
+  fs.rmSync(dir, { recursive: true, force: true })
+})
 
 for (const theme of ["light", "dark"] as const) {
   test(`CEL-190 (${theme}): / focuses the Review page's search box; it narrows the rows by title, task key or agent, a slash or an A typed in a field is just a letter, Esc clears it, and it is not saved`, async ({ page }) => {

@@ -3,7 +3,7 @@
 // working, quiet), then the ones that finished today (CEL-107). The agents themselves come from
 // ../presence/model.ts (workingSessions), the model the sidebar's Agents working reads too, and
 // @cello/client/sync/agents (finishedAgents), which `cello agents` reads too.
-import { agentPresence, type FinishedAgent, startOfDay } from "@cello/client/sync/agents"
+import { agentPresence, byStart, type FinishedAgent, startOfDay } from "@cello/client/sync/agents"
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { isNeedsInputStatus } from "@cello/domain/ask"
@@ -41,6 +41,11 @@ export interface AgentRow {
   readonly subagents: number
   /** When a finished agent ended (Finished today); null while it works. */
   readonly endedAt: number | null
+  /**
+   * The finished subagents folded under this session's row (CEL-156): one line that opens to list them,
+   * instead of a row each. Empty on a subagent, and until foldFinished has run.
+   */
+  readonly folded: ReadonlyArray<AgentRow>
 }
 
 /** Each session still working, then its subagents, in workingSessions' order: when each started (byStart, CEL-186). */
@@ -61,6 +66,7 @@ export const agentRows = (sessions: ReadonlyArray<Working>): AgentRow[] =>
         mark: s.mark,
         subagents: s.agents.length,
         endedAt: null,
+        folded: [],
       },
       ...s.agents.map((a) => ({
         id: `agent:${s.session.id}/${a.agent.agentId}`,
@@ -75,6 +81,7 @@ export const agentRows = (sessions: ReadonlyArray<Working>): AgentRow[] =>
         mark: a.mark,
         subagents: 0,
         endedAt: null,
+        folded: [],
       })),
     ])
 
@@ -114,6 +121,7 @@ export const finishedRows = (board: BoardState, finished: ReadonlyArray<Finished
     mark: workingMark(board, f.tasks, "ended"),
     subagents: 0,
     endedAt: f.endedAt,
+    folded: [],
   }))
 
 /**
@@ -133,7 +141,7 @@ export const logLinkOf = (
   return ended !== null && ended >= startOfDay(now) ? rowIdOf(session, agent) : null
 }
 
-export type AgentGroupId = "waiting" | "working" | "quiet" | "finished"
+export type AgentGroupId = "waiting" | "working" | "quiet" | "finished" | "older"
 
 export interface AgentGroup {
   readonly id: AgentGroupId
@@ -161,7 +169,7 @@ export const groupOf = (row: AgentRow): AgentGroupId =>
     ? "quiet"
     : "working"
 
-const RANK: Record<AgentGroupId, number> = { waiting: 0, working: 1, quiet: 2, finished: 3 }
+const RANK: Record<AgentGroupId, number> = { waiting: 0, working: 1, quiet: 2, finished: 3, older: 4 }
 
 /**
  * Where a row is placed: with its session, so subagents always sit under it (CEL-104: quiet subagents
@@ -174,18 +182,146 @@ const placeOf = (row: AgentRow, rows: ReadonlyArray<AgentRow>): AgentGroupId =>
     .map(groupOf)
     .reduce((best, g) => (RANK[g] < RANK[best] ? g : best), groupOf(row))
 
+type Statuses = Readonly<Record<string, { readonly name: string; readonly category: string }>>
+
+/** Whether the Older section is open, kept on this device (lib/storage.ts): "open", else closed. */
+export const OLDER_KEY = "cello:agents:older"
+
+/** A family quiet for longer than this, with nothing open, goes to Older (CEL-156). */
+export const OLDER_AFTER_MS = 24 * 3_600_000
+
+/** What decides which rows go to Older: the time now (the page's clock), and each status's category. */
+export interface OlderRule {
+  readonly now: number
+  readonly statuses: Statuses
+}
+
+/**
+ * Whether a family holds no open task: every task of the session, its subagents and the ones finished
+ * under it is Done or Canceled. A task whose status isn't known counts as open, so nothing open is ever hidden.
+ */
+const holdsNothingOpen = (family: ReadonlyArray<AgentRow>, statuses: Statuses): boolean =>
+  family.flatMap((r) => [...r.tasks, ...r.folded.flatMap((f) => f.tasks)]).every((t) => {
+    const category = statuses[t.statusId]?.category
+    return category === "completed" || category === "canceled"
+  })
+
+/**
+ * Whether a row belongs to the Older section (CEL-156): its family is quiet (nobody working or waiting on
+ * Lucas, a subagent's background work counting as working), nobody in it, session or subagent, checked in
+ * for more than a day, and it holds no open task. A pure function of `now`: a check-in, a subagent that
+ * starts again or a claimed task brings the family back out by itself.
+ */
+export const isOlder = (row: AgentRow, rows: ReadonlyArray<AgentRow>, rule: OlderRule): boolean => {
+  if (placeOf(row, rows) !== "quiet") return false
+  const family = rows.filter((r) => r.session.id === row.session.id)
+  // The newest sign of life in the family: a check-in of the session or a working subagent, or a finish (or last call) of one folded under it.
+  const newest = Math.max(...family.flatMap((r) => [pulseKeyOf(r), ...r.folded.flatMap((f) => [pulseKeyOf(f), f.endedAt ?? 0])]))
+  return rule.now - newest > OLDER_AFTER_MS && holdsNothingOpen(family, rule.statuses)
+}
+
+/** Whether the Older section was left open, as saved: exactly "open"; anything else is closed. */
+export const parseOlderOpen = (stored: string | null): boolean => stored === "open"
+
 /**
  * The rows in their groups, waiting on Lucas first (like the Review page's Needs your input), then the
- * ones that finished today at the bottom, newest first, each on its own (CEL-107); empty groups left out.
+ * ones that finished today, newest first, each on its own (CEL-107), then Older (CEL-156) at the bottom:
+ * the quiet families with nothing open, when `older` is given. Empty groups left out.
  */
-export const agentGroups = (rows: ReadonlyArray<AgentRow>, finished: ReadonlyArray<AgentRow> = []): AgentGroup[] =>
-  [
-    ...GROUPS.map((g) => ({ ...g, rows: rows.filter((r) => placeOf(r, rows) === g.id) })),
+export const agentGroups = (rows: ReadonlyArray<AgentRow>, finished: ReadonlyArray<AgentRow> = [], older?: OlderRule): AgentGroup[] => {
+  const aged = older === undefined ? [] : rows.filter((r) => isOlder(r, rows, older))
+  const isAged = (r: AgentRow) => aged.includes(r)
+  return [
+    ...GROUPS.map((g) => ({ ...g, rows: rows.filter((r) => placeOf(r, rows) === g.id && !isAged(r)) })),
     { id: "finished" as const, label: "Finished today", rows: finished },
+    { id: "older" as const, label: "Older", rows: aged },
   ].filter((g) => g.rows.length > 0)
+}
 
-/** The rows' ids in the order the page shows them: what ↑ ↓ and j k walk. */
-export const rowKeysOf = (groups: ReadonlyArray<AgentGroup>): string[] => groups.flatMap((g) => g.rows.map((r) => r.id))
+/** What the page has open, for the keys: the Older section (CEL-156), and the folds (by their session's row id). */
+export interface OpenParts {
+  readonly older: boolean
+  readonly folds: ReadonlySet<string>
+}
+
+/**
+ * The rows' ids in the order the page shows them: what ↑ ↓ and j k walk. A fold's rows come right after
+ * their session (CEL-156); rows in a closed Older section or a closed fold aren't shown, so the keys skip them.
+ */
+export const rowKeysOf = (groups: ReadonlyArray<AgentGroup>, open: OpenParts = { older: true, folds: new Set() }): string[] =>
+  groups
+    .filter((g) => g.id !== "older" || open.older)
+    .flatMap((g) => g.rows.flatMap((r) => [r.id, ...(open.folds.has(r.id) ? r.folded.map((f) => f.id) : [])]))
+
+/** The stamp Clear finished saves on this device (lib/storage.ts): the time it was pressed, in milliseconds. */
+export const CLEARED_KEY = "cello:agents:cleared"
+
+/**
+ * The saved stamp as a time: a plain positive whole number of milliseconds, not after `now`. A stamp from
+ * the future, or one that isn't a number, would hide every finished row for good, so it means none cleared.
+ */
+export const parseClearedAt = (stored: string | null, now: number): number | null => {
+  if (stored === null || !/^[1-9]\d{0,15}$/.test(stored)) return null
+  const at = Number(stored)
+  return Number.isSafeInteger(at) && at <= now ? at : null
+}
+
+/**
+ * Clear finished (CEL-156), of what foldFinished left in Finished today: the rows that ended after
+ * `clearedAt` (null: none cleared), each finished session's fold cut the same way, and the rows it hides
+ * (flat, folded ones included). A fold under a session that is still working or quiet isn't in `finished`,
+ * so it is never cleared: what a live session holds, open tasks included, stays visible. Hidden, not
+ * deleted: the events and the task history keep who did what, the rows that finish later show, and the
+ * page says how many are hidden.
+ */
+export const clearFinished = (
+  finished: ReadonlyArray<AgentRow>,
+  clearedAt: number | null,
+): { readonly shown: AgentRow[]; readonly hidden: AgentRow[] } => {
+  const hides = (r: AgentRow) => clearedAt !== null && (r.endedAt ?? 0) <= clearedAt
+  const shown = finished.filter((r) => !hides(r)).map((r) => ({ ...r, folded: r.folded.filter((f) => !hides(f)) }))
+  const hidden = finished.flatMap((r) => (hides(r) ? [r, ...r.folded] : r.folded.filter(hides)))
+  return { shown, hidden }
+}
+
+/** The rows and the subagents folded under them, flat: every row an id can name. */
+export const withFolded = (rows: ReadonlyArray<AgentRow>): AgentRow[] => rows.flatMap((r) => [r, ...r.folded])
+
+/**
+ * What holds the row `id` shut, for a link to it (`?open=`): the Older section, and the fold (its session's
+ * row id) when it's a folded subagent. Opening a row that's hidden opens what hides it.
+ */
+export const shelterOf = (groups: ReadonlyArray<AgentGroup>, id: string): { readonly older: boolean; readonly fold: string | null } => {
+  const holder = groups.flatMap((g) => g.rows.map((r) => ({ g, r }))).find(({ r }) => r.id === id || r.folded.some((f) => f.id === id))
+  return { older: holder?.g.id === "older", fold: holder !== undefined && holder.r.id !== id ? holder.r.id : null }
+}
+
+/** "builder" for "cello-builder", "code reviewer" for "cello-code-reviewer": how a fold's line names a type. */
+const typeName = (type: string | null): string => (type ?? "agent").replace(/^cello-/, "").replace(/-/g, " ")
+
+/** "6 builders, 6 reviewers finished": the folded subagents counted by type, in the order they started. */
+export const foldedLabel = (folded: ReadonlyArray<AgentRow>): string => {
+  const counts = new Map<string, number>()
+  for (const f of folded) {
+    const name = typeName(f.agent?.agentType ?? null)
+    counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+  return `${[...counts].map(([name, n]) => `${n} ${n === 1 ? name : `${name}s`}`).join(", ")} finished`
+}
+
+/**
+ * Folds each finished subagent under its session's row (CEL-156): the session's working row, else its
+ * finished row, in the order they started. One whose session isn't on the page (it holds no claim any
+ * more, or it is in another workspace) keeps its own row in Finished today, as before.
+ */
+export const foldFinished = (rows: ReadonlyArray<AgentRow>, finished: ReadonlyArray<AgentRow>): { readonly rows: AgentRow[]; readonly finished: AgentRow[] } => {
+  const hosts = new Set([...rows, ...finished].filter((r) => r.kind === "session").map((r) => r.session.id))
+  const foldable = (r: AgentRow) => r.kind === "agent" && hosts.has(r.session.id)
+  const startOf = (r: AgentRow) => ({ id: r.id, startedAt: r.agent?.startedAt ?? 0 })
+  const folds = (r: AgentRow): AgentRow =>
+    r.kind === "session" ? { ...r, folded: finished.filter((f) => foldable(f) && f.session.id === r.session.id).sort((a, b) => byStart(startOf(a), startOf(b))) } : r
+  return { rows: rows.map(folds), finished: finished.filter((f) => !foldable(f)).map(folds) }
+}
 
 /**
  * The task an agent waits on Lucas about: the first it's on that's in Needs input (an orchestrator's
@@ -226,7 +362,8 @@ export const homeProjectOf = (
   }
   const own = stateTaskOf(row, statuses)
   if (own) return own.projectId
-  return rows.find((r) => r.kind === "agent" && r.session.id === row.session.id && r.tasks.length > 0)?.tasks[0]?.projectId ?? null
+  const first = [...rows.filter((r) => r.kind === "agent" && r.session.id === row.session.id), ...row.folded].find((r) => r.tasks.length > 0)
+  return first?.tasks[0]?.projectId ?? null
 }
 
 /** The rows of `projectId` (null: all of them), each family whole. */
@@ -236,8 +373,17 @@ export const filterAgentRows = (
   statuses: Readonly<Record<string, { readonly name: string; readonly category: string }>>,
 ): AgentRow[] => (projectId === null ? [...rows] : rows.filter((r) => homeProjectOf(r, rows, statuses) === projectId))
 
-/** What an agent row can be found by (CEL-190): the agent's name, its role, and the key and title of each task it's on. */
-export const agentFields = (row: AgentRow): string[] => [row.who.name, row.who.short, row.role, ...row.tasks.flatMap((t) => [t.key, t.title])]
+/**
+ * What an agent row can be found by (CEL-190): the agent's name, its role, and the key and title of each task
+ * it's on; a session's, the same for the subagents folded under it (CEL-156), so a search finds a family by them.
+ */
+export const agentFields = (row: AgentRow): string[] => [
+  row.who.name,
+  row.who.short,
+  row.role,
+  ...row.tasks.flatMap((t) => [t.key, t.title]),
+  ...row.folded.flatMap(agentFields),
+]
 
 /**
  * The rows that match `query` (the search box, CEL-190), each family whole: a session whose subagent

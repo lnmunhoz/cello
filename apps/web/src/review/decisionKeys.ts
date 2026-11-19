@@ -10,6 +10,8 @@ export interface DecisionKeyEvent {
   readonly shiftKey: boolean
   readonly repeat: boolean
   readonly defaultPrevented: boolean
+  /** An input method (IME) is composing: the key belongs to it, not to the page. */
+  readonly isComposing: boolean
   /** Where the key went; null when it isn't an element. */
   readonly target: { readonly tagName: string; readonly isContentEditable: boolean } | null
 }
@@ -24,28 +26,51 @@ const SHORTCUTS: Readonly<Record<string, DecisionShortcut>> = { a: "approve", s:
 
 /**
  * What a key does on the Review page: Approve (A) or Send back (S), or none. Only while a packet is
- * open (`packetOpen`) and no dialog or menu is (`popupOpen`); with no modifier key; not held down; not
- * already handled; and never while typing, where a letter is a letter (an input, a textarea, a select
- * or anything editable has the key).
+ * open (`packetOpen`) and no dialog or menu is (`popupOpen`); never while a task's side panel is open
+ * over the page (`taskPanelOpen`); only with the focus on the page itself or in its list of rows
+ * (`focus`: not in the viewer panel beside the packet, nor the toolbar); with no modifier key; not held
+ * down; not already handled, nor composing; and never while typing, where a letter is a letter (an
+ * input, a textarea, a select or anything editable has the key).
  */
-export const decisionShortcut = (e: DecisionKeyEvent, page: { readonly packetOpen: boolean; readonly popupOpen: boolean }): DecisionShortcut | null => {
-  if (!page.packetOpen || page.popupOpen || e.defaultPrevented || e.repeat) return null
+export const decisionShortcut = (
+  e: DecisionKeyEvent,
+  page: { readonly packetOpen: boolean; readonly popupOpen: boolean; readonly taskPanelOpen: boolean; readonly focus: "body" | "list" | "other" },
+): DecisionShortcut | null => {
+  if (!page.packetOpen || page.popupOpen || page.taskPanelOpen || page.focus === "other") return null
+  if (e.defaultPrevented || e.repeat || e.isComposing) return null
   if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return null
   if (typingIn(e.target)) return null
   return SHORTCUTS[e.key.toLowerCase()] ?? null
 }
 
 /**
- * Whether a key is Z to undo a decision waiting in its window (CEL-191): only while one waits
- * (`undoable`) and no dialog or menu is open; with no modifier key (⌘Z is the text box's own undo); not
- * held down; not already handled; and never while typing.
+ * Whether a key is Z to undo a decision waiting in its window (CEL-191). The same guard as A and S: only
+ * while one waits (`undoable`) and no dialog or menu is open; never while a task's side panel is open over
+ * the page; only with the focus on the page itself or in its list of rows (not in the viewer panel, nor
+ * the toolbar); with no modifier key (⌘Z is the text box's own undo); not held down; not already handled,
+ * nor composing; and never while typing.
  */
-export const isUndoKey = (e: DecisionKeyEvent, page: { readonly undoable: boolean; readonly popupOpen: boolean }): boolean =>
-  page.undoable && !page.popupOpen && e.key.toLowerCase() === "z" && !e.defaultPrevented && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !typingIn(e.target)
+export const isUndoKey = (
+  e: DecisionKeyEvent,
+  page: { readonly undoable: boolean; readonly popupOpen: boolean; readonly taskPanelOpen: boolean; readonly focus: "body" | "list" | "other" },
+): boolean =>
+  page.undoable &&
+  !page.popupOpen &&
+  !page.taskPanelOpen &&
+  page.focus !== "other" &&
+  e.key.toLowerCase() === "z" &&
+  !e.defaultPrevented &&
+  !e.repeat &&
+  !e.isComposing &&
+  !e.metaKey &&
+  !e.ctrlKey &&
+  !e.altKey &&
+  !e.shiftKey &&
+  !typingIn(e.target)
 
 /**
  * Whether a key is `/` to focus the search box (CEL-190) on the Review and Agents pages: no modifier, not
- * held down, not already handled, not while typing, and not while a dialog or menu is open.
+ * held down, not already handled, not composing, not while typing, and not while a dialog or menu is open.
  */
 export const isSearchKey = (e: DecisionKeyEvent, popupOpen: boolean): boolean =>
-  e.key === "/" && !popupOpen && !e.defaultPrevented && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && !typingIn(e.target)
+  e.key === "/" && !popupOpen && !e.defaultPrevented && !e.repeat && !e.isComposing &&!e.metaKey && !e.ctrlKey && !e.altKey && !typingIn(e.target)

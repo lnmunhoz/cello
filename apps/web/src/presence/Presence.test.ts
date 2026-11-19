@@ -6,7 +6,7 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Router
 import { createElement, Fragment } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { AgentsWorking, AgentsWorkingList, PanelWork, ProvenanceRows } from "./Presence.tsx"
+import { AgentsWorking, AgentsWorkingList, PanelWork, ProjectWorkingBadge, ProvenanceRows, useAgentsWorking } from "./Presence.tsx"
 
 const now = Date.now()
 const status = (id: string, name: string, category: Status["category"]): Status => ({
@@ -61,7 +61,9 @@ const routed = (node: ReturnType<typeof createElement>, url = "/") => {
 }
 
 describe("Agents working in the sidebar: one link to the Agents page, with the count (CEL-65)", () => {
-  const html = routed(createElement(AgentsWorking, { board, workspaceId: "w1", className: "" }))
+  // The sidebar works the sessions out once and hands them to Agents working.
+  const Probe = () => createElement(AgentsWorking, { working: useAgentsWorking(board, "w1"), className: "" })
+  const html = routed(createElement(Probe))
 
   it("is a link to the Agents page, with the count", () => {
     const link = html.match(/<a [^>]*data-agents-working="2"[^>]*>/)?.[0]
@@ -71,6 +73,31 @@ describe("Agents working in the sidebar: one link to the Agents page, with the c
   it("lists no agents under it: the Agents page does (Lucas, Nov 16)", () => {
     expect(html).not.toContain("data-agents-list")
     expect(html).not.toContain("data-working-session")
+  })
+})
+
+// CEL-179: a project's badge. Its number is sessions; the title says what Agents working adds to it.
+describe("a project's agents-working badge (CEL-179)", () => {
+  const Probe = ({ projectId }: { projectId: string }) => {
+    const working = useAgentsWorking(board, "w1")
+    return createElement(ProjectWorkingBadge, { entries: working.byProject.get(projectId) ?? [], now: working.now, variant: "row", ready: true })
+  }
+  const html = renderToStaticMarkup(createElement(Probe, { projectId: "p1" }))
+
+  it("shows the session once, not its subagent, and not the task waiting in Needs input", () => {
+    expect(html).toContain('data-project-working="1"')
+    expect(html).toContain("shrink-0")
+  })
+
+  it("names its subagents in the title, then each session with the tasks it's working on", () => {
+    const title = html.match(/title="([^"]*)"/)?.[1] ?? ""
+    expect(title.split("\n")[0]).toBe("1 agent working · 1 subagent")
+    expect(title).toContain("(CEL-1)")
+    expect(title).not.toContain("CEL-2")
+  })
+
+  it("renders nothing for a project nobody works in", () => {
+    expect(renderToStaticMarkup(createElement(Probe, { projectId: "nobody" }))).toBe("")
   })
 })
 

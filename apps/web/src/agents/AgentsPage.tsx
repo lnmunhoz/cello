@@ -10,14 +10,16 @@ import { originText } from "@cello/domain/origin"
 import { agoShort, presenceWords } from "@cello/domain/presence"
 import { isRunning } from "@cello/domain/testRun"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
-import { FolderIcon, HourglassIcon } from "lucide-react"
+import { ChevronRightIcon, FolderIcon, HourglassIcon } from "lucide-react"
 import { AnimatePresence, LayoutGroup, MotionConfig, motion, useAnimate, usePresence } from "motion/react"
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
 import { Centered } from "../app/Home.tsx"
 import { CardBody } from "../board/Card.tsx"
+import { Button } from "../components/ui/Button.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
+import { useStored, writeStored } from "../lib/storage.ts"
 import { layoutTransition } from "../lib/motion.ts"
 import { Author } from "../presence/Author.tsx"
 import { OriginBadge } from "../presence/OriginBadge.tsx"
@@ -44,15 +46,24 @@ import {
   directTasks,
   filterAgentRows,
   finishedRows,
+  foldedLabel,
+  foldFinished,
   groupOf,
+  CLEARED_KEY,
+  clearFinished,
+  OLDER_KEY,
+  parseClearedAt,
+  parseOlderOpen,
   agentProjectIds,
   pulseKeyOf,
   rowKeysOf,
   searchAgentRows,
+  shelterOf,
   sortFamilies,
   stateTaskOf,
   subagentsLabel,
   waitingTaskOf,
+  withFolded,
 } from "./layout.ts"
 
 /** How a row moves to its new group, or out (CEL-186): the board's spring. */
@@ -94,8 +105,13 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const { picked, pick, sort, pickSort, view } = useQueueView("agents", projects, AGENT_SORTS)
   const projectId = picked?.id ?? null
   const allSessions = workingSessions(board, workspaceId, now)
-  const allRows = agentRows(allSessions)
-  const allFinished = finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now)))
+  // The finished subagents fold into their session's row (CEL-156): working or finished, it holds them in one line.
+  // Clear finished (CEL-156) hides what finished before its stamp, on this device: hidden, not deleted, and counted below.
+  // It reaches only what is left in Finished today after the folds: a session still working or quiet keeps its fold.
+  const clearedAt = parseClearedAt(useStored(CLEARED_KEY), Date.now())
+  const folded = foldFinished(agentRows(allSessions), finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now))))
+  const { shown: allFinished, hidden: finishedHidden } = clearFinished(folded.finished, clearedAt)
+  const allRows = folded.rows
   // The chips count the whole list, Finished today too (the pick filters it), so rows stay put while you filter;
   // a family is never split by a pick. All N is every row listed (working, quiet and finished today). The header's
   // number stays the sidebar's: agents working now, of the rows shown.
@@ -107,13 +123,31 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const rows = sortFamilies(searchAgentRows(filterAgentRows(allRows, projectId, board.statuses), query), sort, nameOf, board.statuses)
   const finished = searchAgentRows(filterAgentRows(allFinished, projectId, board.statuses), query)
   const sessions = allSessions.filter((s) => rows.some((r) => r.id === `session:${s.session.id}`))
-  const groups = agentGroups(rows, finished)
-  const keys = rowKeysOf(groups)
+  // Quiet for more than a day with nothing open: Older, closed by default (CEL-156). `now` is the page's slow clock.
+  const groups = agentGroups(rows, finished, { now, statuses: board.statuses })
+  // Folds and the Older section the human opened, and what holds a row a link opens (?open=), so a link never lands on a hidden row.
+  const [folds, setFolds] = useState<ReadonlySet<string>>(new Set())
+  const olderStored = parseOlderOpen(useStored(OLDER_KEY))
+  const shelter = open === undefined ? null : shelterOf(groups, open)
+  const foldsOpen = shelter?.fold ? new Set([...folds, shelter.fold]) : folds
+  const olderOpen = olderStored || shelter?.older === true
+  const toggleFold = (id: string) => {
+    if (foldsOpen.has(id) && shelter?.fold === id) setOpen(null)
+    setFolds(foldsOpen.has(id) ? new Set([...foldsOpen].filter((f) => f !== id)) : new Set([...foldsOpen, id]))
+  }
+  const toggleOlder = () => {
+    if (olderOpen && shelter?.older) setOpen(null)
+    writeStored(OLDER_KEY, olderOpen ? "closed" : "open")
+  }
+  const keys = rowKeysOf(groups, { older: olderOpen, folds: foldsOpen })
   // A pick or a new sort starts the list afresh (the LayoutGroup's key, and its id, so no row's layoutId reaches back to
   // where the same row was before): no row glides or folds to its new place, since the human asked for it; events still do.
-  const listView = `${view}/${query.trim().toLowerCase()}`
+  // Opening or closing Older, and Clear finished or Show, are the human's too: the rows come or go at once (CEL-156).
+  const listView = `${view}/${query.trim().toLowerCase()}/${olderOpen ? "older" : ""}/${clearedAt ?? ""}`
   const layoutKey = groups.map((g) => `${g.id}:${g.rows.map((r) => r.id).join(",")}`).join(";")
-  const placement = new Map(groups.flatMap((g) => g.rows.map((r) => [r.id, g.id] as const)))
+  // Every row on the page, a folded one too (it's in Finished today's place): a working row that finished and folded is
+  // gone from its group at once, never rendered twice while it exits (CEL-156).
+  const placement = new Map(groups.flatMap((g) => g.rows.flatMap((r) => [[r.id, g.id] as const, ...r.folded.map((f) => [f.id, "finished" as const] as const)])))
   const openId = open !== undefined && keys.includes(open) ? open : null
   const setOpen = (id: string | null) => void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(id === null ? {} : { open: id }) }), replace: true })
   const queue = useQueue({ keys, open: openId, setOpen })
@@ -121,14 +155,14 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const onPick = (next: Project | null) => {
     pick(next)
     if (open === undefined || next === null) return
-    const shown = [...filterAgentRows(allRows, next.id, board.statuses), ...filterAgentRows(allFinished, next.id, board.statuses)]
+    const shown = withFolded([...filterAgentRows(allRows, next.id, board.statuses), ...filterAgentRows(allFinished, next.id, board.statuses)])
     if (!shown.some((r) => r.id === open)) setOpen(null)
   }
   /** A search that hides the open row closes it too, for the same reason. */
   const onSearch = (next: string) => {
     setQuery(next)
     if (open === undefined) return
-    const shown = [...searchAgentRows(filterAgentRows(allRows, projectId, board.statuses), next), ...searchAgentRows(filterAgentRows(allFinished, projectId, board.statuses), next)]
+    const shown = withFolded([...searchAgentRows(filterAgentRows(allRows, projectId, board.statuses), next), ...searchAgentRows(filterAgentRows(allFinished, projectId, board.statuses), next)])
     if (!shown.some((r) => r.id === open)) setOpen(null)
   }
 
@@ -138,14 +172,33 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
       {/* A packet container, like the Review page's: on a wide panel an open row splits in two. */}
       <div data-agents-scroller="" className="@container/packet flex-1 overflow-y-auto py-6">
         <div className="packet-column flex flex-col gap-6">
-          <header className="flex flex-col gap-0.5">
-            <h1 className="text-[17px] font-semibold">
-              Agents working <span className="font-normal text-muted tabular-nums">{agentsWorkingCount(sessions)}</span>
-            </h1>
-            <p className="text-[13px] text-muted">
-              Every agent session and subagent on a task in this workspace, and the card it's on. Agents waiting on you come first, the ones
-              that finished today last. Open one to see what it was asked and its log. ↑ ↓ or j k move between rows, Enter opens, Esc closes, / searches.
-            </p>
+          <header className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-0.5">
+              <h1 className="text-[17px] font-semibold">
+                Agents working <span className="font-normal text-muted tabular-nums">{agentsWorkingCount(sessions)}</span>
+              </h1>
+              <p className="text-[13px] text-muted">
+                Every agent session and subagent on a task in this workspace, and the card it's on. Agents waiting on you come first, the ones
+                that finished today next; subagents that finished fold into their session's row, and sessions quiet for a day with nothing open
+                go to Older. Open one to see what it was asked and its log. ↑ ↓ or j k move between rows, Enter opens, Esc closes, / searches.
+              </p>
+            </div>
+            {/* Clear finished hides the finished rows on this device (CEL-156); it says how many are hidden, so nothing seems lost. */}
+            <div className="flex shrink-0 items-center gap-1 text-xs text-muted" data-agents-clear="">
+              {finishedHidden.length > 0 ? (
+                <>
+                  <span data-agents-hidden={finishedHidden.length}>{finishedHidden.length} hidden ·</span>
+                  <Button variant="ghost" size="sm" onClick={() => writeStored(CLEARED_KEY, "")}>
+                    Show
+                  </Button>
+                </>
+              ) : null}
+              {allFinished.length > 0 ? (
+                <Button variant="secondary" size="sm" data-agents-clear-button="" onClick={() => writeStored(CLEARED_KEY, String(Date.now()))}>
+                  Clear finished
+                </Button>
+              ) : null}
+            </div>
           </header>
           <QueueToolbar chips={chips} picked={picked} onPick={onPick} search={query} onSearch={onSearch} sort={sort} sorts={AGENT_SORTS} labels={AGENT_SORT_LABELS} onSort={pickSort} />
           {groups.length === 0 && searching ? <NothingMatching query={query} onClear={() => onSearch("")} /> : null}
@@ -180,8 +233,18 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                             className="flex items-center gap-2 text-[13px] font-semibold text-ink"
                           >
                             {group.id === "waiting" ? <i aria-hidden className="size-1.5 rounded-full bg-accent" /> : null}
-                            {group.label} <span className="font-normal text-muted tabular-nums">{group.rows.length}</span>
+                            {group.id === "older" ? (
+                              <Button variant="ghost" size="sm" aria-expanded={olderOpen} data-agents-older-toggle="" onClick={toggleOlder}>
+                                <ChevronRightIcon aria-hidden className={`size-3 shrink-0 transition-transform duration-150 motion-reduce:transition-none ${olderOpen ? "rotate-90" : ""}`} />
+                                {group.label} <span className="font-normal text-muted tabular-nums">{group.rows.length}</span>
+                              </Button>
+                            ) : (
+                              <>
+                                {group.label} <span className="font-normal text-muted tabular-nums">{group.rows.length}</span>
+                              </>
+                            )}
                           </motion.h2>
+                          {group.id === "older" && !olderOpen ? null : (
                           <ul aria-label={group.label} className="flex flex-col gap-2">
                             {/* custom: the rows on the page now, so a row that left this group for another goes at once (the copy there slides in). */}
                             <AnimatePresence initial={false} custom={keys}>
@@ -201,17 +264,22 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                                     custom={keys}
                                     variants={exitOf(row.id)}
                                     exit="gone"
-                                    className={under ? "relative z-10 pl-6" : "relative z-10"}
+                                    className="relative z-10"
                                   >
                                     <Leaving id={row.id} group={group.id}>
-                                      <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
-                                      <Pulse at={pulseKeyOf(row)} under={under} />
+                                      {/* The pulse covers the row, not the fold under it. */}
+                                      <div className={under ? "relative pl-6" : "relative"}>
+                                        <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
+                                        <Pulse at={pulseKeyOf(row)} under={under} />
+                                      </div>
+                                      <Folded board={board} row={row} rows={rows} queue={queue} open={foldsOpen.has(row.id)} onToggle={() => toggleFold(row.id)} />
                                     </Leaving>
                                   </motion.li>
                                 )
                               })}
                             </AnimatePresence>
                           </ul>
+                          )}
                         </motion.section>
                       ))}
                     </AnimatePresence>
@@ -222,6 +290,38 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * The subagents that finished under a session (CEL-156), in one line under its row ("6 builders, 6 reviewers
+ * finished") that opens to list them, each a row that opens its log. It opens and closes at once: the human's own action.
+ */
+function Folded({ board, row, rows, queue, open, onToggle }: {
+  board: BoardState
+  row: AgentRow
+  rows: ReadonlyArray<AgentRow>
+  queue: ReturnType<typeof useQueue>
+  open: boolean
+  onToggle: () => void
+}) {
+  if (row.folded.length === 0) return null
+  return (
+    <div className="flex flex-col items-start gap-2 pl-6 pt-1" data-agents-folded={row.id}>
+      <Button variant="ghost" size="sm" aria-expanded={open} data-agents-fold={row.id} onClick={onToggle}>
+        <ChevronRightIcon aria-hidden className={`size-3 shrink-0 transition-transform duration-150 motion-reduce:transition-none ${open ? "rotate-90" : ""}`} />
+        {foldedLabel(row.folded)}
+      </Button>
+      {open ? (
+        <ul aria-label={`Finished under ${row.who.short}`} className="flex w-full flex-col gap-2">
+          {row.folded.map((f) => (
+            <li key={f.id}>
+              <AgentQueueRow {...queue.row(f.id)} board={board} row={f} rows={rows} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   )
 }

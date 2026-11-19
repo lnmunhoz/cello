@@ -276,6 +276,33 @@ const rpcMessagesIn = (frame: string | Buffer): RpcMessage[] => {
 }
 const rpcFrame = (messages: ReadonlyArray<RpcMessage>) => JSON.stringify(messages.length === 1 ? messages[0] : messages)
 
+/** `value` with every review packet whose summary starts with a title of `ages` handed in that long ago (ms), as the page will read it. */
+const agedReviews = (value: unknown, ages: Readonly<Record<string, number>>, now: number): unknown => {
+  if (Array.isArray(value)) return value.map((item) => agedReviews(item, ages, now))
+  if (typeof value !== "object" || value === null) return value
+  const record = value as Record<string, unknown>
+  const summary = record["summary"]
+  const title = typeof summary === "string" && typeof record["createdAt"] === "number" && "steps" in record ? Object.keys(ages).find((t) => summary.startsWith(t)) : undefined
+  const aged = title === undefined ? record : { ...record, createdAt: now - ages[title]! }
+  return Object.fromEntries(Object.entries(aged).map(([name, item]) => [name, name === "createdAt" && title !== undefined ? item : agedReviews(item, ages, now)]))
+}
+
+/**
+ * CEL-190: the packets the page reads look older than they are, without waiting: the server's messages
+ * pass through the test, which sets each packet's `createdAt` to `ages[title]` ms ago (a packet's summary
+ * starts with its task's title, see submitPackets). Call it before the page loads.
+ */
+export async function reviewAges(page: Page, ages: Readonly<Record<string, number>>) {
+  await page.routeWebSocket(/\/rpc$/, (ws) => {
+    const server = ws.connectToServer()
+    ws.onMessage((frame) => server.send(frame))
+    server.onMessage((frame) => {
+      const text = typeof frame === "string" ? frame : frame.toString("utf8")
+      ws.send(JSON.stringify(agedReviews(JSON.parse(text), ages, Date.now())))
+    })
+  })
+}
+
 const DECISIONS = new Set(["review.approve", "review.sendBack"])
 
 /**

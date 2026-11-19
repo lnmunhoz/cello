@@ -6,7 +6,7 @@
 import * as fs from "node:fs"
 import type { Page } from "@playwright/test"
 import { caption, captionWithUrl, card, column, createProject, expect, projectLink, sidebarSettings, test, uniqueKey } from "./fixtures.ts"
-import { cello, decidedSeen, decisionsThroughTest, submitPackets, watchDecided } from "./packets.ts"
+import { cello, decidedSeen, decisionsThroughTest, reviewAges, submitPackets, watchDecided } from "./packets.ts"
 import { isReview } from "./recording.ts"
 
 const UNDO_KEY = "cello:review-undo"
@@ -307,5 +307,81 @@ test("CEL-191: Approve, Undo, then reload: nothing is sent, the packet still wai
   await page.reload()
   await expect(one.header).toBeVisible()
   expect(decisions.sent()).toEqual([])
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test("CEL-191 with CEL-190's guard: with the window on, typing A in the comment box, or A with the focus in the viewer panel, starts no window and sends nothing; Z there undoes nothing", async ({ page }) => {
+  const { key, decisions, dir, rows } = await setUp(page, "GRD", "30", ["Packet beside the panel"])
+  const [one] = rows as [(typeof rows)[number]]
+  const viewer = page.getByRole("complementary", { name: "Viewer" })
+  await page.goto(`/review?open=${key}-1`)
+  await expect(one.header).toHaveAttribute("aria-expanded", "true")
+
+  await caption(page, "Typing a and s in the comment box is just typing: no window starts")
+  await one.box.click()
+  await page.keyboard.type("as")
+  await expect(one.box).toHaveValue("as")
+  await expect(one.undo).toHaveCount(0)
+  await expect(one.words).toHaveCount(0)
+  await one.box.fill("")
+
+  await caption(page, `Open ${key}-1 in the panel beside the list, and put the focus in the panel`)
+  await one.article.getByRole("link", { name: `Open ${key}-1` }).click()
+  await expect(viewer).toBeVisible()
+  await viewer.getByRole("button", { name: "Open in board" }).focus()
+  await page.keyboard.press("a")
+  await page.keyboard.press("s")
+  await expect(one.undo).toHaveCount(0)
+  await expect(one.words).toHaveCount(0)
+  await expect(one.approve).toBeEnabled()
+  expect(decisions.sent()).toEqual([])
+
+  await caption(page, "From the list, A starts the window; Z from the panel does not undo it")
+  await one.header.focus()
+  await page.keyboard.press("a")
+  await expect(one.undo).toBeVisible()
+  await viewer.getByRole("button", { name: "Open in board" }).focus()
+  await page.keyboard.press("z")
+  await expect(one.undo).toBeVisible()
+  expect(decisions.sent()).toEqual([])
+
+  await caption(page, "Z from the list takes it back")
+  await one.header.focus()
+  await page.keyboard.press("z")
+  await expect(one.undo).toHaveCount(0)
+  await expect(one.approve).toBeEnabled()
+  expect(decisions.sent()).toEqual([])
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test("CEL-191 with CEL-190's clock: the page's 30 s tick moves the waiting words on, and leaves the window alone: the same Undo, the same progress line, still waiting", async ({ page }) => {
+  await page.addInitScript(([k, w]) => localStorage.setItem(k!, w!), [UNDO_KEY, "60"])
+  await page.clock.install()
+  const key = uniqueKey("TIK")
+  await createProject(page, "Undo TIK", key)
+  const { dir } = await submitPackets(page, key, ["Tick during the window"])
+  await reviewAges(page, { "Tick during the window": 285_000 })
+  const one = rowOf(page, `${key}-1`)
+  const waiting = one.header.locator("[data-waiting]")
+  await page.goto(`/review?open=${key}-1`)
+  await expect(waiting).toContainText("waiting 4 min")
+
+  await caption(page, "Approve with a 60 s window: Approved · Undo, and the line starts to run down")
+  await one.approve.click()
+  await expect(one.undo).toBeVisible()
+  const progress = one.article.locator("[data-undo-progress]")
+  await progress.evaluate((el) => void (el.setAttribute("data-mark", "same")))
+
+  await caption(page, "31 s later the page's clock ticks: the words move on, the window is untouched")
+  await page.clock.runFor(31_000)
+  await expect(waiting).toContainText("waiting 5 min")
+  await expect(one.undo).toBeVisible()
+  await expect(one.words).toHaveText("Approved")
+  await expect(progress).toHaveAttribute("data-mark", "same")
+
+  await caption(page, "Undo still works")
+  await one.undo.click()
+  await expect(one.undo).toHaveCount(0)
+  await expect(one.approve).toBeEnabled()
   fs.rmSync(dir, { recursive: true, force: true })
 })

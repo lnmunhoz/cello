@@ -535,6 +535,18 @@ body {
     opacity: 0;
   }
 }
+/* A project's agents-working badge (CEL-179) when its number changes: it settles from a little smaller. Never on an unchanged number, so an idle sidebar runs nothing. */
+.count-pop {
+  animation: count-pop var(--motion-base) var(--motion-ease-out);
+}
+@keyframes count-pop {
+  from {
+    transform: scale(0.7);
+  }
+  to {
+    transform: scale(1);
+  }
+}
 /* A comment opened from ⌘K (CEL-43): an accent wash and ring when it arrives, fading out once. */
 .comment-flash {
   animation: comment-flash 2.4s ease-out;
