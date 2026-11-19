@@ -246,7 +246,9 @@ test("CEL-24: in a narrow window the sidebar starts as the rail without saving i
 // CEL-179: each project's row shows how many agent sessions are working in it, by the Agents working
 // rule: hidden at 0, a pill on the row, a number on the project's square on the rail, a title that lists
 // the sessions and their tasks, and one small pop when the number changes (never while it stands still).
-test("CEL-179: a project's row shows how many agents are working in it: it appears, goes to 2, a session in two projects counts in each, it clears; the rail shows it on the square", async ({ page, cello, baseURL }) => {
+test("CEL-179: a project's row shows how many agents are working in it: it appears, goes to 2, a session in two projects counts in each, it clears; the rail shows it on the square", async ({ page, cello, baseURL, context }) => {
+  // Agent cursors off, so the cards change in place and the badges are what the video shows.
+  await context.addInitScript(() => localStorage.setItem("cello:agent-cursors", "off"))
   const [keyA, keyB] = [uniqueKey("WKA"), uniqueKey("WKB")]
   const [alpha, beta] = [await seedProject(cello, "Alpha", keyA), await seedProject(cello, "Beta", keyB)]
   const { statuses } = await defaultWorkspace(cello)
@@ -289,7 +291,6 @@ test("CEL-179: a project's row shows how many agents are working in it: it appea
   expect(title).toContain("2 agents working")
   expect(title).toContain(`(${a1})`)
   expect(title).toContain(`(${a2})`)
-  await badge(keyA).hover()
   await expect(projectLink(page, keyA)).toHaveText(/Alpha\s*2 agents working/)
   await stills(page, "cel-179-sidebar-two-agents")
 
@@ -321,6 +322,8 @@ test("CEL-179: a project's row shows how many agents are working in it: it appea
   await expect(badge(keyA)).toHaveAttribute("title", new RegExp(`^1 agent working\\n.*\\(${a2}\\)$`))
   await projectLink(page, keyA).hover()
   await expect(page.getByRole("tooltip", { name: "Alpha · 1 working" })).toBeVisible()
+  await page.mouse.move(720, 600)
+  await expect(page.getByRole("tooltip")).toHaveCount(0)
   await stills(page, "cel-179-rail-one-agent")
 
   await caption(page, "Reload with an agent working: the badge is there and doesn't animate; it clears when the agent lets go")
