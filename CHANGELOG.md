@@ -3,6 +3,32 @@
 Every release of Cello, newest first. `bun run release` writes each section from main's commits since the
 previous tag; how releases work is in [docs/releases.md](docs/releases.md).
 
+## [0.8.0](https://github.com/lnmunhoz/cello/compare/v0.7.0...v0.8.0) (2026-11-19)
+
+### Features
+
+- **tests:** code coverage for unit and integration tests; every Docker run keeps the report (CEL-201) ([e130420](https://github.com/lnmunhoz/cello/commit/e1304209677d77c248ff87d2f8ab26d9be8dd72d))
+- Approve and Send back on the Review page can be undone for a few seconds before they are sent, with a setting to turn it on or off and set how long; a decision survives a closed or reloaded tab (CEL-191) ([f136f00](https://github.com/lnmunhoz/cello/commit/f136f0063adeba8f3d82e83c73232354112c15f9))
+- on the Agents page finished subagents fold into their session's row, sessions quiet for a day with nothing open move to a closed Older section, and Clear finished hides the finished rows (CEL-156) ([7f60c47](https://github.com/lnmunhoz/cello/commit/7f60c47fc7d3c2941f8f16212437aba6f6637d5c))
+- the Review page shows how long each packet has waited, A approves and S goes to the note on the open packet, / searches the Review and Agents pages, and a dot marks a packet not opened yet (CEL-190) ([3463d54](https://github.com/lnmunhoz/cello/commit/3463d54faf037616ce9ae2ed139027c9c4742d04))
+- each project in the sidebar shows how many agents are working in it right now, hidden at 0, and on the collapsed rail too (CEL-179) ([af44f94](https://github.com/lnmunhoz/cello/commit/af44f94a908c9cb1b76c98d7434dc4878367a4f8))
+- a status category this build doesn't know reads as other and breaks nothing: an open tab or an older CLI keeps its board when a later version adds one (CEL-199) ([8e17203](https://github.com/lnmunhoz/cello/commit/8e17203d2e97b2e8f3edde6b8b2fb9a73a7552f4))
+- each subagent keeps its own folder, so a builder's row on the Agents page shows its own worktree and its calls no longer overwrite its session's folder (CEL-152) ([237ba80](https://github.com/lnmunhoz/cello/commit/237ba8016841d536f48290ab6e857a107c134d8e))
+- the Agents and Review pages have project chips with counts and a Display menu that sorts them, remembered on this device (CEL-188) ([e4be704](https://github.com/lnmunhoz/cello/commit/e4be704e646a94d33868a9d5fde8836aa98ad56e))
+- the Agents page keeps rows in place: agents are listed in the order they started, a check-in pulses the row where it is, and a row that changes group or leaves animates; cello agents lists oldest-started first (CEL-186) ([582a491](https://github.com/lnmunhoz/cello/commit/582a49180129dad0ed5810bee3da6bc1382de06b))
+- Approve and Send back on the Review page show they're running, then the row says Approved or Sent back, folds away and the next packet unfolds; a failure stays on the row; rows no longer re-sort (CEL-187) ([a0c7aff](https://github.com/lnmunhoz/cello/commit/a0c7aff3afa4f5990fb7fe40d982f78964b2d5c2))
+- menus, popovers, selects, tooltips, dialogs and toasts open and close on one set of motion tokens, the task panel slides in and out, and an idle page still runs no animation (CEL-189) ([1b7442b](https://github.com/lnmunhoz/cello/commit/1b7442b71c935d52b75036b5fc57b6c6dbb6ee09))
+
+### Fixes
+
+- **e2e:** search, task panel and onboarding specs pass on the shared server and with the new motion (CEL-202) ([5970eba](https://github.com/lnmunhoz/cello/commit/5970ebacf254e094f1fa4e90d49e6daef1d93335))
+- a project's link in the sidebar keeps its plain name while an agent works there; the working count is read as its description (CEL-200) ([3171f63](https://github.com/lnmunhoz/cello/commit/3171f631617cc16e53a64d48a40b4f1b44649b25))
+- packages/shared is split into @cello/domain, @cello/text, @cello/release and @cello/host, with a test that enforces who may import what; the server lock, default port and data folder are written once (CEL-18) ([f9d681c](https://github.com/lnmunhoz/cello/commit/f9d681c3c19a80c67f599428ed1d41f7c1f88b1c))
+
+### Other changes
+
+- the Review page's fold reads CEL-189's spring ([3834664](https://github.com/lnmunhoz/cello/commit/3834664e30f5c22d38fd654d77b993554a96223e))
+
 ## [0.7.0](https://github.com/lnmunhoz/cello/compare/v0.6.0...v0.7.0) (2026-11-18)
 
 ### Features
