@@ -1,7 +1,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { agentMood, agentsWorkingCount, authorParts, holderActive, markEntry, stepOf, type MarkSeen, provenanceLine, provenanceOf, whoOf, whoSubject, whoText, workingSessions } from "./model.ts"
+import { agentMood, agentsWorkingByProject, agentsWorkingCount, authorParts, holderActive, markEntry, stepOf, type MarkSeen, provenanceLine, provenanceOf, whoOf, whoSubject, whoText, workingSessions } from "./model.ts"
 
 const MIN = 60_000
 const now = Date.UTC(2026, 10, 15, 12)
@@ -36,7 +36,10 @@ const board = (tasks: Task[], sessions: AgentSession[], agents: SessionAgent[] =
     claude: { id: "claude", kind: "agent", name: "Claude Code", client: "Claude Code", color: "#10b981", createdAt: 1 },
   },
   workspaces: {},
-  projects: { p1: { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", color: "#000", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: null } },
+  projects: {
+    p1: { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", color: "#000", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: null },
+    p2: { id: "p2", workspaceId: "w1", name: "ThaiLookup", key: "THAI", color: "#111", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: null },
+  },
   statuses: STATUSES,
   labels: {},
   tasks: Object.fromEntries(tasks.map((t) => [t.id, t])),
@@ -311,6 +314,61 @@ describe("subagents", () => {
     const working = workingSessions(state, "w1", now)
     expect(working[0]?.agents).toEqual([])
     expect(agentsWorkingCount(working)).toBe(0)
+  })
+})
+
+// CEL-179: each project's count of agent sessions working in it, read from the same Working list as the workspace's.
+describe("agentsWorkingByProject", () => {
+  const claim = (sessionId: string, id: string, projectId: string, extra: Partial<Task> = {}) =>
+    task(id, { key: id.toUpperCase(), projectId, assigneeActorId: "claude", assigneeSessionId: sessionId, ...extra })
+  const byProject = (tasks: Task[], sessions: AgentSession[], agents: SessionAgent[] = []) =>
+    agentsWorkingByProject(workingSessions(board(tasks, sessions, agents), "w1", now))
+  const ids = (m: ReturnType<typeof byProject>, projectId: string) => (m.get(projectId) ?? []).map((e) => e.working.session.id)
+
+  it("counts each active session in the project whose task it holds; a project with none has no entry", () => {
+    const m = byProject(
+      [claim("s1", "a", "p1"), claim("s2", "b", "p1"), claim("s3", "c", "p2")],
+      [session("s1"), session("s2"), session("s3")],
+    )
+    expect(ids(m, "p1")).toEqual(["s1", "s2"])
+    expect(ids(m, "p2")).toEqual(["s3"])
+    expect(m.has("p3")).toBe(false)
+  })
+
+  it("a session working in two projects counts in each, once, with only that project's tasks", () => {
+    const m = byProject([claim("s1", "a", "p1"), claim("s1", "b", "p1"), claim("s1", "c", "p2")], [session("s1")])
+    expect(m.get("p1")).toHaveLength(1)
+    expect(m.get("p1")![0]!.tasks.map((t) => t.id)).toEqual(["a", "b"])
+    expect(m.get("p2")![0]!.tasks.map((t) => t.id)).toEqual(["c"])
+  })
+
+  it("subagents don't count separately: an orchestrator and its three builders on one project make one", () => {
+    const tasks = [claim("s1", "a", "p1"), task("b", { projectId: "p1" }), task("c", { projectId: "p1" })]
+    const agents = [agent("s1", "a1", { taskId: "b" }), agent("s1", "a2", { taskId: "c" }), agent("s1", "a3", { taskId: "a" })]
+    const working = workingSessions(board(tasks, [session("s1")], agents), "w1", now)
+    expect(agentsWorkingCount(working)).toBe(4)
+    expect(agentsWorkingByProject(working).get("p1")).toHaveLength(1)
+    expect(agentsWorkingByProject(working).get("p1")![0]!.tasks.map((t) => t.id).sort()).toEqual(["a", "b", "c"])
+  })
+
+  it("a quiet session with a subagent at work counts where the subagent works, not where it only holds a claim", () => {
+    const tasks = [claim("s1", "a", "p1"), task("b", { projectId: "p2" })]
+    const m = byProject(tasks, [session("s1", { lastSeenAt: now - 20 * MIN })], [agent("s1", "a1", { taskId: "b" })])
+    expect(m.has("p1")).toBe(false)
+    expect(ids(m, "p2")).toEqual(["s1"])
+  })
+
+  it("leaves out sessions that are quiet or ended, and archived tasks", () => {
+    const m = byProject(
+      [claim("idle", "a", "p1"), claim("gone", "b", "p1"), claim("s1", "c", "p1", { archivedAt: 1 })],
+      [session("idle", { lastSeenAt: now - 20 * MIN }), session("gone", { endedAt: now - MIN }), session("s1")],
+    )
+    expect(m.size).toBe(0)
+  })
+
+  it("a subagent with no task adds no project: its session counts only where it holds claims", () => {
+    const m = byProject([claim("s1", "a", "p1")], [session("s1")], [agent("s1", "a1")])
+    expect([...m.keys()]).toEqual(["p1"])
   })
 })
 

@@ -311,6 +311,37 @@ export const workingSessions = (board: BoardState, workspaceId: string, now: num
 export const agentsWorkingCount = (working: ReadonlyArray<Working>): number =>
   working.reduce((n, w) => n + (w.presence === "active" ? 1 : 0) + w.agents.filter((a) => a.presence === "active").length, 0)
 
+/** One agent session working in a project (CEL-179), with the tasks it's on there. */
+export interface ProjectWorking {
+  readonly working: Working
+  readonly tasks: ReadonlyArray<Task>
+}
+
+/**
+ * The agent sessions working in each project, by project id, for the badge on each sidebar project row
+ * (CEL-179). It reads the same list as "Agents working" (workingSessions), by the same rule: a session
+ * counts where it is active and holds a claim, and where one of its subagents is active on a task. A
+ * session counts once in a project however many tasks or subagents it has there, and in each project
+ * it works in. So a project's number is sessions, never subagents: the workspace's number, which adds
+ * each active subagent, is at least their sum, and equal only with no subagents and no session in two
+ * projects. A project with nobody working has no entry.
+ */
+export const agentsWorkingByProject = (working: ReadonlyArray<Working>): Map<string, ProjectWorking[]> => {
+  const byProject = new Map<string, ProjectWorking[]>()
+  for (const w of working) {
+    const tasksIn = new Map<string, Map<string, Task>>()
+    const add = (task: Task) => {
+      const tasks = tasksIn.get(task.projectId) ?? new Map<string, Task>()
+      tasks.set(task.id, task)
+      tasksIn.set(task.projectId, tasks)
+    }
+    if (w.presence === "active") w.tasks.forEach(add)
+    for (const a of w.agents) if (a.presence === "active" && a.task) add(a.task)
+    for (const [projectId, tasks] of tasksIn) byProject.set(projectId, [...(byProject.get(projectId) ?? []), { working: w, tasks: [...tasks.values()] }])
+  }
+  return byProject
+}
+
 /**
  * What the agent mark on a card shows (CEL-69). The task's status speaks first: waiting on Lucas in
  * Needs input, done once it's In Review or Done. Otherwise its holder (the subagent on it, else the
