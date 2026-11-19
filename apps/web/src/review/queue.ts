@@ -48,6 +48,10 @@ export const DECISION_LABEL: Readonly<Record<Decision, string>> = { approved: "A
 export type DecisionState =
   | { readonly phase: "idle" }
   | { readonly phase: "pending"; readonly decision: Decision }
+  /** Clicked, and waiting in its undo window: nothing has been sent (CEL-191). */
+  | { readonly phase: "undoable"; readonly decision: Decision }
+  /** The window ended and the command runs: pending, with the row keeping its words (CEL-191). */
+  | { readonly phase: "sending"; readonly decision: Decision }
   | { readonly phase: "failed"; readonly decision: Decision; readonly message: string }
   | { readonly phase: "decided"; readonly decision: Decision }
   | { readonly phase: "leaving"; readonly decision: Decision }
@@ -56,8 +60,12 @@ export type DecisionState =
 export const IDLE: DecisionState = { phase: "idle" }
 
 export type DecisionEvent =
-  /** Approve or Send back was clicked. */
-  | { readonly type: "clicked"; readonly decision: Decision }
+  /** Approve or Send back was clicked; `undoable`: it waits in the undo window instead of being sent (CEL-191). */
+  | { readonly type: "clicked"; readonly decision: Decision; readonly undoable?: boolean }
+  /** Undo was pressed inside the window: nothing was sent, the row is as it was. */
+  | { readonly type: "undone" }
+  /** The window ended (or the page was left): the decision is sent. */
+  | { readonly type: "sent" }
   /** The server took the decision. */
   | { readonly type: "taken" }
   /** The command failed. */
@@ -71,17 +79,35 @@ export type DecisionEvent =
 export const decisionStep = (state: DecisionState, event: DecisionEvent): DecisionState => {
   switch (event.type) {
     case "clicked":
-      return state.phase === "idle" || state.phase === "failed" ? { phase: "pending", decision: event.decision } : state
+      return state.phase === "idle" || state.phase === "failed" ? { phase: event.undoable === true ? "undoable" : "pending", decision: event.decision } : state
+    case "undone":
+      return state.phase === "undoable" ? IDLE : state
+    case "sent":
+      return state.phase === "undoable" ? { phase: "sending", decision: state.decision } : state
     case "taken":
-      return state.phase === "pending" ? { phase: "decided", decision: state.decision } : state
+      return state.phase === "pending" || state.phase === "sending" ? { phase: "decided", decision: state.decision } : state
     case "refused":
-      return state.phase === "pending" ? { phase: "failed", decision: state.decision, message: event.message } : state
+      return state.phase === "pending" || state.phase === "sending" ? { phase: "failed", decision: state.decision, message: event.message } : state
     case "shown":
       return state.phase === "decided" ? { phase: "leaving", decision: state.decision } : state
     case "left":
       return state.phase === "leaving" ? { phase: "gone" } : state
   }
 }
+
+/** A row in one of these phases stays where it stood, saying what was decided: the queue may have dropped it already. */
+export const isHolding = (state: DecisionState): boolean =>
+  state.phase === "pending" || state.phase === "undoable" || state.phase === "sending" || state.phase === "decided"
+
+/**
+ * The held rows whose decision waits in its undo window but is about a packet that's no longer there
+ * (CEL-191): the queue stopped listing the task (decided from elsewhere, the side panel or the CLI), or
+ * lists another packet under the key (the agent handed in a new one). Sending would decide what Lucas
+ * hasn't seen, or fail, so these are let go with nothing sent. `current` maps each listed task key to its
+ * packet's version; `versionOf` reads the same from the held item.
+ */
+export const overtaken = <Item>(held: ReadonlyArray<Held<Item>>, current: ReadonlyMap<string, string>, versionOf: (item: Item) => string): string[] =>
+  held.filter((h) => h.state.phase === "undoable" && current.get(h.key) !== versionOf(h.item)).map((h) => h.key)
 
 /**
  * A row the page keeps from the click on: the item as it was, and where it stood (`at`) among the rows
@@ -140,7 +166,7 @@ export const syncHeld = <Item>(held: ReadonlyArray<Held<Item>>, listed: Readonly
  * leaving row the queue lists again after dropping it is back, and shows.
  */
 export const withHeld = <Item>(queue: ReadonlyArray<Item>, keyOf: (item: Item) => string, held: ReadonlyArray<Held<Item>>): Item[] => {
-  const stays = (h: Held<Item>) => h.state.phase === "pending" || h.state.phase === "decided"
+  const stays = (h: Held<Item>) => isHolding(h.state)
   const left = new Set(held.filter((h) => !stays(h) && !h.dropped).map((h) => h.key))
   const rows = queue.filter((item) => !left.has(keyOf(item)))
   for (const h of [...held].sort((a, b) => a.at - b.at)) {

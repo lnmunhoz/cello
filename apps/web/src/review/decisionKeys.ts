@@ -36,6 +36,14 @@ export const decisionShortcut = (e: DecisionKeyEvent, page: { readonly packetOpe
 }
 
 /**
+ * Whether a key is Z to undo a decision waiting in its window (CEL-191): only while one waits
+ * (`undoable`) and no dialog or menu is open; with no modifier key (⌘Z is the text box's own undo); not
+ * held down; not already handled; and never while typing.
+ */
+export const isUndoKey = (e: DecisionKeyEvent, page: { readonly undoable: boolean; readonly popupOpen: boolean }): boolean =>
+  page.undoable && !page.popupOpen && e.key.toLowerCase() === "z" && !e.defaultPrevented && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !typingIn(e.target)
+
+/**
  * Whether a key is `/` to focus the search box (CEL-190) on the Review and Agents pages: no modifier, not
  * held down, not already handled, not while typing, and not while a dialog or menu is open.
  */

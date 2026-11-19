@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { type DecisionKeyEvent, decisionShortcut, isSearchKey } from "./decisionKeys.ts"
+import { type DecisionKeyEvent, decisionShortcut, isSearchKey, isUndoKey } from "./decisionKeys.ts"
 
 const press = (key: string, over: Partial<DecisionKeyEvent> = {}): DecisionKeyEvent => ({
   key,
@@ -82,5 +82,27 @@ describe("isSearchKey: / focuses the search box, but never takes a slash someone
     expect(isSearchKey(press("/", { repeat: true }), false)).toBe(false)
     expect(isSearchKey(press("/", { defaultPrevented: true }), false)).toBe(false)
     expect(isSearchKey(press("/"), true)).toBe(false)
+  })
+})
+
+describe("isUndoKey: Z undoes a decision waiting in its window (CEL-191)", () => {
+  const WAITING = { undoable: true, popupOpen: false }
+
+  it("Z, in either case, while a decision waits", () => {
+    expect(isUndoKey(press("z"), WAITING)).toBe(true)
+    expect(isUndoKey(press("Z"), WAITING)).toBe(true)
+  })
+
+  it("not when none waits, or for any other key", () => {
+    expect(isUndoKey(press("z"), { undoable: false, popupOpen: false })).toBe(false)
+    for (const key of ["a", "s", "u", "Enter", "Escape"]) expect(isUndoKey(press(key), WAITING)).toBe(false)
+  })
+
+  it("never while typing, with a modifier (⌘Z undoes the text), held down, handled, or with a dialog open", () => {
+    for (const tagName of ["INPUT", "TEXTAREA", "SELECT"]) expect(isUndoKey(press("z", { target: { tagName, isContentEditable: false } }), WAITING)).toBe(false)
+    expect(isUndoKey(press("z", { target: { tagName: "DIV", isContentEditable: true } }), WAITING)).toBe(false)
+    expect(isUndoKey(press("z", { target: null }), WAITING)).toBe(false)
+    for (const over of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }, { shiftKey: true }, { repeat: true }, { defaultPrevented: true }]) expect(isUndoKey(press("z", over), WAITING)).toBe(false)
+    expect(isUndoKey(press("z"), { undoable: true, popupOpen: true })).toBe(false)
   })
 })
