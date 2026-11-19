@@ -617,3 +617,78 @@ test("CEL-188: the Agents page's Display menu sorts the rows: Project goes by th
   await expectOrder([0, 3, 1, 2])
   await expect(display).toHaveText("Display")
 })
+
+const SEARCH_BUILDER = "c190searchbuilder1"
+
+test("CEL-190: / focuses the Agents page's search box; it narrows the rows by agent, task key or title and keeps a session with its builder; a slash typed in the box is a slash, Esc clears it, and it is not saved", async ({ page, cello, baseURL }) => {
+  const keys = ["SQZ", "SQA"] as const
+  const names = ["Search Zeta", "Search Alpha"] as const
+  const { statuses } = await defaultWorkspace(cello)
+  for (const [i, key] of keys.entries()) {
+    const project = await seedProject(cello, names[i]!, key)
+    await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title: `Task in ${names[i]}`, statusId: statuses.Todo!.id }))
+  }
+  const externals = ["c190search1-first-session", "c190search2-second-session"] as const
+  for (const [i, external] of externals.entries()) {
+    const agent = await agentAs(baseURL!, external, process.pid)
+    await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: `${keys[i]}-1` }))
+  }
+  hooks.launch(externals[0], SEARCH_BUILDER, "cello-builder", `${keys[0]}-1 build the Zeta task`)
+  const sessions = await Promise.all(externals.map((e) => sessionId(cello, e)))
+  const ids = [...sessions.map((id) => `session:${id}`), `agent:${sessions[0]}/${SEARCH_BUILDER}`]
+  const mine = page.locator(ids.map((id) => `[data-agent-row="${id}"]`).join(", "))
+  const row = (n: number) => page.locator(`[data-agent-row="${ids[n]!}"]`)
+  const search = page.getByRole("searchbox", { name: "Search" })
+
+  await page.goto("/agents")
+  await caption(page, "Two agents, the first with a builder under it")
+  await expect(mine).toHaveCount(3)
+  await expect(page.getByText("/ searches.")).toBeVisible()
+
+  await caption(page, "Press /: the cursor is in the search box")
+  await page.keyboard.press("/")
+  await expect(search).toBeFocused()
+
+  await caption(page, "A task key finds its agent")
+  await page.keyboard.type(`${keys[1]}-1`)
+  await expect(mine).toHaveCount(1)
+  await expect(row(1)).toBeVisible()
+
+  await caption(page, "Esc clears the search: every agent is back")
+  await page.keyboard.press("Escape")
+  await expect(search).toHaveValue("")
+  await expect(mine).toHaveCount(3)
+
+  await caption(page, "The builder's type finds it, and its session stays with it; the other agent goes")
+  await search.fill("cello-builder")
+  await expect(mine).toHaveCount(2)
+  await expect(row(0)).toBeVisible()
+  await expect(row(2)).toBeVisible()
+  await expect(row(1)).toHaveCount(0)
+
+  await caption(page, "A word of a task's title finds it too")
+  await search.fill("Alpha")
+  await expect(mine).toHaveCount(1)
+  await expect(row(1)).toBeVisible()
+
+  await caption(page, "No match: the page says so, with a way back")
+  await search.fill("nothing is called this")
+  await expect(mine).toHaveCount(0)
+  await expect(page.locator("[data-nothing-matching]")).toContainText("Nothing matches")
+  await page.getByRole("button", { name: "Clear search" }).click()
+  await expect(search).toHaveValue("")
+  await expect(mine).toHaveCount(3)
+
+  await caption(page, "A slash typed in the box is a slash")
+  await search.click()
+  await page.keyboard.type("a/b")
+  await expect(search).toHaveValue("a/b")
+  await search.fill("")
+
+  await captionWithUrl(page, "Reload: the search is not saved")
+  await search.fill("Alpha")
+  await expect(mine).toHaveCount(1)
+  await page.reload()
+  await expect(search).toHaveValue("")
+  await expect(mine).toHaveCount(3)
+})
