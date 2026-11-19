@@ -32,7 +32,7 @@ import { COMMAND_BAR_SHORTCUT } from "../search/layout.ts"
 import { UpdateFooter } from "../updates/UpdateFooter.tsx"
 import { BuildFooter } from "./BuildFooter.tsx"
 import { ConnectionStatus, useConnectionText } from "./ConnectionStatus.tsx"
-import { AgentsWorking, AgentsWorkingRail } from "../presence/Presence.tsx"
+import { AgentsWorking, AgentsWorkingRail, ProjectWorkingBadge, useProjectsWorking } from "../presence/Presence.tsx"
 import { SIDEBAR_SHORTCUT, SIDEBAR_WIDTH, type SidebarMode } from "./sidebarState.ts"
 
 /** The sidebar's mode as shown, for the pieces outside it (the breadcrumb makes room for "Show sidebar"). Null outside the app shell. */
@@ -95,6 +95,8 @@ export function Sidebar({
   const projects = board && workspaceId ? projectsOf(board, workspaceId) : []
   const asked = board && workspaceId ? needsInputQueue(board, workspaceId) : []
   const waiting = board && workspaceId ? reviewQueue(board, workspaceId).length : 0
+  // The agents working in each project (CEL-179), from the list Agents working reads.
+  const working = useProjectsWorking(board, workspaceId)
   const switchTo = (id: string | number) => {
     setWorkspace(String(id))
     void navigate({ to: "/" })
@@ -301,9 +303,10 @@ export function Sidebar({
           </Button>
         </div>
         {projects.map((p) => (
-          <Link key={p.id} to="/$projectKey" params={{ projectKey: p.key }} className={`${row} shrink-0`} activeOptions={{ exact: false }}>
+          <Link key={p.id} to="/$projectKey" params={{ projectKey: p.key }} className={`${row} shrink-0`} activeOptions={{ exact: false }} data-project-key={p.key}>
             <i className="size-2.5 shrink-0 rounded-[3px]" style={{ background: p.color }} />
             <span className="truncate">{p.name}</span>
+            <ProjectWorkingBadge entries={working.byProject.get(p.id) ?? []} now={working.now} variant="row" />
           </Link>
         ))}
         <button

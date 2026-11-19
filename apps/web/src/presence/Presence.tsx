@@ -20,11 +20,13 @@ import { testRunOf, TestRunWord } from "./TestRun.tsx"
 import {
   agentMood,
   agentPresenceSubject,
+  agentsWorkingByProject,
   agentsWorkingCount,
   type Holder,
   markEntry,
   type MarkSeen,
   type Provenance,
+  type ProjectWorking,
   provenanceLine,
   provenanceOf,
   sessionColor,
@@ -508,14 +510,28 @@ const useAgentsWorking = (board: BoardState, workspaceId: string) => {
   return { sessions, count: agentsWorkingCount(sessions), now }
 }
 
+/**
+ * The agents working in each project (CEL-179), for the sidebar's project rows: the same sessions
+ * `useAgentsWorking` reads, split by project (agentsWorkingByProject). Takes no board while it loads.
+ */
+export const useProjectsWorking = (board: BoardState | null, workspaceId: string | null | undefined) => {
+  const now = useNow()
+  const byProject = board && workspaceId ? agentsWorkingByProject(workingSessions(board, workspaceId, now)) : new Map<string, ProjectWorking[]>()
+  return { byProject, now }
+}
+
 const keysOf = (tasks: ReadonlyArray<Task>) => tasks.map((t) => t.key).join(", ")
+
+/** A working session's line in a title: who, how recently it checked in, and its tasks. */
+const sessionLine = (s: Working, now: number, tasks: ReadonlyArray<Task>) =>
+  `${withModel(s.who)}: ${presenceWords(s.session, now)}${tasks.length ? ` (${keysOf(tasks)})` : ""}`
 
 const workingTitle = (sessions: ReadonlyArray<Working>, now: number) =>
   sessions.length === 0
     ? "No agent is working on a task"
     : sessions
       .flatMap((s) => [
-        `${withModel(s.who)}: ${presenceWords(s.session, now)}${s.tasks.length ? ` (${keysOf(s.tasks)})` : ""}`,
+        sessionLine(s, now, s.tasks),
         ...s.agents.map((a) => `  ${withModel(a.who)}: ${presenceWords(a.agent, now)}${a.task ? ` (${a.task.key})` : ""}`),
       ])
       .join("\n")
@@ -596,6 +612,41 @@ export function AgentsWorking({ board, workspaceId, className }: { board: BoardS
         {count}
       </span>
     </Link>
+  )
+}
+
+/** "2 agents working", then each session and the tasks it's on in this project: the badge's title. */
+const projectWorkingTitle = (entries: ReadonlyArray<ProjectWorking>, now: number) =>
+  [`${entries.length} ${entries.length === 1 ? "agent" : "agents"} working`, ...entries.map((e) => sessionLine(e.working, now, e.tasks))].join("\n")
+
+/** How many times `count` has changed since this component first showed it: 0 while it hasn't, so only a change animates. */
+const useChanges = (count: number) => {
+  const [seen, setSeen] = useState({ count, changes: 0 })
+  if (seen.count !== count) setSeen({ count, changes: seen.changes + 1 })
+  return seen.changes
+}
+
+const PROJECT_BADGE = {
+  // The Agents working pill, right-aligned on the project's row.
+  row: "ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-hover px-1.5 text-[11px] font-semibold tabular-nums text-ink",
+  // The rail's badge, on the corner of the project's square.
+  rail: "absolute -top-1 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-hover px-1 text-[10px] font-semibold tabular-nums text-ink ring-2 ring-canvas",
+} as const
+
+/**
+ * How many agents are working in a project (CEL-179), on its sidebar row or its square on the rail. Hidden
+ * at 0. Its title lists the sessions and their tasks. It pops once when the number changes (count-pop)
+ * and otherwise stands still. Always rendered, so a count that goes from 0 to 1 is a change too.
+ */
+export function ProjectWorkingBadge({ entries, now, variant }: { entries: ReadonlyArray<ProjectWorking>; now: number; variant: keyof typeof PROJECT_BADGE }) {
+  const count = entries.length
+  const changes = useChanges(count)
+  if (count === 0) return null
+  return (
+    <span key={changes} data-project-working={count} title={projectWorkingTitle(entries, now)} className={`${PROJECT_BADGE[variant]}${changes > 0 ? " count-pop" : ""}`}>
+      {count}
+      <span className="sr-only"> {count === 1 ? "agent" : "agents"} working</span>
+    </span>
   )
 }
 
