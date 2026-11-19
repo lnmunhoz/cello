@@ -11,7 +11,7 @@ import { isReview } from "./recording.ts"
 
 const UNDO_KEY = "cello:review-undo"
 /** Seconds for the tests that watch a window end: short, but longer in review videos, where it is shown. */
-const WINDOW_THAT_ENDS = isReview(process.env) ? "6" : "2"
+const WINDOW_THAT_ENDS = isReview(process.env) ? "3" : "2"
 
 const rowOf = (page: Page, key: string) => {
   const article = page.getByRole("article", { name: new RegExp(`${key}\\b`) })
