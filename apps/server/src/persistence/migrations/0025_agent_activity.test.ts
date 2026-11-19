@@ -31,7 +31,8 @@ describe("migration 0025_agent_activity", () => {
       const sessionsAfter = yield* sql<Record<string, unknown>>`SELECT * FROM agent_sessions ORDER BY id`
       const agentsAfter = yield* sql<Record<string, unknown>>`SELECT * FROM session_agents ORDER BY agent_id`
       expect(sessionsAfter.map(strip)).toEqual(sessions)
-      expect(agentsAfter.map(strip)).toEqual(agents)
+      // 0030 (CEL-152) adds the subagent's own folder after it (not the session's, which it always had).
+      expect(agentsAfter.map(({ cwd, ...rest }) => strip(rest))).toEqual(agents)
       for (const row of sessionsAfter) expect([row.background_json, row.tests_json]).toEqual([null, null])
       for (const row of agentsAfter) expect([row.background_json, row.tests_json, row.waiting_json]).toEqual([null, null, null])
     }).pipe(Effect.provide(Sqlite.layer(":memory:"))))

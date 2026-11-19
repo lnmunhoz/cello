@@ -36,6 +36,7 @@ import sessionTerminal from "./migrations/0026_session_terminal.ts"
 import mergeAfterApproval from "./migrations/0027_merge_after_approval.ts"
 import agentVerdict from "./migrations/0028_agent_verdict.ts"
 import reviewRelayed from "./migrations/0029_review_relayed.ts"
+import agentCwd from "./migrations/0030_agent_cwd.ts"
 
 /** Every migration by id. Tests of one migration run the ones before it from here. */
 export const records = {
@@ -68,6 +69,7 @@ export const records = {
   "0027_merge_after_approval": mergeAfterApproval,
   "0028_agent_verdict": agentVerdict,
   "0029_review_relayed": reviewRelayed,
+  "0030_agent_cwd": agentCwd,
 }
 
 export const migrations = SqliteMigrator.fromRecord(records)

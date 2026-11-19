@@ -46,7 +46,9 @@ describe("migration 0022_writer_model", () => {
       for (const table of TABLES) {
         const after = yield* sql<Record<string, unknown>>`SELECT * FROM ${sql(table)} ORDER BY rowid`
         // 0023 (CEL-124) adds orchestrating to sessions after it, 0025 (CEL-133) activity, 0026 (CEL-137) the terminal app.
-        expect(after.map(({ model, effort, orchestrating, background_json, tests_json, waiting_json, terminal, verdict, ...rest }) => rest)).toEqual(before.get(table))
+        // 0030 (CEL-152) adds the subagent's own folder after it (`cwd` of session_agents only; sessions always had one).
+        const strip = (row: Record<string, unknown>) => (table === "session_agents" ? { ...row, cwd: undefined } : row)
+        expect(after.map(({ model, effort, orchestrating, background_json, tests_json, waiting_json, terminal, verdict, ...rest }) => strip(rest))).toEqual(before.get(table)?.map((row) => strip(row as Record<string, unknown>)))
         for (const row of after) expect([row.model, row.effort]).toEqual([null, null])
       }
       expect(yield* sql`PRAGMA integrity_check`).toEqual([{ integrity_check: "ok" }])
