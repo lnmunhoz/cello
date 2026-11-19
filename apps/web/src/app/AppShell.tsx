@@ -1,3 +1,4 @@
+import { RecoverDecisions } from "../review/RecoverDecisions.tsx"
 import { Outlet, useRouter, useSearch } from "@tanstack/react-router"
 import { useShortcut } from "@ui-sdk/react/shortcuts"
 import { useEffect, useState } from "react"
@@ -104,6 +105,8 @@ export function AppShell() {
           <AppRestartBar />
         </NoticeStack>
         <UpdateNotices />
+        {/* A decision in its undo window when a page closed (CEL-191) is sent when the app next loads, on whichever page. */}
+        <RecoverDecisions />
         <Toaster />
       </div>
     </SidebarContext>

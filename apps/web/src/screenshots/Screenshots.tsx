@@ -67,6 +67,8 @@ interface BoxProps {
   readonly onAttach: (files: ReadonlyArray<File>) => void
   readonly onRemove: (attachmentId: string) => void
   readonly onKeyDown?: ((e: KeyboardEvent<HTMLTextAreaElement>) => void) | undefined
+  /** Nothing can be typed, pasted, dropped or removed: a decision is taking what is in the box (CEL-191). */
+  readonly readOnly?: boolean | undefined
 }
 
 const filesIn = (list: DataTransferItemList | null | undefined): File[] =>
@@ -80,13 +82,13 @@ const filesIn = (list: DataTransferItemList | null | undefined): File[] =>
  * A text box that takes pasted and dropped screenshots, shown as thumbnails under it. Its text and
  * screenshots are kept on this device until sent, so a reload loses nothing (the draft check counts it saved).
  */
-export function ScreenshotBox({ label, placeholder, value, screenshots, onChange, onAttach, onRemove, onKeyDown }: BoxProps) {
+export function ScreenshotBox({ label, placeholder, value, screenshots, onChange, onAttach, onRemove, onKeyDown, readOnly = false }: BoxProps) {
   const [dropping, setDropping] = useState(false)
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = filesIn(e.clipboardData?.items)
     if (files.length === 0) return
     e.preventDefault()
-    onAttach(files)
+    if (!readOnly) onAttach(files)
   }
   const hasFiles = (e: DragEvent) => [...e.dataTransfer.types].includes("Files")
   return (
@@ -104,7 +106,7 @@ export function ScreenshotBox({ label, placeholder, value, screenshots, onChange
         if (!hasFiles(e)) return
         e.preventDefault()
         setDropping(false)
-        onAttach([...e.dataTransfer.files])
+        if (!readOnly) onAttach([...e.dataTransfer.files])
       }}
       className="flex flex-col gap-2 rounded-md data-dropping:ring-2 data-dropping:ring-accent"
     >
@@ -114,12 +116,13 @@ export function ScreenshotBox({ label, placeholder, value, screenshots, onChange
         {...SAVES_ON_BLUR}
         placeholder={placeholder}
         value={value}
+        readOnly={readOnly}
         onChange={(e) => onChange(e.currentTarget.value)}
         onPaste={onPaste}
         onKeyDown={onKeyDown}
       />
       {screenshots.length > 0 ? (
-        <ScreenshotThumbs shots={screenshots} size="md" label="Pasted screenshots" onRemove={onRemove} />
+        <ScreenshotThumbs shots={screenshots} size="md" label="Pasted screenshots" onRemove={readOnly ? () => {} : onRemove} />
       ) : (
         <span className="flex items-center gap-1.5 text-[11px] text-faint">
           <ImagePlusIcon aria-hidden className="size-3" />
