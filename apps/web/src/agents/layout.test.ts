@@ -8,6 +8,7 @@ import {
   agentGroups,
   agentRows,
   agentProjectIds,
+  clearFinished,
   directTasks,
   filterAgentRows,
   finishedRows,
@@ -17,6 +18,7 @@ import {
   homeProjectOf,
   logLinkOf,
   parseAgentsSearch,
+  parseClearedAt,
   pulseKeyOf,
   rowKeysOf,
   searchAgentRows,
@@ -414,6 +416,39 @@ describe("Older: quiet for more than a day, nothing open (CEL-156)", () => {
     const finishedSub = finishedRows(EMPTY_BOARD, [{ session: row!.session, agent: { sessionId: "a", agentId: "x", agentType: "cello-builder", taskId: "t1", description: null, startedAt: now, lastSeenAt: now, endedAt: now }, endedAt: now, tasks: [task("t1", "T-1")] }])
     const { rows } = foldFinished([row!], finishedSub)
     expect(agentGroups(rows, [], { now, statuses }).map((g) => g.id)).toEqual(["quiet"])
+  })
+})
+
+describe("Clear finished: the rows that finished before the stamp are hidden, never deleted (CEL-156)", () => {
+  const rowsEnded = (...ends: number[]) =>
+    finishedRows(EMPTY_BOARD, ends.map((endedAt, i) => ({ session: session(`s${i}`), agent: null, tasks: [], endedAt })))
+
+  it("no stamp hides nothing; a stamp hides what ended at or before it, and shows what ended after", () => {
+    const finished = rowsEnded(now - 3000, now - 2000, now - 1000)
+    expect(clearFinished(finished, null)).toEqual({ shown: finished, hidden: [] })
+    const cleared = clearFinished(finished, now - 2000)
+    expect(cleared.shown.map((r) => r.id)).toEqual(["session:s2"])
+    expect(cleared.hidden.map((r) => r.id)).toEqual(["session:s0", "session:s1"])
+  })
+
+  it("new ones that finish after the stamp show by themselves", () => {
+    expect(clearFinished(rowsEnded(now + 5000), now).shown.map((r) => r.id)).toEqual(["session:s0"])
+  })
+
+  it("subagents folded under a session are cleared with the rest, so the fold counts what's shown", () => {
+    const a = session("fam")
+    const sub = (id: string, endedAt: number) => finishedRows(EMPTY_BOARD, [{ session: a, agent: { sessionId: a.id, agentId: id, agentType: "cello-builder", taskId: null, description: null, startedAt: now - 9000, lastSeenAt: endedAt, endedAt }, endedAt, tasks: [] }])[0]!
+    const { shown, hidden } = clearFinished([sub("old", now - 5000), sub("new", now - 1000)], now - 3000)
+    expect(foldFinished(agentRows([working(a)]), shown).rows[0]!.folded.map((r) => r.id)).toEqual(["agent:fam/new"])
+    expect(hidden.map((r) => r.id)).toEqual(["agent:fam/old"])
+  })
+
+  it("the saved stamp is a time; anything else is no stamp", () => {
+    expect(parseClearedAt(String(now))).toBe(now)
+    expect(parseClearedAt(null)).toBeNull()
+    expect(parseClearedAt("")).toBeNull()
+    expect(parseClearedAt("0")).toBeNull()
+    expect(parseClearedAt("soon")).toBeNull()
   })
 })
 

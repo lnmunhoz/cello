@@ -248,6 +248,28 @@ export const rowKeysOf = (groups: ReadonlyArray<AgentGroup>, open: OpenParts = {
     .filter((g) => g.id !== "older" || open.older)
     .flatMap((g) => g.rows.flatMap((r) => [r.id, ...(open.folds.has(r.id) ? r.folded.map((f) => f.id) : [])]))
 
+/** The stamp Clear finished saves on this device (lib/storage.ts): the time it was pressed, in milliseconds. */
+export const CLEARED_KEY = "cello:agents:cleared"
+
+/** The saved stamp as a time; anything else is no stamp. */
+export const parseClearedAt = (stored: string | null): number | null => {
+  const at = Number(stored)
+  return stored !== null && Number.isFinite(at) && at > 0 ? at : null
+}
+
+/**
+ * Clear finished (CEL-156): the finished rows that ended after `clearedAt` (null: none cleared), and the
+ * ones it hides. Hidden, not deleted: the events and the task history keep who did what, the rows that
+ * finish later show, and the page says how many are hidden.
+ */
+export const clearFinished = (
+  finished: ReadonlyArray<AgentRow>,
+  clearedAt: number | null,
+): { readonly shown: AgentRow[]; readonly hidden: AgentRow[] } => {
+  const hides = (r: AgentRow) => clearedAt !== null && (r.endedAt ?? 0) <= clearedAt
+  return { shown: finished.filter((r) => !hides(r)), hidden: finished.filter(hides) }
+}
+
 /** The rows and the subagents folded under them, flat: every row an id can name. */
 export const withFolded = (rows: ReadonlyArray<AgentRow>): AgentRow[] => rows.flatMap((r) => [r, ...r.folded])
 

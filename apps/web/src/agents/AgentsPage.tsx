@@ -49,7 +49,10 @@ import {
   foldedLabel,
   foldFinished,
   groupOf,
+  CLEARED_KEY,
+  clearFinished,
   OLDER_KEY,
+  parseClearedAt,
   agentProjectIds,
   pulseKeyOf,
   rowKeysOf,
@@ -102,7 +105,10 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const projectId = picked?.id ?? null
   const allSessions = workingSessions(board, workspaceId, now)
   // The finished subagents fold into their session's row (CEL-156): working or finished, it holds them in one line.
-  const { rows: allRows, finished: allFinished } = foldFinished(agentRows(allSessions), finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now))))
+  // Clear finished (CEL-156) hides what finished before its stamp, on this device: hidden, not deleted, and counted below.
+  const clearedAt = parseClearedAt(useStored(CLEARED_KEY))
+  const { shown: finishedShown, hidden: finishedHidden } = clearFinished(finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now))), clearedAt)
+  const { rows: allRows, finished: allFinished } = foldFinished(agentRows(allSessions), finishedShown)
   // The chips count the whole list, Finished today too (the pick filters it), so rows stay put while you filter;
   // a family is never split by a pick. All N is every row listed (working, quiet and finished today). The header's
   // number stays the sidebar's: agents working now, of the rows shown.
@@ -133,8 +139,8 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const keys = rowKeysOf(groups, { older: olderOpen, folds: foldsOpen })
   // A pick or a new sort starts the list afresh (the LayoutGroup's key, and its id, so no row's layoutId reaches back to
   // where the same row was before): no row glides or folds to its new place, since the human asked for it; events still do.
-  // Opening or closing Older is the human's too: the rows under it come or go at once (CEL-156).
-  const listView = `${view}/${query.trim().toLowerCase()}/${olderOpen ? "older" : ""}`
+  // Opening or closing Older, and Clear finished or Show, are the human's too: the rows come or go at once (CEL-156).
+  const listView = `${view}/${query.trim().toLowerCase()}/${olderOpen ? "older" : ""}/${clearedAt ?? ""}`
   const layoutKey = groups.map((g) => `${g.id}:${g.rows.map((r) => r.id).join(",")}`).join(";")
   const placement = new Map(groups.flatMap((g) => g.rows.map((r) => [r.id, g.id] as const)))
   const openId = open !== undefined && keys.includes(open) ? open : null
@@ -161,14 +167,33 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
       {/* A packet container, like the Review page's: on a wide panel an open row splits in two. */}
       <div data-agents-scroller="" className="@container/packet flex-1 overflow-y-auto py-6">
         <div className="packet-column flex flex-col gap-6">
-          <header className="flex flex-col gap-0.5">
-            <h1 className="text-[17px] font-semibold">
-              Agents working <span className="font-normal text-muted tabular-nums">{agentsWorkingCount(sessions)}</span>
-            </h1>
-            <p className="text-[13px] text-muted">
-              Every agent session and subagent on a task in this workspace, and the card it's on. Agents waiting on you come first, the ones
-              that finished today last. Open one to see what it was asked and its log. ↑ ↓ or j k move between rows, Enter opens, Esc closes, / searches.
-            </p>
+          <header className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-0.5">
+              <h1 className="text-[17px] font-semibold">
+                Agents working <span className="font-normal text-muted tabular-nums">{agentsWorkingCount(sessions)}</span>
+              </h1>
+              <p className="text-[13px] text-muted">
+                Every agent session and subagent on a task in this workspace, and the card it's on. Agents waiting on you come first, the ones
+                that finished today next; subagents that finished fold into their session's row, and sessions quiet for a day with nothing open
+                go to Older. Open one to see what it was asked and its log. ↑ ↓ or j k move between rows, Enter opens, Esc closes, / searches.
+              </p>
+            </div>
+            {/* Clear finished hides the finished rows on this device (CEL-156); it says how many are hidden, so nothing seems lost. */}
+            <div className="flex shrink-0 items-center gap-1 text-xs text-muted" data-agents-clear="">
+              {finishedHidden.length > 0 ? (
+                <>
+                  <span data-agents-hidden={finishedHidden.length}>{finishedHidden.length} hidden ·</span>
+                  <Button variant="ghost" size="sm" onClick={() => writeStored(CLEARED_KEY, "")}>
+                    Show
+                  </Button>
+                </>
+              ) : null}
+              {finishedShown.length > 0 ? (
+                <Button variant="secondary" size="sm" data-agents-clear-button="" onClick={() => writeStored(CLEARED_KEY, String(Date.now()))}>
+                  Clear finished
+                </Button>
+              ) : null}
+            </div>
           </header>
           <QueueToolbar chips={chips} picked={picked} onPick={onPick} search={query} onSearch={onSearch} sort={sort} sorts={AGENT_SORTS} labels={AGENT_SORT_LABELS} onSort={pickSort} />
           {groups.length === 0 && searching ? <NothingMatching query={query} onClear={() => onSearch("")} /> : null}
