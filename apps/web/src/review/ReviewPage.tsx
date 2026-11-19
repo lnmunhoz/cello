@@ -6,6 +6,7 @@ import type { Project, Task } from "@cello/contract/entities"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { CheckIcon, CornerUpLeftIcon } from "lucide-react"
 import { Button } from "../components/ui/Button.tsx"
+import { toast } from "../components/ui/Toast.tsx"
 import { AnimatePresence, motion, useIsPresent, useReducedMotion } from "motion/react"
 import { type ReactNode, useEffect, useEffectEvent, useState } from "react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
@@ -169,7 +170,9 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   const versions = allQueue.map((item) => `${item.task.key}=${item.review?.id ?? ""}`).join(" ")
   const dropOvertaken = useEffectEvent(() => {
     const current = new Map(allQueue.map((item) => [item.task.key, item.review?.id ?? ""] as const))
-    for (const key of overtaken(held, current, (item) => item.review?.id ?? "")) deferredDecisions.undo(key)
+    for (const key of overtaken(held, current, (item) => item.review?.id ?? "")) {
+      if (deferredDecisions.undo(key)) toast({ id: `undo-overtaken-${key}`, title: `${key} changed while you waited`, description: "Your decision was not sent." })
+    }
   })
   useEffect(() => dropOvertaken(), [versions])
   // Leaving the page sends what waits: Lucas did click Approve. A tab that was hidden has late timers, so what is due goes

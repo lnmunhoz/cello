@@ -207,6 +207,16 @@ export const test = base.extend<{ cello: PromiseClient; captions: boolean }>({
   },
   context: async ({ context, captions, video: videoOption }, use, testInfo) => {
     await context.addInitScript(overlay, { ...pointer, captions })
+    // CEL-191: Approve and Send back wait in an undo window on the Review page by default. The specs
+    // written before it expect them sent at once, so a page starts with the window off unless a test chose.
+    await context.addInitScript(() => {
+      // Once per tab (sessionStorage outlives a reload), so a test that clears the setting sees the app's own default.
+      try {
+        if (sessionStorage.getItem("e2e:review-undo-seeded") !== null) return
+        sessionStorage.setItem("e2e:review-undo-seeded", "1")
+        if (localStorage.getItem("cello:review-undo") === null) localStorage.setItem("cello:review-undo", "off")
+      } catch {}
+    })
     // Each tab's video, and the viewport sizes it showed, so teardown can crop away the grey
     // Playwright draws around a page smaller than the video (a phone width, a short window).
     const tabs: Array<{ video: Video | null; viewports: Array<{ width: number; height: number } | null> }> = []

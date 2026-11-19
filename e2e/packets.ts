@@ -289,11 +289,14 @@ export async function decisionsThroughTest(page: Page) {
   let fail = false
   const held = new Set<string>()
   const waiting: Array<() => void> = []
+  /** CEL-191: every decision that reached the socket, as "review.approve" or "review.sendBack": what was sent, however it was answered. */
+  const sent: string[] = []
   await page.routeWebSocket(/\/rpc$/, (ws) => {
     const server = ws.connectToServer()
     ws.onMessage((frame) => {
       const messages = rpcMessagesIn(frame).map((m) => {
         if (m._tag !== "Request" || !DECISIONS.has(m.tag ?? "")) return m
+        sent.push(m.tag!)
         if (fail) {
           fail = false
           return { ...m, payload: { ...m.payload, key: "GONE-404" } }
@@ -315,6 +318,7 @@ export async function decisionsThroughTest(page: Page) {
     })
   })
   return {
+    sent: (): ReadonlyArray<string> => [...sent],
     holdNext: () => void (hold = true),
     failNext: () => void (fail = true),
     /** The held answers reach the page. */
