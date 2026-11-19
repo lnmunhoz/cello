@@ -15,6 +15,7 @@ import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { relativeTime } from "../lib/format.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { instant as motionInstant } from "../lib/motion.ts"
+import { useNow } from "../presence/useNow.ts"
 import { EvidenceBadge } from "./EvidenceBadge.tsx"
 import { FOLD_SPRING, QueueRow, type QueueRowState } from "./QueueRow.tsx"
 import { allLeft, type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, filterQueue, type Held, holdStep, IDLE, REVIEW_SORT_LABELS, REVIEW_SORTS, sortQueue, syncHeld, withHeld } from "./queue.ts"
@@ -51,6 +52,8 @@ export function ReviewPage() {
 function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: string }) {
   const { open } = useSearch({ from: "/review" })
   const navigate = useNavigate({ from: "/review" })
+  // The page's slow clock (30 s, no animation), as the Agents page's: the waiting words move on by themselves.
+  const now = useNow()
 
   const projects = projectsOf(board, workspaceId)
   const { picked, pick, sort, pickSort, view } = useQueueView("review", projects, REVIEW_SORTS)
@@ -86,7 +89,10 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   // The row that has waited longest stands out (CEL-190), among the rows shown.
   const oldest = oldestKey([
     ...asked.map((item) => ({ key: item.task.key, since: item.ask.createdAt })),
-    ...packets.map((item) => ({ key: item.task.key, since: waitingSince(item) })),
+    ...packets.flatMap((item) => {
+      const since = waitingSince(item)
+      return since === null ? [] : [{ key: item.task.key, since }]
+    }),
   ])
   const openKey = open !== undefined && keys.includes(open) ? open : null
   // The viewer stays open beside the packet that changes.
@@ -192,6 +198,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
                         unfold={item.task.key === unfolding}
                         board={board}
                         item={item}
+                        now={now}
                         oldest={item.task.key === oldest}
                         onAnswered={() => void rows.openNext(item.task.key)}
                       />
@@ -235,6 +242,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
                             confirmation={decision === null ? undefined : <Decided decision={decision} onShown={() => shown(key)} />}
                             board={board}
                             item={item}
+                            now={now}
                             oldest={key === oldest}
                             unread={isUnread(item.review, seen, key)}
                             onDecision={(event) => onDecision(item, event)}
@@ -290,10 +298,15 @@ function FoldAway({ instant, children }: { instant: boolean; children: ReactNode
   )
 }
 
-/** When a packet row started waiting: its packet was handed in, or, by hand without one, its task last changed. */
-const waitingSince = ({ task, review }: ReviewItem): number => review?.createdAt ?? task.updatedAt
+/**
+ * When a packet row started waiting: when its packet was handed in. A task moved to In Review by hand
+ * has no packet, and the board doesn't hold when it entered the status (`updatedAt` moves with every
+ * comment or label), so it has no time to count from: no label, and it can't be the oldest.
+ */
+const waitingSince = ({ review }: ReviewItem): number | null => review?.createdAt ?? null
 
-type RowProps = QueueRowState & { readonly board: BoardState }
+/** `now` is the page's clock (presence/useNow.ts), so the waiting words move on by themselves. */
+type RowProps = QueueRowState & { readonly board: BoardState; readonly now: number }
 
 /**
  * One waiting task in the queue: collapsed, its key, title, project and `subtitle`, with `badge` on the
@@ -305,12 +318,13 @@ function TaskQueueRow({
   project,
   subtitle,
   since,
+  now,
   oldest,
   unread = false,
   badge,
   children,
   ...row
-}: RowProps & { task: Task; project: Project; subtitle: string; since: number; oldest: boolean; unread?: boolean; badge: ReactNode; children: ReactNode }) {
+}: RowProps & { task: Task; project: Project; subtitle: string; since: number | null; now: number; oldest: boolean; unread?: boolean; badge: ReactNode; children: ReactNode }) {
   const status = board.statuses[task.statusId]
   return (
     <QueueRow
@@ -334,13 +348,22 @@ function TaskQueueRow({
           <span className="truncate">
             {project.name} · {subtitle}
           </span>
-          <span aria-hidden className="shrink-0">
-            ·
-          </span>
-          {/* How long it has waited (CEL-190); the oldest row's is darker and bolder. */}
-          <span data-waiting="" data-oldest={oldest ? "" : undefined} className={`shrink-0 tabular-nums ${oldest ? "font-medium text-ink" : ""}`}>
-            {waitingLabel(since)}
-          </span>
+          {/* How long it has waited (CEL-190), by the page's clock; the oldest row's is a solid chip that says so. A row with no packet has no time to count from. */}
+          {since === null ? null : (
+            <>
+              <span aria-hidden className="shrink-0">
+                ·
+              </span>
+              <span
+                data-waiting=""
+                data-oldest={oldest ? "" : undefined}
+                className={`shrink-0 tabular-nums ${oldest ? "rounded-full bg-accent px-2 font-semibold text-accent-ink" : ""}`}
+              >
+                {waitingLabel(since, now)}
+                {oldest ? " · oldest" : ""}
+              </span>
+            </>
+          )}
         </>
       }
       badge={badge}
