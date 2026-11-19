@@ -6,6 +6,7 @@ import type { CelloEvent } from "@cello/contract/events"
 import { Caller } from "@cello/contract/rpcs"
 import type { Activity, LabelList, MilestoneDetail, MilestoneList, MilestoneSummary, ProjectContext, TaskDetail, TaskList, TaskTimeline, Whoami } from "@cello/contract/views"
 import { findMilestone, milestoneProgress } from "@cello/domain/milestone"
+import { isActiveCategory } from "@cello/domain/status"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -48,12 +49,6 @@ export class ContextService extends Context.Service<ContextService, {
 
 /** How many recent events `context` shows. */
 const RECENT = 15
-/**
- * What `task list` shows by default: tasks to do, in progress or waiting on Lucas. Backlog shows with --status Backlog.
- * `other` (a category this build doesn't know, CEL-178; the database never stores it) is open: its tasks are work
- * in flight, and hiding them from the default list would lose them.
- */
-const OPEN_CATEGORIES = new Set(["unstarted", "started", "waiting", "other"])
 
 /** The task an event is about, by id; comment edits and deletes only know the comment. */
 const taskIdOf = (e: CelloEvent): { readonly taskId: string } | { readonly commentId: string } | null => {
@@ -232,7 +227,7 @@ const make = Effect.gen(function* () {
     const milestone = query.milestone === undefined
       ? undefined
       : yield* milestoneNamed(project, yield* selectMilestones(sql, sql`m.project_id = ${project.id}`), query.milestone, true)
-    const open = new Set(statuses.filter((s) => OPEN_CATEGORIES.has(s.category)).map((s) => s.id))
+    const open = new Set(statuses.filter((s) => isActiveCategory(s.category)).map((s) => s.id))
     const order = new Map(statuses.map((s, i) => [s.id, i]))
     const rows = (yield* selectTasks(
       sql,
