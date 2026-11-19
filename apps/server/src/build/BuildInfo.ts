@@ -3,7 +3,7 @@
 // tabs ask for it on every (re)connect, so a tab running an older web build can offer a reload.
 import * as fs from "node:fs"
 import { type ServerBuild, WebBuild } from "@cello/contract/build"
-import { APP_VERSION } from "@cello/shared/version"
+import { APP_VERSION } from "@cello/release/version"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"

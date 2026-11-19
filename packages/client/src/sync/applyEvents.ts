@@ -2,7 +2,7 @@
 import { type Actor, type AgentSession, agentKey, type Ask, type DocumentSummary, type Label, type Milestone, type Project, type Review, type SessionAgent, type Snapshot, type Status, type Task, type TaskWake, type Workspace } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
 import { wakeOf } from "@cello/contract/wake"
-import { colorFromSeed } from "@cello/shared/color"
+import { colorFromSeed } from "@cello/domain/color"
 
 type ById<T> = Readonly<Record<string, T>>
 

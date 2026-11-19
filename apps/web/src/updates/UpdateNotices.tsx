@@ -1,4 +1,4 @@
-import { shouldNotify } from "@cello/shared/updates"
+import { shouldNotify } from "@cello/release/updates"
 import { useEffect } from "react"
 import { toast } from "../components/ui/Toast.tsx"
 import { openWhatsNew, updateCommand, useUpdateState } from "./updates.ts"

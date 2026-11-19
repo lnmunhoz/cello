@@ -1,0 +1,11 @@
+{
+  "name": "@cello/text",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@cello/domain": "workspace:*"
+  }
+}

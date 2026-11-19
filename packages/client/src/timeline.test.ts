@@ -5,7 +5,7 @@ import type { BuildRecord } from "@cello/contract/build"
 import type { EventBody, StreamedEvent } from "@cello/contract/events"
 import { type AgentSession, agentKey, type SessionAgent, type TestRun } from "@cello/contract/entities"
 import type { AgentRun, TaskTimeline } from "@cello/contract/views"
-import { STALE_RUN_MS } from "@cello/shared/testRun"
+import { STALE_RUN_MS } from "@cello/domain/testRun"
 import { describe, expect, it } from "vitest"
 import { foldRuns, foldText, liveTestLines, testKeysOf, timelineLineText, timelineOf, type ThreadItem, verdictLabel, type TimelineItem } from "./timeline.ts"
 

@@ -1,7 +1,7 @@
 // The "Go to" rows at the top of the ⌘K bar for a query that names a task (CEL-162): `CEL-147` and
 // `cel 147` are one task, a bare `147` is every project's task with that number.
 import type { SearchResults } from "@cello/contract/search"
-import { formatTaskKey } from "@cello/shared/taskKey"
+import { formatTaskKey } from "@cello/domain/taskKey"
 
 /** The task keys to offer for what `parseTaskQuery` read: a bare number lists each project's, the current project's first. */
 export const jumpKeys = (

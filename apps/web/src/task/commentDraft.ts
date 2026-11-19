@@ -4,7 +4,8 @@
 // as they land; the draft keeps their attachments.
 import type { Attachment } from "@cello/contract/entities"
 import { readStored, useStored, writeStored } from "../lib/storage.ts"
-import { attachmentsIn, isRecord } from "../screenshots/screenshots.ts"
+import { isRecord } from "@cello/domain/record"
+import { attachmentsIn } from "../screenshots/screenshots.ts"
 
 export interface CommentDraft {
   readonly body: string

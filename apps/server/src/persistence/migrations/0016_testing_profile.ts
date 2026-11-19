@@ -4,7 +4,7 @@
 // - `profile_fields` holds one row per field a project's testing profile has set: its value, who set
 //   it last (`source`: detected by `cello init`, an agent, or the human; and the actor and session) and
 //   when it was last set or confirmed. Field names are free text checked by the service
-//   (@cello/shared/testingProfile), so a new field needs no migration. An unset field has no row.
+//   (@cello/domain/testingProfile), so a new field needs no migration. An unset field has no row.
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/sql/SqlClient"
 

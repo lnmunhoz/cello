@@ -1,6 +1,6 @@
 // Read-only views over client state, shared by every screen.
 import type { Project, Status, Task } from "@cello/contract/entities"
-import { positionBetween } from "@cello/shared/position"
+import { positionBetween } from "@cello/domain/position"
 import type { BoardState } from "./applyEvents.ts"
 
 export const comparePosition = (a: { readonly position: string }, b: { readonly position: string }): number =>

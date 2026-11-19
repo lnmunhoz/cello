@@ -5,8 +5,8 @@
 // (CEL-142). A click opens the task in the main window wherever the key is shown (lib/desktop.ts):
 // beside its own board, or in the side panel of the page you're on (CEL-141).
 import type { KeyedTask } from "@cello/client/sync/selectors"
-import type { LinkifyOptions } from "@cello/shared/linkify"
-import { parseTaskKey, taskPath } from "@cello/shared/taskKey"
+import type { LinkifyOptions } from "@cello/text/linkify"
+import { parseTaskKey, taskPath } from "@cello/domain/taskKey"
 import { useRouter } from "@tanstack/react-router"
 import type { ComponentProps } from "react"
 import type { ExtraProps } from "react-markdown"

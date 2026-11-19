@@ -3,9 +3,9 @@
 // artifacts, `frame-ancestors 'self'`). Its preload exposes `window.celloDesktop`. Cello's own pages,
 // text files, images and videos open in the board's own side panel (apps/web/src/viewer) either way;
 // in a plain browser the bridge is missing and outside sites open there too.
-import type { DesktopBoardCommand, DesktopBoardState } from "@cello/shared/desktopBoard"
-import { parseTaskKey } from "@cello/shared/taskKey"
-import type { UpdateCommand, UpdateState } from "@cello/shared/updates"
+import type { DesktopBoardCommand, DesktopBoardState } from "@cello/domain/desktopBoard"
+import { parseTaskKey } from "@cello/domain/taskKey"
+import type { UpdateCommand, UpdateState } from "@cello/release/updates"
 import { openImageModal } from "../viewer/imageModal.ts"
 import { showInViewer } from "../viewer/store.ts"
 import { openTarget, taskRoute, type OpenTarget, type OpenTaskMessage, type ViewerItem } from "../viewer/viewer.ts"

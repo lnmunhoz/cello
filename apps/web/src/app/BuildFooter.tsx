@@ -1,4 +1,4 @@
-import { buildLine, buildParts } from "@cello/shared/build"
+import { buildLine, buildParts } from "@cello/release/build"
 import { Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/Popover.tsx"

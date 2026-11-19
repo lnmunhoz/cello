@@ -15,7 +15,7 @@ import {
   agentMarkSvg,
 } from "./agentMark.ts"
 
-const art = (file: string) => readFileSync(new URL(`../../../art/icon/${file}`, import.meta.url), "utf8")
+const art = (file: string) => readFileSync(new URL(`../../../../art/icon/${file}`, import.meta.url), "utf8")
 
 /** The numbers of a `viewBox="x y w h"` and `width="…"` in an SVG's markup. */
 const frame = (svg: string) => {

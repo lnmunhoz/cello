@@ -1,7 +1,7 @@
 // Read-only views of a project's milestones for the Milestones page and a milestone's page (CEL-132).
 // Progress is derived here from the tasks the board already has, so a bar moves as cards move.
 import type { Milestone, Task } from "@cello/contract/entities"
-import { byPosition, milestoneProgress, openWithoutMilestone, type MilestoneProgress } from "@cello/shared/milestone"
+import { byPosition, milestoneProgress, openWithoutMilestone, type MilestoneProgress } from "@cello/domain/milestone"
 import type { BoardState } from "./applyEvents.ts"
 import { listGroups, type ListGroup } from "./list.ts"
 import { comparePosition, statusesOf } from "./selectors.ts"

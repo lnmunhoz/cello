@@ -1,7 +1,7 @@
 // What `cello sessions wake` and `cello sessions runs` print (CEL-92): a woken run and where its log is.
 import type { SessionRun } from "@cello/contract/entities"
 import { runLength, WAKE_WHY_TEXT } from "@cello/contract/wake"
-import { shortSession } from "@cello/shared/session"
+import { shortSession } from "@cello/domain/session"
 import { columns, localTime } from "./format.ts"
 
 /** Whether an argument is a task key (CEL-92) rather than a session id. */

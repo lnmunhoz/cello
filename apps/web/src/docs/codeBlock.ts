@@ -2,7 +2,7 @@
 // or an unmarked block holding a whole git diff, CEL-176) or plain code. Pages (Prose) and comments,
 // packet summaries, asks and descriptions (Markdown) both ask here, from the children react-markdown
 // gives a <pre>, so the two renderers agree on what a block is.
-import { parseDiffBlock, parseUnifiedDiff, type ParsedDiff } from "@cello/shared/diff"
+import { parseDiffBlock, parseUnifiedDiff, type ParsedDiff } from "@cello/text/diff"
 import { Children, isValidElement, type ReactNode } from "react"
 
 /** The language (from the fence, lower case) and text of a fenced block; null when the children are not one `<code>`. */

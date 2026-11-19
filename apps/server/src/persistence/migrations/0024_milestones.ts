@@ -16,8 +16,8 @@
 //   got first), so its history says what became of a second label. That task's version goes up by one
 //   to match; nothing else about it changes (not its last change: the migration isn't an edit of anyone's).
 // A board with no Milestone labels only gets the table and the column.
-import { compareMilestoneNames } from "@cello/shared/milestone"
-import { positionsAfter } from "@cello/shared/position"
+import { compareMilestoneNames } from "@cello/domain/milestone"
+import { positionsAfter } from "@cello/domain/position"
 import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/sql/SqlClient"

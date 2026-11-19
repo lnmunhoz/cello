@@ -197,7 +197,8 @@ A snapshot of Cello's own board as of November 2026. Priorities move every week.
 | `apps/cli` | The `cello` CLI, which also runs the server (`cello start`) |
 | `apps/desktop` | The Electron desktop app |
 | `packages/contract` | The RPC contract and tagged errors shared by every entry point |
-| `packages/client`, `packages/shared` | The typed client and shared pure logic |
+| `packages/client` | The typed client |
+| `packages/domain`, `packages/text`, `packages/release`, `packages/host` | Shared code by job: the board's rules, markdown and text helpers, builds and releases, Node and macOS code |
 | `e2e` | End-to-end tests (Playwright), run in Docker with videos |
 | `docs` | The CLI guide for agents, how a feature flows end to end, decisions in `docs/internals` |
 | [`SPEC.md`](SPEC.md) | The original design: problem, data model, architecture |

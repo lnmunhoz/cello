@@ -4,8 +4,8 @@
 // an action its shortcut.
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { SearchHit } from "@cello/contract/search"
-import type { Range } from "@cello/shared/search"
-import { segments } from "@cello/shared/search"
+import type { Range } from "@cello/text/search"
+import { segments } from "@cello/text/search"
 import { useAtomValue } from "@effect/atom-react"
 import { formatShortcut } from "@ui-sdk/react/shortcuts"
 import * as AsyncResult from "effect/reactivity/AsyncResult"

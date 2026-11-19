@@ -4,7 +4,7 @@
 // (CEL-149): Cello Dev, /Applications/Cello Dev.app, unless the package said --flavor release.
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { flavorArg } from "@cello/shared/flavor"
+import { flavorArg } from "@cello/release/flavor"
 import { appIdentity, type AppIdentity } from "../src/flavor.ts"
 import {
   checkoutRoots,

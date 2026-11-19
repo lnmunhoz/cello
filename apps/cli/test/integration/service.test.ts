@@ -4,9 +4,9 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { startServer, tempDataDir } from "@cello/server/testing/servers"
-import { LOCK_FILE } from "@cello/server/server/ServerLock"
+import { LOCK_FILE } from "@cello/host/serverLock"
 import { isAlive } from "@cello/server/process/isAlive"
-import { plistPath, renderPlist, servicePathVariable } from "@cello/shared/launchAgent"
+import { plistPath, renderPlist, servicePathVariable } from "@cello/host/launchAgent"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import {

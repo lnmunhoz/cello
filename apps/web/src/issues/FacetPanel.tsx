@@ -23,7 +23,7 @@ import {
   type Waiting,
 } from "@cello/client/sync/filters"
 import type { Label, Milestone, Priority, Task } from "@cello/contract/entities"
-import { presenceOf, presenceWords } from "@cello/shared/presence"
+import { presenceOf, presenceWords } from "@cello/domain/presence"
 import {
   BotIcon,
   CalendarClockIcon,

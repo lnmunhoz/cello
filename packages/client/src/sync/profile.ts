@@ -1,7 +1,7 @@
 // A project's testing profile (CEL-89), loaded once in Settings and kept current by `profile.changed`.
 import type { ProfileField, TestingProfile } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
-import { compareFields } from "@cello/shared/testingProfile"
+import { compareFields } from "@cello/domain/testingProfile"
 
 
 /** The profile after `events`; the same object when none of them changes it. */

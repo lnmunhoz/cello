@@ -1,7 +1,7 @@
 import { documentBySlug } from "@cello/client/sync/documents"
 import { projectByKey } from "@cello/client/sync/selectors"
-import { embedUrl } from "@cello/shared/embed"
-import { formatTaskKey } from "@cello/shared/taskKey"
+import { embedUrl } from "@cello/text/embed"
+import { formatTaskKey } from "@cello/domain/taskKey"
 import { useNavigate, useRouter } from "@tanstack/react-router"
 import { useShortcut, useShortcutHint } from "@ui-sdk/react/shortcuts"
 import {
@@ -23,7 +23,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type SyntheticEvent } fro
 import { Button, ButtonLink } from "../components/ui/Button.tsx"
 import { ResizeHandle, useStoredWidth } from "../components/ui/ResizeHandle.tsx"
 import { copyText } from "../lib/clipboard.ts"
-import type { ParsedDiff } from "@cello/shared/diff"
+import type { ParsedDiff } from "@cello/text/diff"
 import { DiffText } from "../diff/DiffText.tsx"
 import { PageBody } from "../docs/PageBody.tsx"
 import { DocumentReader } from "../docs/PageReader.tsx"

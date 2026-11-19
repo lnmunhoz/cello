@@ -12,8 +12,8 @@
 //   screenshots to an ask, and `attachments.answer_to` his screenshots to what they answer.
 // - `inbox_items` is rebuilt so an item holds a comment, or an ask's answers or its withdrawal (`detail`:
 //   the status Lucas moved the card to). Nothing references it.
-import { needsInputNeighbors, NEEDS_INPUT_STATUS_NAME } from "@cello/shared/ask"
-import { positionBetween } from "@cello/shared/position"
+import { needsInputNeighbors, NEEDS_INPUT_STATUS_NAME } from "@cello/domain/ask"
+import { positionBetween } from "@cello/domain/position"
 import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/sql/SqlClient"

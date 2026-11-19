@@ -4,7 +4,7 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { ASSETS_DIR } from "../review/AssetStore.ts"
-import { DB_FILE } from "../server/ServerLock.ts"
+import { DB_FILE } from "@cello/host/serverLock"
 
 export type Rename = (from: string, to: string) => void
 

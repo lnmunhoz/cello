@@ -1,0 +1,11 @@
+{
+  "name": "@cello/domain",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "fractional-indexing": "4.0.0"
+  }
+}

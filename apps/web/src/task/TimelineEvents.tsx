@@ -18,7 +18,7 @@ import { agentPresenceSubject, agentColor, whoOf } from "../presence/model.ts"
 import { PresenceDot, STAGE_ICONS } from "../presence/Presence.tsx"
 import { TestRunFlask } from "../presence/TestRun.tsx"
 import { useNow } from "../presence/useNow.ts"
-import { presenceOf } from "@cello/shared/presence"
+import { presenceOf } from "@cello/domain/presence"
 
 /** The stage whose colour a verdict borrows: merged (green), fixing (amber), agent review (indigo). */
 const VERDICT_STAGE: Record<ReviewVerdictSeen, TaskStage | null> = { merge: "merged", fix_first: "fixing", ask: "review", other: null }

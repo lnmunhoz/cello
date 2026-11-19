@@ -25,12 +25,12 @@ export const APP_NOTICE = "cello:app-notice"
 /** Board → main: restart the app (into /Applications' copy when it runs from another). */
 export const APP_RESTART = "cello:app-restart"
 
-/** Main → board: the app's `UpdateState` (packages/shared/src/updates.ts), on each change and after each board load (CEL-140). */
+/** Main → board: the app's `UpdateState` (packages/release/src/updates.ts), on each change and after each board load (CEL-140). */
 export const UPDATE_STATE = "cello:update-state"
 /** Board → main: an `UpdateCommand` (check, download, channel, auto-download, acknowledge); main checks it with `parseUpdateCommand`. */
 export const UPDATE_COMMAND = "cello:update-command"
 
-/** Main → board: the app's `DesktopBoardState` (packages/shared/src/desktopBoard.ts) for Settings → Board, on each change and after each board load (CEL-149). */
+/** Main → board: the app's `DesktopBoardState` (packages/domain/src/desktopBoard.ts) for Settings → Board, on each change and after each board load (CEL-149). */
 export const BOARD_STATE = "cello:board-state"
 /** Board → main: a `DesktopBoardCommand` (switch to another board); main checks it with `parseDesktopBoardCommand`. */
 export const BOARD_COMMAND = "cello:board-command"

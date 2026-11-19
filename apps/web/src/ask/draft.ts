@@ -5,8 +5,9 @@
 // keeps their attachments.
 import type { AskQuestion, Attachment } from "@cello/contract/entities"
 import type { AnswerInput } from "@cello/contract/rpcs"
-import { recommendedPicks, unanswered } from "@cello/shared/ask"
-import { attachmentsIn, isRecord } from "../screenshots/screenshots.ts"
+import { recommendedPicks, unanswered } from "@cello/domain/ask"
+import { isRecord } from "@cello/domain/record"
+import { attachmentsIn } from "../screenshots/screenshots.ts"
 
 export interface DraftAnswer {
   readonly optionIds: ReadonlyArray<string>

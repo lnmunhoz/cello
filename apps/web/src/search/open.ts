@@ -1,7 +1,7 @@
 // Where a ⌘K result goes when it's opened (CEL-43), and the recent places the bar lists when it's
 // empty. Pure, so the rules are tested without a browser.
 import type { SearchHit } from "@cello/contract/search"
-import { parseTaskKey } from "@cello/shared/taskKey"
+import { parseTaskKey } from "@cello/domain/taskKey"
 
 export type Target =
   /**

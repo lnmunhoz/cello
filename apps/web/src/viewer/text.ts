@@ -2,7 +2,7 @@
 // reader; JSON indented; everything else (terminal transcripts, test logs, CSV, casts) in monospace,
 // wrapped, without the ANSI codes a terminal recording carries; a unified diff (CEL-173) as a diff view.
 // Pure, so the rules are tested here.
-import { parseUnifiedDiff, type ParsedDiff } from "@cello/shared/diff"
+import { parseUnifiedDiff, type ParsedDiff } from "@cello/text/diff"
 
 /**
  * ANSI escape sequences: CSI (colours, cursor moves, line clears: ESC [ … letter), OSC (window titles,

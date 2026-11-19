@@ -30,7 +30,7 @@ import type {
   Workspace,
 } from "@cello/contract/entities"
 import type { TaskStage } from "@cello/contract/stages"
-import { formatTaskKey } from "@cello/shared/taskKey"
+import { formatTaskKey } from "@cello/domain/taskKey"
 import * as Effect from "effect/Effect"
 import type * as SqlClient from "effect/sql/SqlClient"
 import type * as Statement from "effect/sql/Statement"

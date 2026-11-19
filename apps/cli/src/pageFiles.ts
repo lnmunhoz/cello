@@ -5,8 +5,8 @@
 // so the CLI can warn: a link left as it is shows as a missing file in the reader.
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { classify } from "@cello/shared/attachment"
-import { linkTargets, localFileTarget } from "@cello/shared/document"
+import { classify } from "@cello/text/attachment"
+import { linkTargets, localFileTarget } from "@cello/text/document"
 
 const isFile = (file: string) => {
   try {

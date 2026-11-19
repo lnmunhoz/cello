@@ -1,8 +1,8 @@
 // Which agents work in a workspace, and which finished today (CEL-65, CEL-107): read from board state,
 // so the Agents page, the sidebar and `cello agents` list the same agents. Presence itself (active,
-// idle, ended) is @cello/shared/presence; who and how each looks on screen stays with the web app.
+// idle, ended) is @cello/domain/presence; who and how each looks on screen stays with the web app.
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
-import { type Presence, presenceOf, type SessionLike } from "@cello/shared/presence"
+import { type Presence, presenceOf, type SessionLike } from "@cello/domain/presence"
 import type { BoardState } from "./applyEvents.ts"
 
 /** An agent's presence: its own, but ended once its session ended (the conversation is gone). */

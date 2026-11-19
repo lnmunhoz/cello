@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { APP_VERSION } from "@cello/shared/version"
+import { APP_VERSION } from "@cello/release/version"
 import { afterEach, expect, it } from "vitest"
 import { UNDER_LOAD } from "../../../cli/test/integration/underLoad.ts"
 

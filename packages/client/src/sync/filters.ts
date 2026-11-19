@@ -7,7 +7,7 @@
 //
 // Milestones (CEL-113) match any picked one, by name in any case; `none` is No milestone.
 import type { Label, LabelGroup, Milestone, Priority, Scope, Task } from "@cello/contract/entities"
-import { byPosition } from "@cello/shared/milestone"
+import { byPosition } from "@cello/domain/milestone"
 import type { BoardState } from "./applyEvents.ts"
 import { openAskOf } from "./asks.ts"
 import { openReviewOf } from "./reviews.ts"
@@ -102,7 +102,7 @@ const inScope = (board: BoardState, scope: Scope, projectId: string): boolean =>
 export const milestonesInScope = (board: BoardState, scope: Scope): Milestone[] =>
   Object.values(board.milestones).filter((m) => inScope(board, scope, m.projectId)).sort(byPosition)
 
-/** How a milestone name is matched: trimmed, any case (as @cello/shared/milestone's `findMilestone`). */
+/** How a milestone name is matched: trimmed, any case (as @cello/domain/milestone's `findMilestone`). */
 export const milestoneKey = (name: string): string => name.trim().toLowerCase()
 
 /**

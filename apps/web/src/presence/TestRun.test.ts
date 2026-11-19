@@ -1,7 +1,7 @@
 // CEL-134: a test run on screen, rendered to markup (no DOM in unit tests): the card's compact word, the
 // task panel's, the Agents page line, and the open row's facts; nothing once the run ended or went stale.
 import type { TestRun } from "@cello/contract/entities"
-import { STALE_RUN_MS } from "@cello/shared/testRun"
+import { STALE_RUN_MS } from "@cello/domain/testRun"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"

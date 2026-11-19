@@ -7,8 +7,8 @@
 // `ended_at`). A call from an ended session (a resumed conversation) clears `ended_at` again.
 import type { AgentSession } from "@cello/contract/entities"
 import { Caller, HUMAN_SESSION } from "@cello/contract/rpcs"
-import { colorFromSeed } from "@cello/shared/color"
-import { redact } from "@cello/shared/redact"
+import { colorFromSeed } from "@cello/domain/color"
+import { redact } from "@cello/text/redact"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -113,7 +113,7 @@ export const IDLE_CLAIM_MS = 2 * 60 * 60 * 1000
 
 /**
  * Boards hear a session check in at most this often (per workspace), however many calls it makes.
- * Well inside ACTIVE_MS (5 min, @cello/shared/presence), so a working session reads "active now"
+ * Well inside ACTIVE_MS (5 min, @cello/domain/presence), so a working session reads "active now"
  * throughout. Each one plays the card's burst (CEL-69, CEL-76), so a minute keeps a busy card moving
  * now and then; it's one `session.seen` row per working session and workspace a minute (was 2 minutes;
  * docs/internals/receipts-and-activity.md has the numbers).

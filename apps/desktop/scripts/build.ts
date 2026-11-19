@@ -3,7 +3,7 @@
 // `--flavor release|dev` (CEL-149, default dev) is baked into main.cjs as __CELLO_FLAVOR__: which app it is (src/flavor.ts).
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { flavorArg } from "@cello/shared/flavor"
+import { flavorArg } from "@cello/release/flavor"
 import { STAMP_FILE } from "../src/update/appUpdate.ts"
 import { desktopDir, electronBinary } from "./electron.ts"
 

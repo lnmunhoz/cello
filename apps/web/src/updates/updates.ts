@@ -1,7 +1,7 @@
 // Cello.app's updates on the board (CEL-140): the state the desktop app's main process keeps
-// (packages/shared/src/updates.ts), read through the preload's bridge. In a browser, or a dev build of
+// (packages/release/src/updates.ts), read through the preload's bridge. In a browser, or a dev build of
 // the app (which checks nothing), there's no state and the board shows none of the update UI.
-import type { UpdateCommand, UpdateState } from "@cello/shared/updates"
+import type { UpdateCommand, UpdateState } from "@cello/release/updates"
 import { useEffect, useState } from "react"
 import { openInPanel } from "../lib/desktop.ts"
 

@@ -4,7 +4,7 @@
 // marks each step of a feature's lifecycle, building → review → fixing → merged (docs/feature-lifecycle.md).
 // In a project that merges after approval (CEL-143), Lucas's Approve sets `merging` on the task in In
 // Review instead of moving it to Done; only Approve sets it, and a stage on an In Review task means
-// exactly that: approved, waiting for its agent to merge (packages/shared/review.ts, `awaitsMerge`).
+// exactly that: approved, waiting for its agent to merge (packages/domain/src/review.ts, `awaitsMerge`).
 // A task with no stage whose agent is active shows as Working on the board: not a stage, nobody sets it,
 // the web app works it out (apps/web/src/presence/model.ts). The one list every part reads:
 // the server validates against it, the CLI names it in help and errors, the web app draws a word, an

@@ -6,7 +6,7 @@ import { newCommandId } from "@cello/client/client"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import { writeBoardBeforeAsks } from "../../src/testing/boardBeforeAsks.ts"
-import { DB_FILE } from "../../src/server/ServerLock.ts"
+import { DB_FILE } from "@cello/host/serverLock"
 import { AGENT_IDENTITY, connect, startServer, tempDataDir } from "./harness.ts"
 
 describe("search.query", () => {

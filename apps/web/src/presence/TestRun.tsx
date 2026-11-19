@@ -1,9 +1,9 @@
 // An agent running tests (CEL-134), on screen: the Agents page row's line ("Running tests · web e2e 7 of
 // 13 · 1 failed · 3m12s", with a bar), the card's and task panel's stage line ("e2e 7/13"), and the open
-// row's facts (each failure as it happened, the run's folder). The words are @cello/shared/testRun. The
+// row's facts (each failure as it happened, the run's folder). The words are @cello/domain/testRun. The
 // bar's width moves only when a report arrives, and the flask pulses only while the run runs.
 import type { AgentSession, SessionAgent, TestRun } from "@cello/contract/entities"
-import { isRunning, testRunShort, testRunWords } from "@cello/shared/testRun"
+import { isRunning, testRunShort, testRunWords } from "@cello/domain/testRun"
 import { FlaskConicalIcon } from "lucide-react"
 import { useNow } from "./useNow.ts"
 

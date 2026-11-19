@@ -2,7 +2,7 @@
 // milestone of the project already has puts the task in that one, so a retry after a half-done first try
 // (the milestone made, the task not yet in it) finishes the job instead of failing on the taken name.
 import type { Milestone } from "@cello/contract/entities"
-import { findMilestone } from "@cello/shared/milestone"
+import { findMilestone } from "@cello/domain/milestone"
 
 export type NewMilestoneStep =
   | { readonly kind: "create"; readonly name: string }

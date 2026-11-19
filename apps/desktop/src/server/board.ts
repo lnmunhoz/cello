@@ -3,8 +3,8 @@
 // its own server there with the `cello` inside it, empty like a new user's. Pure: main.ts reads and writes the
 // file (board.json in the app's state folder, never in a board's data folder) and carries the switch out.
 import * as path from "node:path"
-import type { DesktopBoardState } from "@cello/shared/desktopBoard"
-import { DEFAULT_PORT } from "./plan.ts"
+import type { DesktopBoardState } from "@cello/domain/desktopBoard"
+import { DEFAULT_PORT, defaultDataDir } from "@cello/host/serverLock"
 
 /** Where the choice is kept, in the app's user data folder. */
 export const BOARD_FILE = "board.json"
@@ -14,7 +14,7 @@ export interface Board {
   readonly port: number
 }
 
-export const defaultBoard = (home: string): Board => ({ dataDir: path.join(home, ".cello"), port: DEFAULT_PORT })
+export const defaultBoard = (home: string): Board => ({ dataDir: defaultDataDir(home), port: DEFAULT_PORT })
 
 /** The default board, ~/.cello on 4747: the only one that joins a server on its port without its folder's lock there. */
 export const isDefaultBoard = (board: Board, home: string): boolean => {

@@ -1,5 +1,5 @@
 // First start: the human actor, a "Personal" workspace and its statuses. Idempotent.
-import { positionBetween } from "@cello/shared/position"
+import { positionBetween } from "@cello/domain/position"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"

@@ -7,7 +7,7 @@
 // `cello-dev://`. A build makes links with its own flavor's scheme, so a link from the dev `cello` opens
 // Cello Dev and never the downloaded Cello.app beside it.
 import type { Flavor } from "./flavor.ts"
-import { parseTaskKey } from "./taskKey.ts"
+import { parseTaskKey } from "@cello/domain/taskKey"
 
 /** The scheme of a flavor's links: `cello` for the release, `cello-dev` for Cello Dev. */
 export const celloScheme = (flavor: Flavor): string => (flavor === "dev" ? "cello-dev" : "cello")

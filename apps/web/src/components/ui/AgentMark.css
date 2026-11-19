@@ -6,7 +6,7 @@
  * main thread nothing per frame. Working and thinking loop: the board gives a mark those moods only
  * while its agent is active, so they stop when it goes quiet. Every other animation is switched on by
  * `data-play` (an event seen on screen) and plays once. A test checks both. Points come from
- * @cello/shared/agentMark as percentages of AGENT_FRAME (agentFramePoint, checked by the test); one
+ * apps/web/src/lib/agentMark as percentages of AGENT_FRAME (agentFramePoint, checked by the test); one
  * icon unit is 0.149% of the mark.
  */
 .agent-mark {

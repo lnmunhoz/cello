@@ -1,5 +1,5 @@
 import { describeError } from "@cello/client/commands/describeError"
-import { suggestProjectKey } from "@cello/shared/taskKey"
+import { suggestProjectKey } from "@cello/domain/taskKey"
 import { useAtomSet } from "@effect/atom-react"
 import { useNavigate } from "@tanstack/react-router"
 import * as Cause from "effect/Cause"

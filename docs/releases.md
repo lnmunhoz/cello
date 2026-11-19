@@ -84,7 +84,7 @@ people download and the one built from this repo live side by side on the human'
    - the first release (no tag yet) is `minor` or an exact version, never a patch: 0.2.0 must become 0.3.0, not 0.2.1
    - when it will deploy: the `cello` on your PATH is this checkout's `apps/cli/dist/cello`
 2. **Checks:** `bun run typecheck`, then `bun run test`. A failure stops it before anything is written.
-3. **Bumps** the version everywhere it lives (`scripts/release/version.ts`). The root `package.json` is the one source of truth; the release writes the same version to `APP_VERSION` in `packages/shared/src/version.ts` (what `cello --version`, the sidebar footer and backup manifests report) and to every workspace `package.json` that has a `version` (today `apps/desktop`, which electron-builder stamps into Cello.app), to the Claude Code plugin's `apps/cli/claude-plugin/cello/.claude-plugin/plugin.json` (then it regenerates the copy the binary embeds with `bun run docs:cli`), and to `bun.lock`'s record of the workspace versions. A unit test fails if they ever disagree.
+3. **Bumps** the version everywhere it lives (`scripts/release/version.ts`). The root `package.json` is the one source of truth; the release writes the same version to `APP_VERSION` in `packages/release/src/version.ts` (what `cello --version`, the sidebar footer and backup manifests report) and to every workspace `package.json` that has a `version` (today `apps/desktop`, which electron-builder stamps into Cello.app), to the Claude Code plugin's `apps/cli/claude-plugin/cello/.claude-plugin/plugin.json` (then it regenerates the copy the binary embeds with `bun run docs:cli`), and to `bun.lock`'s record of the workspace versions. A unit test fails if they ever disagree.
 4. **Writes the changelog** section at the top of `CHANGELOG.md` (below).
 5. **Commits** `chore(release): vX.Y.Z` and **tags** `vX.Y.Z` (annotated).
 6. **Builds its own `cello`** (the web build inside it runs Vite under Bun, so the shell's Node version doesn't matter, CEL-175) into `release/stage/cello` (`bun run build --outfile … --target bun-darwin-arm64 --flavor dev` in `apps/cli`: Cello Dev's `cello`, whose links are `cello-dev://`). It builds after the tag, so the binary embeds the release commit and the new version. If the build fails, it deletes `release/stage`, so a half-built binary can't be deployed. **It never builds over `apps/cli/dist/cello`**: that's the live cello (`~/.local/bin/cello` and the background service run it), and only the deploy replaces it, after its backup.
@@ -231,7 +231,7 @@ bun run release -- minor                   # from a preview, release what it pre
 
 ## How the app updates
 
-Cello.app checks GitHub for newer releases and tells you in the app (CEL-140). It works unsigned: it reads GitHub's release list (`api.github.com/repos/lnmunhoz/cello/releases`, no token), not electron-updater's update files. Code: `apps/desktop/src/update/` (the check, the downloads) and `packages/shared/src/updates.ts` (the rules); the board's side is `apps/web/src/updates/`.
+Cello.app checks GitHub for newer releases and tells you in the app (CEL-140). It works unsigned: it reads GitHub's release list (`api.github.com/repos/lnmunhoz/cello/releases`, no token), not electron-updater's update files. Code: `apps/desktop/src/update/` (the check, the downloads) and `packages/release/src/updates.ts` (the rules); the board's side is `apps/web/src/updates/`.
 
 ```mermaid
 flowchart TD

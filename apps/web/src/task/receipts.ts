@@ -12,9 +12,9 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, Comment, DeliveryVia, Task, TaskWake } from "@cello/contract/entities"
 import { NOT_WOKEN_TEXT, RUN_END_TEXT, runLength, WAKE_BATCH_MS, WAKE_CAP_WINDOW_MS } from "@cello/contract/wake"
-import { claimKeepsStatus } from "@cello/shared/claim"
-import { hostOf, WOKEN } from "@cello/shared/origin"
-import { type Presence, presenceOf } from "@cello/shared/presence"
+import { claimKeepsStatus } from "@cello/domain/claim"
+import { hostOf, WOKEN } from "@cello/domain/origin"
+import { type Presence, presenceOf } from "@cello/domain/presence"
 import { agentOn, agentPresence, agentWho, sessionWho, type Who, whoOf } from "../presence/model.ts"
 import { STALE_WAKE_MS } from "./wakeLine.ts"
 

@@ -2,7 +2,7 @@
 // where the Needs input column folds while it's off,
 // and a task's loaded list of asks kept current from the event stream.
 import type { Ask, Project, Status, Task } from "@cello/contract/entities"
-import { isNeedsInputStatus } from "@cello/shared/ask"
+import { isNeedsInputStatus } from "@cello/domain/ask"
 import type { CelloEvent } from "@cello/contract/events"
 import type { BoardState } from "./applyEvents.ts"
 

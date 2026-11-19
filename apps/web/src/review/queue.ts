@@ -1,6 +1,6 @@
 // The Review page's rules, kept pure: which row is open (it lives in the URL, `?open=CEL-12`), which
 // opens after a decision, the keys that move between rows, and the note a decision sends.
-import { formatTaskKey, parseTaskKey } from "@cello/shared/taskKey"
+import { formatTaskKey, parseTaskKey } from "@cello/domain/taskKey"
 
 export interface ReviewSearch {
   /** The task whose packet is open; none: every row is collapsed. */

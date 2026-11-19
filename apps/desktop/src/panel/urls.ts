@@ -1,7 +1,7 @@
 // What the board and the browser panel may open, and where. Pure, so the rules are tested once here
 // and main-process code only maps a decision to an Electron call.
-import { embedUrl } from "@cello/shared/embed"
-import { formatTaskKey, parseTaskPath } from "@cello/shared/taskKey"
+import { embedUrl } from "@cello/text/embed"
+import { formatTaskKey, parseTaskPath } from "@cello/domain/taskKey"
 
 /** The panel shows web pages only: http(s), normalized. Anything else (javascript:, file:, data:…) is null. */
 export const panelUrl = (raw: string): string | null => {

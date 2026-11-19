@@ -1,6 +1,6 @@
 // Settings → Updates (CEL-140), in Cello.app only: the release channel, Check now, downloading updates
 // automatically, and when it last checked. The app's main process keeps these (userData/updates.json).
-import { CHANNEL_NAMES, CHANNELS, updateLine, type Channel, type UpdateState } from "@cello/shared/updates"
+import { CHANNEL_NAMES, CHANNELS, updateLine, type Channel, type UpdateState } from "@cello/release/updates"
 import { Link } from "@tanstack/react-router"
 import { Button } from "../components/ui/Button.tsx"
 import { SegmentedControl, SegmentedControlItem } from "../components/ui/SegmentedControl.tsx"

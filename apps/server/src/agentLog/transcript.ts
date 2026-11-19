@@ -12,12 +12,12 @@
 // The parser is pure and keeps the open tool calls, so a result found later updates its call.
 import type { LogStep, ToolCall } from "@cello/contract/agentLog"
 import { MAX_COMMAND_CHARS, MAX_OUTPUT_CHARS, MAX_OUTPUT_LINES } from "@cello/contract/agentLog"
-import { redact } from "@cello/shared/redact"
-import { stepLine, toolCommand } from "@cello/shared/toolSummary"
+import { redact } from "@cello/text/redact"
+import { stepLine, toolCommand } from "@cello/text/toolSummary"
+import { isRecord } from "@cello/domain/record"
 
 type Json = Readonly<Record<string, unknown>>
 
-const isObject = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value)
 
 const str = (value: unknown): string => (typeof value === "string" ? value : "")
 
@@ -42,7 +42,7 @@ const resultText = (content: unknown): string => {
   if (typeof content === "string") return content
   if (!Array.isArray(content)) return ""
   return content
-    .map((block) => (isObject(block) ? (block.type === "text" ? str(block.text) : block.type === "image" ? "[image]" : "") : ""))
+    .map((block) => (isRecord(block) ? (block.type === "text" ? str(block.text) : block.type === "image" ? "[image]" : "") : ""))
     .filter((t) => t !== "")
     .join("\n")
 }
@@ -98,7 +98,7 @@ export const transcriptParser = (): TranscriptParser => {
     const endsTurn = message.stop_reason === "end_turn"
     const steps: LogStep[] = []
     content.forEach((block, i) => {
-      if (!isObject(block)) return
+      if (!isRecord(block)) return
       const id = `${base}:${i}`
       if (block.type === "text" && str(block.text).trim()) {
         steps.push({ id, kind: "message", at, text: str(block.text).trim(), ...(endsTurn ? { endsTurn: true } : {}) })
@@ -108,7 +108,7 @@ export const transcriptParser = (): TranscriptParser => {
       } else if (block.type === "redacted_thinking") unsaved++
       else if (block.type === "tool_use") {
         const name = str(block.name) || "Tool"
-        const input = isObject(block.input) ? block.input : null
+        const input = isRecord(block.input) ? block.input : null
         const command = toolCommand(name, input)
         const launch = AGENT_TOOLS.has(name)
         const step: LogStep = {
@@ -138,12 +138,12 @@ export const transcriptParser = (): TranscriptParser => {
     const steps: LogStep[] = []
     const texts: string[] = []
     for (const block of message.content) {
-      if (!isObject(block)) continue
+      if (!isRecord(block)) continue
       if (block.type === "text") texts.push(str(block.text))
       if (block.type !== "tool_result") continue
       const call = calls.get(str(block.tool_use_id))
       if (!call?.tool) continue
-      const launched = isObject(line.toolUseResult) ? str(line.toolUseResult.agentId) : ""
+      const launched = isRecord(line.toolUseResult) ? str(line.toolUseResult.agentId) : ""
       const done: LogStep = {
         ...call,
         tool: {
@@ -166,7 +166,7 @@ export const transcriptParser = (): TranscriptParser => {
   const cello = (line: Json): LogStep[] => {
     const id = `cello-${n++}`
     if (line.type === "cello.run") {
-      const why = isObject(line.run) ? str(line.run.why) : ""
+      const why = isRecord(line.run) ? str(line.run.why) : ""
       return [{ id, kind: "system", at: null, text: `Cello woke this session${why ? ` (${why})` : ""}: ${str(line.prompt).trim()}` }]
     }
     if (line.type === "cello.stderr" && str(line.text).trim()) return [{ id, kind: "system", at: null, text: str(line.text).trim() }]
@@ -186,9 +186,9 @@ export const transcriptParser = (): TranscriptParser => {
       } catch {
         return []
       }
-      if (!isObject(line)) return []
+      if (!isRecord(line)) return []
       if (typeof line.type === "string" && line.type.startsWith("cello.")) return cello(line)
-      const message = isObject(line.message) ? line.message : null
+      const message = isRecord(line.message) ? line.message : null
       if (message === null) return []
       if (line.type === "assistant") return assistant(line, message)
       if (line.type === "user") return user(line, message)

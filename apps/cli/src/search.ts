@@ -1,7 +1,7 @@
 // `cello search` as text (CEL-11): each kind under its heading with a count, one line per hit (its
 // key or slug, who and when), the matched text under it, matched words in [brackets].
 import type { SearchHit, SearchKind, SearchResults } from "@cello/contract/search"
-import { type Range, segments } from "@cello/shared/search"
+import { type Range, segments } from "@cello/text/search"
 import { ago, columns } from "./format.ts"
 
 const HEADINGS: Record<SearchKind, string> = {

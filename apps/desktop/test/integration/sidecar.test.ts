@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 import { startServer, tempDataDir } from "@cello/server/testing/servers"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import { LOCK_FILE, parseLock } from "../../src/server/plan.ts"
+import { LOCK_FILE, parseLock } from "@cello/host/serverLock"
 import { connectServer, probe } from "../../src/server/sidecar.ts"
 
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../cli/src/bin.ts")

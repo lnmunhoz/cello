@@ -13,6 +13,7 @@
 // is a symlink (dotfiles, chezmoi) stays one; the file it points at is the one replaced.
 import * as fs from "node:fs"
 import * as path from "node:path"
+import { isRecord } from "@cello/domain/record"
 
 /** Seconds Claude Code waits for a hook before cancelling it; the hook itself gives up much sooner. */
 export const HOOK_TIMEOUT = 10
@@ -45,23 +46,22 @@ export const celloHooksFor = (scope: "project" | "user"): ReadonlyArray<CelloHoo
 
 type Json = Record<string, unknown>
 
-export const isObject = (value: unknown): value is Json => value !== null && typeof value === "object" && !Array.isArray(value)
 
 const isCelloHandler = (handler: unknown) =>
-  isObject(handler) && typeof handler.command === "string" && /^\s*cello\s+hook\s+claude(\s|$)/.test(handler.command)
+  isRecord(handler) && typeof handler.command === "string" && /^\s*cello\s+hook\s+claude(\s|$)/.test(handler.command)
 
 /** The `hooks` object and each event's list, checked: anything Cello can't merge into is an error (a sentence), never overwritten. */
 const hooksOf = (settings: unknown): Json => {
-  if (!isObject(settings)) throw new Error("it isn't a JSON object")
+  if (!isRecord(settings)) throw new Error("it isn't a JSON object")
   if (settings.hooks === undefined) return {}
-  if (!isObject(settings.hooks)) throw new Error("\"hooks\" isn't an object")
+  if (!isRecord(settings.hooks)) throw new Error("\"hooks\" isn't an object")
   for (const [event, groups] of Object.entries(settings.hooks)) {
     if (!Array.isArray(groups)) throw new Error(`"hooks.${event}" isn't a list`)
   }
   return settings.hooks
 }
 
-const groupHandlers = (group: unknown): ReadonlyArray<unknown> => (isObject(group) && Array.isArray(group.hooks) ? group.hooks : [])
+const groupHandlers = (group: unknown): ReadonlyArray<unknown> => (isRecord(group) && Array.isArray(group.hooks) ? group.hooks : [])
 
 /** `settings` with `key` replaced where it is (or added at the end), or removed with `undefined`; other keys keep their order. */
 const withKey = (settings: Json, key: string, value: unknown): Json => {
@@ -142,17 +142,17 @@ export const CELLO_PLUGIN_ID = "cello@cello"
 
 /** `extraKnownMarketplaces.cello` when it is Cello's own: a local-folder source at exactly `folder` (pluginFolder). Extra keys don't matter. */
 const isCelloMarketplace = (entry: unknown, folder: string) => {
-  if (!isObject(entry) || !isObject(entry.source)) return false
+  if (!isRecord(entry) || !isRecord(entry.source)) return false
   const { source, path: at } = entry.source
   return source === "directory" && typeof at === "string" && path.resolve(at) === path.resolve(folder)
 }
 
 /** `settings[key]`, checked: missing is `{}`, anything but an object is an error (a sentence), never overwritten. */
 const objectAt = (settings: unknown, key: string): Json => {
-  if (!isObject(settings)) throw new Error("it isn't a JSON object")
+  if (!isRecord(settings)) throw new Error("it isn't a JSON object")
   const value = settings[key]
   if (value === undefined) return {}
-  if (!isObject(value)) throw new Error(`"${key}" isn't an object`)
+  if (!isRecord(value)) throw new Error(`"${key}" isn't an object`)
   return value
 }
 
@@ -249,7 +249,7 @@ export const addCelloPermission = (settings: unknown): Merged => {
  */
 export const removeCelloPermission = (settings: unknown): Merged => {
   const unchanged = { settings: settings as Json, changed: false }
-  if (!isObject(settings) || !isObject(settings.permissions) || !Array.isArray(settings.permissions.allow)) return unchanged
+  if (!isRecord(settings) || !isRecord(settings.permissions) || !Array.isArray(settings.permissions.allow)) return unchanged
   const { permissions, allow } = allowOf(settings)
   const kept = allow.filter((rule) => rule !== CELLO_PERMISSION)
   if (kept.length === allow.length) return unchanged

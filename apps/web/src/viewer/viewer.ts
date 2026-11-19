@@ -2,10 +2,10 @@
 // site), where an "open" goes (`openRoute`: the image modal, the side panel, the desktop app's native
 // browser, or the board's window), which document a Cello page shows, and the panel's width rule.
 // Pure, so the rules are tested once here; the components only map a decision to the DOM.
-import { attachmentIdOf, classify } from "@cello/shared/attachment"
-import { shortUrl } from "@cello/shared/linkify"
-import { parseTaskKey, parseTaskPath, taskPath } from "@cello/shared/taskKey"
-import { parseVersion } from "@cello/shared/updates"
+import { attachmentIdOf, classify } from "@cello/text/attachment"
+import { shortUrl } from "@cello/text/linkify"
+import { parseTaskKey, parseTaskPath, taskPath } from "@cello/domain/taskKey"
+import { parseVersion } from "@cello/release/updates"
 import type { CelloDesktop } from "../lib/desktop.ts"
 import type { WidthRule } from "../lib/resize.ts"
 
@@ -39,7 +39,7 @@ export interface OpenTarget {
 
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|svg)$/i
 const VIDEO = /\.(mp4|webm|mov|m4v|ogv)$/i
-/** A text file the server stores (packages/shared/src/attachment.ts), by its name's extension. */
+/** A text file the server stores (packages/text/src/attachment.ts), by its name's extension. */
 const isTextFile = (pathname: string): boolean => {
   const name = pathname.split("/").at(-1) ?? ""
   try {

@@ -5,7 +5,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { facetGroup, filterFromSearch, hasFilter, type MatchContext, milestoneKey, NO_MILESTONE, type TaskFilter } from "@cello/client/sync/filters"
 import { type AgentSession, type Label, LABEL_GROUP_NAMES, type LabelGroup, type Milestone, type Task } from "@cello/contract/entities"
-import { type Presence, presenceOf } from "@cello/shared/presence"
+import { type Presence, presenceOf } from "@cello/domain/presence"
 
 /** How many areas show before "Show all". */
 export const TOP_AREAS = 6

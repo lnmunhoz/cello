@@ -3,8 +3,8 @@ import type { BoardState } from "./sync/applyEvents.ts"
 import { isReadable, type StreamedEvent } from "@cello/contract/events"
 import { stageInfo } from "@cello/contract/stages"
 import { NOT_WOKEN_TEXT, RUN_END_TEXT, runLength, WAKE_WHY_TEXT } from "@cello/contract/wake"
-import { testRunWords } from "@cello/shared/testRun"
-import { andList } from "@cello/shared/words"
+import { testRunWords } from "@cello/domain/testRun"
+import { andList } from "@cello/domain/words"
 
 const FIELD_NAMES: Record<string, string> = { title: "title", description: "description", priority: "priority", dueDate: "due date", parentId: "parent" }
 

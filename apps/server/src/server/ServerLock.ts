@@ -8,10 +8,8 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
+import { DB_FILE, lockPath, readLock } from "@cello/host/serverLock"
 import { isAlive } from "../process/isAlive.ts"
-
-export const LOCK_FILE = "server.lock"
-export const DB_FILE = "cello.db"
 
 export class ServerAlreadyRunning extends Schema.TaggedError<ServerAlreadyRunning>()("ServerAlreadyRunning", {
   dataDir: Schema.String,
@@ -23,11 +21,6 @@ export class ServerAlreadyRunning extends Schema.TaggedError<ServerAlreadyRunnin
   }
 }
 
-export interface LockInfo {
-  readonly pid: number
-  readonly port: number
-}
-
 export class ServerLock extends Context.Service<ServerLock, {
   readonly dataDir: string
   /** The database file inside the data folder; only open it while holding the lock. */
@@ -35,16 +28,6 @@ export class ServerLock extends Context.Service<ServerLock, {
   /** Rewrites the lock with the port actually bound (it may have been 0). */
   readonly recordPort: (port: number) => Effect.Effect<void>
 }>()("cello/ServerLock") {}
-
-/** The pid and port in a lock file; null when it's missing or names no pid. */
-export const readLock = (file: string): LockInfo | null => {
-  try {
-    const info = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<LockInfo>
-    return typeof info.pid === "number" ? { pid: info.pid, port: info.port ?? 0 } : null
-  } catch {
-    return null
-  }
-}
 
 /** Creates the lock file exclusively, taking over a stale one; fails if a live server holds it. */
 const tryAcquire = (dataDir: string, file: string, port: number): Effect.Effect<void, ServerAlreadyRunning> =>
@@ -72,7 +55,7 @@ const tryAcquire = (dataDir: string, file: string, port: number): Effect.Effect<
 export const layer = (options: { readonly dataDir: string; readonly port: number }) =>
   Layer.effect(ServerLock, Effect.gen(function* () {
     const dataDir = path.resolve(options.dataDir)
-    const file = path.join(dataDir, LOCK_FILE)
+    const file = lockPath(dataDir)
     yield* Effect.acquireRelease(
       tryAcquire(dataDir, file, options.port),
       () => Effect.sync(() => {

@@ -2,7 +2,7 @@
 // the human sets. Names are unique in the project, ignoring case. Agents may create and edit them;
 // closing and reopening are the human's only (HumanOnly, like approving a review), so a milestone is
 // never closed behind his back. Tasks join one with TaskService.setMilestone; progress is computed from
-// them (@cello/shared/milestone), never stored. A milestone's events are its project's.
+// them (@cello/domain/milestone), never stored. A milestone's events are its project's.
 import type { Milestone } from "@cello/contract/entities"
 import { HumanOnly, Invalid, NotFound } from "@cello/contract/errors"
 import type { Caller } from "@cello/contract/rpcs"

@@ -14,7 +14,7 @@
 import type { ProfileField, ProfileSource, ProjectRef, TestingProfile } from "@cello/contract/entities"
 import { Invalid, NotFound, ProfileFieldLocked } from "@cello/contract/errors"
 import type { Caller, ProfileWrite } from "@cello/contract/rpcs"
-import { checkProfileValue, compareFields, profileFieldProblem } from "@cello/shared/testingProfile"
+import { checkProfileValue, compareFields, profileFieldProblem } from "@cello/domain/testingProfile"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"

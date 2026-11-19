@@ -1,4 +1,4 @@
-import type { ParsedDiff } from "@cello/shared/diff"
+import type { ParsedDiff } from "@cello/text/diff"
 import { CopyIcon } from "lucide-react"
 import { useState, type ReactNode } from "react"
 import { Button } from "../components/ui/Button.tsx"

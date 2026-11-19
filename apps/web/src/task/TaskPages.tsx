@@ -1,7 +1,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { documentsOfTask } from "@cello/client/sync/documents"
 import type { Task } from "@cello/contract/entities"
-import { pagePath } from "@cello/shared/document"
+import { pagePath } from "@cello/text/document"
 import { KIND_LABELS, KindIcon } from "../docs/kinds.tsx"
 import { openInPanel } from "../lib/desktop.ts"
 import { relativeTime } from "../lib/format.ts"

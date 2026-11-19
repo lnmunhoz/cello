@@ -2,7 +2,7 @@
 import * as path from "node:path"
 import { newCommandId } from "@cello/client/client"
 import { startServer, tempDataDir } from "@cello/server/testing/servers"
-import { colorFromSeed } from "@cello/shared/color"
+import { colorFromSeed } from "@cello/domain/color"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import { connect } from "../../../server/test/integration/harness.ts"

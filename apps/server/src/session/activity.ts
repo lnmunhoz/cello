@@ -5,7 +5,7 @@
 // Monitor's `taskId`), and a stop compares it with the session's `background_tasks`: while some of its
 // own work runs, the agent is waiting on it, not finished.
 import { type TestProgress, TestRun } from "@cello/contract/entities"
-import { stageFits, testRunLabel } from "@cello/shared/testRun"
+import { stageFits, testRunLabel } from "@cello/domain/testRun"
 import * as Schema from "effect/Schema"
 
 /**

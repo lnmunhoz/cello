@@ -9,7 +9,7 @@
 // knows exist (`isTask`). A key inside an address stays part of the address.
 
 import { eachLine } from "./document.ts"
-import { parseTaskKey } from "./taskKey.ts"
+import { parseTaskKey } from "@cello/domain/taskKey"
 
 export type TextPart =
   | { readonly type: "text"; readonly text: string }

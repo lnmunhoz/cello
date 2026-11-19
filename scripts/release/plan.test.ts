@@ -163,7 +163,7 @@ describe("preflightProblems", () => {
 })
 
 describe("releaseSteps", () => {
-  const files = ["package.json", "packages/shared/src/version.ts", "apps/desktop/package.json"]
+  const files = ["package.json", "packages/release/src/version.ts", "apps/desktop/package.json"]
   const titles = (steps: ReturnType<typeof releaseSteps>) => steps.map((s) => `${s.title} [${s.dryRun}]`)
   const options = { increment: "patch", dryRun: false, deploy: true, localArtifacts: false, desktop: true, preid: "beta", help: false }
 
@@ -172,7 +172,7 @@ describe("releaseSteps", () => {
       "refuse unless on a clean main, up to date with origin, after a fully pushed release [runs]",
       "bun run typecheck [runs]",
       "bun run test [runs]",
-      "bump to 0.3.0: package.json, packages/shared/src/version.ts, apps/desktop/package.json [skipped]",
+      "bump to 0.3.0: package.json, packages/release/src/version.ts, apps/desktop/package.json [skipped]",
       "write the 0.3.0 section of CHANGELOG.md [skipped]",
       "commit chore(release): v0.3.0 [skipped]",
       "tag v0.3.0 [skipped]",

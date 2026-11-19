@@ -2,7 +2,7 @@
 // first; the one running is marked, and newer ones on the channel as available, with Download. And one
 // release's notes alone (`/releases/0.5.1`), which is what What's new opens in the side panel. Only in
 // Cello.app: the main process reads the releases (a browser gets a pointer to GitHub instead).
-import { CHANNEL_NAMES, releaseMark, type Release, type UpdateState } from "@cello/shared/updates"
+import { CHANNEL_NAMES, releaseMark, type Release, type UpdateState } from "@cello/release/updates"
 import { useParams } from "@tanstack/react-router"
 import { ChevronRightIcon, ExternalLinkIcon, RefreshCwIcon } from "lucide-react"
 import { useState } from "react"

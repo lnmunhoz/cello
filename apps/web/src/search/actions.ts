@@ -1,6 +1,6 @@
 // Every action the ⌘K bar offers (CEL-43), in one place: what each is called, the words that find it
 // and its shortcut. Key chords (G R, C) will run the same list by id. Running them is useActions.ts.
-import { matchesAll, searchTerms, wordPrefixRanges, type Range } from "@cello/shared/search"
+import { matchesAll, searchTerms, wordPrefixRanges, type Range } from "@cello/text/search"
 import {
   BookOpenIcon,
   ClipboardCheckIcon,

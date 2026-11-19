@@ -2,9 +2,9 @@
 // task's loaded review list kept current from the event stream.
 import type { Attachment, Project, Review, Task } from "@cello/contract/entities"
 import type { CelloEvent } from "@cello/contract/events"
-import { attachmentPath } from "@cello/shared/attachment"
-import { shortUrl } from "@cello/shared/linkify"
-import { awaitsMerge, holdsPacket, isReviewStatus } from "@cello/shared/review"
+import { attachmentPath } from "@cello/text/attachment"
+import { shortUrl } from "@cello/text/linkify"
+import { awaitsMerge, holdsPacket, isReviewStatus } from "@cello/domain/review"
 import type { BoardState } from "./applyEvents.ts"
 
 export interface ReviewItem {

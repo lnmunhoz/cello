@@ -5,7 +5,7 @@
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { APP_VERSION } from "@cello/shared/version"
+import { APP_VERSION } from "@cello/release/version"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { CLAUDE_PLUGIN_FILES, OWN_FILES, pluginFolder, writePluginFolder } from "./claudePlugin.ts"
 import { PLUGIN_FILES_MODULE, PLUGIN_SOURCE_DIR, pluginFilesModule, readPluginSource } from "./claudePluginSource.ts"

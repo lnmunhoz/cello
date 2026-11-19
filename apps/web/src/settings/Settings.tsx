@@ -1,6 +1,6 @@
 import { placement, statusesOf } from "@cello/client/sync/selectors"
 import type { Status } from "@cello/contract/entities"
-import { buildLine } from "@cello/shared/build"
+import { buildLine } from "@cello/release/build"
 import { useAtomSet } from "@effect/atom-react"
 import { Link } from "@tanstack/react-router"
 import { ArrowDownIcon, ArrowUpIcon, EyeIcon, EyeOffIcon, LayoutListIcon, PanelRightIcon } from "lucide-react"

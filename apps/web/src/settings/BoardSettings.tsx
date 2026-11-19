@@ -2,7 +2,7 @@
 // Default ~/.cello on 4747. Another folder (a test board, ~/.cello-release on 4757) gets a server of its own,
 // started with the `cello` inside the app, empty like a new user's board. The app's main process keeps the
 // choice (board.json in its own state folder) and does the switch; this shows it and asks.
-import type { DesktopBoardState } from "@cello/shared/desktopBoard"
+import type { DesktopBoardState } from "@cello/domain/desktopBoard"
 import { useEffect, useState } from "react"
 import { Button } from "../components/ui/Button.tsx"
 import { Input } from "../components/ui/Input.tsx"

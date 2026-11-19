@@ -1,5 +1,5 @@
 import type { WebBuild } from "@cello/contract/build"
-import { buildsSinceLoaded, reloadAction, shortCommit, type BuildStamp, type ListedBuild, type ReloadAction } from "@cello/shared/build"
+import { buildsSinceLoaded, reloadAction, shortCommit, type BuildStamp, type ListedBuild, type ReloadAction } from "@cello/release/build"
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react"
 import * as Option from "effect/Option"
 import * as AsyncResult from "effect/reactivity/AsyncResult"

@@ -6,8 +6,8 @@
 import { agentPresence, type FinishedAgent, startOfDay } from "@cello/client/sync/agents"
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
-import { isNeedsInputStatus } from "@cello/shared/ask"
-import { type Presence, presenceOf } from "@cello/shared/presence"
+import { isNeedsInputStatus } from "@cello/domain/ask"
+import { type Presence, presenceOf } from "@cello/domain/presence"
 import { agentWho, sessionWho, type Who, type Working, type WorkingMark, workingMark } from "../presence/model.ts"
 
 export interface AgentsSearch {

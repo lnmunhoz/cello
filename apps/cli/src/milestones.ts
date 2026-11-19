@@ -1,9 +1,9 @@
 // Milestones in the CLI (CEL-113): `cello milestone list|show|create|edit|close|reopen`, `--milestone` on
 // `task create|edit|list`, and the milestone lines of `cello task get` and `cello context`. The pure parts:
-// reading `--due`, and the text. Names are matched by @cello/shared/milestone's findMilestone, as on the server.
+// reading `--due`, and the text. Names are matched by @cello/domain/milestone's findMilestone, as on the server.
 import type { Milestone } from "@cello/contract/entities"
 import type { MilestoneList, MilestoneProgress, MilestoneSummary } from "@cello/contract/views"
-import { progressParts, progressText } from "@cello/shared/milestone"
+import { progressParts, progressText } from "@cello/domain/milestone"
 import { ago, columns } from "./format.ts"
 
 /** `--due 2026-12-01`, or `none` to clear the date. */

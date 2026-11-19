@@ -3,7 +3,7 @@
 import * as Data from "effect/Data"
 import type { NotWokenReason } from "@cello/contract/entities"
 import { NOT_WOKEN_TEXT } from "@cello/contract/wake"
-import { shortSession } from "@cello/shared/session"
+import { shortSession } from "@cello/domain/session"
 import { ago } from "./format.ts"
 
 /** A command's failure, already explained. `cello` prints the message to stderr and exits 1. */

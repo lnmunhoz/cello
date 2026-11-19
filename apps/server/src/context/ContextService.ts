@@ -5,7 +5,7 @@ import { Invalid, NotFound } from "@cello/contract/errors"
 import type { CelloEvent } from "@cello/contract/events"
 import { Caller } from "@cello/contract/rpcs"
 import type { Activity, LabelList, MilestoneDetail, MilestoneList, MilestoneSummary, ProjectContext, TaskDetail, TaskList, TaskTimeline, Whoami } from "@cello/contract/views"
-import { findMilestone, milestoneProgress } from "@cello/shared/milestone"
+import { findMilestone, milestoneProgress } from "@cello/domain/milestone"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -121,7 +121,7 @@ const make = Effect.gen(function* () {
       }))
     })
 
-  /** A milestone of the project by name (@cello/shared/milestone's matcher, as the CLI's); a miss is Invalid with its sentence. */
+  /** A milestone of the project by name (@cello/domain/milestone's matcher, as the CLI's); a miss is Invalid with its sentence. */
   const milestoneNamed = (project: Project, milestones: ReadonlyArray<Milestone>, name: string, allowNone: boolean) => {
     const match = findMilestone(milestones, name, { projectKey: project.key, allowNone })
     return "found" in match ? Effect.succeed(match.found) : Effect.fail(new Invalid({ field: "milestone", reason: match.problem }))

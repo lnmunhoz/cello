@@ -7,7 +7,10 @@ import { attachmentIdOf } from "./attachment.ts"
 const MAX_SLUG = 80
 const MAX_SUMMARY = 280
 
-/** "Q3: Billing — audit!" → "q3-billing-audit". Empty when nothing is left (e.g. only emoji). */
+/**
+ * A page's slug: "Q3: Billing — audit!" → "q3-billing-audit". Empty when nothing is left (e.g. only emoji).
+ * Workspaces have their own rules (apps/server/src/workspace/WorkspaceService.ts, `workspaceSlug`).
+ */
 export const slugify = (text: string): string =>
   text
     .normalize("NFKD")

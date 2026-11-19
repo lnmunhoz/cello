@@ -1,7 +1,7 @@
 // Which uploaded file a link in a published document means. The CLI sends the files' absolute paths;
 // the markdown links them relative to its own file, by the end of their path, or by bare name.
 import * as path from "node:path"
-import { type LinkTarget, localFileTarget } from "@cello/shared/document"
+import { type LinkTarget, localFileTarget } from "@cello/text/document"
 
 /** A file the document carries: where it came from on this machine, and where it's served now. */
 export interface StoredAsset {

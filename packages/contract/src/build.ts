@@ -1,5 +1,5 @@
 // Which build of Cello the server runs (CEL-37). Schemas only; the logic that compares builds is in
-// packages/shared/src/build.ts.
+// packages/release/src/build.ts.
 import * as Schema from "effect/Schema"
 import { Millis } from "./entities.ts"
 
@@ -29,7 +29,7 @@ export type ServerBuild = typeof ServerBuild.Type
 
 /**
  * One build the server has run (CEL-50), recorded the first time a server starts serving it. A build is
- * its version, commit and web build time together (`buildKey` in packages/shared/src/build.ts).
+ * its version, commit and web build time together (`buildKey` in packages/release/src/build.ts).
  */
 export const BuildRecord = Schema.Struct({
   /** `buildKey`: "0.2.0+c602f25.1763230740000". */

@@ -48,7 +48,7 @@ const settings = createRoute({
   },
 })
 // Settings → Builds (CEL-50). Static routes win over `$projectKey`; each top-level word is reserved as a
-// project key (reservedKeyProblem in packages/shared/src/taskKey.ts).
+// project key (reservedKeyProblem in packages/domain/src/taskKey.ts).
 const builds = createRoute({ getParentRoute: () => root, path: "/builds", component: BuildsPage })
 // Settings → Releases (CEL-140): Cello.app's releases on GitHub, and one release's notes (What's new).
 const releases = createRoute({ getParentRoute: () => root, path: "/releases", component: ReleasesPage })

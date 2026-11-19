@@ -2,10 +2,10 @@
 // opens it in Cello's desktop app, and hands that link to the system. Agents put the printed link in
 // their replies: clicking an http link in Claude's app opens Claude's own browser, a cello:// one opens
 // Cello's panel.
-import { celloOpenLink, celloTaskLink, parseCelloLink } from "@cello/shared/celloLink"
-import { isSlug } from "@cello/shared/document"
-import type { Flavor } from "@cello/shared/flavor"
-import { formatTaskKey, parseTaskKey } from "@cello/shared/taskKey"
+import { celloOpenLink, celloTaskLink, parseCelloLink } from "@cello/release/celloLink"
+import { isSlug } from "@cello/text/document"
+import type { Flavor } from "@cello/release/flavor"
+import { formatTaskKey, parseTaskKey } from "@cello/domain/taskKey"
 
 /** A page (its http address) or a task, with the link that opens it; or a slug to look up first. */
 export type OpenTarget =

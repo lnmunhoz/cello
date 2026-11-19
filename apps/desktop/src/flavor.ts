@@ -1,4 +1,4 @@
-// Who this desktop app is to macOS, for each flavor (packages/shared/src/flavor.ts, CEL-149). The release
+// Who this desktop app is to macOS, for each flavor (packages/release/src/flavor.ts, CEL-149). The release
 // (what GitHub Actions builds, what people download) is Cello; the build Lucas makes on his Mac from the repo
 // is Cello Dev, a separate app with its own name, bundle id, link scheme, icon and state, so both can be
 // installed and run side by side. Cello Dev doesn't check GitHub for updates: `bun run release` and
@@ -7,8 +7,8 @@
 // The flavor is set when the app is built: scripts/build.ts bakes it into main.cjs, and the package script
 // gives electron-builder the matching name, id, scheme and icon (src/install/builderConfig.ts).
 import * as path from "node:path"
-import { celloScheme } from "@cello/shared/celloLink"
-import type { Flavor } from "@cello/shared/flavor"
+import { celloScheme } from "@cello/release/celloLink"
+import type { Flavor } from "@cello/release/flavor"
 
 export interface AppIdentity {
   readonly flavor: Flavor

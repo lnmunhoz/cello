@@ -32,7 +32,7 @@ const projectFields = {
 
 /**
  * How far along a milestone is (CEL-113): its tasks that aren't archived, by status category. Canceled
- * ones are left out of `total`; Backlog ones are in it, and counted apart. See @cello/shared/milestone.
+ * ones are left out of `total`; Backlog ones are in it, and counted apart. See @cello/domain/milestone.
  */
 export const MilestoneProgress = Schema.Struct({
   total: Schema.Number,

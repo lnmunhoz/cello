@@ -2,6 +2,7 @@
 // task's comment box (CEL-73). Each is uploaded as soon as it lands, to the server's upload route for
 // that box, which answers with the stored draft attachment; sending names the drafts by id.
 import type { Attachment } from "@cello/contract/entities"
+import { isRecord } from "@cello/domain/record"
 
 /** The image types Lucas can paste or drop (the server accepts the same), and the extension for a nameless one. */
 export const SCREENSHOT_TYPES: Readonly<Record<string, string>> = {
@@ -40,7 +41,6 @@ export const uploadScreenshot = async (url: string, file: Blob, name: string): P
 }
 
 /** A plain object, as read back from JSON. */
-export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v)
 
 /** The attachments in a saved draft's JSON value, skipping anything that isn't one. */
 export const attachmentsIn = (v: unknown): Attachment[] =>

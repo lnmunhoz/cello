@@ -66,7 +66,7 @@ export type TestProgress = typeof TestProgress.Type
 
 /**
  * An agent's test run (CEL-134): a tool call of it started a test command (`bun run test`, `bun run
- * test:e2e`, …; @cello/shared/testRun), the one running (`endedAt` null) or the last one. `label` is what
+ * test:e2e`, …; @cello/domain/testRun), the one running (`endedAt` null) or the last one. `label` is what
  * the board calls it ("web e2e"), `command` the command in one line, keys masked. A background run
  * (run_in_background) runs on after the call returns. `outcome`: passed or failed by the command's exit
  * or the runner's report; `ended` when the agent's turn ended without either. `taskId` (CEL-181): the task
@@ -400,7 +400,7 @@ export type MilestoneState = typeof MilestoneState.Type
 
 /**
  * A goal for a project, with an optional target date (CEL-113). Each task belongs to at most one
- * (`Task.milestoneId`); its progress is counted from those tasks (@cello/shared/milestone), never
+ * (`Task.milestoneId`); its progress is counted from those tasks (@cello/domain/milestone), never
  * stored. Names are unique within the project, ignoring case; `position` is the order the human set.
  */
 export const Milestone = Schema.Struct({
@@ -905,7 +905,7 @@ export type DocumentVersion = typeof DocumentVersion.Type
 /**
  * One field of a project's testing profile (CEL-89): how to install, test, start the app or collect
  * evidence in its repo. `source` says who set it last (`cello init`'s detection, an agent, or the
- * human), `updatedAt` when it was last set or confirmed. Field names are in @cello/shared/testingProfile.
+ * human), `updatedAt` when it was last set or confirmed. Field names are in @cello/domain/testingProfile.
  */
 export const ProfileSource = Schema.Literals(["detected", "agent", "human"])
 export type ProfileSource = typeof ProfileSource.Type

@@ -17,8 +17,8 @@ import { type AgentSession, agentKey, type ReviewVerdictSeen, type SessionAgent,
 import { type CelloEvent, isReadable, type StreamedEvent } from "@cello/contract/events"
 import { stageInfo, type TaskStage } from "@cello/contract/stages"
 import type { AgentRun, TaskTimeline } from "@cello/contract/views"
-import { modelLabel } from "@cello/shared/model"
-import { isRunning, testRunKey, testRunWords } from "@cello/shared/testRun"
+import { modelLabel } from "@cello/domain/model"
+import { isRunning, testRunKey, testRunWords } from "@cello/domain/testRun"
 import { runLength } from "@cello/contract/wake"
 
 /** Who did what a history line says: the actor, its session, and the subagent when it was one (CEL-55). */

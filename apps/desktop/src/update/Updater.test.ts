@@ -1,7 +1,7 @@
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { parseUpdateSettings, type UpdateState } from "@cello/shared/updates"
+import { parseUpdateSettings, type UpdateState } from "@cello/release/updates"
 import { afterEach, describe, expect, it } from "vitest"
 import type { ReleaseFeed } from "./feed.ts"
 import { CHECK_EVERY_MS, openDmg, Updater, type FetchFile, type Installer } from "./Updater.ts"

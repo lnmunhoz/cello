@@ -1,9 +1,9 @@
 // What `cello init` reads for detection (CEL-89): the repo's marker files, package.json files (the
 // root's and its workspace members') and a few config files, and what this machine has (ffmpeg, Docker,
-// Playwright's browsers). The judging happens in @cello/shared/detect, over these facts.
+// Playwright's browsers). The judging happens in @cello/host/detect, over these facts.
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { CONFIG_FILES, type MachineFacts, MARKER_FILES, type PackageJson, type RepoFacts } from "@cello/shared/detect"
+import { CONFIG_FILES, type MachineFacts, MARKER_FILES, type PackageJson, type RepoFacts } from "@cello/host/detect"
 import type { Env } from "./identity.ts"
 
 const readJson = (file: string): PackageJson | null => {
@@ -15,7 +15,7 @@ const readJson = (file: string): PackageJson | null => {
   }
 }
 
-/** The workspace patterns package.json (or pnpm-workspace.yaml) lists: "apps/*", "packages/shared". */
+/** The workspace patterns package.json (or pnpm-workspace.yaml) lists: "apps/*", "packages/client". */
 const workspacePatterns = (root: string, json: PackageJson | null): string[] => {
   const declared = json?.workspaces
   const list = Array.isArray(declared)
