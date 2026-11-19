@@ -90,7 +90,8 @@ export const NO_LOG_REPORT: LogReport = { transcript: null, step: null }
 /**
  * Records a call from a session's subagent (CEL-55): created on first sight with its type, else seen
  * now, a type learnt late filled in, and an ended (resumed) or waiting (CEL-133) agent working again; a
- * transcript or current step its hook reported replaces the one kept (CEL-106). AgentService has the rest.
+ * transcript or current step its hook reported replaces the one kept (CEL-106), and the folder its call
+ * ran in (CEL-152) the one kept, a call that says none leaving it. AgentService has the rest.
  */
 export const touchAgent = (
   sql: SqlClient.SqlClient,
@@ -99,11 +100,13 @@ export const touchAgent = (
   agentType: string | null,
   now: number,
   log: LogReport = NO_LOG_REPORT,
+  cwd: string | null = null,
 ) =>
-  sql`INSERT INTO session_agents (session_id, agent_id, agent_type, started_at, last_seen_at, transcript_path, current_step, current_step_at)
-    VALUES (${sessionId}, ${agentId}, ${agentType}, ${now}, ${now}, ${log.transcript}, ${log.step}, ${log.step === null ? null : now})
+  sql`INSERT INTO session_agents (session_id, agent_id, agent_type, started_at, last_seen_at, transcript_path, current_step, current_step_at, cwd)
+    VALUES (${sessionId}, ${agentId}, ${agentType}, ${now}, ${now}, ${log.transcript}, ${log.step}, ${log.step === null ? null : now}, ${cwd})
     ON CONFLICT (session_id, agent_id) DO UPDATE SET
       last_seen_at = excluded.last_seen_at, ended_at = NULL, waiting_json = NULL, verdict = NULL, agent_type = COALESCE(excluded.agent_type, agent_type),
+      cwd = COALESCE(excluded.cwd, cwd),
       transcript_path = COALESCE(excluded.transcript_path, transcript_path),
       current_step = COALESCE(excluded.current_step, current_step),
       current_step_at = COALESCE(excluded.current_step_at, current_step_at)`
@@ -307,7 +310,7 @@ const make = Effect.gen(function* () {
         // started (CEL-137). The CLI leaves both out under CELLO_WOKEN=1; this is the server's own guard.
         const woken = sql`EXISTS (SELECT 1 FROM session_runs WHERE session_id = ${existing[0].id} AND ended_at IS NULL)`
         yield* sql`UPDATE agent_sessions SET last_seen_at = ${now}, ended_at = NULL, pid = COALESCE(${identity.pid ?? null}, pid),
-            cwd = COALESCE(${identity.cwd ?? null}, cwd),
+            cwd = ${agentId === null ? sql`COALESCE(${identity.cwd ?? null}, cwd)` : sql`cwd`},
             entrypoint = CASE WHEN ${woken} THEN entrypoint ELSE COALESCE(${identity.entrypoint ?? null}, entrypoint) END,
             terminal = CASE WHEN ${woken} THEN terminal ELSE COALESCE(${terminal}, terminal) END,
             permission_mode = COALESCE(${mode}, permission_mode), agent_kind = COALESCE(agent_kind, ${kind}),
@@ -327,9 +330,10 @@ const make = Effect.gen(function* () {
                   ${raw}, ${now}, ${now}, ${now})`
         caller = { actorId, sessionId: id }
       }
-      // A subagent's call (CEL-55): recorded under the session, and the caller says which agent it is.
+      // A subagent's call (CEL-55): recorded under the session, and the caller says which agent it is. Its folder
+      // is its own (CEL-152): it never replaces the session's, which only the session's own calls set.
       if (agentId === null) return caller
-      yield* touchAgent(sql, caller.sessionId, agentId, cleanAgentText(identity.agentType), now, log)
+      yield* touchAgent(sql, caller.sessionId, agentId, cleanAgentText(identity.agentType), now, log, identity.cwd ?? null)
       return { ...caller, agentId }
     }))
   }, Effect.orDie)
