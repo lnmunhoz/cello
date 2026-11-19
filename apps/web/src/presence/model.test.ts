@@ -1,7 +1,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
-import { agentMood, agentsWorkingCount, authorParts, holderActive, markEntry, stepOf, type MarkSeen, provenanceLine, provenanceOf, whoOf, whoSubject, whoText, workingSessions } from "./model.ts"
+import { agentMood, agentsWorkingByProject, countChanges, agentsWorkingCount, authorParts, holderActive, markEntry, stepOf, type MarkSeen, provenanceLine, provenanceOf, whoOf, whoSubject, whoText, workingSessions } from "./model.ts"
 
 const MIN = 60_000
 const now = Date.UTC(2026, 10, 15, 12)
@@ -36,7 +36,13 @@ const board = (tasks: Task[], sessions: AgentSession[], agents: SessionAgent[] =
     claude: { id: "claude", kind: "agent", name: "Claude Code", client: "Claude Code", color: "#10b981", createdAt: 1 },
   },
   workspaces: {},
-  projects: { p1: { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", color: "#000", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: null } },
+  projects: {
+    p1: { id: "p1", workspaceId: "w1", name: "Cello", key: "CEL", color: "#000", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: null },
+    p2: { id: "p2", workspaceId: "w1", name: "ThaiLookup", key: "THAI", color: "#111", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: null },
+    // In another workspace, and an archived one of this workspace (CEL-179).
+    p3: { id: "p3", workspaceId: "w2", name: "Elsewhere", key: "ELS", color: "#222", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: null },
+    p4: { id: "p4", workspaceId: "w1", name: "Old", key: "OLD", color: "#333", description: "", repoPath: null, mergeAfterApproval: false, createdAt: 1, updatedAt: 1, archivedAt: 5 },
+  },
   statuses: STATUSES,
   labels: {},
   tasks: Object.fromEntries(tasks.map((t) => [t.id, t])),
@@ -314,6 +320,99 @@ describe("subagents", () => {
   })
 })
 
+// CEL-179: each project's count of agent sessions working in it, read from the same Working list as the workspace's.
+describe("agentsWorkingByProject", () => {
+  const claim = (sessionId: string, id: string, projectId: string, extra: Partial<Task> = {}) =>
+    task(id, { key: id.toUpperCase(), projectId, assigneeActorId: "claude", assigneeSessionId: sessionId, ...extra })
+  const byProject = (tasks: Task[], sessions: AgentSession[], agents: SessionAgent[] = []) => {
+    const state = board(tasks, sessions, agents)
+    return agentsWorkingByProject(state, workingSessions(state, "w1", now), now)
+  }
+  const ids = (m: ReturnType<typeof byProject>, projectId: string) => (m.get(projectId) ?? []).map((e) => e.working.session.id)
+
+  it("counts each active session in the project whose task it holds; a project with none has no entry", () => {
+    const m = byProject(
+      [claim("s1", "a", "p1"), claim("s2", "b", "p1"), claim("s3", "c", "p2")],
+      [session("s1"), session("s2"), session("s3")],
+    )
+    expect(ids(m, "p1")).toEqual(["s1", "s2"])
+    expect(ids(m, "p2")).toEqual(["s3"])
+    expect(m.has("p3")).toBe(false)
+  })
+
+  it("a session working in two projects counts in each, once, with only that project's tasks", () => {
+    const m = byProject([claim("s1", "a", "p1"), claim("s1", "b", "p1"), claim("s1", "c", "p2")], [session("s1")])
+    expect(m.get("p1")).toHaveLength(1)
+    expect(m.get("p1")![0]!.tasks.map((t) => t.id)).toEqual(["a", "b"])
+    expect(m.get("p2")![0]!.tasks.map((t) => t.id)).toEqual(["c"])
+  })
+
+  it("subagents don't count separately: an orchestrator and its three builders on one project make one", () => {
+    const tasks = [claim("s1", "a", "p1"), task("b", { projectId: "p1" }), task("c", { projectId: "p1" })]
+    const agents = [agent("s1", "a1", { taskId: "b" }), agent("s1", "a2", { taskId: "c" }), agent("s1", "a3", { taskId: "a" })]
+    const state = board(tasks, [session("s1")], agents)
+    const working = workingSessions(state, "w1", now)
+    expect(agentsWorkingCount(working)).toBe(4)
+    const m = agentsWorkingByProject(state, working, now)
+    expect(m.get("p1")).toHaveLength(1)
+    expect(m.get("p1")![0]!.tasks.map((t) => t.id).sort()).toEqual(["a", "b", "c"])
+    // The subagents are listed with the session, for the badge's title.
+    expect(m.get("p1")![0]!.agents.map((a) => a.agent.agentId).sort()).toEqual(["a1", "a2", "a3"])
+  })
+
+  it("a quiet session with a subagent at work counts where the subagent works, not where it only holds a claim", () => {
+    const tasks = [claim("s1", "a", "p1"), task("b", { projectId: "p2" })]
+    const m = byProject(tasks, [session("s1", { lastSeenAt: now - 20 * MIN })], [agent("s1", "a1", { taskId: "b" })])
+    expect(m.has("p1")).toBe(false)
+    expect(ids(m, "p2")).toEqual(["s1"])
+  })
+
+  it("leaves out sessions that are quiet or ended, and archived tasks", () => {
+    const m = byProject(
+      [claim("idle", "a", "p1"), claim("gone", "b", "p1"), claim("s1", "c", "p1", { archivedAt: 1 })],
+      [session("idle", { lastSeenAt: now - 20 * MIN }), session("gone", { endedAt: now - MIN }), session("s1")],
+    )
+    expect(m.size).toBe(0)
+  })
+
+  it("a session whose claim waits on Lucas (Needs input) or sits In Review is not working: it doesn't badge the project", () => {
+    const m = byProject(
+      [claim("s1", "a", "p1", { statusId: "needs" }), claim("s2", "b", "p1", { statusId: "review" }), claim("s3", "c", "p1")],
+      [session("s1"), session("s2"), session("s3")],
+    )
+    expect(ids(m, "p1")).toEqual(["s3"])
+  })
+
+  it("a subagent active on a task counts it, whatever its status: its session counts where the subagent is", () => {
+    const m = byProject([claim("s1", "a", "p1", { statusId: "needs" })], [session("s1")], [agent("s1", "a1", { taskId: "a" })])
+    expect(ids(m, "p1")).toEqual(["s1"])
+    expect(m.get("p1")![0]!.agents).toHaveLength(1)
+  })
+
+  it("leaves out tasks in another workspace, and subagents on them", () => {
+    const m = byProject(
+      [claim("s1", "a", "p3"), task("b", { projectId: "p3" })],
+      [session("s1"), session("s2")],
+      [agent("s2", "a1", { taskId: "b" })],
+    )
+    expect(m.size).toBe(0)
+  })
+
+  it("leaves out an archived task and an archived project", () => {
+    const m = byProject(
+      [claim("s1", "a", "p1", { archivedAt: 1 }), claim("s2", "b", "p4"), task("c", { projectId: "p4" })],
+      [session("s1"), session("s2"), session("s3")],
+      [agent("s3", "a1", { taskId: "c" })],
+    )
+    expect(m.size).toBe(0)
+  })
+
+  it("a subagent with no task adds no project: its session counts only where it holds claims", () => {
+    const m = byProject([claim("s1", "a", "p1")], [session("s1")], [agent("s1", "a1")])
+    expect([...m.keys()]).toEqual(["p1"])
+  })
+})
+
 // CEL-55 + CEL-69: the sidebar's entries show the same mark as the cards, in the same mood.
 describe("Agents working: each entry's mark", () => {
   const statuses = {
@@ -428,5 +527,34 @@ describe("an author's role and model", () => {
     const working = workingSessions(board([holds], [orchestrator], [{ ...builder, taskId: "t1" }]), "w1", now)[0]!
     expect([working.who.role, working.who.model, working.who.effort]).toEqual(["main", "claude-opus-5-5", "high"])
     expect([working.agents[0]!.who.role, working.agents[0]!.who.model]).toEqual(["subagent", "claude-sonnet-5-5"])
+  })
+})
+
+// CEL-179: the badge pops when its number changes, never on the first number it knows.
+describe("countChanges", () => {
+  const start = { count: 0, ready: false, changes: 0 }
+
+  it("the first known number, a 0 or not, is a baseline, not a change", () => {
+    expect(countChanges(start, 2, true)).toEqual({ count: 2, ready: true, changes: 0 })
+    expect(countChanges(start, 0, true)).toEqual({ count: 0, ready: true, changes: 0 })
+  })
+
+  it("numbers seen before the sessions are known don't count, even when they change on the way", () => {
+    const loading = countChanges(countChanges(start, 0, false), 1, false)
+    expect(loading).toEqual({ count: 1, ready: false, changes: 0 })
+    expect(countChanges(loading, 2, true)).toEqual({ count: 2, ready: true, changes: 0 })
+  })
+
+  it("a change from one known number to another, or from a settled 0, is one", () => {
+    const settled = countChanges(start, 0, true)
+    const one = countChanges(settled, 1, true)
+    expect(one.changes).toBe(1)
+    expect(countChanges(one, 2, true).changes).toBe(2)
+    expect(countChanges(countChanges(one, 0, true), 1, true).changes).toBe(3)
+  })
+
+  it("the same number again is the same state: no change, no new object", () => {
+    const settled = countChanges(start, 2, true)
+    expect(countChanges(settled, 2, true)).toBe(settled)
   })
 })

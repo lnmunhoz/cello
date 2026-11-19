@@ -32,7 +32,7 @@ import { COMMAND_BAR_SHORTCUT } from "../search/layout.ts"
 import { UpdateFooter } from "../updates/UpdateFooter.tsx"
 import { BuildFooter } from "./BuildFooter.tsx"
 import { ConnectionStatus, useConnectionText } from "./ConnectionStatus.tsx"
-import { AgentsWorking, AgentsWorkingRail } from "../presence/Presence.tsx"
+import { AgentsWorking, AgentsWorkingRail, ProjectWorkingBadge, useAgentsWorking } from "../presence/Presence.tsx"
 import { SIDEBAR_SHORTCUT, SIDEBAR_WIDTH, type SidebarMode } from "./sidebarState.ts"
 
 /** The sidebar's mode as shown, for the pieces outside it (the breadcrumb makes room for "Show sidebar"). Null outside the app shell. */
@@ -95,6 +95,8 @@ export function Sidebar({
   const projects = board && workspaceId ? projectsOf(board, workspaceId) : []
   const asked = board && workspaceId ? needsInputQueue(board, workspaceId) : []
   const waiting = board && workspaceId ? reviewQueue(board, workspaceId).length : 0
+  // The agents working, worked out once: Agents working and each project's badge (CEL-179) read it.
+  const working = useAgentsWorking(board, workspaceId)
   const switchTo = (id: string | number) => {
     setWorkspace(String(id))
     void navigate({ to: "/" })
@@ -189,19 +191,25 @@ export function Sidebar({
               {reviewBadge}
             </Link>
           </RailTip>
-          {board && workspaceId ? <AgentsWorkingRail board={board} workspaceId={workspaceId} className={railItem} /> : null}
+          {board && workspaceId ? <AgentsWorkingRail working={working} className={railItem} /> : null}
         </nav>
 
         <nav aria-label="Projects" className="flex min-h-0 flex-col items-center gap-1 overflow-y-auto py-0.5">
-          {projects.map((p) => (
-            <RailTip key={p.id} tips={tips} label={p.name}>
-              <Link to="/$projectKey" params={{ projectKey: p.key }} activeOptions={{ exact: false }} aria-label={p.name} className={railItem}>
-                <span aria-hidden className="flex size-5 items-center justify-center rounded-md text-[11px] font-semibold text-white" style={{ background: p.color }}>
-                  {p.name.slice(0, 1).toUpperCase()}
-                </span>
-              </Link>
-            </RailTip>
-          ))}
+          {projects.map((p) => {
+            const here = working.byProject.get(p.id) ?? []
+            // The tooltip's words are the link's name too: its aria-label replaces the badge's screen-reader text.
+            const label = here.length > 0 ? `${p.name} · ${here.length} working` : p.name
+            return (
+              <RailTip key={p.id} tips={tips} label={label}>
+                <Link to="/$projectKey" params={{ projectKey: p.key }} activeOptions={{ exact: false }} aria-label={label} className={railItem} data-project-key={p.key}>
+                  <span aria-hidden className="flex size-5 items-center justify-center rounded-md text-[11px] font-semibold text-white" style={{ background: p.color }}>
+                    {p.name.slice(0, 1).toUpperCase()}
+                  </span>
+                  <ProjectWorkingBadge entries={here} now={working.now} variant="rail" ready={board !== null} />
+                </Link>
+              </RailTip>
+            )
+          })}
           <RailTip tips={tips} label="New project">
             <Button variant="ghost" size="iconMd" aria-label="New project" onClick={onNewProject} disabled={!workspaceId}>
               <PlusIcon className="size-3.5" />
@@ -289,7 +297,7 @@ export function Sidebar({
           Review
           {reviewBadge}
         </Link>
-        {board && workspaceId ? <AgentsWorking board={board} workspaceId={workspaceId} className={row} /> : null}
+        {board && workspaceId ? <AgentsWorking working={working} className={row} /> : null}
       </nav>
 
       {/* A long project list scrolls here; Settings stays at the bottom. */}
@@ -301,9 +309,10 @@ export function Sidebar({
           </Button>
         </div>
         {projects.map((p) => (
-          <Link key={p.id} to="/$projectKey" params={{ projectKey: p.key }} className={`${row} shrink-0`} activeOptions={{ exact: false }}>
+          <Link key={p.id} to="/$projectKey" params={{ projectKey: p.key }} className={`${row} shrink-0`} activeOptions={{ exact: false }} data-project-key={p.key}>
             <i className="size-2.5 shrink-0 rounded-[3px]" style={{ background: p.color }} />
-            <span className="truncate">{p.name}</span>
+            <span className="truncate" data-project-name>{p.name}</span>
+            <ProjectWorkingBadge entries={working.byProject.get(p.id) ?? []} now={working.now} variant="row" ready={board !== null} />
           </Link>
         ))}
         <button
