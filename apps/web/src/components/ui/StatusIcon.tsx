@@ -1,7 +1,8 @@
 import type { StatusCategory } from "@cello/contract/entities"
 
 /**
- * Linear-style status glyph: dashed for backlog, empty, half, paused (waiting on Lucas), check, cross.
+ * Linear-style status glyph: dashed for backlog, empty, half, paused (waiting on Lucas), check, cross; a
+ * category this build doesn't know (`other`) is the empty ring.
  * `turn` (started only, CEL-76): each new value turns the half fill once, for an agent checking in while
  * at work on the task; 0 or unset is still. Nothing loops.
  */
@@ -15,6 +16,8 @@ export function StatusIcon({ category, color, size = 14, turn = 0 }: { category:
         </svg>
       )
     case "unstarted":
+    // A category a newer server added (CEL-178): a plain ring until this build learns it.
+    case "other":
       return (
         <svg {...common}>
           <circle cx="7" cy="7" r="5.5" fill="none" stroke={color} strokeWidth="1.5" />
