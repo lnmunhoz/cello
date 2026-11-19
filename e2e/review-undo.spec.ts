@@ -6,6 +6,7 @@ import * as fs from "node:fs"
 import type { Page } from "@playwright/test"
 import { caption, captionWithUrl, column, createProject, expect, projectLink, sidebarSettings, test, uniqueKey } from "./fixtures.ts"
 import { cello, decidedSeen, decisionsThroughTest, submitPackets, watchDecided } from "./packets.ts"
+import { isReview } from "./recording.ts"
 
 const UNDO_KEY = "cello:review-undo"
 
@@ -34,7 +35,7 @@ async function setUp(page: Page, prefix: string, window: string, titles: Readonl
   return { key, decisions, dir, rows }
 }
 
-test("CEL-191: Approve says Approved · Undo and sends nothing; Undo puts the row back with the note still typed; Z does the same", async ({ page }) => {
+async function undoFlow(page: Page) {
   const { key, decisions, dir, rows } = await setUp(page, "UND", "30", ["Approve, then think again", "Next in line"])
   const [one, two] = rows as [(typeof rows)[number], (typeof rows)[number]]
   await captionWithUrl(page, `Open ${key}-1 and write a note`)
@@ -79,9 +80,22 @@ test("CEL-191: Approve says Approved · Undo and sends nothing; Undo puts the ro
   await expect(one.box).toHaveValue("Ship it.z")
   expect(decisions.sent()).toEqual([])
   fs.rmSync(dir, { recursive: true, force: true })
+}
+
+test("CEL-191: Approve says Approved · Undo and sends nothing; Undo puts the row back with the note still typed; Z does the same", async ({ page }) => {
+  await undoFlow(page)
 })
 
-test("CEL-191: when the window ends the decision is sent once: the row says Approved, folds away and the next opens; a Send back after it goes the same way", async ({ page }) => {
+// The same walk in the dark theme, for the review videos only (CELLO_E2E_REVIEW=1).
+test.describe("undoFlow in the dark theme", () => {
+  test.skip(!isReview(process.env), "recorded for review videos only")
+  test.use({ colorScheme: "dark" })
+  test("CEL-191 dark: Approve says Approved · Undo and sends nothing; Undo puts the row back with the note still typed; Z does the same", async ({ page }) => {
+    await undoFlow(page)
+  })
+})
+
+async function endFlow(page: Page) {
   const { key, decisions, dir, rows } = await setUp(page, "END", "30", ["Let the window end", "Then send this back"])
   const [one, two] = rows as [(typeof rows)[number], (typeof rows)[number]]
   await page.goto(`/review?open=${key}-1`)
@@ -109,6 +123,19 @@ test("CEL-191: when the window ends the decision is sent once: the row says Appr
   await expect(two.article).toHaveCount(0)
   expect(decisions.sent()).toEqual(["review.approve", "review.sendBack"])
   fs.rmSync(dir, { recursive: true, force: true })
+}
+
+test("CEL-191: when the window ends the decision is sent once: the row says Approved, folds away and the next opens; a Send back after it goes the same way", async ({ page }) => {
+  await endFlow(page)
+})
+
+// The same walk in the dark theme, for the review videos only (CELLO_E2E_REVIEW=1).
+test.describe("endFlow in the dark theme", () => {
+  test.skip(!isReview(process.env), "recorded for review videos only")
+  test.use({ colorScheme: "dark" })
+  test("CEL-191 dark: when the window ends the decision is sent once: the row says Approved, folds away and the next opens; a Send back after it goes the same way", async ({ page }) => {
+    await endFlow(page)
+  })
 })
 
 test("CEL-191: two rows in their windows at once: Undo one, and only the other is sent", async ({ page }) => {
