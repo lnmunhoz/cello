@@ -1,7 +1,7 @@
 // CEL-191: after Approve or Send back on the Review page, the decision waits in an undo window before
-// it is sent. The window is 30 s in the tests that never need it to end, so nothing races them: those
-// that need a decision sent leave the page (which sends what waits, at once), and the two that watch a
-// window end set it to 2 s and assert on what the page shows (an assertion waits for it, never a sleep).
+// it is sent. The window is 30 s here, so nothing races it: a test that needs a decision sent leaves or
+// reloads the page (which sends what waits, at once), or moves the page's clock past the window
+// (`endWindow`). The window's own timer, and that it sends once, are the unit tests' (deferred.test.ts).
 // What reached the socket is read from decisionsThroughTest(page).sent().
 import * as fs from "node:fs"
 import type { Page } from "@playwright/test"
@@ -110,49 +110,6 @@ test.describe("undoFlow in the dark theme", () => {
   })
 })
 
-async function endFlow(page: Page) {
-  const { key, decisions, dir, rows } = await setUp(page, "END", "30", ["Let the window end", "Then send this back"], { clock: true })
-  const [one, two] = rows as [(typeof rows)[number], (typeof rows)[number]]
-  await page.goto(`/review?open=${key}-1`)
-  await watchDecided(page)
-  await expect(one.header).toHaveAttribute("aria-expanded", "true")
-
-  await caption(page, "Approve: Approved · Undo, and the window runs")
-  await one.approve.click()
-  await expect(one.undo).toBeVisible()
-  expect(decisions.sent()).toEqual([])
-
-  await caption(page, "The window ends: it is sent, the row folds away and the next one opens")
-  await endWindow(page)
-  await expect(one.article).toHaveCount(0)
-  expect(decisions.sent()).toEqual(["review.approve"])
-  expect(await decidedSeen(page)).toContain(`${key}-1: Approved`)
-  await expect(two.header).toHaveAttribute("aria-expanded", "true")
-
-  await caption(page, "Send back with a note: the same, and the row says Sent back")
-  await two.box.fill("Make it quieter.")
-  await two.sendBack.click()
-  await expect(two.undo).toBeVisible()
-  await expect(two.words).toHaveText("Sent back")
-  await endWindow(page)
-  await expect(two.article).toHaveCount(0)
-  expect(decisions.sent()).toEqual(["review.approve", "review.sendBack"])
-  fs.rmSync(dir, { recursive: true, force: true })
-}
-
-test("CEL-191: when the window ends the decision is sent once: the row says Approved, folds away and the next opens; a Send back after it goes the same way", async ({ page }) => {
-  await endFlow(page)
-})
-
-// The same walk in the dark theme, for the review videos only (CELLO_E2E_REVIEW=1).
-test.describe("endFlow in the dark theme", () => {
-  test.skip(!isReview(process.env), "recorded for review videos only")
-  test.use({ colorScheme: "dark" })
-  test("CEL-191 dark: when the window ends the decision is sent once: the row says Approved, folds away and the next opens; a Send back after it goes the same way", async ({ page }) => {
-    await endFlow(page)
-  })
-})
-
 test("CEL-191: two rows in their windows at once: Undo one, and only the other is sent", async ({ page }) => {
   const { key, decisions, dir, rows } = await setUp(page, "TWO", "30", ["First to decide", "Second to decide"])
   const [one, two] = rows as [(typeof rows)[number], (typeof rows)[number]]
@@ -215,7 +172,7 @@ test("CEL-191: a task decided from elsewhere during the window is not decided ag
   await captionWithUrl(page, `Meanwhile the agent moves ${key}-1 out of In Review with the CLI`)
   cello("task", "move", `${key}-1`, "In Progress")
   await expect(one.article).toHaveCount(0)
-  await expect(page.getByText(`${key}-1 changed while you waited`, { exact: true })).toBeVisible()
+  await expect(page.getByText(`${key}-1 was decided or replaced while you waited`, { exact: true })).toBeVisible()
   await caption(page, "Leaving the page sends what waits: there is nothing left to send")
   await projectLink(page, key).click()
   await page.getByRole("navigation", { name: "Inbox" }).getByRole("link", { name: /^Review/ }).click()
@@ -330,7 +287,7 @@ test("CEL-191: the closing page's send never leaves (a tab that died): the next 
   expect(decisions.sent()).toEqual(["review.approve"])
   await caption(page, "Its note went with it")
   await card(page, `${key}-1`).click()
-  await expect(page.getByRole("complementary", { name: `${key}-1 details` }).getByText("Ship it, from a dead tab.")).toBeVisible()
+  await expect(page.getByRole("complementary", { name: `${key}-1 details` }).getByRole("button", { name: /^Approved · .*Ship it, from a dead tab\./ })).toBeVisible()
   expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("cello:review-pending:")))).toEqual([])
   fs.rmSync(dir, { recursive: true, force: true })
 })
