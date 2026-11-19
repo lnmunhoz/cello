@@ -3,7 +3,7 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import type { Browser, Page, WebSocketRoute } from "@playwright/test"
-import { caption, createProject, expect, newCommandId, seedProject, taskPanel, test, uniqueKey } from "./fixtures.ts"
+import { agentAs, animationsSettled, caption, createProject, defaultWorkspace, expect, newCommandId, projectLink, seedProject, taskPanel, test, uniqueKey } from "./fixtures.ts"
 import { submitPacket, WEB_URL } from "./packets.ts"
 
 const sidebarOf = (page: Page) => page.getByRole("complementary", { name: "Sidebar" })
@@ -242,3 +242,101 @@ test("CEL-24: in a narrow window the sidebar starts as the rail without saving i
   await page.keyboard.press("ControlOrMeta+b")
   await expect(sidebar).toHaveAttribute("data-sidebar", "expanded")
 })
+
+// CEL-179: each project's row shows how many agent sessions are working in it, by the Agents working
+// rule: hidden at 0, a pill on the row, a number on the project's square on the rail, a title that lists
+// the sessions and their tasks, and one small pop when the number changes (never while it stands still).
+test("CEL-179: a project's row shows how many agents are working in it: it appears, goes to 2, a session in two projects counts in each, it clears; the rail shows it on the square", async ({ page, cello, baseURL }) => {
+  const [keyA, keyB] = [uniqueKey("WKA"), uniqueKey("WKB")]
+  const [alpha, beta] = [await seedProject(cello, "Alpha", keyA), await seedProject(cello, "Beta", keyB)]
+  const { statuses } = await defaultWorkspace(cello)
+  for (const [project, titles] of [[alpha, ["Wire the sync", "Fix the filter"]], [beta, ["Write the copy"]]] as const) {
+    for (const title of titles) await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title, statusId: statuses.Todo!.id }))
+  }
+  const [a1, a2, b1] = [`${keyA}-1`, `${keyA}-2`, `${keyB}-1`]
+  const stamp = Date.now().toString(36)
+  const first = await agentAs(baseURL!, `cel179-first-${stamp}`, process.pid)
+  const second = await agentAs(baseURL!, `cel179-second-${stamp}`, process.pid)
+  const claim = (agent: typeof first, key: string) => agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key }))
+  const release = (agent: typeof first, key: string) => agent.run((c) => c["task.release"]({ commandId: newCommandId(), key }))
+
+  await page.goto(`/${keyA}/issues`)
+  const sidebar = sidebarOf(page)
+  await expect(sidebar).toHaveAttribute("data-sidebar", "expanded")
+  const badge = (key: string) => projectLink(page, key).locator("[data-project-working]")
+  await expect(projectLink(page, keyA)).toBeVisible()
+  await expect(projectLink(page, keyB)).toBeVisible()
+
+  await caption(page, "Two projects and nobody working: no badge on either row")
+  await expect(badge(keyA)).toHaveCount(0)
+  await expect(badge(keyB)).toHaveCount(0)
+
+  await caption(page, "An agent claims a task in Alpha: Alpha's row shows 1, Beta's shows nothing")
+  await claim(first, a1)
+  await expect(badge(keyA)).toHaveAttribute("data-project-working", "1")
+  await expect(badge(keyA)).toHaveText("1 agent working")
+  await expect(badge(keyB)).toHaveCount(0)
+  // It popped once as it appeared; once that ends, the badge stands still.
+  await expect(badge(keyA)).toHaveClass(/count-pop/)
+  await animationsSettled(page)
+  expect(await badge(keyA).evaluate((el) => el.getAnimations().length), "an unchanged number runs no animation").toBe(0)
+
+  await caption(page, "A second agent claims another Alpha task: 2, and the hover lists both with their tasks")
+  await claim(second, a2)
+  await expect(badge(keyA)).toHaveAttribute("data-project-working", "2")
+  await expect(badge(keyA)).toHaveClass(/count-pop/)
+  const title = await badge(keyA).getAttribute("title")
+  expect(title).toContain("2 agents working")
+  expect(title).toContain(`(${a1})`)
+  expect(title).toContain(`(${a2})`)
+  await badge(keyA).hover()
+  await expect(projectLink(page, keyA)).toHaveText(/Alpha\s*2 agents working/)
+  await stills(page, "cel-179-sidebar-two-agents")
+
+  await caption(page, "The first agent also claims a task in Beta: a session working in two projects counts in each")
+  await claim(first, b1)
+  await expect(badge(keyB)).toHaveAttribute("data-project-working", "1")
+  await expect(badge(keyB)).toHaveAttribute("title", new RegExp(`^1 agent working\\n.*\\(${b1}\\)$`))
+  await expect(badge(keyA)).toHaveAttribute("data-project-working", "2")
+
+  await caption(page, "Clicking the row still opens the project")
+  await projectLink(page, keyB).click()
+  await expect(page).toHaveURL(new RegExp(`/${keyB}/issues$`))
+
+  await caption(page, "The agents finish and let go of their tasks: the badges clear")
+  await release(first, a1)
+  await release(first, b1)
+  await expect(badge(keyA)).toHaveAttribute("data-project-working", "1")
+  await expect(badge(keyB)).toHaveCount(0)
+  await release(second, a2)
+  await expect(badge(keyA)).toHaveCount(0)
+
+  await caption(page, "Collapse to the rail, then an agent claims a task in Alpha: the number sits on Alpha's square")
+  await page.keyboard.press("ControlOrMeta+b")
+  await expect(sidebar).toHaveAttribute("data-sidebar", "rail")
+  await expect(badge(keyA)).toHaveCount(0)
+  await claim(second, a2)
+  await expect(badge(keyA)).toHaveAttribute("data-project-working", "1")
+  await expect(badge(keyB)).toHaveCount(0)
+  await expect(badge(keyA)).toHaveAttribute("title", new RegExp(`^1 agent working\\n.*\\(${a2}\\)$`))
+  await projectLink(page, keyA).hover()
+  await expect(page.getByRole("tooltip", { name: "Alpha · 1 working" })).toBeVisible()
+  await stills(page, "cel-179-rail-one-agent")
+
+  await caption(page, "Reload with an agent working: the badge is there and doesn't animate; it clears when the agent lets go")
+  await page.reload()
+  await expect(badge(keyA)).toHaveAttribute("data-project-working", "1")
+  await expect(badge(keyA)).not.toHaveClass(/count-pop/)
+  await release(second, a2)
+  await expect(badge(keyA)).toHaveCount(0)
+  await Promise.all([first.close(), second.close()])
+})
+
+/** The page as it is, in light and dark, in e2e/videos/evidence/<name>-<scheme>.png. */
+async function stills(page: Page, name: string) {
+  for (const scheme of ["light", "dark"] as const) {
+    await page.evaluate((dark) => document.documentElement.classList.toggle("dark", dark), scheme === "dark")
+    await still(page, `${name}-${scheme}`)
+  }
+  await page.evaluate(() => document.documentElement.classList.remove("dark"))
+}
