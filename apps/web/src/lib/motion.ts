@@ -27,6 +27,9 @@ export const spring = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 }
 /** The transition `motion`'s `layout` animations use: the spring. */
 export const layoutTransition = spring
 
+/** No motion: what the human's own view changes (a project pick) run on, so rows snap instead of gliding (CEL-188). */
+export const instant = { duration: 0 } as const
+
 /**
  * How a panel leaves when the human closes it: it slides out when it is on screen and motion is allowed,
  * and leaves at once otherwise. A hidden panel's slide is cancelled and never ends, so waiting on it

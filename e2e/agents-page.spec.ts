@@ -24,6 +24,7 @@ import {
 } from "./fixtures.ts"
 import { celloIn, claudeHooks } from "./claudeHooks.ts"
 import { expectLeftAligned, SHOTS } from "./packets.ts"
+import { isReview } from "./recording.ts"
 import { openClient } from "../packages/client/test/support/promiseClient.ts"
 
 const ORCHESTRATOR = "2fd0505c-417a-4167-acfe-2d66080fcae0"
@@ -83,6 +84,8 @@ const group = (page: Page, id: "waiting" | "working" | "quiet" | "finished") => 
 const rowsIn = (page: Page, id: "waiting" | "working" | "quiet") => group(page, id).locator("[data-agent-row]")
 
 test.beforeEach(async ({ context }) => {
+  // Review videos hold every step (e2e/recording.ts), which takes these flows past the default timeout, as on review.spec.ts.
+  if (isReview(process.env)) test.setTimeout(180_000)
   await context.addInitScript(() => {
     if (localStorage.getItem("cello:agent-cursors") === null) localStorage.setItem("cello:agent-cursors", "off")
   })
@@ -472,3 +475,145 @@ for (const theme of ["light", "dark"] as const) {
     await agents[2]!.run((c) => c["task.release"]({ commandId: newCommandId(), key: `${key}-3` }))
   })
 }
+
+for (const theme of ["light", "dark"] as const) {
+  test(`CEL-188 (${theme}): the Agents page narrows to a project: chips with counts, ↓ and j walk only the shown rows, the pick survives a reload, All brings everything back`, async ({ page, cello, baseURL }) => {
+    const [keyA, keyB] = theme === "light" ? ["CAL", "CBL"] : ["CAD", "CBD"]
+    const nameA = `Chips Alpha ${theme}`
+    const nameB = `Chips Beta ${theme}`
+    const [projectA, projectB] = [await seedProject(cello, nameA, keyA), await seedProject(cello, nameB, keyB)]
+    const { statuses } = await defaultWorkspace(cello)
+    for (const [project, titles] of [
+      [projectA, ["Make the timer louder", "Add a dark icon"]],
+      [projectB, ["Sync the presets"]],
+    ] as const) {
+      for (const title of titles) {
+        await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title, statusId: statuses.Todo!.id }))
+      }
+    }
+    // Three agents, one after another (this test's process is alive, so they stay working): two on Alpha, one on Beta.
+    const externals = [`c188${theme}1-first-session`, `c188${theme}2-second-session`, `c188${theme}3-third-session`] as const
+    const claims = [`${keyA}-1`, `${keyA}-2`, `${keyB}-1`] as const
+    for (const [i, external] of externals.entries()) {
+      const agent = await agentAs(baseURL!, external, process.pid)
+      await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: claims[i]! }))
+    }
+    const [first, second, third] = (await Promise.all(externals.map((e) => sessionId(cello, e)))).map((id) => page.locator(`[data-agent-row="session:${id}"]`)) as [Locator, Locator, Locator]
+    // Every row the page shows: with a pick, only that project's (another test's agents are on other projects).
+    const mine = page.locator("[data-agent-row]")
+    const chip = (name: string, count: number) => page.getByRole("radio", { name: `${name} ${count}` })
+
+    await page.addInitScript((t) => localStorage.setItem("cello:theme", t), theme)
+    await page.goto("/agents")
+    await caption(page, "Agents on All: three agents, on two projects")
+    await expect(first).toBeVisible()
+    await expect(second).toBeVisible()
+    await expect(third).toBeVisible()
+    await expect(chip(nameA, 2)).toBeVisible()
+    await expect(chip(nameB, 1)).toBeVisible()
+    await expect(page.getByRole("radio", { name: /^All \d+$/ })).toHaveAttribute("aria-checked", "true")
+
+    await caption(page, `Pick ${nameA}: only its two agents stay, and the page count follows`)
+    await chip(nameA, 2).click()
+    await expect(mine).toHaveCount(2)
+    await expect(first).toBeVisible()
+    await expect(second).toBeVisible()
+    await expect(third).toHaveCount(0)
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Agents working 2")
+
+    await caption(page, "↓ and j move between the shown rows only, and stop at the last one")
+    await first.getByRole("button").first().focus()
+    await page.keyboard.press("ArrowDown")
+    await expect(second.getByRole("button").first()).toBeFocused()
+    await page.keyboard.press("j")
+    await expect(second.getByRole("button").first()).toBeFocused()
+    await page.keyboard.press("k")
+    await expect(first.getByRole("button").first()).toBeFocused()
+
+    await captionWithUrl(page, "Reload: the pick stays on this device")
+    await page.reload()
+    await expect(chip(nameA, 2)).toHaveAttribute("aria-checked", "true")
+    await expect(mine).toHaveCount(2)
+
+    // A pick snaps the rows: from here on, watch for any row that is mid-move (motion gives it a transform while it glides).
+    await page.evaluate(() => {
+      const moved: string[] = []
+      Object.assign(window, { rowMoved: moved })
+      new MutationObserver(() => {
+        for (const li of document.querySelectorAll("main li[style*='transform']:not([style*='none'])")) moved.push(`${li.querySelector("[data-agent-row]")?.getAttribute("data-agent-row")}: ${li.getAttribute("style")}`)
+      }).observe(document.querySelector("main")!, { subtree: true, attributes: true, attributeFilter: ["style"] })
+    })
+    await caption(page, `Pick ${nameB}: the other agent shows alone, and takes the top place at once`)
+    await chip(nameB, 1).click()
+    await expect(mine).toHaveCount(1)
+    await expect(third).toBeVisible()
+    await expect(first).toHaveCount(0)
+
+    await caption(page, "All: everything is back")
+    await page.getByRole("radio", { name: /^All \d+$/ }).click()
+    await expect(first).toBeVisible()
+    await expect(second).toBeVisible()
+    await expect(third).toBeVisible()
+    await expect(page.getByRole("radio", { name: /^All \d+$/ })).toHaveAttribute("aria-checked", "true")
+    expect(await page.evaluate(() => (window as unknown as { rowMoved: string[] }).rowMoved)).toEqual([])
+  })
+}
+
+const SORT_BUILDER = "c188sortbuilder01"
+
+test("CEL-188: the Agents page's Display menu sorts the rows: Project goes by the project's name, Started brings the order back; the trigger names the sort, and it is kept after a reload", async ({ page, cello, baseURL }) => {
+  const keys = ["SRZ", "SRA", "SRM"] as const
+  const names = ["Sort Zeta", "Sort Alpha", "Sort Mid"] as const
+  const { statuses } = await defaultWorkspace(cello)
+  for (const [i, key] of keys.entries()) {
+    const project = await seedProject(cello, names[i]!, key)
+    await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title: `Task in ${names[i]}`, statusId: statuses.Todo!.id }))
+  }
+  // Three agents start one after another, each on a task of a different project: Zeta, Alpha, Mid.
+  const externals = ["c188sort1-first-session", "c188sort2-second-session", "c188sort3-third-session"] as const
+  for (const [i, external] of externals.entries()) {
+    const agent = await agentAs(baseURL!, external, process.pid)
+    await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: `${keys[i]}-1` }))
+  }
+  // The first session (Zeta) is an orchestrator: a builder under it stays with it under every sort.
+  hooks.launch(externals[0], SORT_BUILDER, "cello-builder", `${keys[0]}-1 build the Zeta task`)
+  const sessions = await Promise.all(externals.map((e) => sessionId(cello, e)))
+  const ids = [...sessions.map((id) => `session:${id}`), `agent:${sessions[0]}/${SORT_BUILDER}`]
+  const mine = page.locator(ids.map((id) => `[data-agent-row="${id}"]`).join(", "))
+  /** Our rows, in the order the page shows them. */
+  const expectOrder = async (order: ReadonlyArray<number>) => {
+    await expect(mine).toHaveCount(order.length)
+    for (const [i, n] of order.entries()) await expect(mine.nth(i)).toHaveAttribute("data-agent-row", ids[n]!)
+  }
+  const display = page.getByRole("button", { name: /^Display/ })
+  const pickSort = async (label: string) => {
+    await display.click()
+    await caption(page, `The Display menu is open: Sort by ${label}`)
+    const sort = page.getByRole("combobox", { name: "Sort", exact: true })
+    await sort.click()
+    await page.getByRole("option", { name: label, exact: true }).click()
+    await expect(sort).toContainText(label)
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog", { name: "Display options" })).toBeHidden()
+  }
+
+  await page.goto("/agents")
+  await caption(page, "Three agents, in the order they started: Zeta (with its builder), Alpha, Mid")
+  await expectOrder([0, 3, 1, 2])
+  await expect(display).toHaveText("Display")
+
+  await caption(page, "Sort by Project: Alpha, Mid, then Zeta, its builder still under it")
+  await pickSort("Project")
+  await expectOrder([1, 2, 0, 3])
+  await expect(display).toContainText(/Display\s*· Project/)
+
+  await captionWithUrl(page, "Reload: the sort stays on this device")
+  await page.reload()
+  await expectOrder([1, 2, 0, 3])
+  await expect(display).toContainText(/Display\s*· Project/)
+
+  await caption(page, "Sort by Started: the order they began is back")
+  await pickSort("Started")
+  await expectOrder([0, 3, 1, 2])
+  await expect(display).toHaveText("Display")
+})

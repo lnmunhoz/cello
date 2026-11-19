@@ -1,6 +1,7 @@
 import type { BoardState } from "@cello/client/sync/applyEvents"
 import { needsInputQueue, type AskItem } from "@cello/client/sync/asks"
 import { reviewQueue, type ReviewItem } from "@cello/client/sync/reviews"
+import { projectsOf } from "@cello/client/sync/selectors"
 import type { Project, Task } from "@cello/contract/entities"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { CheckIcon, CornerUpLeftIcon } from "lucide-react"
@@ -13,9 +14,13 @@ import { Centered } from "../app/Home.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { relativeTime } from "../lib/format.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
+import { instant as motionInstant } from "../lib/motion.ts"
 import { EvidenceBadge } from "./EvidenceBadge.tsx"
 import { FOLD_SPRING, QueueRow, type QueueRowState } from "./QueueRow.tsx"
-import { allLeft, type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, type Held, holdStep, IDLE, syncHeld, withHeld } from "./queue.ts"
+import { allLeft, type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, filterQueue, type Held, holdStep, IDLE, REVIEW_SORT_LABELS, REVIEW_SORTS, sortQueue, syncHeld, withHeld } from "./queue.ts"
+import { NothingFor, QueueToolbar } from "./ProjectChips.tsx"
+import { projectChips } from "./queueView.ts"
+import { useJustChanged, useQueueView } from "./useQueueView.ts"
 import { CommentOrDecide } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
 import { useQueue } from "./useQueue.ts"
@@ -42,29 +47,46 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   const { open } = useSearch({ from: "/review" })
   const navigate = useNavigate({ from: "/review" })
 
-  // Asks first (an agent is waiting on them), then packets; a task is in one group only.
-  const asked = needsInputQueue(board, workspaceId)
-  const queue = reviewQueue(board, workspaceId)
+  const projects = projectsOf(board, workspaceId)
+  const { picked, pick, sort, pickSort, view } = useQueueView("review", projects, REVIEW_SORTS)
+  // The human's own pick folds rows at once; an event's fold springs.
+  const instant = useJustChanged(view)
+  const projectId = picked?.id ?? null
+  // Asks first (an agent is waiting on them), then packets; a task is in one group only. The chips count
+  // all of them, so rows stay put while you filter (CEL-188).
+  const allAsked = needsInputQueue(board, workspaceId)
+  const allQueue = reviewQueue(board, workspaceId)
+  const asked = sortQueue(filterQueue(allAsked, projectId), sort)
+  const queue = filterQueue(allQueue, projectId)
+  const chips = projectChips([...allAsked, ...allQueue].map((item) => item.project.id), projects, picked)
   const reduced = useReducedMotion() === true
   const [held, setHeld] = useState<ReadonlyArray<Held<ReviewItem>>>([])
   /** The row a decision opened: it unfolds. A row Lucas opens himself opens at once. */
   const [unfolding, setUnfolding] = useState<string | null>(null)
-  const packets = withHeld(queue, (item) => item.task.key, held)
+  // Held on the whole queue, so a row's place (`at`) doesn't move with the pick; the pick filters after, and keeps the held ones.
+  const allPackets = withHeld(allQueue, (item) => item.task.key, held)
+  const keepKeys = new Set(held.filter((h) => h.state.phase === "pending" || h.state.phase === "decided").map((h) => h.key))
+  // A held row sorts by its frozen item, so it keeps its place until it folds away.
+  const packets = sortQueue(filterQueue(allPackets, projectId, keepKeys), sort)
   const decisionOn = (key: string): Decision | null => {
     const state = held.find((h) => h.key === key)?.state
     return state?.phase === "decided" ? state.decision : null
   }
   const keys = [...asked, ...packets].map((item) => item.task.key)
   const openKey = open !== undefined && keys.includes(open) ? open : null
-  const rows = useQueue({
-    keys,
-    open: openKey,
-    // The viewer stays open beside the packet that changes.
-    setOpen: (key) => {
-      setUnfolding(null)
-      void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(key === null ? {} : { open: key }) }), replace: true })
-    },
-  })
+  // The viewer stays open beside the packet that changes.
+  const setOpen = (key: string | null) => {
+    setUnfolding(null)
+    void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(key === null ? {} : { open: key }) }), replace: true })
+  }
+  const rows = useQueue({ keys, open: openKey, setOpen })
+  /** A pick that hides the open row closes it, so it doesn't spring open when the project comes back. */
+  const onPick = (next: Project | null) => {
+    pick(next)
+    if (open === undefined || next === null) return
+    const hidden = [...allAsked, ...allPackets].some((item) => item.task.key === open && item.project.id !== next.id && !keepKeys.has(open))
+    if (hidden) setOpen(null)
+  }
 
   /**
    * A decision on `item` as it goes. From the click its row is held where it stands, since the events
@@ -74,12 +96,12 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   const onDecision = (item: ReviewItem, event: DecisionEvent) => {
     const key = item.task.key
     if (event.type !== "clicked") return setHeld((rows) => holdStep(rows, key, event))
-    const at = packets.findIndex((p) => p.task.key === key)
+    const at = allPackets.findIndex((p) => p.task.key === key)
     const state = decisionStep(IDLE, event)
-    setHeld((rows) => [...rows.filter((h) => h.key !== key), { key, item, at: at === -1 ? packets.length : at, state, dropped: false }])
+    setHeld((rows) => [...rows.filter((h) => h.key !== key), { key, item, at: at === -1 ? allPackets.length : at, state, dropped: false }])
   }
   // The held rows follow the queue: a row the events took off it is noted, and one that comes back (a new packet) is let go.
-  const listed = queue.map((item) => item.task.key)
+  const listed = allQueue.map((item) => item.task.key)
   const listedKeys = listed.join(" ")
   const followQueue = useEffectEvent(() => setHeld((rows) => syncHeld(rows, listed)))
   useEffect(() => followQueue(), [listedKeys])
@@ -117,6 +139,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
               with a note for the agent. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
             </p>
           </header>
+          <QueueToolbar chips={chips} picked={picked} onPick={onPick} sort={sort} sorts={REVIEW_SORTS} labels={REVIEW_SORT_LABELS} onSort={pickSort} />
           {/* Both groups are one list for the keys: ↑ ↓ go from the last ask to the first packet. */}
           <div {...rows.list} className="flex flex-col gap-6">
             {asked.length > 0 ? (
@@ -142,7 +165,9 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
             ) : null}
             {/* The list stays while its last row folds away. */}
             {packets.length === 0 && !leaving ? (
-              asked.length === 0 ? (
+              asked.length === 0 && picked !== null ? (
+                <NothingFor project={picked} onShowAll={() => onPick(null)} />
+              ) : asked.length === 0 ? (
                 <div className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-line px-6 py-14 text-center text-[13px] text-muted">
                   <p className="text-[15px] font-medium text-ink">Nothing to review</p>
                   <p>
@@ -159,12 +184,12 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
                   </h2>
                 ) : null}
                 <ul aria-label="Waiting for review" className="flex flex-col gap-2">
-                  <AnimatePresence initial={false} onExitComplete={left}>
+                  <AnimatePresence initial={false} onExitComplete={left} custom={instant}>
                     {packets.map((item) => {
                       const key = item.task.key
                       const decision = decisionOn(key)
                       return (
-                        <FoldAway key={item.task.id}>
+                        <FoldAway key={item.task.id} instant={instant}>
                           <ReviewRow
                             {...rows.row(key)}
                             unfold={key === unfolding}
@@ -209,13 +234,16 @@ function Decided({ decision, onShown }: { decision: Decision; onShown: () => voi
   )
 }
 
+/** How a packet folds away: on the spring, or at once when the human's pick took it off the page (AnimatePresence's custom). */
+const FOLD = { fold: (instant: boolean | undefined) => ({ height: 0, opacity: 0, marginBottom: -8, transition: instant ? motionInstant : FOLD_SPRING }) }
+
 /** A packet's place in the list: when its row leaves the queue it folds away, so the rows under it glide up. With reduced motion it just goes. */
-function FoldAway({ children }: { children: ReactNode }) {
+function FoldAway({ instant, children }: { instant: boolean; children: ReactNode }) {
   const present = useIsPresent()
   const reduced = useReducedMotion() === true
   return (
     // The margin takes the list's gap (gap-2) with it. It clips only while it folds: a focus ring and the card's shadow reach past it.
-    <motion.li {...(reduced ? {} : { exit: { height: 0, opacity: 0, marginBottom: -8 } })} transition={FOLD_SPRING} className={present ? undefined : "overflow-hidden"}>
+    <motion.li {...(reduced ? {} : { exit: "fold", custom: instant, variants: FOLD })} className={present ? undefined : "overflow-hidden"}>
       {children}
     </motion.li>
   )

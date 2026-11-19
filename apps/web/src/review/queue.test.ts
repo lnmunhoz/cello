@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { allLeft, type DecisionState, decisionStep, type Held, holdStep, IDLE, nextAfterDecision, parseReviewSearch, decisionNote, rowKey, syncHeld, withHeld } from "./queue.ts"
+import { allLeft, type DecisionState, decisionStep, filterQueue, type Held, holdStep, IDLE, nextAfterDecision, parseReviewSearch, decisionNote, rowKey, sortQueue, syncHeld, withHeld } from "./queue.ts"
 
 describe("decisionStep: what a row shows from the click on Approve or Send back until it has left (CEL-187)", () => {
   const pending: DecisionState = { phase: "pending", decision: "approved" }
@@ -133,6 +133,61 @@ describe("nextAfterDecision: after Approve or Send back, the next row opens", ()
   })
   it("none for a row that isn't in the queue any more", () => {
     expect(nextAfterDecision(keys, "CEL-99")).toBeUndefined()
+  })
+})
+
+describe("filterQueue: the Review page narrowed to a project (CEL-188)", () => {
+  const item = (key: string, project: string) => ({ task: { key }, project: { id: project } })
+  const items = [item("A-1", "pa"), item("B-1", "pb"), item("A-2", "pa")]
+
+  it("keeps the project's rows in order; All keeps every row", () => {
+    expect(filterQueue(items, "pa").map((i) => i.task.key)).toEqual(["A-1", "A-2"])
+    expect(filterQueue(items, null).map((i) => i.task.key)).toEqual(["A-1", "B-1", "A-2"])
+  })
+
+  it("keeps a row with a decision in flight whatever its project, so it can say so and fold away", () => {
+    expect(filterQueue(items, "pa", new Set(["B-1"])).map((i) => i.task.key)).toEqual(["A-1", "B-1", "A-2"])
+  })
+
+  it("a project with no rows has none", () => {
+    expect(filterQueue(items, "pc")).toEqual([])
+  })
+
+  it("a pick during the confirmation: the decided row stays, and the next row to open is the next one shown", () => {
+    // B-1 was approved (its events took it off the queue); Lucas picks Alpha while the row still says Approved.
+    const queue = [item("A-1", "pa"), item("A-2", "pa")]
+    const decided: Held<(typeof items)[number]> = { key: "B-1", item: item("B-1", "pb"), at: 1, dropped: true, state: { phase: "decided", decision: "approved" } }
+    const keep = new Set([decided.key])
+    const shown = filterQueue(withHeld(queue, (i) => i.task.key, [decided]), "pa", keep).map((i) => i.task.key)
+    expect(shown).toEqual(["A-1", "B-1", "A-2"])
+    // The confirmation ends: the row folds away, and the one that opens is the next shown, not a hidden one.
+    expect(nextAfterDecision(shown, "B-1")).toBe("A-2")
+    const after = filterQueue(withHeld(queue, (i) => i.task.key, [{ ...decided, state: { phase: "leaving", decision: "approved" } }]), "pa", new Set()).map((i) => i.task.key)
+    expect(after).toEqual(["A-1", "A-2"])
+  })
+})
+
+describe("sortQueue: the Review page's order (CEL-188)", () => {
+  const item = (key: string, project: string, priority: 0 | 1 | 2 | 3 | 4) => ({ task: { key, priority }, project: { name: project } })
+  const items = [item("B-1", "Beta", 0), item("A-1", "Alpha", 3), item("B-2", "Beta", 1), item("A-2", "Alpha", 3)]
+  const keys = (sorted: ReadonlyArray<{ task: { key: string } }>) => sorted.map((i) => i.task.key)
+
+  it("Oldest is the queue's own order, Newest is that reversed", () => {
+    expect(keys(sortQueue(items, "oldest"))).toEqual(["B-1", "A-1", "B-2", "A-2"])
+    expect(keys(sortQueue(items, "newest"))).toEqual(["A-2", "B-2", "A-1", "B-1"])
+  })
+
+  it("Project goes by the project's name, ties in the queue's order", () => {
+    expect(keys(sortQueue(items, "project"))).toEqual(["A-1", "A-2", "B-1", "B-2"])
+  })
+
+  it("Priority puts urgent first and no priority last, ties in the queue's order", () => {
+    expect(keys(sortQueue(items, "priority"))).toEqual(["B-2", "A-1", "A-2", "B-1"])
+  })
+
+  it("leaves the queue itself alone", () => {
+    sortQueue(items, "newest")
+    expect(keys(items)).toEqual(["B-1", "A-1", "B-2", "A-2"])
   })
 })
 

@@ -3,15 +3,21 @@ import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { describe, expect, it } from "vitest"
 import type { Working, WorkingAgent } from "../presence/model.ts"
 import {
+  type AgentRow,
+  type AgentSort,
   agentGroups,
   agentRows,
+  agentProjectIds,
   directTasks,
+  filterAgentRows,
   finishedRows,
   groupOf,
+  homeProjectOf,
   logLinkOf,
   parseAgentsSearch,
   pulseKeyOf,
   rowKeysOf,
+  sortFamilies,
   stateTaskOf,
   subagentsLabel,
   waitingTaskOf,
@@ -260,5 +266,82 @@ describe("pulseKeyOf (CEL-186)", () => {
     expect(pulseKeyOf(sessionRow2!)).toBe(pulseKeyOf(sessionRow!))
     const [sessionRow3] = agentRows([working({ ...s, lastSeenAt: s.lastSeenAt + 1000 }, { agents: [a] })])
     expect(pulseKeyOf(sessionRow3!)).not.toBe(pulseKeyOf(sessionRow!))
+  })
+})
+
+describe("sortFamilies: the Agents page's order (CEL-188)", () => {
+  const statuses = { prog: { name: "In Progress", category: "started" } }
+  const names: Record<string, string> = { pa: "Alpha", pb: "Beta" }
+  const onTask = (id: string, key: string, projectId: string, number: number): Task => ({ ...task(id, key), projectId, number })
+  const [s1, s2, s3] = [{ ...session("s1"), lastSeenAt: now - 300_000 }, { ...session("s2"), lastSeenAt: now - 100_000 }, { ...session("s3"), lastSeenAt: now - 200_000 }]
+  // Started order: s1 (Beta 2), s2 (Alpha 9, with a subagent seen most recently), s3 (Beta 1), s4 (no task).
+  const busy = { ...sub(s1, "a1", null), agent: { ...sub(s1, "a1", null).agent, lastSeenAt: now - 400_000 } }
+  const lively = { ...sub(s2, "a2", null), agent: { ...sub(s2, "a2", null).agent, lastSeenAt: now } }
+  const rows = agentRows([
+    working(s1, { tasks: [onTask("t1", "B-2", "pb", 2)], agents: [busy] }),
+    working(s2, { tasks: [onTask("t2", "A-9", "pa", 9)], agents: [lively] }),
+    working(s3, { tasks: [onTask("t3", "B-1", "pb", 1)] }),
+    working(session("s4")),
+  ])
+  const ids = (sorted: ReadonlyArray<AgentRow>) => sorted.map((r) => r.id)
+  const sorted = (sort: AgentSort) => ids(sortFamilies(rows, sort, (id) => names[id]!, statuses))
+
+  it("Started leaves the order alone", () => {
+    expect(sorted("started")).toEqual(ids(rows))
+  })
+
+  it("Last active puts the family whose agents checked in last first, subagents counted, each family whole", () => {
+    expect(sorted("active")).toEqual(["session:s2", "agent:s2/a2", "session:s4", "session:s3", "session:s1", "agent:s1/a1"])
+  })
+
+  it("Project goes by the project's name, a family with none last, subagents under their session", () => {
+    expect(sorted("project")).toEqual(["session:s2", "agent:s2/a2", "session:s1", "agent:s1/a1", "session:s3", "session:s4"])
+  })
+
+  it("Task goes by the first task's project, then its number, rows with no task last", () => {
+    expect(sorted("task")).toEqual(["session:s2", "agent:s2/a2", "session:s3", "session:s1", "agent:s1/a1", "session:s4"])
+  })
+})
+
+describe("homeProjectOf and filterAgentRows: the Agents page narrowed to a project (CEL-188)", () => {
+  const statuses = { prog: { name: "In Progress", category: "started" } }
+  const inProject = (t: Task, projectId: string): Task => ({ ...t, projectId })
+
+  it("a session's project is the task its row shows; with none, its first subagent's task; with no task at all, none", () => {
+    const a = session("sa")
+    const b = session("sb")
+    const c = session("sc")
+    const rows = agentRows([
+      working(a, { tasks: [inProject(task("t1", "A-1"), "pa")] }),
+      working(b, { agents: [sub(b, "b1", inProject(task("t2", "B-1"), "pb"))] }),
+      working(c),
+    ])
+    expect(rows.map((r) => homeProjectOf(r, rows, statuses))).toEqual(["pa", "pb", "pb", null])
+  })
+
+  it("a subagent on another project stays under its session's project: a family is never split", () => {
+    const a = session("sa")
+    const rows = agentRows([working(a, { tasks: [inProject(task("t1", "A-1"), "pa")], agents: [sub(a, "a1", inProject(task("t2", "B-1"), "pb"))] })])
+    expect(filterAgentRows(rows, "pa", statuses).map((r) => r.id)).toEqual(["session:sa", "agent:sa/a1"])
+    expect(filterAgentRows(rows, "pb", statuses)).toEqual([])
+  })
+
+  it("All keeps every row, rows with no project too; a project drops them", () => {
+    const rows = agentRows([working(session("sa"), { tasks: [inProject(task("t1", "A-1"), "pa")] }), working(session("sb"))])
+    expect(filterAgentRows(rows, null, statuses).map((r) => r.id)).toEqual(["session:sa", "session:sb"])
+    expect(filterAgentRows(rows, "pa", statuses).map((r) => r.id)).toEqual(["session:sa"])
+  })
+
+  it("agentProjectIds counts the finished rows too, so a project whose only agents finished today still has its chip", () => {
+    const live = agentRows([working(session("sa"), { tasks: [inProject(task("t1", "A-1"), "pa")] })])
+    const finished = finishedRows(EMPTY_BOARD, [{ session: session("sf"), agent: null, tasks: [inProject(task("t9", "B-1"), "pb")], endedAt: now }])
+    expect(agentProjectIds(live, finished, statuses)).toEqual(["pa", "pb"])
+    // The same ids the filter uses: picking pb shows the finished row.
+    expect(filterAgentRows(finished, "pb", statuses).map((r) => r.id)).toEqual(["session:sf"])
+  })
+
+  it("a finished row stands on its own: its own task's project", () => {
+    const [row] = finishedRows(EMPTY_BOARD, [{ session: session("sf"), agent: null, tasks: [inProject(task("t1", "A-1"), "pa")], endedAt: now }])
+    expect(homeProjectOf(row!, [], statuses)).toBe("pa")
   })
 })

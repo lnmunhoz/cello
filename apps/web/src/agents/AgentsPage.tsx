@@ -1,7 +1,8 @@
 import { currentStepOf } from "@cello/client/sync/agentLog"
 import { finishedAgents, startOfDay } from "@cello/client/sync/agents"
 import type { BoardState } from "@cello/client/sync/applyEvents"
-import type { Task } from "@cello/contract/entities"
+import { projectsOf } from "@cello/client/sync/selectors"
+import type { Project, Task } from "@cello/contract/entities"
 import { stageInfo } from "@cello/contract/stages"
 import { isNeedsInputStatus } from "@cello/domain/ask"
 import { modelName } from "@cello/domain/model"
@@ -17,14 +18,18 @@ import { Centered } from "../app/Home.tsx"
 import { CardBody } from "../board/Card.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
+import { layoutTransition } from "../lib/motion.ts"
 import { Author } from "../presence/Author.tsx"
 import { OriginBadge } from "../presence/OriginBadge.tsx"
 import { agentsWorkingCount, workingSessions } from "../presence/model.ts"
 import { AgentMarkOf, presenceSubjectOf, StageWord } from "../presence/Presence.tsx"
 import { TestRunFacts, TestRunLine, testRunOf } from "../presence/TestRun.tsx"
 import { useNow } from "../presence/useNow.ts"
+import { NothingFor, QueueToolbar } from "../review/ProjectChips.tsx"
 import { QueueRow, type QueueRowState } from "../review/QueueRow.tsx"
+import { projectChips } from "../review/queueView.ts"
 import { useQueue } from "../review/useQueue.ts"
+import { useQueueView } from "../review/useQueueView.ts"
 import { TaskLink } from "../task/TaskKey.tsx"
 import { keepViewer } from "../viewer/search.ts"
 import { AgentLog } from "./AgentLog.tsx"
@@ -32,20 +37,23 @@ import {
   type AgentGroupId,
   type AgentRow,
   agentGroups,
+  AGENT_SORT_LABELS,
+  AGENT_SORTS,
   agentRows,
   directTasks,
+  filterAgentRows,
   finishedRows,
   groupOf,
+  agentProjectIds,
   pulseKeyOf,
   rowKeysOf,
+  sortFamilies,
   stateTaskOf,
   subagentsLabel,
   waitingTaskOf,
 } from "./layout.ts"
 
 /** How a row moves to its new group, or out (CEL-186): the board's spring. */
-// CEL-189: replace with lib/motion.ts tokens at integration
-const layoutTransition = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 } as const
 
 /**
  * How a row leaves its group: one that left the page fades out; one that moved to another group (still in
@@ -80,15 +88,36 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const { open } = useSearch({ from: "/agents" })
   const navigate = useNavigate({ from: "/agents" })
   const now = useNow()
-  const sessions = workingSessions(board, workspaceId, now)
-  const rows = agentRows(sessions)
-  const finished = finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now)))
+  const projects = projectsOf(board, workspaceId)
+  const { picked, pick, sort, pickSort, view } = useQueueView("agents", projects, AGENT_SORTS)
+  const projectId = picked?.id ?? null
+  const allSessions = workingSessions(board, workspaceId, now)
+  const allRows = agentRows(allSessions)
+  const allFinished = finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now)))
+  // The chips count the whole list, Finished today too (the pick filters it), so rows stay put while you filter;
+  // a family is never split by a pick. All N is every row listed (working, quiet and finished today). The header's
+  // number stays the sidebar's: agents working now, of the rows shown.
+  const chips = projectChips(agentProjectIds(allRows, allFinished, board.statuses), projects, picked)
+  const nameOf = (id: string) => board.projects[id]?.name ?? ""
+  const rows = sortFamilies(filterAgentRows(allRows, projectId, board.statuses), sort, nameOf, board.statuses)
+  const finished = filterAgentRows(allFinished, projectId, board.statuses)
+  const sessions = allSessions.filter((s) => rows.some((r) => r.id === `session:${s.session.id}`))
   const groups = agentGroups(rows, finished)
   const keys = rowKeysOf(groups)
+  // A pick or a new sort starts the list afresh (the LayoutGroup's key, and its id, so no row's layoutId reaches back to
+  // where the same row was before): no row glides or folds to its new place, since the human asked for it; events still do.
   const layoutKey = groups.map((g) => `${g.id}:${g.rows.map((r) => r.id).join(",")}`).join(";")
   const placement = new Map(groups.flatMap((g) => g.rows.map((r) => [r.id, g.id] as const)))
   const openId = open !== undefined && keys.includes(open) ? open : null
-  const queue = useQueue({ keys, open: openId, setOpen: (id) => void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(id === null ? {} : { open: id }) }), replace: true }) })
+  const setOpen = (id: string | null) => void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(id === null ? {} : { open: id }) }), replace: true })
+  const queue = useQueue({ keys, open: openId, setOpen })
+  /** A pick that hides the open row closes it, so it doesn't spring open when the project comes back. */
+  const onPick = (next: Project | null) => {
+    pick(next)
+    if (open === undefined || next === null) return
+    const shown = [...filterAgentRows(allRows, next.id, board.statuses), ...filterAgentRows(allFinished, next.id, board.statuses)]
+    if (!shown.some((r) => r.id === open)) setOpen(null)
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -105,7 +134,9 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
               that finished today last. Open one to see what it was asked and its log. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
             </p>
           </header>
-          {rows.length === 0 ? (
+          <QueueToolbar chips={chips} picked={picked} onPick={onPick} sort={sort} sorts={AGENT_SORTS} labels={AGENT_SORT_LABELS} onSort={pickSort} />
+          {rows.length === 0 && picked !== null ? <NothingFor project={picked} onShowAll={() => onPick(null)} /> : null}
+          {rows.length === 0 && picked === null ? (
             <div className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-line px-6 py-14 text-center text-[13px] text-muted">
               <p className="text-[15px] font-medium text-ink">No agent is working</p>
               <p>When an agent claims a task, or a subagent starts on one, it shows up here.</p>
@@ -114,7 +145,7 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
           {groups.length === 0 ? null : (
             <MotionConfig reducedMotion="user">
               <Placement.Provider value={placement}>
-                <LayoutGroup>
+                <LayoutGroup id={view} key={view}>
                   <div {...queue.list} className="flex flex-col gap-6">
                     {/* A group that empties stays while its last row leaves, then folds away, instead of the page jumping. */}
                     <AnimatePresence initial={false}>

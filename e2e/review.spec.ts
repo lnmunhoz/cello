@@ -626,3 +626,116 @@ test("CEL-71: an agent moves its task out of In Review with `cello task move`: t
   await caption(page, `Withdrawn: ${key}-1 is being worked on again, and the Review page shows only what waits on Lucas`)
   fs.rmSync(dir, { recursive: true, force: true })
 })
+
+for (const theme of ["light", "dark"] as const) {
+  test(`CEL-188 (${theme}): the Review page narrows to a project: chips with counts, j and ↓ walk only the shown rows, a packet approved while filtered folds and the next shown row opens, the pick survives a reload`, async ({ page }) => {
+    await page.addInitScript((t) => localStorage.setItem("cello:theme", t), theme)
+    const nameA = `Chips Alpha ${theme}`
+    const nameB = `Chips Beta ${theme}`
+    const keyA = uniqueKey(theme === "light" ? "CAL" : "CAD")
+    await createProject(page, nameA, keyA)
+    const alpha = await submitPackets(page, keyA, ["Alpha one", "Alpha two"])
+    const keyB = uniqueKey(theme === "light" ? "CBL" : "CBD")
+    await createProject(page, nameB, keyB)
+    const beta = await submitPackets(page, keyB, ["Beta one"])
+    const [one, two] = [1, 2].map((n) => rowOf(page, `${keyA}-${n}`)) as [ReturnType<typeof rowOf>, ReturnType<typeof rowOf>]
+    const beta1 = rowOf(page, `${keyB}-1`)
+    const chip = (name: string, count: number) => page.getByRole("radio", { name: `${name} ${count}` })
+    const all = page.getByRole("radio", { name: /^All \d+$/ })
+    // Every row the page shows: with a pick, only that project's (another test's packets are in other projects).
+    const shown = page.locator("[data-review-task]")
+
+    await page.goto("/review")
+    await caption(page, "Review on All: packets from two projects")
+    await expect(beta1.header).toBeVisible()
+    await expect(one.header).toBeVisible()
+    await expect(chip(nameA, 2)).toBeVisible()
+    await expect(chip(nameB, 1)).toBeVisible()
+    await expect(all).toHaveAttribute("aria-checked", "true")
+
+    await caption(page, `Pick ${nameA}: only its two packets stay, and the page count follows`)
+    await chip(nameA, 2).click()
+    await expect(shown).toHaveCount(2)
+    await expect(beta1.article).toHaveCount(0)
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Review 2")
+
+    await caption(page, "j and ↓ move between the shown rows only, and stop at the last one")
+    await one.header.focus()
+    await page.keyboard.press("j")
+    await expect(two.header).toBeFocused()
+    await page.keyboard.press("ArrowDown")
+    await expect(two.header).toBeFocused()
+    await page.keyboard.press("k")
+    await expect(one.header).toBeFocused()
+
+    await captionWithUrl(page, "Reload: the pick stays on this device")
+    await page.reload()
+    await expect(chip(nameA, 2)).toHaveAttribute("aria-checked", "true")
+    await expect(shown).toHaveCount(2)
+
+    await caption(page, `Open ${keyA}-1 and approve it: it says Approved, folds away, and ${keyA}-2 opens`)
+    await one.header.click()
+    await expect(one.header).toHaveAttribute("aria-expanded", "true")
+    await one.article.locator('[data-decide="approved"]').click()
+    await expect(one.article).toHaveCount(0)
+    await expect(two.header).toHaveAttribute("aria-expanded", "true")
+    await expect(chip(nameA, 1)).toHaveAttribute("aria-checked", "true")
+    await expect(shown).toHaveCount(1)
+
+    await caption(page, `Approve ${keyA}-2, the last one for ${nameA}: nothing is left for it`)
+    await two.article.locator('[data-decide="approved"]').click()
+    await expect(two.article).toHaveCount(0)
+    await expect(page.locator(`[data-nothing-for="${keyA}"]`)).toContainText(`Nothing for ${nameA} right now`)
+    await expect(shown).toHaveCount(0)
+
+    await caption(page, "Show all: everything else is back")
+    await page.getByRole("button", { name: "Show all" }).click()
+    await expect(beta1.header).toBeVisible()
+    await expect(page.locator("[data-nothing-for]")).toHaveCount(0)
+    // With a single project left that has rows, the chips have nothing to offer and are hidden.
+    for (const { dir } of [alpha, beta]) fs.rmSync(dir, { recursive: true, force: true })
+  })
+}
+
+test("CEL-188: the Review page's Display menu sorts the rows: Newest reverses the queue, Oldest brings it back; the trigger names the sort, and it is kept after a reload", async ({ page }) => {
+  const key = uniqueKey("SRT")
+  await createProject(page, "Review sort test", key)
+  const { dir } = await submitPackets(page, key, ["Made first", "Made second", "Made third"])
+  const mine = page.locator(`[data-review-task^="${key}-"]`)
+  /** This test's rows, in the order the page shows them (another test's rows may share the page). */
+  const expectOrder = async (order: ReadonlyArray<number>) => {
+    await expect(mine).toHaveCount(order.length)
+    for (const [i, n] of order.entries()) await expect(mine.nth(i)).toHaveAttribute("data-review-task", `${key}-${n}`)
+  }
+  const display = page.getByRole("button", { name: /^Display/ })
+  const pickSort = async (label: string) => {
+    await display.click()
+    const sort = page.getByRole("combobox", { name: "Sort", exact: true })
+    await sort.click()
+    await page.getByRole("option", { name: label, exact: true }).click()
+    await expect(sort).toContainText(label)
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog", { name: "Display options" })).toBeHidden()
+  }
+
+  await page.goto("/review")
+  await caption(page, "Three packets, the oldest first")
+  await expectOrder([1, 2, 3])
+  await expect(display).toHaveText("Display")
+
+  await caption(page, "Display, Sort by Newest: the last one submitted comes first")
+  await pickSort("Newest")
+  await expectOrder([3, 2, 1])
+  await expect(display).toContainText(/Display\s*· Newest/)
+
+  await captionWithUrl(page, "Reload: the sort stays on this device")
+  await page.reload()
+  await expectOrder([3, 2, 1])
+  await expect(display).toContainText(/Display\s*· Newest/)
+
+  await caption(page, "Sort by Oldest: the queue's own order is back")
+  await pickSort("Oldest")
+  await expectOrder([1, 2, 3])
+  await expect(display).toHaveText("Display")
+  fs.rmSync(dir, { recursive: true, force: true })
+})
