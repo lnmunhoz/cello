@@ -19,6 +19,7 @@ import {
   logLinkOf,
   parseAgentsSearch,
   parseClearedAt,
+  parseOlderOpen,
   pulseKeyOf,
   rowKeysOf,
   searchAgentRows,
@@ -411,6 +412,22 @@ describe("Older: quiet for more than a day, nothing open (CEL-156)", () => {
     expect(shelterOf(groups, "session:act")).toEqual({ older: false, fold: null })
   })
 
+  it("a subagent that finished 2 hours ago under a session last seen 30 hours ago keeps the family out of Older", () => {
+    const [row] = agentRows([quietFor("a", 30, [onDone("t1")])])
+    const finishedAt = (hours: number) =>
+      finishedRows(EMPTY_BOARD, [{ session: row!.session, agent: { sessionId: "a", agentId: "x", agentType: "cello-builder", taskId: "t1", description: null, startedAt: now - 40 * HOUR, lastSeenAt: now - hours * HOUR, endedAt: now - hours * HOUR }, endedAt: now - hours * HOUR, tasks: [onDone("t1")] }])
+    expect(agentGroups(foldFinished([row!], finishedAt(2)).rows, [], { now, statuses }).map((g) => g.id)).toEqual(["quiet"])
+    expect(agentGroups(foldFinished([row!], finishedAt(31)).rows, [], { now, statuses }).map((g) => g.id)).toEqual(["older"])
+  })
+
+  it("the edges: a session in Waiting on you stays there after 30 hours, exactly 24 hours is not Older, and a check-in in the future is not Older", () => {
+    const waiting = working({ ...session("w"), lastSeenAt: now - 30 * HOUR }, { presence: "idle", mark: { mood: "waiting", statusId: "needs" } })
+    expect(agentGroups(agentRows([waiting]), [], { now, statuses }).map((g) => g.id)).toEqual(["waiting"])
+    expect(olderIds([quietFor("edge", 24)])).toEqual([])
+    expect(olderIds([quietFor("edge", 24 + 1 / 3_600_000)])).toEqual(["session:edge"])
+    expect(olderIds([quietFor("future", -1)])).toEqual([])
+  })
+
   it("an open task of a subagent that finished under the session keeps it out too", () => {
     const [row] = agentRows([quietFor("a", 30)])
     const finishedSub = finishedRows(EMPTY_BOARD, [{ session: row!.session, agent: { sessionId: "a", agentId: "x", agentType: "cello-builder", taskId: "t1", description: null, startedAt: now, lastSeenAt: now, endedAt: now }, endedAt: now, tasks: [task("t1", "T-1")] }])
@@ -419,36 +436,68 @@ describe("Older: quiet for more than a day, nothing open (CEL-156)", () => {
   })
 })
 
-describe("Clear finished: the rows that finished before the stamp are hidden, never deleted (CEL-156)", () => {
-  const rowsEnded = (...ends: number[]) =>
-    finishedRows(EMPTY_BOARD, ends.map((endedAt, i) => ({ session: session(`s${i}`), agent: null, tasks: [], endedAt })))
+describe("Clear finished: only what's left in Finished today is hidden, never deleted (CEL-156)", () => {
+  const sessionEnded = (id: string, endedAt: number) => finishedRows(EMPTY_BOARD, [{ session: { ...session(id), endedAt }, agent: null, tasks: [], endedAt }])[0]!
+  const subEnded = (s: AgentSession, id: string, endedAt: number, t: Task | null = null) =>
+    finishedRows(EMPTY_BOARD, [{ session: s, agent: { sessionId: s.id, agentId: id, agentType: "cello-builder", taskId: t?.id ?? null, description: null, startedAt: now - 9000, lastSeenAt: endedAt, endedAt }, endedAt, tasks: t ? [t] : [] }])[0]!
+  const ids = (rows: ReadonlyArray<AgentRow>) => rows.map((r) => r.id)
 
   it("no stamp hides nothing; a stamp hides what ended at or before it, and shows what ended after", () => {
-    const finished = rowsEnded(now - 3000, now - 2000, now - 1000)
+    const finished = [sessionEnded("s0", now - 3000), sessionEnded("s1", now - 2000), sessionEnded("s2", now - 1000)]
     expect(clearFinished(finished, null)).toEqual({ shown: finished, hidden: [] })
     const cleared = clearFinished(finished, now - 2000)
-    expect(cleared.shown.map((r) => r.id)).toEqual(["session:s2"])
-    expect(cleared.hidden.map((r) => r.id)).toEqual(["session:s0", "session:s1"])
+    expect(ids(cleared.shown)).toEqual(["session:s2"])
+    expect(ids(cleared.hidden)).toEqual(["session:s0", "session:s1"])
   })
 
   it("new ones that finish after the stamp show by themselves", () => {
-    expect(clearFinished(rowsEnded(now + 5000), now).shown.map((r) => r.id)).toEqual(["session:s0"])
+    expect(ids(clearFinished([sessionEnded("s0", now + 5000)], now).shown)).toEqual(["session:s0"])
   })
 
-  it("subagents folded under a session are cleared with the rest, so the fold counts what's shown", () => {
-    const a = session("fam")
-    const sub = (id: string, endedAt: number) => finishedRows(EMPTY_BOARD, [{ session: a, agent: { sessionId: a.id, agentId: id, agentType: "cello-builder", taskId: null, description: null, startedAt: now - 9000, lastSeenAt: endedAt, endedAt }, endedAt, tasks: [] }])[0]!
-    const { shown, hidden } = clearFinished([sub("old", now - 5000), sub("new", now - 1000)], now - 3000)
-    expect(foldFinished(agentRows([working(a)]), shown).rows[0]!.folded.map((r) => r.id)).toEqual(["agent:fam/new"])
-    expect(hidden.map((r) => r.id)).toEqual(["agent:fam/old"])
+  it("a finished session's fold is cleared with it, or row by row when only some of its subagents finished before the stamp", () => {
+    const a = { ...session("fam"), endedAt: now - 500 }
+    const [old, fresh] = [subEnded(a, "old", now - 5000), subEnded(a, "new", now - 1000)]
+    const { finished } = foldFinished([], [sessionEnded("fam", now - 500), fresh, old])
+    const cleared = clearFinished(finished, now - 3000)
+    expect(cleared.shown.map((r) => [r.id, ids(r.folded)])).toEqual([["session:fam", ["agent:fam/new"]]])
+    expect(ids(cleared.hidden)).toEqual(["agent:fam/old"])
+    expect(ids(clearFinished(finished, now).hidden)).toEqual(["session:fam", "agent:fam/new", "agent:fam/old"])
   })
 
-  it("the saved stamp is a time; anything else is no stamp", () => {
-    expect(parseClearedAt(String(now))).toBe(now)
-    expect(parseClearedAt(null)).toBeNull()
-    expect(parseClearedAt("")).toBeNull()
-    expect(parseClearedAt("0")).toBeNull()
-    expect(parseClearedAt("soon")).toBeNull()
+  it("a fold under a session that is still working stays whole: Clear only reaches what is left in Finished today", () => {
+    const a = session("live")
+    const { rows, finished } = foldFinished(agentRows([working(a)]), [subEnded(a, "x", now - 5000), subEnded(session("away"), "u", now - 5000)])
+    expect(ids(finished)).toEqual(["agent:away/u"])
+    const cleared = clearFinished(finished, now)
+    expect(cleared.shown).toEqual([])
+    expect(ids(cleared.hidden)).toEqual(["agent:away/u"])
+    expect(rows[0]!.folded.map((r) => r.id)).toEqual(["agent:live/x"])
+  })
+
+  it("a quiet session whose only open task is on a finished subagent stays in Quiet, after Clear and after 30 hours", () => {
+    const statuses = { prog: { name: "In Progress", category: "started" }, done: { name: "Done", category: "completed" } }
+    const a = { ...session("q"), lastSeenAt: now - 30 * 3_600_000 }
+    const quiet = working(a, { presence: "idle", mark: { mood: "still", statusId: "done" } })
+    const open = { ...task("t1", "T-1"), statusId: "prog" }
+    const { rows, finished } = foldFinished(agentRows([quiet]), [subEnded(a, "x", now - 29 * 3_600_000, open)])
+    expect(clearFinished(finished, now).hidden).toEqual([])
+    expect(agentGroups(rows, [], { now, statuses }).map((g) => g.id)).toEqual(["quiet"])
+    // The same family once the subagent's task is Done, a day and a half on: Older.
+    const done = foldFinished(agentRows([quiet]), [subEnded(a, "x", now - 29 * 3_600_000, { ...open, statusId: "done" })]).rows
+    expect(agentGroups(done, [], { now, statuses }).map((g) => g.id)).toEqual(["older"])
+  })
+
+  it("the saved stamp is a plain whole number of milliseconds, not in the future; anything else is no stamp", () => {
+    expect(parseClearedAt(String(now), now)).toBe(now)
+    expect(parseClearedAt(String(now - 1), now)).toBe(now - 1)
+    for (const bad of [null, "", "0", "-5", "soon", "1e12", "1.5", " 5", "0x10", "5 ", String(now + 1), "99999999999999999999", "Infinity"]) {
+      expect(parseClearedAt(bad, now)).toBeNull()
+    }
+  })
+
+  it("Older is open only when saved as exactly open", () => {
+    expect(parseOlderOpen("open")).toBe(true)
+    for (const bad of [null, "", "closed", "Open", "true", "open "]) expect(parseOlderOpen(bad)).toBe(false)
   })
 })
 

@@ -53,6 +53,7 @@ import {
   clearFinished,
   OLDER_KEY,
   parseClearedAt,
+  parseOlderOpen,
   agentProjectIds,
   pulseKeyOf,
   rowKeysOf,
@@ -106,9 +107,11 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const allSessions = workingSessions(board, workspaceId, now)
   // The finished subagents fold into their session's row (CEL-156): working or finished, it holds them in one line.
   // Clear finished (CEL-156) hides what finished before its stamp, on this device: hidden, not deleted, and counted below.
-  const clearedAt = parseClearedAt(useStored(CLEARED_KEY))
-  const { shown: finishedShown, hidden: finishedHidden } = clearFinished(finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now))), clearedAt)
-  const { rows: allRows, finished: allFinished } = foldFinished(agentRows(allSessions), finishedShown)
+  // It reaches only what is left in Finished today after the folds: a session still working or quiet keeps its fold.
+  const clearedAt = parseClearedAt(useStored(CLEARED_KEY), Date.now())
+  const folded = foldFinished(agentRows(allSessions), finishedRows(board, finishedAgents(board, workspaceId, startOfDay(now))))
+  const { shown: allFinished, hidden: finishedHidden } = clearFinished(folded.finished, clearedAt)
+  const allRows = folded.rows
   // The chips count the whole list, Finished today too (the pick filters it), so rows stay put while you filter;
   // a family is never split by a pick. All N is every row listed (working, quiet and finished today). The header's
   // number stays the sidebar's: agents working now, of the rows shown.
@@ -124,7 +127,7 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const groups = agentGroups(rows, finished, { now, statuses: board.statuses })
   // Folds and the Older section the human opened, and what holds a row a link opens (?open=), so a link never lands on a hidden row.
   const [folds, setFolds] = useState<ReadonlySet<string>>(new Set())
-  const olderStored = useStored(OLDER_KEY) === "open"
+  const olderStored = parseOlderOpen(useStored(OLDER_KEY))
   const shelter = open === undefined ? null : shelterOf(groups, open)
   const foldsOpen = shelter?.fold ? new Set([...folds, shelter.fold]) : folds
   const olderOpen = olderStored || shelter?.older === true
@@ -142,7 +145,9 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   // Opening or closing Older, and Clear finished or Show, are the human's too: the rows come or go at once (CEL-156).
   const listView = `${view}/${query.trim().toLowerCase()}/${olderOpen ? "older" : ""}/${clearedAt ?? ""}`
   const layoutKey = groups.map((g) => `${g.id}:${g.rows.map((r) => r.id).join(",")}`).join(";")
-  const placement = new Map(groups.flatMap((g) => g.rows.map((r) => [r.id, g.id] as const)))
+  // Every row on the page, a folded one too (it's in Finished today's place): a working row that finished and folded is
+  // gone from its group at once, never rendered twice while it exits (CEL-156).
+  const placement = new Map(groups.flatMap((g) => g.rows.flatMap((r) => [[r.id, g.id] as const, ...r.folded.map((f) => [f.id, "finished" as const] as const)])))
   const openId = open !== undefined && keys.includes(open) ? open : null
   const setOpen = (id: string | null) => void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(id === null ? {} : { open: id }) }), replace: true })
   const queue = useQueue({ keys, open: openId, setOpen })
@@ -188,7 +193,7 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                   </Button>
                 </>
               ) : null}
-              {finishedShown.length > 0 ? (
+              {allFinished.length > 0 ? (
                 <Button variant="secondary" size="sm" data-agents-clear-button="" onClick={() => writeStored(CLEARED_KEY, String(Date.now()))}>
                   Clear finished
                 </Button>

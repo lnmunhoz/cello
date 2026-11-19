@@ -215,8 +215,13 @@ const holdsNothingOpen = (family: ReadonlyArray<AgentRow>, statuses: Statuses): 
 export const isOlder = (row: AgentRow, rows: ReadonlyArray<AgentRow>, rule: OlderRule): boolean => {
   if (placeOf(row, rows) !== "quiet") return false
   const family = rows.filter((r) => r.session.id === row.session.id)
-  return rule.now - Math.max(...family.map(pulseKeyOf)) > OLDER_AFTER_MS && holdsNothingOpen(family, rule.statuses)
+  // The newest sign of life in the family: a check-in of the session or a working subagent, or a finish (or last call) of one folded under it.
+  const newest = Math.max(...family.flatMap((r) => [pulseKeyOf(r), ...r.folded.flatMap((f) => [pulseKeyOf(f), f.endedAt ?? 0])]))
+  return rule.now - newest > OLDER_AFTER_MS && holdsNothingOpen(family, rule.statuses)
 }
+
+/** Whether the Older section was left open, as saved: exactly "open"; anything else is closed. */
+export const parseOlderOpen = (stored: string | null): boolean => stored === "open"
 
 /**
  * The rows in their groups, waiting on Lucas first (like the Review page's Needs your input), then the
@@ -251,23 +256,32 @@ export const rowKeysOf = (groups: ReadonlyArray<AgentGroup>, open: OpenParts = {
 /** The stamp Clear finished saves on this device (lib/storage.ts): the time it was pressed, in milliseconds. */
 export const CLEARED_KEY = "cello:agents:cleared"
 
-/** The saved stamp as a time; anything else is no stamp. */
-export const parseClearedAt = (stored: string | null): number | null => {
+/**
+ * The saved stamp as a time: a plain positive whole number of milliseconds, not after `now`. A stamp from
+ * the future, or one that isn't a number, would hide every finished row for good, so it means none cleared.
+ */
+export const parseClearedAt = (stored: string | null, now: number): number | null => {
+  if (stored === null || !/^[1-9]\d{0,15}$/.test(stored)) return null
   const at = Number(stored)
-  return stored !== null && Number.isFinite(at) && at > 0 ? at : null
+  return Number.isSafeInteger(at) && at <= now ? at : null
 }
 
 /**
- * Clear finished (CEL-156): the finished rows that ended after `clearedAt` (null: none cleared), and the
- * ones it hides. Hidden, not deleted: the events and the task history keep who did what, the rows that
- * finish later show, and the page says how many are hidden.
+ * Clear finished (CEL-156), of what foldFinished left in Finished today: the rows that ended after
+ * `clearedAt` (null: none cleared), each finished session's fold cut the same way, and the rows it hides
+ * (flat, folded ones included). A fold under a session that is still working or quiet isn't in `finished`,
+ * so it is never cleared: what a live session holds, open tasks included, stays visible. Hidden, not
+ * deleted: the events and the task history keep who did what, the rows that finish later show, and the
+ * page says how many are hidden.
  */
 export const clearFinished = (
   finished: ReadonlyArray<AgentRow>,
   clearedAt: number | null,
 ): { readonly shown: AgentRow[]; readonly hidden: AgentRow[] } => {
   const hides = (r: AgentRow) => clearedAt !== null && (r.endedAt ?? 0) <= clearedAt
-  return { shown: finished.filter((r) => !hides(r)), hidden: finished.filter(hides) }
+  const shown = finished.filter((r) => !hides(r)).map((r) => ({ ...r, folded: r.folded.filter((f) => !hides(f)) }))
+  const hidden = finished.flatMap((r) => (hides(r) ? [r, ...r.folded] : r.folded.filter(hides)))
+  return { shown, hidden }
 }
 
 /** The rows and the subagents folded under them, flat: every row an id can name. */
