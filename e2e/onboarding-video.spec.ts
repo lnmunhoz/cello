@@ -520,6 +520,8 @@ test("⑥ Nothing without proof: a packet with a video is approved and lands in 
   await note.click()
   await note.pressSequentially("The logo looks blurry on a retina screen. Please use the SVG.", { delay: 30 })
   await dialog.getByRole("button", { name: "Send back" }).click()
+  // The dialog fades out (CEL-189); a click while it's still there lands on it, not the sidebar (CEL-202).
+  await expect(dialog).toBeHidden()
   // Straight back to the board, so the emptied queue isn't on screen for long.
 
   await page.getByRole("link", { name: "Acme Shop" }).click()
@@ -577,8 +579,10 @@ test("① Agents working: three sessions at once, their subagents starting, chec
   toolCall("applePayReviewer", "Read")
   stop("emailReviewer")
   asSession("email")("task", "stage", email, "fixing")
-  // A stopped subagent leaves the working rows for Finished today (CEL-55's finished group), not the page.
-  await expect(page.locator(`[data-agent-row$="/${SUBAGENTS.emailReviewer.id}"]`)).toHaveAttribute("data-agent-group", "finished")
+  // A stopped subagent leaves the working rows and folds into its session's row (CEL-156), not the page (CEL-202).
+  await expect(page.locator(`[data-agent-row$="/${SUBAGENTS.emailReviewer.id}"]`)).toHaveCount(0)
+  const emailSession = page.getByRole("listitem").filter({ has: page.getByRole("article", { name: new RegExp(`Main session · ${SESSIONS.email.slice(0, 8)}`) }) })
+  await expect(emailSession.getByRole("button", { name: "1 code reviewer finished" })).toBeVisible()
   toolCall("speedBuilder", "Edit")
   asSubagent("speedBuilder")("task", "stage", speed, "fixing")
   toolCall("applePayReviewer", "Bash")

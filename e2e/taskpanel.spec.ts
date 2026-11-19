@@ -31,6 +31,8 @@ async function dragEdge(panel: Locator, dx: number) {
  * and the tabs row (with Display) ending where the panel starts.
  */
 async function expectDocked(page: Page, panel: Locator) {
+  // A panel opened after the page loaded slides in from 24px to the right (CEL-189): measure where it lands (CEL-202).
+  await panel.evaluate((el) => Promise.all(el.getAnimations().map((animation) => animation.finished)))
   const main = await boxOf(page.getByRole("main"))
   const box = await boxOf(panel)
   // The main area has a 1px border.

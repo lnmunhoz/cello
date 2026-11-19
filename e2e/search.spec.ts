@@ -289,7 +289,11 @@ test("⌘K on the Review page: Enter on a task opens it in the side panel and Re
   await expect(card(page, "CEL-1")).toBeVisible()
 })
 
-const jumpRows = (page: Page) => bar(page).locator('[data-section="jump"] [role="option"]')
+/**
+ * The Go to rows of this spec's own projects. The e2e server is shared, so other specs' projects
+ * (perf's PERF…, with tasks 3 and 9 of their own) list their rows too (CEL-202).
+ */
+const jumpRows = (page: Page) => bar(page).locator('[data-section="jump"] [role="option"]').filter({ hasText: /\b(CEL|THAI)-\d+(?!\d)/ })
 
 test("⌘K: a task's number alone, or with its project (3, #9, cel 9), lists the Go to rows, the current project's first; Enter opens the task (CEL-162)", async ({ cello, page, baseURL }) => {
   await seed(cello, baseURL!)
@@ -320,6 +324,9 @@ test("⌘K: a task's number alone, or with its project (3, #9, cel 9), lists the
   await field(page).fill("#9")
   await expect(jumpRows(page)).toHaveCount(1)
   await expect(jumpRows(page).first()).toContainText("CEL-9")
+  // Enter on "cel 9", whose only row is CEL-9: "#9" also lists other specs' task 9 on the shared server (CEL-202).
+  await field(page).fill("cel 9")
+  await expect(jumpRows(page).first()).toHaveAttribute("aria-selected", "true")
   await page.keyboard.press("Enter")
   await expect(bar(page)).toBeHidden()
   await expect(page).toHaveURL(showsBeside("/THAI/issues", "CEL-9"))
@@ -435,7 +442,7 @@ async function shots(browser: Browser, layout: "peek" | "palette", scheme: "ligh
   await expect(option(page, /Go to Review/)).toBeVisible()
   await page.screenshot({ path: name("4-actions") })
   await field(page).fill("3")
-  await expect(bar(page).locator('[data-section="jump"] [role="option"]')).toHaveCount(2)
+  await expect(jumpRows(page)).toHaveCount(2)
   await page.screenshot({ path: name("5-number") })
   await context.close()
 }
