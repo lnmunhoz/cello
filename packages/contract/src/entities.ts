@@ -204,6 +204,12 @@ export const SessionAgent = Schema.Struct({
    * clears it. Absent in events stored before CEL-160.
    */
   verdict: Schema.optionalKey(Schema.NullOr(ReviewVerdictSeen)),
+  /**
+   * The folder of its own last `cello` call (CEL-152), so a builder shows its worktree and not the folder of
+   * whichever agent of its session called last (`AgentSession.cwd`, which its calls no longer change). Null
+   * or absent when unknown (agents seen before CEL-152, an older server): show the session's.
+   */
+  cwd: Schema.optionalKey(Schema.NullOr(Schema.String)),
 })
 export type SessionAgent = typeof SessionAgent.Type
 
