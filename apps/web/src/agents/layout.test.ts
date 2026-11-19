@@ -11,6 +11,8 @@ import {
   directTasks,
   filterAgentRows,
   finishedRows,
+  foldedLabel,
+  foldFinished,
   groupOf,
   homeProjectOf,
   logLinkOf,
@@ -18,6 +20,7 @@ import {
   pulseKeyOf,
   rowKeysOf,
   searchAgentRows,
+  shelterOf,
   sortFamilies,
   stateTaskOf,
   subagentsLabel,
@@ -265,6 +268,72 @@ describe("Finished today (CEL-107)", () => {
     ])
     expect(rowKeysOf(groups).at(-1)).toBe("session:9a8b7c6d")
     expect(groupOf(finished[0]!)).toBe("finished")
+  })
+})
+
+describe("foldFinished: finished subagents fold into their session's row (CEL-156)", () => {
+  const a = session("2fd0505c")
+  const t = task("t1", "CEL-7")
+  const finishedSub = (s: AgentSession, agentId: string, agentType: string | null, endedAt: number, startedAt = now - 600_000) =>
+    finishedRows(EMPTY_BOARD, [{ session: s, agent: { sessionId: s.id, agentId, agentType, taskId: t.id, description: null, startedAt, lastSeenAt: endedAt, endedAt }, endedAt, tasks: [t] }])[0]!
+  const types = ["cello-builder", "cello-builder", "cello-code-reviewer"]
+  const subs = types.map((type, i) => finishedSub(a, `a${i}`, type, now - 60_000 * (i + 1), now - 600_000 + i))
+  const working = agentRows([{ session: a, who: { kind: "agent", name: "s", short: "s", color: "#111" }, presence: "active", tasks: [t], agents: [], mark: { mood: "thinking", statusId: "" } }])
+
+  it("a finished subagent folds under its working session, in start order, and has no row of its own", () => {
+    const folded = foldFinished(working, subs)
+    expect(folded.finished).toEqual([])
+    expect(folded.rows.map((r) => [r.id, r.folded.map((f) => f.id)])).toEqual([["session:2fd0505c", ["agent:2fd0505c/a0", "agent:2fd0505c/a1", "agent:2fd0505c/a2"]]])
+  })
+
+  it("under a finished session's row when the session itself finished; the session keeps its row", () => {
+    const ended = finishedSub(a, "x", null, now - 5_000)
+    const session1 = finishedRows(EMPTY_BOARD, [{ session: { ...a, endedAt: now - 5_000 }, agent: null, endedAt: now - 5_000, tasks: [t] }])
+    expect(ended.kind).toBe("agent")
+    const folded = foldFinished([], [...session1, ...subs])
+    expect(folded.finished.map((r) => [r.id, r.folded.length])).toEqual([["session:2fd0505c", 3]])
+  })
+
+  it("a subagent whose session isn't on the page keeps its own row, as before; sessions never fold", () => {
+    const b = session("8a41c9e2")
+    const orphan = finishedSub(b, "o1", "cello-builder", now - 1_000)
+    const folded = foldFinished(working, [orphan, ...subs])
+    expect(folded.finished.map((r) => r.id)).toEqual(["agent:8a41c9e2/o1"])
+    expect(folded.rows[0]!.folded).toHaveLength(3)
+  })
+
+  it("a working subagent is never folded, and a family's folds stay with their session", () => {
+    const b = session("8a41c9e2")
+    const rows = agentRows([{ session: b, who: { kind: "agent", name: "b", short: "b", color: "#111" }, presence: "active", tasks: [], agents: [sub(b, "w1", t)], mark: { mood: "thinking", statusId: "" } }, ...[]])
+    const folded = foldFinished([...working, ...rows], subs)
+    expect(folded.rows.map((r) => [r.id, r.folded.length])).toEqual([["session:2fd0505c", 3], ["session:8a41c9e2", 0], ["agent:8a41c9e2/w1", 0]])
+  })
+
+  it("the line counts by type, in start order: 2 builders, 1 reviewer", () => {
+    expect(foldedLabel(subs)).toBe("2 builders, 1 code reviewer finished")
+    expect(foldedLabel(subs.slice(2))).toBe("1 code reviewer finished")
+    expect(foldedLabel([finishedSub(a, "z", null, now)])).toBe("1 agent finished")
+  })
+
+  it("the keys walk a fold's rows right after their session, only while it's open", () => {
+    const folded = foldFinished(working, subs)
+    const groups = agentGroups(folded.rows)
+    expect(rowKeysOf(groups)).toEqual(["session:2fd0505c"])
+    expect(rowKeysOf(groups, { older: false, folds: new Set(["session:2fd0505c"]) })).toEqual(["session:2fd0505c", "agent:2fd0505c/a0", "agent:2fd0505c/a1", "agent:2fd0505c/a2"])
+  })
+
+  it("a link to a row inside a fold says which fold holds it", () => {
+    const groups = agentGroups(foldFinished(working, subs).rows)
+    expect(shelterOf(groups, "agent:2fd0505c/a1")).toEqual({ older: false, fold: "session:2fd0505c" })
+    expect(shelterOf(groups, "session:2fd0505c")).toEqual({ older: false, fold: null })
+    expect(shelterOf(groups, "agent:nobody/x")).toEqual({ older: false, fold: null })
+  })
+
+  it("a folded subagent is found by search with its session, and counts for the session's project", () => {
+    const folded = foldFinished(working, subs).rows
+    expect(searchAgentRows(folded, "a1").map((r) => r.id)).toEqual(["session:2fd0505c"])
+    const bare = foldFinished(agentRows([{ session: a, who: { kind: "agent", name: "s", short: "s", color: "#111" }, presence: "active", tasks: [], agents: [], mark: { mood: "thinking", statusId: "" } }]), subs).rows
+    expect(homeProjectOf(bare[0]!, bare, {})).toBe("p1")
   })
 })
 

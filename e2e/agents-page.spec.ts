@@ -242,10 +242,16 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   await expect(orchestratorRow).toContainText("Main session")
   await expect(orchestratorRow).toContainText("3 subagents")
 
-  await caption(page, "The code reviewer finishes (SubagentStop): its row folds into Finished today (CEL-107)")
+  await caption(page, "The code reviewer finishes (SubagentStop): its row folds into one line under the orchestrator (CEL-156)")
   hook("subagent-stop", { session_id: ORCHESTRATOR, agent_id: REVIEWER, agent_type: "cello-code-reviewer", hook_event_name: "SubagentStop" })
+  const fold = page.locator(`[data-agents-fold="session:${orchestrator}"]`)
+  await expect(fold).toHaveText("1 code reviewer finished")
+  await expect(reviewerRow).toHaveCount(0)
+  await expect(group(page, "finished").locator(`[data-agent-row="agent:${orchestrator}/${REVIEWER}"]`)).toHaveCount(0)
+  await fold.click()
   await expect(reviewerRow).toHaveAttribute("data-agent-group", "finished")
-  await expect(group(page, "finished").locator(`[data-agent-row="agent:${orchestrator}/${REVIEWER}"]`)).toHaveCount(1)
+  await fold.click()
+  await expect(reviewerRow).toHaveCount(0)
   await expect(orchestratorRow).toContainText("Main session")
   await expect(orchestratorRow).toContainText("2 subagents")
 

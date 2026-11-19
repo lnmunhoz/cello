@@ -97,6 +97,10 @@ test("CEL-133: a builder that ends its turn while its own Monitor runs is waitin
 
   await caption(page, "It writes its report and stops with its work done: now it's finished")
   hooks.hook("subagent-stop", { ...as, hook_event_name: "SubagentStop", background_tasks: [waiter] })
+  // It folds into its session's row (CEL-156): open the fold to see it.
+  const fold = page.locator(`[data-agents-fold="session:${await sessionId(cello, SESSION)}"]`)
+  await expect(fold).toHaveText("1 builder finished")
+  await fold.click()
   await expect(row).toHaveAttribute("data-agent-group", "finished")
   await expect(row.locator("[data-agent-presence]")).toContainText("finished")
 })
