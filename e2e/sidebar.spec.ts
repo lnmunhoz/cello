@@ -249,13 +249,21 @@ test("CEL-24: in a narrow window the sidebar starts as the rail without saving i
 test("CEL-179: a project's row shows how many agents are working in it: it appears, goes to 2, a session in two projects counts in each, it clears; the rail shows it on the square", async ({ page, cello, baseURL, context }) => {
   // Agent cursors off, so the cards change in place and the badges are what the video shows.
   await context.addInitScript(() => localStorage.setItem("cello:agent-cursors", "off"))
-  const [keyA, keyB] = [uniqueKey("WKA"), uniqueKey("WKB")]
-  const [alpha, beta] = [await seedProject(cello, "Alpha", keyA), await seedProject(cello, "Beta", keyB)]
+  // Counts the pops (the badge's count-pop animation) this page load has played: a load that shows agents already working plays none.
+  await context.addInitScript(() => {
+    const seen = window as unknown as { pops: number }
+    seen.pops = 0
+    addEventListener("animationstart", (e) => { if ((e as AnimationEvent).animationName === "count-pop") seen.pops++ }, true)
+  })
+  const pops = () => page.evaluate(() => (window as unknown as { pops: number }).pops)
+  const [keyA, keyB, keyC] = [uniqueKey("WKA"), uniqueKey("WKB"), uniqueKey("WKC")]
+  const longName = "Gamma: a project whose name keeps going well past the sidebar"
+  const [alpha, beta, gamma] = [await seedProject(cello, "Alpha", keyA), await seedProject(cello, "Beta", keyB), await seedProject(cello, longName, keyC)]
   const { statuses } = await defaultWorkspace(cello)
-  for (const [project, titles] of [[alpha, ["Wire the sync", "Fix the filter"]], [beta, ["Write the copy"]]] as const) {
+  for (const [project, titles] of [[alpha, ["Wire the sync", "Fix the filter"]], [beta, ["Write the copy"]], [gamma, ["Name things"]]] as const) {
     for (const title of titles) await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title, statusId: statuses.Todo!.id }))
   }
-  const [a1, a2, b1] = [`${keyA}-1`, `${keyA}-2`, `${keyB}-1`]
+  const [a1, a2, b1, c1] = [`${keyA}-1`, `${keyA}-2`, `${keyB}-1`, `${keyC}-1`]
   const stamp = Date.now().toString(36)
   const first = await agentAs(baseURL!, `cel179-first-${stamp}`, process.pid)
   const second = await agentAs(baseURL!, `cel179-second-${stamp}`, process.pid)
@@ -282,6 +290,7 @@ test("CEL-179: a project's row shows how many agents are working in it: it appea
   await expect(badge(keyA)).toHaveClass(/count-pop/)
   await animationsSettled(page)
   expect(await badge(keyA).evaluate((el) => el.getAnimations().length), "an unchanged number runs no animation").toBe(0)
+  expect(await pops(), "the pop is seen when the number changes, so a pop on load would be too").toBe(1)
 
   await caption(page, "A second agent claims another Alpha task: 2, and the hover lists both with their tasks")
   await claim(second, a2)
@@ -289,6 +298,7 @@ test("CEL-179: a project's row shows how many agents are working in it: it appea
   await expect(badge(keyA)).toHaveClass(/count-pop/)
   const title = await badge(keyA).getAttribute("title")
   expect(title).toContain("2 agents working")
+  expect(title, "no subagents here, so none are named").not.toContain("subagent")
   expect(title).toContain(`(${a1})`)
   expect(title).toContain(`(${a2})`)
   await expect(projectLink(page, keyA)).toHaveText(/Alpha\s*2 agents working/)
@@ -303,6 +313,18 @@ test("CEL-179: a project's row shows how many agents are working in it: it appea
   await caption(page, "Clicking the row still opens the project")
   await projectLink(page, keyB).click()
   await expect(page).toHaveURL(new RegExp(`/${keyB}/issues$`))
+
+  await caption(page, "A long project name is cut short; the badge stays whole")
+  await claim(second, c1)
+  await expect(badge(keyC)).toHaveAttribute("data-project-working", "1")
+  const name = projectLink(page, keyC).locator("[data-project-name]")
+  expect(await name.evaluate((el) => el.scrollWidth > el.clientWidth), "the name is cut with an ellipsis").toBe(true)
+  const [rowBox, badgeBox, shortBadgeBox] = [await projectLink(page, keyC).boundingBox(), await badge(keyC).boundingBox(), await badge(keyB).boundingBox()]
+  expect(badgeBox!.x + badgeBox!.width, "the badge ends inside the row").toBeLessThanOrEqual(rowBox!.x + rowBox!.width)
+  expect(badgeBox!.width, "the badge keeps its width next to a short name's").toBeCloseTo(shortBadgeBox!.width, 0)
+  await stills(page, "cel-179-long-name")
+  await release(second, c1)
+  await expect(badge(keyC)).toHaveCount(0)
 
   await caption(page, "The agents finish and let go of their tasks: the badges clear")
   await release(first, a1)
@@ -320,6 +342,8 @@ test("CEL-179: a project's row shows how many agents are working in it: it appea
   await expect(badge(keyA)).toHaveAttribute("data-project-working", "1")
   await expect(badge(keyB)).toHaveCount(0)
   await expect(badge(keyA)).toHaveAttribute("title", new RegExp(`^1 agent working\\n.*\\(${a2}\\)$`))
+  // The count is in the link's name, for a screen reader: the rail's aria-label is the tooltip's words.
+  await expect(sidebar.getByRole("link", { name: "Alpha · 1 working", exact: true })).toBeVisible()
   await projectLink(page, keyA).hover()
   await expect(page.getByRole("tooltip", { name: "Alpha · 1 working" })).toBeVisible()
   await page.mouse.move(720, 600)
@@ -330,6 +354,8 @@ test("CEL-179: a project's row shows how many agents are working in it: it appea
   await page.reload()
   await expect(badge(keyA)).toHaveAttribute("data-project-working", "1")
   await expect(badge(keyA)).not.toHaveClass(/count-pop/)
+  await animationsSettled(page)
+  expect(await pops(), "a page that loads with an agent working plays no pop").toBe(0)
   await release(second, a2)
   await expect(badge(keyA)).toHaveCount(0)
 
