@@ -17,7 +17,9 @@ export interface QueueRowState {
   readonly onKeyDown: (e: KeyboardEvent<HTMLButtonElement>) => void
   /**
    * What was just decided on this row (CEL-187), shown in the badge's place: the row folds shut under
-   * it and comes into view, so the words are seen before the row leaves.
+   * it and comes into view, so the words are seen before the row leaves. It sits beside the row's
+   * toggle, not inside it, so it can hold a button (Undo, CEL-191); the body stays mounted while it shows,
+   * so a decision's buttons keep their state (a failure line) whether or not the row was left open.
    */
   readonly confirmation?: ReactNode | undefined
   /** This row opened because the one before it was decided: it unfolds instead of popping open. */
@@ -81,7 +83,7 @@ export function QueueRow({
       data-open={expanded ? "" : undefined}
       className="scroll-my-4 rounded-lg border border-line bg-raised shadow-card data-open:border-line-strong"
     >
-      <h2 ref={heading} id={headingId} className="scroll-my-4 text-[13px]">
+      <h2 ref={heading} id={headingId} className="relative flex items-center scroll-my-4 text-[13px]">
         <button
           {...buttonData}
           type="button"
@@ -92,7 +94,7 @@ export function QueueRow({
           onClick={onToggle}
           onFocus={onFocus}
           onKeyDown={onKeyDown}
-          className={`flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring ${hover ? "hover:bg-hover" : ""} ${expanded ? "rounded-t-lg" : "rounded-lg"}`}
+          className={`flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring ${hover && !decided ? "hover:bg-hover" : ""} ${expanded ? "rounded-t-lg" : "rounded-lg"}`}
         >
           <ChevronRightIcon
             aria-hidden
@@ -103,10 +105,11 @@ export function QueueRow({
             <span className="flex min-w-0 items-baseline gap-2">{title}</span>
             <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted">{subtitle}</span>
           </span>
-          {confirmation ?? badge}
+          {decided ? null : badge}
         </button>
+        {decided ? <div className="flex shrink-0 items-center pr-4 pl-3">{confirmation}</div> : null}
       </h2>
-      {open ? (
+      {open || decided ? (
         <QueueRowBody id={bodyId} unfold={unfold && !reduced} folded={decided} reduced={reduced}>
           {children}
         </QueueRowBody>

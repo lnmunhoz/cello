@@ -15,7 +15,13 @@ import { commands } from "../lib/cello.ts"
 import { useBoard } from "../lib/hooks.ts"
 import { Comments } from "../task/Comments.tsx"
 import { useCommentDraft } from "../task/commentDraft.ts"
+import { openReviewOf } from "@cello/client/sync/reviews"
+import { writeStored, removeStored } from "../lib/storage.ts"
+import { deferredDecisions, inTurn, useWaitingDecisions } from "./deferred.ts"
+import { pendingStorageKey, serializePending } from "./pending.ts"
+import { holdWindowLock } from "./pendingLock.ts"
 import { type Decision, type DecisionEvent, type DecisionState, decisionNote, decisionStep, IDLE } from "./queue.ts"
+import { undoWindowMs, useUndoWindow } from "./undoWindow.ts"
 
 /** Hears a decision as it goes: clicked, then taken by the server or refused. */
 type OnDecision = ((event: DecisionEvent) => void) | undefined
@@ -106,27 +112,81 @@ export function ReviewActions({ task, onDecision, typed = "", screenshots = [], 
   const attachmentIds = screenshots.map((a) => a.id)
   const withShots = attachmentIds.length > 0 ? { attachmentIds } : {}
   const sendBackWith = (note: string) => sendBack({ key: task.key, note, ...withShots })
-  const pending = state.phase === "pending" ? state.decision : null
-  const waiting = state.phase === "pending" || state.phase === "decided" || uploading
+  const pending = state.phase === "pending" || state.phase === "sending" ? state.decision : null
+  // A decision from this task waiting in its undo window on the Review page holds the panel's buttons too (CEL-191).
+  const windowOpen = useWaitingDecisions().includes(task.key)
+  const waiting = (state.phase !== "idle" && state.phase !== "failed") || uploading || windowOpen
   const failure = state.phase === "failed" ? state.message : null
+  // The undo window (CEL-191) belongs to the Review page, which has a row to say "Approved · Undo" on and
+  // hears the events; elsewhere (the task panel) a decision is sent at once, as before.
+  const undoMs = undoWindowMs(useUndoWindow())
+  const deferMs = onDecision ? undoMs : null
 
   /**
    * Whether the server took it. Where a page listens (`onDecision`), it shows what was decided and takes
    * the row away, so the buttons stay as they are meanwhile; elsewhere they go back to idle.
+   * With the undo window on, nothing is sent at the click: the decision waits (deferredDecisions) and goes
+   * when the window ends. The answer is false if Undo took it back, so the box keeps what was typed.
+   * While it waits it is also written down (`pending.ts`), so a tab that closes or reloads meanwhile
+   * doesn't lose it: the next load sends what is still written. The record goes when the decision was
+   * undone or answered, never when it is merely started, since a page that is going may not finish sending.
+   * `note` is what the decision sends with it (null: none).
    */
-  const run = async (decision: Decision, action: () => Promise<Exit.Exit<unknown, unknown>>) => {
+  const run = (decision: Decision, note: string | null, action: () => Promise<Exit.Exit<unknown, unknown>>): Promise<boolean> => {
     const step = (event: DecisionEvent) => {
       setState((s) => (event.type === "taken" && !onDecision ? IDLE : decisionStep(s, event)))
       onDecision?.(event)
     }
-    step({ type: "clicked", decision })
-    const exit = await action()
-    if (exit._tag === "Success") {
-      step({ type: "taken" })
-      return true
+    const refuse = (message: string) => step({ type: "refused", message })
+    // The command answered, however it went; a throw is a refusal too, so the row is never left saying Approved.
+    const send = async () => {
+      try {
+        const exit = await action()
+        if (exit._tag === "Success") {
+          step({ type: "taken" })
+          return true
+        }
+        refuse(describeError(Cause.squash(exit.cause), { subject: task.key }))
+      } catch (error) {
+        refuse(describeError(error, { subject: task.key }))
+      }
+      return false
     }
-    step({ type: "refused", message: describeError(Cause.squash(exit.cause), { subject: task.key }) })
-    return false
+    if (deferMs === null) {
+      step({ type: "clicked", decision })
+      return send()
+    }
+    if (deferredDecisions.busy(task.key)) return Promise.resolve(false)
+    step({ type: "clicked", decision, undoable: true })
+    const storageKey = pendingStorageKey(task.key)
+    writeStored(
+      storageKey,
+      serializePending({ taskId: task.id, taskKey: task.key, reviewId: (board ? openReviewOf(board, task.id)?.id : undefined) ?? null, decision, note, attachmentIds, clickedAt: Date.now() }),
+    )
+    const releaseLock = holdWindowLock(task.key)
+    return new Promise<boolean>((resolve) => {
+      const finish = (answer: boolean) => {
+        removeStored(storageKey)
+        releaseLock()
+        deferredDecisions.settled(task.key)
+        resolve(answer)
+      }
+      deferredDecisions.start(task.key, deferMs, {
+        send: (how) => {
+          step({ type: "sent" })
+          // A page that is going doesn't wait its turn: it sends each decision now, and the record covers what doesn't get through.
+          void (how === "going" ? send() : inTurn(send)).then(finish)
+        },
+        undone: () => {
+          step({ type: "undone" })
+          finish(false)
+        },
+        failed: (error) => {
+          refuse(describeError(error, { subject: task.key }))
+          finish(false)
+        },
+      })
+    })
   }
 
   // On a line of its own under the buttons, so nothing moves under the pointer.
@@ -144,7 +204,7 @@ export function ReviewActions({ task, onDecision, typed = "", screenshots = [], 
       disabled={waiting}
       aria-busy={pending === "approved"}
       onClick={async () => {
-        const approved = await run("approved", () => approve({ key: task.key, ...(typedNote === null ? {} : { note: typedNote }), ...withShots }))
+        const approved = await run("approved", typedNote, () => approve({ key: task.key, ...(typedNote === null ? {} : { note: typedNote }), ...withShots }))
         if (approved && (typedNote !== null || attachmentIds.length > 0)) onNoteSent?.(attachmentIds.length > 0)
       }}
     >
@@ -164,7 +224,7 @@ export function ReviewActions({ task, onDecision, typed = "", screenshots = [], 
           aria-busy={pending === "sent_back"}
           onClick={async () => {
             if (typedNote === null) return setAsking(true)
-            if (await run("sent_back", () => sendBackWith(typedNote))) onNoteSent?.(true)
+            if (await run("sent_back", typedNote, () => sendBackWith(typedNote))) onNoteSent?.(true)
           }}
         >
           {pending === "sent_back" ? <PendingIcon /> : <CornerUpLeftIcon aria-hidden className="size-3.5" />}
@@ -187,7 +247,13 @@ export function ReviewActions({ task, onDecision, typed = "", screenshots = [], 
               onSubmit={async (e) => {
                 e.preventDefault()
                 if (note.trim() === "" || waiting) return
-                if (await run("sent_back", () => sendBackWith(note.trim()))) {
+                const sent = run("sent_back", note.trim(), () => sendBackWith(note.trim()))
+                // The window starts with the click: the dialog closes, and Undo reopens it with the note still in it.
+                if (deferMs !== null) setAsking(false)
+                if (!(await sent)) {
+                  // Undone or refused: back in the dialog, the note and the failure line there.
+                  if (deferMs !== null) setAsking(true)
+                } else {
                   setAsking(false)
                   setNote("")
                   if (attachmentIds.length) onNoteSent?.(true)

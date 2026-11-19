@@ -18,6 +18,7 @@ import { ScreenshotBox, ScreenshotThumbs } from "../screenshots/Screenshots.tsx"
 import { uploadUrl } from "../screenshots/screenshots.ts"
 import { useScreenshotUpload } from "../screenshots/useScreenshotUpload.ts"
 import { addScreenshot, removeScreenshot, toComment, useCommentDraft } from "./commentDraft.ts"
+import { useWaitingDecisions } from "../review/deferred.ts"
 import { Reactions } from "./Reactions.tsx"
 import { CommentStatusRow, ReceiptTicks } from "./Receipt.tsx"
 import { reopenOf, reopenWords, statusCommentId, wakeHintOf, wakeHintWords } from "./receipts.ts"
@@ -58,7 +59,10 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
   const add = useAtomSet(commands.addComment, { mode: "promiseExit" })
   const { draft, update, clear } = useCommentDraft(task.id)
   const { uploading, attach } = useScreenshotUpload(uploadUrl({ taskId: task.id }))
-  const toSend = uploading > 0 ? null : toComment(draft)
+  // A decision on this task is taking the box's text and screenshots (waiting in its undo window, or being sent, CEL-191): they are
+  // read-only until it is undone or answered, so what is typed meanwhile isn't wiped when the decision succeeds.
+  const locked = useWaitingDecisions().includes(task.key)
+  const toSend = uploading > 0 || locked ? null : toComment(draft)
   const headingId = useId()
   const comments = AsyncResult.isSuccess(result) ? result.value.filter((c) => c.deletedAt === null) : []
   const statusAfter = statusCommentId(comments)
@@ -122,6 +126,7 @@ export function Comments({ board, task, placeholder = "Leave a comment…", acti
           placeholder={placeholder}
           value={draft.body}
           screenshots={draft.attachments}
+          readOnly={locked}
           onChange={(body) => update((d) => ({ ...d, body }))}
           onAttach={(files) => void attach(files, (attachment) => update((d) => addScreenshot(d, attachment)))}
           onRemove={(id) => update((d) => removeScreenshot(d, id))}

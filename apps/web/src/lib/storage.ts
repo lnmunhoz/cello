@@ -19,6 +19,23 @@ export const writeStored = (key: string, value: string): void => {
   for (const listener of listeners.get(key) ?? []) listener()
 }
 
+/** Removes `key`, telling the components that show it. */
+export const removeStored = (key: string): void => {
+  try {
+    localStorage.removeItem(key)
+  } catch {}
+  for (const listener of listeners.get(key) ?? []) listener()
+}
+
+/** Every saved key that starts with `prefix`. */
+export const storedKeys = (prefix: string): string[] => {
+  try {
+    return Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter((key): key is string => key !== null && key.startsWith(prefix))
+  } catch {
+    return []
+  }
+}
+
 /** Calls `listener` after each write to `key` from this page. Returns the unsubscribe. */
 export const subscribeStored = (key: string, listener: () => void): (() => void) => {
   const set = listeners.get(key) ?? new Set()
