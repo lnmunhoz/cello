@@ -52,6 +52,9 @@ interface RailHint {
 }
 type RailTips = ReturnType<typeof createTooltipController<RailHint>>
 
+/** The id of a project link's working badge: the link's aria-describedby names it (the badge is absent at 0, so no description). */
+const projectBadgeId = (projectId: string) => `project-working-${projectId}`
+
 /** A rail item: an icon the size of an icon button, with its tooltip on the right. */
 const railItemBase =
   "relative flex size-7 shrink-0 items-center justify-center rounded-md text-muted outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
@@ -197,15 +200,15 @@ export function Sidebar({
         <nav aria-label="Projects" className="flex min-h-0 flex-col items-center gap-1 overflow-y-auto py-0.5">
           {projects.map((p) => {
             const here = working.byProject.get(p.id) ?? []
-            // The tooltip's words are the link's name too: its aria-label replaces the badge's screen-reader text.
+            // The tooltip says how many are working; the link's name is the project's, and the badge is its description.
             const label = here.length > 0 ? `${p.name} · ${here.length} working` : p.name
             return (
               <RailTip key={p.id} tips={tips} label={label}>
-                <Link to="/$projectKey" params={{ projectKey: p.key }} activeOptions={{ exact: false }} aria-label={label} className={railItem} data-project-key={p.key}>
+                <Link to="/$projectKey" params={{ projectKey: p.key }} activeOptions={{ exact: false }} aria-label={p.name} aria-describedby={projectBadgeId(p.id)} className={railItem} data-project-key={p.key}>
                   <span aria-hidden className="flex size-5 items-center justify-center rounded-md text-[11px] font-semibold text-white" style={{ background: p.color }}>
                     {p.name.slice(0, 1).toUpperCase()}
                   </span>
-                  <ProjectWorkingBadge entries={here} now={working.now} variant="rail" ready={board !== null} />
+                  <ProjectWorkingBadge id={projectBadgeId(p.id)} entries={here} now={working.now} variant="rail" ready={board !== null} />
                 </Link>
               </RailTip>
             )
@@ -309,10 +312,10 @@ export function Sidebar({
           </Button>
         </div>
         {projects.map((p) => (
-          <Link key={p.id} to="/$projectKey" params={{ projectKey: p.key }} className={`${row} shrink-0`} activeOptions={{ exact: false }} data-project-key={p.key}>
+          <Link key={p.id} to="/$projectKey" params={{ projectKey: p.key }} aria-describedby={projectBadgeId(p.id)} className={`${row} shrink-0`} activeOptions={{ exact: false }} data-project-key={p.key}>
             <i className="size-2.5 shrink-0 rounded-[3px]" style={{ background: p.color }} />
             <span className="truncate" data-project-name>{p.name}</span>
-            <ProjectWorkingBadge entries={working.byProject.get(p.id) ?? []} now={working.now} variant="row" ready={board !== null} />
+            <ProjectWorkingBadge id={projectBadgeId(p.id)} entries={working.byProject.get(p.id) ?? []} now={working.now} variant="row" ready={board !== null} />
           </Link>
         ))}
         <button

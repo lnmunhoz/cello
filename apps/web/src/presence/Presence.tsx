@@ -646,13 +646,17 @@ const PROJECT_BADGE = {
  * at 0. Its title lists the sessions and their tasks. It pops once when the number changes (count-pop)
  * and otherwise stands still. Always rendered, so a count that goes from 0 to 1 is a change too; `ready`
  * says the sessions are known, and the first number known is never a change.
+ *
+ * The badge is hidden from the accessibility tree, so it never becomes part of its link's name (which stays
+ * the project's name: a test or a voice command finds the link by it). The link points `aria-describedby`
+ * at `id`, and a screen reader reads the badge's text ("1 agent working") as the link's description.
  */
-export function ProjectWorkingBadge({ entries, now, variant, ready }: { entries: ReadonlyArray<ProjectWorking>; now: number; variant: keyof typeof PROJECT_BADGE; ready: boolean }) {
+export function ProjectWorkingBadge({ id, entries, now, variant, ready }: { id: string; entries: ReadonlyArray<ProjectWorking>; now: number; variant: keyof typeof PROJECT_BADGE; ready: boolean }) {
   const count = entries.length
   const changes = useChanges(count, ready)
   if (count === 0) return null
   return (
-    <span key={changes} data-project-working={count} title={projectWorkingTitle(entries, now)} className={`${PROJECT_BADGE[variant]}${changes > 0 ? " count-pop" : ""}`}>
+    <span key={changes} id={id} aria-hidden="true" data-project-working={count} title={projectWorkingTitle(entries, now)} className={`${PROJECT_BADGE[variant]}${changes > 0 ? " count-pop" : ""}`}>
       {count}
       <span className="sr-only"> {count === 1 ? "agent" : "agents"} working</span>
     </span>
