@@ -199,7 +199,7 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
   await expect(one.header).toContainText(`${key}-1`)
   await expect(one.header).toContainText("Collapse the review feed")
   await expect(one.header).toContainText("Review rows test")
-  await expect(one.header).toContainText(/Claude Code · (just now|\d+ min ago)/)
+  await expect(one.header).toContainText(/Claude Code · waiting (<1 min|\d+ min)/)
   // The evidence: the first screenshot (the board with the tasks on it), and how many pieces, with an icon.
   const badge = one.header.locator("[data-evidence-badge]")
   await expect(badge).toHaveText("2")
@@ -739,3 +739,34 @@ test("CEL-188: the Review page's Display menu sorts the rows: Newest reverses th
   await expect(display).toHaveText("Display")
   fs.rmSync(dir, { recursive: true, force: true })
 })
+
+for (const theme of ["light", "dark"] as const) {
+  test(`CEL-190 (${theme}): every Review row says how long it has waited, and the oldest one stands out`, async ({ page }) => {
+    await page.addInitScript((t) => localStorage.setItem("cello:theme", t), theme)
+    const key = uniqueKey(theme === "light" ? "WTL" : "WTD")
+    await createProject(page, `Waiting ${theme}`, key)
+    const { dir } = await submitPackets(page, key, ["Handed in first", "Handed in second", "Handed in third"])
+    const [one, two, three] = [1, 2, 3].map((n) => rowOf(page, `${key}-${n}`)) as [ReturnType<typeof rowOf>, ReturnType<typeof rowOf>, ReturnType<typeof rowOf>]
+    const waiting = (row: ReturnType<typeof rowOf>) => row.header.locator("[data-waiting]")
+
+    await page.goto("/review")
+    await caption(page, "Three packets: each row says how long it has waited")
+    for (const row of [one, two, three]) await expect(waiting(row)).toHaveText(/^waiting (<1 min|\d+ min)$/)
+
+    await caption(page, `${key}-1 was handed in first: its wait is darker and bolder than the others`)
+    await expect(waiting(one)).toHaveAttribute("data-oldest", "")
+    await expect(waiting(two)).not.toHaveAttribute("data-oldest")
+    await expect(waiting(three)).not.toHaveAttribute("data-oldest")
+    await expect(page.locator(`[data-review-task^="${key}-"] [data-oldest]`)).toHaveCount(1)
+    await expect(waiting(one)).toHaveCSS("font-weight", "500")
+    await expect(waiting(two)).toHaveCSS("font-weight", "400")
+
+    await caption(page, `Approve ${key}-1: the next oldest takes its place`)
+    await one.header.click()
+    await one.article.locator('[data-decide="approved"]').click()
+    await expect(one.article).toHaveCount(0)
+    await expect(waiting(two)).toHaveAttribute("data-oldest", "")
+    await expect(waiting(three)).not.toHaveAttribute("data-oldest")
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+}

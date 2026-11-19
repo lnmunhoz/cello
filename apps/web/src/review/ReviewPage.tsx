@@ -24,6 +24,7 @@ import { useJustChanged, useQueueView } from "./useQueueView.ts"
 import { CommentOrDecide } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
 import { useQueue } from "./useQueue.ts"
+import { oldestKey, waitingLabel } from "./waiting.ts"
 import { TaskLink } from "../task/TaskKey.tsx"
 import { keepViewer } from "../viewer/search.ts"
 
@@ -73,6 +74,11 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
     return state?.phase === "decided" ? state.decision : null
   }
   const keys = [...asked, ...packets].map((item) => item.task.key)
+  // The row that has waited longest stands out (CEL-190), among the rows shown.
+  const oldest = oldestKey([
+    ...asked.map((item) => ({ key: item.task.key, since: item.ask.createdAt })),
+    ...packets.map((item) => ({ key: item.task.key, since: waitingSince(item) })),
+  ])
   const openKey = open !== undefined && keys.includes(open) ? open : null
   // The viewer stays open beside the packet that changes.
   const setOpen = (key: string | null) => {
@@ -156,6 +162,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
                         unfold={item.task.key === unfolding}
                         board={board}
                         item={item}
+                        oldest={item.task.key === oldest}
                         onAnswered={() => void rows.openNext(item.task.key)}
                       />
                     </li>
@@ -196,6 +203,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
                             confirmation={decision === null ? undefined : <Decided decision={decision} onShown={() => shown(key)} />}
                             board={board}
                             item={item}
+                            oldest={key === oldest}
                             onDecision={(event) => onDecision(item, event)}
                           />
                         </FoldAway>
@@ -249,6 +257,9 @@ function FoldAway({ instant, children }: { instant: boolean; children: ReactNode
   )
 }
 
+/** When a packet row started waiting: its packet was handed in, or, by hand without one, its task last changed. */
+const waitingSince = ({ task, review }: ReviewItem): number => review?.createdAt ?? task.updatedAt
+
 type RowProps = QueueRowState & { readonly board: BoardState }
 
 /**
@@ -260,10 +271,12 @@ function TaskQueueRow({
   task,
   project,
   subtitle,
+  since,
+  oldest,
   badge,
   children,
   ...row
-}: RowProps & { task: Task; project: Project; subtitle: string; badge: ReactNode; children: ReactNode }) {
+}: RowProps & { task: Task; project: Project; subtitle: string; since: number; oldest: boolean; badge: ReactNode; children: ReactNode }) {
   const status = board.statuses[task.statusId]
   return (
     <QueueRow
@@ -283,6 +296,13 @@ function TaskQueueRow({
           <i aria-hidden className="size-2 shrink-0 rounded-[3px]" style={{ background: project.color }} />
           <span className="truncate">
             {project.name} · {subtitle}
+          </span>
+          <span aria-hidden className="shrink-0">
+            ·
+          </span>
+          {/* How long it has waited (CEL-190); the oldest row's is darker and bolder. */}
+          <span data-waiting="" data-oldest={oldest ? "" : undefined} className={`shrink-0 tabular-nums ${oldest ? "font-medium text-ink" : ""}`}>
+            {waitingLabel(since)}
           </span>
         </>
       }
@@ -314,7 +334,7 @@ function TaskQueueRow({
  * A task waiting for review: collapsed, who submitted it and when, and its evidence; open, its packet,
  * then the task's comments with a comment box, Send back and Approve (CEL-70).
  */
-function ReviewRow({ item, onDecision, ...row }: RowProps & { item: ReviewItem; onDecision: (event: DecisionEvent) => void }) {
+function ReviewRow({ item, oldest, onDecision, ...row }: RowProps & { item: ReviewItem; oldest: boolean; onDecision: (event: DecisionEvent) => void }) {
   const { task, project, review } = item
   const byHand = `moved to ${row.board.statuses[task.statusId]?.name ?? "In Review"} by hand`
   return (
@@ -322,7 +342,9 @@ function ReviewRow({ item, onDecision, ...row }: RowProps & { item: ReviewItem; 
       {...row}
       task={task}
       project={project}
-      subtitle={review ? `${review.author.name} · ${relativeTime(review.createdAt)}` : `${byHand} · ${relativeTime(task.updatedAt)}`}
+      subtitle={review ? review.author.name : byHand}
+      since={waitingSince(item)}
+      oldest={oldest}
       badge={<EvidenceBadge task={task} board={row.board} size="md" />}
     >
       {review ? (
@@ -340,14 +362,16 @@ function ReviewRow({ item, onDecision, ...row }: RowProps & { item: ReviewItem; 
 }
 
 /** A task waiting on Lucas's answers (CEL-47): collapsed, who asked what and when; open, the questions to answer, beside the evidence. */
-function AskRow({ item, onAnswered, ...row }: RowProps & { item: AskItem; onAnswered: () => void }) {
+function AskRow({ item, oldest, onAnswered, ...row }: RowProps & { item: AskItem; oldest: boolean; onAnswered: () => void }) {
   const { task, project, ask } = item
   return (
     <TaskQueueRow
       {...row}
       task={task}
       project={project}
-      subtitle={`${ask.author.name} asks: ${ask.title} · ${relativeTime(ask.createdAt)}`}
+      subtitle={`${ask.author.name} asks: ${ask.title}`}
+      since={ask.createdAt}
+      oldest={oldest}
       badge={<QuestionsBadge task={task} board={row.board} count />}
     >
       <AskForm task={task} ask={ask} onAnswered={onAnswered} />
