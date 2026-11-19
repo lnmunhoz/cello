@@ -25,7 +25,7 @@ import { agentsWorkingCount, workingSessions } from "../presence/model.ts"
 import { AgentMarkOf, presenceSubjectOf, StageWord } from "../presence/Presence.tsx"
 import { TestRunFacts, TestRunLine, testRunOf } from "../presence/TestRun.tsx"
 import { useNow } from "../presence/useNow.ts"
-import { NothingFor, QueueToolbar } from "../review/ProjectChips.tsx"
+import { NothingFor, NothingMatching, QueueToolbar } from "../review/ProjectChips.tsx"
 import { QueueRow, type QueueRowState } from "../review/QueueRow.tsx"
 import { projectChips } from "../review/queueView.ts"
 import { useQueue } from "../review/useQueue.ts"
@@ -47,6 +47,7 @@ import {
   agentProjectIds,
   pulseKeyOf,
   rowKeysOf,
+  searchAgentRows,
   sortFamilies,
   stateTaskOf,
   subagentsLabel,
@@ -99,13 +100,17 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   // number stays the sidebar's: agents working now, of the rows shown.
   const chips = projectChips(agentProjectIds(allRows, allFinished, board.statuses), projects, picked)
   const nameOf = (id: string) => board.projects[id]?.name ?? ""
-  const rows = sortFamilies(filterAgentRows(allRows, projectId, board.statuses), sort, nameOf, board.statuses)
-  const finished = filterAgentRows(allFinished, projectId, board.statuses)
+  // The search box (CEL-190), not saved; a family stays whole. Like a pick, the human's own search starts the list afresh (below).
+  const [query, setQuery] = useState("")
+  const searching = query.trim() !== ""
+  const rows = sortFamilies(searchAgentRows(filterAgentRows(allRows, projectId, board.statuses), query), sort, nameOf, board.statuses)
+  const finished = searchAgentRows(filterAgentRows(allFinished, projectId, board.statuses), query)
   const sessions = allSessions.filter((s) => rows.some((r) => r.id === `session:${s.session.id}`))
   const groups = agentGroups(rows, finished)
   const keys = rowKeysOf(groups)
   // A pick or a new sort starts the list afresh (the LayoutGroup's key, and its id, so no row's layoutId reaches back to
   // where the same row was before): no row glides or folds to its new place, since the human asked for it; events still do.
+  const listView = `${view}/${query.trim().toLowerCase()}`
   const layoutKey = groups.map((g) => `${g.id}:${g.rows.map((r) => r.id).join(",")}`).join(";")
   const placement = new Map(groups.flatMap((g) => g.rows.map((r) => [r.id, g.id] as const)))
   const openId = open !== undefined && keys.includes(open) ? open : null
@@ -116,6 +121,13 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
     pick(next)
     if (open === undefined || next === null) return
     const shown = [...filterAgentRows(allRows, next.id, board.statuses), ...filterAgentRows(allFinished, next.id, board.statuses)]
+    if (!shown.some((r) => r.id === open)) setOpen(null)
+  }
+  /** A search that hides the open row closes it too, for the same reason. */
+  const onSearch = (next: string) => {
+    setQuery(next)
+    if (open === undefined) return
+    const shown = [...searchAgentRows(filterAgentRows(allRows, projectId, board.statuses), next), ...searchAgentRows(filterAgentRows(allFinished, projectId, board.statuses), next)]
     if (!shown.some((r) => r.id === open)) setOpen(null)
   }
 
@@ -131,12 +143,13 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
             </h1>
             <p className="text-[13px] text-muted">
               Every agent session and subagent on a task in this workspace, and the card it's on. Agents waiting on you come first, the ones
-              that finished today last. Open one to see what it was asked and its log. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
+              that finished today last. Open one to see what it was asked and its log. ↑ ↓ or j k move between rows, Enter opens, Esc closes, / searches.
             </p>
           </header>
-          <QueueToolbar chips={chips} picked={picked} onPick={onPick} sort={sort} sorts={AGENT_SORTS} labels={AGENT_SORT_LABELS} onSort={pickSort} />
-          {rows.length === 0 && picked !== null ? <NothingFor project={picked} onShowAll={() => onPick(null)} /> : null}
-          {rows.length === 0 && picked === null ? (
+          <QueueToolbar chips={chips} picked={picked} onPick={onPick} search={query} onSearch={onSearch} sort={sort} sorts={AGENT_SORTS} labels={AGENT_SORT_LABELS} onSort={pickSort} />
+          {groups.length === 0 && searching ? <NothingMatching query={query} onClear={() => onSearch("")} /> : null}
+          {rows.length === 0 && picked !== null && !searching ? <NothingFor project={picked} onShowAll={() => onPick(null)} /> : null}
+          {rows.length === 0 && picked === null && !searching ? (
             <div className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-line px-6 py-14 text-center text-[13px] text-muted">
               <p className="text-[15px] font-medium text-ink">No agent is working</p>
               <p>When an agent claims a task, or a subagent starts on one, it shows up here.</p>
@@ -145,7 +158,7 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
           {groups.length === 0 ? null : (
             <MotionConfig reducedMotion="user">
               <Placement.Provider value={placement}>
-                <LayoutGroup id={view} key={view}>
+                <LayoutGroup id={listView} key={listView}>
                   <div {...queue.list} className="flex flex-col gap-6">
                     {/* A group that empties stays while its last row leaves, then folds away, instead of the page jumping. */}
                     <AnimatePresence initial={false}>

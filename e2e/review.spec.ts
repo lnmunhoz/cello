@@ -858,3 +858,75 @@ for (const theme of ["light", "dark"] as const) {
     fs.rmSync(dir, { recursive: true, force: true })
   })
 }
+
+for (const theme of ["light", "dark"] as const) {
+  test(`CEL-190 (${theme}): / focuses the Review page's search box; it narrows the rows by title, task key or agent, a slash or an A typed in a field is just a letter, Esc clears it, and it is not saved`, async ({ page }) => {
+    await page.addInitScript((t) => localStorage.setItem("cello:theme", t), theme)
+    const key = uniqueKey(theme === "light" ? "SQL" : "SQD")
+    await createProject(page, `Searching ${theme}`, key)
+    const { dir } = await submitPackets(page, key, ["Alpha packet", "Bravo packet", "Charlie packet"])
+    const [one, two, three] = [1, 2, 3].map((n) => rowOf(page, `${key}-${n}`)) as [ReturnType<typeof rowOf>, ReturnType<typeof rowOf>, ReturnType<typeof rowOf>]
+    const mine = page.locator(`[data-review-task^="${key}-"]`)
+    const search = page.getByRole("searchbox", { name: "Search" })
+
+    await page.goto(`/review?open=${key}-1`)
+    await expect(one.header).toHaveAttribute("aria-expanded", "true")
+    await expect(mine).toHaveCount(3)
+    await caption(page, "The page header lists / next to the other keys")
+    await expect(page.getByText("/ searches.")).toBeVisible()
+
+    await caption(page, "Press /: the cursor is in the search box")
+    await page.keyboard.press("/")
+    await expect(search).toBeFocused()
+
+    await caption(page, "Type Bravo: only that packet stays, and the open one, which no longer matches, closes")
+    await page.keyboard.type("Bravo")
+    await expect(search).toHaveValue("Bravo")
+    await expect(mine).toHaveCount(1)
+    await expect(two.header).toBeVisible()
+    await expect(page).not.toHaveURL(/open=/)
+
+    await caption(page, "Esc clears the search: every packet is back, closed")
+    await page.keyboard.press("Escape")
+    await expect(search).toHaveValue("")
+    await expect(mine).toHaveCount(3)
+    await expect(one.header).toHaveAttribute("aria-expanded", "false")
+
+    await caption(page, "A task key finds it too")
+    await search.fill(`${key}-3`)
+    await expect(mine).toHaveCount(1)
+    await expect(three.header).toBeVisible()
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Review 1")
+
+    await caption(page, "No match: the page says so, with a way back")
+    await search.fill("nothing is called this")
+    await expect(mine).toHaveCount(0)
+    await expect(page.locator("[data-nothing-matching]")).toContainText("Nothing matches")
+    await page.getByRole("button", { name: "Clear search" }).click()
+    await expect(search).toHaveValue("")
+    await expect(mine).toHaveCount(3)
+
+    await caption(page, "The agent that handed it in finds it as well")
+    await search.fill("claude code")
+    await expect(mine).toHaveCount(3)
+    await search.fill("")
+
+    await caption(page, "A slash typed in the comment box stays in the comment box; the A and the S approve and send back nothing")
+    await one.header.click()
+    await one.article.getByLabel("New comment").click()
+    await page.keyboard.type("a/s")
+    await expect(one.article.getByLabel("New comment")).toHaveValue("a/s")
+    await expect(one.article.getByLabel("New comment")).toBeFocused()
+    await expect(search).not.toBeFocused()
+    await expect(mine).toHaveCount(3)
+    await one.article.getByLabel("New comment").fill("")
+
+    await captionWithUrl(page, "Reload: the search is not saved")
+    await search.fill("Bravo")
+    await expect(mine).toHaveCount(1)
+    await page.reload()
+    await expect(search).toHaveValue("")
+    await expect(mine).toHaveCount(3)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+}

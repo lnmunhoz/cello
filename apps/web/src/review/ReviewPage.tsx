@@ -18,7 +18,8 @@ import { instant as motionInstant } from "../lib/motion.ts"
 import { EvidenceBadge } from "./EvidenceBadge.tsx"
 import { FOLD_SPRING, QueueRow, type QueueRowState } from "./QueueRow.tsx"
 import { allLeft, type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, filterQueue, type Held, holdStep, IDLE, REVIEW_SORT_LABELS, REVIEW_SORTS, sortQueue, syncHeld, withHeld } from "./queue.ts"
-import { NothingFor, QueueToolbar } from "./ProjectChips.tsx"
+import { NothingFor, NothingMatching, QueueToolbar } from "./ProjectChips.tsx"
+import { matchesQuery, reviewFields, searchRows } from "./search.ts"
 import { projectChips } from "./queueView.ts"
 import { useJustChanged, useQueueView } from "./useQueueView.ts"
 import { CommentOrDecide } from "./ReviewActions.tsx"
@@ -52,14 +53,19 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   const projects = projectsOf(board, workspaceId)
   const { picked, pick, sort, pickSort, view } = useQueueView("review", projects, REVIEW_SORTS)
   // The human's own pick folds rows at once; an event's fold springs.
-  const instant = useJustChanged(view)
+  // The search box (CEL-190), not saved. The human's own search folds rows at once, like a pick.
+  const [query, setQuery] = useState("")
+  const instant = useJustChanged(`${view}/${query.trim().toLowerCase()}`)
+  const searching = query.trim() !== ""
   const projectId = picked?.id ?? null
   // Asks first (an agent is waiting on them), then packets; a task is in one group only. The chips count
   // all of them, so rows stay put while you filter (CEL-188).
   const allAsked = needsInputQueue(board, workspaceId)
   const allQueue = reviewQueue(board, workspaceId)
-  const asked = sortQueue(filterQueue(allAsked, projectId), sort)
-  const queue = filterQueue(allQueue, projectId)
+  const askFields = (item: AskItem) => reviewFields({ task: item.task, author: item.ask.author.name })
+  const packetFields = (item: ReviewItem) => reviewFields({ task: item.task, author: item.review?.author.name ?? null })
+  const asked = sortQueue(searchRows(filterQueue(allAsked, projectId), query, askFields), sort)
+  const queue = searchRows(filterQueue(allQueue, projectId), query, packetFields)
   const chips = projectChips([...allAsked, ...allQueue].map((item) => item.project.id), projects, picked)
   const reduced = useReducedMotion() === true
   const [held, setHeld] = useState<ReadonlyArray<Held<ReviewItem>>>([])
@@ -69,7 +75,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   const allPackets = withHeld(allQueue, (item) => item.task.key, held)
   const keepKeys = new Set(held.filter((h) => h.state.phase === "pending" || h.state.phase === "decided").map((h) => h.key))
   // A held row sorts by its frozen item, so it keeps its place until it folds away.
-  const packets = sortQueue(filterQueue(allPackets, projectId, keepKeys), sort)
+  const packets = sortQueue(searchRows(filterQueue(allPackets, projectId, keepKeys), query, packetFields, keepKeys), sort)
   const decisionOn = (key: string): Decision | null => {
     const state = held.find((h) => h.key === key)?.state
     return state?.phase === "decided" ? state.decision : null
@@ -94,6 +100,17 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
     pick(next)
     if (open === undefined || next === null) return
     const hidden = [...allAsked, ...allPackets].some((item) => item.task.key === open && item.project.id !== next.id && !keepKeys.has(open))
+    if (hidden) setOpen(null)
+  }
+  /** A search that hides the open row closes it too, for the same reason. */
+  const onSearch = (next: string) => {
+    setQuery(next)
+    if (open === undefined) return
+    const hidden =
+      !keepKeys.has(open) &&
+      [...allAsked.map((item) => ({ key: item.task.key, fields: askFields(item) })), ...allPackets.map((item) => ({ key: item.task.key, fields: packetFields(item) }))].some(
+        (row) => row.key === open && !matchesQuery(row.fields, next),
+      )
     if (hidden) setOpen(null)
   }
 
@@ -146,10 +163,10 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
             <p className="text-[13px] text-muted">
               Answer the agents' questions first, then open a packet: comment on it, approve it to move the task to Done, or send it back
               with a note for the agent. ↑ ↓ or j k move between rows, Enter opens, Esc closes. On an open packet, A approves and S sends it
-              back.
+              back. / searches.
             </p>
           </header>
-          <QueueToolbar chips={chips} picked={picked} onPick={onPick} sort={sort} sorts={REVIEW_SORTS} labels={REVIEW_SORT_LABELS} onSort={pickSort} />
+          <QueueToolbar chips={chips} picked={picked} onPick={onPick} search={query} onSearch={onSearch} sort={sort} sorts={REVIEW_SORTS} labels={REVIEW_SORT_LABELS} onSort={pickSort} />
           {/* Both groups are one list for the keys: ↑ ↓ go from the last ask to the first packet. */}
           <div {...rows.list} className="flex flex-col gap-6">
             {asked.length > 0 ? (
@@ -176,7 +193,9 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
             ) : null}
             {/* The list stays while its last row folds away. */}
             {packets.length === 0 && !leaving ? (
-              asked.length === 0 && picked !== null ? (
+              asked.length === 0 && searching ? (
+                <NothingMatching query={query} onClear={() => onSearch("")} />
+              ) : asked.length === 0 && picked !== null ? (
                 <NothingFor project={picked} onShowAll={() => onPick(null)} />
               ) : asked.length === 0 ? (
                 <div className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-line px-6 py-14 text-center text-[13px] text-muted">
