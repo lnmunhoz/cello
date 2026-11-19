@@ -101,15 +101,27 @@ export const decisionStep = (state: DecisionState, event: DecisionEvent): Decisi
 export const isHolding = (state: DecisionState): boolean =>
   state.phase === "pending" || state.phase === "undoable" || state.phase === "sending" || state.phase === "decided"
 
+/** What the board says now about the task a decision was made on: its open packet's id (null: none), and whether the task still waits on Lucas (In Review, or Needs input for a packet's own question; not Approved · merging, not moved on). */
+export interface Standing {
+  readonly reviewId: string | null
+  readonly waiting: boolean
+}
+
 /**
- * The held rows whose decision waits in its undo window but is about a packet that's no longer there
- * (CEL-191): the queue stopped listing the task (decided from elsewhere, the side panel or the CLI), or
- * lists another packet under the key (the agent handed in a new one). Sending would decide what Lucas
- * hasn't seen, or fail, so these are let go with nothing sent. `current` maps each listed task key to its
- * packet's version; `versionOf` reads the same from the held item.
+ * Whether a decision made on packet `decidedOn` (null: a task in In Review without one) still stands
+ * (CEL-191): the packet it was about is still the one waiting. It doesn't once the packet was decided
+ * elsewhere (the side panel, the CLI) or replaced by a new one, or the task moved on. Anything else that
+ * changed the Review queue, an agent's question, an archived project, doesn't end it: the decision goes.
  */
-export const overtaken = <Item>(held: ReadonlyArray<Held<Item>>, current: ReadonlyMap<string, string>, versionOf: (item: Item) => string): string[] =>
-  held.filter((h) => h.state.phase === "undoable" && current.get(h.key) !== versionOf(h.item)).map((h) => h.key)
+export const decisionStillOpen = (decidedOn: string | null, now: Standing): boolean =>
+  decidedOn === null ? now.waiting && now.reviewId === null : now.reviewId === decidedOn
+
+/** The held rows whose decision waits in its undo window but no longer stands (`stands` says): they are let go, nothing sent. */
+export const overtaken = <Item>(held: ReadonlyArray<Held<Item>>, stands: (item: Item) => boolean): string[] =>
+  held.filter((h) => h.state.phase === "undoable" && !stands(h.item)).map((h) => h.key)
+
+/** The row Z takes back: the one decided most recently of those waiting in their window (held rows are in the order they were decided). */
+export const undoTarget = <Item>(held: ReadonlyArray<Held<Item>>): string | null => held.findLast((h) => h.state.phase === "undoable")?.key ?? null
 
 /**
  * A row the page keeps from the click on: the item as it was, and where it stood (`at`) among the rows

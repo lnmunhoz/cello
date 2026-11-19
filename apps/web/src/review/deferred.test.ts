@@ -32,7 +32,7 @@ const fakeClock = () => {
 
 const entry = () => {
   const calls: string[] = []
-  return { calls, send: () => void calls.push("send"), undone: () => void calls.push("undone") }
+  return { calls, send: () => void calls.push("send"), undone: () => void calls.push("undone"), failed: () => void calls.push("failed") }
 }
 
 describe("deferred decisions: a decision waits in its window, then is sent exactly once (CEL-191)", () => {
@@ -146,7 +146,10 @@ describe("deferred decisions: what is waiting can be watched (CEL-191)", () => {
     d.start("CEL-3", 5000, entry())
     d.undo("THAI-2")
     t.advance(5000)
-    expect(seen).toEqual(["THAI-2", "CEL-3 THAI-2", "CEL-3", ""])
+    // Sent, but not answered: the task is still held. Answered: free.
+    expect(seen).toEqual(["THAI-2", "CEL-3 THAI-2", "CEL-3", "CEL-3"])
+    d.settled("CEL-3")
+    expect(seen.at(-1)).toBe("")
     expect(d.keys()).toBe("")
   })
 })
@@ -172,5 +175,72 @@ describe("inTurn: sends go one after another (CEL-191)", () => {
     await expect(first).rejects.toThrow("refused")
     await expect(second).resolves.toBe("ok")
     expect(order).toEqual(["first starts", "second starts"])
+  })
+})
+
+describe("deferred decisions: one that throws strands nothing (CEL-191)", () => {
+  it("a send that throws is that row's failure: the entry hears it, the task is free, the other decisions still go", () => {
+    const t = fakeClock()
+    const d = createDeferredDecisions(t.clock)
+    const bad = { ...entry(), send: () => { throw new Error("boom") } }
+    const failures: unknown[] = []
+    const first = { ...bad, failed: (error: unknown) => void failures.push(error) }
+    const second = entry()
+    d.start("CEL-3", 5000, first)
+    d.start("CEL-7", 5000, second)
+    d.flushAll()
+    expect(failures).toHaveLength(1)
+    expect((failures[0] as Error).message).toBe("boom")
+    expect(second.calls).toEqual(["send"])
+    expect(d.keys()).toBe("CEL-7")
+  })
+
+  it("the same when the window ends and when the tab is seen again", () => {
+    const t = fakeClock()
+    const d = createDeferredDecisions(t.clock)
+    const failed: string[] = []
+    const thrower = (name: string) => ({ ...entry(), send: () => { throw new Error(name) }, failed: () => void failed.push(name) })
+    const ok = entry()
+    d.start("CEL-3", 5000, thrower("a"))
+    d.start("CEL-7", 5000, ok)
+    t.advance(6000, true)
+    d.fireDue()
+    expect(failed).toEqual(["a"])
+    expect(ok.calls).toEqual(["send"])
+    expect(d.has("CEL-3")).toBe(false)
+  })
+})
+
+describe("deferred decisions: how they are sent, and who is held (CEL-191)", () => {
+  it("the entry is told whether the window ended, the page was left, or the page is going", () => {
+    const t = fakeClock()
+    const d = createDeferredDecisions(t.clock)
+    const hows: string[] = []
+    const seeing = () => ({ ...entry(), send: (how: string) => void hows.push(how) })
+    d.start("CEL-3", 5000, seeing())
+    d.start("CEL-7", 5000, seeing())
+    d.start("CEL-9", 5000, seeing())
+    t.advance(5000)
+    expect(hows).toEqual(["window", "window", "window"])
+    for (const key of ["CEL-3", "CEL-7", "CEL-9"]) d.settled(key)
+    d.start("CEL-3", 5000, seeing())
+    d.flushAll()
+    d.settled("CEL-3")
+    d.start("CEL-3", 5000, seeing())
+    d.flushAll("going")
+    expect(hows.slice(3)).toEqual(["leaving", "going"])
+  })
+
+  it("a task being sent is held until its answer, and can't start another decision meanwhile", () => {
+    const t = fakeClock()
+    const d = createDeferredDecisions(t.clock)
+    d.start("CEL-3", 5000, entry())
+    t.advance(5000)
+    expect(d.has("CEL-3")).toBe(false)
+    expect(d.keys()).toBe("CEL-3")
+    expect(d.start("CEL-3", 5000, entry())).toBe(false)
+    d.settled("CEL-3")
+    expect(d.keys()).toBe("")
+    expect(d.start("CEL-3", 5000, entry())).toBe(true)
   })
 })

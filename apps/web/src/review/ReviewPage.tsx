@@ -19,8 +19,9 @@ import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { instant as motionInstant } from "../lib/motion.ts"
 import { EvidenceBadge } from "./EvidenceBadge.tsx"
 import { FOLD_SPRING, QueueRow, type QueueRowState } from "./QueueRow.tsx"
-import { allLeft, type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, filterQueue, type Held, holdStep, IDLE, isHolding, overtaken, REVIEW_SORT_LABELS, REVIEW_SORTS, sortQueue, syncHeld, withHeld } from "./queue.ts"
+import { allLeft, type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, filterQueue, type Held, holdStep, IDLE, isHolding, overtaken, undoTarget, decisionStillOpen, REVIEW_SORT_LABELS, REVIEW_SORTS, sortQueue, syncHeld, withHeld } from "./queue.ts"
 import { deferredDecisions } from "./deferred.ts"
+import { standingOf } from "./standing.ts"
 import { useUndoWindow, undoWindowMs } from "./undoWindow.ts"
 import { NothingFor, NothingMatching, QueueToolbar } from "./ProjectChips.tsx"
 import { matchesQuery, reviewFields, searchRows } from "./search.ts"
@@ -97,14 +98,14 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
         return undefined
     }
   }
+  /** The cursor goes to the row's own header: after a click (the buttons fold away under it) and after Undo. */
+  const focusRow = (key: string) => document.querySelector<HTMLElement>(`[data-queue-row="${CSS.escape(key)}"]`)?.focus()
   /** Undo takes the decision back before it was sent; the row is as it was, and the cursor goes back to it. */
   const undo = (key: string) => {
-    if (!deferredDecisions.undo(key)) return
-    document.querySelector<HTMLElement>(`[data-queue-row="${CSS.escape(key)}"]`)?.focus()
+    if (deferredDecisions.undo(key)) focusRow(key)
   }
-  // Z undoes the open row's waiting decision, else the latest one (two rows can wait at once).
-  const waitingKeys = held.filter((h) => h.state.phase === "undoable").map((h) => h.key)
-  const undoKey = waitingKeys.includes(open ?? "") ? (open ?? null) : (waitingKeys.at(-1) ?? null)
+  // Z undoes the decision made last of those waiting (two rows can wait at once), open row or not.
+  const undoKey = undoTarget(held)
   const keys = [...asked, ...packets].map((item) => item.task.key)
   // The row that has waited longest stands out (CEL-190), among the rows shown.
   const oldest = oldestKey([
@@ -159,35 +160,38 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
     const at = allPackets.findIndex((p) => p.task.key === key)
     const state = decisionStep(IDLE, event)
     setHeld((rows) => [...rows.filter((h) => h.key !== key), { key, item, at: at === -1 ? allPackets.length : at, state, dropped: false }])
+    // The buttons fold away under the click: keep the cursor on the row's header, where Tab and Z reach Undo. Not on Undo itself: a stray Enter or Space would take the decision back.
+    if (state.phase === "undoable") requestAnimationFrame(() => focusRow(key))
   }
   // The held rows follow the queue: a row the events took off it is noted, and one that comes back (a new packet) is let go.
   const listed = allQueue.map((item) => item.task.key)
   const listedKeys = listed.join(" ")
   const followQueue = useEffectEvent(() => setHeld((rows) => syncHeld(rows, listed)))
   useEffect(() => followQueue(), [listedKeys])
-  // A decision waiting in its undo window (CEL-191) is dropped, nothing sent, when its packet is gone: the task was
-  // decided from elsewhere (the side panel, the CLI), or the agent handed in a new packet.
-  const versions = allQueue.map((item) => `${item.task.key}=${item.review?.id ?? ""}`).join(" ")
+  // A decision waiting in its undo window (CEL-191) is dropped, nothing sent, when the packet it was made on was decided
+  // from elsewhere (the side panel, the CLI), replaced by a new one, or its task moved on. Read from the board, not from
+  // the queue: the queue also drops a task for an agent's question or an archived project, and then the decision goes.
+  const standing = held.filter((h) => h.state.phase === "undoable").map((h) => `${h.key}:${decisionStillOpen(h.item.review?.id ?? null, standingOf(board, h.item.task.id))}`).join(" ")
   const dropOvertaken = useEffectEvent(() => {
-    const current = new Map(allQueue.map((item) => [item.task.key, item.review?.id ?? ""] as const))
-    for (const key of overtaken(held, current, (item) => item.review?.id ?? "")) {
-      if (deferredDecisions.undo(key)) toast({ id: `undo-overtaken-${key}`, title: `${key} changed while you waited`, description: "Your decision was not sent." })
+    for (const key of overtaken(held, (item) => decisionStillOpen(item.review?.id ?? null, standingOf(board, item.task.id)))) {
+      if (deferredDecisions.undo(key)) toast({ id: `undo-overtaken-${key}`, title: `${key} was decided or replaced while you waited`, description: "Your decision was not sent." })
     }
   })
-  useEffect(() => dropOvertaken(), [versions])
+  useEffect(() => dropOvertaken(), [standing])
   // Leaving the page sends what waits: Lucas did click Approve. A tab that was hidden has late timers, so what is due goes
   // when it's seen again. Closing or reloading the tab sends what it can as the page goes (pagehide); the browser may cut that send short.
   useEffect(() => {
     const seenAgain = () => {
       if (document.visibilityState === "visible") deferredDecisions.fireDue()
     }
-    const flush = () => deferredDecisions.flushAll()
+    // The page is going: each decision is sent now, none waiting on another's answer; what doesn't get through is still written down (pending.ts) and goes when the app next loads.
+    const going = () => deferredDecisions.flushAll("going")
     document.addEventListener("visibilitychange", seenAgain)
-    window.addEventListener("pagehide", flush)
+    window.addEventListener("pagehide", going)
     return () => {
       document.removeEventListener("visibilitychange", seenAgain)
-      window.removeEventListener("pagehide", flush)
-      flush()
+      window.removeEventListener("pagehide", going)
+      deferredDecisions.flushAll("leaving")
     }
   }, [])
   /** The row has said so for its moment: it folds away, and the next one opens, unless Lucas opened another meanwhile. */
@@ -342,7 +346,7 @@ function Undoable({ decision, taskKey, ms, onUndo }: { decision: Decision; taskK
       <span aria-hidden className="mx-1.5 text-faint">
         ·
       </span>
-      <Button variant="ghost" size="sm" autoFocus data-undo={taskKey} aria-label={`Undo: ${DECISION_LABEL[decision].toLowerCase()} ${taskKey}, nothing is sent yet`} onClick={onUndo}>
+      <Button variant="ghost" size="sm" data-undo={taskKey} aria-label={`Undo: ${DECISION_LABEL[decision].toLowerCase()} ${taskKey}, nothing is sent yet`} onClick={onUndo}>
         Undo
         <kbd aria-hidden className="rounded border border-line px-1 text-[10px] font-medium text-faint">
           Z

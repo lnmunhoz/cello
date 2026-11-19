@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { allLeft, type DecisionState, decisionStep, filterQueue, type Held, holdStep, IDLE, nextAfterDecision, overtaken, parseReviewSearch, decisionNote, rowKey, sortQueue, syncHeld, withHeld } from "./queue.ts"
+import { allLeft, type DecisionState, decisionStep, filterQueue, type Held, holdStep, IDLE, nextAfterDecision, decisionStillOpen, overtaken, undoTarget, parseReviewSearch, decisionNote, rowKey, sortQueue, syncHeld, withHeld } from "./queue.ts"
 
 describe("decisionStep: what a row shows from the click on Approve or Send back until it has left (CEL-187)", () => {
   const pending: DecisionState = { phase: "pending", decision: "approved" }
@@ -259,23 +259,50 @@ describe("undoable: a decision waits in a window before it is sent (CEL-191)", (
   })
 })
 
-describe("overtaken: a decision waiting in its window is dropped when the packet it was made on is gone (CEL-191)", () => {
-  const undoable = (key: string, review: string): Held<{ review: string }> => ({
-    key, item: { review }, at: 0, dropped: false, state: { phase: "undoable", decision: "approved" },
-  })
-  const versionOf = (item: { review: string }) => item.review
-
-  it("the task was decided from elsewhere (the queue no longer lists it): nothing is sent", () => {
-    expect(overtaken([undoable("CEL-3", "r1")], new Map(), versionOf)).toEqual(["CEL-3"])
+describe("decisionStillOpen: a decision made on a packet still stands while that packet is the one waiting (CEL-191)", () => {
+  it("the same packet, still waiting: it stands, even if the agent asked a question meanwhile (the task is in Needs input, the packet still waits)", () => {
+    expect(decisionStillOpen("r1", { reviewId: "r1", waiting: true })).toBe(true)
   })
 
-  it("the agent handed in a new packet meanwhile: the decision was about the old one, so nothing is sent", () => {
-    expect(overtaken([undoable("CEL-3", "r1")], new Map([["CEL-3", "r2"]]), versionOf)).toEqual(["CEL-3"])
+  it("decided elsewhere (the side panel, the CLI): there is no open packet, so it doesn't stand", () => {
+    expect(decisionStillOpen("r1", { reviewId: null, waiting: true })).toBe(false)
+    expect(decisionStillOpen("r1", { reviewId: null, waiting: false })).toBe(false)
   })
 
-  it("the same packet, still listed, is kept; only undoable rows count", () => {
-    expect(overtaken([undoable("CEL-3", "r1")], new Map([["CEL-3", "r1"]]), versionOf)).toEqual([])
-    const sending: Held<{ review: string }> = { ...undoable("CEL-3", "r1"), state: { phase: "sending", decision: "approved" } }
-    expect(overtaken([sending], new Map(), versionOf)).toEqual([])
+  it("the agent handed in a new packet: the decision was about the old one", () => {
+    expect(decisionStillOpen("r1", { reviewId: "r2", waiting: true })).toBe(false)
+  })
+
+  it("a task in In Review without a packet (by hand): it stands while it still waits with no packet; a packet or a move out ends it", () => {
+    expect(decisionStillOpen(null, { reviewId: null, waiting: true })).toBe(true)
+    expect(decisionStillOpen(null, { reviewId: "r9", waiting: true })).toBe(false)
+    expect(decisionStillOpen(null, { reviewId: null, waiting: false })).toBe(false)
+  })
+})
+
+describe("overtaken: the rows whose decision waits in its window but doesn't stand any more (CEL-191)", () => {
+  const row = (key: string, phase: "undoable" | "sending"): Held<string> => ({ key, item: key, at: 0, dropped: false, state: { phase, decision: "approved" } })
+
+  it("lists the waiting rows the rule rejects, and only those", () => {
+    const rows = [row("CEL-3", "undoable"), row("CEL-7", "undoable")]
+    expect(overtaken(rows, (item) => item !== "CEL-3")).toEqual(["CEL-3"])
+    expect(overtaken(rows, () => true)).toEqual([])
+  })
+
+  it("a row already being sent is past asking", () => {
+    expect(overtaken([row("CEL-3", "sending")], () => false)).toEqual([])
+  })
+})
+
+describe("undoTarget: Z takes back the decision made last (CEL-191)", () => {
+  const row = (key: string, phase: "undoable" | "sending" | "pending"): Held<string> => ({ key, item: key, at: 0, dropped: false, state: { phase, decision: "approved" } })
+
+  it("the most recently decided of the rows waiting, whichever is open", () => {
+    expect(undoTarget([row("CEL-3", "undoable"), row("CEL-7", "undoable"), row("CEL-9", "sending")])).toBe("CEL-7")
+  })
+
+  it("none when nothing waits", () => {
+    expect(undoTarget([])).toBeNull()
+    expect(undoTarget([row("CEL-3", "sending"), row("CEL-4", "pending")])).toBeNull()
   })
 })

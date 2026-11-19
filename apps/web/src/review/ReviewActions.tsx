@@ -15,7 +15,11 @@ import { commands } from "../lib/cello.ts"
 import { useBoard } from "../lib/hooks.ts"
 import { Comments } from "../task/Comments.tsx"
 import { useCommentDraft } from "../task/commentDraft.ts"
+import { openReviewOf } from "@cello/client/sync/reviews"
+import { writeStored, removeStored } from "../lib/storage.ts"
 import { deferredDecisions, inTurn, useWaitingDecisions } from "./deferred.ts"
+import { pendingStorageKey, serializePending } from "./pending.ts"
+import { holdWindowLock } from "./pendingLock.ts"
 import { type Decision, type DecisionEvent, type DecisionState, decisionNote, decisionStep, IDLE } from "./queue.ts"
 import { undoWindowMs, useUndoWindow } from "./undoWindow.ts"
 
@@ -123,36 +127,63 @@ export function ReviewActions({ task, onDecision, typed = "", screenshots = [], 
    * the row away, so the buttons stay as they are meanwhile; elsewhere they go back to idle.
    * With the undo window on, nothing is sent at the click: the decision waits (deferredDecisions) and goes
    * when the window ends. The answer is false if Undo took it back, so the box keeps what was typed.
+   * While it waits it is also written down (`pending.ts`), so a tab that closes or reloads meanwhile
+   * doesn't lose it: the next load sends what is still written. The record goes when the decision was
+   * undone or answered, never when it is merely started, since a page that is going may not finish sending.
+   * `note` is what the decision sends with it (null: none).
    */
-  const run = (decision: Decision, action: () => Promise<Exit.Exit<unknown, unknown>>): Promise<boolean> => {
+  const run = (decision: Decision, note: string | null, action: () => Promise<Exit.Exit<unknown, unknown>>): Promise<boolean> => {
     const step = (event: DecisionEvent) => {
       setState((s) => (event.type === "taken" && !onDecision ? IDLE : decisionStep(s, event)))
       onDecision?.(event)
     }
+    const refuse = (message: string) => step({ type: "refused", message })
+    // The command answered, however it went; a throw is a refusal too, so the row is never left saying Approved.
     const send = async () => {
-      const exit = await action()
-      if (exit._tag === "Success") {
-        step({ type: "taken" })
-        return true
+      try {
+        const exit = await action()
+        if (exit._tag === "Success") {
+          step({ type: "taken" })
+          return true
+        }
+        refuse(describeError(Cause.squash(exit.cause), { subject: task.key }))
+      } catch (error) {
+        refuse(describeError(error, { subject: task.key }))
       }
-      step({ type: "refused", message: describeError(Cause.squash(exit.cause), { subject: task.key }) })
       return false
     }
     if (deferMs === null) {
       step({ type: "clicked", decision })
       return send()
     }
-    if (deferredDecisions.has(task.key)) return Promise.resolve(false)
+    if (deferredDecisions.busy(task.key)) return Promise.resolve(false)
     step({ type: "clicked", decision, undoable: true })
+    const storageKey = pendingStorageKey(task.key)
+    writeStored(
+      storageKey,
+      serializePending({ taskId: task.id, taskKey: task.key, reviewId: (board ? openReviewOf(board, task.id)?.id : undefined) ?? null, decision, note, attachmentIds, clickedAt: Date.now() }),
+    )
+    const releaseLock = holdWindowLock(task.key)
     return new Promise<boolean>((resolve) => {
+      const finish = (answer: boolean) => {
+        removeStored(storageKey)
+        releaseLock()
+        deferredDecisions.settled(task.key)
+        resolve(answer)
+      }
       deferredDecisions.start(task.key, deferMs, {
-        send: () => {
+        send: (how) => {
           step({ type: "sent" })
-          void inTurn(send).then(resolve)
+          // A page that is going doesn't wait its turn: it sends each decision now, and the record covers what doesn't get through.
+          void (how === "going" ? send() : inTurn(send)).then(finish)
         },
         undone: () => {
           step({ type: "undone" })
-          resolve(false)
+          finish(false)
+        },
+        failed: (error) => {
+          refuse(describeError(error, { subject: task.key }))
+          finish(false)
         },
       })
     })
@@ -173,7 +204,7 @@ export function ReviewActions({ task, onDecision, typed = "", screenshots = [], 
       disabled={waiting}
       aria-busy={pending === "approved"}
       onClick={async () => {
-        const approved = await run("approved", () => approve({ key: task.key, ...(typedNote === null ? {} : { note: typedNote }), ...withShots }))
+        const approved = await run("approved", typedNote, () => approve({ key: task.key, ...(typedNote === null ? {} : { note: typedNote }), ...withShots }))
         if (approved && (typedNote !== null || attachmentIds.length > 0)) onNoteSent?.(attachmentIds.length > 0)
       }}
     >
@@ -193,7 +224,7 @@ export function ReviewActions({ task, onDecision, typed = "", screenshots = [], 
           aria-busy={pending === "sent_back"}
           onClick={async () => {
             if (typedNote === null) return setAsking(true)
-            if (await run("sent_back", () => sendBackWith(typedNote))) onNoteSent?.(true)
+            if (await run("sent_back", typedNote, () => sendBackWith(typedNote))) onNoteSent?.(true)
           }}
         >
           {pending === "sent_back" ? <PendingIcon /> : <CornerUpLeftIcon aria-hidden className="size-3.5" />}
@@ -216,7 +247,7 @@ export function ReviewActions({ task, onDecision, typed = "", screenshots = [], 
               onSubmit={async (e) => {
                 e.preventDefault()
                 if (note.trim() === "" || waiting) return
-                const sent = run("sent_back", () => sendBackWith(note.trim()))
+                const sent = run("sent_back", note.trim(), () => sendBackWith(note.trim()))
                 // The window starts with the click: the dialog closes, and Undo reopens it with the note still in it.
                 if (deferMs !== null) setAsking(false)
                 if (!(await sent)) {
