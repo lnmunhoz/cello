@@ -19,6 +19,8 @@ import { OriginBadge } from "./OriginBadge.tsx"
 import { testRunOf, TestRunWord } from "./TestRun.tsx"
 import {
   agentMood,
+  type CountChanges,
+  countChanges,
   agentPresenceSubject,
   agentsWorkingByProject,
   agentsWorkingCount,
@@ -503,22 +505,21 @@ export function ProvenanceRows({ task, board }: { task: Task; board: BoardState 
   )
 }
 
-/** The agents working in the workspace right now, for the sidebar: sessions, with their subagents under them. */
-const useAgentsWorking = (board: BoardState, workspaceId: string) => {
+/**
+ * The agents working in the workspace right now, for the sidebar: sessions, with their subagents under
+ * them, and the same sessions split by project for the project rows' badges (CEL-179). The sidebar calls
+ * it once and hands the result to Agents working and to the rows, so the sessions are worked out once.
+ * With no board yet (it's loading) nobody is working.
+ */
+export const useAgentsWorking = (board: BoardState | null, workspaceId: string | null | undefined) => {
   const now = useNow()
-  const sessions = workingSessions(board, workspaceId, now)
-  return { sessions, count: agentsWorkingCount(sessions), now }
+  const sessions = board && workspaceId ? workingSessions(board, workspaceId, now) : []
+  const byProject = board ? agentsWorkingByProject(board, sessions, now) : new Map<string, ProjectWorking[]>()
+  return { sessions, count: agentsWorkingCount(sessions), now, byProject }
 }
 
-/**
- * The agents working in each project (CEL-179), for the sidebar's project rows: the same sessions
- * `useAgentsWorking` reads, split by project (agentsWorkingByProject). Takes no board while it loads.
- */
-export const useProjectsWorking = (board: BoardState | null, workspaceId: string | null | undefined) => {
-  const now = useNow()
-  const byProject = board && workspaceId ? agentsWorkingByProject(workingSessions(board, workspaceId, now)) : new Map<string, ProjectWorking[]>()
-  return { byProject, now }
-}
+/** What `useAgentsWorking` returns: handed to the sidebar's pieces. */
+export type AgentsWorkingNow = ReturnType<typeof useAgentsWorking>
 
 const keysOf = (tasks: ReadonlyArray<Task>) => tasks.map((t) => t.key).join(", ")
 
@@ -599,8 +600,8 @@ function WorkingLine({ who, id, live: holder, look, keys, nested, title, data }:
  * working subagent (CEL-55). It opens the Agents page (CEL-65), marked as the current page while it's
  * open, like Review; the agents are listed there, not under it.
  */
-export function AgentsWorking({ board, workspaceId, className }: { board: BoardState; workspaceId: string; className: string }) {
-  const { sessions, count, now } = useAgentsWorking(board, workspaceId)
+export function AgentsWorking({ working, className }: { working: AgentsWorkingNow; className: string }) {
+  const { sessions, count, now } = working
   const lead = sessions.find((s) => s.presence === "active")
   return (
     <Link to="/agents" activeOptions={{ includeSearch: false }} className={className} data-agents-working={count} title={workingTitle(sessions, now)}>
@@ -615,20 +616,27 @@ export function AgentsWorking({ board, workspaceId, className }: { board: BoardS
   )
 }
 
-/** "2 agents working", then each session and the tasks it's on in this project: the badge's title. */
-const projectWorkingTitle = (entries: ReadonlyArray<ProjectWorking>, now: number) =>
-  [`${entries.length} ${entries.length === 1 ? "agent" : "agents"} working`, ...entries.map((e) => sessionLine(e.working, now, e.tasks))].join("\n")
+/**
+ * "2 agents working · 3 subagents", then each session and the tasks it's on in this project: the badge's
+ * title. The subagents are named because Agents working adds them to its number and this badge doesn't.
+ */
+const projectWorkingTitle = (entries: ReadonlyArray<ProjectWorking>, now: number) => {
+  const subagents = entries.reduce((n, e) => n + e.agents.length, 0)
+  const head = `${entries.length} ${entries.length === 1 ? "agent" : "agents"} working`
+  return [subagents > 0 ? `${head} · ${subagents} ${subagents === 1 ? "subagent" : "subagents"}` : head, ...entries.map((e) => sessionLine(e.working, now, e.tasks))].join("\n")
+}
 
-/** How many times `count` has changed since this component first showed it: 0 while it hasn't, so only a change animates. */
-const useChanges = (count: number) => {
-  const [seen, setSeen] = useState({ count, changes: 0 })
-  if (seen.count !== count) setSeen({ count, changes: seen.changes + 1 })
-  return seen.changes
+/** How many times `count` has changed since it was first known (countChanges): 0 until then, so only a change animates. */
+const useChanges = (count: number, ready: boolean) => {
+  const [seen, setSeen] = useState<CountChanges>({ count, ready, changes: 0 })
+  const next = countChanges(seen, count, ready)
+  if (next !== seen) setSeen(next)
+  return next.changes
 }
 
 const PROJECT_BADGE = {
-  // The Agents working pill, right-aligned on the project's row.
-  row: "ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-hover px-1.5 text-[11px] font-semibold tabular-nums text-ink",
+  // The Agents working pill, right-aligned on the project's row; it never shrinks, the name truncates instead.
+  row: "ml-auto flex h-4.5 shrink-0 min-w-4.5 items-center justify-center rounded-full bg-hover px-1.5 text-[11px] font-semibold tabular-nums text-ink",
   // The rail's badge, on the corner of the project's square.
   rail: "absolute -top-1 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-hover px-1 text-[10px] font-semibold tabular-nums text-ink ring-2 ring-canvas",
 } as const
@@ -636,11 +644,12 @@ const PROJECT_BADGE = {
 /**
  * How many agents are working in a project (CEL-179), on its sidebar row or its square on the rail. Hidden
  * at 0. Its title lists the sessions and their tasks. It pops once when the number changes (count-pop)
- * and otherwise stands still. Always rendered, so a count that goes from 0 to 1 is a change too.
+ * and otherwise stands still. Always rendered, so a count that goes from 0 to 1 is a change too; `ready`
+ * says the sessions are known, and the first number known is never a change.
  */
-export function ProjectWorkingBadge({ entries, now, variant }: { entries: ReadonlyArray<ProjectWorking>; now: number; variant: keyof typeof PROJECT_BADGE }) {
+export function ProjectWorkingBadge({ entries, now, variant, ready }: { entries: ReadonlyArray<ProjectWorking>; now: number; variant: keyof typeof PROJECT_BADGE; ready: boolean }) {
   const count = entries.length
-  const changes = useChanges(count)
+  const changes = useChanges(count, ready)
   if (count === 0) return null
   return (
     <span key={changes} data-project-working={count} title={projectWorkingTitle(entries, now)} className={`${PROJECT_BADGE[variant]}${changes > 0 ? " count-pop" : ""}`}>
@@ -694,8 +703,8 @@ export function AgentsWorkingList({ board, workspaceId }: { board: BoardState; w
 }
 
 /** On the sidebar's rail: a bot with the count of agents working, opening the Agents page (CEL-65). */
-export function AgentsWorkingRail({ board, workspaceId, className }: { board: BoardState; workspaceId: string; className: string }) {
-  const { sessions, count, now } = useAgentsWorking(board, workspaceId)
+export function AgentsWorkingRail({ working, className }: { working: AgentsWorkingNow; className: string }) {
+  const { sessions, count, now } = working
   return (
     <Link
       to="/agents"

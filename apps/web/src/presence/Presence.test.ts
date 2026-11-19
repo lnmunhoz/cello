@@ -6,7 +6,7 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Router
 import { createElement, Fragment } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { AgentsWorking, AgentsWorkingList, PanelWork, ProvenanceRows } from "./Presence.tsx"
+import { AgentsWorking, AgentsWorkingList, PanelWork, ProvenanceRows, useAgentsWorking } from "./Presence.tsx"
 
 const now = Date.now()
 const status = (id: string, name: string, category: Status["category"]): Status => ({
@@ -61,7 +61,9 @@ const routed = (node: ReturnType<typeof createElement>, url = "/") => {
 }
 
 describe("Agents working in the sidebar: one link to the Agents page, with the count (CEL-65)", () => {
-  const html = routed(createElement(AgentsWorking, { board, workspaceId: "w1", className: "" }))
+  // The sidebar works the sessions out once and hands them to Agents working.
+  const Probe = () => createElement(AgentsWorking, { working: useAgentsWorking(board, "w1"), className: "" })
+  const html = routed(createElement(Probe))
 
   it("is a link to the Agents page, with the count", () => {
     const link = html.match(/<a [^>]*data-agents-working="2"[^>]*>/)?.[0]

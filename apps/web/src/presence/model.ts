@@ -311,35 +311,65 @@ export const workingSessions = (board: BoardState, workspaceId: string, now: num
 export const agentsWorkingCount = (working: ReadonlyArray<Working>): number =>
   working.reduce((n, w) => n + (w.presence === "active" ? 1 : 0) + w.agents.filter((a) => a.presence === "active").length, 0)
 
-/** One agent session working in a project (CEL-179), with the tasks it's on there. */
+/** One agent session working in a project (CEL-179): the tasks it's on there, and its subagents working there. */
 export interface ProjectWorking {
   readonly working: Working
   readonly tasks: ReadonlyArray<Task>
+  readonly agents: ReadonlyArray<WorkingAgent>
 }
 
 /**
  * The agent sessions working in each project, by project id, for the badge on each sidebar project row
- * (CEL-179). It reads the same list as "Agents working" (workingSessions), by the same rule: a session
- * counts where it is active and holds a claim, and where one of its subagents is active on a task. A
- * session counts once in a project however many tasks or subagents it has there, and in each project
- * it works in. So a project's number is sessions, never subagents: the workspace's number, which adds
- * each active subagent, is at least their sum, and equal only with no subagents and no session in two
- * projects. A project with nobody working has no entry.
+ * (CEL-179). It starts from the list "Agents working" reads (workingSessions), but counts less: a session
+ * counts in a project where one of its own tasks is Working now (workingNow: in In Progress with the
+ * session active, so not while it waits on Lucas in Needs input or sits In Review), and where one of its
+ * subagents is active on a task, whatever that task's status. Tasks of an archived project don't count.
+ * A session counts once in a project however many tasks or subagents it has there, and in each project it
+ * works in. So a project's number is sessions, never subagents, and the numbers can differ from Agents
+ * working's: that row adds each active subagent, and counts a session waiting in Needs input. A project
+ * with nobody working has no entry.
  */
-export const agentsWorkingByProject = (working: ReadonlyArray<Working>): Map<string, ProjectWorking[]> => {
+export const agentsWorkingByProject = (board: BoardState, working: ReadonlyArray<Working>, now: number): Map<string, ProjectWorking[]> => {
   const byProject = new Map<string, ProjectWorking[]>()
   for (const w of working) {
     const tasksIn = new Map<string, Map<string, Task>>()
+    const agentsIn = new Map<string, WorkingAgent[]>()
     const add = (task: Task) => {
+      if (board.projects[task.projectId]?.archivedAt != null) return
       const tasks = tasksIn.get(task.projectId) ?? new Map<string, Task>()
       tasks.set(task.id, task)
       tasksIn.set(task.projectId, tasks)
     }
-    if (w.presence === "active") w.tasks.forEach(add)
-    for (const a of w.agents) if (a.presence === "active" && a.task) add(a.task)
-    for (const [projectId, tasks] of tasksIn) byProject.set(projectId, [...(byProject.get(projectId) ?? []), { working: w, tasks: [...tasks.values()] }])
+    for (const task of w.tasks) if (workingNow(board, task, now)) add(task)
+    for (const a of w.agents) {
+      if (a.presence !== "active" || !a.task) continue
+      add(a.task)
+      if (tasksIn.has(a.task.projectId)) agentsIn.set(a.task.projectId, [...(agentsIn.get(a.task.projectId) ?? []), a])
+    }
+    for (const [projectId, tasks] of tasksIn) {
+      byProject.set(projectId, [...(byProject.get(projectId) ?? []), { working: w, tasks: [...tasks.values()], agents: agentsIn.get(projectId) ?? [] }])
+    }
   }
   return byProject
+}
+
+/** What a count badge remembers to know when its number changes (countChanges). */
+export interface CountChanges {
+  readonly count: number
+  /** Whether the number is known yet: false while the sessions it is counted from may still be loading. */
+  readonly ready: boolean
+  /** How many times it changed since it was first known; each one plays the pop. */
+  readonly changes: number
+}
+
+/**
+ * Steps a badge's memory to the number it shows now (CEL-179). Only a change from one known number to
+ * another is a change, a settled 0 to 1 included; the first known number, and whatever it showed before the
+ * sessions were known, is a baseline, so a page that loads with agents working animates nothing.
+ */
+export const countChanges = (seen: CountChanges, count: number, ready: boolean): CountChanges => {
+  const changes = ready && seen.ready && seen.count !== count ? seen.changes + 1 : seen.changes
+  return seen.count === count && seen.ready === ready && seen.changes === changes ? seen : { count, ready, changes }
 }
 
 /**
