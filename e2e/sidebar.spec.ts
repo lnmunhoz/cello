@@ -319,6 +319,8 @@ test("CEL-179: a project's row shows how many agents are working in it: it appea
   await expect(badge(keyC)).toHaveAttribute("data-project-working", "1")
   const name = projectLink(page, keyC).locator("[data-project-name]")
   expect(await name.evaluate((el) => el.scrollWidth > el.clientWidth), "the name is cut with an ellipsis").toBe(true)
+  // Measured once the pop has ended: mid-pop a badge is drawn smaller.
+  await animationsSettled(page)
   const [rowBox, badgeBox, shortBadgeBox] = [await projectLink(page, keyC).boundingBox(), await badge(keyC).boundingBox(), await badge(keyB).boundingBox()]
   expect(badgeBox!.x + badgeBox!.width, "the badge ends inside the row").toBeLessThanOrEqual(rowBox!.x + rowBox!.width)
   expect(badgeBox!.width, "the badge keeps its width next to a short name's").toBeCloseTo(shortBadgeBox!.width, 0)
