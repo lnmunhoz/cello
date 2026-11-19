@@ -303,13 +303,13 @@ function Folded({ board, row, rows, queue, open, onToggle }: {
 }) {
   if (row.folded.length === 0) return null
   return (
-    <div className="flex flex-col gap-2 pl-6 pt-1" data-agents-folded={row.id}>
+    <div className="flex flex-col items-start gap-2 pl-6 pt-1" data-agents-folded={row.id}>
       <Button variant="ghost" size="sm" aria-expanded={open} data-agents-fold={row.id} onClick={onToggle}>
         <ChevronRightIcon aria-hidden className={`size-3 shrink-0 transition-transform duration-150 motion-reduce:transition-none ${open ? "rotate-90" : ""}`} />
         {foldedLabel(row.folded)}
       </Button>
       {open ? (
-        <ul aria-label={`Finished under ${row.who.short}`} className="flex flex-col gap-2">
+        <ul aria-label={`Finished under ${row.who.short}`} className="flex w-full flex-col gap-2">
           {row.folded.map((f) => (
             <li key={f.id}>
               <AgentQueueRow {...queue.row(f.id)} board={board} row={f} rows={rows} />
