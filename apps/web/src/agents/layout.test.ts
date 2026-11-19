@@ -337,6 +337,86 @@ describe("foldFinished: finished subagents fold into their session's row (CEL-15
   })
 })
 
+describe("Older: quiet for more than a day, nothing open (CEL-156)", () => {
+  const HOUR = 3_600_000
+  const statuses = {
+    prog: { name: "In Progress", category: "started" },
+    needs: { name: "Needs input", category: "waiting" },
+    done: { name: "Done", category: "completed" },
+    cancel: { name: "Canceled", category: "canceled" },
+  }
+  const quietFor = (id: string, hours: number, tasks: Task[] = [], agents: WorkingAgent[] = []) =>
+    working({ ...session(id), lastSeenAt: now - hours * HOUR }, { presence: "idle", mark: { mood: "still", statusId: "done" }, tasks, agents })
+  const onDone = (id: string) => ({ ...task(id, id.toUpperCase()), statusId: "done" })
+  const olderIds = (sessions: Working[], rule = { now, statuses }) =>
+    agentGroups(agentRows(sessions), [], rule).find((g) => g.id === "older")?.rows.map((r) => r.id) ?? []
+
+  it("a session quiet for more than 24 hours that holds nothing goes to Older; at 24 hours or less it stays in Quiet", () => {
+    expect(olderIds([quietFor("old", 24.5), quietFor("day", 24), quietFor("fresh", 2)])).toEqual(["session:old"])
+    const groups = agentGroups(agentRows([quietFor("old", 30), quietFor("fresh", 2)]), [], { now, statuses })
+    expect(groups.map((g) => [g.id, g.rows.map((r) => r.id)])).toEqual([["quiet", ["session:fresh"]], ["older", ["session:old"]]])
+  })
+
+  it("a task that's Done or Canceled holds nothing; one In Progress, Needs input or unknown keeps the session where it is", () => {
+    expect(olderIds([quietFor("a", 30, [onDone("t1")])])).toEqual(["session:a"])
+    expect(olderIds([quietFor("a", 30, [{ ...task("t1", "T-1"), statusId: "cancel" }])])).toEqual(["session:a"])
+    expect(olderIds([quietFor("a", 30, [task("t1", "T-1")])])).toEqual([])
+    expect(olderIds([quietFor("a", 30, [{ ...task("t1", "T-1"), statusId: "needs" }])])).toEqual([])
+    expect(olderIds([quietFor("a", 30, [{ ...task("t1", "T-1"), statusId: "gone" }])])).toEqual([])
+    expect(olderIds([quietFor("a", 30, [onDone("t1"), task("t2", "T-2")])])).toEqual([])
+  })
+
+  it("a family goes together: its quiet subagents follow their session, and one that's working, or checked in recently, keeps it out", () => {
+    const s = { ...session("fam"), lastSeenAt: now - 30 * HOUR }
+    const quietSub = (id: string, hours: number) => {
+      const a = { ...sub(s, id, null), presence: "idle" as const, mark: { mood: "still" as const, statusId: "done" } }
+      return { ...a, agent: { ...a.agent, lastSeenAt: now - hours * HOUR } }
+    }
+    const family = (agents: WorkingAgent[]) => working(s, { presence: "idle", mark: { mood: "still", statusId: "done" }, agents })
+    expect(olderIds([family([quietSub("a1", 28), quietSub("a2", 29)])])).toEqual(["session:fam", "agent:fam/a1", "agent:fam/a2"])
+    expect(olderIds([family([quietSub("a1", 28), quietSub("a2", 2)])])).toEqual([])
+    expect(olderIds([family([quietSub("a1", 28), sub(s, "a2", null)])])).toEqual([])
+    const waitingOnTests = { ...quietSub("a1", 28), agent: { ...quietSub("a1", 28).agent, waitingOn: ["Bash · bun run test:e2e"] } }
+    expect(olderIds([family([waitingOnTests])])).toEqual([])
+  })
+
+  it("a family waiting on Lucas, or working, never goes to Older, however long ago it checked in", () => {
+    const waiting = working({ ...session("w"), lastSeenAt: now - 40 * HOUR }, { presence: "idle", mark: { mood: "waiting", statusId: "needs" } })
+    expect(olderIds([waiting, working({ ...session("act"), lastSeenAt: now - 40 * HOUR })])).toEqual([])
+  })
+
+  it("it comes back by itself: the same session once it checks in or claims a task is in Quiet again", () => {
+    expect(olderIds([quietFor("a", 30)])).toEqual(["session:a"])
+    expect(olderIds([{ ...quietFor("a", 30), session: { ...quietFor("a", 30).session, lastSeenAt: now - HOUR } }])).toEqual([])
+    expect(olderIds([quietFor("a", 30, [task("t1", "T-1")])])).toEqual([])
+  })
+
+  it("without a rule nothing goes to Older; the finished rows stay between Quiet and Older", () => {
+    expect(agentGroups(agentRows([quietFor("old", 30)])).map((g) => g.id)).toEqual(["quiet"])
+    const fin = finishedRows(EMPTY_BOARD, [{ session: session("f"), agent: null, tasks: [], endedAt: now }])
+    expect(agentGroups(agentRows([quietFor("old", 30)]), fin, { now, statuses }).map((g) => g.id)).toEqual(["finished", "older"])
+  })
+
+  it("the keys skip a closed Older section and walk an open one", () => {
+    const groups = agentGroups(agentRows([quietFor("old", 30), working(session("act"))]), [], { now, statuses })
+    expect(rowKeysOf(groups, { older: false, folds: new Set() })).toEqual(["session:act"])
+    expect(rowKeysOf(groups, { older: true, folds: new Set() })).toEqual(["session:act", "session:old"])
+  })
+
+  it("a link to a row in Older says so, so the section opens for it", () => {
+    const groups = agentGroups(agentRows([quietFor("old", 30), working(session("act"))]), [], { now, statuses })
+    expect(shelterOf(groups, "session:old")).toEqual({ older: true, fold: null })
+    expect(shelterOf(groups, "session:act")).toEqual({ older: false, fold: null })
+  })
+
+  it("an open task of a subagent that finished under the session keeps it out too", () => {
+    const [row] = agentRows([quietFor("a", 30)])
+    const finishedSub = finishedRows(EMPTY_BOARD, [{ session: row!.session, agent: { sessionId: "a", agentId: "x", agentType: "cello-builder", taskId: "t1", description: null, startedAt: now, lastSeenAt: now, endedAt: now }, endedAt: now, tasks: [task("t1", "T-1")] }])
+    const { rows } = foldFinished([row!], finishedSub)
+    expect(agentGroups(rows, [], { now, statuses }).map((g) => g.id)).toEqual(["quiet"])
+  })
+})
+
 describe("logLinkOf: the task panel's Log link (CEL-107)", () => {
   const a = session("2fd0505c")
   const builder: SessionAgent = {

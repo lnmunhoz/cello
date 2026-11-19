@@ -19,6 +19,7 @@ import { CardBody } from "../board/Card.tsx"
 import { Button } from "../components/ui/Button.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
+import { useStored, writeStored } from "../lib/storage.ts"
 import { layoutTransition } from "../lib/motion.ts"
 import { Author } from "../presence/Author.tsx"
 import { OriginBadge } from "../presence/OriginBadge.tsx"
@@ -48,6 +49,7 @@ import {
   foldedLabel,
   foldFinished,
   groupOf,
+  OLDER_KEY,
   agentProjectIds,
   pulseKeyOf,
   rowKeysOf,
@@ -112,19 +114,27 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
   const rows = sortFamilies(searchAgentRows(filterAgentRows(allRows, projectId, board.statuses), query), sort, nameOf, board.statuses)
   const finished = searchAgentRows(filterAgentRows(allFinished, projectId, board.statuses), query)
   const sessions = allSessions.filter((s) => rows.some((r) => r.id === `session:${s.session.id}`))
-  const groups = agentGroups(rows, finished)
-  // Folds the human opened, and the one holding a row a link opens (?open=), so a link never lands on a hidden row.
+  // Quiet for more than a day with nothing open: Older, closed by default (CEL-156). `now` is the page's slow clock.
+  const groups = agentGroups(rows, finished, { now, statuses: board.statuses })
+  // Folds and the Older section the human opened, and what holds a row a link opens (?open=), so a link never lands on a hidden row.
   const [folds, setFolds] = useState<ReadonlySet<string>>(new Set())
+  const olderStored = useStored(OLDER_KEY) === "open"
   const shelter = open === undefined ? null : shelterOf(groups, open)
   const foldsOpen = shelter?.fold ? new Set([...folds, shelter.fold]) : folds
+  const olderOpen = olderStored || shelter?.older === true
   const toggleFold = (id: string) => {
     if (foldsOpen.has(id) && shelter?.fold === id) setOpen(null)
     setFolds(foldsOpen.has(id) ? new Set([...foldsOpen].filter((f) => f !== id)) : new Set([...foldsOpen, id]))
   }
-  const keys = rowKeysOf(groups, { older: true, folds: foldsOpen })
+  const toggleOlder = () => {
+    if (olderOpen && shelter?.older) setOpen(null)
+    writeStored(OLDER_KEY, olderOpen ? "closed" : "open")
+  }
+  const keys = rowKeysOf(groups, { older: olderOpen, folds: foldsOpen })
   // A pick or a new sort starts the list afresh (the LayoutGroup's key, and its id, so no row's layoutId reaches back to
   // where the same row was before): no row glides or folds to its new place, since the human asked for it; events still do.
-  const listView = `${view}/${query.trim().toLowerCase()}`
+  // Opening or closing Older is the human's too: the rows under it come or go at once (CEL-156).
+  const listView = `${view}/${query.trim().toLowerCase()}/${olderOpen ? "older" : ""}`
   const layoutKey = groups.map((g) => `${g.id}:${g.rows.map((r) => r.id).join(",")}`).join(";")
   const placement = new Map(groups.flatMap((g) => g.rows.map((r) => [r.id, g.id] as const)))
   const openId = open !== undefined && keys.includes(open) ? open : null
@@ -193,8 +203,18 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                             className="flex items-center gap-2 text-[13px] font-semibold text-ink"
                           >
                             {group.id === "waiting" ? <i aria-hidden className="size-1.5 rounded-full bg-accent" /> : null}
-                            {group.label} <span className="font-normal text-muted tabular-nums">{group.rows.length}</span>
+                            {group.id === "older" ? (
+                              <Button variant="ghost" size="sm" aria-expanded={olderOpen} data-agents-older-toggle="" onClick={toggleOlder}>
+                                <ChevronRightIcon aria-hidden className={`size-3 shrink-0 transition-transform duration-150 motion-reduce:transition-none ${olderOpen ? "rotate-90" : ""}`} />
+                                {group.label} <span className="font-normal text-muted tabular-nums">{group.rows.length}</span>
+                              </Button>
+                            ) : (
+                              <>
+                                {group.label} <span className="font-normal text-muted tabular-nums">{group.rows.length}</span>
+                              </>
+                            )}
                           </motion.h2>
+                          {group.id === "older" && !olderOpen ? null : (
                           <ul aria-label={group.label} className="flex flex-col gap-2">
                             {/* custom: the rows on the page now, so a row that left this group for another goes at once (the copy there slides in). */}
                             <AnimatePresence initial={false} custom={keys}>
@@ -226,6 +246,7 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                               })}
                             </AnimatePresence>
                           </ul>
+                          )}
                         </motion.section>
                       ))}
                     </AnimatePresence>

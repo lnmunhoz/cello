@@ -182,15 +182,56 @@ const placeOf = (row: AgentRow, rows: ReadonlyArray<AgentRow>): AgentGroupId =>
     .map(groupOf)
     .reduce((best, g) => (RANK[g] < RANK[best] ? g : best), groupOf(row))
 
+type Statuses = Readonly<Record<string, { readonly name: string; readonly category: string }>>
+
+/** Whether the Older section is open, kept on this device (lib/storage.ts): "open", else closed. */
+export const OLDER_KEY = "cello:agents:older"
+
+/** A family quiet for longer than this, with nothing open, goes to Older (CEL-156). */
+export const OLDER_AFTER_MS = 24 * 3_600_000
+
+/** What decides which rows go to Older: the time now (the page's clock), and each status's category. */
+export interface OlderRule {
+  readonly now: number
+  readonly statuses: Statuses
+}
+
+/**
+ * Whether a family holds no open task: every task of the session, its subagents and the ones finished
+ * under it is Done or Canceled. A task whose status isn't known counts as open, so nothing open is ever hidden.
+ */
+const holdsNothingOpen = (family: ReadonlyArray<AgentRow>, statuses: Statuses): boolean =>
+  family.flatMap((r) => [...r.tasks, ...r.folded.flatMap((f) => f.tasks)]).every((t) => {
+    const category = statuses[t.statusId]?.category
+    return category === "completed" || category === "canceled"
+  })
+
+/**
+ * Whether a row belongs to the Older section (CEL-156): its family is quiet (nobody working or waiting on
+ * Lucas, a subagent's background work counting as working), nobody in it, session or subagent, checked in
+ * for more than a day, and it holds no open task. A pure function of `now`: a check-in, a subagent that
+ * starts again or a claimed task brings the family back out by itself.
+ */
+export const isOlder = (row: AgentRow, rows: ReadonlyArray<AgentRow>, rule: OlderRule): boolean => {
+  if (placeOf(row, rows) !== "quiet") return false
+  const family = rows.filter((r) => r.session.id === row.session.id)
+  return rule.now - Math.max(...family.map(pulseKeyOf)) > OLDER_AFTER_MS && holdsNothingOpen(family, rule.statuses)
+}
+
 /**
  * The rows in their groups, waiting on Lucas first (like the Review page's Needs your input), then the
- * ones that finished today at the bottom, newest first, each on its own (CEL-107); empty groups left out.
+ * ones that finished today, newest first, each on its own (CEL-107), then Older (CEL-156) at the bottom:
+ * the quiet families with nothing open, when `older` is given. Empty groups left out.
  */
-export const agentGroups = (rows: ReadonlyArray<AgentRow>, finished: ReadonlyArray<AgentRow> = []): AgentGroup[] =>
-  [
-    ...GROUPS.map((g) => ({ ...g, rows: rows.filter((r) => placeOf(r, rows) === g.id) })),
+export const agentGroups = (rows: ReadonlyArray<AgentRow>, finished: ReadonlyArray<AgentRow> = [], older?: OlderRule): AgentGroup[] => {
+  const aged = older === undefined ? [] : rows.filter((r) => isOlder(r, rows, older))
+  const isAged = (r: AgentRow) => aged.includes(r)
+  return [
+    ...GROUPS.map((g) => ({ ...g, rows: rows.filter((r) => placeOf(r, rows) === g.id && !isAged(r)) })),
     { id: "finished" as const, label: "Finished today", rows: finished },
+    { id: "older" as const, label: "Older", rows: aged },
   ].filter((g) => g.rows.length > 0)
+}
 
 /** What the page has open, for the keys: the Older section (CEL-156), and the folds (by their session's row id). */
 export interface OpenParts {
