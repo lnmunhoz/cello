@@ -22,6 +22,6 @@
     "@cello/text": "workspace:*",
     "effect": "4.1.4",
     "electron": "44.10.1",
-    "electron-builder": "26.16.1"
+    "electron-builder": "26.18.0"
   }
 }
