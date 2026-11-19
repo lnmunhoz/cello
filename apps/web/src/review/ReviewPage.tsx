@@ -96,7 +96,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   }
   const rows = useQueue({ keys, open: openKey, setOpen })
   // A approves and S sends back the open packet (CEL-190); an open row of questions has neither.
-  useDecisionKeys(openKey !== null && packets.some((item) => item.task.key === openKey) ? openKey : null)
+  useDecisionKeys(openKey !== null && packets.some((item) => item.task.key === openKey) ? openKey : null, rows.list.ref)
   // A packet is seen once it's opened, whoever opened it (a click, a key, a decision, a link); a new one, after Send back, is unread again (CEL-190).
   const { seen, markOpened } = useSeen()
   const openedReview = packets.find((item) => item.task.key === openKey)?.review?.id ?? null

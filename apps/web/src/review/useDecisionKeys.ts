@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent } from "react"
+import { type RefObject, useEffect, useEffectEvent } from "react"
 import { popupTakesEscape } from "../lib/escape.ts"
 import { decisionShortcut } from "./decisionKeys.ts"
 
@@ -11,13 +11,18 @@ import { decisionShortcut } from "./decisionKeys.ts"
  * pending, a screenshot uploading) does nothing. Send back only moves the cursor to the note box:
  * it sends nothing until the button is pressed.
  */
-export function useDecisionKeys(openKey: string | null) {
+export function useDecisionKeys(openKey: string | null, list: RefObject<HTMLElement | null>) {
   const onKey = useEffectEvent((e: KeyboardEvent) => {
-    const { key, metaKey, ctrlKey, altKey, shiftKey, repeat, defaultPrevented } = e
+    const { key, metaKey, ctrlKey, altKey, shiftKey, repeat, defaultPrevented, isComposing } = e
     const target = e.target instanceof HTMLElement ? e.target : null
     const shortcut = decisionShortcut(
-      { key, metaKey, ctrlKey, altKey, shiftKey, repeat, defaultPrevented, target },
-      { packetOpen: openKey !== null, popupOpen: popupTakesEscape(document) },
+      { key, metaKey, ctrlKey, altKey, shiftKey, repeat, defaultPrevented, isComposing, target },
+      {
+        packetOpen: openKey !== null,
+        popupOpen: popupTakesEscape(document),
+        taskPanelOpen: document.querySelector('[data-side-panel="task"]') !== null,
+        focus: target === document.body ? "body" : target !== null && list.current?.contains(target) ? "list" : "other",
+      },
     )
     if (shortcut === null || openKey === null) return
     const row = document.querySelector<HTMLElement>(`[data-queue-item="${CSS.escape(openKey)}"][data-open]`)
