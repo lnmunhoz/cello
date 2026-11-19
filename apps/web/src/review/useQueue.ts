@@ -107,11 +107,12 @@ export function useQueue({ keys, open, setOpen }: {
       onFocus: () => setFocused(key),
       onKeyDown: (e) => onRowKeyDown(e, key),
     }),
-    /** `key` left the queue (a packet decided, an ask answered): the next row opens, and takes the focus. */
-    openNext: (key: string) => {
-      const next = nextAfterDecision(keys, key)
-      focusOpened.current = next !== undefined
-      setOpen(next ?? null)
+    /** `key` left the queue (a packet decided, an ask answered): the next row opens, and takes the focus. Returns that row's key, if there is one. */
+    openNext: (key: string): string | null => {
+      const next = nextAfterDecision(keys, key) ?? null
+      focusOpened.current = next !== null
+      setOpen(next)
+      return next
     },
   }
 }
