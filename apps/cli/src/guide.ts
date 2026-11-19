@@ -913,7 +913,7 @@ Every comment, history line and Agents page row an agent writes says whether it 
 
 ### Checking on your builders from the terminal
 
-An orchestrator doesn't need the Agents page to see what its builders are doing: \`cello agents\` lists the agents working in the project's workspace, and \`cello agents log <id>\` prints one's log, the same steps the page shows, as plain text.
+An orchestrator doesn't need the Agents page to see what its builders are doing: \`cello agents\` lists the agents working in the project's workspace, and \`cello agents log <id>\` prints one's log, the same steps the page shows, as plain text. Agents are listed in the order they started, oldest first, each session's subagents under it the same way, as on the Agents page: a call an agent makes never moves it up the list, so the one you were reading is where you left it.
 
 \`\`\`bash
 cello agents

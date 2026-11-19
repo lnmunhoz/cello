@@ -280,14 +280,14 @@ export interface Working {
   readonly presence: Presence
   /** The tasks the session holds. */
   readonly tasks: ReadonlyArray<Task>
-  /** Its subagents still working (active or quiet, not stopped), the freshest first (CEL-55). */
+  /** Its subagents still working (active or quiet, not stopped), in the order they started (CEL-186). */
   readonly agents: ReadonlyArray<WorkingAgent>
   /** Its mark: from the tasks whose cards show the session itself, not a subagent of it. */
   readonly mark: WorkingMark
 }
 
 /**
- * The agent sessions working in a workspace, active first (workingAgents, shared with `cello agents`),
+ * The agent sessions working in a workspace, in the order they started (workingAgents, shared with `cello agents`),
  * each with who it is and its mark, and its subagents' too.
  */
 export const workingSessions = (board: BoardState, workspaceId: string, now: number): Working[] =>

@@ -147,7 +147,7 @@ describe("stepOf: the step a card, row or panel shows (CEL-105)", () => {
 })
 
 describe("workingSessions", () => {
-  it("the sessions holding claims in the workspace, active ones first, each once with its tasks", () => {
+  it("the sessions holding claims in the workspace, in the order they started (then by id, CEL-186), each once with its tasks", () => {
     const sessions = [session("active1"), session("idle1", { lastSeenAt: now - 2 * 60 * MIN }), session("ended1", { endedAt: now - MIN }), session("active2")]
     const tasks = [
       task("a", { assigneeActorId: "claude", assigneeSessionId: "idle1" }),
@@ -160,8 +160,8 @@ describe("workingSessions", () => {
     const working = workingSessions(board(tasks, sessions), "w1", now)
     expect(working.map((w) => [w.session.id, w.presence, w.tasks.map((t) => t.id)])).toEqual([
       ["active1", "active", ["b", "c"]],
-      ["idle1", "idle", ["a"]],
       ["ended1", "ended", ["d"]],
+      ["idle1", "idle", ["a"]],
     ])
   })
 })
@@ -293,8 +293,8 @@ describe("subagents", () => {
     const working = workingSessions(board(tasks, [orchestrator], agents), "w1", now)
     expect(working).toHaveLength(1)
     expect(working[0]!.agents.map((a) => [a.who.name, a.presence, a.task?.id ?? null])).toEqual([
-      ["cello-code-reviewer · b77d0e11", "active", "t2"],
       ["cello-builder · a13bfb89", "active", "t1"],
+      ["cello-code-reviewer · b77d0e11", "active", "t2"],
       ["Explore · c0ffee00", "active", null],
     ])
     // The orchestrator and its three working subagents.

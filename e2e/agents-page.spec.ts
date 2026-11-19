@@ -9,7 +9,19 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import type { Locator, Page } from "@playwright/test"
-import { animationsSettled, caption, captionWithUrl, defaultWorkspace, expect, newCommandId, seedLabels, seedProject, test } from "./fixtures.ts"
+import {
+  agentAs,
+  animationsSettled,
+  caption,
+  captionWithUrl,
+  contentAnimations,
+  defaultWorkspace,
+  expect,
+  newCommandId,
+  seedLabels,
+  seedProject,
+  test,
+} from "./fixtures.ts"
 import { celloIn, claudeHooks } from "./claudeHooks.ts"
 import { expectLeftAligned, SHOTS } from "./packets.ts"
 import { openClient } from "../packages/client/test/support/promiseClient.ts"
@@ -378,3 +390,85 @@ test("CEL-163: the Agents page keeps its content aligned left at a wide, a mid a
   await shoot(page, "left-aligned-mid")
   cli(QUIET)("task", "release", "ALN-1")
 })
+
+for (const theme of ["light", "dark"] as const) {
+  test(`CEL-186 (${theme}): rows keep their place while agents work: a check-in pulses its row instead of moving it, an idle page runs nothing, a row that leaves or changes group moves there`, async ({ page, cello, baseURL }) => {
+    const key = theme === "light" ? "STD" : "STK"
+    const project = await seedProject(cello, `Steady ${theme}`, key)
+    const { statuses } = await defaultWorkspace(cello)
+    for (const title of ["Make the timer louder", "Add a dark icon", "Sync the presets"]) {
+      await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title, statusId: statuses.Todo!.id }))
+    }
+    // Three agents start one after another (this test's process is alive, so they stay working).
+    const externals = [`c186${theme}1-first-session`, `c186${theme}2-second-session`, `c186${theme}3-third-session`] as const
+    const agents: Array<Awaited<ReturnType<typeof agentAs>>> = []
+    for (const [i, external] of externals.entries()) {
+      const agent = await agentAs(baseURL!, external, process.pid)
+      await agent.run((c) => c["task.claim"]({ commandId: newCommandId(), key: `${key}-${i + 1}` }))
+      agents.push(agent)
+    }
+    const [first, second, third] = [await sessionId(cello, externals[0]), await sessionId(cello, externals[1]), await sessionId(cello, externals[2])]
+    const mine = [first, second, third].map((id) => `session:${id}`)
+    /** Our rows in a group, in the order the page shows them, `ids` exactly (another test's agents may share the workspace). */
+    const expectOrder = async (id: "waiting" | "working", ids: ReadonlyArray<string>) => {
+      const ours = group(page, id).locator(mine.map((m) => `[data-agent-row="${m}"]`).join(", "))
+      await expect(ours).toHaveCount(ids.length)
+      for (const [i, row] of ids.entries()) await expect(ours.nth(i)).toHaveAttribute("data-agent-row", row)
+    }
+    const rowOf = (id: string) => page.locator(`li:has([data-agent-row="session:${id}"])`)
+    /** Nothing on the page is running but the working agents' marks (they loop by design, CEL-69), and no row is mid-move. */
+    const expectIdle = async () => {
+      expect(await contentAnimations(page, ".agent-mark")).toBe(0)
+      await expect(page.locator("main li[style*='transform']:not([style*='none'])")).toHaveCount(0)
+    }
+    /** A pulse that shows: its wash and ring come up past half (a span left at opacity 0 fails this). */
+    const expectPulse = (id: string) => expect(rowOf(id).locator("[data-agent-pulse]")).toHaveCSS("opacity", /^(0\.[5-9]\d*|1)$/)
+
+    // The theme is in place before the first paint (index.html reads it), so the video doesn't open white.
+    await page.addInitScript((t) => localStorage.setItem("cello:theme", t), theme)
+    await page.goto("/agents")
+    await caption(page, "Three agents working, in the order they started: first, second, third")
+    await expectOrder("working", mine)
+    await expect(page.locator("[data-agent-pulse]")).toHaveCount(0)
+
+    // A board hears an agent check in at most once a minute while it makes calls (PRESENCE_EVERY_MS); a
+    // wait that hands it a comment is heard at once: that's the check-in this test can make happen now.
+    const checkIn = async (i: 0 | 2, body: string) => {
+      const wait = agents[i]!.run((c) => c["inbox.wait"]({}))
+      const task = (await cello.run((c) => c["snapshot.get"]({}))).tasks.find((t) => t.key === `${key}-${i + 1}`)!
+      await cello.run((c) => c["comment.add"]({ commandId: newCommandId(), taskId: task.id, body }))
+      await wait
+    }
+    await caption(page, "The third agent checks in: its row pulses where it is, and nothing moves")
+    await agents[2]!.run((c) => c["task.stage"]({ commandId: newCommandId(), key: `${key}-3`, stage: "building" }))
+    await checkIn(2, "Louder, please.")
+    await expectPulse(third)
+    await expectOrder("working", mine)
+    await caption(page, "Then the first one checks in: the same, at the top")
+    await checkIn(0, "Ship it when green.")
+    await expectPulse(first)
+    await expectOrder("working", mine)
+
+    await caption(page, "Once the pulses end, they rest invisible: only the working agents' marks keep moving")
+    await animationsSettled(page)
+    await expect(rowOf(first).locator("[data-agent-pulse]")).toHaveCSS("opacity", "0")
+    await expectIdle()
+
+    await caption(page, "The second agent lets its task go: its row folds away, and the others close the gap")
+    await agents[1]!.run((c) => c["task.release"]({ commandId: newCommandId(), key: `${key}-2` }))
+    await expect(rowOf(second)).toHaveCount(0)
+    await expectOrder("working", [mine[0]!, mine[2]!])
+
+    await caption(page, "The third agent asks you something: its row slides up to Waiting on you")
+    cli(externals[2])("task", "ask", `${key}-3`, "--file", askFile(`How loud ${theme}`, "Which volume?"))
+    await expectOrder("waiting", [mine[2]!])
+    await expectOrder("working", [mine[0]!])
+    await animationsSettled(page)
+    await expectIdle()
+
+    // The video ends on the last state it shows, not under a caption over an emptied page.
+    await page.evaluate(() => document.getElementById("e2e-caption")?.remove())
+    await agents[0]!.run((c) => c["task.release"]({ commandId: newCommandId(), key: `${key}-1` }))
+    await agents[2]!.run((c) => c["task.release"]({ commandId: newCommandId(), key: `${key}-3` }))
+  })
+}

@@ -10,6 +10,7 @@ import {
   groupOf,
   logLinkOf,
   parseAgentsSearch,
+  pulseKeyOf,
   rowKeysOf,
   stateTaskOf,
   subagentsLabel,
@@ -245,5 +246,19 @@ describe("logLinkOf: the task panel's Log link (CEL-107)", () => {
     const old = { ...a, endedAt: now - 2 * 86_400_000 }
     expect(logLinkOf(board(old), { session: old, agent: null }, now)).toBeNull()
     expect(logLinkOf(board(a), { session: null, agent: null }, now)).toBeNull()
+  })
+})
+
+describe("pulseKeyOf (CEL-186)", () => {
+  it("changes when the row's agent makes a call (lastSeenAt), and only then: a subagent's own, a session's own", () => {
+    const s = session("s1")
+    const a = sub(s, "a1", null)
+    const [sessionRow, agentRow] = agentRows([working(s, { agents: [a] })])
+    const later = { ...a, agent: { ...a.agent, lastSeenAt: a.agent.lastSeenAt + 1000 } }
+    const [sessionRow2, agentRow2] = agentRows([working(s, { agents: [later] })])
+    expect(pulseKeyOf(agentRow2!)).not.toBe(pulseKeyOf(agentRow!))
+    expect(pulseKeyOf(sessionRow2!)).toBe(pulseKeyOf(sessionRow!))
+    const [sessionRow3] = agentRows([working({ ...s, lastSeenAt: s.lastSeenAt + 1000 }, { agents: [a] })])
+    expect(pulseKeyOf(sessionRow3!)).not.toBe(pulseKeyOf(sessionRow!))
   })
 })

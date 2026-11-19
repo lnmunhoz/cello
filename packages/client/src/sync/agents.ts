@@ -27,11 +27,17 @@ export interface WorkingSessionOf {
   readonly presence: Presence
   /** The tasks the session holds. */
   readonly tasks: ReadonlyArray<Task>
-  /** Its subagents still working (active or quiet, not stopped), the freshest first (CEL-55). */
+  /** Its subagents still working (active or quiet, not stopped), in the order they started (byStart). */
   readonly agents: ReadonlyArray<WorkingAgentOf>
 }
 
-const ORDER: Record<Presence, number> = { active: 0, idle: 1, ended: 2 }
+/**
+ * The order agents are listed in (CEL-186): when they started, oldest first, then by id. Never by
+ * lastSeenAt, which every `cello` call bumps: rows swapped places while Lucas watched. Presence only
+ * decides a row's group on the Agents page, never its place within one.
+ */
+export const byStart = (a: { readonly id: string; readonly startedAt: number }, b: { readonly id: string; readonly startedAt: number }): number =>
+  a.startedAt - b.startedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 
 const inWorkspaceOf = (board: BoardState, workspaceId: string) => (task: Task | undefined): task is Task =>
   task !== undefined && task.archivedAt === null && board.projects[task.projectId]?.workspaceId === workspaceId
@@ -48,7 +54,7 @@ const claimsBySession = (board: BoardState, workspaceId: string): Map<string, Ta
 }
 
 /**
- * The agent sessions working in a workspace, active first: the ones holding claims there and the ones
+ * The agent sessions working in a workspace, in the order they started (byStart): the ones holding claims there and the ones
  * with a subagent on a task there, each with the tasks it holds and its subagents still working. A
  * session that ended is still here (its claims stay); callers that list who's working leave it out.
  */
@@ -72,10 +78,10 @@ export const workingAgents = (board: BoardState, workspaceId: string, now: numbe
       const session = board.sessions[id]
       if (!session) return []
       const agents = (agentsBySession.get(id) ?? [])
-        .sort((a, b) => ORDER[a.presence] - ORDER[b.presence] || b.agent.lastSeenAt - a.agent.lastSeenAt)
+        .sort((a, b) => byStart({ id: a.agent.agentId, startedAt: a.agent.startedAt }, { id: b.agent.agentId, startedAt: b.agent.startedAt }))
       return [{ session, presence: presenceOf(session, now), tasks: bySession.get(id) ?? [], agents }]
     })
-    .sort((a, b) => ORDER[a.presence] - ORDER[b.presence] || b.session.lastSeenAt - a.session.lastSeenAt)
+    .sort((a, b) => byStart(a.session, b.session))
 }
 
 /** An agent session or subagent that finished: when, and the tasks it was on. */
