@@ -8,16 +8,22 @@ import {
   agentGroups,
   agentRows,
   agentProjectIds,
+  clearFinished,
   directTasks,
   filterAgentRows,
   finishedRows,
+  foldedLabel,
+  foldFinished,
   groupOf,
   homeProjectOf,
   logLinkOf,
   parseAgentsSearch,
+  parseClearedAt,
+  parseOlderOpen,
   pulseKeyOf,
   rowKeysOf,
   searchAgentRows,
+  shelterOf,
   sortFamilies,
   stateTaskOf,
   subagentsLabel,
@@ -265,6 +271,233 @@ describe("Finished today (CEL-107)", () => {
     ])
     expect(rowKeysOf(groups).at(-1)).toBe("session:9a8b7c6d")
     expect(groupOf(finished[0]!)).toBe("finished")
+  })
+})
+
+describe("foldFinished: finished subagents fold into their session's row (CEL-156)", () => {
+  const a = session("2fd0505c")
+  const t = task("t1", "CEL-7")
+  const finishedSub = (s: AgentSession, agentId: string, agentType: string | null, endedAt: number, startedAt = now - 600_000) =>
+    finishedRows(EMPTY_BOARD, [{ session: s, agent: { sessionId: s.id, agentId, agentType, taskId: t.id, description: null, startedAt, lastSeenAt: endedAt, endedAt }, endedAt, tasks: [t] }])[0]!
+  const types = ["cello-builder", "cello-builder", "cello-code-reviewer"]
+  const subs = types.map((type, i) => finishedSub(a, `a${i}`, type, now - 60_000 * (i + 1), now - 600_000 + i))
+  const working = agentRows([{ session: a, who: { kind: "agent", name: "s", short: "s", color: "#111" }, presence: "active", tasks: [t], agents: [], mark: { mood: "thinking", statusId: "" } }])
+
+  it("a finished subagent folds under its working session, in start order, and has no row of its own", () => {
+    const folded = foldFinished(working, subs)
+    expect(folded.finished).toEqual([])
+    expect(folded.rows.map((r) => [r.id, r.folded.map((f) => f.id)])).toEqual([["session:2fd0505c", ["agent:2fd0505c/a0", "agent:2fd0505c/a1", "agent:2fd0505c/a2"]]])
+  })
+
+  it("under a finished session's row when the session itself finished; the session keeps its row", () => {
+    const ended = finishedSub(a, "x", null, now - 5_000)
+    const session1 = finishedRows(EMPTY_BOARD, [{ session: { ...a, endedAt: now - 5_000 }, agent: null, endedAt: now - 5_000, tasks: [t] }])
+    expect(ended.kind).toBe("agent")
+    const folded = foldFinished([], [...session1, ...subs])
+    expect(folded.finished.map((r) => [r.id, r.folded.length])).toEqual([["session:2fd0505c", 3]])
+  })
+
+  it("a subagent whose session isn't on the page keeps its own row, as before; sessions never fold", () => {
+    const b = session("8a41c9e2")
+    const orphan = finishedSub(b, "o1", "cello-builder", now - 1_000)
+    const folded = foldFinished(working, [orphan, ...subs])
+    expect(folded.finished.map((r) => r.id)).toEqual(["agent:8a41c9e2/o1"])
+    expect(folded.rows[0]!.folded).toHaveLength(3)
+  })
+
+  it("a working subagent is never folded, and a family's folds stay with their session", () => {
+    const b = session("8a41c9e2")
+    const rows = agentRows([{ session: b, who: { kind: "agent", name: "b", short: "b", color: "#111" }, presence: "active", tasks: [], agents: [sub(b, "w1", t)], mark: { mood: "thinking", statusId: "" } }, ...[]])
+    const folded = foldFinished([...working, ...rows], subs)
+    expect(folded.rows.map((r) => [r.id, r.folded.length])).toEqual([["session:2fd0505c", 3], ["session:8a41c9e2", 0], ["agent:8a41c9e2/w1", 0]])
+  })
+
+  it("the line counts by type, in start order: 2 builders, 1 reviewer", () => {
+    expect(foldedLabel(subs)).toBe("2 builders, 1 code reviewer finished")
+    expect(foldedLabel(subs.slice(2))).toBe("1 code reviewer finished")
+    expect(foldedLabel([finishedSub(a, "z", null, now)])).toBe("1 agent finished")
+  })
+
+  it("the keys walk a fold's rows right after their session, only while it's open", () => {
+    const folded = foldFinished(working, subs)
+    const groups = agentGroups(folded.rows)
+    expect(rowKeysOf(groups)).toEqual(["session:2fd0505c"])
+    expect(rowKeysOf(groups, { older: false, folds: new Set(["session:2fd0505c"]) })).toEqual(["session:2fd0505c", "agent:2fd0505c/a0", "agent:2fd0505c/a1", "agent:2fd0505c/a2"])
+  })
+
+  it("a link to a row inside a fold says which fold holds it", () => {
+    const groups = agentGroups(foldFinished(working, subs).rows)
+    expect(shelterOf(groups, "agent:2fd0505c/a1")).toEqual({ older: false, fold: "session:2fd0505c" })
+    expect(shelterOf(groups, "session:2fd0505c")).toEqual({ older: false, fold: null })
+    expect(shelterOf(groups, "agent:nobody/x")).toEqual({ older: false, fold: null })
+  })
+
+  it("a folded subagent is found by search with its session, and counts for the session's project", () => {
+    const folded = foldFinished(working, subs).rows
+    expect(searchAgentRows(folded, "a1").map((r) => r.id)).toEqual(["session:2fd0505c"])
+    const bare = foldFinished(agentRows([{ session: a, who: { kind: "agent", name: "s", short: "s", color: "#111" }, presence: "active", tasks: [], agents: [], mark: { mood: "thinking", statusId: "" } }]), subs).rows
+    expect(homeProjectOf(bare[0]!, bare, {})).toBe("p1")
+  })
+})
+
+describe("Older: quiet for more than a day, nothing open (CEL-156)", () => {
+  const HOUR = 3_600_000
+  const statuses = {
+    prog: { name: "In Progress", category: "started" },
+    needs: { name: "Needs input", category: "waiting" },
+    done: { name: "Done", category: "completed" },
+    cancel: { name: "Canceled", category: "canceled" },
+  }
+  const quietFor = (id: string, hours: number, tasks: Task[] = [], agents: WorkingAgent[] = []) =>
+    working({ ...session(id), lastSeenAt: now - hours * HOUR }, { presence: "idle", mark: { mood: "still", statusId: "done" }, tasks, agents })
+  const onDone = (id: string) => ({ ...task(id, id.toUpperCase()), statusId: "done" })
+  const olderIds = (sessions: Working[], rule = { now, statuses }) =>
+    agentGroups(agentRows(sessions), [], rule).find((g) => g.id === "older")?.rows.map((r) => r.id) ?? []
+
+  it("a session quiet for more than 24 hours that holds nothing goes to Older; at 24 hours or less it stays in Quiet", () => {
+    expect(olderIds([quietFor("old", 24.5), quietFor("day", 24), quietFor("fresh", 2)])).toEqual(["session:old"])
+    const groups = agentGroups(agentRows([quietFor("old", 30), quietFor("fresh", 2)]), [], { now, statuses })
+    expect(groups.map((g) => [g.id, g.rows.map((r) => r.id)])).toEqual([["quiet", ["session:fresh"]], ["older", ["session:old"]]])
+  })
+
+  it("a task that's Done or Canceled holds nothing; one In Progress, Needs input or unknown keeps the session where it is", () => {
+    expect(olderIds([quietFor("a", 30, [onDone("t1")])])).toEqual(["session:a"])
+    expect(olderIds([quietFor("a", 30, [{ ...task("t1", "T-1"), statusId: "cancel" }])])).toEqual(["session:a"])
+    expect(olderIds([quietFor("a", 30, [task("t1", "T-1")])])).toEqual([])
+    expect(olderIds([quietFor("a", 30, [{ ...task("t1", "T-1"), statusId: "needs" }])])).toEqual([])
+    expect(olderIds([quietFor("a", 30, [{ ...task("t1", "T-1"), statusId: "gone" }])])).toEqual([])
+    expect(olderIds([quietFor("a", 30, [onDone("t1"), task("t2", "T-2")])])).toEqual([])
+  })
+
+  it("a family goes together: its quiet subagents follow their session, and one that's working, or checked in recently, keeps it out", () => {
+    const s = { ...session("fam"), lastSeenAt: now - 30 * HOUR }
+    const quietSub = (id: string, hours: number) => {
+      const a = { ...sub(s, id, null), presence: "idle" as const, mark: { mood: "still" as const, statusId: "done" } }
+      return { ...a, agent: { ...a.agent, lastSeenAt: now - hours * HOUR } }
+    }
+    const family = (agents: WorkingAgent[]) => working(s, { presence: "idle", mark: { mood: "still", statusId: "done" }, agents })
+    expect(olderIds([family([quietSub("a1", 28), quietSub("a2", 29)])])).toEqual(["session:fam", "agent:fam/a1", "agent:fam/a2"])
+    expect(olderIds([family([quietSub("a1", 28), quietSub("a2", 2)])])).toEqual([])
+    expect(olderIds([family([quietSub("a1", 28), sub(s, "a2", null)])])).toEqual([])
+    const waitingOnTests = { ...quietSub("a1", 28), agent: { ...quietSub("a1", 28).agent, waitingOn: ["Bash · bun run test:e2e"] } }
+    expect(olderIds([family([waitingOnTests])])).toEqual([])
+  })
+
+  it("a family waiting on Lucas, or working, never goes to Older, however long ago it checked in", () => {
+    const waiting = working({ ...session("w"), lastSeenAt: now - 40 * HOUR }, { presence: "idle", mark: { mood: "waiting", statusId: "needs" } })
+    expect(olderIds([waiting, working({ ...session("act"), lastSeenAt: now - 40 * HOUR })])).toEqual([])
+  })
+
+  it("it comes back by itself: the same session once it checks in or claims a task is in Quiet again", () => {
+    expect(olderIds([quietFor("a", 30)])).toEqual(["session:a"])
+    expect(olderIds([{ ...quietFor("a", 30), session: { ...quietFor("a", 30).session, lastSeenAt: now - HOUR } }])).toEqual([])
+    expect(olderIds([quietFor("a", 30, [task("t1", "T-1")])])).toEqual([])
+  })
+
+  it("without a rule nothing goes to Older; the finished rows stay between Quiet and Older", () => {
+    expect(agentGroups(agentRows([quietFor("old", 30)])).map((g) => g.id)).toEqual(["quiet"])
+    const fin = finishedRows(EMPTY_BOARD, [{ session: session("f"), agent: null, tasks: [], endedAt: now }])
+    expect(agentGroups(agentRows([quietFor("old", 30)]), fin, { now, statuses }).map((g) => g.id)).toEqual(["finished", "older"])
+  })
+
+  it("the keys skip a closed Older section and walk an open one", () => {
+    const groups = agentGroups(agentRows([quietFor("old", 30), working(session("act"))]), [], { now, statuses })
+    expect(rowKeysOf(groups, { older: false, folds: new Set() })).toEqual(["session:act"])
+    expect(rowKeysOf(groups, { older: true, folds: new Set() })).toEqual(["session:act", "session:old"])
+  })
+
+  it("a link to a row in Older says so, so the section opens for it", () => {
+    const groups = agentGroups(agentRows([quietFor("old", 30), working(session("act"))]), [], { now, statuses })
+    expect(shelterOf(groups, "session:old")).toEqual({ older: true, fold: null })
+    expect(shelterOf(groups, "session:act")).toEqual({ older: false, fold: null })
+  })
+
+  it("a subagent that finished 2 hours ago under a session last seen 30 hours ago keeps the family out of Older", () => {
+    const [row] = agentRows([quietFor("a", 30, [onDone("t1")])])
+    const finishedAt = (hours: number) =>
+      finishedRows(EMPTY_BOARD, [{ session: row!.session, agent: { sessionId: "a", agentId: "x", agentType: "cello-builder", taskId: "t1", description: null, startedAt: now - 40 * HOUR, lastSeenAt: now - hours * HOUR, endedAt: now - hours * HOUR }, endedAt: now - hours * HOUR, tasks: [onDone("t1")] }])
+    expect(agentGroups(foldFinished([row!], finishedAt(2)).rows, [], { now, statuses }).map((g) => g.id)).toEqual(["quiet"])
+    expect(agentGroups(foldFinished([row!], finishedAt(31)).rows, [], { now, statuses }).map((g) => g.id)).toEqual(["older"])
+  })
+
+  it("the edges: a session in Waiting on you stays there after 30 hours, exactly 24 hours is not Older, and a check-in in the future is not Older", () => {
+    const waiting = working({ ...session("w"), lastSeenAt: now - 30 * HOUR }, { presence: "idle", mark: { mood: "waiting", statusId: "needs" } })
+    expect(agentGroups(agentRows([waiting]), [], { now, statuses }).map((g) => g.id)).toEqual(["waiting"])
+    expect(olderIds([quietFor("edge", 24)])).toEqual([])
+    expect(olderIds([quietFor("edge", 24 + 1 / 3_600_000)])).toEqual(["session:edge"])
+    expect(olderIds([quietFor("future", -1)])).toEqual([])
+  })
+
+  it("an open task of a subagent that finished under the session keeps it out too", () => {
+    const [row] = agentRows([quietFor("a", 30)])
+    const finishedSub = finishedRows(EMPTY_BOARD, [{ session: row!.session, agent: { sessionId: "a", agentId: "x", agentType: "cello-builder", taskId: "t1", description: null, startedAt: now, lastSeenAt: now, endedAt: now }, endedAt: now, tasks: [task("t1", "T-1")] }])
+    const { rows } = foldFinished([row!], finishedSub)
+    expect(agentGroups(rows, [], { now, statuses }).map((g) => g.id)).toEqual(["quiet"])
+  })
+})
+
+describe("Clear finished: only what's left in Finished today is hidden, never deleted (CEL-156)", () => {
+  const sessionEnded = (id: string, endedAt: number) => finishedRows(EMPTY_BOARD, [{ session: { ...session(id), endedAt }, agent: null, tasks: [], endedAt }])[0]!
+  const subEnded = (s: AgentSession, id: string, endedAt: number, t: Task | null = null) =>
+    finishedRows(EMPTY_BOARD, [{ session: s, agent: { sessionId: s.id, agentId: id, agentType: "cello-builder", taskId: t?.id ?? null, description: null, startedAt: now - 9000, lastSeenAt: endedAt, endedAt }, endedAt, tasks: t ? [t] : [] }])[0]!
+  const ids = (rows: ReadonlyArray<AgentRow>) => rows.map((r) => r.id)
+
+  it("no stamp hides nothing; a stamp hides what ended at or before it, and shows what ended after", () => {
+    const finished = [sessionEnded("s0", now - 3000), sessionEnded("s1", now - 2000), sessionEnded("s2", now - 1000)]
+    expect(clearFinished(finished, null)).toEqual({ shown: finished, hidden: [] })
+    const cleared = clearFinished(finished, now - 2000)
+    expect(ids(cleared.shown)).toEqual(["session:s2"])
+    expect(ids(cleared.hidden)).toEqual(["session:s0", "session:s1"])
+  })
+
+  it("new ones that finish after the stamp show by themselves", () => {
+    expect(ids(clearFinished([sessionEnded("s0", now + 5000)], now).shown)).toEqual(["session:s0"])
+  })
+
+  it("a finished session's fold is cleared with it, or row by row when only some of its subagents finished before the stamp", () => {
+    const a = { ...session("fam"), endedAt: now - 500 }
+    const [old, fresh] = [subEnded(a, "old", now - 5000), subEnded(a, "new", now - 1000)]
+    const { finished } = foldFinished([], [sessionEnded("fam", now - 500), fresh, old])
+    const cleared = clearFinished(finished, now - 3000)
+    expect(cleared.shown.map((r) => [r.id, ids(r.folded)])).toEqual([["session:fam", ["agent:fam/new"]]])
+    expect(ids(cleared.hidden)).toEqual(["agent:fam/old"])
+    expect(ids(clearFinished(finished, now).hidden)).toEqual(["session:fam", "agent:fam/new", "agent:fam/old"])
+  })
+
+  it("a fold under a session that is still working stays whole: Clear only reaches what is left in Finished today", () => {
+    const a = session("live")
+    const { rows, finished } = foldFinished(agentRows([working(a)]), [subEnded(a, "x", now - 5000), subEnded(session("away"), "u", now - 5000)])
+    expect(ids(finished)).toEqual(["agent:away/u"])
+    const cleared = clearFinished(finished, now)
+    expect(cleared.shown).toEqual([])
+    expect(ids(cleared.hidden)).toEqual(["agent:away/u"])
+    expect(rows[0]!.folded.map((r) => r.id)).toEqual(["agent:live/x"])
+  })
+
+  it("a quiet session whose only open task is on a finished subagent stays in Quiet, after Clear and after 30 hours", () => {
+    const statuses = { prog: { name: "In Progress", category: "started" }, done: { name: "Done", category: "completed" } }
+    const a = { ...session("q"), lastSeenAt: now - 30 * 3_600_000 }
+    const quiet = working(a, { presence: "idle", mark: { mood: "still", statusId: "done" } })
+    const open = { ...task("t1", "T-1"), statusId: "prog" }
+    const { rows, finished } = foldFinished(agentRows([quiet]), [subEnded(a, "x", now - 29 * 3_600_000, open)])
+    expect(clearFinished(finished, now).hidden).toEqual([])
+    expect(agentGroups(rows, [], { now, statuses }).map((g) => g.id)).toEqual(["quiet"])
+    // The same family once the subagent's task is Done, a day and a half on: Older.
+    const done = foldFinished(agentRows([quiet]), [subEnded(a, "x", now - 29 * 3_600_000, { ...open, statusId: "done" })]).rows
+    expect(agentGroups(done, [], { now, statuses }).map((g) => g.id)).toEqual(["older"])
+  })
+
+  it("the saved stamp is a plain whole number of milliseconds, not in the future; anything else is no stamp", () => {
+    expect(parseClearedAt(String(now), now)).toBe(now)
+    expect(parseClearedAt(String(now - 1), now)).toBe(now - 1)
+    for (const bad of [null, "", "0", "-5", "soon", "1e12", "1.5", " 5", "0x10", "5 ", String(now + 1), "99999999999999999999", "Infinity"]) {
+      expect(parseClearedAt(bad, now)).toBeNull()
+    }
+  })
+
+  it("Older is open only when saved as exactly open", () => {
+    expect(parseOlderOpen("open")).toBe(true)
+    for (const bad of [null, "", "closed", "Open", "true", "open "]) expect(parseOlderOpen(bad)).toBe(false)
   })
 })
 
