@@ -8,6 +8,7 @@
     "dev": "bun run --filter @cello/server dev & bun run --filter @cello/web dev",
     "test": "bun --bun vitest run",
     "test:watch": "bun --bun vitest",
+    "test:coverage": "bun --bun vitest run --coverage",
     "test:e2e": "bun scripts/test-in-docker.ts e2e",
     "test:e2e:local": "bun run --filter @cello/web build && playwright test",
     "test:docker": "bun scripts/test-in-docker.ts all",
@@ -21,6 +22,7 @@
     "@effect/vitest": "4.1.4",
     "@playwright/test": "1.65.1",
     "@types/bun": "^1.4.4",
+    "@vitest/coverage-istanbul": "5.1.0",
     "release-it": "21.1.2",
     "typescript": "7.0.2",
     "vitest": "5.1.0"

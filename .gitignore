@@ -26,3 +26,4 @@ art/setup-video/v2/frames/
 art/variations/
 art/promo/
 .claude/settings.local.json.bak
+coverage/

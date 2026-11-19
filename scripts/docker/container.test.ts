@@ -128,9 +128,9 @@ describe("containerScript", () => {
     expect(script).toMatch(/^step install .* \|\| exit 1$/m)
   })
 
-  it("the full run: unit and integration, typecheck, web e2e and desktop e2e (Electron on a virtual screen that fits its 1440×900 window at 2x)", () => {
+  it("the full run: unit and integration with coverage, typecheck, web e2e and desktop e2e (Electron on a virtual screen that fits its 1440×900 window at 2x)", () => {
     const script = containerScript("all", [])
-    expect(stepArgv(script, "unit")).toEqual(["bun", "run", "test"])
+    expect(stepArgv(script, "unit")).toEqual(["bun", "run", "test:coverage"])
     expect(stepArgv(script, "typecheck")).toEqual(["bun", "run", "typecheck"])
     expect(stepArgv(script, "web-e2e")).toEqual(["bun", "run", "test:e2e:local"])
     expect(stepArgv(script, "desktop-e2e")).toEqual(["cd", "apps/desktop", "xvfb-run", "-a", "-s", "-screen 0 3200x2000x24", "bun", "run", "test:e2e:local"])
@@ -147,11 +147,12 @@ describe("containerScript", () => {
     ])
   })
 
-  it("copies the videos, screenshots and Playwright output out, then exits with the worst status", () => {
+  it("copies the videos, screenshots, Playwright output and coverage report out, then exits with the worst status", () => {
     const script = containerScript("all", [])
     expect(script).toContain("cp -R e2e/videos /out/web/videos")
     expect(script).toContain("cp -R test-results/playwright /out/web/playwright")
     expect(script).toContain("cp -R apps/desktop/test-results/. /out/desktop/")
+    expect(script).toContain("cp -R coverage /out/coverage")
     expect(script.trimEnd().split("\n").at(-1)).toBe("exit $status")
     // Each step records its exit code and keeps going; any failure makes the run fail.
     expect(script).toContain(`[ "$code" -eq 0 ] || status=1`)

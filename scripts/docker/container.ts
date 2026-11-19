@@ -24,7 +24,7 @@ const SCREEN = "3200x2000x24"
 /** Each step's command, run from the copy of the repo in /work. Playwright arguments go on the end. */
 const COMMANDS: Readonly<Record<string, string>> = {
   install: "bun install --frozen-lockfile",
-  unit: "bun run test",
+  unit: "bun run test:coverage",
   typecheck: "bun run typecheck",
   "web-e2e": "bun run test:e2e:local",
   "desktop-e2e": `cd apps/desktop && xvfb-run -a -s ${shellQuote(`-screen 0 ${SCREEN}`)} bun run test:e2e:local`,
@@ -123,6 +123,7 @@ export const containerScript = (mode: Mode, args: ReadonlyArray<string>): string
     "mkdir -p /out/web /out/desktop",
     "[ -d e2e/videos ] && cp -R e2e/videos /out/web/videos",
     "[ -d test-results/playwright ] && cp -R test-results/playwright /out/web/playwright",
+    "[ -d coverage ] && cp -R coverage /out/coverage",
     "[ -d apps/desktop/test-results ] && cp -R apps/desktop/test-results/. /out/desktop/",
     // Playwright's raw WebM recordings: the MP4s made from them are already there.
     "find /out/web /out/desktop -name '*.webm' -delete",
