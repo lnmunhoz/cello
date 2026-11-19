@@ -291,10 +291,17 @@ export async function decisionsThroughTest(page: Page) {
   const waiting: Array<() => void> = []
   /** CEL-191: every decision that reached the socket, as "review.approve" or "review.sendBack": what was sent, however it was answered. */
   const sent: string[] = []
+  /** CEL-191: the page loads that lost their socket's decisions (`dropFromThisPage`), by the count of sockets opened so far. */
+  const dropping = new Set<number>()
+  let sockets = 0
   await page.routeWebSocket(/\/rpc$/, (ws) => {
+    const mine = ++sockets
     const server = ws.connectToServer()
     ws.onMessage((frame) => {
-      const messages = rpcMessagesIn(frame).map((m) => {
+      const messages = rpcMessagesIn(frame).flatMap((m) => {
+        if (m._tag === "Request" && DECISIONS.has(m.tag ?? "") && dropping.has(mine)) return []
+        return [m]
+      }).map((m) => {
         if (m._tag !== "Request" || !DECISIONS.has(m.tag ?? "")) return m
         sent.push(m.tag!)
         if (fail) {
@@ -307,7 +314,7 @@ export async function decisionsThroughTest(page: Page) {
         }
         return m
       })
-      server.send(rpcFrame(messages))
+      if (messages.length > 0) server.send(rpcFrame(messages))
     })
     server.onMessage((frame) => {
       const messages = rpcMessagesIn(frame)
@@ -319,6 +326,8 @@ export async function decisionsThroughTest(page: Page) {
   })
   return {
     sent: (): ReadonlyArray<string> => [...sent],
+    /** The page now open never gets a decision to the server (it is closing before its send leaves): what it sends is lost, as in a tab that died. A page opened after it is not affected. */
+    dropFromThisPage: () => void dropping.add(sockets),
     holdNext: () => void (hold = true),
     failNext: () => void (fail = true),
     /** The held answers reach the page. */
