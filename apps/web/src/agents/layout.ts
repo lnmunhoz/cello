@@ -8,6 +8,7 @@ import type { BoardState } from "@cello/client/sync/applyEvents"
 import type { AgentSession, SessionAgent, Task } from "@cello/contract/entities"
 import { isNeedsInputStatus } from "@cello/domain/ask"
 import { type Presence, presenceOf } from "@cello/domain/presence"
+import { matchesQuery } from "../review/search.ts"
 import { agentWho, sessionWho, type Who, type Working, type WorkingMark, workingMark } from "../presence/model.ts"
 
 export interface AgentsSearch {
@@ -234,6 +235,21 @@ export const filterAgentRows = (
   projectId: string | null,
   statuses: Readonly<Record<string, { readonly name: string; readonly category: string }>>,
 ): AgentRow[] => (projectId === null ? [...rows] : rows.filter((r) => homeProjectOf(r, rows, statuses) === projectId))
+
+/** What an agent row can be found by (CEL-190): the agent's name, its role, and the key and title of each task it's on. */
+export const agentFields = (row: AgentRow): string[] => [row.who.name, row.who.short, row.role, ...row.tasks.flatMap((t) => [t.key, t.title])]
+
+/**
+ * The rows that match `query` (the search box, CEL-190), each family whole: a session whose subagent
+ * matches stays with it, and a subagent whose session matches too, so a search never splits a family. A
+ * finished row stands on its own. An empty query is every row, as it was.
+ */
+export const searchAgentRows = (rows: ReadonlyArray<AgentRow>, query: string): AgentRow[] => {
+  if (query.trim() === "") return [...rows]
+  const familyOf = (r: AgentRow) => (r.endedAt === null ? r.session.id : r.id)
+  const found = new Set(rows.filter((r) => matchesQuery(agentFields(r), query)).map(familyOf))
+  return rows.filter((r) => found.has(familyOf(r)))
+}
 
 /**
  * The project of every row the page lists, working and finished today, for the chips (null: none): the

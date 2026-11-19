@@ -18,12 +18,17 @@ import { instant as motionInstant } from "../lib/motion.ts"
 import { EvidenceBadge } from "./EvidenceBadge.tsx"
 import { FOLD_SPRING, QueueRow, type QueueRowState } from "./QueueRow.tsx"
 import { allLeft, type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, filterQueue, type Held, holdStep, IDLE, REVIEW_SORT_LABELS, REVIEW_SORTS, sortQueue, syncHeld, withHeld } from "./queue.ts"
-import { NothingFor, QueueToolbar } from "./ProjectChips.tsx"
+import { NothingFor, NothingMatching, QueueToolbar } from "./ProjectChips.tsx"
+import { matchesQuery, reviewFields, searchRows } from "./search.ts"
 import { projectChips } from "./queueView.ts"
 import { useJustChanged, useQueueView } from "./useQueueView.ts"
 import { CommentOrDecide } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
+import { isUnread } from "./seen.ts"
+import { useDecisionKeys } from "./useDecisionKeys.ts"
+import { useSeen } from "./useSeen.ts"
 import { useQueue } from "./useQueue.ts"
+import { oldestKey, waitingLabel } from "./waiting.ts"
 import { TaskLink } from "../task/TaskKey.tsx"
 import { keepViewer } from "../viewer/search.ts"
 
@@ -50,14 +55,19 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   const projects = projectsOf(board, workspaceId)
   const { picked, pick, sort, pickSort, view } = useQueueView("review", projects, REVIEW_SORTS)
   // The human's own pick folds rows at once; an event's fold springs.
-  const instant = useJustChanged(view)
+  // The search box (CEL-190), not saved. The human's own search folds rows at once, like a pick.
+  const [query, setQuery] = useState("")
+  const instant = useJustChanged(`${view}/${query.trim().toLowerCase()}`)
+  const searching = query.trim() !== ""
   const projectId = picked?.id ?? null
   // Asks first (an agent is waiting on them), then packets; a task is in one group only. The chips count
   // all of them, so rows stay put while you filter (CEL-188).
   const allAsked = needsInputQueue(board, workspaceId)
   const allQueue = reviewQueue(board, workspaceId)
-  const asked = sortQueue(filterQueue(allAsked, projectId), sort)
-  const queue = filterQueue(allQueue, projectId)
+  const askFields = (item: AskItem) => reviewFields({ task: item.task, author: item.ask.author.name })
+  const packetFields = (item: ReviewItem) => reviewFields({ task: item.task, author: item.review?.author.name ?? null })
+  const asked = sortQueue(searchRows(filterQueue(allAsked, projectId), query, askFields), sort)
+  const queue = searchRows(filterQueue(allQueue, projectId), query, packetFields)
   const chips = projectChips([...allAsked, ...allQueue].map((item) => item.project.id), projects, picked)
   const reduced = useReducedMotion() === true
   const [held, setHeld] = useState<ReadonlyArray<Held<ReviewItem>>>([])
@@ -67,12 +77,17 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   const allPackets = withHeld(allQueue, (item) => item.task.key, held)
   const keepKeys = new Set(held.filter((h) => h.state.phase === "pending" || h.state.phase === "decided").map((h) => h.key))
   // A held row sorts by its frozen item, so it keeps its place until it folds away.
-  const packets = sortQueue(filterQueue(allPackets, projectId, keepKeys), sort)
+  const packets = sortQueue(searchRows(filterQueue(allPackets, projectId, keepKeys), query, packetFields, keepKeys), sort)
   const decisionOn = (key: string): Decision | null => {
     const state = held.find((h) => h.key === key)?.state
     return state?.phase === "decided" ? state.decision : null
   }
   const keys = [...asked, ...packets].map((item) => item.task.key)
+  // The row that has waited longest stands out (CEL-190), among the rows shown.
+  const oldest = oldestKey([
+    ...asked.map((item) => ({ key: item.task.key, since: item.ask.createdAt })),
+    ...packets.map((item) => ({ key: item.task.key, since: waitingSince(item) })),
+  ])
   const openKey = open !== undefined && keys.includes(open) ? open : null
   // The viewer stays open beside the packet that changes.
   const setOpen = (key: string | null) => {
@@ -80,11 +95,31 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
     void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(key === null ? {} : { open: key }) }), replace: true })
   }
   const rows = useQueue({ keys, open: openKey, setOpen })
+  // A approves and S sends back the open packet (CEL-190); an open row of questions has neither.
+  useDecisionKeys(openKey !== null && packets.some((item) => item.task.key === openKey) ? openKey : null)
+  // A packet is seen once it's opened, whoever opened it (a click, a key, a decision, a link); a new one, after Send back, is unread again (CEL-190).
+  const { seen, markOpened } = useSeen()
+  const openedReview = packets.find((item) => item.task.key === openKey)?.review?.id ?? null
+  const markOpenedNow = useEffectEvent(() => {
+    if (openKey !== null && openedReview !== null) markOpened(openKey, openedReview)
+  })
+  useEffect(() => markOpenedNow(), [openKey, openedReview])
   /** A pick that hides the open row closes it, so it doesn't spring open when the project comes back. */
   const onPick = (next: Project | null) => {
     pick(next)
     if (open === undefined || next === null) return
     const hidden = [...allAsked, ...allPackets].some((item) => item.task.key === open && item.project.id !== next.id && !keepKeys.has(open))
+    if (hidden) setOpen(null)
+  }
+  /** A search that hides the open row closes it too, for the same reason. */
+  const onSearch = (next: string) => {
+    setQuery(next)
+    if (open === undefined) return
+    const hidden =
+      !keepKeys.has(open) &&
+      [...allAsked.map((item) => ({ key: item.task.key, fields: askFields(item) })), ...allPackets.map((item) => ({ key: item.task.key, fields: packetFields(item) }))].some(
+        (row) => row.key === open && !matchesQuery(row.fields, next),
+      )
     if (hidden) setOpen(null)
   }
 
@@ -136,10 +171,11 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
             </h1>
             <p className="text-[13px] text-muted">
               Answer the agents' questions first, then open a packet: comment on it, approve it to move the task to Done, or send it back
-              with a note for the agent. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
+              with a note for the agent. ↑ ↓ or j k move between rows, Enter opens, Esc closes. On an open packet, A approves and S sends it
+              back. / searches.
             </p>
           </header>
-          <QueueToolbar chips={chips} picked={picked} onPick={onPick} sort={sort} sorts={REVIEW_SORTS} labels={REVIEW_SORT_LABELS} onSort={pickSort} />
+          <QueueToolbar chips={chips} picked={picked} onPick={onPick} search={query} onSearch={onSearch} sort={sort} sorts={REVIEW_SORTS} labels={REVIEW_SORT_LABELS} onSort={pickSort} />
           {/* Both groups are one list for the keys: ↑ ↓ go from the last ask to the first packet. */}
           <div {...rows.list} className="flex flex-col gap-6">
             {asked.length > 0 ? (
@@ -156,6 +192,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
                         unfold={item.task.key === unfolding}
                         board={board}
                         item={item}
+                        oldest={item.task.key === oldest}
                         onAnswered={() => void rows.openNext(item.task.key)}
                       />
                     </li>
@@ -165,7 +202,9 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
             ) : null}
             {/* The list stays while its last row folds away. */}
             {packets.length === 0 && !leaving ? (
-              asked.length === 0 && picked !== null ? (
+              asked.length === 0 && searching ? (
+                <NothingMatching query={query} onClear={() => onSearch("")} />
+              ) : asked.length === 0 && picked !== null ? (
                 <NothingFor project={picked} onShowAll={() => onPick(null)} />
               ) : asked.length === 0 ? (
                 <div className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-line px-6 py-14 text-center text-[13px] text-muted">
@@ -196,6 +235,8 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
                             confirmation={decision === null ? undefined : <Decided decision={decision} onShown={() => shown(key)} />}
                             board={board}
                             item={item}
+                            oldest={key === oldest}
+                            unread={isUnread(item.review, seen, key)}
                             onDecision={(event) => onDecision(item, event)}
                           />
                         </FoldAway>
@@ -249,6 +290,9 @@ function FoldAway({ instant, children }: { instant: boolean; children: ReactNode
   )
 }
 
+/** When a packet row started waiting: its packet was handed in, or, by hand without one, its task last changed. */
+const waitingSince = ({ task, review }: ReviewItem): number => review?.createdAt ?? task.updatedAt
+
 type RowProps = QueueRowState & { readonly board: BoardState }
 
 /**
@@ -260,10 +304,13 @@ function TaskQueueRow({
   task,
   project,
   subtitle,
+  since,
+  oldest,
+  unread = false,
   badge,
   children,
   ...row
-}: RowProps & { task: Task; project: Project; subtitle: string; badge: ReactNode; children: ReactNode }) {
+}: RowProps & { task: Task; project: Project; subtitle: string; since: number; oldest: boolean; unread?: boolean; badge: ReactNode; children: ReactNode }) {
   const status = board.statuses[task.statusId]
   return (
     <QueueRow
@@ -274,8 +321,11 @@ function TaskQueueRow({
       buttonData={{ "data-review-row": task.key }}
       title={
         <>
+          {/* A packet not opened since it was handed in (CEL-190), kept on this device. */}
+          {unread ? <i aria-hidden data-unread="" className="size-1.5 shrink-0 self-center rounded-full bg-accent" /> : null}
           <span className="shrink-0 tabular-nums text-muted">{task.key}</span>
           <span className="truncate font-semibold text-ink">{task.title}</span>
+          {unread ? <span className="sr-only">, unread</span> : null}
         </>
       }
       subtitle={
@@ -283,6 +333,13 @@ function TaskQueueRow({
           <i aria-hidden className="size-2 shrink-0 rounded-[3px]" style={{ background: project.color }} />
           <span className="truncate">
             {project.name} · {subtitle}
+          </span>
+          <span aria-hidden className="shrink-0">
+            ·
+          </span>
+          {/* How long it has waited (CEL-190); the oldest row's is darker and bolder. */}
+          <span data-waiting="" data-oldest={oldest ? "" : undefined} className={`shrink-0 tabular-nums ${oldest ? "font-medium text-ink" : ""}`}>
+            {waitingLabel(since)}
           </span>
         </>
       }
@@ -314,7 +371,7 @@ function TaskQueueRow({
  * A task waiting for review: collapsed, who submitted it and when, and its evidence; open, its packet,
  * then the task's comments with a comment box, Send back and Approve (CEL-70).
  */
-function ReviewRow({ item, onDecision, ...row }: RowProps & { item: ReviewItem; onDecision: (event: DecisionEvent) => void }) {
+function ReviewRow({ item, oldest, unread, onDecision, ...row }: RowProps & { item: ReviewItem; oldest: boolean; unread: boolean; onDecision: (event: DecisionEvent) => void }) {
   const { task, project, review } = item
   const byHand = `moved to ${row.board.statuses[task.statusId]?.name ?? "In Review"} by hand`
   return (
@@ -322,7 +379,10 @@ function ReviewRow({ item, onDecision, ...row }: RowProps & { item: ReviewItem; 
       {...row}
       task={task}
       project={project}
-      subtitle={review ? `${review.author.name} · ${relativeTime(review.createdAt)}` : `${byHand} · ${relativeTime(task.updatedAt)}`}
+      subtitle={review ? review.author.name : byHand}
+      since={waitingSince(item)}
+      oldest={oldest}
+      unread={unread}
       badge={<EvidenceBadge task={task} board={row.board} size="md" />}
     >
       {review ? (
@@ -340,14 +400,16 @@ function ReviewRow({ item, onDecision, ...row }: RowProps & { item: ReviewItem; 
 }
 
 /** A task waiting on Lucas's answers (CEL-47): collapsed, who asked what and when; open, the questions to answer, beside the evidence. */
-function AskRow({ item, onAnswered, ...row }: RowProps & { item: AskItem; onAnswered: () => void }) {
+function AskRow({ item, oldest, onAnswered, ...row }: RowProps & { item: AskItem; oldest: boolean; onAnswered: () => void }) {
   const { task, project, ask } = item
   return (
     <TaskQueueRow
       {...row}
       task={task}
       project={project}
-      subtitle={`${ask.author.name} asks: ${ask.title} · ${relativeTime(ask.createdAt)}`}
+      subtitle={`${ask.author.name} asks: ${ask.title}`}
+      since={ask.createdAt}
+      oldest={oldest}
       badge={<QuestionsBadge task={task} board={row.board} count />}
     >
       <AskForm task={task} ask={ask} onAnswered={onAnswered} />

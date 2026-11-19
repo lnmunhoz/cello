@@ -17,6 +17,7 @@ import {
   parseAgentsSearch,
   pulseKeyOf,
   rowKeysOf,
+  searchAgentRows,
   sortFamilies,
   stateTaskOf,
   subagentsLabel,
@@ -82,6 +83,40 @@ describe("agentRows", () => {
   it("leaves out ended sessions; a session alone is a session, not an orchestrator", () => {
     const rows = agentRows([working(session("8a41c9e2")), working(session("dead0000"), { presence: "ended" })])
     expect(rows.map((r) => [r.id, r.role])).toEqual([["session:8a41c9e2", "session"]])
+  })
+})
+
+describe("searchAgentRows: the search box keeps each family whole (CEL-190)", () => {
+  const a = session("2fd0505c")
+  const b = session("8a41c9e2")
+  const [t1, t2, t3] = [{ ...task("t1", "CEL-1"), title: "Fold the rows" }, { ...task("t2", "CEL-2"), title: "Prices in baht" }, { ...task("t3", "THAI-3"), title: "Search box" }]
+  const rows = agentRows([working(a, { tasks: [t1, t2], agents: [sub(a, "a13bfb89", t1), sub(a, "b77d0e11", t2)] }), working(b, { tasks: [t3] })])
+  const found = (query: string) => searchAgentRows(rows, query).map((r) => r.id)
+
+  it("no query is every row, in order", () => {
+    expect(found("")).toEqual(rows.map((r) => r.id))
+  })
+
+  it("finds a session by its name or a task's key or title", () => {
+    expect(found("8a41")).toEqual(["session:8a41c9e2"])
+    expect(found("thai-3")).toEqual(["session:8a41c9e2"])
+    expect(found("search box")).toEqual(["session:8a41c9e2"])
+  })
+
+  it("a subagent that matches brings its session and the other subagents; a session that matches brings its subagents", () => {
+    const family = ["session:2fd0505c", "agent:2fd0505c/a13bfb89", "agent:2fd0505c/b77d0e11"]
+    expect(found("b77d0e11")).toEqual(family)
+    expect(found("2fd0")).toEqual(family)
+    expect(found("baht")).toEqual(family)
+  })
+
+  it("a finished row stands on its own", () => {
+    const finished = rows.map((r) => ({ ...r, id: `done:${r.id}`, endedAt: now }))
+    expect(searchAgentRows(finished, "b77d0e11").map((r) => r.id)).toEqual(["done:agent:2fd0505c/b77d0e11"])
+  })
+
+  it("nothing matches nothing", () => {
+    expect(found("zzz")).toEqual([])
   })
 })
 
