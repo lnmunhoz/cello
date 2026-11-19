@@ -286,6 +286,11 @@ test("CEL-179: a project's row shows how many agents are working in it: it appea
   await expect(badge(keyA)).toHaveAttribute("data-project-working", "1")
   await expect(badge(keyA)).toHaveText("1 agent working")
   await expect(badge(keyB)).toHaveCount(0)
+  // The link's name stays the project's name, so it can be found by it; the count is its description.
+  await expect(projectLink(page, keyA)).toHaveAccessibleName("Alpha")
+  await expect(projectLink(page, keyA)).toHaveAccessibleDescription(/1 agent working/)
+  await expect(projectLink(page, keyB)).toHaveAccessibleName("Beta")
+  await expect(projectLink(page, keyB)).toHaveAccessibleDescription("")
   // It popped once as it appeared; once that ends, the badge stands still.
   await expect(badge(keyA)).toHaveClass(/count-pop/)
   await animationsSettled(page)
@@ -302,6 +307,8 @@ test("CEL-179: a project's row shows how many agents are working in it: it appea
   expect(title).toContain(`(${a1})`)
   expect(title).toContain(`(${a2})`)
   await expect(projectLink(page, keyA)).toHaveText(/Alpha\s*2 agents working/)
+  await expect(projectLink(page, keyA)).toHaveAccessibleName("Alpha")
+  await expect(projectLink(page, keyA)).toHaveAccessibleDescription(/2 agents working/)
   await stills(page, "cel-179-sidebar-two-agents")
 
   await caption(page, "The first agent also claims a task in Beta: a session working in two projects counts in each")
@@ -335,6 +342,8 @@ test("CEL-179: a project's row shows how many agents are working in it: it appea
   await expect(badge(keyB)).toHaveCount(0)
   await release(second, a2)
   await expect(badge(keyA)).toHaveCount(0)
+  await expect(projectLink(page, keyA)).toHaveAccessibleName("Alpha")
+  await expect(projectLink(page, keyA)).toHaveAccessibleDescription("")
 
   await caption(page, "Collapse to the rail, then an agent claims a task in Alpha: the number sits on Alpha's square")
   await page.keyboard.press("ControlOrMeta+b")
@@ -344,8 +353,11 @@ test("CEL-179: a project's row shows how many agents are working in it: it appea
   await expect(badge(keyA)).toHaveAttribute("data-project-working", "1")
   await expect(badge(keyB)).toHaveCount(0)
   await expect(badge(keyA)).toHaveAttribute("title", new RegExp(`^1 agent working\\n.*\\(${a2}\\)$`))
-  // The count is in the link's name, for a screen reader: the rail's aria-label is the tooltip's words.
-  await expect(sidebar.getByRole("link", { name: "Alpha · 1 working", exact: true })).toBeVisible()
+  // The rail's link is named for the project, with the count as its description, for a screen reader.
+  await expect(projectLink(page, keyA)).toHaveAccessibleName("Alpha")
+  await expect(projectLink(page, keyA)).toHaveAccessibleDescription(/1 agent working/)
+  await expect(projectLink(page, keyB)).toHaveAccessibleName("Beta")
+  await expect(projectLink(page, keyB)).toHaveAccessibleDescription("")
   await projectLink(page, keyA).hover()
   await expect(page.getByRole("tooltip", { name: "Alpha · 1 working" })).toBeVisible()
   await page.mouse.move(720, 600)
@@ -360,6 +372,8 @@ test("CEL-179: a project's row shows how many agents are working in it: it appea
   expect(await pops(), "a page that loads with an agent working plays no pop").toBe(0)
   await release(second, a2)
   await expect(badge(keyA)).toHaveCount(0)
+  await expect(projectLink(page, keyA)).toHaveAccessibleName("Alpha")
+  await expect(projectLink(page, keyA)).toHaveAccessibleDescription("")
 
   await caption(page, "Expand the sidebar and switch to the dark theme: the same badge")
   await page.keyboard.press("ControlOrMeta+b")

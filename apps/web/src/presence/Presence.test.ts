@@ -80,9 +80,16 @@ describe("Agents working in the sidebar: one link to the Agents page, with the c
 describe("a project's agents-working badge (CEL-179)", () => {
   const Probe = ({ projectId }: { projectId: string }) => {
     const working = useAgentsWorking(board, "w1")
-    return createElement(ProjectWorkingBadge, { entries: working.byProject.get(projectId) ?? [], now: working.now, variant: "row", ready: true })
+    return createElement(ProjectWorkingBadge, { id: "badge-1", entries: working.byProject.get(projectId) ?? [], now: working.now, variant: "row", ready: true })
   }
   const html = renderToStaticMarkup(createElement(Probe, { projectId: "p1" }))
+
+  it("is out of the accessibility tree, so it isn't in its link's name, and carries the id the link's description points at", () => {
+    const badge = html.match(/<span [^>]*data-project-working="1"[^>]*>/)?.[0] ?? ""
+    expect(badge).toContain('id="badge-1"')
+    expect(badge).toContain('aria-hidden="true"')
+    expect(html).toContain("1 agent working")
+  })
 
   it("shows the session once, not its subagent, and not the task waiting in Needs input", () => {
     expect(html).toContain('data-project-working="1"')
