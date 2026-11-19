@@ -24,7 +24,9 @@ import { projectChips } from "./queueView.ts"
 import { useJustChanged, useQueueView } from "./useQueueView.ts"
 import { CommentOrDecide } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
+import { isUnread } from "./seen.ts"
 import { useDecisionKeys } from "./useDecisionKeys.ts"
+import { useSeen } from "./useSeen.ts"
 import { useQueue } from "./useQueue.ts"
 import { oldestKey, waitingLabel } from "./waiting.ts"
 import { TaskLink } from "../task/TaskKey.tsx"
@@ -95,6 +97,13 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   const rows = useQueue({ keys, open: openKey, setOpen })
   // A approves and S sends back the open packet (CEL-190); an open row of questions has neither.
   useDecisionKeys(openKey !== null && packets.some((item) => item.task.key === openKey) ? openKey : null)
+  // A packet is seen once it's opened, whoever opened it (a click, a key, a decision, a link); a new one, after Send back, is unread again (CEL-190).
+  const { seen, markOpened } = useSeen()
+  const openedReview = packets.find((item) => item.task.key === openKey)?.review?.id ?? null
+  const markOpenedNow = useEffectEvent(() => {
+    if (openKey !== null && openedReview !== null) markOpened(openKey, openedReview)
+  })
+  useEffect(() => markOpenedNow(), [openKey, openedReview])
   /** A pick that hides the open row closes it, so it doesn't spring open when the project comes back. */
   const onPick = (next: Project | null) => {
     pick(next)
@@ -227,6 +236,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
                             board={board}
                             item={item}
                             oldest={key === oldest}
+                            unread={isUnread(item.review, seen, key)}
                             onDecision={(event) => onDecision(item, event)}
                           />
                         </FoldAway>
@@ -296,10 +306,11 @@ function TaskQueueRow({
   subtitle,
   since,
   oldest,
+  unread = false,
   badge,
   children,
   ...row
-}: RowProps & { task: Task; project: Project; subtitle: string; since: number; oldest: boolean; badge: ReactNode; children: ReactNode }) {
+}: RowProps & { task: Task; project: Project; subtitle: string; since: number; oldest: boolean; unread?: boolean; badge: ReactNode; children: ReactNode }) {
   const status = board.statuses[task.statusId]
   return (
     <QueueRow
@@ -310,8 +321,11 @@ function TaskQueueRow({
       buttonData={{ "data-review-row": task.key }}
       title={
         <>
+          {/* A packet not opened since it was handed in (CEL-190), kept on this device. */}
+          {unread ? <i aria-hidden data-unread="" className="size-1.5 shrink-0 self-center rounded-full bg-accent" /> : null}
           <span className="shrink-0 tabular-nums text-muted">{task.key}</span>
           <span className="truncate font-semibold text-ink">{task.title}</span>
+          {unread ? <span className="sr-only">, unread</span> : null}
         </>
       }
       subtitle={
@@ -357,7 +371,7 @@ function TaskQueueRow({
  * A task waiting for review: collapsed, who submitted it and when, and its evidence; open, its packet,
  * then the task's comments with a comment box, Send back and Approve (CEL-70).
  */
-function ReviewRow({ item, oldest, onDecision, ...row }: RowProps & { item: ReviewItem; oldest: boolean; onDecision: (event: DecisionEvent) => void }) {
+function ReviewRow({ item, oldest, unread, onDecision, ...row }: RowProps & { item: ReviewItem; oldest: boolean; unread: boolean; onDecision: (event: DecisionEvent) => void }) {
   const { task, project, review } = item
   const byHand = `moved to ${row.board.statuses[task.statusId]?.name ?? "In Review"} by hand`
   return (
@@ -368,6 +382,7 @@ function ReviewRow({ item, oldest, onDecision, ...row }: RowProps & { item: Revi
       subtitle={review ? review.author.name : byHand}
       since={waitingSince(item)}
       oldest={oldest}
+      unread={unread}
       badge={<EvidenceBadge task={task} board={row.board} size="md" />}
     >
       {review ? (

@@ -751,8 +751,8 @@ for (const theme of ["light", "dark"] as const) {
     const waiting = (row: ReturnType<typeof rowOf>) => row.header.locator("[data-waiting]")
 
     await page.goto("/review")
-    // The oldest is the oldest of the rows shown: narrow to this test's project, since other tests' packets share the page.
-    await page.getByRole("radio", { name: `Waiting ${theme} 3` }).click()
+    // The oldest is the oldest of the rows shown: search for this test's task keys, since other tests' packets may share the page.
+    await page.getByRole("searchbox", { name: "Search" }).fill(`${key}-`)
     await expect(page.locator("[data-review-task]")).toHaveCount(3)
     await caption(page, "Three packets: each row says how long it has waited")
     for (const row of [one, two, three]) await expect(waiting(row)).toHaveText(/^waiting (<1 min|\d+ min)$/)
@@ -927,6 +927,54 @@ for (const theme of ["light", "dark"] as const) {
     await page.reload()
     await expect(search).toHaveValue("")
     await expect(mine).toHaveCount(3)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+}
+
+for (const theme of ["light", "dark"] as const) {
+  test(`CEL-190 (${theme}): a packet not opened yet has a dot; opening it clears it, on this device; a new packet after Send back brings it back`, async ({ page }) => {
+    await page.addInitScript((t) => {
+      localStorage.setItem("cello:theme", t)
+    }, theme)
+    const key = uniqueKey(theme === "light" ? "UNL" : "UND")
+    await createProject(page, `Unread ${theme}`, key)
+    const { dir } = await submitPackets(page, key, ["Never opened", "Opened by hand"])
+    const [one, two] = [1, 2].map((n) => rowOf(page, `${key}-${n}`)) as [ReturnType<typeof rowOf>, ReturnType<typeof rowOf>]
+    const dot = (row: ReturnType<typeof rowOf>) => row.header.locator("[data-unread]")
+
+    await page.goto("/review")
+    await caption(page, "Two packets nobody has opened: each row has a dot")
+    await expect(dot(one)).toHaveCount(1)
+    await expect(dot(two)).toHaveCount(1)
+
+    await caption(page, `Open ${key}-1: its dot is gone, the other's stays`)
+    await one.header.click()
+    await expect(one.header).toHaveAttribute("aria-expanded", "true")
+    await expect(dot(one)).toHaveCount(0)
+    await expect(dot(two)).toHaveCount(1)
+
+    await captionWithUrl(page, "Reload: this device remembers which packets were opened")
+    await page.reload()
+    await expect(one.header).toBeVisible()
+    await expect(dot(one)).toHaveCount(0)
+    await expect(dot(two)).toHaveCount(1)
+
+    await caption(page, `Send ${key}-1 back with a note: ${key}-2 opens, and its dot goes too`)
+    await one.article.getByLabel("New comment").fill("Not like this: try again.")
+    await one.article.locator('[data-decide="sent_back"]').click()
+    await expect(one.article).toHaveCount(0)
+    await expect(two.header).toHaveAttribute("aria-expanded", "true")
+    await expect(dot(two)).toHaveCount(0)
+
+    await caption(page, "The agent hands it in again: a new packet, so the dot is back")
+    cello("task", "submit", `${key}-1`, "--summary", "Second try.", "--step", `Open ${key}-1`, "--attach", path.join(dir, "board.png"), "--caption", "The board")
+    await expect(one.header).toBeVisible()
+    await expect(dot(one)).toHaveCount(1)
+    await expect(dot(two)).toHaveCount(0)
+
+    await caption(page, "Open it: seen again")
+    await one.header.click()
+    await expect(dot(one)).toHaveCount(0)
     fs.rmSync(dir, { recursive: true, force: true })
   })
 }
