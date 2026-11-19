@@ -10,6 +10,8 @@ import { cello, decidedSeen, decisionsThroughTest, submitPackets, watchDecided }
 import { isReview } from "./recording.ts"
 
 const UNDO_KEY = "cello:review-undo"
+/** Seconds for the tests that watch a window end: short, but longer in review videos, where it is shown. */
+const WINDOW_THAT_ENDS = isReview(process.env) ? "6" : "2"
 
 const rowOf = (page: Page, key: string) => {
   const article = page.getByRole("article", { name: new RegExp(`${key}\\b`) })
@@ -96,7 +98,7 @@ test.describe("undoFlow in the dark theme", () => {
 })
 
 async function endFlow(page: Page) {
-  const { key, decisions, dir, rows } = await setUp(page, "END", "2", ["Let the window end", "Then send this back"])
+  const { key, decisions, dir, rows } = await setUp(page, "END", WINDOW_THAT_ENDS, ["Let the window end", "Then send this back"])
   const [one, two] = rows as [(typeof rows)[number], (typeof rows)[number]]
   await page.goto(`/review?open=${key}-1`)
   await watchDecided(page)
@@ -208,7 +210,7 @@ test("CEL-191: a task decided from elsewhere during the window is not decided ag
 })
 
 test("CEL-191: a decision the server refuses after its window shows the failure on the row, with the note still there", async ({ page }) => {
-  const { key, decisions, dir, rows } = await setUp(page, "FAI", "2", ["Refused after the window"])
+  const { key, decisions, dir, rows } = await setUp(page, "FAI", WINDOW_THAT_ENDS, ["Refused after the window"])
   const [one] = rows as [(typeof rows)[number]]
   await page.goto(`/review?open=${key}-1`)
   await expect(one.header).toHaveAttribute("aria-expanded", "true")
