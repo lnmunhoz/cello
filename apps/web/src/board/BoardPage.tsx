@@ -21,6 +21,7 @@ import { ProgressBar, ProgressNumbers } from "../milestones/parts.tsx"
 import { StatusIcon } from "../components/ui/StatusIcon.tsx"
 import { commands } from "../lib/cello.ts"
 import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
+import { layoutTransition } from "../lib/motion.ts"
 import { readStored, writeStored } from "../lib/storage.ts"
 import { useOrdering } from "../issues/useOrdering.ts"
 import { type Filtered, useFiltered } from "../issues/useFilter.ts"
@@ -43,8 +44,6 @@ import { readUnfolded, unfoldedKey } from "./unfolded.ts"
 
 /** The lane key of folded Needs input cards in a column split by stage. */
 const WAITING_LANE = "needs-input"
-
-const layoutTransition = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 } as const
 
 /** A card's look, shared by the card and the copy an agent's waiting move leaves in its old slot. */
 const CARD = "group flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-3 py-2.5 shadow-card"
