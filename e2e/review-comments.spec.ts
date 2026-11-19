@@ -108,7 +108,7 @@ test("CEL-70: comment on an open packet from the Review page; it stays In Review
   for (const colorScheme of ["light", "dark"] as const) await screenshotComments(browser, `${key}-1`, colorScheme)
 
   await caption(page, `Open ${key}-1 on the board: the comment is in the task panel too, and the card is still in In Review`)
-  await page.getByRole("link", { name: "Review comments test", exact: true }).click()
+  await page.getByRole("link", { name: /^Review comments test/ }).click()
   await expect(column(page, "In Review").locator(`[data-task-key="${key}-1"]`)).toBeVisible()
   await card(page, `${key}-1`).click()
   const panel = taskPanel(page, `${key}-1`)
@@ -148,7 +148,7 @@ test("CEL-70: comment on an open packet from the Review page; it stays In Review
   await expect(three.article).toHaveCount(0)
 
   await caption(page, `On the board: ${key}-1 is back in In Progress with the note as a comment, ${key}-2 and ${key}-3 are Done`)
-  await page.getByRole("link", { name: "Review comments test", exact: true }).click()
+  await page.getByRole("link", { name: /^Review comments test/ }).click()
   await expect(column(page, "In Progress").locator(`[data-task-key="${key}-1"]`)).toBeVisible()
   await expect(column(page, "Done").locator(`[data-task-key="${key}-2"]`)).toBeVisible()
   await expect(column(page, "Done").locator(`[data-task-key="${key}-3"]`)).toBeVisible()
