@@ -262,8 +262,11 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                                     className={under ? "relative z-10 pl-6" : "relative z-10"}
                                   >
                                     <Leaving id={row.id} group={group.id}>
-                                      <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
-                                      <Pulse at={pulseKeyOf(row)} under={under} />
+                                      {/* The pulse covers the row, not the fold under it. */}
+                                      <div className="relative">
+                                        <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
+                                        <Pulse at={pulseKeyOf(row)} />
+                                      </div>
                                       <Folded board={board} row={row} rows={rows} queue={queue} open={foldsOpen.has(row.id)} onToggle={() => toggleFold(row.id)} />
                                     </Leaving>
                                   </motion.li>
@@ -346,7 +349,7 @@ const Placement = createContext<ReadonlyMap<string, AgentGroupId>>(new Map())
  * animation left, so an idle page runs none. useAnimate, not `initial`/`animate`: the row's
  * AnimatePresence (initial={false}) would have it start at its end, invisible.
  */
-function Pulse({ at, under }: { at: number; under: boolean }) {
+function Pulse({ at }: { at: number }) {
   const [first] = useState(at)
   const [scope, animate] = useAnimate<HTMLSpanElement>()
   useEffect(() => {
@@ -359,7 +362,7 @@ function Pulse({ at, under }: { at: number; under: boolean }) {
       key={at}
       aria-hidden
       data-agent-pulse=""
-      className={`pointer-events-none absolute rounded-lg bg-accent/15 opacity-0 ring-2 ring-inset ring-accent/70 ${under ? "inset-y-0 right-0 left-6" : "inset-0"}`}
+      className="pointer-events-none absolute inset-0 rounded-lg bg-accent/15 opacity-0 ring-2 ring-inset ring-accent/70"
     />
   )
 }
