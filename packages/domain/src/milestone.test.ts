@@ -47,6 +47,14 @@ describe("milestoneProgress", () => {
     expect(milestoneProgress([task("done", 5), task("todo"), task("gone")], statuses)).toMatchObject({ total: 1, done: 0, todo: 1 })
   })
 
+  it("a task in a status of a category this build doesn't know (other, CEL-178) counts in the total, as in progress", () => {
+    const withLater = [...statuses, { id: "later", name: "Approved", category: "other" }]
+    const progress = milestoneProgress([task("done"), task("later"), task("later"), task("todo")], withLater)
+    expect(progress).toMatchObject({ total: 4, done: 1, inProgress: 2, todo: 1, percent: 25 })
+    // It is open work: the Milestones page's No milestone line lists it.
+    expect(openWithoutMilestone([task("later")], withLater)).toHaveLength(1)
+  })
+
   it("an empty milestone is 0 of 0 at 0%; only a finished one reads 100%", () => {
     const empty = milestoneProgress([], statuses)
     expect(empty).toMatchObject({ total: 0, done: 0, percent: 0 })

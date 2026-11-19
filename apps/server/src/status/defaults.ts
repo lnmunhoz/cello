@@ -1,5 +1,5 @@
 // The statuses every new workspace starts with (first start and workspace.create).
-import type { StatusCategory } from "@cello/contract/entities"
+import type { KnownStatusCategory } from "@cello/contract/entities"
 import { positionsAfter } from "@cello/domain/position"
 import * as Effect from "effect/Effect"
 import type * as SqlClient from "effect/sql/SqlClient"
@@ -7,7 +7,7 @@ import { newId } from "../persistence/ids.ts"
 
 export const DEFAULT_STATUSES: ReadonlyArray<{
   readonly name: string
-  readonly category: StatusCategory
+  readonly category: KnownStatusCategory
   readonly color: string
   readonly hidden: boolean
 }> = [

@@ -23,7 +23,7 @@ export interface MilestoneProgress {
   readonly done: number
   /** In a started status named In Review. */
   readonly inReview: number
-  /** In any other started status (In Progress), or waiting on the human (Needs input). */
+  /** In any other started status (In Progress), waiting on the human (Needs input), or in a category this build doesn't know. */
   readonly inProgress: number
   /** Not started (Todo). */
   readonly todo: number
@@ -69,6 +69,8 @@ export const milestoneProgress = (tasks: ReadonlyArray<TaskLike>, statuses: Read
         else inProgress++
         break
       case "waiting":
+      // A category a newer server added (CEL-178): its tasks are work in flight, so they stay in the total.
+      case "other":
         inProgress++
         break
     }

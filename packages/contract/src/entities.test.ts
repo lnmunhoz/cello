@@ -3,7 +3,7 @@
 // task's wake or a woken run read as `other` instead, which the board shows generically.
 import * as Schema from "effect/Schema"
 import { describe, expect, it } from "vitest"
-import { AgentSession, SessionAgent, SessionRun, TaskWake, TestRun } from "./entities.ts"
+import { AgentSession, SessionAgent, SessionRun, Status, TaskWake, TestRun } from "./entities.ts"
 import { NOT_WOKEN_TEXT, WAKE_WHY_TEXT } from "./wake.ts"
 
 const run = {
@@ -82,5 +82,25 @@ describe("a subagent's own folder", () => {
     const older = Schema.decodeUnknownSync(Schema.Struct(fields))({ ...agent, cwd: "/work/wt-a" })
     expect(older).not.toHaveProperty("cwd")
     expect(older.agentId).toBe("a1")
+  })
+})
+
+// CEL-178 phase 0: a status category a newer server adds (an `approved` column, say) must not cost an older
+// board or CLI its whole snapshot; it reads as `other`, which the board draws generically.
+describe("status categories a newer server added", () => {
+  const status = {
+    id: "s1", workspaceId: "w1", name: "Approved", category: "later", position: "a0", color: "#10B981", hidden: false, createdAt: 1, updatedAt: 1,
+  }
+
+  it("a status with a category this build doesn't know reads as other", () => {
+    expect(Schema.decodeUnknownSync(Status)(status).category).toBe("other")
+  })
+
+  it("every known category reads as itself, and encodes as itself", () => {
+    for (const category of ["backlog", "unstarted", "started", "waiting", "completed", "canceled"] as const) {
+      const decoded = Schema.decodeUnknownSync(Status)({ ...status, category })
+      expect(decoded.category).toBe(category)
+      expect(Schema.encodeSync(Status)(decoded).category).toBe(category)
+    }
   })
 })

@@ -25,9 +25,17 @@ export const Id = Schema.String
 export const Millis = Schema.Number
 export const DueDate = Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/))
 
-/** `waiting`: the task waits on the human's answers to an agent's questions (Needs input, CEL-47). */
-export const StatusCategory = Schema.Literals(["backlog", "unstarted", "started", "waiting", "completed", "canceled"])
+/**
+ * `waiting`: the task waits on the human's answers to an agent's questions (Needs input, CEL-47).
+ * `other` is only ever read, never stored (CEL-178): a status whose category a newer server added reads as
+ * `other` here, so an older board or CLI keeps its snapshot; the board draws it as a plain ring and counts
+ * its tasks as in progress. The database's CHECK forbids it, and what the server writes is
+ * `KnownStatusCategory`.
+ */
+export const StatusCategory = orOther(["backlog", "unstarted", "started", "waiting", "completed", "canceled"])
 export type StatusCategory = typeof StatusCategory.Type
+/** A category the server can store: every one but `other`. */
+export type KnownStatusCategory = Exclude<StatusCategory, "other">
 
 /** 0 none, 1 urgent, 2 high, 3 medium, 4 low. */
 export const Priority = Schema.Literals([0, 1, 2, 3, 4])
