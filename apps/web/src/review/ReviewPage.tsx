@@ -23,6 +23,7 @@ import { projectChips } from "./queueView.ts"
 import { useJustChanged, useQueueView } from "./useQueueView.ts"
 import { CommentOrDecide } from "./ReviewActions.tsx"
 import { ReviewPacket } from "./ReviewPacket.tsx"
+import { useDecisionKeys } from "./useDecisionKeys.ts"
 import { useQueue } from "./useQueue.ts"
 import { oldestKey, waitingLabel } from "./waiting.ts"
 import { TaskLink } from "../task/TaskKey.tsx"
@@ -86,6 +87,8 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
     void navigate({ search: (prev) => ({ ...keepViewer(prev), ...(key === null ? {} : { open: key }) }), replace: true })
   }
   const rows = useQueue({ keys, open: openKey, setOpen })
+  // A approves and S sends back the open packet (CEL-190); an open row of questions has neither.
+  useDecisionKeys(openKey !== null && packets.some((item) => item.task.key === openKey) ? openKey : null)
   /** A pick that hides the open row closes it, so it doesn't spring open when the project comes back. */
   const onPick = (next: Project | null) => {
     pick(next)
@@ -142,7 +145,8 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
             </h1>
             <p className="text-[13px] text-muted">
               Answer the agents' questions first, then open a packet: comment on it, approve it to move the task to Done, or send it back
-              with a note for the agent. ↑ ↓ or j k move between rows, Enter opens, Esc closes.
+              with a note for the agent. ↑ ↓ or j k move between rows, Enter opens, Esc closes. On an open packet, A approves and S sends it
+              back.
             </p>
           </header>
           <QueueToolbar chips={chips} picked={picked} onPick={onPick} sort={sort} sorts={REVIEW_SORTS} labels={REVIEW_SORT_LABELS} onSort={pickSort} />

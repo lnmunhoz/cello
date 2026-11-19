@@ -199,7 +199,8 @@ test("CEL-22: the Review page lists packets as collapsed rows; one opens at a ti
   await expect(one.header).toContainText(`${key}-1`)
   await expect(one.header).toContainText("Collapse the review feed")
   await expect(one.header).toContainText("Review rows test")
-  await expect(one.header).toContainText(/Claude Code · waiting (<1 min|\d+ min)/)
+  await expect(one.header).toContainText("Claude Code")
+  await expect(one.header.locator("[data-waiting]")).toHaveText(/^waiting (<1 min|\d+ min)$/)
   // The evidence: the first screenshot (the board with the tasks on it), and how many pieces, with an icon.
   const badge = one.header.locator("[data-evidence-badge]")
   await expect(badge).toHaveText("2")
@@ -750,6 +751,9 @@ for (const theme of ["light", "dark"] as const) {
     const waiting = (row: ReturnType<typeof rowOf>) => row.header.locator("[data-waiting]")
 
     await page.goto("/review")
+    // The oldest is the oldest of the rows shown: narrow to this test's project, since other tests' packets share the page.
+    await page.getByRole("radio", { name: `Waiting ${theme} 3` }).click()
+    await expect(page.locator("[data-review-task]")).toHaveCount(3)
     await caption(page, "Three packets: each row says how long it has waited")
     for (const row of [one, two, three]) await expect(waiting(row)).toHaveText(/^waiting (<1 min|\d+ min)$/)
 
@@ -767,6 +771,90 @@ for (const theme of ["light", "dark"] as const) {
     await expect(one.article).toHaveCount(0)
     await expect(waiting(two)).toHaveAttribute("data-oldest", "")
     await expect(waiting(three)).not.toHaveAttribute("data-oldest")
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+}
+
+for (const theme of ["light", "dark"] as const) {
+  test(`CEL-190 (${theme}): A approves the open packet through the Approve button's own path and S puts the cursor in the note; neither fires while typing`, async ({ page }) => {
+    await page.addInitScript((t) => localStorage.setItem("cello:theme", t), theme)
+    const decisions = await decisionsThroughTest(page)
+    const key = uniqueKey(theme === "light" ? "AKL" : "AKD")
+    await createProject(page, `Shortcuts ${theme}`, key)
+    const { dir } = await submitPackets(page, key, ["Approve with a key", "Send back with a key"])
+    const [one, two] = [1, 2].map((n) => rowOf(page, `${key}-${n}`)) as [ReturnType<typeof rowOf>, ReturnType<typeof rowOf>]
+    const buttons = (row: ReturnType<typeof rowOf>) => ({
+      approve: row.article.locator('[data-decide="approved"]'),
+      sendBack: row.article.locator('[data-decide="sent_back"]'),
+      box: row.article.getByLabel("New comment"),
+    })
+    const first = buttons(one)
+    const mine = page.getByRole("list", { name: "Waiting for review" }).locator(`[data-review-task^="${key}-"]`)
+
+    await page.goto("/review")
+    await watchDecided(page)
+    await caption(page, "The page header lists the keys next to the arrows")
+    await expect(page.getByText("On an open packet, A approves and S sends it back.")).toBeVisible()
+
+    await caption(page, "No packet is open: A and S do nothing")
+    await page.locator("body").press("a")
+    await page.locator("body").press("s")
+    await expect(mine).toHaveCount(2)
+    await expect(one.header).toHaveAttribute("aria-expanded", "false")
+
+    await caption(page, `Open ${key}-1 and type in the comment box: the letters are just letters`)
+    await one.header.click()
+    await expect(one.header).toHaveAttribute("aria-expanded", "true")
+    await first.box.click()
+    await page.keyboard.type("as")
+    await expect(first.box).toHaveValue("as")
+    await expect(mine).toHaveCount(2)
+    await expect(first.approve).toBeEnabled()
+
+    await caption(page, "From the row, S moves the cursor to the note box and sends nothing")
+    await one.header.focus()
+    await page.keyboard.press("s")
+    await expect(first.box).toBeFocused()
+    await expect(first.box).toHaveValue("as")
+    await expect(mine).toHaveCount(2)
+
+    await caption(page, "A with a modifier is not ours: ⌘A and Shift+A leave the packet alone")
+    await one.header.focus()
+    await page.keyboard.press("Meta+a")
+    await page.keyboard.press("Shift+a")
+    await expect(mine).toHaveCount(2)
+    await expect(first.approve).toBeEnabled()
+
+    await first.box.fill("")
+    await caption(page, "A approves, but the server refuses: the failure shows on the row, as with the button")
+    await one.header.focus()
+    decisions.failNext()
+    await page.keyboard.press("a")
+    await expect(one.article.getByRole("alert")).toContainText("no longer exists")
+    await expect(one.header).toHaveAttribute("aria-expanded", "true")
+    await expect(first.approve).toBeEnabled()
+
+    await caption(page, "A again: the button shows it's approving, and a second A does not decide twice")
+    decisions.holdNext()
+    await one.header.focus()
+    await page.keyboard.press("a")
+    await expect(first.approve).toHaveAttribute("aria-busy", "true")
+    await expect(first.approve).toHaveText("Approving…")
+    await expect(first.approve).toBeDisabled()
+    await page.keyboard.press("a")
+
+    await caption(page, `The server took it: ${key}-1 says Approved, folds away, and ${key}-2 opens`)
+    decisions.release()
+    await expect(one.article).toHaveCount(0)
+    expect(await decidedSeen(page)).toEqual([`${key}-1: Approved`])
+    await expect(two.header).toHaveAttribute("aria-expanded", "true")
+    await expect(two.header).toBeFocused()
+
+    await caption(page, `S on ${key}-2: the note box takes the cursor`)
+    await page.keyboard.press("s")
+    await expect(buttons(two).box).toBeFocused()
+    await expect(two.header).toHaveAttribute("aria-expanded", "true")
+    await expect(mine).toHaveCount(1)
     fs.rmSync(dir, { recursive: true, force: true })
   })
 }
