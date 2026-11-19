@@ -1,7 +1,8 @@
 // CEL-191: after Approve or Send back on the Review page, the decision waits in an undo window before
-// it is sent. The window is 30 s in these tests so nothing races it; the ones that need it to end move
-// the page's clock (page.clock), and what is checked is what the page shows and what reached the socket
-// (decisionsThroughTest(page).sent()), never a wait.
+// it is sent. The window is 30 s in the tests that never need it to end, so nothing races them: those
+// that need a decision sent leave the page (which sends what waits, at once), and the two that watch a
+// window end set it to 2 s and assert on what the page shows (an assertion waits for it, never a sleep).
+// What reached the socket is read from decisionsThroughTest(page).sent().
 import * as fs from "node:fs"
 import type { Page } from "@playwright/test"
 import { caption, captionWithUrl, column, createProject, expect, projectLink, sidebarSettings, test, uniqueKey } from "./fixtures.ts"
@@ -23,10 +24,9 @@ const rowOf = (page: Page, key: string) => {
   }
 }
 
-/** A project with packets handed in, the Review page's undo window set to `window` ("30": 30 s; "off"), the clock the test's to move. */
+/** A project with packets handed in and the Review page's undo window set to `window`: seconds ("30"), or "off". */
 async function setUp(page: Page, prefix: string, window: string, titles: ReadonlyArray<string>) {
   await page.addInitScript(([k, w]) => localStorage.setItem(k!, w!), [UNDO_KEY, window])
-  await page.clock.install()
   const decisions = await decisionsThroughTest(page)
   const key = uniqueKey(prefix)
   await createProject(page, `Undo ${prefix}`, key)
@@ -96,7 +96,7 @@ test.describe("undoFlow in the dark theme", () => {
 })
 
 async function endFlow(page: Page) {
-  const { key, decisions, dir, rows } = await setUp(page, "END", "30", ["Let the window end", "Then send this back"])
+  const { key, decisions, dir, rows } = await setUp(page, "END", "2", ["Let the window end", "Then send this back"])
   const [one, two] = rows as [(typeof rows)[number], (typeof rows)[number]]
   await page.goto(`/review?open=${key}-1`)
   await watchDecided(page)
@@ -108,7 +108,6 @@ async function endFlow(page: Page) {
   expect(decisions.sent()).toEqual([])
 
   await caption(page, "The window ends: it is sent, the row folds away and the next one opens")
-  await page.clock.fastForward(30_000)
   await expect(one.article).toHaveCount(0)
   expect(decisions.sent()).toEqual(["review.approve"])
   expect(await decidedSeen(page)).toContain(`${key}-1: Approved`)
@@ -119,7 +118,6 @@ async function endFlow(page: Page) {
   await two.sendBack.click()
   await expect(two.undo).toBeVisible()
   await expect(two.words).toHaveText("Sent back")
-  await page.clock.fastForward(30_000)
   await expect(two.article).toHaveCount(0)
   expect(decisions.sent()).toEqual(["review.approve", "review.sendBack"])
   fs.rmSync(dir, { recursive: true, force: true })
@@ -159,8 +157,9 @@ test("CEL-191: two rows in their windows at once: Undo one, and only the other i
   await expect(one.words).toHaveCount(0)
   await expect(two.undo).toBeVisible()
 
-  await caption(page, `${key}-2's window ends: only its Send back is sent, once`)
-  await page.clock.fastForward(30_000)
+  await caption(page, `Leave the page: only ${key}-2's Send back is sent, once`)
+  await projectLink(page, key).click()
+  await page.getByRole("navigation", { name: "Inbox" }).getByRole("link", { name: /^Review/ }).click()
   await expect(two.article).toHaveCount(0)
   await expect(one.header).toBeVisible()
   expect(decisions.sent()).toEqual(["review.sendBack"])
@@ -199,15 +198,17 @@ test("CEL-191: a task decided from elsewhere during the window is not decided ag
   await captionWithUrl(page, `Meanwhile the agent moves ${key}-1 out of In Review with the CLI`)
   cello("task", "move", `${key}-1`, "In Progress")
   await expect(one.article).toHaveCount(0)
-  await expect(page.getByText(`${key}-1 changed while you waited`)).toBeVisible()
-  await page.clock.fastForward(30_000)
+  await expect(page.getByText(`${key}-1 changed while you waited`, { exact: true })).toBeVisible()
+  await caption(page, "Leaving the page sends what waits: there is nothing left to send")
+  await projectLink(page, key).click()
+  await page.getByRole("navigation", { name: "Inbox" }).getByRole("link", { name: /^Review/ }).click()
   await expect(two.header).toBeVisible()
   expect(decisions.sent()).toEqual([])
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
 test("CEL-191: a decision the server refuses after its window shows the failure on the row, with the note still there", async ({ page }) => {
-  const { key, decisions, dir, rows } = await setUp(page, "FAI", "30", ["Refused after the window"])
+  const { key, decisions, dir, rows } = await setUp(page, "FAI", "2", ["Refused after the window"])
   const [one] = rows as [(typeof rows)[number]]
   await page.goto(`/review?open=${key}-1`)
   await expect(one.header).toHaveAttribute("aria-expanded", "true")
@@ -217,7 +218,6 @@ test("CEL-191: a decision the server refuses after its window shows the failure 
   await expect(one.undo).toBeVisible()
 
   await caption(page, "The window ends and the server refuses: the row shows why, the packet is open, the note is still there")
-  await page.clock.fastForward(30_000)
   await expect(one.article.getByRole("alert")).toContainText("no longer exists")
   await expect(one.words).toHaveCount(0)
   await expect(one.header).toHaveAttribute("aria-expanded", "true")
