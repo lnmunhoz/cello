@@ -259,13 +259,13 @@ function Agents({ board, workspaceId }: { board: BoardState; workspaceId: string
                                     custom={keys}
                                     variants={exitOf(row.id)}
                                     exit="gone"
-                                    className={under ? "relative z-10 pl-6" : "relative z-10"}
+                                    className="relative z-10"
                                   >
                                     <Leaving id={row.id} group={group.id}>
                                       {/* The pulse covers the row, not the fold under it. */}
-                                      <div className="relative">
+                                      <div className={under ? "relative pl-6" : "relative"}>
                                         <AgentQueueRow {...queue.row(row.id)} board={board} row={row} rows={rows} />
-                                        <Pulse at={pulseKeyOf(row)} />
+                                        <Pulse at={pulseKeyOf(row)} under={under} />
                                       </div>
                                       <Folded board={board} row={row} rows={rows} queue={queue} open={foldsOpen.has(row.id)} onToggle={() => toggleFold(row.id)} />
                                     </Leaving>
@@ -349,7 +349,7 @@ const Placement = createContext<ReadonlyMap<string, AgentGroupId>>(new Map())
  * animation left, so an idle page runs none. useAnimate, not `initial`/`animate`: the row's
  * AnimatePresence (initial={false}) would have it start at its end, invisible.
  */
-function Pulse({ at }: { at: number }) {
+function Pulse({ at, under }: { at: number; under: boolean }) {
   const [first] = useState(at)
   const [scope, animate] = useAnimate<HTMLSpanElement>()
   useEffect(() => {
@@ -362,7 +362,7 @@ function Pulse({ at }: { at: number }) {
       key={at}
       aria-hidden
       data-agent-pulse=""
-      className="pointer-events-none absolute inset-0 rounded-lg bg-accent/15 opacity-0 ring-2 ring-inset ring-accent/70"
+      className={`pointer-events-none absolute rounded-lg bg-accent/15 opacity-0 ring-2 ring-inset ring-accent/70 ${under ? "inset-y-0 right-0 left-6" : "inset-0"}`}
     />
   )
 }
