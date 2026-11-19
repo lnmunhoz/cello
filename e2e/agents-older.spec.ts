@@ -2,7 +2,8 @@
 // - an orchestrator launches three builders and two code reviewers, and they finish: no row of their
 //   own, one line under the orchestrator ("3 builders, 2 code reviewers finished") that opens to list them,
 //   each row opening its log, reachable by the keys;
-// - Clear finished hides them on this device ("5 hidden · Show") and Show brings them back;
+// - Clear finished hides what is left in Finished today (a lone finished builder) on this device ("N hidden · Show"),
+//   never the fold under the orchestrator that is still working; Show brings it back;
 // - a session quiet for more than a day with nothing open (its subagent is on a Done task) moves to a
 //   closed Older section that shows its count and opens, and that stays open after a reload, while a quiet
 //   session holding an open task stays in Quiet. "More than a day" is the page's clock set forward.
@@ -21,6 +22,8 @@ const STALE = "f1562a2b-3c4d-4e5f-8a9b-0c1d2e3f4a56"
 const BUILDERS = ["b1561aaaa0000001", "b1561aaaa0000002", "b1561aaaa0000003"]
 const REVIEWERS = ["c1561bbbb0000001", "c1561bbbb0000002"]
 const OLD_BUILDER = "d1561cccc0000001"
+const LONE = "f1563a2b-3c4d-4e5f-8a9b-0c1d2e3f4a56"
+const LONE_BUILDER = "e1561dddd0000001"
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "cel156-"))
 const cwd = path.join(work, "cello")
@@ -58,16 +61,21 @@ test("CEL-156: finished subagents fold into their session's row, Clear finished 
   const key = uniqueKey("FLD")
   const project = await seedProject(cello, "Fold", key)
   const { statuses } = await defaultWorkspace(cello)
-  for (const [title, status] of [["Build the fold", statuses.Todo!], ["Review the fold", statuses.Todo!], ["Old work, done", statuses.Done!], ["Still open", statuses.Todo!]] as const) {
+  for (const [title, status] of [["Build the fold", statuses.Todo!], ["Review the fold", statuses.Todo!], ["Old work, done", statuses.Done!], ["Still open", statuses.Todo!], ["One more build", statuses.Todo!]] as const) {
     await cello.run((c) => c["task.create"]({ commandId: newCommandId(), projectId: project.id, title, statusId: status.id }))
   }
-  const [build, review, done, open] = [1, 2, 3, 4].map((n) => `${key}-${n}`)
+  const [build, review, done, open, lone5] = [1, 2, 3, 4, 5].map((n) => `${key}-${n}`)
 
   // The orchestrator holds two tasks, with three builders and two reviewers on them.
   cli(ORCHESTRATOR)("task", "claim", build!)
   cli(ORCHESTRATOR)("task", "claim", review!)
   for (const id of BUILDERS) hooks.launch(ORCHESTRATOR, id, "cello-builder", `${build} build the fold, part ${id.slice(-1)}`)
   for (const id of REVIEWERS) hooks.launch(ORCHESTRATOR, id, "cello-code-reviewer", `${review} review the fold, part ${id.slice(-1)}`)
+  // The lone one claims a task, launches a builder, lets go of the claim and the builder finishes.
+  cli(LONE)("task", "claim", lone5!)
+  hooks.launch(LONE, LONE_BUILDER, "cello-builder", `${lone5} one more build`)
+  cli(LONE)("task", "release", lone5!)
+  hooks.stop(LONE, LONE_BUILDER, "cello-builder")
   const orchestrator = await sessionId(cello, ORCHESTRATOR)
   const orchestratorRow = page.locator(`[data-agent-row="session:${orchestrator}"]`)
   const subagentRow = (id: string) => page.locator(`[data-agent-row="agent:${orchestrator}/${id}"]`)
@@ -106,23 +114,33 @@ test("CEL-156: finished subagents fold into their session's row, Clear finished 
   await fold.click()
   await expect(subagentRow(BUILDERS[0]!)).toHaveCount(0)
 
-  await caption(page, "Clear finished hides them on this device, and says how many")
+  // A lone builder: its session holds nothing now, so its finished row stands on its own in Finished today.
+  const lone = page.locator(`[data-agent-row="agent:${await sessionId(cello, LONE)}/${LONE_BUILDER}"]`)
+  const finishedSection = page.locator('section[data-agents-group="finished"]')
+  await expect(finishedSection.locator(lone)).toBeVisible()
+  const finishedBefore = await finishedSection.locator("[data-agent-row]").count()
+  await caption(page, "Finished today holds a lone builder; the orchestrator is still working, its fold under it")
+  await shoot(page, "clear-button")
+
+  await caption(page, "Clear finished hides what's in Finished today, on this device, and says how many")
   await page.getByRole("button", { name: "Clear finished" }).click()
-  // Other specs' agents finished today on the shared server count too: at least our five.
   const hidden = page.locator("[data-agents-hidden]")
-  await expect(hidden).toContainText(/\d+ hidden/)
-  expect(Number(await hidden.getAttribute("data-agents-hidden"))).toBeGreaterThanOrEqual(5)
-  await expect(fold).toHaveCount(0)
+  await expect(lone).toHaveCount(0)
+  await expect(hidden).toHaveAttribute("data-agents-hidden", String(finishedBefore))
+  await expect(hidden).toContainText(`${finishedBefore} hidden`)
+  // The working orchestrator's fold stays: what a live session holds is never cleared.
   await expect(orchestratorRow).toBeVisible()
-  await shoot(page, "cleared", page.locator("[data-agents-clear]"))
+  await expect(fold).toHaveText("3 builders, 2 code reviewers finished")
+  await shoot(page, "cleared")
+  await shoot(page, "fold-stays", page.locator("li", { has: orchestratorRow }))
   await page.reload()
-  await expect(hidden).toContainText(/\d+ hidden/)
-  await expect(fold).toHaveCount(0)
+  await expect(hidden).toHaveAttribute("data-agents-hidden", String(finishedBefore))
+  await expect(fold).toHaveText("3 builders, 2 code reviewers finished")
 
   await caption(page, "Show brings them back: nothing was deleted")
   await page.getByRole("button", { name: "Show", exact: true }).click()
-  await expect(fold).toHaveText("3 builders, 2 code reviewers finished")
-  await expect(page.locator("[data-agents-hidden]")).toHaveCount(0)
+  await expect(lone).toBeVisible()
+  await expect(hidden).toHaveCount(0)
 
   // A stale session: it holds nothing, and its builder is on a Done task. The orchestrator holds open tasks.
   cli(STALE)("task", "claim", open!)

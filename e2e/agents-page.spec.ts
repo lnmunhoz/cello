@@ -246,8 +246,16 @@ test("CEL-65: Agents working opens the Agents page: agents in groups, subagents 
   hook("subagent-stop", { session_id: ORCHESTRATOR, agent_id: REVIEWER, agent_type: "cello-code-reviewer", hook_event_name: "SubagentStop" })
   const fold = page.locator(`[data-agents-fold="session:${orchestrator}"]`)
   await expect(fold).toHaveText("1 code reviewer finished")
-  // No row of its own in Finished today (agents-older.spec.ts opens the fold and its rows).
+  // No row of its own in Finished today and none in the fold while it's closed; opening the fold lists it, still on its task.
   await expect(group(page, "finished").locator(`[data-agent-row="agent:${orchestrator}/${REVIEWER}"]`)).toHaveCount(0)
+  await expect(reviewerRow).toHaveCount(0)
+  await fold.click()
+  await expect(reviewerRow).toHaveAttribute("data-agent-group", "finished")
+  await expect(reviewerRow).toContainText("on CLO-2 Images in comments: paste and drop screenshots")
+  await expect(reviewerRow.locator("[data-agent-task-state]")).toHaveText("Agent review")
+  await expect(reviewerRow.locator("[data-agent-presence]")).toContainText("finished")
+  await fold.click()
+  await expect(reviewerRow).toHaveCount(0)
   await expect(orchestratorRow).toContainText("Main session")
   await expect(orchestratorRow).toContainText("2 subagents")
 
