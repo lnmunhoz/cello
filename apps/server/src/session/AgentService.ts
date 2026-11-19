@@ -79,6 +79,8 @@ interface AgentRow {
   tests_json?: string | null
   /** CEL-160; left out by selects that don't need it. */
   verdict?: string | null
+  /** CEL-152; left out by selects that don't need it. */
+  cwd?: string | null
 }
 
 export const toAgent = (r: AgentRow): SessionAgent => ({
@@ -99,6 +101,7 @@ export const toAgent = (r: AgentRow): SessionAgent => ({
   tests: testsOf(r.tests_json),
   runs: runsOf(r.tests_json),
   verdict: (r.verdict ?? null) as SessionAgent["verdict"],
+  cwd: r.cwd ?? null,
 })
 
 export class AgentService extends Context.Service<AgentService, {

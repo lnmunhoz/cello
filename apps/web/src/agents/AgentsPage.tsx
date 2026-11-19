@@ -33,6 +33,7 @@ import { useQueueView } from "../review/useQueueView.ts"
 import { TaskLink } from "../task/TaskKey.tsx"
 import { keepViewer } from "../viewer/search.ts"
 import { AgentLog } from "./AgentLog.tsx"
+import { agentFolder } from "./folder.ts"
 import {
   type AgentGroupId,
   type AgentRow,
@@ -405,7 +406,7 @@ function TaskState({ board, task }: { board: BoardState; task: Task | undefined 
 function Facts({ board, row }: { board: BoardState; row: AgentRow }) {
   const now = useNow()
   const started = row.agent?.startedAt ?? row.session.startedAt
-  const folder = row.session.cwd?.split("/").filter(Boolean).at(-1)
+  const folder = agentFolder(row)?.split("/").filter(Boolean).at(-1)
   const run = testRunOf(row.session, row.agent)
   // Where its session runs, and when Cello last woke it (CEL-137).
   const origin = originText(row.session, now)
@@ -458,7 +459,7 @@ function Facts({ board, row }: { board: BoardState; row: AgentRow }) {
           <dt className="text-muted">Folder</dt>
           <dd className="flex min-w-0 items-center gap-1.5 text-ink">
             <FolderIcon aria-hidden className="size-3.5 shrink-0 text-faint" />
-            <span className="truncate" title={row.session.cwd ?? undefined}>
+            <span className="truncate" title={agentFolder(row) ?? undefined}>
               {folder}
             </span>
           </dd>

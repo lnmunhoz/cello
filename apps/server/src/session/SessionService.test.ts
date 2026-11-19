@@ -49,6 +49,28 @@ describe("SessionService.resolve", () => {
       expect(agents).toEqual([{ id: first.actorId, name: "Claude Code", client: "Claude Code" }])
     })))
 
+  it.effect("a subagent's call sets its own folder and leaves the session's; the session's own call sets the session's (CEL-152)", () =>
+    run(Effect.gen(function* () {
+      const sessions = yield* SessionService
+      const { sessionId } = yield* sessions.resolve(claude)
+      const folders = yield* rows((sql) => sql<{ agent_id: string | null; cwd: string | null }>`
+        SELECT NULL AS agent_id, cwd FROM agent_sessions UNION ALL SELECT agent_id, cwd FROM session_agents ORDER BY agent_id`)
+      expect(folders).toEqual([{ agent_id: null, cwd: "/repo" }])
+
+      yield* sessions.resolve({ ...claude, agent: "a1", agentType: "cello-builder", cwd: "/repo/wt-a" })
+      yield* sessions.resolve({ ...claude, agent: "b2", agentType: "cello-builder", cwd: "/repo/wt-b" })
+      yield* sessions.resolve({ ...claude, agent: "a1", agentType: "cello-builder", cwd: "/repo/wt-a/apps" })
+      const read = rows((sql) => sql<{ agent_id: string; cwd: string | null }>`SELECT agent_id, cwd FROM session_agents ORDER BY agent_id`)
+      expect(yield* read).toEqual([{ agent_id: "a1", cwd: "/repo/wt-a/apps" }, { agent_id: "b2", cwd: "/repo/wt-b" }])
+      expect((yield* sessions.byIds([sessionId!]))[0]?.cwd).toBe("/repo")
+
+      // A subagent's call that names no folder keeps its own; the session's own call moves the session's only.
+      yield* sessions.resolve({ ...claude, agent: "a1", agentType: "cello-builder", cwd: undefined })
+      yield* sessions.resolve({ ...claude, cwd: "/repo/docs" })
+      expect(yield* read).toEqual([{ agent_id: "a1", cwd: "/repo/wt-a/apps" }, { agent_id: "b2", cwd: "/repo/wt-b" }])
+      expect((yield* sessions.byIds([sessionId!]))[0]?.cwd).toBe("/repo/docs")
+    })))
+
   it.effect("the terminal app is kept cleaned and capped, in its column and in the identity it came with (CEL-137)", () =>
     run(Effect.gen(function* () {
       const sessions = yield* SessionService

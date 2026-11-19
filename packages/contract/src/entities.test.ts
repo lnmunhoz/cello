@@ -65,3 +65,22 @@ describe("a subagent's verdict", () => {
     expect(Schema.decodeUnknownSync(SessionAgent)({ ...agent, verdict: "test.from-a-newer-build" }).verdict).toBe("other")
   })
 })
+
+// CEL-152: a subagent's own folder, optional so builds of either age read each other's events.
+describe("a subagent's own folder", () => {
+  const agent = { sessionId: "s1", agentId: "a1", agentType: "cello-builder", taskId: "t1", description: null, startedAt: 1, lastSeenAt: 2, endedAt: null }
+
+  it("decodes without one (events stored before CEL-152, an older server), as null, and as the folder", () => {
+    expect(Schema.decodeUnknownSync(SessionAgent)(agent).cwd).toBeUndefined()
+    expect(Schema.decodeUnknownSync(SessionAgent)({ ...agent, cwd: null }).cwd).toBeNull()
+    expect(Schema.decodeUnknownSync(SessionAgent)({ ...agent, cwd: "/work/wt-a" }).cwd).toBe("/work/wt-a")
+    expect(Schema.encodeSync(SessionAgent)({ ...agent, cwd: "/work/wt-a" } as SessionAgent).cwd).toBe("/work/wt-a")
+  })
+
+  it("an older build, which has no such field, still decodes a newer server's agent and drops the folder", () => {
+    const { cwd: _cwd, ...fields } = SessionAgent.fields
+    const older = Schema.decodeUnknownSync(Schema.Struct(fields))({ ...agent, cwd: "/work/wt-a" })
+    expect(older).not.toHaveProperty("cwd")
+    expect(older.agentId).toBe("a1")
+  })
+})

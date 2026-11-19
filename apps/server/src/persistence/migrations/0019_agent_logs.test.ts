@@ -33,7 +33,8 @@ describe("migration 0019_agent_logs", () => {
       const sessionsAfter = yield* sql<Record<string, unknown>>`SELECT * FROM agent_sessions ORDER BY id`
       const agentsAfter = yield* sql<Record<string, unknown>>`SELECT * FROM session_agents ORDER BY agent_id`
       expect(sessionsAfter.map(strip)).toEqual(sessions)
-      expect(agentsAfter.map(strip)).toEqual(agents)
+      // 0030 (CEL-152) adds the subagent's own folder after it (not the session's, which it always had).
+      expect(agentsAfter.map(({ cwd, ...rest }) => strip(rest))).toEqual(agents)
       for (const row of [...sessionsAfter, ...agentsAfter]) {
         expect([row.transcript_path, row.current_step, row.current_step_at]).toEqual([null, null, null])
       }

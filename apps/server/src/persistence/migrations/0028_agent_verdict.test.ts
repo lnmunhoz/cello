@@ -27,7 +27,8 @@ describe("migration 0028_agent_verdict", () => {
       yield* Migrations.run
 
       const after = yield* sql<Record<string, unknown>>`SELECT * FROM session_agents ORDER BY rowid`
-      expect(after.map(({ verdict, ...rest }) => rest)).toEqual(before)
+      // 0030 (CEL-152) adds the subagent's own folder after it.
+      expect(after.map(({ verdict, cwd, ...rest }) => rest)).toEqual(before)
       expect(after.map((row) => row.verdict)).toEqual([null, null])
 
       yield* sql`UPDATE session_agents SET verdict = 'merge' WHERE agent_id = 'rev1'`

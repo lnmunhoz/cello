@@ -320,6 +320,14 @@ describe("applyEvents: stage, last change and presence (CEL-5, CEL-35)", () => {
     expect(next.tasks).toBe(state.tasks)
   })
 
+  it("an agent check-in keeps the agent's own folder (CEL-152), and the session's folder stays the session's", () => {
+    const state = fromSnapshot({ ...snapshot([task("t1")]), agents: [builder] })
+    expect(state.agents["s1/a13bfb89"]?.cwd).toBeUndefined()
+    const next = applyEvents(state, [byBuilder(11, { type: "agent.seen", agent: { ...builder, cwd: "/work/wt-a" } })])
+    expect(next.agents["s1/a13bfb89"]?.cwd).toBe("/work/wt-a")
+    expect(next.sessions).toBe(state.sessions)
+  })
+
   it("a change or comment by an agent records it as the task's last change; the session's own change clears it", () => {
     const state = fromSnapshot(snapshot([task("t1", { version: 3 })]))
     const staged = applyEvents(state, [byBuilder(11, { type: "task.stage_changed", id: "t1", version: 4, before: null, after: "building" })])
