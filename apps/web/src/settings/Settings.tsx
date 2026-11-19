@@ -20,6 +20,7 @@ import { BAR_LAYOUT_KEY, LAYOUT_NAMES, useBarLayout } from "../search/layout.ts"
 import { useUpdateState } from "../updates/updates.ts"
 import { BoardSettings, useDesktopBoard } from "./BoardSettings.tsx"
 import { NameField } from "./NameField.tsx"
+import { ReviewSettings } from "./ReviewSettings.tsx"
 import { Section, SettingsColumn } from "./Section.tsx"
 import { UpdateSettings } from "./UpdateSettings.tsx"
 
@@ -54,6 +55,9 @@ export function Settings() {
         </Section>
         <Section title="Search" description="How the ⌘K bar shows results on this device. Peek previews the highlighted result beside the list; in a narrow window it shows as Palette.">
           <SearchLayout />
+        </Section>
+        <Section title="Review" description="How the Review page sends your decisions, on this device.">
+          <ReviewSettings />
         </Section>
         {updates ? (
           <Section title="Updates" description="How the Cello app finds new versions on GitHub, and which ones it offers.">

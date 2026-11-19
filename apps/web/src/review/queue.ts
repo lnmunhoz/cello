@@ -53,7 +53,8 @@ export type DecisionState =
   /** The window ended and the command runs: pending, with the row keeping its words (CEL-191). */
   | { readonly phase: "sending"; readonly decision: Decision }
   | { readonly phase: "failed"; readonly decision: Decision; readonly message: string }
-  | { readonly phase: "decided"; readonly decision: Decision }
+  /** `waited`: it went through the undo window, so the row has said so for long enough already (CEL-191). */
+  | { readonly phase: "decided"; readonly decision: Decision; readonly waited?: boolean }
   | { readonly phase: "leaving"; readonly decision: Decision }
   | { readonly phase: "gone" }
 
@@ -85,7 +86,8 @@ export const decisionStep = (state: DecisionState, event: DecisionEvent): Decisi
     case "sent":
       return state.phase === "undoable" ? { phase: "sending", decision: state.decision } : state
     case "taken":
-      return state.phase === "pending" || state.phase === "sending" ? { phase: "decided", decision: state.decision } : state
+      if (state.phase === "sending") return { phase: "decided", decision: state.decision, waited: true }
+      return state.phase === "pending" ? { phase: "decided", decision: state.decision } : state
     case "refused":
       return state.phase === "pending" || state.phase === "sending" ? { phase: "failed", decision: state.decision, message: event.message } : state
     case "shown":

@@ -224,7 +224,8 @@ describe("undoable: a decision waits in a window before it is sent (CEL-191)", (
     expect(decisionStep(undoable, { type: "undone" })).toEqual(IDLE)
     const sending = decisionStep(undoable, { type: "sent" })
     expect(sending).toEqual({ phase: "sending", decision: "approved" })
-    expect(decisionStep(sending, { type: "taken" })).toEqual({ phase: "decided", decision: "approved" })
+    // It waited: the row has said "Approved" for the whole window, so it needn't say it again.
+    expect(decisionStep(sending, { type: "taken" })).toEqual({ phase: "decided", decision: "approved", waited: true })
     expect(decisionStep(sending, { type: "refused", message: "Can't reach the Cello server" })).toEqual({ phase: "failed", decision: "approved", message: "Can't reach the Cello server" })
   })
 

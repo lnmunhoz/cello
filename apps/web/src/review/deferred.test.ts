@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createDeferredDecisions } from "./deferred.ts"
+import { createDeferredDecisions, inTurn } from "./deferred.ts"
 
 /** A clock the test moves by hand: nothing waits on real time. */
 const fakeClock = () => {
@@ -133,5 +133,44 @@ describe("deferred decisions: a decision waits in its window, then is sent exact
     t.advance(60_000)
     expect(a.calls).toEqual(["send"])
     expect(b.calls).toEqual(["send"])
+  })
+})
+
+describe("deferred decisions: what is waiting can be watched (CEL-191)", () => {
+  it("tells its listeners when a window starts, is undone or ends, and keeps the same keys string between", () => {
+    const t = fakeClock()
+    const d = createDeferredDecisions(t.clock)
+    const seen: string[] = []
+    d.subscribe(() => seen.push(d.keys()))
+    d.start("THAI-2", 5000, entry())
+    d.start("CEL-3", 5000, entry())
+    d.undo("THAI-2")
+    t.advance(5000)
+    expect(seen).toEqual(["THAI-2", "CEL-3 THAI-2", "CEL-3", ""])
+    expect(d.keys()).toBe("")
+  })
+})
+
+describe("inTurn: sends go one after another (CEL-191)", () => {
+  it("the second starts only once the first has answered, even when the first fails", async () => {
+    const order: string[] = []
+    let release = () => {}
+    const first = inTurn(
+      () =>
+        new Promise<string>((_, reject) => {
+          order.push("first starts")
+          release = () => reject(new Error("refused"))
+        }),
+    )
+    const second = inTurn(async () => {
+      order.push("second starts")
+      return "ok"
+    })
+    await Promise.resolve()
+    expect(order).toEqual(["first starts"])
+    release()
+    await expect(first).rejects.toThrow("refused")
+    await expect(second).resolves.toBe("ok")
+    expect(order).toEqual(["first starts", "second starts"])
   })
 })

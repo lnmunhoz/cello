@@ -5,6 +5,7 @@ import { projectsOf } from "@cello/client/sync/selectors"
 import type { Project, Task } from "@cello/contract/entities"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { CheckIcon, CornerUpLeftIcon } from "lucide-react"
+import { Button } from "../components/ui/Button.tsx"
 import { AnimatePresence, motion, useIsPresent, useReducedMotion } from "motion/react"
 import { type ReactNode, useEffect, useEffectEvent, useState } from "react"
 import { Breadcrumb } from "../app/Breadcrumb.tsx"
@@ -17,7 +18,9 @@ import { useBoard, useWorkspaceId } from "../lib/hooks.ts"
 import { instant as motionInstant } from "../lib/motion.ts"
 import { EvidenceBadge } from "./EvidenceBadge.tsx"
 import { FOLD_SPRING, QueueRow, type QueueRowState } from "./QueueRow.tsx"
-import { allLeft, type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, filterQueue, type Held, holdStep, IDLE, REVIEW_SORT_LABELS, REVIEW_SORTS, sortQueue, syncHeld, withHeld } from "./queue.ts"
+import { allLeft, type Decision, DECISION_LABEL, type DecisionEvent, decisionStep, filterQueue, type Held, holdStep, IDLE, isHolding, overtaken, REVIEW_SORT_LABELS, REVIEW_SORTS, sortQueue, syncHeld, withHeld } from "./queue.ts"
+import { deferredDecisions } from "./deferred.ts"
+import { useUndoWindow, undoWindowMs } from "./undoWindow.ts"
 import { NothingFor, NothingMatching, QueueToolbar } from "./ProjectChips.tsx"
 import { matchesQuery, reviewFields, searchRows } from "./search.ts"
 import { projectChips } from "./queueView.ts"
@@ -75,13 +78,32 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   const [unfolding, setUnfolding] = useState<string | null>(null)
   // Held on the whole queue, so a row's place (`at`) doesn't move with the pick; the pick filters after, and keeps the held ones.
   const allPackets = withHeld(allQueue, (item) => item.task.key, held)
-  const keepKeys = new Set(held.filter((h) => h.state.phase === "pending" || h.state.phase === "decided").map((h) => h.key))
+  const keepKeys = new Set(held.filter((h) => isHolding(h.state)).map((h) => h.key))
   // A held row sorts by its frozen item, so it keeps its place until it folds away.
   const packets = sortQueue(searchRows(filterQueue(allPackets, projectId, keepKeys), query, packetFields, keepKeys), sort)
-  const decisionOn = (key: string): Decision | null => {
+  const undoMs = undoWindowMs(useUndoWindow())
+  /** What the row says in its badge's place, if it has been decided: waiting in its undo window (with Undo), being sent, or taken. */
+  const confirmationOn = (key: string): ReactNode => {
     const state = held.find((h) => h.key === key)?.state
-    return state?.phase === "decided" ? state.decision : null
+    switch (state?.phase) {
+      case "undoable":
+        return <Undoable decision={state.decision} taskKey={key} ms={undoMs} onUndo={() => undo(key)} />
+      case "sending":
+        return <DecisionLabel decision={state.decision} />
+      case "decided":
+        return <Decided decision={state.decision} waited={state.waited === true} onShown={() => shown(key)} />
+      default:
+        return undefined
+    }
   }
+  /** Undo takes the decision back before it was sent; the row is as it was, and the cursor goes back to it. */
+  const undo = (key: string) => {
+    if (!deferredDecisions.undo(key)) return
+    document.querySelector<HTMLElement>(`[data-queue-row="${CSS.escape(key)}"]`)?.focus()
+  }
+  // Z undoes the open row's waiting decision, else the latest one (two rows can wait at once).
+  const waitingKeys = held.filter((h) => h.state.phase === "undoable").map((h) => h.key)
+  const undoKey = waitingKeys.includes(open ?? "") ? (open ?? null) : (waitingKeys.at(-1) ?? null)
   const keys = [...asked, ...packets].map((item) => item.task.key)
   // The row that has waited longest stands out (CEL-190), among the rows shown.
   const oldest = oldestKey([
@@ -96,7 +118,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   }
   const rows = useQueue({ keys, open: openKey, setOpen })
   // A approves and S sends back the open packet (CEL-190); an open row of questions has neither.
-  useDecisionKeys(openKey !== null && packets.some((item) => item.task.key === openKey) ? openKey : null)
+  useDecisionKeys(openKey !== null && packets.some((item) => item.task.key === openKey) ? openKey : null, { key: undoKey, run: undo })
   // A packet is seen once it's opened, whoever opened it (a click, a key, a decision, a link); a new one, after Send back, is unread again (CEL-190).
   const { seen, markOpened } = useSeen()
   const openedReview = packets.find((item) => item.task.key === openKey)?.review?.id ?? null
@@ -130,6 +152,8 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
    */
   const onDecision = (item: ReviewItem, event: DecisionEvent) => {
     const key = item.task.key
+    // A decision that failed (after its window too): the row opens, so the failure line and the note are in front of him.
+    if (event.type === "refused") setOpen(key)
     if (event.type !== "clicked") return setHeld((rows) => holdStep(rows, key, event))
     const at = allPackets.findIndex((p) => p.task.key === key)
     const state = decisionStep(IDLE, event)
@@ -140,6 +164,29 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
   const listedKeys = listed.join(" ")
   const followQueue = useEffectEvent(() => setHeld((rows) => syncHeld(rows, listed)))
   useEffect(() => followQueue(), [listedKeys])
+  // A decision waiting in its undo window (CEL-191) is dropped, nothing sent, when its packet is gone: the task was
+  // decided from elsewhere (the side panel, the CLI), or the agent handed in a new packet.
+  const versions = allQueue.map((item) => `${item.task.key}=${item.review?.id ?? ""}`).join(" ")
+  const dropOvertaken = useEffectEvent(() => {
+    const current = new Map(allQueue.map((item) => [item.task.key, item.review?.id ?? ""] as const))
+    for (const key of overtaken(held, current, (item) => item.review?.id ?? "")) deferredDecisions.undo(key)
+  })
+  useEffect(() => dropOvertaken(), [versions])
+  // Leaving the page sends what waits: Lucas did click Approve. A tab that was hidden has late timers, so what is due goes
+  // when it's seen again. Closing or reloading the tab sends what it can as the page goes (pagehide); the browser may cut that send short.
+  useEffect(() => {
+    const seenAgain = () => {
+      if (document.visibilityState === "visible") deferredDecisions.fireDue()
+    }
+    const flush = () => deferredDecisions.flushAll()
+    document.addEventListener("visibilitychange", seenAgain)
+    window.addEventListener("pagehide", flush)
+    return () => {
+      document.removeEventListener("visibilitychange", seenAgain)
+      window.removeEventListener("pagehide", flush)
+      flush()
+    }
+  }, [])
   /** The row has said so for its moment: it folds away, and the next one opens, unless Lucas opened another meanwhile. */
   const shown = (key: string) => {
     // Nothing folds with reduced motion: out of the list, the row has left.
@@ -172,7 +219,7 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
             <p className="text-[13px] text-muted">
               Answer the agents' questions first, then open a packet: comment on it, approve it to move the task to Done, or send it back
               with a note for the agent. ↑ ↓ or j k move between rows, Enter opens, Esc closes. On an open packet, A approves and S sends it
-              back. / searches.
+              back. {undoMs === null ? "" : "A decision waits a few seconds before it is sent: Undo, or Z, takes it back. "}/ searches.
             </p>
           </header>
           <QueueToolbar chips={chips} picked={picked} onPick={onPick} search={query} onSearch={onSearch} sort={sort} sorts={REVIEW_SORTS} labels={REVIEW_SORT_LABELS} onSort={pickSort} />
@@ -226,13 +273,13 @@ function ReviewQueue({ board, workspaceId }: { board: BoardState; workspaceId: s
                   <AnimatePresence initial={false} onExitComplete={left} custom={instant}>
                     {packets.map((item) => {
                       const key = item.task.key
-                      const decision = decisionOn(key)
+                      const confirmation = confirmationOn(key)
                       return (
                         <FoldAway key={item.task.id} instant={instant}>
                           <ReviewRow
                             {...rows.row(key)}
                             unfold={key === unfolding}
-                            confirmation={decision === null ? undefined : <Decided decision={decision} onShown={() => shown(key)} />}
+                            confirmation={confirmation}
                             board={board}
                             item={item}
                             oldest={key === oldest}
@@ -259,19 +306,56 @@ const CONFIRMATION_MS = 1100
 /** When a folding row counts as gone, whether or not its fold reported its end: several times the spring's length. */
 const FOLD_FALLBACK_MS = 1500
 
-/** What a decided row says in its badge's place, for a moment; then `onShown` runs. */
-function Decided({ decision, onShown }: { decision: Decision; onShown: () => void }) {
+/** What a decided row says in its badge's place, for a moment (not at all if it already waited in its undo window); then `onShown` runs. */
+function Decided({ decision, waited, onShown }: { decision: Decision; waited: boolean; onShown: () => void }) {
   const done = useEffectEvent(onShown)
   useEffect(() => {
-    const timer = setTimeout(() => done(), CONFIRMATION_MS)
+    const timer = setTimeout(() => done(), waited ? 0 : CONFIRMATION_MS)
     return () => clearTimeout(timer)
-  }, [])
+  }, [waited])
+  return <DecisionLabel decision={decision} />
+}
+
+function DecisionLabel({ decision }: { decision: Decision }) {
   const Icon = decision === "approved" ? CheckIcon : CornerUpLeftIcon
   return (
     <span role="status" data-decided={decision} className={`flex shrink-0 items-center gap-1.5 text-[13px] font-medium ${decision === "approved" ? "text-answered" : "text-ink"}`}>
       <Icon aria-hidden className="size-3.5" />
       {DECISION_LABEL[decision]}
     </span>
+  )
+}
+
+/**
+ * A decision waiting in its undo window (CEL-191): "Approved · Undo" in the badge's place, nothing sent yet.
+ * A thin line along the row's foot runs down over the window, once, and ends with it; with reduced motion
+ * there is no line, only the words. The Undo button is the row's own, beside its toggle (QueueRow).
+ */
+function Undoable({ decision, taskKey, ms, onUndo }: { decision: Decision; taskKey: string; ms: number | null; onUndo: () => void }) {
+  const reduced = useReducedMotion() === true
+  return (
+    <>
+      <DecisionLabel decision={decision} />
+      <span aria-hidden className="mx-1.5 text-faint">
+        ·
+      </span>
+      <Button variant="ghost" size="sm" autoFocus data-undo={taskKey} aria-label={`Undo: ${DECISION_LABEL[decision].toLowerCase()} ${taskKey}, nothing is sent yet`} onClick={onUndo}>
+        Undo
+        <kbd aria-hidden className="rounded border border-line px-1 text-[10px] font-medium text-faint">
+          Z
+        </kbd>
+      </Button>
+      {reduced || ms === null ? null : (
+        <motion.span
+          aria-hidden
+          data-undo-progress=""
+          initial={{ scaleX: 1 }}
+          animate={{ scaleX: 0 }}
+          transition={{ duration: ms / 1000, ease: "linear" }}
+          className="pointer-events-none absolute inset-x-4 bottom-0 h-0.5 origin-left rounded-full bg-accent/50"
+        />
+      )}
+    </>
   )
 }
 
