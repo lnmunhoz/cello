@@ -48,8 +48,12 @@ export class ContextService extends Context.Service<ContextService, {
 
 /** How many recent events `context` shows. */
 const RECENT = 15
-/** What `task list` shows by default: tasks to do, in progress or waiting on Lucas. Backlog shows with --status Backlog. */
-const OPEN_CATEGORIES = new Set(["unstarted", "started", "waiting"])
+/**
+ * What `task list` shows by default: tasks to do, in progress or waiting on Lucas. Backlog shows with --status Backlog.
+ * `other` (a category this build doesn't know, CEL-178; the database never stores it) is open: its tasks are work
+ * in flight, and hiding them from the default list would lose them.
+ */
+const OPEN_CATEGORIES = new Set(["unstarted", "started", "waiting", "other"])
 
 /** The task an event is about, by id; comment edits and deletes only know the comment. */
 const taskIdOf = (e: CelloEvent): { readonly taskId: string } | { readonly commentId: string } | null => {
