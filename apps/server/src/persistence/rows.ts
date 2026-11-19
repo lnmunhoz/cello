@@ -25,7 +25,7 @@ import type {
   Review,
   ReviewDecision,
   Status,
-  StatusCategory,
+  KnownStatusCategory,
   Task,
   Workspace,
 } from "@cello/contract/entities"
@@ -126,7 +126,7 @@ interface StatusRow {
   id: string
   workspace_id: string
   name: string
-  category: StatusCategory
+  category: KnownStatusCategory
   position: string
   color: string
   hidden: number
