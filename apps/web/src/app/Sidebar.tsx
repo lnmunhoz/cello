@@ -195,15 +195,19 @@ export function Sidebar({
         </nav>
 
         <nav aria-label="Projects" className="flex min-h-0 flex-col items-center gap-1 overflow-y-auto py-0.5">
-          {projects.map((p) => (
-            <RailTip key={p.id} tips={tips} label={p.name}>
-              <Link to="/$projectKey" params={{ projectKey: p.key }} activeOptions={{ exact: false }} aria-label={p.name} className={railItem}>
-                <span aria-hidden className="flex size-5 items-center justify-center rounded-md text-[11px] font-semibold text-white" style={{ background: p.color }}>
-                  {p.name.slice(0, 1).toUpperCase()}
-                </span>
-              </Link>
-            </RailTip>
-          ))}
+          {projects.map((p) => {
+            const here = working.byProject.get(p.id) ?? []
+            return (
+              <RailTip key={p.id} tips={tips} label={here.length > 0 ? `${p.name} · ${here.length} working` : p.name}>
+                <Link to="/$projectKey" params={{ projectKey: p.key }} activeOptions={{ exact: false }} aria-label={p.name} className={railItem} data-project-key={p.key}>
+                  <span aria-hidden className="flex size-5 items-center justify-center rounded-md text-[11px] font-semibold text-white" style={{ background: p.color }}>
+                    {p.name.slice(0, 1).toUpperCase()}
+                  </span>
+                  <ProjectWorkingBadge entries={here} now={working.now} variant="rail" />
+                </Link>
+              </RailTip>
+            )
+          })}
           <RailTip tips={tips} label="New project">
             <Button variant="ghost" size="iconMd" aria-label="New project" onClick={onNewProject} disabled={!workspaceId}>
               <PlusIcon className="size-3.5" />
