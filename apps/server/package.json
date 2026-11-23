@@ -16,8 +16,8 @@
     "@cello/host": "workspace:*",
     "@cello/release": "workspace:*",
     "@cello/text": "workspace:*",
-    "@effect/platform-bun": "4.1.4",
-    "@effect/sql-sqlite-bun": "4.1.4",
-    "effect": "4.1.4"
+    "@effect/platform-bun": "4.1.5",
+    "@effect/sql-sqlite-bun": "4.1.5",
+    "effect": "4.1.5"
   }
 }

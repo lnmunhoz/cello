@@ -19,12 +19,12 @@
     "release": "bun scripts/release/release.ts"
   },
   "devDependencies": {
-    "@effect/vitest": "4.1.4",
+    "@effect/vitest": "4.1.5",
     "@playwright/test": "1.65.1",
-    "@types/bun": "^1.4.4",
-    "@vitest/coverage-istanbul": "5.1.0",
+    "@types/bun": "^1.4.5",
+    "@vitest/coverage-istanbul": "5.1.1",
     "release-it": "21.1.2",
     "typescript": "7.0.2",
-    "vitest": "5.1.0"
+    "vitest": "5.1.1"
   }
 }
